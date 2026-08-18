@@ -132,10 +132,11 @@ draft written in step 2.
 ### 8. Bump the app version and release
 
 Bump the app version and run the release skill
-(`.codex/skills/releasing-lungfish/SKILL.md`). Its release gates check that
-`dependencySet` in the manifest matches the receipt produced by
-`scripts/deps/verify.sh` and that a green `toolset-conformance` run exists
-for the manifest hash before it will proceed.
+(`.codex/skills/releasing-lungfish/SKILL.md`). Its release gate checks that a
+green `toolset-conformance` run exists for the manifest hash before it will
+proceed. The companion check that `dependencySet` in the manifest matches the
+receipt produced by `scripts/deps/verify.sh` is pending Plan C, since that
+script does not exist yet; a release today is not blocked on it.
 
 ## Known-risk checklist
 

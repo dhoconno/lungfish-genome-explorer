@@ -11,11 +11,14 @@ procedure.
 import json
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "deps" / "run-pipelines.sh"
 PIPELINE_GOLDENS = ROOT / "scripts" / "deps" / "pipeline-goldens.json"
+DIFF_GOLDENS = ROOT / "scripts" / "deps" / "diff_goldens.py"
+DEFAULT_ACCESSION = "SRR35517702"
 
 
 def run_script(args):
@@ -70,6 +73,101 @@ class RunPipelinesScriptTests(unittest.TestCase):
         self.assertIn("--which must be one of", result.stderr)
 
 
+class CollectAndExitPathTests(unittest.TestCase):
+    """The collect/diff/exit tail, driven with fake candidate directories.
+
+    The full script fetches live SRA reads and runs TaxTriage/EsViritu, so
+    these tests exercise the two decision points that previously let a broken
+    run exit 0: ``collect_output`` finding nothing, and ``diff_goldens.py``
+    reporting a missing file (exit 3).
+    """
+
+    def _extract_collect_output(self):
+        """The `collect_output` function body, lifted from the script."""
+        source = SCRIPT.read_text(encoding="utf-8")
+        start = source.index("collect_output() {")
+        end = source.index("\n}\n", start) + len("\n}\n")
+        return source[start:end]
+
+    def _run_collect(self, script_body):
+        with tempfile.TemporaryDirectory() as tmp:
+            harness = (
+                "set -uo pipefail\n"
+                f'diff_candidate_dir="{tmp}/candidate"\n'
+                'mkdir -p "$diff_candidate_dir"\n'
+                "collect_failures=0\n"
+                + self._extract_collect_output()
+                + "\n"
+                + script_body
+                + '\necho "COLLECT_FAILURES=${collect_failures}"\n'
+            )
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            ), tmp
+
+    def test_collect_output_counts_a_failure_when_nothing_matches(self):
+        result, _ = self._run_collect(
+            'collect_output some-recipe out.tsv /nonexistent/a.tsv /nonexistent/b.tsv || true'
+        )
+        self.assertIn("COLLECT_FAILURES=1", result.stdout)
+        self.assertIn("no output matched", result.stderr)
+
+    def test_collect_output_succeeds_and_copies_the_first_existing_candidate(self):
+        with tempfile.TemporaryDirectory() as src:
+            present = pathlib.Path(src) / "present.tsv"
+            present.write_text("a\tb\n", encoding="utf-8")
+            result, candidate_root = self._run_collect(
+                f'collect_output some-recipe out.tsv /nonexistent/a.tsv "{present}"'
+            )
+        self.assertIn("COLLECT_FAILURES=0", result.stdout)
+        self.assertIn("collected some-recipe/out.tsv", result.stdout)
+
+    def test_diff_goldens_reports_exit_3_for_a_missing_candidate_output(self):
+        # This is the status the runner used to treat as "not drift, so fine".
+        with tempfile.TemporaryDirectory() as tmp:
+            candidate = pathlib.Path(tmp) / "candidate"
+            candidate.mkdir()
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(DIFF_GOLDENS),
+                    "--recipes",
+                    str(PIPELINE_GOLDENS),
+                    "--candidate",
+                    str(candidate),
+                    "--set",
+                    "tier3-test",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=60,
+            )
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+
+    def test_script_treats_diff_exit_3_and_collect_failures_as_failures(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        # An empty candidate directory must not be able to produce exit 0.
+        self.assertIn("if [[ ${collect_failures} -gt 0 ]]; then\n    exit 1", source)
+        self.assertIn("if [[ ${diff_status} -ne 0 ]]; then\n    exit 1", source)
+
+    def test_no_executable_line_swallows_a_copy_failure(self):
+        # Comments may still describe the old `cp ... 2>/dev/null || true`
+        # form, so this looks only at executable lines.
+        offenders = [
+            line
+            for line in SCRIPT.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#") and "2>/dev/null" in line
+        ]
+        self.assertEqual(offenders, [])
+
+
 class PipelineGoldensManifestTests(unittest.TestCase):
     def setUp(self):
         self.manifest = json.loads(PIPELINE_GOLDENS.read_text(encoding="utf-8"))
@@ -100,13 +198,28 @@ class PipelineGoldensManifestTests(unittest.TestCase):
             )
 
     def test_every_golden_file_exists(self):
+        # Output names carry a {sample} placeholder that run-pipelines.sh
+        # resolves from --accession; the committed mini fixtures are named for
+        # the default accession, so that is what this check resolves against.
         for recipe in self.manifest["goldens"]:
             golden_dir = ROOT / recipe["golden"]
             for name in recipe["outputs"]:
-                golden_file = golden_dir / name
+                golden_file = golden_dir / name.replace("{sample}", DEFAULT_ACCESSION)
                 self.assertTrue(
                     golden_file.is_file(),
                     f"{recipe['id']}: golden file missing: {golden_file}",
+                )
+
+    def test_sample_named_outputs_use_the_placeholder_not_a_hardcoded_accession(self):
+        # A hardcoded accession here would make every non-default sweep report
+        # its outputs missing while the runner still exited 0.
+        for recipe in self.manifest["goldens"]:
+            for name in recipe["outputs"]:
+                self.assertNotIn(
+                    DEFAULT_ACCESSION,
+                    name,
+                    f"{recipe['id']}: output {name!r} hardcodes the default accession; "
+                    "use the {sample} placeholder instead",
                 )
 
     def test_taxtriage_and_esviritu_both_represented(self):

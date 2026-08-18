@@ -14,7 +14,8 @@ release before considering the release complete.
 
 ## Dependency Sweep
 
-Before any release, confirm the manifest's `dependencySet` matches the
-receipt from `scripts/deps/verify.sh` and that a green `toolset-conformance`
-CI run exists for the manifest hash. See `docs/release/dependency-sweep.md`
-for the full semiannual sweep checklist.
+Before any release, confirm a green `toolset-conformance` CI run exists for
+the manifest hash. The companion check that the manifest's `dependencySet`
+matches the receipt from `scripts/deps/verify.sh` is pending Plan C: that
+script does not exist yet, so a release today is not blocked on it. See
+`docs/release/dependency-sweep.md` for the full semiannual sweep checklist.

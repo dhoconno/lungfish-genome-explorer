@@ -26,7 +26,9 @@
 #
 # Exit codes:
 #   0   pipeline(s) ran and the header-only diff found no schema drift
-#   1   a pipeline command failed
+#   1   a pipeline command failed, an expected output was not produced, or the
+#       diff could not run cleanly (for example a golden or candidate file was
+#       missing, which diff_goldens.py reports as exit 3)
 #   2   the header-only diff found schema drift
 #   64  bad arguments
 #   66  a required input (fixture, manifest, database) was not found
@@ -176,6 +178,40 @@ mkdir -p "${reads_dir}" "${diff_candidate_dir}"
 sra_tools_bin="${conda_root}/envs/sra-tools/bin"
 seqkit_bin="${conda_root}/envs/seqkit/bin"
 
+collect_failures=0
+
+# Copy one pipeline output into the diff candidate directory, failing the run
+# when the pipeline produced nothing matching.
+#
+# The previous form was `cp <glob> <dest> 2>/dev/null || true`, which turned a
+# pipeline that exited 0 but wrote no report into an empty candidate directory.
+# diff_goldens.py then reported the output as "missing" (exit 3), the caller
+# treated any status other than 2 as "not drift", and the whole run exited 0.
+# A missing output is exactly the regression this tier exists to catch, so it
+# is now counted and fails the run.
+#
+# Arguments: <recipe id> <destination file name> <source path or glob>...
+collect_output() {
+    local recipe_id="$1" dest_name="$2"
+    shift 2
+
+    local dest_dir="${diff_candidate_dir}/${recipe_id}"
+    mkdir -p "${dest_dir}"
+
+    local candidate
+    for candidate in "$@"; do
+        if [[ -f "${candidate}" ]]; then
+            cp "${candidate}" "${dest_dir}/${dest_name}"
+            echo "     collected ${recipe_id}/${dest_name} <- ${candidate}"
+            return 0
+        fi
+    done
+
+    echo "FAIL ${recipe_id}: no output matched for ${dest_name}; looked for: $*" >&2
+    collect_failures=$((collect_failures + 1))
+    return 1
+}
+
 echo "==> Fetching reads for ${accession} with fasterq-dump"
 PATH="${sra_tools_bin}:${PATH}" fasterq-dump \
     --split-files \
@@ -203,6 +239,7 @@ EOF
 
 report_lines=()
 report_lines+=("# Tier 3 pipeline report")
+
 report_lines+=("")
 report_lines+=("Accession: ${accession}")
 report_lines+=("Subsample: ${subsample_reads} pairs, seed ${subsample_seed}")
@@ -227,11 +264,14 @@ if [[ ${run_taxtriage} -eq 1 ]]; then
         report_lines+=("## TaxTriage: FAILED (exit ${taxtriage_status})")
         pipeline_failures=$((pipeline_failures + 1))
     else
-        mkdir -p "${diff_candidate_dir}/taxtriage-multiqc-confidences" "${diff_candidate_dir}/taxtriage-combine-gcfmap"
-        cp "${taxtriage_out}/report/multiqc_data/multiqc_confidences.txt" \
-            "${diff_candidate_dir}/taxtriage-multiqc-confidences/multiqc_confidences.txt" 2>/dev/null || true
-        cp "${taxtriage_out}"/combine/*.combined.gcfmap.tsv \
-            "${diff_candidate_dir}/taxtriage-combine-gcfmap/" 2>/dev/null || true
+        collect_output taxtriage-multiqc-confidences "multiqc_confidences.txt" \
+            "${taxtriage_out}/report/multiqc_data/multiqc_confidences.txt" || true
+        # The combined gcfmap is named after the sample, which is the accession
+        # this run was given; the bare glob is the fallback for a pipeline that
+        # names it differently.
+        collect_output taxtriage-combine-gcfmap "${accession}.combined.gcfmap.tsv" \
+            "${taxtriage_out}/combine/${accession}.combined.gcfmap.tsv" \
+            "${taxtriage_out}"/combine/*.combined.gcfmap.tsv || true
         report_lines+=("## TaxTriage: OK")
         report_lines+=("Output: ${taxtriage_out}")
     fi
@@ -255,11 +295,12 @@ if [[ ${run_esviritu} -eq 1 ]]; then
         report_lines+=("## EsViritu: FAILED (exit ${esviritu_status})")
         pipeline_failures=$((pipeline_failures + 1))
     else
-        mkdir -p "${diff_candidate_dir}/esviritu-detected-virus-info" "${diff_candidate_dir}/esviritu-virus-coverage-windows"
-        cp "${esviritu_out}"/*.detected_virus.info.tsv \
-            "${diff_candidate_dir}/esviritu-detected-virus-info/${accession}.detected_virus.info.tsv" 2>/dev/null || true
-        cp "${esviritu_out}"/*.virus_coverage_windows.tsv \
-            "${diff_candidate_dir}/esviritu-virus-coverage-windows/${accession}.virus_coverage_windows.tsv" 2>/dev/null || true
+        collect_output esviritu-detected-virus-info "${accession}.detected_virus.info.tsv" \
+            "${esviritu_out}/${accession}.detected_virus.info.tsv" \
+            "${esviritu_out}"/*.detected_virus.info.tsv || true
+        collect_output esviritu-virus-coverage-windows "${accession}.virus_coverage_windows.tsv" \
+            "${esviritu_out}/${accession}.virus_coverage_windows.tsv" \
+            "${esviritu_out}"/*.virus_coverage_windows.tsv || true
         report_lines+=("## EsViritu: OK")
         report_lines+=("Output: ${esviritu_out}")
     fi
@@ -267,9 +308,34 @@ if [[ ${run_esviritu} -eq 1 ]]; then
 fi
 
 echo "==> Structural diff against mini fixtures (headers only)"
+
+# The manifest names its outputs with a {sample} placeholder rather than a
+# hardcoded accession, so a sweep run against a different accession compares
+# that accession's files instead of silently reporting every output missing.
+# Resolve it into a run-local copy of the manifest.
+resolved_manifest="${out_dir}/pipeline-goldens.resolved.json"
+MANIFEST_IN="${goldens_manifest}" MANIFEST_OUT="${resolved_manifest}" SAMPLE="${accession}" python3 - <<'PYTHON'
+import json
+import os
+
+with open(os.environ["MANIFEST_IN"], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+sample = os.environ["SAMPLE"]
+for recipe in manifest.get("goldens", []):
+    recipe["outputs"] = {
+        name.replace("{sample}", sample): spec
+        for name, spec in recipe["outputs"].items()
+    }
+
+with open(os.environ["MANIFEST_OUT"], "w", encoding="utf-8") as handle:
+    json.dump(manifest, handle, indent=2)
+    handle.write("\n")
+PYTHON
+
 diff_status=0
 diff_output="$(python3 "${diff_script}" \
-    --recipes "${goldens_manifest}" \
+    --recipes "${resolved_manifest}" \
     --candidate "${diff_candidate_dir}" \
     --set "tier3-${accession}" \
     2>&1)" || diff_status=$?
@@ -286,8 +352,15 @@ if [[ ${diff_status} -eq 0 ]]; then
     report_lines+=("Result: no schema drift detected.")
 elif [[ ${diff_status} -eq 2 ]]; then
     report_lines+=("Result: schema drift detected (see table above). Value-level differences are informational and do not fail this run; a header change means a parser update is needed.")
+elif [[ ${diff_status} -eq 3 ]]; then
+    report_lines+=("Result: FAILED. A golden or candidate output was missing, so nothing was actually compared. A pipeline that exits 0 without writing its report is the regression this tier exists to catch.")
 else
-    report_lines+=("Result: diff could not run cleanly (exit ${diff_status}); see output above.")
+    report_lines+=("Result: FAILED. The diff could not run cleanly (exit ${diff_status}); see output above.")
+fi
+
+if [[ ${collect_failures} -gt 0 ]]; then
+    report_lines+=("")
+    report_lines+=("Collection: ${collect_failures} expected pipeline output(s) were not produced; see the run log.")
 fi
 
 printf '%s\n' "${report_lines[@]}" > "${out_dir}/tier3-report.md"
@@ -296,7 +369,16 @@ echo "==> Wrote ${out_dir}/tier3-report.md"
 if [[ ${pipeline_failures} -gt 0 ]]; then
     exit 1
 fi
+# A missing output means the comparison never happened, so it is a failure of
+# the run rather than a clean result. Only an actual header comparison that
+# found drift gets the dedicated exit 2.
+if [[ ${collect_failures} -gt 0 ]]; then
+    exit 1
+fi
 if [[ ${diff_status} -eq 2 ]]; then
     exit 2
+fi
+if [[ ${diff_status} -ne 0 ]]; then
+    exit 1
 fi
 exit 0
