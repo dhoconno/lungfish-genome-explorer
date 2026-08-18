@@ -4,6 +4,7 @@
 
 import XCTest
 import Darwin
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class NativeToolRunnerTests: XCTestCase {
@@ -231,7 +232,7 @@ final class NativeToolRunnerTests: XCTestCase {
             result = try await runner.run(.fastp, arguments: ["--version"])
         } catch let error as NativeToolError {
             if case .toolNotFound = error {
-                throw XCTSkip("Managed fastp is not available")
+                try ToolAvailability.skipOrFail("Managed fastp is not available")
             }
             throw error
         }
@@ -337,7 +338,7 @@ final class NativeToolRunnerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let version = await runner.getToolVersion(.ivar)
         guard let version else {
-            throw XCTSkip("Managed iVar returned nil for getToolVersion; tool may be missing or misconfigured")
+            try ToolAvailability.skipOrFail("Managed iVar returned nil for getToolVersion; tool may be missing or misconfigured")
         }
         let versionPattern = /\d+\.\d+(?:\.\d+)?/
         XCTAssertNotNil(
@@ -999,6 +1000,18 @@ final class NativeToolRunnerTests: XCTestCase {
             ("sra-tools", "prefetch", """
             #!/bin/sh
             echo "prefetch 3.1.1"
+            """),
+            ("ivar", "ivar", """
+            #!/bin/sh
+            # iVar rejects --version ("Unknown command") and only understands the
+            # `version` subcommand; mirror that here so getToolVersion(.ivar)'s
+            # probe (NativeTool.ivar.versionArguments == ["version"]) succeeds.
+            if [ "${1:-}" = "version" ]; then
+              echo "iVar version 1.4.4"
+              exit 0
+            fi
+            echo "Unknown command: ${1:-}" >&2
+            exit 1
             """),
         ]
 

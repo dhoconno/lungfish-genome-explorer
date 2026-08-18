@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 @testable import LungfishIO
 
@@ -1000,7 +1001,9 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
         // Skip if kraken2 is not installed.
         let condaManager = CondaManager.shared
         let micromambaAvailable = FileManager.default.fileExists(atPath: await condaManager.micromambaPath.path)
-        try XCTSkipUnless(micromambaAvailable, "micromamba not installed in managed tool environment")
+        if !micromambaAvailable {
+            try ToolAvailability.skipOrFail("micromamba not installed in managed tool environment")
+        }
 
         let kraken2Available: Bool
         do {
@@ -1012,7 +1015,9 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
         } catch {
             kraken2Available = false
         }
-        try XCTSkipUnless(kraken2Available, "kraken2 not installed in conda environment")
+        if !kraken2Available {
+            try ToolAvailability.skipOrFail("kraken2 not installed in conda environment")
+        }
 
         // Skip if no viral database is available.
         let registry = MetagenomicsDatabaseRegistry.shared
@@ -1022,10 +1027,12 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
         } catch {
             viralDB = nil
         }
-        try XCTSkipUnless(viralDB?.isDownloaded == true, "Viral database not installed")
+        if viralDB?.isDownloaded != true {
+            try ToolAvailability.skipOrFail("Viral database not installed")
+        }
 
         guard let dbPath = viralDB?.path else {
-            throw XCTSkip("Viral database path not available")
+            try ToolAvailability.skipOrFail("Viral database path not available")
         }
 
         // Create a minimal FASTQ input.
@@ -1083,7 +1090,7 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
             // are not expected to match anything in the viral database.
             let desc = String(describing: error)
             if desc.contains("micromambaNotFound") {
-                throw XCTSkip("micromamba not installed in managed tool environment")
+                try ToolAvailability.skipOrFail("micromamba not installed in managed tool environment")
             }
             XCTAssertTrue(
                 desc.contains("emptyReport") || desc.contains("kreportNotProduced"),

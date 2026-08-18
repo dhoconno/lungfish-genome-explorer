@@ -1,15 +1,33 @@
 import Testing
 import Foundation
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @Suite("IVarConverterViralReconParity")
 struct IVarConverterViralReconParityTests {
     @Test("Swift converter matches viralrecon output on SRR36291587 fixture")
     func parity() async throws {
-        guard ProcessInfo.processInfo.environment["LUNGFISH_VIRALRECON_PARITY"] == "1" else {
-            // Opt-in only; CI sets the env var.
+        guard FileManager.default.fileExists(atPath: "/usr/bin/env") else {
+            guard try ToolAvailability.skipOrFailForSwiftTesting("python3 not found via /usr/bin/env") else { return }
             return
         }
+        let python3Check = Process()
+        python3Check.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        python3Check.arguments = ["python3", "--version"]
+        python3Check.standardOutput = FileHandle.nullDevice
+        python3Check.standardError = FileHandle.nullDevice
+        do {
+            try python3Check.run()
+            python3Check.waitUntilExit()
+            guard python3Check.terminationStatus == 0 else {
+                guard try ToolAvailability.skipOrFailForSwiftTesting("python3 not available (exit \(python3Check.terminationStatus))") else { return }
+                return
+            }
+        } catch {
+            guard try ToolAvailability.skipOrFailForSwiftTesting("python3 not available: \(error)") else { return }
+            return
+        }
+
         let fixturesDir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -44,17 +62,24 @@ struct IVarConverterViralReconParityTests {
         )
 
         let pyOut = scratch.appendingPathComponent("py.vcf")
+        let vendoredScript = fixturesDir.appendingPathComponent("ivar_variants_to_vcf.py")
         let py = Process()
         py.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         py.arguments = [
             "python3",
-            ProcessInfo.processInfo.environment["LUNGFISH_IVAR_TO_VCF_PY"] ?? "ivar_variants_to_vcf.py",
+            ProcessInfo.processInfo.environment["LUNGFISH_IVAR_TO_VCF_PY"] ?? vendoredScript.path,
             tsv.path,
             pyOut.path,
             "--fasta", fixturesDir.appendingPathComponent("MN908947.3.fasta").path
         ]
         try py.run()
         py.waitUntilExit()
+        guard py.terminationStatus == 0 else {
+            guard try ToolAvailability.skipOrFailForSwiftTesting(
+                "ivar_variants_to_vcf.py failed (exit \(py.terminationStatus)); check its Python dependencies (numpy, biopython, scipy, pandas) are installed"
+            ) else { return }
+            return
+        }
 
         let swift = try String(contentsOf: swiftOut, encoding: .utf8)
         let python = try String(contentsOf: pyOut, encoding: .utf8)

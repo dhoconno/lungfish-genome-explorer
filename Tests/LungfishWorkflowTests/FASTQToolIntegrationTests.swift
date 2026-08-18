@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// Integration tests for FASTQ processing operations using real bioinformatics tools.
@@ -153,7 +154,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
 
     private func requireManagedTool(_ tool: NativeTool) async throws {
         guard (try? await runner.toolPath(for: tool)) != nil else {
-            throw XCTSkip("Managed \(tool.rawValue) is not available")
+            try ToolAvailability.skipOrFail("Managed \(tool.rawValue) is not available")
         }
     }
 

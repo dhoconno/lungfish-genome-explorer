@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class WorkflowBuilderNativeRunnerTests: XCTestCase {
@@ -242,10 +243,10 @@ final class WorkflowBuilderNativeRunnerTests: XCTestCase {
         guard await toolAvailable(.fastp),
               await toolAvailable(.seqkit),
               await toolAvailable(.deacon) else {
-            throw XCTSkip("Required native tools not available")
+            try ToolAvailability.skipOrFail("Required native tools not available")
         }
         guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
-            throw XCTSkip("Deacon human-read removal index not installed")
+            try ToolAvailability.skipOrFail("Deacon human-read removal index not installed")
         }
         guard let fixtures = fixturesDir else {
             throw XCTSkip("Test fixtures not found")

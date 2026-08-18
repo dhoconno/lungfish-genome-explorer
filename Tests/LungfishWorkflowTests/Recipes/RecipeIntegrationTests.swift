@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class RecipeIntegrationTests: XCTestCase {
@@ -119,7 +120,7 @@ final class RecipeIntegrationTests: XCTestCase {
     }
 
     func testExecuteFastpDedupOnFixtures() async throws {
-        guard await toolAvailable(.fastp) else { throw XCTSkip("fastp not available") }
+        guard await toolAvailable(.fastp) else { try ToolAvailability.skipOrFail("fastp not available") }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
@@ -143,7 +144,7 @@ final class RecipeIntegrationTests: XCTestCase {
     }
 
     func testExecuteFastpTrimOnFixtures() async throws {
-        guard await toolAvailable(.fastp) else { throw XCTSkip("fastp not available") }
+        guard await toolAvailable(.fastp) else { try ToolAvailability.skipOrFail("fastp not available") }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
@@ -163,7 +164,7 @@ final class RecipeIntegrationTests: XCTestCase {
     }
 
     func testExecuteFastpMergeOnFixtures() async throws {
-        guard await toolAvailable(.fastp) else { throw XCTSkip("fastp not available") }
+        guard await toolAvailable(.fastp) else { try ToolAvailability.skipOrFail("fastp not available") }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
@@ -184,7 +185,7 @@ final class RecipeIntegrationTests: XCTestCase {
     }
 
     func testExecutePairedRiboDetectorOnFixtures() async throws {
-        guard await toolAvailable(.ribodetector) else { throw XCTSkip("RiboDetector not available") }
+        guard await toolAvailable(.ribodetector) else { try ToolAvailability.skipOrFail("RiboDetector not available") }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
@@ -219,7 +220,7 @@ final class RecipeIntegrationTests: XCTestCase {
     }
 
     func testExecuteSeqkitLengthFilterOnFixtures() async throws {
-        guard await toolAvailable(.seqkit) else { throw XCTSkip("seqkit not available") }
+        guard await toolAvailable(.seqkit) else { try ToolAvailability.skipOrFail("seqkit not available") }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
@@ -237,7 +238,7 @@ final class RecipeIntegrationTests: XCTestCase {
 
     func testRecipeEngineExecutionWithoutDeacon() async throws {
         guard await toolAvailable(.fastp), await toolAvailable(.seqkit) else {
-            throw XCTSkip("Required tools not available")
+            try ToolAvailability.skipOrFail("Required tools not available")
         }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
@@ -275,10 +276,10 @@ final class RecipeIntegrationTests: XCTestCase {
     func testFullVSP2RecipeExecution() async throws {
         guard await toolAvailable(.fastp), await toolAvailable(.seqkit),
               await toolAvailable(.deacon) else {
-            throw XCTSkip("Required tools not available")
+            try ToolAvailability.skipOrFail("Required tools not available")
         }
         guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
-            throw XCTSkip("Deacon human-read removal index not installed")
+            try ToolAvailability.skipOrFail("Deacon human-read removal index not installed")
         }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
@@ -323,10 +324,10 @@ final class RecipeIntegrationTests: XCTestCase {
     func testFullVSP2RecipeExecutionCapturesDeaconSummaryArtifact() async throws {
         guard await toolAvailable(.fastp), await toolAvailable(.seqkit),
               await toolAvailable(.deacon) else {
-            throw XCTSkip("Required tools not available")
+            try ToolAvailability.skipOrFail("Required tools not available")
         }
         guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
-            throw XCTSkip("Deacon human-read removal index not installed")
+            try ToolAvailability.skipOrFail("Deacon human-read removal index not installed")
         }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 

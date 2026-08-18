@@ -26,15 +26,16 @@
 //   * The small `sarscov2` fixture is anchored to MT192765.1, so we use the
 //     `mt192765-integration` primer scheme (which targets MT192765.1) rather
 //     than the QIASeqDIRECT-SARS2 scheme (which targets MN908947.3).
-//   * The test is gated by `LUNGFISH_LIVE_PIPELINE_TESTS=1` because it
-//     requires the managed conda envs (samtools, ivar, lofreq, bcftools,
-//     tabix, bgzip) provisioned at `~/.lungfish/conda/envs`. This matches
-//     the gating pattern used by `IVarConverterViralReconParityTests`.
+//   * This test requires the managed conda envs (samtools, ivar, lofreq,
+//     bcftools, tabix, bgzip) provisioned at `~/.lungfish/conda/envs`. It
+//     runs whenever those tools are present, and skips (or fails under
+//     LUNGFISH_REQUIRE_TOOLS=1) when they are not, via `ToolAvailability`.
 
 import Testing
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -43,10 +44,21 @@ struct ReadsToVariantsEndToEndTests {
 
     @Test("full reads-to-variants pipeline produces both iVar and LoFreq VCFs")
     func fullPipeline() async throws {
-        guard ProcessInfo.processInfo.environment["LUNGFISH_LIVE_PIPELINE_TESTS"] == "1" else {
-            // Opt-in only; this test runs real bioinformatics tools and takes
-            // 30s–2min. Set LUNGFISH_LIVE_PIPELINE_TESTS=1 to enable.
-            return
+        for (tool, environment) in [
+            ("samtools", "samtools"),
+            ("ivar", "ivar"),
+            ("lofreq", "lofreq"),
+            ("bcftools", "bcftools"),
+            ("tabix", "htslib"),
+            ("bgzip", "htslib"),
+        ] {
+            do {
+                _ = try await CondaManager.shared.toolPath(name: tool, environment: environment)
+            } catch {
+                guard try ToolAvailability.skipOrFailForSwiftTesting("\(tool) not installed in env \(environment): \(error)") else {
+                    return
+                }
+            }
         }
 
         let scratch = FileManager.default.temporaryDirectory

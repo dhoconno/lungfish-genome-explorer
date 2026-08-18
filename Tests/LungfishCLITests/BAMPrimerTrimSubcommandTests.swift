@@ -2,6 +2,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class BAMPrimerTrimSubcommandTests: XCTestCase {
@@ -39,7 +40,7 @@ final class BAMPrimerTrimSubcommandTests: XCTestCase {
         } catch let err as NativeToolError {
             switch err {
             case .toolNotFound, .toolsDirectoryNotFound:
-                throw XCTSkip("ivar/samtools not installed in ~/.lungfish; \(err)")
+                try ToolAvailability.skipOrFail("ivar/samtools not installed in ~/.lungfish; \(err)")
             default:
                 throw err
             }

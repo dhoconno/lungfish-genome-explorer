@@ -158,16 +158,20 @@ Lungfish Genome Explorer is organised as SwiftPM products with a small core and 
 | **Lungfish** | Graphical app executable |
 | **LungfishCLI** | `lungfish-cli` headless interface |
 
-## Optional test gates
+## Tool-executing tests
 
-A handful of integration tests are gated by environment variables so they do not run by default in CI. They cost more than a normal unit test (network access, an external Python script, or a real conda toolchain), but they are valuable to run locally before merging anything that touches the relevant code paths.
+Some integration tests exercise real bioinformatics tools or databases (conda-managed tools, an external Python script) rather than running gated behind an opt-in environment variable. They run automatically whenever the tool or database they need is present on the machine, and skip automatically when it is not:
 
-| Env var                       | Gates                                                                                              | How to run locally                                                                                                                                                                                                                                                  |
-|-------------------------------|----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `LUNGFISH_VIRALRECON_PARITY`  | `IVarConverterViralReconParityTests` — asserts the Swift iVar TSV-to-VCF converter byte-matches the upstream `nf-core/viralrecon` Python script on a real SARS-CoV-2 fixture. | Install the upstream script and its Python deps, then run with the env vars set. The path of the Python script is supplied via `LUNGFISH_IVAR_TO_VCF_PY`: `pip install pandas scipy && curl -fsSL https://raw.githubusercontent.com/nf-core/viralrecon/master/bin/ivar_variants_to_vcf.py -o /tmp/ivar_variants_to_vcf.py && chmod +x /tmp/ivar_variants_to_vcf.py && LUNGFISH_VIRALRECON_PARITY=1 LUNGFISH_IVAR_TO_VCF_PY=/tmp/ivar_variants_to_vcf.py swift test --filter IVarConverterViralReconParity` |
-| `LUNGFISH_LIVE_PIPELINE_TESTS` | `ReadsToVariantsEndToEndTests` — runs the full minimap2 plus iVar pipeline against a small SARS-CoV-2 amplicon fixture and asserts the produced VCF matches the committed reference VCF. Requires the managed conda envs (`samtools`, `minimap2`, `ivar`, `bcftools`, `bgzip`, `tabix`) to be provisioned. | Provision the conda envs (run the app once and accept the on-demand install, or run `lungfish-cli conda install`), then `LUNGFISH_LIVE_PIPELINE_TESTS=1 swift test --filter ReadsToVariantsEndToEndTests`. Expect 30 seconds to 2 minutes depending on hardware.       |
+- `IVarConverterViralReconParityTests` asserts the Swift iVar TSV-to-VCF converter byte-matches the upstream `nf-core/viralrecon` Python script (vendored at `Tests/Fixtures/ivar-converter-parity/ivar_variants_to_vcf.py`) on a real SARS-CoV-2 fixture. Runs whenever `python3` is available.
+- `ReadsToVariantsEndToEndTests` runs the post-mapping reads-to-variants pipeline against a small SARS-CoV-2 amplicon fixture. Requires the managed conda envs (`samtools`, `ivar`, `lofreq`, `bcftools`, `htslib`) to be provisioned (run the app once and accept the on-demand install, or run `lungfish-cli conda install`).
 
-These tests are not run in CI today. If a change touches a gated code path, please run the gate locally and paste the result into the PR description. CI catches the unit-test side automatically.
+Setting `LUNGFISH_REQUIRE_TOOLS=1` turns these (and other tool/database-availability skips across the suite) into hard failures instead of silent skips, so a conformance run can assert the full toolset is actually present:
+
+```bash
+LUNGFISH_REQUIRE_TOOLS=1 swift test --filter 'IVarConverterViralReconParity|ReadsToVariantsEndToEndTests'
+```
+
+`scripts/full-suite-gate.sh --require-tools` runs the whole suite this way and additionally fails if any tool/database skip is recorded within the conformance suites.
 
 ## Reporting Issues
 
