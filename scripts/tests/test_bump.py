@@ -961,5 +961,155 @@ class MainTests(unittest.TestCase):
             self.assertEqual(written["retiredEnvironments"], ["oldenv"])
 
 
+class ReleaseDateFromVersionTests(unittest.TestCase):
+    """Dated database version pins settle the manifest's ``releaseDate``.
+
+    Several database pins are dated builds, not semantic versions, so the version
+    already states when the database was built. Leaving releaseDate to be edited
+    by hand let it drift: the shipped human-scrubber entry still read 2025-09-16
+    after being bumped to the 20260706v2 build.
+    """
+
+    def test_compact_date_version(self):
+        self.assertEqual(bump.release_date_from_version("20260626"), "2026-06-26")
+
+    def test_hyphenated_date_version(self):
+        self.assertEqual(bump.release_date_from_version("2026-07-06"), "2026-07-06")
+
+    def test_date_with_a_rebuild_counter(self):
+        # The human-scrubber form: a database rebuilt the same day it was first
+        # published. The counter is not part of the date.
+        self.assertEqual(bump.release_date_from_version("20260706v2"), "2026-07-06")
+        self.assertEqual(bump.release_date_from_version("2026-07-06v11"), "2026-07-06")
+
+    def test_versions_that_carry_no_date_are_left_alone(self):
+        for version in [
+            "panhuman-1",
+            "v3.2.4",
+            "bbmap-ribokmers-k31w15",
+            "kraken2-special-v1",
+            "2.0.5-0",
+            "",
+            "2026",
+            "202606261",
+        ]:
+            with self.subTest(version=version):
+                self.assertIsNone(bump.release_date_from_version(version))
+
+    def test_impossible_dates_are_not_manufactured(self):
+        # An eight-digit string is not automatically a date.
+        for version in ["20261301", "20260632", "00000000"]:
+            with self.subTest(version=version):
+                self.assertIsNone(bump.release_date_from_version(version))
+
+    def test_non_string_versions_are_left_alone(self):
+        for version in [None, 20260626, ["20260626"]]:
+            with self.subTest(version=version):
+                self.assertIsNone(bump.release_date_from_version(version))
+
+
+class DatabaseReleaseDateBumpTests(unittest.TestCase):
+    def test_bumping_a_dated_database_refreshes_its_release_date(self):
+        manifest = sample_manifest()
+        manifest["databases"][0]["releaseDate"] = "2025-09-16"
+        candidates = sample_candidates()
+
+        new, log = bump.apply_bumps(
+            manifest, candidates, new_set="2026.2", date="2026-08-20", only=None, hold=set()
+        )
+
+        scrubber = [d for d in new["databases"] if d["id"] == "human-scrubber"][0]
+        self.assertEqual(scrubber["version"], "20260706v2")
+        self.assertEqual(scrubber["releaseDate"], "2026-07-06")
+        self.assertTrue(
+            any("releaseDate 2025-09-16 -> 2026-07-06" in line for line in log),
+            f"the change log must report the date move: {log}",
+        )
+
+    def test_a_database_without_a_release_date_gains_one(self):
+        manifest = sample_manifest()
+        self.assertNotIn("releaseDate", manifest["databases"][1])
+        new, log = bump.apply_bumps(
+            manifest, sample_candidates(), new_set="2026.2", date="2026-08-20", only=None, hold=set()
+        )
+        kraken = [d for d in new["databases"] if d["id"] == "kraken2-standard-8"][0]
+        self.assertEqual(kraken["releaseDate"], "2026-06-26")
+        self.assertTrue(any("releaseDate unset -> 2026-06-26" in line for line in log))
+
+    def test_an_undated_version_leaves_an_existing_release_date_alone(self):
+        manifest = sample_manifest()
+        manifest["databases"][1]["releaseDate"] = "2025-04-01"
+        candidates = sample_candidates()
+        # A version that encodes no date must not have one invented for it.
+        candidates["databases"][1]["latest"] = "panhuman-2"
+        candidates["databases"][1].pop("latestURL", None)
+
+        new, _ = bump.apply_bumps(
+            manifest, candidates, new_set="2026.2", date="2026-08-20", only=None, hold=set()
+        )
+
+        kraken = [d for d in new["databases"] if d["id"] == "kraken2-standard-8"][0]
+        self.assertEqual(kraken["version"], "panhuman-2")
+        self.assertEqual(kraken["releaseDate"], "2025-04-01")
+
+    def test_a_held_database_keeps_its_release_date(self):
+        manifest = sample_manifest()
+        manifest["databases"][0]["releaseDate"] = "2025-09-16"
+
+        new, _ = bump.apply_bumps(
+            manifest,
+            sample_candidates(),
+            new_set="2026.2",
+            date="2026-08-20",
+            only=None,
+            hold={"human-scrubber"},
+        )
+
+        scrubber = [d for d in new["databases"] if d["id"] == "human-scrubber"][0]
+        self.assertEqual(scrubber["version"], "20250916v2", "held")
+        self.assertEqual(scrubber["releaseDate"], "2025-09-16")
+
+    def test_an_already_correct_release_date_is_not_logged_as_a_change(self):
+        manifest = sample_manifest()
+        manifest["databases"][0]["releaseDate"] = "2026-07-06"
+        _, log = bump.apply_bumps(
+            manifest, sample_candidates(), new_set="2026.2", date="2026-08-20", only=None, hold=set()
+        )
+        self.assertFalse(
+            any("human-scrubber: releaseDate" in line for line in log),
+            f"an unchanged date must not be reported as a move: {log}",
+        )
+
+
+class ShippedManifestReleaseDateTests(unittest.TestCase):
+    def test_shipped_dated_database_entries_agree_with_their_versions(self):
+        """The committed manifest must not carry a releaseDate its version contradicts.
+
+        Scoped to entries that actually carry the field. Most Kraken2 entries
+        omit releaseDate entirely, which is a schema choice rather than drift;
+        the failure this guards is a date that is present and wrong, as
+        human-scrubber's was after it moved to the 20260706v2 build.
+        """
+        manifest = json.loads(bump.DEFAULT_MANIFEST.read_text(encoding="utf-8"))
+        checked = 0
+        for entry in manifest.get("databases", []):
+            if "releaseDate" not in entry:
+                continue
+            derived = bump.release_date_from_version(entry.get("version"))
+            if derived is None:
+                continue
+            checked += 1
+            with self.subTest(database=entry.get("id")):
+                self.assertEqual(
+                    entry.get("releaseDate"),
+                    derived,
+                    f"{entry.get('id')}: version {entry.get('version')} implies "
+                    f"releaseDate {derived}",
+                )
+        self.assertGreater(
+            checked, 0, "no dated database entry carried a releaseDate to check"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

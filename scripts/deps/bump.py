@@ -203,6 +203,42 @@ def _apply_pipeline(entry, candidate, log, only, hold):
     return True
 
 
+def release_date_from_version(version):
+    """The release date a database version encodes, as ``YYYY-MM-DD``, or ``None``.
+
+    Several database pins are dated builds rather than semantic versions:
+    ``20260626`` for a Kraken2 index, ``20260706v2`` for a human-scrubber
+    database that was rebuilt the same day, ``2026-07-06`` where upstream
+    already writes it out. When the version says when it was built, the
+    manifest's ``releaseDate`` should say the same thing.
+
+    Left alone otherwise. A version like ``panhuman-1`` or ``v3.2.4`` carries no
+    date, and inventing one would be worse than the stale value it replaced.
+    """
+    if not isinstance(version, str):
+        return None
+
+    text = version.strip()
+    # A trailing rebuild counter ("20260706v2") is not part of the date.
+    for separator in ("v", "V"):
+        head, found, tail = text.partition(separator)
+        if found and tail.isdigit() and head:
+            text = head
+            break
+
+    digits = text.replace("-", "")
+    if len(digits) != 8 or not digits.isdigit():
+        return None
+
+    try:
+        parsed = datetime.date(int(digits[0:4]), int(digits[4:6]), int(digits[6:8]))
+    except ValueError:
+        # An impossible date (month 13, day 32) is not a date, so it is not one
+        # this function should manufacture a releaseDate from.
+        return None
+    return parsed.isoformat()
+
+
 def _apply_database(entry, candidate, log, only, hold):
     entry_id = entry.get("id", "")
     status = candidate.get("status")
@@ -235,6 +271,15 @@ def _apply_database(entry, candidate, log, only, hold):
             entry["filename"] = filename
     if candidate.get("latestMD5"):
         entry["md5"] = candidate["latestMD5"]
+    # A dated version pin is the authoritative statement of when the database was
+    # built, so it also settles releaseDate. Without this the date was only ever
+    # written by hand and drifted: the human-scrubber entry still read 2025-09-16
+    # after being bumped to the 20260706v2 build.
+    release_date = release_date_from_version(latest)
+    if release_date and entry.get("releaseDate") != release_date:
+        previous_date = entry.get("releaseDate")
+        entry["releaseDate"] = release_date
+        log.append(f"{entry_id}: releaseDate {previous_date or 'unset'} -> {release_date}")
     log.append(f"{entry_id}: {old} -> {latest}" + (f" ({url})" if url else ""))
     return True
 
