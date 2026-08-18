@@ -268,3 +268,108 @@ different routes, which is the behaviour the per-environment probe is meant to
 produce. An earlier draft of this section predicted a bracken conda-meta drift
 entry in default mode; that prediction was wrong and this paragraph records the
 measured result instead.
+
+## Group 1 (task C5)
+
+Status: **BLOCKED before any bump was committed.** The apply run was executed,
+inspected, and reverted; the tree is back at 189da463 with no manifest change.
+The blocker is a defect in `scripts/deps/bump.py`, not in the candidate set.
+
+### Candidate scan
+
+```
+python3 scripts/deps/check-upstream.py --json /tmp/candidates.json --markdown /tmp/candidates.md
+```
+
+The scan agrees with the plan. All 22 group 1 ids report `status: update`.
+`metagenomics/bracken` and `full-length-mhc-genotyping/blast` both report
+`no-arm64-build`, and the dry run confirms `bump.py` skips them on status alone,
+so neither can be moved by accident. `ncbi-taxonomy` reports the expected move
+from the rolling `taxdump.tar.gz` to the dated `taxdmp_2026-08-01.zip`.
+
+### Dry run
+
+```
+python3 scripts/deps/bump.py --set 2026.2 --date 2026-08-18 --from /tmp/candidates.json \
+  --dry-run --no-checksums --only <the 22 group 1 ids>
+```
+
+The version half of the tool is correct. Exactly the 22 selected ids moved,
+every unselected id logged `skipped: not in --only`, the two no-arm64 tools
+logged `skipped: no-arm64-build`, and `taxtriage` recorded the resolved commit
+`e10bfebda32a62711f38a4e23ab03b61725a9675` as its revision with `v3.3.8` as the
+release version, which is the correct shape and not a tag written into the
+revision field.
+
+### Blocking defect: fetch_checksums ignores --only and --hold
+
+The real run (without `--no-checksums`, as required) additionally rewrote
+digests for two entries whose versions were deliberately not bumped.
+
+`bump.py` `fetch_checksums` walks the whole manifest and refreshes every digest
+it knows how to resolve, with no reference to the `--only` or `--hold` sets that
+constrained `apply_bumps`. Two consequences were observed in the produced
+manifest:
+
+1. **micromamba pin corrupted.** micromamba is held for group 3 and stayed at
+   `2.0.5-0`, but `_micromamba_sha256` always reads
+   `MICROMAMBA_RELEASES_LATEST` (`upstream_sources.py:509`) and so returned the
+   digest of the newest release. The written manifest paired version
+   `2.0.5-0` with sha256 `ec2a072f028e1a7cf20f3e2e74d5a8127cf5a5f27636375b5359811565f4e5be`.
+   That digest belongs to 2.9.0-0. Verified directly against upstream:
+
+   ```
+   2.0.5-0 -> a8d78f72db1bdcd24e7758551006610a15beb40a34006b3e3e176085a0dbc780  (the value in the manifest before the run)
+   2.9.0-0 -> ec2a072f028e1a7cf20f3e2e74d5a8127cf5a5f27636375b5359811565f4e5be  (the value bump.py wrote)
+   ```
+
+   This is a supply-chain-relevant defect: the manifest would attest a digest
+   that the pinned binary cannot match, so bootstrap checksum verification
+   fails closed at best, and at worst the pin stops meaning anything.
+
+2. **ncbi-taxonomy gained an md5 it never had.** The held entry kept version
+   `2025-03` and the rolling `taxdump.tar.gz` URL but grew
+   `"md5": "cf43694f5307de386d84fdd54655a548"`. The URL is rolling, so that
+   digest is only true on the day it was fetched and rots without any version
+   change to signal it.
+
+Both writes are wrong in the same way: a digest must be fetched for the version
+the manifest actually pins, and an entry excluded from the bump must not be
+edited at all. The existing coverage,
+`scripts/tests/test_bump.py::test_fetch_checksums_fills_esviritu_taxonomy_and_micromamba`,
+cannot catch this because its fake fetcher serves a single release, so the
+pinned and latest versions coincide.
+
+The fix belongs in `bump.py` and is out of scope for a bump task, so no
+hand-edit of the manifest was made. Suggested shape, for whoever owns it:
+resolve the micromamba digest from the pinned version's release assets rather
+than `latest`, skip entries excluded by `--only`/`--hold`, and add a regression
+test whose fetcher serves a pinned version distinct from latest.
+
+### ncbi-taxonomy: HELD this sweep
+
+Independently of the defect above, `ncbi-taxonomy` is held, per the controller's
+"invasive or unclear" branch. The dated archive is a `.zip` and the archive path
+handles only gzipped tar in more than one file:
+
+- `MetagenomicsDatabaseInstaller.swift:222` runs `/usr/bin/tar xzf` and reports
+  `argv` plus a tar-specific `toolVersion` into the provenance record
+  (`extractionToolVersion`, `normalizedTarVersion`).
+- `MetagenomicsDatabaseInstaller.swift:216` and `:274` both name the downloaded
+  temp file `...tar.gz` unconditionally.
+- `MetagenomicsDatabaseRegistry.swift:1838` has a second, independent
+  `extractTarball` that also hardcodes `tar xzf`.
+
+Adding zip support therefore means editing two files, introducing a
+format-dispatch decision, and changing what the provenance record reports as the
+extraction tool and its version. That exceeds the one-file bar the ruling set,
+so taxonomy stays at `2025-03` and the work is left for a dedicated task.
+`BinaryDownloadProvisioner.swift:98-104` already dispatches on `.tar.gz` versus
+`.zip` and is the natural model to follow.
+
+### Not reached
+
+Because no bump was committed, the remaining C5 steps did not run: Sparkle
+2.9.6, `swift build`, the filtered unit gate, verify tiers 1 and 2, the isolated
+database update path, and tier 3. None of them would have been meaningful
+against a manifest carrying a knowingly wrong micromamba digest.
