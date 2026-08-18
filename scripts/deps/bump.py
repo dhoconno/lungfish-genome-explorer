@@ -282,11 +282,17 @@ def apply_bumps(
     take_builds_for_held=True,
     force_set=False,
     retire=None,
+    changed_ids=None,
 ):
-    """Return ``(new_manifest, change_log_lines)`` without mutating ``manifest``."""
+    """Return ``(new_manifest, change_log_lines)`` without mutating ``manifest``.
+
+    Pass a set as ``changed_ids`` to receive the ids that were actually
+    bumped; ``fetch_checksums`` needs exactly that set so it only refetches
+    digests for entries whose underlying artifact changed.
+    """
     new = json.loads(json.dumps(manifest))
     log = []
-    changed = False
+    bumped = changed_ids if changed_ids is not None else set()
 
     index = _tool_index(new)
     for candidate in candidates.get("tools") or []:
@@ -296,28 +302,30 @@ def apply_bumps(
             log.append(f"{entry_id}: skipped: no such id in the manifest")
             continue
         if _apply_tool(entry, candidate, entry_id, log, only, hold, take_builds_for_held):
-            changed = True
+            bumped.add(entry_id)
 
     pipelines = {entry.get("id", ""): entry for entry in new.get("pipelines") or []}
     for candidate in candidates.get("pipelines") or []:
-        entry = pipelines.get(candidate.get("id", ""))
+        entry_id = candidate.get("id", "")
+        entry = pipelines.get(entry_id)
         if entry is None:
-            log.append(f"{candidate.get('id', '')}: skipped: no such id in the manifest")
+            log.append(f"{entry_id}: skipped: no such id in the manifest")
             continue
         if _apply_pipeline(entry, candidate, log, only, hold):
-            changed = True
+            bumped.add(entry_id)
 
     databases = {entry.get("id", ""): entry for entry in new.get("databases") or []}
     for candidate in candidates.get("databases") or []:
-        entry = databases.get(candidate.get("id", ""))
+        entry_id = candidate.get("id", "")
+        entry = databases.get(entry_id)
         if entry is None:
-            log.append(f"{candidate.get('id', '')}: skipped: no such id in the manifest")
+            log.append(f"{entry_id}: skipped: no such id in the manifest")
             continue
         if _apply_database(entry, candidate, log, only, hold):
-            changed = True
+            bumped.add(entry_id)
 
     if _apply_bootstrap(new, candidates.get("bootstrap"), log, only, hold):
-        changed = True
+        bumped.add("micromamba")
 
     for environment in sorted(retire or ()):
         retired = new.setdefault("retiredEnvironments", [])
@@ -325,7 +333,9 @@ def apply_bumps(
             continue
         retired.append(environment)
         log.append(f"{environment}: retire environment")
-        changed = True
+        bumped.add(f"retire:{environment}")
+
+    changed = bool(bumped)
 
     if changed or force_set:
         new["dependencySet"] = new_set
@@ -372,45 +382,62 @@ def _taxonomy_md5(entry, fetcher):
     return digest
 
 
-def _micromamba_sha256(fetcher):
-    """The published osx-arm64 sha256, or a digest computed from the binary."""
-    release = json.loads(fetcher.get_text(us.MICROMAMBA_RELEASES_LATEST))
-    assets = {
-        asset.get("name", ""): asset.get("browser_download_url", "")
-        for asset in release.get("assets") or []
-    }
-    sidecar = assets.get(f"micromamba-{MICROMAMBA_ARCH}.sha256")
-    if sidecar:
-        digest = _first_hex_token(fetcher.get_text(sidecar))
-        if digest:
-            return digest
+MICROMAMBA_DOWNLOAD = (
+    "https://github.com/mamba-org/micromamba-releases/releases/download/{version}/"
+    "micromamba-{arch}"
+)
 
-    binary_url = assets.get(f"micromamba-{MICROMAMBA_ARCH}")
-    if not binary_url:
-        raise us.FetchError(
-            f"micromamba release publishes no micromamba-{MICROMAMBA_ARCH} asset"
-        )
+
+def _micromamba_sha256(version, fetcher):
+    """The osx-arm64 sha256 for the *pinned* ``version``.
+
+    Always addresses that version's release assets by tag. Reading
+    ``releases/latest`` here would pair a held pin with a newer binary's
+    digest, which is worse than having no digest at all: every install would
+    fail verification against a checksum that was never true for that file.
+    """
+    if not version:
+        raise us.FetchError("no micromamba version pinned in the manifest")
+
+    binary_url = MICROMAMBA_DOWNLOAD.format(version=version, arch=MICROMAMBA_ARCH)
+    try:
+        digest = _first_hex_token(fetcher.get_text(binary_url + ".sha256"))
+    except Exception:
+        digest = None
+    if digest:
+        return digest
+
     get_bytes = getattr(fetcher, "get_bytes", None)
     if get_bytes is None:
         raise us.FetchError("fetcher cannot download binaries; pass --no-checksums")
     return hashlib.sha256(get_bytes(binary_url)).hexdigest()
 
 
-def fetch_checksums(manifest, fetcher):
-    """Fill the digests the manifest records, in place. Returns ``{id: value}``.
+CHECKSUM_RESOLVERS = {
+    "esviritu-viral-v3": _esviritu_md5,
+    "ncbi-taxonomy": _taxonomy_md5,
+}
+
+
+def fetch_checksums(manifest, fetcher, changed=None):
+    """Refresh digests for the entries this run changed. Returns ``{id: value}``.
+
+    ``changed`` is the set of ids ``apply_bumps`` actually bumped. Only those
+    are refetched: a held or untouched pin keeps the digest that belongs to it,
+    and an entry that never carried a digest does not grow one. Passing
+    ``None`` means "nothing changed", so nothing is fetched -- callers must
+    opt in explicitly rather than having every id silently rewritten.
 
     A source that cannot be read yields ``"error: <message>"`` for that id
     rather than raising, so one dead endpoint does not abort a sweep.
     """
+    changed = set(changed or ())
     results = {}
 
     for entry in manifest.get("databases") or []:
         entry_id = entry.get("id", "")
-        if entry_id == "esviritu-viral-v3":
-            resolver = _esviritu_md5
-        elif entry_id == "ncbi-taxonomy":
-            resolver = _taxonomy_md5
-        else:
+        resolver = CHECKSUM_RESOLVERS.get(entry_id)
+        if resolver is None or entry_id not in changed:
             continue
         try:
             digest = resolver(entry, fetcher)
@@ -420,13 +447,13 @@ def fetch_checksums(manifest, fetcher):
         entry["md5"] = digest
         results[entry_id] = digest
 
-    if manifest.get("bootstrap"):
+    if manifest.get("bootstrap") and "micromamba" in changed:
+        micromamba = manifest["bootstrap"].setdefault("micromamba", {})
         try:
-            digest = _micromamba_sha256(fetcher)
+            digest = _micromamba_sha256(micromamba.get("version"), fetcher)
         except Exception as exc:
             results["micromamba"] = f"error: {type(exc).__name__}: {exc}"
         else:
-            micromamba = manifest["bootstrap"].setdefault("micromamba", {})
             micromamba.setdefault("sha256", {})[MICROMAMBA_ARCH] = digest
             results["micromamba"] = digest
 
@@ -626,6 +653,7 @@ def main(argv=None):
         sys.stderr.write(f"cannot read candidates {args.candidates}: {exc}\n")
         return EXIT_INPUT_ERROR
 
+    changed_ids = set()
     new_manifest, log = apply_bumps(
         manifest,
         candidates,
@@ -636,18 +664,25 @@ def main(argv=None):
         take_builds_for_held=args.take_builds_for_held,
         force_set=args.force_set,
         retire=retire,
+        changed_ids=changed_ids,
     )
 
+    # A dry run reports and exits before any network access: checksum fetching
+    # downloads binaries, which is not something "print what would change"
+    # should ever do.
+    if args.dry_run:
+        for line in log:
+            sys.stdout.write(line + "\n")
+        sys.stdout.write("dry run: nothing written\n")
+        return EXIT_OK
+
     if not args.no_checksums:
-        for entry_id, value in sorted(fetch_checksums(new_manifest, us.LiveFetcher()).items()):
+        digests = fetch_checksums(new_manifest, us.LiveFetcher(), changed=changed_ids)
+        for entry_id, value in sorted(digests.items()):
             log.append(f"{entry_id}: checksum {value}")
 
     for line in log:
         sys.stdout.write(line + "\n")
-
-    if args.dry_run:
-        sys.stdout.write("dry run: nothing written\n")
-        return EXIT_OK
 
     manifest_io.dump(new_manifest, manifest_path)
     repo_root = _repo_root_for(manifest_path)

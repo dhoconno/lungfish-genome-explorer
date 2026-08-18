@@ -557,25 +557,21 @@ class DerivedFileTests(unittest.TestCase):
 
 
 class ChecksumTests(unittest.TestCase):
-    def test_fetch_checksums_fills_esviritu_taxonomy_and_micromamba(self):
-        manifest = {
-            "databases": [
-                {
-                    "id": "esviritu-viral-v3",
-                    "version": "v3.2.4",
-                    "url": "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz",
-                },
-                {
-                    "id": "ncbi-taxonomy",
-                    "version": "2025-03",
-                    "url": "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz",
-                },
-            ],
-            "bootstrap": {"micromamba": {"version": "2.9.0-0", "sha256": {}}},
-        }
-        fetcher = FakeFetcher(
+    """Digests must belong to the exact artifact the manifest pins.
+
+    A digest fetched for the wrong version is worse than no digest: every
+    install then fails verification against a checksum that was never true.
+    """
+
+    ZENODO = "https://zenodo.org/api/records/17716199"
+    TAXDUMP = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
+    RELEASE = "https://github.com/mamba-org/micromamba-releases/releases/download"
+
+    def _fetcher(self, pinned_digest="a" * 64, latest_digest="b" * 64):
+        """Serves TWO micromamba releases so a wrong-version read is visible."""
+        return FakeFetcher(
             json_payloads={
-                "https://zenodo.org/api/records/17716199": {
+                self.ZENODO: {
                     "files": [
                         {
                             "key": "esviritu_db_v3.2.4.tar.gz",
@@ -588,64 +584,133 @@ class ChecksumTests(unittest.TestCase):
                     "assets": [
                         {
                             "name": "micromamba-osx-arm64.sha256",
-                            "browser_download_url": "https://example.invalid/micromamba-osx-arm64.sha256",
+                            "browser_download_url": f"{self.RELEASE}/2.9.0-0/micromamba-osx-arm64.sha256",
                         }
                     ],
                 },
             },
             texts={
-                "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz.md5": "fedcba9876543210fedcba9876543210  taxdump.tar.gz\n",
-                "https://example.invalid/micromamba-osx-arm64.sha256": (
-                    "a" * 64 + "  micromamba-osx-arm64\n"
+                self.TAXDUMP + ".md5": "fedcba9876543210fedcba9876543210  taxdump.tar.gz\n",
+                f"{self.RELEASE}/2.0.5-0/micromamba-osx-arm64.sha256": (
+                    pinned_digest + "  micromamba-osx-arm64\n"
+                ),
+                f"{self.RELEASE}/2.9.0-0/micromamba-osx-arm64.sha256": (
+                    latest_digest + "  micromamba-osx-arm64\n"
                 ),
             },
         )
-        result = bump.fetch_checksums(manifest, fetcher)
-        self.assertEqual(
-            result["esviritu-viral-v3"], "0123456789abcdef0123456789abcdef"
+
+    def _manifest(self, micromamba_version="2.9.0-0", sha256=None):
+        return {
+            "databases": [
+                {
+                    "id": "esviritu-viral-v3",
+                    "version": "v3.2.4",
+                    "url": "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz",
+                },
+                {
+                    "id": "ncbi-taxonomy",
+                    "version": "2025-03",
+                    "url": self.TAXDUMP,
+                },
+            ],
+            "bootstrap": {
+                "micromamba": {
+                    "version": micromamba_version,
+                    "sha256": dict(sha256 or {}),
+                }
+            },
+        }
+
+    def test_fills_digests_for_the_entries_that_changed(self):
+        manifest = self._manifest()
+        result = bump.fetch_checksums(
+            manifest,
+            self._fetcher(),
+            changed={"esviritu-viral-v3", "ncbi-taxonomy", "micromamba"},
         )
+        self.assertEqual(result["esviritu-viral-v3"], "0123456789abcdef0123456789abcdef")
         self.assertEqual(result["ncbi-taxonomy"], "fedcba9876543210fedcba9876543210")
-        self.assertEqual(result["micromamba"], "a" * 64)
+        self.assertEqual(result["micromamba"], "b" * 64)
         self.assertEqual(
             manifest["databases"][0]["md5"], "0123456789abcdef0123456789abcdef"
         )
         self.assertEqual(
-            manifest["databases"][1]["md5"], "fedcba9876543210fedcba9876543210"
+            manifest["bootstrap"]["micromamba"]["sha256"]["osx-arm64"], "b" * 64
         )
-        self.assertEqual(manifest["bootstrap"]["micromamba"]["sha256"]["osx-arm64"], "a" * 64)
 
-    def test_fetch_checksums_hashes_the_binary_when_no_sha256_asset(self):
+    def test_pinned_version_digest_is_used_when_pin_is_not_the_latest(self):
+        """The reported defect: a held 2.0.5-0 must not take 2.9.0-0's digest."""
+        manifest = self._manifest(micromamba_version="2.0.5-0")
+        result = bump.fetch_checksums(
+            manifest, self._fetcher(), changed={"micromamba"}
+        )
+        self.assertEqual(result["micromamba"], "a" * 64)
+        self.assertNotEqual(result["micromamba"], "b" * 64)
+        self.assertEqual(
+            manifest["bootstrap"]["micromamba"]["sha256"]["osx-arm64"], "a" * 64
+        )
+
+    def test_held_entries_keep_their_checksum_fields_byte_identical(self):
+        original = "a8d78f72db1bdcd24e7758551006610a15beb40a34006b3e3e176085a0dbc780"
+        manifest = self._manifest(
+            micromamba_version="2.0.5-0", sha256={"osx-arm64": original}
+        )
+        manifest["databases"][0]["md5"] = "deadbeefdeadbeefdeadbeefdeadbeef"
+        before = json.dumps(manifest, sort_keys=True)
+        result = bump.fetch_checksums(manifest, self._fetcher(), changed=set())
+        self.assertEqual(result, {})
+        self.assertEqual(json.dumps(manifest, sort_keys=True), before)
+        self.assertEqual(
+            manifest["bootstrap"]["micromamba"]["sha256"]["osx-arm64"], original
+        )
+
+    def test_unchanged_database_never_gains_a_checksum_key(self):
+        """The rolling ncbi-taxonomy URL must not grow an md5 it never had."""
+        manifest = self._manifest()
+        bump.fetch_checksums(
+            manifest, self._fetcher(), changed={"esviritu-viral-v3"}
+        )
+        taxonomy = [d for d in manifest["databases"] if d["id"] == "ncbi-taxonomy"][0]
+        self.assertNotIn("md5", taxonomy)
+        self.assertIn("md5", manifest["databases"][0])
+
+    def test_omitting_changed_fetches_nothing(self):
+        manifest = self._manifest()
+        before = json.dumps(manifest, sort_keys=True)
+        self.assertEqual(bump.fetch_checksums(manifest, self._fetcher()), {})
+        self.assertEqual(json.dumps(manifest, sort_keys=True), before)
+
+    def test_hashes_the_binary_when_no_sha256_sidecar(self):
         import hashlib
 
         payload = b"micromamba-binary-bytes"
-        manifest = {"databases": [], "bootstrap": {"micromamba": {"version": "2.9.0-0", "sha256": {}}}}
-        fetcher = FakeFetcher(
-            json_payloads={
-                "https://api.github.com/repos/mamba-org/micromamba-releases/releases/latest": {
-                    "tag_name": "2.9.0-0",
-                    "assets": [
-                        {
-                            "name": "micromamba-osx-arm64",
-                            "browser_download_url": "https://example.invalid/micromamba-osx-arm64",
-                        }
-                    ],
-                }
-            },
-            binaries={"https://example.invalid/micromamba-osx-arm64": payload},
-        )
-        result = bump.fetch_checksums(manifest, fetcher)
+        binary = f"{self.RELEASE}/2.9.0-0/micromamba-osx-arm64"
+        manifest = {
+            "databases": [],
+            "bootstrap": {"micromamba": {"version": "2.9.0-0", "sha256": {}}},
+        }
+        fetcher = FakeFetcher(binaries={binary: payload})
+        result = bump.fetch_checksums(manifest, fetcher, changed={"micromamba"})
         self.assertEqual(result["micromamba"], hashlib.sha256(payload).hexdigest())
 
-    def test_fetch_checksums_records_errors_instead_of_raising(self):
+    def test_records_errors_instead_of_raising(self):
         manifest = {
             "databases": [
-                {"id": "ncbi-taxonomy", "version": "2025-03", "url": "https://example.invalid/taxdump.tar.gz"}
+                {
+                    "id": "ncbi-taxonomy",
+                    "version": "2025-03",
+                    "url": "https://example.invalid/taxdump.tar.gz",
+                }
             ],
             "bootstrap": {"micromamba": {"version": "2.9.0-0", "sha256": {}}},
         }
-        result = bump.fetch_checksums(manifest, FakeFetcher())
-        self.assertIn("ncbi-taxonomy", result)
+        result = bump.fetch_checksums(
+            manifest, FakeFetcher(), changed={"ncbi-taxonomy", "micromamba"}
+        )
         self.assertTrue(str(result["ncbi-taxonomy"]).startswith("error:"))
+        self.assertTrue(str(result["micromamba"]).startswith("error:"))
+        self.assertNotIn("md5", manifest["databases"][0])
 
 
 class MainTests(unittest.TestCase):
@@ -722,6 +787,88 @@ class MainTests(unittest.TestCase):
                 )
             )
             self.assertEqual(tv["tools"][0]["version"], "2.9.0-0")
+
+    def test_only_run_leaves_every_other_entry_checksum_untouched(self):
+        """--only fastp must not rewrite any other entry's digests."""
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            manifest_path = self._copy_repo(root)
+            before = json.loads(manifest_path.read_text(encoding="utf-8"))
+            candidates = root / "candidates.json"
+            candidates.write_text(
+                json.dumps(
+                    {
+                        "tools": [
+                            {
+                                "id": "fastp",
+                                "kind": "tool",
+                                "status": "update",
+                                "latest": "1.3.6",
+                                "latestSpec": "bioconda::fastp=1.3.6=ha1d0559_0",
+                            }
+                        ],
+                        "pipelines": [],
+                        "databases": [],
+                        "bootstrap": {
+                            "id": "micromamba",
+                            "status": "update",
+                            "latest": "2.9.0-0",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rc = bump.main(
+                [
+                    "--manifest",
+                    str(manifest_path),
+                    "--from",
+                    str(candidates),
+                    "--set",
+                    "2026.2",
+                    "--date",
+                    "2026-08-18",
+                    "--only",
+                    "fastp",
+                    "--no-checksums",
+                ]
+            )
+            self.assertEqual(rc, 0)
+            after = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                after["bootstrap"]["micromamba"], before["bootstrap"]["micromamba"]
+            )
+            self.assertEqual(after["databases"], before["databases"])
+            fastp = [t for t in after["tools"] if t["id"] == "fastp"][0]
+            self.assertEqual(fastp["version"], "1.3.6")
+
+    def test_dry_run_does_not_fetch_checksums(self):
+        """A dry run must never hit the network, even without --no-checksums."""
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            manifest_path = self._copy_repo(root)
+            candidates = root / "candidates.json"
+            candidates.write_text(json.dumps(sample_candidates()), encoding="utf-8")
+
+            calls = []
+            original = bump.fetch_checksums
+            bump.fetch_checksums = lambda *a, **k: calls.append(a) or {}
+            try:
+                rc = bump.main(
+                    [
+                        "--manifest",
+                        str(manifest_path),
+                        "--from",
+                        str(candidates),
+                        "--set",
+                        "2026.2",
+                        "--dry-run",
+                    ]
+                )
+            finally:
+                bump.fetch_checksums = original
+            self.assertEqual(rc, 0)
+            self.assertEqual(calls, [], "dry run fetched checksums")
 
     def test_repo_root_is_derived_from_the_manifest_location(self):
         with tempfile.TemporaryDirectory() as td:
