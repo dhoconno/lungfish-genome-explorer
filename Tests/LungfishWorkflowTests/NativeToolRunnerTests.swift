@@ -256,14 +256,25 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testCutadaptVersion() async throws {
-        let (runner, root) = try makeManagedNativeToolRunner()
-        defer { try? FileManager.default.removeItem(at: root) }
+        // Deliberately the real managed home, not the stub home used by the
+        // runner-mechanics tests in this file. This test is about the managed
+        // cutadapt actually being runnable and reporting the pinned version, so
+        // a stub home would resolve nothing and quietly fall through to
+        // whatever cutadapt happens to be on the system PATH -- which is how it
+        // used to "pass" while asserting a hardcoded "4." that had already gone
+        // stale against the manifest's 5.2 pin.
+        let runner = NativeToolRunner(toolsDirectory: nil)
+        let expected = try XCTUnwrap(
+            ConformanceFixtures.manifest().tools.first { $0.id == "cutadapt" }?.version,
+            "cutadapt should be pinned in the dependency manifest"
+        )
+
         let result = try await runner.run(.cutadapt, arguments: ["--version"])
         XCTAssertTrue(result.isSuccess, "cutadapt --version should succeed")
         let output = result.stdout + result.stderr
         XCTAssertTrue(
-            output.contains("4."),
-            "cutadapt --version should print a semantic version; output: \(output)"
+            ConformanceFixtures.textReportsVersion(output, version: expected),
+            "cutadapt --version should report the pinned \(expected); output: \(output)"
         )
     }
 

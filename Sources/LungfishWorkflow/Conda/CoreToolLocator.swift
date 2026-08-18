@@ -42,7 +42,30 @@ public enum CoreToolLocator {
     }
 
     public static func condaRoot(homeDirectory: URL) -> URL {
-        ManagedStorageConfigStore(homeDirectory: homeDirectory).currentCondaRootURL()
+        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory)
+
+        // An explicitly injected home wins over the ambient storage-root
+        // environment overrides.
+        //
+        // currentCondaRootURL() consults LUNGFISH_CONDA_ROOT and
+        // LUNGFISH_STORAGE_ROOT from the process environment before it looks at
+        // the home this store was built with. That is right for the app and the
+        // CLI, where the override is the user asking for a different root. It is
+        // wrong for a caller that passed a specific home precisely to pin tool
+        // resolution to it: tests build stub executables under a temporary home
+        // and construct a runner with it, and under an ambient override those
+        // runs silently resolved the developer's real tools instead of the
+        // stubs, turning a passing suite into confusing failures the moment
+        // anything set a storage root.
+        //
+        // The default home keeps the old behavior, so the override still works
+        // for every caller that did not name a home of its own.
+        let defaultHome = FileManager.default.homeDirectoryForCurrentUser
+        if homeDirectory.standardizedFileURL != defaultHome.standardizedFileURL {
+            return store.currentCondaRootURL(environment: [:])
+        }
+
+        return store.currentCondaRootURL()
     }
 
     public static func environmentURL(

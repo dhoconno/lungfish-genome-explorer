@@ -171,11 +171,21 @@ mkdir -p "${storage_root}"
 storage_root="$(cd "${storage_root}" && pwd)"
 
 export LUNGFISH_STORAGE_ROOT="${storage_root}"
-# The golden regenerator resolves environments from LUNGFISH_CONDA_ROOT, which
-# defaults to ~/.lungfish/conda rather than deriving from the storage root, so
-# it has to be pointed at the isolated root explicitly or tier 2 would measure
-# the developer's environments.
-export LUNGFISH_CONDA_ROOT="${storage_root}/conda"
+
+# LUNGFISH_CONDA_ROOT is deliberately NOT exported process-wide.
+#
+# regenerate-goldens.sh needs it, because it defaults the conda root to
+# ~/.lungfish/conda rather than deriving it from the storage root, so tier 2
+# sets it on that command alone (see run_tier2).
+#
+# Exporting it globally breaks tier 1. Several NativeToolRunnerTests build stub
+# executables under a temporary home and construct a runner with that home, but
+# CoreToolLocator.condaRoot(homeDirectory:) resolves through
+# ManagedStorageConfigStore.currentCondaRootURL(), which consults
+# LUNGFISH_CONDA_ROOT from the process environment and ignores the injected
+# home. With the variable set, those tests silently run the real seqkit instead
+# of their stub and fail with "unknown command short-output".
+conda_root_for_goldens="${storage_root}/conda"
 
 # Seed the isolated root from an existing one. On APFS `cp -Rc` clones blocks
 # rather than copying them, so a 21 GB conda root is seeded in seconds and
@@ -222,6 +232,62 @@ seed_root() {
             /bin/cp -Rc "${source}/${sub}" "${destination}/${sub}"
         done
     done
+
+    rewrite_database_registry "${source_root}"
+}
+
+# Repoint the cloned metagenomics database registry at the isolated root.
+#
+# The registry records each database as an absolute file:// URL. A clone copies
+# the database files but leaves every URL pointing back into the source root, so
+# without this the isolated root would look provisioned while every database
+# lookup -- including the one regenerate-goldens.sh uses to resolve {db} -- read
+# the developer's real files. That would quietly defeat the entire point of
+# verifying against an isolated root.
+#
+# Only entries whose files actually came across are rewritten. An entry whose
+# path does not exist under the isolated root keeps its original URL, so the
+# CLI reports it as missing rather than as a database that is present but
+# unreadable.
+rewrite_database_registry() {
+    local source_root="$1"
+    local registry="${storage_root}/databases/metagenomics-db-registry.json"
+    [[ -f "${registry}" ]] || return 0
+
+    REGISTRY="${registry}" SOURCE_ROOT="${source_root}" DEST_ROOT="${storage_root}" python3 - <<'PYTHON'
+import json
+import os
+import pathlib
+import urllib.parse
+import urllib.request
+
+registry = pathlib.Path(os.environ["REGISTRY"])
+source_root = os.environ["SOURCE_ROOT"].rstrip("/")
+dest_root = os.environ["DEST_ROOT"].rstrip("/")
+
+document = json.loads(registry.read_text(encoding="utf-8"))
+rewritten = 0
+skipped = []
+
+for database in document.get("databases", []):
+    url = database.get("path")
+    if not url or not url.startswith("file://"):
+        continue
+    path = urllib.parse.unquote(urllib.parse.urlparse(url).path)
+    if not (path == source_root or path.startswith(source_root + "/")):
+        continue
+    candidate = dest_root + path[len(source_root):]
+    if not os.path.exists(candidate):
+        skipped.append(database.get("name", "?"))
+        continue
+    database["path"] = urllib.parse.urljoin("file:", urllib.request.pathname2url(candidate))
+    rewritten += 1
+
+registry.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+print(f"seed: repointed {rewritten} database path(s) at {dest_root}")
+if skipped:
+    print(f"seed: left {len(skipped)} database path(s) alone (not cloned): {', '.join(skipped)}")
+PYTHON
 }
 
 if [[ -n "${seed_from}" ]]; then
@@ -241,6 +307,19 @@ for pack in "${conformance_packs[@]}"; do
     echo "==> conda install --pack ${pack}"
     "${cli}" conda install --pack "${pack}"
 done
+
+# Reconcile the pack tools too. The two steps above each leave a gap that only
+# shows up on a seeded root:
+#
+#   --required-only deliberately skips packTools entries, because a pack tool
+#   is work the user can defer; and `conda install --pack` treats an existing
+#   environment as satisfied, so it never notices that a seeded environment
+#   holds a different build than the manifest pins.
+#
+# Together that let a seeded root keep, for example, whatshap built against
+# python 3.12 when the manifest pins the 3.11 build. A full apply closes it.
+echo "==> Reconciling pack tools against the manifest"
+"${cli}" tools update --apply --yes
 
 # These two are best effort: a database that is already present is a no-op, and
 # a download failure is reported by the tier that actually needs the database
@@ -270,7 +349,10 @@ run_tier2() {
     echo "==> Tier 2: golden regeneration and diff"
     local out=".build/goldens-${dependency_set}"
     rm -rf "${out}"
-    bash scripts/deps/regenerate-goldens.sh --set "${dependency_set}" --out "${out}"
+    # Scoped to this command rather than exported: see the note where
+    # conda_root_for_goldens is set.
+    LUNGFISH_CONDA_ROOT="${conda_root_for_goldens}" \
+        bash scripts/deps/regenerate-goldens.sh --set "${dependency_set}" --out "${out}"
 
     local diff_status=0
     python3 scripts/deps/diff_goldens.py \
