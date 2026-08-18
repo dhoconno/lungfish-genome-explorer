@@ -145,29 +145,14 @@ public extension ReconcilerServices {
                 return result
             },
             installedPackIDs: {
-                var installed: Set<String> = []
-                for pack in PluginPack.builtIn {
-                    if pack.isRequiredBeforeLaunch {
-                        // The required pack is definitionally in scope; whether its environments
-                        // exist is what the plan is for.
-                        installed.insert(pack.id)
-                        continue
-                    }
-                    let environments = pack.toolRequirements
-                        .filter { $0.managedDatabaseID == nil }
-                        .map(\.environment)
-                    guard !environments.isEmpty else { continue }
-                    // Any one environment present means the user opted into this pack. Requiring
-                    // all of them would make a half-installed pack invisible to reconciliation,
-                    // which is exactly the state that needs repairing.
-                    let anyPresent = environments.contains { name in
+                Self.installedPackIDs(
+                    manifest: ManagedToolLock.bundled,
+                    environmentExists: { name in
                         FileManager.default.fileExists(
                             atPath: condaManager.rootPrefix.appendingPathComponent("envs/\(name)").path
                         )
                     }
-                    if anyPresent { installed.insert(pack.id) }
-                }
-                return installed
+                )
             },
             registryDatabaseVersions: {
                 await Self.registryDatabaseVersions(storageRoot: storageRoot)
@@ -185,6 +170,45 @@ public extension ReconcilerServices {
                 await Self.readMicromambaVersion(at: condaManager.rootPrefix.appendingPathComponent("bin/micromamba"))
             }
         )
+    }
+
+    /// Which optional packs this machine has, judged only by the environments the manifest
+    /// itself pins to each pack.
+    ///
+    /// The pack's own `toolRequirements` cannot answer this: several packs list the same
+    /// general-purpose tool, so `wastewater-surveillance` (which requires `ivar` and `minimap2`
+    /// alongside `freyja`) would count as installed on any machine that ever installed variant
+    /// calling or read mapping. Reconciliation would then plan `freyja` for a user who never
+    /// asked for it, and on arm64 that install cannot succeed. The manifest's `packTools` are
+    /// the pack-specific pins, so a shared environment never licenses a pack that merely
+    /// consumes it.
+    ///
+    /// A pack the manifest pins nothing for is never reported installed: with no pins there is
+    /// no evidence to read, and inventing some would resurrect the same over-broad guess.
+    static func installedPackIDs(
+        manifest: ManagedToolLock,
+        environmentExists: (String) -> Bool
+    ) -> Set<String> {
+        var pinnedEnvironments: [String: [String]] = [:]
+        for packTool in manifest.packTools {
+            pinnedEnvironments[packTool.packID, default: []].append(packTool.environment)
+        }
+
+        var installed: Set<String> = []
+        for pack in PluginPack.builtIn {
+            // The required pack is definitionally in scope; whether its environments exist is
+            // what the plan is for.
+            if pack.isRequiredBeforeLaunch {
+                installed.insert(pack.id)
+                continue
+            }
+            guard let environments = pinnedEnvironments[pack.id] else { continue }
+            // Any one of *this pack's* environments present means the user opted in. Requiring
+            // all of them would make a half-installed pack invisible to reconciliation, which is
+            // exactly the state that needs repairing.
+            if environments.contains(where: environmentExists) { installed.insert(pack.id) }
+        }
+        return installed
     }
 
     /// The pack requirement that owns `environment`, used to find its smoke test.
@@ -222,6 +246,12 @@ public extension ReconcilerServices {
 
     /// Copies the app-bundled micromamba over the conda root's copy, verifying the manifest
     /// checksum first when one is pinned.
+    ///
+    /// The checksum is read from the manifest's `osx-arm64` entry unconditionally, which is
+    /// correct only because the app ships a single arm64 binary and targets Apple Silicon
+    /// exclusively. If a second architecture is ever bundled, this must select the entry by the
+    /// running architecture instead: verifying an x86_64 binary against the arm64 hash would
+    /// fail every install rather than catching a real mismatch.
     private static func installBundledMicromamba(condaManager: CondaManager, targetVersion: String) async throws {
         guard let bundled = RuntimeResourceLocator.path("Tools/micromamba", in: .workflow) else {
             throw CondaError.micromambaNotFound
@@ -688,6 +718,12 @@ public actor DependencyReconciler {
         }
 
         if let parent {
+            // A counts line in the parent's history, so the expanded row summarises the run
+            // without the reader having to add up the child rows themselves.
+            operationCenter?.log(
+                id: parent,
+                message: "Finished \(plan.targetDependencySet): \(succeeded.count) succeeded, \(failed.count) failed"
+            )
             // An unsaveable receipt is the one "failure" that is not a failure of the work: every
             // real item succeeded and the tools are installed. Failing the parent operation over
             // it would tell the user their update did not happen, which is the opposite of true,
@@ -800,6 +836,10 @@ public actor DependencyReconciler {
         let operation = operationCenter?.start(title: title, detail: id)
         let sink = operationCenter
         let startedAt = Date()
+        // Progress updates replace the row's detail line; the log is what the expanded row
+        // keeps. Without a log call an item leaves no history behind at all, so each item
+        // records its start, its outcome, and (on failure) the error.
+        if let operation { sink?.log(id: operation, message: Self.itemStartLogMessage(kind: kind, title: title)) }
         let report: @Sendable (Double, String) -> Void = { fraction, message in
             progress(id, fraction, message)
             if let operation { sink?.update(id: operation, progress: fraction, detail: message) }
@@ -812,7 +852,10 @@ public actor DependencyReconciler {
                 id: id, kind: kind, title: title, targetVersion: targetVersion, failure: nil,
                 startedAt: startedAt, endedAt: Date()
             ))
-            if let operation { sink?.complete(id: operation, detail: "\(id) ready") }
+            if let operation {
+                sink?.log(id: operation, message: "\(id) ready")
+                sink?.complete(id: operation, detail: "\(id) ready")
+            }
             return nil
         } catch {
             let message = error.localizedDescription
@@ -823,8 +866,30 @@ public actor DependencyReconciler {
                 startedAt: startedAt, endedAt: Date()
             ))
             logger.error("Reconcile item '\(id, privacy: .public)' failed: \(message, privacy: .public)")
-            if let operation { sink?.fail(id: operation, detail: "\(id) failed", error: message) }
+            if let operation {
+                sink?.log(id: operation, message: "\(id) failed: \(message)")
+                sink?.fail(id: operation, detail: "\(id) failed", error: message)
+            }
             return message
+        }
+    }
+
+    /// The opening history line for an item, phrased for what the item actually does.
+    ///
+    /// `title` already names the target ("Install samtools <its full conda spec>", "Remove
+    /// retired environment foo"), so the verb comes from the kind and the specifics come from
+    /// the title rather than being rebuilt here.
+    private static func itemStartLogMessage(
+        kind: DependencyReconcilerProvenance.ItemKind,
+        title: String
+    ) -> String {
+        switch kind {
+        case .environment, .bootstrap:
+            return "Installing: \(title)"
+        case .database:
+            return "Updating database: \(title)"
+        case .removal:
+            return "Removing: \(title)"
         }
     }
 

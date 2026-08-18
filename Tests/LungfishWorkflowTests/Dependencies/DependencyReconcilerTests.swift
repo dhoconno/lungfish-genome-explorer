@@ -64,7 +64,9 @@ final class DependencyReconcilerTests: XCTestCase {
         failCreate: Set<String> = [],
         registryDatabaseVersions: [String: String] = ["human-scrubber": "20250916v2"],
         metagenomicsDatabaseVersions: [String: String] = [:],
-        micromambaVersion: String? = "2.9.0-0",
+        // The real probe format: `micromamba --version` prints the upstream version with no
+        // conda build suffix, so this must read "2.9.0" against a manifest pinning "2.9.0-0".
+        micromambaVersion: String? = "2.9.0",
         metagenomicsUpdateError: Error? = nil
     ) -> ReconcilerServices {
         // Start from live so any closure this test forgets to override is still a real one;
@@ -412,6 +414,63 @@ final class DependencyReconcilerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(sink.completedCount, 2)
     }
 
+    /// Progress updates overwrite the row's detail line; only `log` persists in the expanded
+    /// row's history. Every item must leave at least one line behind, and so must the parent.
+    func testEveryItemAndTheParentLogToTheOperationHistory() async throws {
+        let root = tmpRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sink = RecordingSink()
+        let reconciler = DependencyReconciler(
+            manifest: manifest(), storageRoot: root,
+            services: services(calls: Calls(), envs: [:]),
+            appVersion: "x", operationCenter: sink
+        )
+        let plan = try await reconciler.currentPlan()
+        _ = try await reconciler.apply(plan, selection: .all(from: plan)) { _, _, _ in }
+
+        XCTAssertFalse(sink.logCountsPerOperation.isEmpty, "the run started at least the parent operation")
+        XCTAssertTrue(
+            sink.logCountsPerOperation.allSatisfy { $0 >= 1 },
+            "every operation logs at least once: \(sink.logCountsPerOperation)"
+        )
+
+        let messages = sink.logMessages
+        XCTAssertTrue(
+            messages.contains { $0.hasPrefix("Installing:") && $0.contains("samtools") },
+            "the environment install announces itself: \(messages)"
+        )
+        XCTAssertTrue(
+            messages.contains { $0.hasPrefix("Updating database:") },
+            "the database update announces itself: \(messages)"
+        )
+        XCTAssertTrue(messages.contains("samtools ready"), "completion is logged: \(messages)")
+        XCTAssertTrue(
+            messages.contains { $0.hasPrefix("Finished 2026.2:") && $0.contains("succeeded") },
+            "the parent logs a counts summary: \(messages)"
+        )
+    }
+
+    /// A failing item records why in its own history rather than only in the failure detail.
+    func testFailedItemLogsTheError() async throws {
+        let root = tmpRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sink = RecordingSink()
+        let reconciler = DependencyReconciler(
+            manifest: manifest(), storageRoot: root,
+            services: services(calls: Calls(), envs: [:], failCreate: ["samtools"]),
+            appVersion: "x", operationCenter: sink
+        )
+        let plan = try await reconciler.currentPlan()
+        _ = try await reconciler.apply(plan, selection: .all(from: plan)) { _, _, _ in }
+
+        XCTAssertTrue(
+            sink.logMessages.contains { $0.hasPrefix("samtools failed:") },
+            "the failure is written into the item's history: \(sink.logMessages)"
+        )
+    }
+
     func testUnwritableReceiptDoesNotDiscardTheRun() async throws {
         // A regular file where the storage root should be makes every receipt save fail.
         let root = tmpRoot()
@@ -488,18 +547,31 @@ final class DependencyReconcilerTests: XCTestCase {
         private var completed = 0
         private var failed = 0
         private var warnings: [String] = []
+        /// Operation id -> the messages logged against it, so a test can assert that each
+        /// individual item left history behind rather than only counting logs overall.
+        private var logs: [UUID: [String]] = [:]
+        private var startedIDs: [UUID] = []
 
         var startedTitles: [String] { lock.withLock { titles } }
         var completedCount: Int { lock.withLock { completed } }
         var failedCount: Int { lock.withLock { failed } }
         var warningDetails: [String] { lock.withLock { warnings } }
+        var logMessages: [String] { lock.withLock { startedIDs.flatMap { logs[$0] ?? [] } } }
+        /// One entry per started operation, in start order: how many messages it logged.
+        var logCountsPerOperation: [Int] { lock.withLock { startedIDs.map { (logs[$0] ?? []).count } } }
 
         func start(title: String, detail: String) -> UUID {
-            lock.withLock { titles.append(title) }
-            return UUID()
+            let id = UUID()
+            lock.withLock {
+                titles.append(title)
+                startedIDs.append(id)
+            }
+            return id
         }
         func update(id: UUID, progress: Double, detail: String) {}
-        func log(id: UUID, message: String) {}
+        func log(id: UUID, message: String) {
+            lock.withLock { logs[id, default: []].append(message) }
+        }
         func complete(id: UUID, detail: String) { lock.withLock { completed += 1 } }
         // Overrides the protocol's default forwarding so the test can tell a warning-completion
         // apart from a plain one; it still counts as a completion.

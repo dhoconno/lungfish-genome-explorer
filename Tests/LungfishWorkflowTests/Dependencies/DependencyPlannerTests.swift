@@ -171,4 +171,104 @@ final class DependencyPlannerTests: XCTestCase {
         XCTAssertEqual(plan.bootstrapUpdate?.targetVersion, "2.9.0-0")
         XCTAssertEqual(plan.pipelinePrefetch.map(\.targetRevision), ["abc"])
     }
+
+    // MARK: - Bootstrap version comparison
+
+    /// The probe prints the upstream version; the manifest pins the conda build. Those are the
+    /// same micromamba, so a current machine must not be told to reinstall it forever.
+    private func bootstrapManifest(target: String) -> ManagedToolLock {
+        ManagedToolLock(
+            packID: "lungfish-tools", displayName: "T", version: "0",
+            tools: [], managedData: [], dependencySet: "2026.2", packTools: [],
+            pipelines: [], databases: [],
+            bootstrap: BootstrapSpec(micromamba: MicromambaSpec(version: target, sha256: nil)),
+            retiredEnvironments: [])
+    }
+
+    func testBootstrapNotPlannedWhenProbeVersionMatchesPinnedBuild() {
+        // The real shapes: `micromamba --version` says "2.0.5", the manifest pins "2.0.5-0".
+        let plan = DependencyPlanner.plan(inputs(bootstrapManifest(target: "2.0.5-0"), mm: "2.0.5"))
+        XCTAssertNil(plan.bootstrapUpdate, "a build suffix on the pin is not a version difference")
+        XCTAssertTrue(plan.isEmpty)
+    }
+
+    func testBootstrapPlannedWhenProbeVersionIsGenuinelyOlder() {
+        let plan = DependencyPlanner.plan(inputs(bootstrapManifest(target: "2.9.0-0"), mm: "2.0.5"))
+        XCTAssertEqual(plan.bootstrapUpdate?.currentVersion, "2.0.5")
+        XCTAssertEqual(plan.bootstrapUpdate?.targetVersion, "2.9.0-0")
+    }
+
+    func testBootstrapPlannedWhenMicromambaIsMissing() {
+        let plan = DependencyPlanner.plan(inputs(bootstrapManifest(target: "2.0.5-0"), mm: nil))
+        XCTAssertNil(plan.bootstrapUpdate?.currentVersion)
+        XCTAssertEqual(plan.bootstrapUpdate?.targetVersion, "2.0.5-0")
+    }
+
+    func testBootstrapComparisonNormalisesOnlyNumericBuildSuffixes() {
+        XCTAssertFalse(DependencyPlanner.needsBootstrapUpdate(installed: "2.0.5", target: "2.0.5-0"))
+        XCTAssertFalse(DependencyPlanner.needsBootstrapUpdate(installed: "2.0.5", target: "2.0.5"))
+        XCTAssertFalse(DependencyPlanner.needsBootstrapUpdate(installed: "2.0.5", target: "2.0.5-12"))
+        XCTAssertTrue(DependencyPlanner.needsBootstrapUpdate(installed: "2.0.5", target: "2.9.0-0"))
+        XCTAssertTrue(DependencyPlanner.needsBootstrapUpdate(installed: nil, target: "2.0.5-0"))
+        XCTAssertTrue(DependencyPlanner.needsBootstrapUpdate(installed: "", target: "2.0.5-0"))
+        // A dash that is part of the version itself must not be stripped away.
+        XCTAssertTrue(DependencyPlanner.needsBootstrapUpdate(installed: "2.0.5", target: "2.0.5-rc1"))
+    }
+
+    // MARK: - Pack installation is read from the pack's own pins
+
+    /// A pack is "installed" only on the evidence of the environments the manifest pins to it.
+    /// Sharing a general-purpose tool with another pack must not license planning its tools.
+    func testSharedEnvironmentDoesNotLicenseAnotherPack() {
+        let sharedManifest = manifest(
+            tools: [("samtools", "bioconda::samtools=1.24=h36b3a25_1")],
+            packTools: [
+                ("read-mapping", "minimap2", "bioconda::minimap2=2.31=h6bd33b9_0"),
+                ("wastewater-surveillance", "freyja", "bioconda::freyja=2.0.0=pyhdfd78af_0"),
+            ]
+        )
+        let onDisk: Set<String> = ["minimap2"]
+        let packs = ReconcilerServices.installedPackIDs(
+            manifest: sharedManifest,
+            environmentExists: { onDisk.contains($0) }
+        )
+
+        XCTAssertTrue(packs.contains("read-mapping"), "its own pinned environment is present")
+        XCTAssertFalse(
+            packs.contains("wastewater-surveillance"),
+            "minimap2 belongs to read-mapping; it must not make wastewater-surveillance look installed"
+        )
+
+        // And the plan built from that reading leaves freyja alone.
+        let plan = DependencyPlanner.plan(inputs(
+            sharedManifest,
+            envs: ["samtools": [meta("samtools", "1.24", "h36b3a25_1")], "minimap2": [meta("minimap2", "2.31", "h6bd33b9_0")]],
+            packs: packs
+        ))
+        XCTAssertFalse(
+            plan.installEnvironments.contains { $0.environment == "freyja" }
+                || plan.reinstallEnvironments.contains { $0.environment == "freyja" },
+            "an uninstalled pack's tools are never planned: \(plan)"
+        )
+    }
+
+    func testPackWithNoPinnedEnvironmentsIsNeverConsideredInstalled() {
+        // `illumina-qc` pins no packTools in this fixture, so there is no evidence to read.
+        let packs = ReconcilerServices.installedPackIDs(
+            manifest: manifest(packTools: []),
+            environmentExists: { _ in true }
+        )
+        XCTAssertFalse(packs.contains("illumina-qc"))
+    }
+
+    func testRequiredPackIsAlwaysInstalled() {
+        let packs = ReconcilerServices.installedPackIDs(
+            manifest: manifest(packTools: []),
+            environmentExists: { _ in false }
+        )
+        XCTAssertTrue(
+            packs.contains("lungfish-tools"),
+            "the required pack is in scope whether or not its environments exist"
+        )
+    }
 }

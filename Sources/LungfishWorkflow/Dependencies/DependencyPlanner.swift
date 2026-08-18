@@ -248,10 +248,37 @@ public enum DependencyPlanner {
 
     private static func planBootstrap(_ inputs: DependencyPlannerInputs, into plan: inout ReconciliationPlan) {
         guard let target = inputs.manifest.bootstrap?.micromamba.version,
-              inputs.installedMicromambaVersion != target else { return }
+              needsBootstrapUpdate(installed: inputs.installedMicromambaVersion, target: target) else { return }
         plan.bootstrapUpdate = ReconciliationPlan.BootstrapChange(
             currentVersion: inputs.installedMicromambaVersion,
             targetVersion: target
         )
+    }
+
+    /// Whether the installed micromamba differs from the manifest's pin, comparing like with like.
+    ///
+    /// The two strings come from different worlds and are not directly comparable. The manifest
+    /// pins the conda package the binary was cut from, which carries a build number
+    /// (`2.0.5-0`); `micromamba --version` prints only the upstream version (`2.0.5`). A naive
+    /// `!=` therefore reports drift on every launch of a perfectly current machine, and the
+    /// bootstrap install is re-planned forever. Stripping the trailing `-<digits>` from the
+    /// target is what puts both on the same footing.
+    static func needsBootstrapUpdate(installed: String?, target: String) -> Bool {
+        // Nothing installed (or nothing readable): the bootstrap has to be put in place.
+        guard let installed, !installed.isEmpty else { return true }
+        if installed == target { return false }
+        // `2.0.5` against `2.0.5-0`: same version, the manifest just names the conda build too.
+        // Only a numeric trailing component is a build number, so `2.0.5-rc1` stays a genuinely
+        // different version rather than being read as a rebuild of `2.0.5`.
+        return stripBuildSuffix(target) != installed
+    }
+
+    /// `2.0.5-0` -> `2.0.5`. Left untouched when the trailing component is not all digits, so a
+    /// version whose own text contains a dash is never truncated.
+    private static func stripBuildSuffix(_ version: String) -> String {
+        guard let dash = version.lastIndex(of: "-") else { return version }
+        let suffix = version[version.index(after: dash)...]
+        guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else { return version }
+        return String(version[version.startIndex..<dash])
     }
 }
