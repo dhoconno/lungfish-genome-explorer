@@ -176,12 +176,6 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let components: [String]
     }
 
-    private struct CondaMetaPackage: Decodable {
-        let name: String?
-        let version: String?
-        let subdir: String?
-    }
-
     private struct PersistedPackStatusSnapshot: Codable {
         let timestamp: Date
         let status: PluginPackStatus
@@ -960,25 +954,18 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let requiredPackageNames = Set(requiredPackageNames(for: requirement))
         guard !requiredPackageNames.isEmpty else { return nil }
 
-        let condaMetaURL = envURL.appendingPathComponent("conda-meta", isDirectory: true)
-        guard let packageMetadataURLs = try? FileManager.default.contentsOfDirectory(
-            at: condaMetaURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
+        let spec = requirement.installPackages.first.flatMap { CondaSpec(spec: $0) }
 
-        for packageMetadataURL in packageMetadataURLs where packageMetadataURL.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: packageMetadataURL),
-                  let package = try? JSONDecoder().decode(CondaMetaPackage.self, from: data),
-                  let packageName = package.name,
-                  requiredPackageNames.contains(packageName) else {
-                continue
-            }
-
-            if let version = package.version, version != requiredVersion {
-                return "\(requirement.displayName) is version \(version), but Lungfish requires \(requiredVersion). Reinstall this tool."
+        for package in CondaMetaReader.packages(inEnvironment: envURL) where requiredPackageNames.contains(package.name) {
+            if let spec {
+                if !spec.matches(package) {
+                    if package.version != spec.version {
+                        return "\(requirement.displayName) is version \(package.version), but Lungfish requires \(requiredVersion). Reinstall this tool."
+                    }
+                    return "\(requirement.displayName) is build \(package.build ?? "?"), but Lungfish requires \(spec.build ?? "?"). Reinstall this tool."
+                }
+            } else if package.version != requiredVersion {
+                return "\(requirement.displayName) is version \(package.version), but Lungfish requires \(requiredVersion). Reinstall this tool."
             }
 
             if let subdir = package.subdir, !subdir.isEmpty, !packageSubdirIsCompatible(subdir) {

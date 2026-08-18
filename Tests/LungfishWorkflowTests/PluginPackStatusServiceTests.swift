@@ -467,6 +467,79 @@ final class PluginPackStatusServiceTests: XCTestCase {
         )
     }
 
+    func testStatusMarksBuildOnlyDriftAsNeedsReinstall() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-build-drift-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        // Same version as the manifest pin, but a different build string: the version
+        // comparison alone would pass, so this exercises the build-aware CondaSpec check.
+        let minimap2Spec = try XCTUnwrap(ManagedToolLock.bundled.packTool(packID: "read-mapping", id: "minimap2"))
+        let parsedSpec = try XCTUnwrap(CondaSpec(spec: minimap2Spec.packageSpec))
+        let requiredBuild = try XCTUnwrap(parsedSpec.build)
+        let installedBuild = "\(requiredBuild)_stale"
+        let requirement = PackToolRequirement(
+            id: "minimap2",
+            displayName: "minimap2",
+            environment: "minimap2",
+            installPackages: [minimap2Spec.packageSpec],
+            executables: ["minimap2"],
+            smokeTest: .command(arguments: ["--version"], timeoutSeconds: 10),
+            version: minimap2Spec.version
+        )
+        let envURL = await manager.environmentURL(named: requirement.environment)
+        let binURL = envURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+        try writeSmokeReadyExecutable(
+            for: requirement,
+            executable: "minimap2",
+            at: binURL.appendingPathComponent("minimap2")
+        )
+        try writeCondaMetaPackage(
+            envURL: envURL,
+            name: "minimap2",
+            version: minimap2Spec.version,
+            subdir: "osx-arm64",
+            build: installedBuild
+        )
+
+        let pack = PluginPack(
+            id: "mapping-build-drift",
+            name: "Mapping Build Drift",
+            description: "Test pack",
+            sfSymbol: "wrench",
+            packages: [],
+            category: "Tests",
+            requirements: [requirement]
+        )
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true }
+        )
+
+        let status = await service.status(for: pack)
+
+        XCTAssertEqual(status.state, .needsInstall)
+        let toolStatus = try XCTUnwrap(status.toolStatuses.first)
+        XCTAssertEqual(toolStatus.statusText, "Needs reinstall")
+        XCTAssertEqual(
+            toolStatus.smokeTestFailure,
+            "minimap2 is build \(installedBuild), but Lungfish requires \(requiredBuild). Reinstall this tool."
+        )
+    }
+
     func testVisibleStatusesAreInvalidatedAfterExplicitCacheClear() async throws {
         actor DatabaseRecorder {
             var calls: [String] = []
@@ -1934,19 +2007,21 @@ final class PluginPackStatusServiceTests: XCTestCase {
         envURL: URL,
         name: String,
         version: String,
-        subdir: String
+        subdir: String,
+        build: String? = nil
     ) throws {
         let condaMetaURL = envURL.appendingPathComponent("conda-meta", isDirectory: true)
         try FileManager.default.createDirectory(at: condaMetaURL, withIntermediateDirectories: true)
+        let buildField = build.map { "\n  \"build\": \"\($0)\"," } ?? ""
         let payload = """
         {
           "name": "\(name)",
-          "version": "\(version)",
+          "version": "\(version)",\(buildField)
           "subdir": "\(subdir)"
         }
         """
         try payload.write(
-            to: condaMetaURL.appendingPathComponent("\(name)-\(version)-0.json"),
+            to: condaMetaURL.appendingPathComponent("\(name)-\(version)-\(build ?? "0").json"),
             atomically: true,
             encoding: .utf8
         )
