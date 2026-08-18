@@ -199,9 +199,36 @@ jobs:
           .build/debug/lungfish-cli conda install --pack multiple-sequence-alignment
           .build/debug/lungfish-cli conda install --pack metagenomics
           .build/debug/lungfish-cli conda install --pack full-length-mhc-genotyping
+          # ivar and lofreq, needed by ReadsToVariantsEndToEndTests and
+          # BAMPrimerTrimSubcommandTests, which the conformance filter runs.
+          .build/debug/lungfish-cli conda install --pack variant-calling
 
       - name: Provision Kraken2 viral DB
         run: .build/debug/lungfish-cli conda db download Viral
+
+      - name: Provision managed databases
+        # RecipeIntegrationTests and FASTQBatchImporterRecipeIntegrationTests
+        # need the Deacon panhuman host-depletion index, which is a managedData
+        # entry rather than a Kraken2 catalog database, so `db download` does
+        # not cover it.
+        run: .build/debug/lungfish-cli conda db install-managed deacon-panhuman
+
+      - name: Install python dependencies for parity tests
+        # IVarConverterViralReconParityTests runs ivar_variants_to_vcf.py via
+        # `/usr/bin/env python3`, so the packages must be importable from
+        # whichever python3 is first on PATH -- not from an unreferenced venv.
+        # Putting the venv's bin at the front of PATH makes `env python3`
+        # resolve to it, matching how the fast job provisions its script tests.
+        run: |
+          python3 -m venv .ci-python
+          .ci-python/bin/python -m pip install --upgrade pip
+          .ci-python/bin/python -m pip install numpy biopython scipy pandas
+          echo "$PWD/.ci-python/bin" >> "$GITHUB_PATH"
+
+      - name: Verify parity test python dependencies are importable
+        # Fail here with a clear message rather than inside the test run, where
+        # it would surface as an opaque script exit code.
+        run: python3 -c 'import numpy, Bio, scipy, pandas; print("parity deps OK")'
 
       - name: Run conformance suites
         run: |
@@ -209,7 +236,7 @@ jobs:
           # tool-availability XCTSkip in the conformance allowlist becomes an
           # XCTFail instead, so a missing tool or database fails this job
           # rather than silently skipping.
-          bash scripts/full-suite-gate.sh --require-tools --filter 'Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests'
+          bash scripts/full-suite-gate.sh --require-tools --filter 'Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests'
 
       - name: Golden diff
         run: |

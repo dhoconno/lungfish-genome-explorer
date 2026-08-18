@@ -1,11 +1,12 @@
 import Foundation
 import XCTest
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
     func testProbeDrainsNoisyStderrWithoutHanging() throws {
         guard let python = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -100,7 +101,7 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
 
     func testProbeAsyncReturnsSameIdentityAsProbe() async throws {
         guard let python = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

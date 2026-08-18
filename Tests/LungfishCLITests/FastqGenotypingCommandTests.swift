@@ -2,6 +2,7 @@ import Darwin
 import XCTest
 @testable import LungfishCLI
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 
 final class FastqGenotypingCommandTests: XCTestCase {
@@ -412,7 +413,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
             isDirectory: true
         )
         guard let pythonURL = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         try FileManager.default.createDirectory(
             at: bundleURL,
@@ -461,7 +462,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
         )
         defer { try? FileManager.default.removeItem(at: root) }
         guard let fixturePython = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         try FileManager.default.createDirectory(
             at: root,
@@ -538,7 +539,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
         )
         defer { try? FileManager.default.removeItem(at: root) }
         guard let pythonURL = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         try FileManager.default.createDirectory(
             at: root,
@@ -587,7 +588,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
         )
         defer { try? FileManager.default.removeItem(at: root) }
         guard let pythonURL = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         try FileManager.default.createDirectory(
             at: root,
@@ -655,7 +656,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
         )
         defer { try? FileManager.default.removeItem(at: root) }
         guard let pythonURL = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         try FileManager.default.createDirectory(
             at: root,
@@ -822,7 +823,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
     func testUpdateCurrentWorkbookResolvedCommandWritesCanonicalFalseNegativeProvenance() throws {
         guard let pythonURL = openpyxlPythonURL() else {
-            throw XCTSkip("The managed test runtime must provide openpyxl")
+            try ToolAvailability.skipOrFail("The managed test runtime must provide openpyxl")
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "FastqUpdateCurrentWorkbookCommand-\(UUID().uuidString)",

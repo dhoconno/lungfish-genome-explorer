@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQIngestionPipelineTests: XCTestCase {
 
@@ -47,7 +48,7 @@ final class FASTQIngestionPipelineTests: XCTestCase {
     func testPairedEndClumpifySucceedsWhenProjectPathContainsSpaces() async throws {
         let runner = NativeToolRunner.shared
         guard (try? await runner.toolPath(for: .clumpify)) != nil else {
-            throw XCTSkip("Managed clumpify is not available")
+            try ToolAvailability.skipOrFail("Managed clumpify is not available")
         }
 
         let fm = FileManager.default

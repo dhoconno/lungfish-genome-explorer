@@ -82,9 +82,103 @@ class CIWorkflowTests(unittest.TestCase):
             "Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|"
             "NativeToolRunnerTests|MAFFTAlignmentPipelineTests|"
             "ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|"
-            "BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests"
+            "BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|"
+            "FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|"
+            "GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|"
+            "FastqGenotypingCommandTests|PrimerTrimThenIVarTests|"
+            "ExtractReadsByIdBAMProcessTests"
         )
         self.assertIn(expected_filter, steps)
+
+    def test_ci_filter_and_gate_allowlist_name_the_same_suites(self):
+        """The job filter and the gate's --require-tools allowlist must agree.
+
+        A suite in the filter but not the allowlist can skip silently under
+        --require-tools; a suite in the allowlist but not the filter never
+        runs in this job, so its skips are never checked at all.
+        """
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        gate = (ROOT / "scripts/full-suite-gate.sh").read_text(encoding="utf-8")
+
+        # Class names the allowlist regex enumerates, minus the generic
+        # ".*Conformance.*" alternative that the filter spells "Conformance".
+        allowlist_line = next(
+            line for line in gate.splitlines() if line.startswith("CONFORMANCE_ALLOWLIST=")
+        )
+        allowlist_names = {
+            name
+            for name in allowlist_line.split("(", 1)[1].split(")", 1)[0].split("|")
+            if name.endswith("Tests")
+        }
+
+        filter_line = next(line for line in steps.split("\n") if "--filter" in line)
+        filter_names = {
+            name
+            for name in filter_line.split("'")[1].split("|")
+            if name.endswith("Tests")
+        }
+
+        # MAFFTAlignmentPipelineTests is deliberately in the filter only: its
+        # sole skip guards fixture creation, not tool availability.
+        filter_only_by_design = {"MAFFTAlignmentPipelineTests"}
+        self.assertEqual(
+            allowlist_names - filter_names,
+            set(),
+            "suites in the gate allowlist but missing from the CI filter never run in this job",
+        )
+        self.assertEqual(
+            filter_names - allowlist_names - filter_only_by_design,
+            set(),
+            "suites in the CI filter but missing from the gate allowlist can skip silently",
+        )
+
+    def test_toolset_conformance_provisions_variant_calling_pack(self):
+        # ivar/lofreq back ReadsToVariantsEndToEndTests and
+        # BAMPrimerTrimSubcommandTests, both of which the filter runs.
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("conda install --pack variant-calling", steps)
+
+    def test_toolset_conformance_provisions_the_deacon_panhuman_index(self):
+        # RecipeIntegrationTests needs it, and it is a managedData entry that
+        # `db download` does not cover.
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("db install-managed deacon-panhuman", steps)
+
+    def test_toolset_conformance_installs_parity_test_python_dependencies(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("pip install numpy biopython scipy pandas", steps)
+        # The parity test resolves python via `/usr/bin/env python3`, so the
+        # venv only helps if it is on PATH.
+        self.assertIn("GITHUB_PATH", steps)
+
+    def test_provisioning_precedes_the_conformance_run(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        runs = [step.get("run", "") for step in job["steps"]]
+        gate_index = next(
+            index for index, run in enumerate(runs) if "full-suite-gate.sh --require-tools" in run
+        )
+        for needle in (
+            "conda install --pack variant-calling",
+            "db install-managed deacon-panhuman",
+            "pip install numpy biopython scipy pandas",
+        ):
+            provision_index = next(
+                index for index, run in enumerate(runs) if needle in run
+            )
+            self.assertLess(
+                provision_index,
+                gate_index,
+                f"{needle!r} must run before the conformance suites",
+            )
 
     def test_toolset_conformance_runs_golden_diff(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")

@@ -27,7 +27,7 @@ final class ExtractReadsByIdBAMProcessTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         guard let located = BamFixtureBuilder.locateSamtools() else {
-            throw XCTSkip("samtools not available in test environment")
+            try ToolAvailability.skipOrFail("samtools not available in test environment")
         }
         samtoolsPath = located
         tempDir = FileManager.default.temporaryDirectory

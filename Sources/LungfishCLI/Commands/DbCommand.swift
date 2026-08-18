@@ -37,8 +37,107 @@ struct DbCommand: AsyncParsableCommand {
             DbRemoveSubcommand.self,
             DbRecommendSubcommand.self,
             DbUpdateSubcommand.self,
+            DbInstallManagedSubcommand.self,
         ]
     )
+}
+
+// MARK: - db install-managed
+
+extension DbCommand {
+
+    /// Installs a managed user-data database (the `managedData` entries in the
+    /// dependency manifest) by its identifier.
+    ///
+    /// These are not Kraken2 catalog databases, so `db download` does not cover
+    /// them: they are host-depletion and rRNA indexes that the app installs on
+    /// demand through `DatabaseRegistry.installManagedDatabase`. Provisioning
+    /// them from a script (the `toolset-conformance` CI job needs
+    /// `deacon-panhuman` before `RecipeIntegrationTests` can run) previously had
+    /// no CLI entry point at all.
+    struct DbInstallManagedSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "install-managed",
+            abstract: "Install a managed user-data database by identifier",
+            discussion: """
+            Installs one of the managed user-data databases declared in the
+            dependency manifest's managedData section, such as the Deacon
+            panhuman host-depletion index.
+
+            Already-installed databases are reported and left alone unless
+            --reinstall is given. Use --list to print the known identifiers
+            without installing anything.
+
+            Exit codes:
+              0   the database is installed (or was already)
+              2   usage error, such as an unknown identifier
+              1   the installation failed
+
+            Examples:
+              lungfish conda db install-managed --list
+              lungfish conda db install-managed deacon-panhuman
+            """
+        )
+
+        @Argument(help: "Managed database identifier (e.g., 'deacon-panhuman')")
+        var databaseID: String?
+
+        @Flag(name: .customLong("list"), help: "List the known managed database identifiers and exit")
+        var list: Bool = false
+
+        @Flag(name: .customLong("reinstall"), help: "Reinstall even if the database is already present")
+        var reinstall: Bool = false
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let registry = DatabaseRegistry.shared
+
+            if list {
+                for id in DatabaseRegistry.knownIDs {
+                    print(id)
+                }
+                return
+            }
+
+            guard let databaseID else {
+                print(formatter.error("Specify a managed database identifier, or --list to see them"))
+                throw CLIExitCode.usage.exitCode
+            }
+
+            let canonicalID = DatabaseRegistry.canonicalDatabaseID(for: databaseID)
+            guard DatabaseRegistry.knownIDs.contains(canonicalID) else {
+                print(formatter.error("Unknown managed database '\(databaseID)'"))
+                print(formatter.info("Known identifiers: \(DatabaseRegistry.knownIDs.joined(separator: ", "))"))
+                throw CLIExitCode.inputError.exitCode
+            }
+
+            if !reinstall, let existing = await registry.effectiveDatabasePath(for: canonicalID) {
+                print(formatter.success("Managed database '\(canonicalID)' is already installed"))
+                print(formatter.info("Location: \(existing.path)"))
+                return
+            }
+
+            print(formatter.header("Installing managed database: \(canonicalID)"))
+            do {
+                let installed = try await registry.installManagedDatabase(
+                    canonicalID,
+                    reinstall: reinstall
+                ) { fraction, message in
+                    guard !globalOptions.quiet else { return }
+                    print("\r\(formatter.info("[\(Int((fraction * 100).rounded()))%] \(message)"))", terminator: "")
+                }
+                print("")
+                print(formatter.success("Managed database '\(canonicalID)' installed"))
+                print(formatter.info("Location: \(installed.path)"))
+            } catch {
+                print("")
+                print(formatter.error("Failed to install '\(canonicalID)': \(error.localizedDescription)"))
+                throw CLIExitCode.dependency.exitCode
+            }
+        }
+    }
 }
 
 // MARK: - db list

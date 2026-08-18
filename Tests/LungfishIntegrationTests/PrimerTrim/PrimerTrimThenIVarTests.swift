@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 @testable import LungfishApp
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 /// Walks the full chain: run `BAMPrimerTrimPipeline`, wrap the trimmed BAM
 /// (alongside the provenance sidecar the pipeline wrote next to it) into a
@@ -67,7 +68,7 @@ final class PrimerTrimThenIVarTests: XCTestCase {
         } catch let err as NativeToolError {
             switch err {
             case .toolNotFound, .toolsDirectoryNotFound:
-                throw XCTSkip("ivar/samtools not installed in ~/.lungfish; skipping integration test. \(err)")
+                try ToolAvailability.skipOrFail("ivar/samtools not installed in ~/.lungfish: \(err)")
             default:
                 throw err
             }

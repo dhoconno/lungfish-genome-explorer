@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQOperationRoundTripTests: XCTestCase {
 
@@ -9,7 +10,7 @@ final class FASTQOperationRoundTripTests: XCTestCase {
         do {
             _ = try await NativeToolRunner.shared.toolPath(for: tool)
         } catch NativeToolError.toolNotFound {
-            throw XCTSkip("Managed \(tool.rawValue) is not available")
+            try ToolAvailability.skipOrFail("Managed \(tool.rawValue) is not available")
         }
     }
 

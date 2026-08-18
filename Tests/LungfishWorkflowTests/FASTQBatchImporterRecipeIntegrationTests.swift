@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 import LungfishIO
+import LungfishTestSupport
 
 private final class FASTQBatchImporterRecipeEventCollector: @unchecked Sendable {
     private let lock = NSLock()
@@ -208,7 +209,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
     func testRunBatchImportVSP2RetainsDeaconSummaryArtifactAndProvenance() async throws {
         try await requireManagedTools([.fastp, .seqkit, .deacon])
         guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
-            throw XCTSkip("Deacon human-read removal index not installed")
+            try ToolAvailability.skipOrFail("Deacon human-read removal index (deacon-panhuman) not installed")
         }
         let recipe = try XCTUnwrap(
             RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
@@ -390,7 +391,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
     private func requireManagedTools(_ tools: [NativeTool]) async throws {
         for tool in tools {
             guard (try? await runner.toolPath(for: tool)) != nil else {
-                throw XCTSkip("Managed \(tool.rawValue) is not available")
+                try ToolAvailability.skipOrFail("Managed \(tool.rawValue) is not available")
             }
         }
     }

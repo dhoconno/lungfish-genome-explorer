@@ -57,12 +57,21 @@ LOG="$LOG_DIR/gate-${STAMP}-${SHA}.log"
 # --require-tools "no skips allowed" check. Keep in sync with the conformance suites
 # added under Tests/LungfishWorkflowTests/Conformance/ and the tool/DB-heavy
 # integration suites that ToolAvailability.skipOrFail now gates.
+#
+# The suites span four test targets (LungfishWorkflowTests, LungfishAppTests,
+# LungfishCLITests, LungfishIntegrationTests), so the target component is
+# matched loosely and the class name carries the selection.
+#
 # NOTE: ClassificationPipelineIntegrationTests (not ClassificationPipelineTests,
 # which is a sibling class in the same file with no tool/DB skips) is the class
 # that actually holds the kraken2/micromamba/database skips. MAFFTAlignmentPipelineTests
 # is deliberately excluded: its one XCTSkip guards a /usr/bin/gzip fixture-creation
 # failure, not tool/DB availability, so it must never gate --require-tools.
-CONFORMANCE_ALLOWLIST="Test Case '-\[LungfishWorkflowTests\.(.*Conformance.*|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|ClassificationPipelineIntegrationTests)[^]]*\]' skipped"
+# FastqGenotypingCommandTests and PrimerTrimThenIVarTests also carry non-tool
+# skips (missing fixtures); those remain plain XCTSkip and so are reported as
+# skips here, which is intended -- only the tool/DB skips route through
+# skipOrFail and become failures under --require-tools.
+CONFORMANCE_ALLOWLIST="Test Case '-\[[A-Za-z]+\.(.*Conformance.*|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests)[^]]*\]' skipped"
 
 run_gate() {
     {
