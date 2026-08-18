@@ -184,35 +184,81 @@ def version_key(version):
             key.append((1, int(segment), ""))
             continue
         # Split a mixed segment such as "0rc1" into its numeric head and tail so
-        # the numeric part still compares numerically, and the tail sorts below
-        # the release marker appended by _padded_key.
+        # the numeric part still compares numerically, and the tail is ranked as
+        # a pre- or post-release marker.
         match = re.match(r"^(\d+)(.*)$", segment)
         if match:
             key.append((1, int(match.group(1)), ""))
-            key.append((-1, 0, match.group(2).lower()))
+            key.append(_suffix_segment(match.group(2)))
         else:
-            key.append((-1, 0, segment.lower()))
+            key.append(_suffix_segment(segment))
     return tuple(key)
 
 
-# Sorts above any pre-release suffix (-1, ...) and below any real segment.
+# Suffixes that mark a version as *earlier* than the bare release. Anything else
+# (bioconda's "3.1p1" patch releases, Debian-style "1.2ubuntu1") is a post
+# release and therefore sorts above the bare release.
+_PRERELEASE_MARKERS = ("a", "b", "c", "rc", "alpha", "beta", "dev", "pre", "preview")
+
+
+def _suffix_segment(text):
+    """Rank a non-numeric suffix below (-1) or above (2) the bare release."""
+    lowered = text.lower()
+    leading_alpha = re.match(r"^[a-z]*", lowered).group(0)
+    if leading_alpha in _PRERELEASE_MARKERS:
+        return (-1, 0, lowered)
+    return (2, 0, lowered)
+
+
+# A numeric zero segment, i.e. what an omitted trailing segment means.
+_ZERO_SEGMENT = (1, 0, "")
+
+# Padding for the shorter of two normalized keys. Ranked above a pre-release
+# suffix (-1, ...) and below any real numeric segment (1, ...), so a bare
+# release beats its own pre-release without outranking a higher version.
 _RELEASE_MARKER = (0, 0, "")
 
 
-def _padded_key(version, length):
-    key = version_key(version)
-    return key + (_RELEASE_MARKER,) * (length - len(key))
+def _normalized_key(version):
+    """``version_key`` with insignificant trailing zero segments dropped.
+
+    An omitted trailing numeric segment means zero, so ``1.24`` and ``1.24.0``
+    must compare equal, as must ``4.6.2`` and ``4.6.2.0`` (the manifest pins
+    gatk4 as ``4.6.2.0``).
+
+    A pre-release suffix is held aside while the numeric prefix is trimmed, so
+    ``1.0.0rc1`` normalizes to ``1`` + ``rc1`` rather than keeping the zeros its
+    suffix would otherwise pin in place. Without that, ``1.0.0`` would shorten
+    to ``1`` while ``1.0.0rc1`` stayed four segments long, and the pre-release
+    would compare as the greater of the two.
+    """
+    key = list(version_key(version))
+    suffix = []
+    if key and key[-1][0] in (-1, 2):
+        suffix = [key.pop()]
+    while key and key[-1] == _ZERO_SEGMENT:
+        key.pop()
+    return tuple(key + suffix)
 
 
 def compare_versions(left, right):
-    """Three-way comparison of two version strings using ``version_key``.
+    """Three-way comparison of two version strings.
 
-    Keys are padded to equal length so a bare release compares correctly
-    against a longer pre-release of the same version.
+    Trailing zero segments are insignificant (``1.24 == 1.24.0``), while a
+    trailing alphabetic suffix marks a pre-release and sorts *below* the bare
+    release (``1.0.0 > 1.0.0rc1``). A conda-style ``-N`` build suffix is a
+    numeric segment like any other, so ``2.0.5-0 == 2.0.5`` and
+    ``2.0.5-1 > 2.0.5``.
+
+    Normalized keys can still differ in length (a pre-release keeps its suffix
+    segment), so the shorter key is padded with ``_RELEASE_MARKER``, which
+    outranks a pre-release suffix but is below any real numeric segment.
     """
-    length = max(len(version_key(left)), len(version_key(right)))
-    left_key = _padded_key(left, length)
-    right_key = _padded_key(right, length)
+    left_key = _normalized_key(left)
+    right_key = _normalized_key(right)
+    length = max(len(left_key), len(right_key))
+    left_key += (_RELEASE_MARKER,) * (length - len(left_key))
+    right_key += (_RELEASE_MARKER,) * (length - len(right_key))
     if left_key < right_key:
         return -1
     return 1 if left_key > right_key else 0

@@ -151,10 +151,45 @@ class CheckUpstreamTests(unittest.TestCase):
     def test_compare_versions_ranks_release_above_prerelease(self):
         self.assertEqual(us.compare_versions("1.0.0", "1.0.0rc1"), 1)
         self.assertEqual(us.compare_versions("1.0.0rc1", "1.0.0"), -1)
+        self.assertEqual(us.compare_versions("1.0.0a1", "1.0.0b1"), -1)
+        self.assertEqual(us.compare_versions("1.0.0beta", "1.0.0"), -1)
         self.assertEqual(us.compare_versions("1.24", "1.23.1"), 1)
         self.assertEqual(us.compare_versions("2.17.1", "2.1.6"), 1)
         self.assertEqual(us.compare_versions("40.02", "39.80"), 1)
         self.assertEqual(us.compare_versions("1.23.1", "1.23.1"), 0)
+
+    def test_trailing_zero_segments_are_insignificant(self):
+        # An omitted trailing numeric segment means zero. gatk4 is pinned as
+        # "4.6.2.0" while bioconda reports "4.6.2", and these must not be read
+        # as a version difference.
+        self.assertEqual(us.compare_versions("1.24", "1.24.0"), 0)
+        self.assertEqual(us.compare_versions("1.24.0", "1.24"), 0)
+        self.assertEqual(us.compare_versions("4.6.2.0", "4.6.2"), 0)
+        self.assertEqual(us.compare_versions("4.6.2", "4.6.2.0"), 0)
+        self.assertEqual(us.compare_versions("1.0", "1.0.0.0"), 0)
+
+    def test_compare_versions_required_orderings(self):
+        self.assertEqual(us.compare_versions("1.24", "1.24.1"), -1)
+        self.assertEqual(us.compare_versions("1.0.0", "3.0.1"), -1)
+        self.assertEqual(us.compare_versions("40.02", "39.80"), 1)
+        self.assertEqual(us.compare_versions("2.17.1", "2.1.6"), 1)
+        self.assertEqual(us.compare_versions("4.6.2.0", "4.6.3"), -1)
+
+    def test_conda_build_suffix_is_just_another_numeric_segment(self):
+        # Documented decision: a conda "-N" build suffix is parsed as a normal
+        # numeric segment, so "-0" is equal to no suffix and "-1" is newer.
+        self.assertEqual(us.compare_versions("2.0.5-0", "2.0.5"), 0)
+        self.assertEqual(us.compare_versions("2.0.5-1", "2.0.5"), 1)
+        self.assertEqual(us.compare_versions("2.9.0-0", "2.0.5-0"), 1)
+
+    def test_post_release_suffix_outranks_the_bare_release(self):
+        # bioconda ships bracken "3.1p1" as a patch on top of "3.1"; only known
+        # pre-release markers may sort below the bare release.
+        self.assertEqual(us.compare_versions("3.1p1", "3.1"), 1)
+        self.assertEqual(us.compare_versions("3.1p1", "3.2"), -1)
+        self.assertEqual(
+            max(["3.0", "3.1", "3.1p1"], key=us.ComparableVersion), "3.1p1"
+        )
 
     # -------------------------------------------------------------- kraken2
 
@@ -174,6 +209,42 @@ class CheckUpstreamTests(unittest.TestCase):
         d = us.kraken2_latest_dates(self.f)
         self.assertEqual(d["eupathdb46"]["date"], "20230407")
         self.assertEqual(d["eupathdb46"]["url"], f"{K2}/k2_eupathdb48_20230407.tar.gz")
+
+    def test_kraken2_sibling_date_fallback_when_capped_listing_lags(self):
+        """The page lags the bucket for size-capped collections.
+
+        In this fixture the uncapped collections advertise 20260626 while the
+        capped ones stop at 20250402 and only ever use the legacy ``08gb``
+        spelling. Trusting the page alone would pin standard-8 two years stale;
+        taking the date from the uncapped sibling and probing both spellings
+        finds the live ``_08_GB_`` URL instead.
+        """
+        self.f.texts["https://benlangmead.github.io/aws-indexes/k2"] = (
+            FIX / "kraken2-index-page-lagging.html"
+        ).read_text(encoding="utf-8")
+        d = us.kraken2_latest_dates(self.f)
+
+        self.assertEqual(d["standard-8"]["date"], "20260626")
+        self.assertEqual(
+            d["standard-8"]["url"], f"{K2}/k2_standard_08_GB_20260626.tar.gz"
+        )
+        self.assertEqual(
+            d["standard-16"]["url"], f"{K2}/k2_standard_16_GB_20260626.tar.gz"
+        )
+        self.assertEqual(
+            d["pluspf-8"]["url"], f"{K2}/k2_pluspf_08_GB_20260626.tar.gz"
+        )
+        # The stale date the page advertised must not win.
+        self.assertNotIn("20250402", d["standard-8"]["url"])
+
+    def test_kraken2_falls_back_to_legacy_spelling_when_that_is_what_exists(self):
+        """If only the legacy ``08gb`` URL responds, that is the one reported."""
+        self.f.heads.discard(f"{K2}/k2_standard_08_GB_20260626.tar.gz")
+        self.f.heads.add(f"{K2}/k2_standard_08gb_20260626.tar.gz")
+        d = us.kraken2_latest_dates(self.f)
+        self.assertEqual(
+            d["standard-8"]["url"], f"{K2}/k2_standard_08gb_20260626.tar.gz"
+        )
 
     def test_kraken2_collection_without_a_live_probe_is_omitted(self):
         self.f.heads.discard(f"{K2}/k2_viral_20260626.tar.gz")
