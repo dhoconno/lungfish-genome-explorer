@@ -598,11 +598,254 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
 
 // MARK: - Samtools Output Parsers
 
+/// Errors raised by the static samtools output parsers.
+public enum SamtoolsOutputParseError: Error, LocalizedError, Sendable, Equatable {
+
+    /// The output contained no parseable rows.
+    case emptyOutput(String)
+
+    /// An `idxstats` row did not have the four expected fields.
+    case malformedIdxstatsRow(line: Int, content: String)
+
+    /// The text was not valid JSON, or was JSON of an unexpected shape.
+    case invalidJSON(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyOutput(let tool):
+            return "samtools \(tool) produced no parseable output"
+        case .malformedIdxstatsRow(let line, let content):
+            return "samtools idxstats line \(line) is malformed: '\(content)'"
+        case .invalidJSON(let detail):
+            return "samtools flagstat JSON could not be parsed: \(detail)"
+        }
+    }
+}
+
+/// One row of `samtools idxstats` output.
+public struct IdxstatsRow: Sendable, Equatable {
+
+    /// Reference sequence name. `*` is the unmapped-reads summary row.
+    public let chromosome: String
+
+    /// Reference sequence length in bases.
+    public let length: Int64
+
+    /// Reads mapped to this reference.
+    public let mappedReads: Int64
+
+    /// Reads placed on this reference but unmapped.
+    public let unmappedReads: Int64
+
+    public init(chromosome: String, length: Int64, mappedReads: Int64, unmappedReads: Int64) {
+        self.chromosome = chromosome
+        self.length = length
+        self.mappedReads = mappedReads
+        self.unmappedReads = unmappedReads
+    }
+}
+
+/// A parsed `samtools flagstat` report.
+///
+/// Values are keyed by flagstat's own category names so that a samtools release
+/// adding a category is carried through rather than dropped, while the counts
+/// the app actually reads are exposed as named properties.
+public struct FlagstatSummary: Sendable, Equatable {
+
+    /// QC-passed and QC-failed counts for a single flagstat category.
+    public struct Counts: Sendable, Equatable {
+        public let qcPass: Int64
+        public let qcFail: Int64
+
+        public init(qcPass: Int64, qcFail: Int64) {
+            self.qcPass = qcPass
+            self.qcFail = qcFail
+        }
+    }
+
+    /// Every category flagstat reported, keyed by category name (`total`,
+    /// `mapped`, `duplicates`, ...).
+    public let categories: [String: Counts]
+
+    public init(categories: [String: Counts]) {
+        self.categories = categories
+    }
+
+    /// QC-passed count for a category, or `nil` when flagstat did not report it.
+    public func count(_ category: String) -> Int64? {
+        categories[category]?.qcPass
+    }
+
+    /// QC-passed reads in total.
+    public var totalReads: Int64 { count("total") ?? 0 }
+
+    /// QC-passed mapped reads.
+    public var mappedReads: Int64 { count("mapped") ?? 0 }
+
+    /// QC-passed duplicate reads.
+    public var duplicateReads: Int64 { count("duplicates") ?? 0 }
+
+    /// QC-passed properly paired reads.
+    public var properlyPaired: Int64 { count("properly paired") ?? 0 }
+}
+
 extension AlignmentMetadataDatabase {
+
+    // MARK: - Static Parsers
+
+    /// Parses `samtools idxstats` output.
+    ///
+    /// Each row has: `refName\tseqLength\tmappedReads\tunmappedReads`. The `*`
+    /// summary row is returned like any other row; callers that populate
+    /// per-chromosome tables filter it out.
+    ///
+    /// - Parameter text: Raw stdout from `samtools idxstats`.
+    /// - Returns: One row per reference sequence, in output order.
+    /// - Throws: ``SamtoolsOutputParseError`` when the output is empty or a row
+    ///   does not have four fields.
+    public static func parseIdxstats(_ text: String) throws -> [IdxstatsRow] {
+        var rows: [IdxstatsRow] = []
+        var lineNumber = 0
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            lineNumber += 1
+            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if raw.isEmpty { continue }
+
+            let fields = raw.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count >= 4 else {
+                throw SamtoolsOutputParseError.malformedIdxstatsRow(line: lineNumber, content: raw)
+            }
+
+            rows.append(IdxstatsRow(
+                chromosome: String(fields[0]),
+                length: Int64(fields[1].trimmingCharacters(in: .whitespaces)) ?? 0,
+                mappedReads: Int64(fields[2].trimmingCharacters(in: .whitespaces)) ?? 0,
+                unmappedReads: Int64(fields[3].trimmingCharacters(in: .whitespaces)) ?? 0
+            ))
+        }
+
+        guard !rows.isEmpty else {
+            throw SamtoolsOutputParseError.emptyOutput("idxstats")
+        }
+        return rows
+    }
+
+    /// Parses the default (human-readable) `samtools flagstat` output.
+    ///
+    /// Each line looks like `12345 + 0 mapped (99.50% : N/A)`.
+    ///
+    /// - Parameter text: Raw stdout from `samtools flagstat`.
+    /// - Returns: The parsed summary.
+    /// - Throws: ``SamtoolsOutputParseError/emptyOutput(_:)`` when no line parsed.
+    public static func parseFlagstat(_ text: String) throws -> FlagstatSummary {
+        var categories: [String: FlagstatSummary.Counts] = [:]
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { continue }
+
+            // Expected pattern: "<pass> + <fail> <category text>"
+            let components = raw.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard components.count >= 4,
+                  let qcPass = Int64(components[0]),
+                  components[1] == "+",
+                  let qcFail = Int64(components[2]) else {
+                continue
+            }
+
+            let category = normalizeFlagstatCategory(String(components[3]))
+            guard !category.isEmpty else { continue }
+
+            categories[category] = FlagstatSummary.Counts(qcPass: qcPass, qcFail: qcFail)
+        }
+
+        guard !categories.isEmpty else {
+            throw SamtoolsOutputParseError.emptyOutput("flagstat")
+        }
+        return FlagstatSummary(categories: categories)
+    }
+
+    /// Parses `samtools flagstat -O json` output.
+    ///
+    /// The JSON form is preferred where available because it is not sensitive to
+    /// the wording of the human-readable lines.
+    ///
+    /// - Parameter json: Raw stdout from `samtools flagstat -O json`.
+    /// - Returns: The parsed summary.
+    /// - Throws: ``SamtoolsOutputParseError/invalidJSON(_:)`` when the text is
+    ///   not JSON or lacks a `QC-passed reads` object.
+    public static func parseFlagstat(json: String) throws -> FlagstatSummary {
+        guard let data = json.data(using: .utf8) else {
+            throw SamtoolsOutputParseError.invalidJSON("output is not UTF-8")
+        }
+
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            throw SamtoolsOutputParseError.invalidJSON(error.localizedDescription)
+        }
+
+        guard let root = object as? [String: Any] else {
+            throw SamtoolsOutputParseError.invalidJSON("top level is not an object")
+        }
+        guard let passed = root["QC-passed reads"] as? [String: Any] else {
+            throw SamtoolsOutputParseError.invalidJSON("missing 'QC-passed reads' object")
+        }
+        let failed = root["QC-failed reads"] as? [String: Any] ?? [:]
+
+        /// Reads an integer count, ignoring the `... %` percentage entries.
+        func intCount(_ container: [String: Any], _ key: String) -> Int64? {
+            guard let value = container[key] else { return nil }
+            if let number = value as? NSNumber { return number.int64Value }
+            if let string = value as? String { return Int64(string) }
+            return nil
+        }
+
+        var categories: [String: FlagstatSummary.Counts] = [:]
+        let names = Set(passed.keys).union(failed.keys)
+        for name in names where !name.hasSuffix(" %") {
+            let pass = intCount(passed, name)
+            let fail = intCount(failed, name)
+            guard pass != nil || fail != nil else { continue }
+            categories[name] = FlagstatSummary.Counts(qcPass: pass ?? 0, qcFail: fail ?? 0)
+        }
+
+        guard !categories.isEmpty else {
+            throw SamtoolsOutputParseError.invalidJSON("no numeric categories present")
+        }
+        return FlagstatSummary(categories: categories)
+    }
+
+    /// Maps a raw flagstat category phrase to the stable key used in the
+    /// `flag_stats` table and in ``FlagstatSummary``.
+    static func normalizeFlagstatCategory(_ raw: String) -> String {
+        var category = raw
+        // Strip trailing percentages/notes in parentheses for stable category keys.
+        if let parenIndex = category.firstIndex(of: "(") {
+            let parenContent = category[parenIndex...]
+            // Strip trailing percentages/format notes like "(97.20% : N/A)",
+            // but keep semantic qualifiers like "(mapQ>=5)".
+            if parenContent.contains("%") || parenContent.localizedCaseInsensitiveContains("N/A") {
+                category = String(category[..<parenIndex]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        if category == "in total" || category.hasPrefix("in total ") {
+            category = "total"
+        }
+        return category
+    }
+
+    // MARK: - Populate
 
     /// Parses `samtools idxstats` output and populates chromosome_stats table.
     ///
     /// Each line of idxstats output has: refName\tseqLength\tmappedReads\tunmappedReads
+    ///
+    /// Malformed rows are tolerated here (skipped) because this path runs during
+    /// import where a partial table is better than a failed import. Use
+    /// ``parseIdxstats(_:)`` when a format change should be surfaced.
     public func populateFromIdxstats(_ output: String) {
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             let fields = line.split(separator: "\t")
@@ -618,38 +861,19 @@ extension AlignmentMetadataDatabase {
 
     /// Parses `samtools flagstat` output and populates flag_stats table.
     ///
-    /// Each line of flagstat output looks like: "12345 + 0 mapped (99.50% : N/A)"
+    /// Accepts either the human-readable text form or the `-O json` form.
+    /// Unparseable output leaves the table empty rather than failing the import.
     public func populateFromFlagstat(_ output: String) {
-        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !raw.isEmpty else { continue }
+        let summary: FlagstatSummary?
+        if let fromJSON = try? Self.parseFlagstat(json: output) {
+            summary = fromJSON
+        } else {
+            summary = try? Self.parseFlagstat(output)
+        }
+        guard let summary else { return }
 
-            // Expected pattern: "<pass> + <fail> <category text>"
-            // Example: "12345 + 0 mapped (99.50% : N/A)"
-            let components = raw.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
-            guard components.count >= 4,
-                  let qcPass = Int64(components[0]),
-                  components[1] == "+",
-                  let qcFail = Int64(components[2]) else {
-                continue
-            }
-
-            var category = String(components[3])
-            // Strip trailing percentages/notes in parentheses for stable category keys.
-            if let parenIndex = category.firstIndex(of: "(") {
-                let parenContent = category[parenIndex...]
-                // Strip trailing percentages/format notes like "(97.20% : N/A)",
-                // but keep semantic qualifiers like "(mapQ>=5)".
-                if parenContent.contains("%") || parenContent.localizedCaseInsensitiveContains("N/A") {
-                    category = String(category[..<parenIndex]).trimmingCharacters(in: .whitespaces)
-                }
-            }
-            if category == "in total" || category.hasPrefix("in total ") {
-                category = "total"
-            }
-            guard !category.isEmpty else { continue }
-
-            addFlagStat(category: category, qcPass: qcPass, qcFail: qcFail)
+        for (category, counts) in summary.categories {
+            addFlagStat(category: category, qcPass: counts.qcPass, qcFail: counts.qcFail)
         }
     }
 

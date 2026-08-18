@@ -633,4 +633,62 @@ final class KreportParserTests: XCTestCase {
         XCTAssertTrue(desc.contains("classified: 9900"))
         XCTAssertTrue(desc.contains("unclassified: 100"))
     }
+
+    // MARK: - Explicit Column-Count Acceptance (B7 parser hardening)
+
+    /// A kreport-shaped line with an unexpected column count must throw rather
+    /// than being silently misread by a positional heuristic.
+    func testRejectsUnexpectedColumnCountExplicitly() {
+        let bad = "  1.00\t1\t1\tU\t0\tunclassified\textra1\textra2\textra3\n"
+        XCTAssertThrowsError(try KreportParser.parse(text: bad)) { error in
+            guard let kreportError = error as? KreportParserError else {
+                return XCTFail("Expected KreportParserError, got \(error)")
+            }
+            guard case .unexpectedColumnCount(let count, let line) = kreportError else {
+                return XCTFail("Expected .unexpectedColumnCount, got \(kreportError)")
+            }
+            XCTAssertEqual(count, 9)
+            XCTAssertEqual(line, 1)
+        }
+    }
+
+    /// A seven-column form is not a kraken2 format we know about.
+    func testRejectsSevenColumnForm() {
+        let bad = " 50.00\t5\t5\t7\tU\t0\tunclassified\n"
+        XCTAssertThrowsError(try KreportParser.parse(text: bad)) { error in
+            XCTAssertTrue(error is KreportParserError)
+        }
+    }
+
+    /// Both the standard 6-column report and the 8-column
+    /// `--report-minimizer-data` report must parse.
+    func testAcceptsSixAndEightColumnForms() throws {
+        XCTAssertNoThrow(try KreportParser.parse(text: " 50.00\t5\t5\tU\t0\tunclassified\n 50.00\t5\t0\tR\t1\troot\n"))
+        XCTAssertNoThrow(try KreportParser.parse(text: " 50.00\t5\t5\t7\t7\tU\t0\tunclassified\n 50.00\t5\t0\t7\t7\tR\t1\troot\n"))
+    }
+
+    /// The 8-column minimizer form must map rank/taxid/name from the right offsets.
+    func testEightColumnFormMapsFieldsCorrectly() throws {
+        let text = " 50.00\t5\t5\t7\t7\tU\t0\tunclassified\n" +
+                   " 50.00\t5\t0\t9\t9\tR\t1\troot\n" +
+                   " 50.00\t5\t5\t9\t9\tD\t2\t  Bacteria\n"
+        let tree = try KreportParser.parse(text: text)
+        XCTAssertEqual(tree.root.taxId, 1)
+        XCTAssertEqual(tree.root.name, "root")
+        XCTAssertEqual(tree.root.children.first?.name, "Bacteria")
+        XCTAssertEqual(tree.root.children.first?.taxId, 2)
+        XCTAssertEqual(tree.unclassifiedNode?.readsClade, 5)
+    }
+
+    /// Free-text junk that is not kreport-shaped is still skipped, not thrown,
+    /// so a stray log line in a report does not fail the whole parse.
+    func testNonKreportShapedLineIsStillSkipped() throws {
+        let text = """
+        100.00\t10000\t100\tR\t1\troot
+        this is not a valid line
+         90.00\t9000\t200\tD\t2\t  Bacteria
+        """
+        let tree = try KreportParser.parse(text: text)
+        XCTAssertEqual(tree.allNodes().count, 2)
+    }
 }

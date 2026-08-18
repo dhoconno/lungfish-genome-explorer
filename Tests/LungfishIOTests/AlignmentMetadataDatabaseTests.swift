@@ -428,4 +428,122 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         let stats = db.chromosomeStats()
         XCTAssertEqual(stats.count, 2, "Should skip malformed lines")
     }
+
+    // MARK: - Static Samtools Parsers (B7 parser hardening)
+
+    func testParseFlagstatTextReturnsSummary() throws {
+        let text = """
+        100 + 0 in total (QC-passed reads + QC-failed reads)
+        0 + 0 secondary
+        0 + 0 supplementary
+        2 + 0 duplicates
+        90 + 0 mapped (90.00% : N/A)
+        100 + 0 paired in sequencing
+        50 + 0 read1
+        50 + 0 read2
+        80 + 0 properly paired (80.00% : N/A)
+        """
+        let summary = try AlignmentMetadataDatabase.parseFlagstat(text)
+        XCTAssertEqual(summary.totalReads, 100)
+        XCTAssertEqual(summary.mappedReads, 90)
+        XCTAssertEqual(summary.duplicateReads, 2)
+        XCTAssertEqual(summary.properlyPaired, 80)
+        XCTAssertEqual(summary.categories["total"]?.qcPass, 100)
+        XCTAssertEqual(summary.categories["mapped"]?.qcPass, 90)
+    }
+
+    func testParseFlagstatEmptyTextThrows() {
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseFlagstat(""))
+    }
+
+    func testParseFlagstatJSON() throws {
+        let json = #"{"QC-passed reads":{"total":100,"mapped":90,"mapped %":90.0},"QC-failed reads":{"total":0}}"#
+        let s = try AlignmentMetadataDatabase.parseFlagstat(json: json)
+        XCTAssertEqual(s.totalReads, 100)
+        XCTAssertEqual(s.mappedReads, 90)
+    }
+
+    /// The JSON form carries QC-failed counts that the text form splits per line.
+    func testParseFlagstatJSONCapturesQCFailedCounts() throws {
+        let json = #"""
+        {
+          "QC-passed reads": { "total": 100, "mapped": 90, "duplicates": 3, "properly paired": 70 },
+          "QC-failed reads": { "total": 5, "mapped": 4, "duplicates": 1, "properly paired": 2 }
+        }
+        """#
+        let s = try AlignmentMetadataDatabase.parseFlagstat(json: json)
+        XCTAssertEqual(s.totalReads, 100)
+        XCTAssertEqual(s.mappedReads, 90)
+        XCTAssertEqual(s.duplicateReads, 3)
+        XCTAssertEqual(s.properlyPaired, 70)
+        XCTAssertEqual(s.categories["total"]?.qcFail, 5)
+        XCTAssertEqual(s.categories["mapped"]?.qcFail, 4)
+    }
+
+    func testParseFlagstatJSONRejectsNonJSON() {
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseFlagstat(json: "100 + 0 in total"))
+    }
+
+    func testParseFlagstatJSONRejectsJSONWithoutQCPassedSection() {
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseFlagstat(json: #"{"something":{"total":1}}"#))
+    }
+
+    /// Text and JSON forms of the same flagstat output must agree.
+    func testFlagstatJSONAndTextAgree() throws {
+        let text = """
+        100 + 0 in total (QC-passed reads + QC-failed reads)
+        90 + 0 mapped (90.00% : N/A)
+        """
+        let json = #"{"QC-passed reads":{"total":100,"mapped":90},"QC-failed reads":{"total":0,"mapped":0}}"#
+        let fromText = try AlignmentMetadataDatabase.parseFlagstat(text)
+        let fromJSON = try AlignmentMetadataDatabase.parseFlagstat(json: json)
+        XCTAssertEqual(fromText.totalReads, fromJSON.totalReads)
+        XCTAssertEqual(fromText.mappedReads, fromJSON.mappedReads)
+    }
+
+    func testParseIdxstatsReturnsRows() throws {
+        let text = """
+        chr1\t248956422\t1000\t10
+        chr2\t242193529\t2000\t20
+        *\t0\t0\t500
+        """
+        let rows = try AlignmentMetadataDatabase.parseIdxstats(text)
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows[0].chromosome, "chr1")
+        XCTAssertEqual(rows[0].length, 248_956_422)
+        XCTAssertEqual(rows[0].mappedReads, 1000)
+        XCTAssertEqual(rows[0].unmappedReads, 10)
+        XCTAssertEqual(rows[2].chromosome, "*")
+        XCTAssertEqual(rows[2].unmappedReads, 500)
+    }
+
+    func testParseIdxstatsThrowsOnMalformedRow() {
+        let text = """
+        chr1\t248956422\t1000\t10
+        chr2\t242193529
+        """
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseIdxstats(text))
+    }
+
+    func testParseIdxstatsThrowsOnEmptyOutput() {
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseIdxstats("   \n\n"))
+    }
+
+    /// The static parser and the populate path must produce the same numbers.
+    func testStaticIdxstatsParserMatchesPopulatePath() throws {
+        let text = """
+        chr1\t1000\t10\t1
+        chr2\t2000\t20\t2
+        *\t0\t0\t7
+        """
+        let db = try makeDatabase()
+        db.populateFromIdxstats(text)
+        let populated = db.chromosomeStats().sorted { $0.chromosome < $1.chromosome }
+        let parsed = try AlignmentMetadataDatabase.parseIdxstats(text)
+            .filter { $0.chromosome != "*" }
+            .sorted { $0.chromosome < $1.chromosome }
+        XCTAssertEqual(populated.map(\.chromosome), parsed.map(\.chromosome))
+        XCTAssertEqual(populated.map(\.mappedReads), parsed.map(\.mappedReads))
+        XCTAssertEqual(populated.map(\.unmappedReads), parsed.map(\.unmappedReads))
+    }
 }

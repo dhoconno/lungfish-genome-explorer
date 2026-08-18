@@ -680,13 +680,32 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
     /// Runs samtools flagstat on the alignment file.
     ///
-    /// Returns human-readable flag statistics.
+    /// Prefers `flagstat -O json`, whose field names are stable across samtools
+    /// releases, and falls back to the human-readable text form when the JSON
+    /// form is unavailable (samtools < 1.10) or does not produce JSON.
+    ///
+    /// Returns either JSON or human-readable flag statistics; both forms are
+    /// accepted by ``AlignmentMetadataDatabase/populateFromFlagstat(_:)``.
     public func fetchFlagstat() async throws -> String {
+        let jsonResult = try await runSamtools(
+            arguments: ["flagstat", "-O", "json", alignmentPath],
+            timeout: 120
+        )
+        if jsonResult.exitCode == 0, Self.looksLikeJSON(jsonResult.stdout) {
+            return jsonResult.stdout
+        }
+
         let result = try await runSamtools(arguments: ["flagstat", alignmentPath], timeout: 120)
         guard result.exitCode == 0 else {
             throw AlignmentFetchError.samtoolsFailed(result.stderr)
         }
         return result.stdout
+    }
+
+    /// Returns `true` when text begins with a JSON object, so the JSON flagstat
+    /// path is only taken when samtools actually emitted JSON.
+    static func looksLikeJSON(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
     }
 
     // MARK: - Fetch Depth

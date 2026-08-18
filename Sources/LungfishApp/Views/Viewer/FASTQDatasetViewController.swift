@@ -1664,30 +1664,21 @@ public final class FASTQDatasetViewController: NSViewController {
                     var _sumLen: Int64 = 0
                     var _avgLen = 0.0, _q20 = 0.0, _q30 = 0.0, _avgQual = 0.0, _gc = 0.0
 
-                    if seqkitResult.isSuccess {
-                        let lines = seqkitResult.stdout
-                            .split(whereSeparator: \.isNewline)
-                            .map(String.init)
-                            .filter { !$0.isEmpty }
-                        if lines.count >= 2 {
-                            let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-                            let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-                            if headers.count == values.count {
-                                var map: [String: String] = [:]
-                                for (h, v) in zip(headers, values) { map[h] = v }
-                                _numSeqs = Int(map["num_seqs"] ?? "") ?? 0
-                                _sumLen = Int64(map["sum_len"] ?? "") ?? 0
-                                _minLen = Int(map["min_len"] ?? "") ?? 0
-                                _avgLen = Double(map["avg_len"] ?? "") ?? 0
-                                _maxLen = Int(map["max_len"] ?? "") ?? 0
-                                _medianLen = Int(map["Q2"] ?? "") ?? 0
-                                _n50Len = Int(map["N50"] ?? "") ?? 0
-                                _q20 = Double(map["Q20(%)"] ?? "") ?? 0
-                                _q30 = Double(map["Q30(%)"] ?? "") ?? 0
-                                _avgQual = Double(map["AvgQual"] ?? "") ?? 0
-                                _gc = Double(map["GC(%)"] ?? "") ?? 0
-                            }
-                        }
+                    // Header-driven parsing: a seqkit release that adds or
+                    // reorders columns must not shift values between fields.
+                    if seqkitResult.isSuccess,
+                       let row = try? SeqkitStatsParser.parse(seqkitResult.stdout) {
+                        _numSeqs = row.numSeqs
+                        _sumLen = Int64(row.sumLen)
+                        _minLen = row.minLen
+                        _avgLen = row.avgLen
+                        _maxLen = row.maxLen
+                        _medianLen = row.q2.map { Int($0) } ?? 0
+                        _n50Len = row.n50.map { Int($0) } ?? 0
+                        _q20 = row.q20Percent ?? 0
+                        _q30 = row.q30Percent ?? 0
+                        _avgQual = row.avgQual ?? 0
+                        _gc = row.gcPercent ?? 0
                     }
                     numSeqs = _numSeqs; sumLen = _sumLen; minLen = _minLen; avgLen = _avgLen
                     maxLen = _maxLen; medianLen = _medianLen; n50Len = _n50Len

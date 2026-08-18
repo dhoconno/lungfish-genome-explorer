@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Foundation
 import XCTest
 @testable import LungfishIO
 
@@ -721,5 +722,80 @@ final class EsVirituParserTests: XCTestCase {
 
         XCTAssertEqual(a1, a2) // Same assembly accession
         XCTAssertEqual(a1.hashValue, a2.hashValue)
+    }
+
+    // MARK: - Header-Driven Column Resolution (B7 parser hardening)
+
+    /// An upstream EsViritu release that appends a column must not break parsing.
+    func testHeaderDrivenParsingToleratesExtraColumn() throws {
+        let header = EsVirituDetectionParser.requiredColumns.joined(separator: "\t") + "\tnew_upstream_col"
+        var cells = EsVirituDetectionParser.requiredColumns.map { _ in "x" } + ["y"]
+        // Fill numeric columns sensibly so the row parses.
+        cells[EsVirituDetectionParser.requiredColumns.firstIndex(of: "Length")!] = "1000"
+        cells[EsVirituDetectionParser.requiredColumns.firstIndex(of: "Asm_length")!] = "1000"
+        cells[EsVirituDetectionParser.requiredColumns.firstIndex(of: "read_count")!] = "12"
+        let text = header + "\n" + cells.joined(separator: "\t") + "\n"
+
+        let parsed = try EsVirituDetectionParser.parse(text: text)
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].readCount, 12)
+        XCTAssertEqual(parsed[0].length, 1000)
+    }
+
+    /// A reordered header must still map values to the right fields.
+    func testHeaderDrivenParsingToleratesReorderedColumns() throws {
+        var columns = EsVirituDetectionParser.requiredColumns
+        columns.reverse()
+        var cells = columns.map { _ in "x" }
+        cells[columns.firstIndex(of: "Length")!] = "500"
+        cells[columns.firstIndex(of: "Asm_length")!] = "900"
+        cells[columns.firstIndex(of: "read_count")!] = "42"
+        cells[columns.firstIndex(of: "Name")!] = "Some virus"
+        let text = columns.joined(separator: "\t") + "\n" + cells.joined(separator: "\t") + "\n"
+
+        let parsed = try EsVirituDetectionParser.parse(text: text)
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].readCount, 42)
+        XCTAssertEqual(parsed[0].length, 500)
+        XCTAssertEqual(parsed[0].assemblyLength, 900)
+        XCTAssertEqual(parsed[0].name, "Some virus")
+    }
+
+    /// A removed column must throw rather than silently dropping every row.
+    func testMissingRequiredColumnThrowsInsteadOfDroppingRows() {
+        let cols = EsVirituDetectionParser.requiredColumns.filter { $0 != "read_count" }
+        let text = cols.joined(separator: "\t") + "\n" + cols.map { _ in "x" }.joined(separator: "\t") + "\n"
+        XCTAssertThrowsError(try EsVirituDetectionParser.parse(text: text)) { error in
+            XCTAssertTrue("\(error)".contains("read_count"), "Expected error naming read_count, got: \(error)")
+        }
+    }
+
+    /// requiredColumns must match the real upstream header names, verified against
+    /// the checked-in EsViritu fixture.
+    func testRequiredColumnsMatchFixtureHeader() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // LungfishIOTests
+            .deletingLastPathComponent()   // Tests
+            .appendingPathComponent("Fixtures/esviritu-mini/SRR35517702/SRR35517702.detected_virus.info.tsv")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: fixture.path), "EsViritu fixture unavailable")
+
+        let contents = try String(contentsOf: fixture, encoding: .utf8)
+        guard let headerLine = contents.split(whereSeparator: \.isNewline).first else {
+            return XCTFail("Fixture has no header line")
+        }
+        let headerColumns = headerLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        XCTAssertEqual(headerColumns, EsVirituDetectionParser.requiredColumns)
+    }
+
+    /// The parser must still read the checked-in fixture end to end.
+    func testParsesCheckedInFixture() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/esviritu-mini/SRR35517702/SRR35517702.detected_virus.info.tsv")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: fixture.path), "EsViritu fixture unavailable")
+
+        let detections = try EsVirituDetectionParser.parse(url: fixture)
+        XCTAssertFalse(detections.isEmpty, "Fixture should yield at least one detection")
     }
 }

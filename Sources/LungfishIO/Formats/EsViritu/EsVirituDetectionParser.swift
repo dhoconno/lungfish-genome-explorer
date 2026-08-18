@@ -22,6 +22,12 @@ public enum EsVirituDetectionParserError: Error, LocalizedError, Sendable {
     /// A required column value could not be parsed on a specific line.
     case invalidColumnValue(line: Int, column: String, value: String)
 
+    /// The header line did not contain every column the parser needs.
+    ///
+    /// This is the signal that an upstream EsViritu release changed or dropped a
+    /// column, rather than the parser quietly emitting wrong values.
+    case missingColumns([String])
+
     public var errorDescription: String? {
         switch self {
         case .emptyFile:
@@ -30,6 +36,8 @@ public enum EsVirituDetectionParserError: Error, LocalizedError, Sendable {
             return "Cannot read EsViritu detection file at \(url.lastPathComponent): \(detail)"
         case .invalidColumnValue(let line, let column, let value):
             return "Invalid \(column) value '\(value)' on line \(line)"
+        case .missingColumns(let names):
+            return "EsViritu detection file is missing required column(s): \(names.joined(separator: ", "))"
         }
     }
 }
@@ -84,6 +92,39 @@ public enum EsVirituDetectionParserError: Error, LocalizedError, Sendable {
 /// side effects. They are safe to call from any isolation domain.
 public enum EsVirituDetectionParser {
 
+    /// The column names EsViritu writes in the `detected_virus.info.tsv` header,
+    /// in the order upstream emits them.
+    ///
+    /// Parsing is driven by these names rather than by fixed positions: when a
+    /// header line is present, extra and reordered columns are tolerated and a
+    /// missing name raises ``EsVirituDetectionParserError/missingColumns(_:)``.
+    /// Headerless input falls back to this order positionally.
+    public static let requiredColumns: [String] = [
+        "sample_ID",
+        "Name",
+        "description",
+        "Length",
+        "Segment",
+        "Accession",
+        "Assembly",
+        "Asm_length",
+        "kingdom",
+        "phylum",
+        "tclass",
+        "order",
+        "family",
+        "genus",
+        "species",
+        "subspecies",
+        "RPKMF",
+        "read_count",
+        "covered_bases",
+        "mean_coverage",
+        "avg_read_identity",
+        "Pi",
+        "filtered_reads_in_sample",
+    ]
+
     /// Expected minimum number of columns in each data row.
     private static let expectedColumnCount = 23
 
@@ -126,6 +167,7 @@ public enum EsVirituDetectionParser {
         var detections: [ViralDetection] = []
         var lineNumber = 0
         var sawDetectionHeader = false
+        var columnIndex: [String: Int] = defaultColumnIndex
 
         for line in lines {
             lineNumber += 1
@@ -133,16 +175,18 @@ public enum EsVirituDetectionParser {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
 
-            // Skip header line
-            if trimmed.hasPrefix("sample_ID") || trimmed.hasPrefix("sample_id") {
+            // Header line: resolve column positions by name so that added,
+            // removed, or reordered upstream columns are handled explicitly.
+            if !sawDetectionHeader, isHeaderLine(trimmed) {
                 sawDetectionHeader = true
+                columnIndex = try makeColumnIndex(headerLine: line)
                 continue
             }
 
             // Skip comment lines
             if trimmed.hasPrefix("#") { continue }
 
-            guard let detection = parseLine(line, lineNumber: lineNumber) else {
+            guard let detection = parseLine(line, lineNumber: lineNumber, columnIndex: columnIndex) else {
                 continue
             }
 
@@ -214,6 +258,53 @@ public enum EsVirituDetectionParser {
         return assemblies.sorted { $0.totalReads > $1.totalReads }
     }
 
+    // MARK: - Header Handling
+
+    /// Positional fallback used when the file has no header line.
+    static let defaultColumnIndex: [String: Int] = {
+        var index: [String: Int] = [:]
+        for (position, name) in requiredColumns.enumerated() {
+            index[name] = position
+        }
+        return index
+    }()
+
+    /// Returns `true` when a line looks like the EsViritu detection header.
+    ///
+    /// Detection is by cell content rather than by position, so a reordered
+    /// upstream header is still recognised as a header (and then resolved by
+    /// name) instead of being misread as a data row.
+    static func isHeaderLine(_ trimmed: String) -> Bool {
+        let cells = trimmed.split(separator: "\t", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        return cells.contains("sample_id")
+    }
+
+    /// Resolves each required column name to its position in the header line.
+    ///
+    /// - Parameter headerLine: The raw header line.
+    /// - Returns: A name-to-index map covering every required column.
+    /// - Throws: ``EsVirituDetectionParserError/missingColumns(_:)`` when the
+    ///   header omits any required column.
+    static func makeColumnIndex(headerLine: String) throws -> [String: Int] {
+        let headers = headerLine.split(separator: "\t", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
+        var index: [String: Int] = [:]
+        for (position, name) in headers.enumerated() where index[name] == nil {
+            index[name] = position
+        }
+
+        let missing = requiredColumns.filter { index[$0] == nil }
+        guard missing.isEmpty else {
+            logger.error(
+                "EsViritu detection header is missing required column(s): \(missing.joined(separator: ", "), privacy: .public)"
+            )
+            throw EsVirituDetectionParserError.missingColumns(missing)
+        }
+        return index
+    }
+
     // MARK: - Line Parsing
 
     /// Parses a single line from the detection file.
@@ -221,9 +312,15 @@ public enum EsVirituDetectionParser {
     /// - Parameters:
     ///   - line: The raw tab-separated line.
     ///   - lineNumber: The 1-based line number for error reporting.
+    ///   - columnIndex: Name-to-position map resolved from the header line, or
+    ///     the positional default when the file had no header.
     /// - Returns: A ``ViralDetection`` if the line is valid, or `nil` if it
     ///   should be skipped.
-    static func parseLine(_ line: String, lineNumber: Int) -> ViralDetection? {
+    static func parseLine(
+        _ line: String,
+        lineNumber: Int,
+        columnIndex: [String: Int] = defaultColumnIndex
+    ) -> ViralDetection? {
         let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
             .map { String($0) }
 
@@ -234,46 +331,55 @@ public enum EsVirituDetectionParser {
             return nil
         }
 
-        let sampleId = columns[0].trimmingCharacters(in: .whitespaces)
-        let name = columns[1].trimmingCharacters(in: .whitespaces)
-        let description = columns[2].trimmingCharacters(in: .whitespaces)
+        /// Returns the cell for a column name, or an empty string when the row is
+        /// shorter than the header promised.
+        func cell(_ name: String) -> String {
+            guard let position = columnIndex[name], position < columns.count else { return "" }
+            return columns[position]
+        }
 
-        guard let length = Int(columns[3].trimmingCharacters(in: .whitespaces)) else {
+        let sampleId = cell("sample_ID").trimmingCharacters(in: .whitespaces)
+        let name = cell("Name").trimmingCharacters(in: .whitespaces)
+        let description = cell("description").trimmingCharacters(in: .whitespaces)
+
+        let rawLength = cell("Length")
+        guard let length = Int(rawLength.trimmingCharacters(in: .whitespaces)) else {
             logger.warning(
-                "Skipping EsViritu line \(lineNumber): invalid Length '\(columns[3])'"
+                "Skipping EsViritu line \(lineNumber): invalid Length '\(rawLength)'"
             )
             return nil
         }
 
-        let segment = optionalString(columns[4])
-        let accession = columns[5].trimmingCharacters(in: .whitespaces)
-        let assembly = columns[6].trimmingCharacters(in: .whitespaces)
+        let segment = optionalString(cell("Segment"))
+        let accession = cell("Accession").trimmingCharacters(in: .whitespaces)
+        let assembly = cell("Assembly").trimmingCharacters(in: .whitespaces)
 
-        guard let assemblyLength = Int(columns[7].trimmingCharacters(in: .whitespaces)) else {
+        let rawAsmLength = cell("Asm_length")
+        guard let assemblyLength = Int(rawAsmLength.trimmingCharacters(in: .whitespaces)) else {
             logger.warning(
-                "Skipping EsViritu line \(lineNumber): invalid Asm_length '\(columns[7])'"
+                "Skipping EsViritu line \(lineNumber): invalid Asm_length '\(rawAsmLength)'"
             )
             return nil
         }
 
-        // Taxonomy fields (columns 8-15) -- all optional
-        let kingdom = optionalString(columns[8])
-        let phylum = optionalString(columns[9])
-        let tclass = optionalString(columns[10])
-        let order = optionalString(columns[11])
-        let family = optionalString(columns[12])
-        let genus = optionalString(columns[13])
-        let species = optionalString(columns[14])
-        let subspecies = optionalString(columns[15])
+        // Taxonomy fields -- all optional
+        let kingdom = optionalString(cell("kingdom"))
+        let phylum = optionalString(cell("phylum"))
+        let tclass = optionalString(cell("tclass"))
+        let order = optionalString(cell("order"))
+        let family = optionalString(cell("family"))
+        let genus = optionalString(cell("genus"))
+        let species = optionalString(cell("species"))
+        let subspecies = optionalString(cell("subspecies"))
 
-        // Metric fields (columns 16-22) -- numeric, default to 0 if "NA"
-        let rpkmf = parseDouble(columns[16], default: 0.0)
-        let readCount = parseInt(columns[17], default: 0)
-        let coveredBases = parseInt(columns[18], default: 0)
-        let meanCoverage = parseDouble(columns[19], default: 0.0)
-        let avgReadIdentity = parseDouble(columns[20], default: 0.0)
-        let pi = parseDouble(columns[21], default: 0.0)
-        let filteredReadsInSample = parseInt(columns[22], default: 0)
+        // Metric fields -- numeric, default to 0 if "NA"
+        let rpkmf = parseDouble(cell("RPKMF"), default: 0.0)
+        let readCount = parseInt(cell("read_count"), default: 0)
+        let coveredBases = parseInt(cell("covered_bases"), default: 0)
+        let meanCoverage = parseDouble(cell("mean_coverage"), default: 0.0)
+        let avgReadIdentity = parseDouble(cell("avg_read_identity"), default: 0.0)
+        let pi = parseDouble(cell("Pi"), default: 0.0)
+        let filteredReadsInSample = parseInt(cell("filtered_reads_in_sample"), default: 0)
 
         return ViralDetection(
             sampleId: sampleId,

@@ -3363,43 +3363,27 @@ public class DatabaseBrowserViewModel: ObservableObject {
             )
         }
 
-        let lines = result.stdout
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard lines.count >= 2 else {
+        // Header-driven parsing: a seqkit release that adds or reorders columns
+        // must not silently shift values between fields.
+        let row: SeqkitStatsRow
+        do {
+            row = try SeqkitStatsParser.parse(result.stdout)
+        } catch {
             throw DatabaseServiceError.parseError(
-                message: "seqkit stats returned unexpected output"
+                message: error.localizedDescription
             )
         }
-
-        let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        guard headers.count == values.count else {
-            throw DatabaseServiceError.parseError(
-                message: "seqkit stats header/value mismatch (headers=\(headers.count), values=\(values.count))"
-            )
-        }
-
-        var map: [String: String] = [:]
-        for (header, value) in zip(headers, values) {
-            map[header] = value
-        }
-
-        func parseInt(_ key: String) -> Int { Int(map[key] ?? "") ?? 0 }
-        func parseInt64(_ key: String) -> Int64 { Int64(map[key] ?? "") ?? 0 }
-        func parseDouble(_ key: String) -> Double { Double(map[key] ?? "") ?? 0 }
 
         return SeqkitSummary(
-            numSeqs: parseInt("num_seqs"),
-            sumLen: parseInt64("sum_len"),
-            minLen: parseInt("min_len"),
-            avgLen: parseDouble("avg_len"),
-            maxLen: parseInt("max_len"),
-            q20: parseDouble("Q20(%)"),
-            q30: parseDouble("Q30(%)"),
-            avgQual: parseDouble("AvgQual"),
-            gcPercent: parseDouble("GC(%)")
+            numSeqs: row.numSeqs,
+            sumLen: Int64(row.sumLen),
+            minLen: row.minLen,
+            avgLen: row.avgLen,
+            maxLen: row.maxLen,
+            q20: row.q20Percent ?? 0,
+            q30: row.q30Percent ?? 0,
+            avgQual: row.avgQual ?? 0,
+            gcPercent: row.gcPercent ?? 0
         )
     }
 

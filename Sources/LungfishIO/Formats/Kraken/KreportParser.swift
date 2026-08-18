@@ -26,6 +26,13 @@ public enum KreportParserError: Error, LocalizedError, Sendable {
     /// The report contains no root node.
     case missingRootNode
 
+    /// A kreport-shaped data line had a column count kraken2 never emits.
+    ///
+    /// kraken2 writes 6 columns by default and 8 with `--report-minimizer-data`.
+    /// Any other count on an otherwise well-formed line means the report format
+    /// changed, so parsing stops instead of guessing which column holds the rank.
+    case unexpectedColumnCount(Int, line: Int)
+
     public var errorDescription: String? {
         switch self {
         case .emptyReport:
@@ -36,6 +43,8 @@ public enum KreportParserError: Error, LocalizedError, Sendable {
             return "Invalid \(column) value '\(value)' on line \(line)"
         case .missingRootNode:
             return "Kraken2 report contains no root node"
+        case .unexpectedColumnCount(let count, let line):
+            return "Kraken2 report line \(line) has \(count) columns; expected 6 or 8"
         }
     }
 }
@@ -131,7 +140,7 @@ public enum KreportParser {
             // Skip comment lines
             if trimmed.hasPrefix("#") { continue }
 
-            guard let parsed = parseLine(line, lineNumber: lineNumber) else {
+            guard let parsed = try parseLine(line, lineNumber: lineNumber) else {
                 continue
             }
 
@@ -189,14 +198,28 @@ public enum KreportParser {
 
     // MARK: - Line Parsing
 
+    /// Column counts kraken2 is known to emit.
+    ///
+    /// - 6: the default report.
+    /// - 8: `--report-minimizer-data`, which inserts two k-mer columns after the
+    ///   direct count.
+    static let acceptedColumnCounts: Set<Int> = [6, 8]
+
     /// Parses a single line of the kreport file.
+    ///
+    /// A line whose first three columns are not numeric is not kreport-shaped
+    /// (a stray log line, say) and is skipped. A line that *is* kreport-shaped
+    /// but has a column count kraken2 never emits is a format change, and throws
+    /// ``KreportParserError/unexpectedColumnCount(_:line:)`` rather than being
+    /// silently misread.
     ///
     /// - Parameters:
     ///   - line: The raw line string.
     ///   - lineNumber: The 1-based line number for error reporting.
     /// - Returns: A ``ParsedLine`` if the line is valid, or `nil` if it should
     ///   be skipped.
-    static func parseLine(_ line: String, lineNumber: Int) -> ParsedLine? {
+    /// - Throws: ``KreportParserError/unexpectedColumnCount(_:line:)``.
+    static func parseLine(_ line: String, lineNumber: Int) throws -> ParsedLine? {
         // Split on tabs
         let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
 
@@ -231,29 +254,21 @@ public enum KreportParser {
             return nil
         }
 
-        // Detect extended format with k-mer statistics (8 columns):
-        //   pct  clade  direct  kmercount  kmerdistinct  rank  taxid  name
-        // vs standard format (6 columns):
-        //   pct  clade  direct  rank  taxid  name
-        //
-        // Heuristic: if column 3 parses as an integer, it's a k-mer count
-        // (extended format) and the rank code is at column 5 instead of 3.
-        let rankOffset: Int
-        if columns.count >= 8,
-           Int(columns[3].trimmingCharacters(in: .whitespaces)) != nil {
-            // Extended format: skip 2 k-mer columns
-            rankOffset = 5
-        } else {
-            // Standard 6-column format
-            rankOffset = 3
+        // The line is kreport-shaped. From here on, an unrecognised column count
+        // means the report format changed rather than one bad line.
+        guard acceptedColumnCounts.contains(columns.count) else {
+            logger.error(
+                "Kraken2 report line \(lineNumber, privacy: .public) has \(columns.count, privacy: .public) columns; expected 6 or 8"
+            )
+            throw KreportParserError.unexpectedColumnCount(columns.count, line: lineNumber)
         }
 
-        guard columns.count > rankOffset + 2 else {
-            logger.warning(
-                "Skipping line \(lineNumber, privacy: .public): not enough columns for rank/taxid/name"
-            )
-            return nil
-        }
+        // Standard format (6 columns):
+        //   pct  clade  direct  rank  taxid  name
+        // Extended format with k-mer statistics (8 columns,
+        // `--report-minimizer-data`):
+        //   pct  clade  direct  kmercount  kmerdistinct  rank  taxid  name
+        let rankOffset = columns.count == 8 ? 5 : 3
 
         // Rank code
         let rankCode = columns[rankOffset].trimmingCharacters(in: .whitespaces)
