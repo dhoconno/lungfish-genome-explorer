@@ -141,8 +141,10 @@ public enum DependencyPlanner {
         onDisk: [CondaMetaPackage],
         receiptEntry: DependencyReceipt.EnvironmentEntry?
     ) -> ReconciliationPlan.ChangeReason? {
-        // An unparsable pin or an environment with no usable metadata cannot be verified.
+        // An unparsable pin cannot be checked against anything, so treat the environment as unverifiable.
         guard let targetSpec = CondaSpec(spec: target.spec) else { return .metadataMismatch }
+        // Covers both an environment with no readable conda-meta at all (empty array) and one
+        // whose metadata lacks the pinned package: either way the install cannot be confirmed.
         guard let primary = onDisk.first(where: { $0.name == targetSpec.name }) else { return .metadataMismatch }
 
         if targetSpec.matches(primary) {

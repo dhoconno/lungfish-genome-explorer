@@ -89,6 +89,31 @@ final class DependencyPlannerTests: XCTestCase {
         XCTAssertFalse(plan.databaseUpdates.contains { $0.id == "kraken2-standard" })
     }
 
+    func testEnvironmentWithoutReadableMetadataIsReinstalled() {
+        // Env directory exists but conda-meta yielded nothing: the install cannot be confirmed.
+        var r = DependencyReceipt.empty()
+        r.environments["samtools"] = .init(packageSpec: "bioconda::samtools=1.24=h36b3a25_1", packID: "lungfish-tools", installedAt: Date(), state: .installed)
+        let plan = DependencyPlanner.plan(inputs(manifest(), receipt: r, envs: ["samtools": []]))
+        XCTAssertEqual(plan.reinstallEnvironments.map(\.environment), ["samtools"])
+        XCTAssertEqual(plan.reinstallEnvironments[0].reason, .metadataMismatch)
+    }
+
+    func testReceiptStuckPendingIsReinstalledEvenWhenDiskMatches() {
+        // Disk satisfies the manifest, but the recorded install never reached .installed.
+        var r = DependencyReceipt.empty()
+        r.environments["samtools"] = .init(packageSpec: "bioconda::samtools=1.24=h36b3a25_1", packID: "lungfish-tools", installedAt: Date(), state: .pending)
+        let plan = DependencyPlanner.plan(inputs(manifest(), receipt: r, envs: ["samtools": [meta("samtools", "1.24", "h36b3a25_1")]]))
+        XCTAssertEqual(plan.reinstallEnvironments.map(\.environment), ["samtools"])
+        XCTAssertEqual(plan.reinstallEnvironments[0].reason, .metadataMismatch)
+    }
+
+    func testPipelineNeverPrefetchedIsNotPlanned() {
+        // No receipt entry means "not prefetched yet", which Nextflow resolves on first run --
+        // only a recorded revision that drifted from the pin is planned.
+        let plan = DependencyPlanner.plan(inputs(manifest(), envs: ["samtools": [meta("samtools", "1.24", "h36b3a25_1")]]))
+        XCTAssertTrue(plan.pipelinePrefetch.isEmpty)
+    }
+
     func testBootstrapAndPipelineChanges() {
         var r = DependencyReceipt.empty(); r.pipelines["taxtriage"] = .init(revision: "old", prefetchedAt: nil)
         let plan = DependencyPlanner.plan(inputs(manifest(), receipt: r, envs: ["samtools": [meta("samtools", "1.24", "h36b3a25_1")]], mm: "2.0.5-0"))
