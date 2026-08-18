@@ -108,7 +108,11 @@ public enum DependencyReconcilerProvenance {
         endedAt: Date
     ) -> ProvenanceEnvelope {
         let failures = records.compactMap(\.failure)
-        let argv = ["lungfish", "tools", "update", "--set", plan.targetDependencySet]
+        // The command a reader could actually run to reproduce this run. `--set` was never a
+        // flag `tools update` accepts, and an argv naming a nonexistent option is worse than
+        // useless in an audit record: the target set is recorded in `options` and
+        // `runtimeIdentity` instead.
+        let argv = ["lungfish-cli", "tools", "update", "--apply", "--yes"]
         return ProvenanceEnvelope(
             createdAt: startedAt,
             workflowName: "dependency-reconcile",

@@ -122,7 +122,8 @@ public enum ScientificProvenancePolicy {
         "markdup",
         "primers",
         "genotype",
-        "haplotypes"
+        "haplotypes",
+        "tools"
     ]
 
     public static let cliCommandPolicies: [String: ProvenancePolicyEntry] = [
@@ -167,6 +168,15 @@ public enum ScientificProvenancePolicy {
         "primer": dataWriting("cli.primers"),
         "genotype": dataWriting("cli.genotype", writer: "AIHaplotypingRevisionPublisher/CLIProvenanceSupport"),
         "haplotypes": dataWriting("cli.haplotypes", writer: "HaplotypeDefinitionCommandService"),
+        // `tools update --apply` writes no scientific data, but the tool versions it puts in
+        // place are exactly what a later result has to be traceable to, so the run records its
+        // own envelope. `--plan` inspects only; the policy is per top-level command, and the
+        // stricter of the two subcommand behaviours is what it has to describe.
+        "tools": metadataOnly(
+            "cli.tools",
+            requiresProvenance: true,
+            writer: "DependencyReconcilerProvenance"
+        ),
         "12s-match": dataWriting("cli.fastq.12s-match", writer: "TwelveSAmpliconMatchingWorkflow"),
         "12s-reference-metadata": dataWriting("cli.fastq.12s-reference-metadata", writer: "TwelveSReferenceMetadataBuilder"),
         "12s-reference-bundle": dataWriting("cli.fastq.12s-reference-bundle", writer: "TwelveSReferenceBundleBuilder"),

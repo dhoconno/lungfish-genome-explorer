@@ -74,6 +74,6 @@
     { "id": "deacon-panhuman", "tool": "deacon", "displayName": "Human Read Removal Data", "version": "panhuman-1", "filename": "panhuman-1.k31w15.idx", "indexFormat": 3, "releaseDate": "2025-04-01", "description": "Prebuilt Deacon panhuman minimizer index used for host-read depletion before metagenomic and targeted-viral analysis.", "sourceUrl": "https://github.com/mbhall88/deacon", "releasesUrl": "https://zenodo.org/records/15118215" },
     { "id": "deacon-ribokmers", "tool": "deacon", "displayName": "Ribosomal RNA Removal Data", "version": "bbmap-ribokmers-k31w15", "filename": "ribokmers.k31w15.idx", "indexFormat": 3, "releaseDate": "2026-04-29", "description": "Deacon minimizer index built from BBMap's ribokmers.fa.gz ribosomal k-mer depletion reference for fast rRNA removal.", "sourceUrl": "https://bbmap.org/resources/ribokmers.fa.gz", "releasesUrl": "https://bbmap.org/resources/" }
   ],
-  "bootstrap": { "micromamba": { "version": "2.0.5-0", "sha256": {} } },
+  "bootstrap": { "micromamba": { "version": "2.0.5-0", "sha256": { "osx-arm64": "a8d78f72db1bdcd24e7758551006610a15beb40a34006b3e3e176085a0dbc780" } } },
   "retiredEnvironments": []
 }

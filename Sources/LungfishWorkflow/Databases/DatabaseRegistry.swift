@@ -127,10 +127,14 @@ public actor DeaconRibokmersDatabaseInstaller {
 
 /// Metadata for a reference database advertised by the app bundle.
 ///
-/// Manifests live in `Resources/Databases/<id>/manifest.json`.
-/// Some databases also ship a bundled payload file in the same directory.
-/// Others, such as `human-scrubber` and `deacon-panhuman`, use bundled metadata only and expect the
-/// payload itself to be managed in user data.
+/// Built from the `databases` section of the bundled dependency manifest
+/// (`Resources/ManagedTools/third-party-tools-lock.json`) by
+/// ``DatabaseRegistry/manifest(for:)``, which is the single place database versions and
+/// filenames are pinned. Per-database `manifest.json` files no longer exist.
+///
+/// Some databases also ship a bundled payload under `Resources/Databases/<id>/`. Others, such
+/// as `human-scrubber` and `deacon-panhuman`, carry metadata only and expect the payload itself
+/// to be managed in user data.
 public struct BundledDatabase: Sendable, Codable {
     /// Machine-readable identifier (e.g. "human-scrubber").
     public let id: String
@@ -1062,12 +1066,21 @@ public actor DatabaseRegistry {
         UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: resolvedID))
     }
 
+    /// Where a checksummed managed database is downloaded from.
+    ///
+    /// The dependency manifest is the single source for this: it already pins the database's
+    /// version, filename, and full `url`, and a second copy of the base URL here would be one
+    /// more place to forget when the distribution path moves. The literal is kept only as a
+    /// fallback for a manifest entry that carries no url, so a missing field degrades to the
+    /// previous behaviour instead of failing the install.
     func managedDatabaseArtifactURLs(for manifest: BundledDatabase) -> (databaseURL: URL, md5URL: URL)? {
         guard manifest.id == "human-scrubber" else { return nil }
-        // The human-scrubber database is distributed by NCBI under this stable path.
-        guard let databaseURL = URL(string: "https://ftp.ncbi.nlm.nih.gov/sra/dbs/human_filter/\(manifest.filename)") else {
-            return nil
-        }
+
+        let pinned = ManagedToolLock.bundled.database(id: manifest.id)?.url
+        let resolved = pinned.flatMap(URL.init(string:))
+            // The human-scrubber database is distributed by NCBI under this stable path.
+            ?? URL(string: "https://ftp.ncbi.nlm.nih.gov/sra/dbs/human_filter/\(manifest.filename)")
+        guard let databaseURL = resolved else { return nil }
         return (databaseURL, databaseURL.appendingPathExtension("md5"))
     }
 
