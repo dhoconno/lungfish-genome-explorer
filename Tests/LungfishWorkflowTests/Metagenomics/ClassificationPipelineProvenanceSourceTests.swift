@@ -977,9 +977,11 @@ private struct FakeClassificationCondaFixture {
             .filter { $0 == toolName || $0.hasPrefix("\(toolName) ") }
     }
 
+    /// Bracken invocations that are actual profiling runs, excluding the version
+    /// probes and the `--help` CLI-dialect probe.
     func brackenProfileInvocations() throws -> [String] {
         try toolInvocations(named: "bracken").filter {
-            $0 != "bracken -v" && $0 != "bracken --version"
+            $0 != "bracken -v" && $0 != "bracken --version" && $0 != "bracken --help"
         }
     }
 
@@ -1166,6 +1168,13 @@ private struct FakeClassificationCondaFixture {
             fi
             if [ "$1" = "-v" ]; then
               echo "Bracken v3.0.1"
+              exit 0
+            fi
+            # This fixture models the real Bracken driver, which advertises -d;
+            # the pipeline probes --help to choose between that and the
+            # est_abundance.py passthrough CLI.
+            if [ "$1" = "--help" ]; then
+              echo "Usage: bracken -d MY_DB -i INPUT.kreport -o OUTPUT.bracken -r READ_LEN -l LEVEL -t THRESHOLD"
               exit 0
             fi
             output=""

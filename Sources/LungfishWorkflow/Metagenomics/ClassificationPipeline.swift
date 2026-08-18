@@ -142,11 +142,45 @@ public actor ClassificationPipeline {
     /// The conda manager used for tool execution.
     private let condaManager: CondaManager
 
+    /// Per-environment cache of the detected Bracken CLI dialect.
+    ///
+    /// Probing costs a process launch, and the resolved executable cannot change
+    /// underneath a running process, so the decision is cached for the lifetime
+    /// of this actor.
+    private var brackenDialectCache: [String: BrackenCLIDialect] = [:]
+
     /// Creates a classification pipeline.
     ///
     /// - Parameter condaManager: The conda manager to use (default: shared).
     public init(condaManager: CondaManager = .shared) {
         self.condaManager = condaManager
+    }
+
+    /// Detects which Bracken CLI dialect the `bracken` executable in `environment`
+    /// speaks, caching the result per environment.
+    ///
+    /// Runs `bracken --help` and classifies its usage text. A probe that cannot
+    /// run at all falls back to the wrapper dialect, which is the only arm64
+    /// bioconda build and which validates its own inputs before execution.
+    func detectBrackenDialect(environment: String) async -> BrackenCLIDialect {
+        if let cached = brackenDialectCache[environment] { return cached }
+
+        var helpText = ""
+        if let result = try? await condaManager.runTool(
+            name: "bracken",
+            arguments: ["--help"],
+            environment: environment,
+            timeout: 120
+        ) {
+            helpText = result.stdout + result.stderr
+        }
+
+        let dialect = BrackenInvocation.dialect(fromHelpText: helpText)
+        brackenDialectCache[environment] = dialect
+        logger.info(
+            "Detected bracken CLI dialect: \(dialect.rawValue, privacy: .public) in environment \(environment, privacy: .public)"
+        )
+        return dialect
     }
 
     // MARK: - Classification
@@ -1215,9 +1249,32 @@ public actor ClassificationPipeline {
         dependsOn: [UUID]
     ) async -> BrackenPreflightResult {
         let startedAt = Date()
-        let distributionURL = config.databasePath.appendingPathComponent(
-            "database\(resolution.readLength)mers.kmer_distrib"
+        // Resolve the kmer distribution the same way execution will: prefer the
+        // exact read length, else the nearest available N. Preflighting the file
+        // that will actually be used keeps the preflight honest for databases
+        // that ship a different set of read lengths than the request.
+        let distributionResolution = try? BrackenInvocation.resolveKmerDistribution(
+            databasePath: config.databasePath,
+            readLength: resolution.readLength,
+            availableFilenames: BrackenInvocation.availableDistributionFilenames(
+                inDatabase: config.databasePath
+            )
         )
+        if let distributionResolution, distributionResolution.isSubstituted {
+            logger.info(
+                """
+                Bracken kmer distribution for read length \
+                \(distributionResolution.requestedReadLength, privacy: .public) is absent; \
+                substituting nearest available read length \
+                \(distributionResolution.readLength, privacy: .public) \
+                (\(distributionResolution.url.lastPathComponent, privacy: .public)).
+                """
+            )
+        }
+        let distributionURL = distributionResolution?.url
+            ?? config.databasePath.appendingPathComponent(
+                BrackenInvocation.distributionFilename(readLength: resolution.readLength)
+            )
         let levelCode = BrackenDatabaseCapabilities.levelCode(for: resolution.rank)
         let failure: (BrackenProfileDegradationReason, String)?
 
@@ -1348,23 +1405,44 @@ public actor ClassificationPipeline {
     ) async throws -> BrackenExecutionResult {
         let fm = FileManager.default
         try Task.checkCancellation()
-        let brackenVersion = await detectToolVersion(
-            toolName: "bracken",
-            environment: Self.brackenEnvironment,
-            condaManager: condaManager,
-            flags: ["-v"]
-        )
+        // The only arm64-installable bioconda Bracken build exposes the inner
+        // `est_abundance.py` CLI rather than the real driver, so the argument
+        // form has to follow whichever dialect this executable actually speaks.
+        let dialect = await detectBrackenDialect(environment: Self.brackenEnvironment)
+        try Task.checkCancellation()
+
+        // `est_abundance.py` has no version flag, so `bracken -v` prints an
+        // argparse usage error whose digits would otherwise be recorded as a
+        // bogus version. Read the packaged version from conda-meta instead.
+        let brackenVersion: String
+        switch dialect {
+        case .database:
+            brackenVersion = await detectToolVersion(
+                toolName: "bracken",
+                environment: Self.brackenEnvironment,
+                condaManager: condaManager,
+                flags: ["-v"]
+            )
+        case .kmerDistribution:
+            let envURL = await condaManager.environmentURL(named: Self.brackenEnvironment)
+            brackenVersion = CondaMetaReader.primaryPackage(
+                named: "bracken",
+                inEnvironment: envURL
+            )?.version ?? "unknown"
+        }
         logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
         try Task.checkCancellation()
 
-        let brackenArgs = [
-            "-d", config.databasePath.path,
-            "-i", config.reportURL.path,
-            "-o", config.brackenURL.path,
-            "-r", String(resolution.readLength),
-            "-l", levelCode,
-            "-t", String(resolution.threshold),
-        ]
+        let brackenArgs = BrackenInvocation.arguments(
+            dialect: dialect,
+            databasePath: config.databasePath,
+            distributionURL: distributionURL,
+            reportURL: config.reportURL,
+            outputURL: config.brackenURL,
+            readLength: resolution.readLength,
+            levelCode: levelCode,
+            threshold: resolution.threshold
+        )
         let brackenCommand = ["bracken"] + brackenArgs
         let brackenInputs = [
             ProvenanceRecorder.fileRecord(url: config.reportURL, format: .text, role: .input),
@@ -1372,7 +1450,9 @@ public actor ClassificationPipeline {
         ]
         let resolvedOptions = brackenResolvedOptions(
             resolution: resolution,
-            distributionURL: distributionURL
+            distributionURL: distributionURL,
+            dialect: dialect,
+            effectiveArgv: brackenCommand
         )
         let runtimeIdentity = managedRuntimeIdentity(
             toolName: "bracken",
@@ -1537,7 +1617,29 @@ public actor ClassificationPipeline {
             )
             throw CancellationError()
         }
-        if processResult.exitCode != 0 {
+        // `bioconda::bracken=1.0.0`'s `est_abundance.py` writes and closes the
+        // complete abundance table, then crashes with an UnboundLocalError on
+        // `u_reads` when the Kraken report has no unclassified (U) line, because
+        // that variable is only ever assigned inside the U branch. The exit is
+        // non-zero but the output is already whole. Treat that one signature as
+        // success so a fully-classified sample still profiles; every other
+        // non-zero exit stays a failure, and the output still has to pass the
+        // existing validation and parse checks below.
+        let survivedKnownWrapperCrash = dialect == .kmerDistribution
+            && processResult.exitCode != 0
+            && BrackenInvocation.isUnclassifiedReadsCrash(stderr: processResult.stderr)
+            && fm.fileExists(atPath: config.brackenURL.path)
+        if survivedKnownWrapperCrash {
+            logger.info(
+                """
+                bracken exited \(processResult.exitCode, privacy: .public) with the known \
+                bracken=1.0.0 UnboundLocalError on 'u_reads' (Kraken report has no unclassified \
+                line). The abundance table was written before the crash; continuing to validation.
+                """
+            )
+        }
+
+        if processResult.exitCode != 0 && !survivedKnownWrapperCrash {
             try? fm.removeItem(at: config.brackenURL)
             let unavailable = processResult.exitCode == 127
             let message: String
@@ -1913,9 +2015,11 @@ public actor ClassificationPipeline {
 
     private func brackenResolvedOptions(
         resolution: BrackenProfileResolution,
-        distributionURL: URL
+        distributionURL: URL,
+        dialect: BrackenCLIDialect? = nil,
+        effectiveArgv: [String]? = nil
     ) -> [String: ParameterValue] {
-        [
+        var options: [String: ParameterValue] = [
             "requestedRank": .string(resolution.request.provenanceValue),
             "resolvedRank": .string(resolution.rank.code),
             "resolutionSource": .string(resolution.source.rawValue),
@@ -1923,6 +2027,16 @@ public actor ClassificationPipeline {
             "threshold": .integer(resolution.threshold),
             "distributionPath": .string(distributionURL.path),
         ]
+        // Record which CLI form actually ran, and the argv it ran with, so a
+        // reader of the provenance can tell the real Bracken driver apart from
+        // the `est_abundance.py` passthrough wrapper.
+        if let dialect {
+            options["brackenCLIDialect"] = .string(dialect.rawValue)
+        }
+        if let effectiveArgv {
+            options["effectiveArgv"] = .string(effectiveArgv.joined(separator: " "))
+        }
+        return options
     }
 
     private func managedRuntimeIdentity(
