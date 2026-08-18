@@ -46,6 +46,8 @@ done
 WORKFLOW_BUNDLE_DIR="$APP_PATH/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle"
 TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Tools"
 LEGACY_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/Tools"
+MANAGED_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/ManagedTools"
+LEGACY_MANAGED_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/ManagedTools"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 APP_ICON_PATH="$APP_PATH/Contents/Resources/AppIcon.icns"
 CLI_BIN="$APP_PATH/Contents/MacOS/lungfish-cli"
@@ -57,6 +59,15 @@ fi
 
 if [ ! -d "$TOOLS_DIR" ]; then
     echo "tools directory not found: $TOOLS_DIR or $LEGACY_TOOLS_DIR" >&2
+    exit 66
+fi
+
+if [ ! -d "$MANAGED_TOOLS_DIR" ] && [ -d "$LEGACY_MANAGED_TOOLS_DIR" ]; then
+    MANAGED_TOOLS_DIR="$LEGACY_MANAGED_TOOLS_DIR"
+fi
+
+if [ ! -d "$MANAGED_TOOLS_DIR" ]; then
+    echo "managed tools directory not found: $MANAGED_TOOLS_DIR or $LEGACY_MANAGED_TOOLS_DIR" >&2
     exit 66
 fi
 
@@ -188,6 +199,30 @@ fi
 
 if ! "$RG_BIN" -F -q -- "- micromamba:" "$TOOLS_DIR/VERSIONS.txt"; then
     echo "version summary missing micromamba entry" >&2
+    exit 66
+fi
+
+LOCK_MANIFEST="$MANAGED_TOOLS_DIR/third-party-tools-lock.json"
+
+if [ ! -f "$LOCK_MANIFEST" ]; then
+    echo "dependency manifest missing: $LOCK_MANIFEST" >&2
+    exit 66
+fi
+
+BOOTSTRAP_VERSION=$(/usr/bin/python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+print(data["bootstrap"]["micromamba"]["version"])
+' "$LOCK_MANIFEST")
+
+if [ -z "$BOOTSTRAP_VERSION" ]; then
+    echo "dependency manifest missing bootstrap.micromamba.version: $LOCK_MANIFEST" >&2
+    exit 66
+fi
+
+if ! "$RG_BIN" -F -q "\"version\": \"$BOOTSTRAP_VERSION\"" "$TOOLS_DIR/tool-versions.json"; then
+    echo "tool-versions.json micromamba version does not match manifest bootstrap version ($BOOTSTRAP_VERSION)" >&2
     exit 66
 fi
 

@@ -21,6 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MANIFEST="$PROJECT_ROOT/Sources/LungfishWorkflow/Resources/Tools/tool-versions.json"
+LOCK_MANIFEST="$PROJECT_ROOT/Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
 BUILD_DIR="$PROJECT_ROOT/.build/tools"
 DEFAULT_OUTPUT_DIR="$PROJECT_ROOT/Sources/LungfishWorkflow/Resources/Tools"
 
@@ -121,6 +122,46 @@ done
 RESOLVED_BUILD_TIMESTAMP_ISO="$(resolve_build_timestamp_iso8601)"
 RESOLVED_BUILD_TIMESTAMP_DISPLAY="$(resolve_build_timestamp_display "$RESOLVED_BUILD_TIMESTAMP_ISO")"
 
+verify_micromamba_checksum() {
+    local arch="$1"
+    local output_path="$2"
+
+    if [ ! -f "$LOCK_MANIFEST" ]; then
+        return
+    fi
+
+    local platform
+    case "$arch" in
+        arm64)
+            platform="osx-arm64"
+            ;;
+        x86_64)
+            platform="osx-64"
+            ;;
+        *)
+            return
+            ;;
+    esac
+
+    local expected
+    expected=$(jq -r --arg platform "$platform" \
+        '.bootstrap.micromamba.sha256[$platform] // empty' "$LOCK_MANIFEST")
+
+    if [ -z "$expected" ]; then
+        return
+    fi
+
+    local actual
+    actual=$(shasum -a 256 "$output_path" | cut -d' ' -f1)
+
+    if [ "$actual" != "$expected" ]; then
+        echo "Error: micromamba checksum mismatch for $platform" >&2
+        echo "  expected: $expected" >&2
+        echo "  actual:   $actual" >&2
+        exit 66
+    fi
+}
+
 download_micromamba() {
     local arch="$1"
     local output_path="$2"
@@ -144,6 +185,8 @@ download_micromamba() {
         --retry 3 --retry-delay 1 --retry-all-errors \
         -o "$output_path" "$url"
     chmod +x "$output_path"
+
+    verify_micromamba_checksum "$arch" "$output_path"
 }
 
 create_universal_micromamba() {

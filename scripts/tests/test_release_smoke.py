@@ -142,8 +142,11 @@ class ReleaseSmokeTests(unittest.TestCase):
         app_path = root / "Lungfish.app"
         macos = app_path / "Contents" / "MacOS"
         resources = app_path / "Contents" / "Resources"
-        tools = resources / "LungfishGenomeBrowser_LungfishWorkflow.bundle" / "Tools"
+        workflow_bundle = resources / "LungfishGenomeBrowser_LungfishWorkflow.bundle"
+        tools = workflow_bundle / "Tools"
         tools.mkdir(parents=True)
+        managed_tools = workflow_bundle / "ManagedTools"
+        managed_tools.mkdir(parents=True)
 
         info_plist = app_path / "Contents" / "Info.plist"
         info_plist.parent.mkdir(parents=True, exist_ok=True)
@@ -165,8 +168,13 @@ class ReleaseSmokeTests(unittest.TestCase):
         micromamba = tools / "micromamba"
         micromamba.write_text("#!/bin/sh\necho micromamba 1.0\n", encoding="utf-8")
         os.chmod(micromamba, 0o755)
-        (tools / "tool-versions.json").write_text('{"tools":[{"name": "micromamba"}]}\n', encoding="utf-8")
+        (tools / "tool-versions.json").write_text(
+            '{"tools":[{"name": "micromamba", "version": "1.0"}]}\n', encoding="utf-8"
+        )
         (tools / "VERSIONS.txt").write_text("- micromamba: 1.0\n", encoding="utf-8")
+        (managed_tools / "third-party-tools-lock.json").write_text(
+            '{"bootstrap":{"micromamba":{"version":"1.0","sha256":{}}}}\n', encoding="utf-8"
+        )
 
         if include_icon:
             (resources / "AppIcon.icns").write_bytes(b"icns")
