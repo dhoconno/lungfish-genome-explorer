@@ -707,6 +707,149 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(newContents.contains("2.0.5-0"))
     }
 
+    // MARK: - Micromamba fallback to an already-installed binary
+
+    /// The bundled micromamba lives inside the app bundle, so it is absent in
+    /// any context that is not a running app: `swift test`, the CLI, and the
+    /// toolset-conformance CI job. Throwing there ignored a perfectly good
+    /// micromamba already installed at <rootPrefix>/bin/micromamba, which is
+    /// what made ClassificationPipelineIntegrationTests fail under
+    /// LUNGFISH_REQUIRE_TOOLS=1 on a machine that had micromamba installed.
+    func testEnsureMicromambaUsesInstalledBinaryWhenBundledIsUnavailable() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let rootPrefix = sandbox.appendingPathComponent("conda")
+        let installedMicromamba = try makeFakeMicromamba(
+            at: rootPrefix.appendingPathComponent("bin/micromamba"),
+            version: "2.0.4"
+        )
+        let installedContents = try String(contentsOf: installedMicromamba, encoding: .utf8)
+
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let resolvedPath = try await manager.ensureMicromamba()
+        let expectedPath = await manager.micromambaPath
+
+        XCTAssertEqual(resolvedPath, expectedPath)
+        let resolvedVersion = try await readMicromambaVersion(at: resolvedPath)
+        XCTAssertEqual(resolvedVersion, "2.0.4")
+        // The installed binary is used as-is, never replaced, since there is
+        // no bundled copy to replace it with.
+        XCTAssertEqual(try String(contentsOf: resolvedPath, encoding: .utf8), installedContents)
+
+        let permissions = try FileManager.default
+            .attributesOfItem(atPath: resolvedPath.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.intValue, 0o755)
+    }
+
+    /// A bundled path that is provided but does not exist on disk takes the
+    /// same fallback: what matters is whether a usable binary is reachable.
+    func testEnsureMicromambaUsesInstalledBinaryWhenBundledPathIsMissing() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let rootPrefix = sandbox.appendingPathComponent("conda")
+        _ = try makeFakeMicromamba(
+            at: rootPrefix.appendingPathComponent("bin/micromamba"),
+            version: "2.0.4"
+        )
+        let missingBundled = sandbox.appendingPathComponent("does-not-exist/micromamba")
+
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { missingBundled },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+
+        let resolvedPath = try await manager.ensureMicromamba()
+        let resolvedVersion = try await readMicromambaVersion(at: resolvedPath)
+        XCTAssertEqual(resolvedVersion, "2.0.4")
+    }
+
+    /// Neither bundled nor installed: still the original error, so a genuinely
+    /// unprovisioned machine is reported rather than silently proceeding.
+    func testEnsureMicromambaThrowsWhenNeitherBundledNorInstalledExists() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        do {
+            _ = try await manager.ensureMicromamba()
+            XCTFail("expected micromambaNotFound when no micromamba is reachable")
+        } catch let error as CondaError {
+            guard case .micromambaNotFound = error else {
+                return XCTFail("expected micromambaNotFound, got \(error)")
+            }
+        }
+    }
+
+    /// An installed file that cannot report a version is not a usable
+    /// fallback, so it must not be silently accepted.
+    func testEnsureMicromambaThrowsWhenInstalledBinaryIsUnusableAndBundledIsUnavailable() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let rootPrefix = sandbox.appendingPathComponent("conda")
+        let binDir = rootPrefix.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        // Not an executable program: exec will fail, so no version is readable.
+        try Data("not a real binary".utf8)
+            .write(to: binDir.appendingPathComponent("micromamba"))
+
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        do {
+            _ = try await manager.ensureMicromamba()
+            XCTFail("expected micromambaNotFound for an unusable installed binary")
+        } catch let error as CondaError {
+            guard case .micromambaNotFound = error else {
+                return XCTFail("expected micromambaNotFound, got \(error)")
+            }
+        }
+    }
+
+    /// The bundled binary still wins when it is available: the fallback must
+    /// not change the normal app path, where a version bump replaces the
+    /// installed copy.
+    func testBundledBinaryStillReplacesInstalledCopyWhenAvailable() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let rootPrefix = sandbox.appendingPathComponent("conda")
+        let bundledMicromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("bundled-micromamba"),
+            version: "2.0.5-0"
+        )
+        _ = try makeFakeMicromamba(
+            at: rootPrefix.appendingPathComponent("bin/micromamba"),
+            version: "2.0.4"
+        )
+
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { bundledMicromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+
+        let resolvedPath = try await manager.ensureMicromamba()
+        let resolvedVersion = try await readMicromambaVersion(at: resolvedPath)
+        XCTAssertEqual(resolvedVersion, "2.0.5-0")
+    }
+
     // MARK: - Integration Tests (require network)
 
     func testListEnvironments() async throws {

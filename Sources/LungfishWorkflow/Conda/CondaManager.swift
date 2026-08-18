@@ -273,7 +273,15 @@ public actor CondaManager {
 
         guard let bundledMicromambaPath = bundledMicromambaProvider(),
               FileManager.default.fileExists(atPath: bundledMicromambaPath.path) else {
-            throw CondaError.micromambaNotFound
+            // The bundled binary lives inside the app bundle, so it is absent
+            // in every context that is not a running app: `swift test`, the
+            // CLI, and the toolset-conformance CI job. An already-installed
+            // micromamba under the conda root is a perfectly good substitute
+            // there, and throwing instead made tool-backed suites fail on
+            // machines that were in fact fully provisioned. There is nothing
+            // to compare versions against in this path, so the installed copy
+            // is used as-is.
+            return try await useInstalledMicromamba()
         }
 
         let binDir = rootPrefix.appendingPathComponent("bin")
@@ -314,6 +322,37 @@ public actor CondaManager {
         logger.info("Micromamba \(version.trimmingCharacters(in: .whitespacesAndNewlines), privacy: .public) installed successfully")
         progress?(1.0, "Micromamba ready")
 
+        return micromambaPath
+    }
+
+    /// Resolves an already-installed micromamba under the conda root, for use
+    /// when no bundled binary is available to install or compare against.
+    ///
+    /// The binary must actually report a version: a leftover, truncated, or
+    /// non-executable file at that path is not a usable fallback and is
+    /// reported as ``CondaError/micromambaNotFound`` rather than accepted.
+    ///
+    /// - Returns: URL of the installed micromamba binary.
+    /// - Throws: ``CondaError/micromambaNotFound`` when no usable binary exists.
+    private func useInstalledMicromamba() async throws -> URL {
+        guard FileManager.default.fileExists(atPath: micromambaPath.path) else {
+            throw CondaError.micromambaNotFound
+        }
+
+        let installedVersion: String
+        do {
+            installedVersion = try await resolveMicromambaVersion(at: micromambaPath)
+        } catch {
+            logger.error(
+                "Installed micromamba at \(self.micromambaPath.path, privacy: .public) is unusable: \(String(describing: error), privacy: .public)"
+            )
+            throw CondaError.micromambaNotFound
+        }
+
+        try ensureMicromambaExecutable(at: micromambaPath)
+        logger.info(
+            "Using installed micromamba \(installedVersion, privacy: .public); bundled binary unavailable"
+        )
         return micromambaPath
     }
 
