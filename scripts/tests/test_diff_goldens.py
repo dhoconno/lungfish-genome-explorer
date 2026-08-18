@@ -40,6 +40,24 @@ class DiffGoldensTests(unittest.TestCase):
             [],
         )
 
+    def test_tsv_header_empty_compare_columns_is_headers_only(self):
+        # An explicit empty compareColumns list means "headers only": row
+        # count and row content are not compared, even when they differ.
+        # This is distinct from an absent compareColumns key, which compares
+        # every column (see test_tsv_header_same_header_same_values_is_clean).
+        g = "num_seqs\tsum_len\n10\t100\n20\t200\n"
+        c = "num_seqs\tsum_len\n999\t999\n"
+        self.assertEqual(
+            diff_goldens.compare_tsv_header(g, c, {"compareColumns": []}),
+            [],
+        )
+
+    def test_tsv_header_empty_compare_columns_still_catches_header_change(self):
+        g = "a\tb\n1\t2\n"
+        c = "a\tb\tc\n1\t2\t3\n"
+        diffs = diff_goldens.compare_tsv_header(g, c, {"compareColumns": []})
+        self.assertTrue(any("header" in d for d in diffs), diffs)
+
     def test_tsv_header_relative_tolerance_on_numbers(self):
         g = "num_seqs\tsum_len\n100\t1000\n"
         c = "num_seqs\tsum_len\n102\t1000\n"

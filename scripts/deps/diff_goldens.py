@@ -189,6 +189,14 @@ def compare_tsv_header(golden, candidate, spec):
     A tool that renames, adds, or drops a column has changed its contract even
     when the values the recipe compares are unchanged, so the header is compared
     first and a mismatch short-circuits the value comparison.
+
+    ``compareColumns`` distinguishes three states: absent (``None``) compares
+    every column, a non-empty list compares just those columns, and an
+    explicit empty list (``[]``) means "headers only": row count and row
+    values are not compared at all. This lets a recipe assert schema
+    conformance for a tool's output without pinning it to any particular
+    dataset's row content (used by the tier 3 pipeline runner, whose live
+    inputs never match the committed mini fixtures row for row).
     """
     golden_header, golden_rows = _read_header_table(golden)
     candidate_header, candidate_rows = _read_header_table(candidate)
@@ -196,7 +204,13 @@ def compare_tsv_header(golden, candidate, spec):
     if golden_header != candidate_header:
         return [f"header changed: golden {golden_header}, candidate {candidate_header}"]
 
-    compare_names = spec.get("compareColumns") or list(golden_header)
+    compare_columns = spec.get("compareColumns")
+    if compare_columns is not None and len(compare_columns) == 0:
+        # Headers-only mode: the header equality check above is the entire
+        # comparison, so row count and row content differences are ignored.
+        return []
+
+    compare_names = compare_columns or list(golden_header)
     missing = [name for name in compare_names if name not in golden_header]
     if missing:
         return [f"header missing declared compare columns: {missing}"]
