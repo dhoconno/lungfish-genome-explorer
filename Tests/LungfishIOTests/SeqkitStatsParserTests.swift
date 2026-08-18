@@ -88,6 +88,14 @@ final class SeqkitStatsParserTests: XCTestCase {
 
     // MARK: - Error Cases
 
+    /// `sumLen` is Int64 so a large run's total base count does not overflow.
+    func testLargeSumLenExceeds32BitRange() throws {
+        let text = "file\tnum_seqs\tsum_len\n" +
+                   "big.fq\t1000000\t9000000000\n"
+        let t = try SeqkitStatsParser.parse(text)
+        XCTAssertEqual(t.sumLen, 9_000_000_000)
+    }
+
     func testMissingNumSeqsThrows() {
         let text = "file\tformat\ttype\tsum_len\n" +
                    "r.fq\tFASTQ\tDNA\t300\n"

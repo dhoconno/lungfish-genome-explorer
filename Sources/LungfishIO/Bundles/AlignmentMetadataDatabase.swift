@@ -717,11 +717,18 @@ extension AlignmentMetadataDatabase {
                 throw SamtoolsOutputParseError.malformedIdxstatsRow(line: lineNumber, content: raw)
             }
 
+            // Strict: a non-numeric count is a format change, not a zero.
+            guard let length = Int64(fields[1].trimmingCharacters(in: .whitespaces)),
+                  let mapped = Int64(fields[2].trimmingCharacters(in: .whitespaces)),
+                  let unmapped = Int64(fields[3].trimmingCharacters(in: .whitespaces)) else {
+                throw SamtoolsOutputParseError.malformedIdxstatsRow(line: lineNumber, content: raw)
+            }
+
             rows.append(IdxstatsRow(
                 chromosome: String(fields[0]),
-                length: Int64(fields[1].trimmingCharacters(in: .whitespaces)) ?? 0,
-                mappedReads: Int64(fields[2].trimmingCharacters(in: .whitespaces)) ?? 0,
-                unmappedReads: Int64(fields[3].trimmingCharacters(in: .whitespaces)) ?? 0
+                length: length,
+                mappedReads: mapped,
+                unmappedReads: unmapped
             ))
         }
 

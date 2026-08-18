@@ -1120,7 +1120,28 @@ extension AppDelegate {
                 )
 
                 // Parse EsViritu output files into the LungfishIO display model.
-                let detections = (try? EsVirituDetectionParser.parse(url: result.detectionURL)) ?? []
+                // A column-validation failure means the EsViritu output format
+                // changed: fail the operation rather than silently reporting an
+                // empty result set as a successful run.
+                let detections: [ViralDetection]
+                do {
+                    detections = try EsVirituDetectionParser.parse(url: result.detectionURL)
+                } catch {
+                    let parseErrorDesc = error.localizedDescription
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .error,
+                                message: "Failed to parse EsViritu detections: \(parseErrorDesc)"
+                            )
+                        }
+                    }
+                    appDelegateLogger.error(
+                        "runEsViritu: Failed to parse detections - \(parseErrorDesc, privacy: .public)"
+                    )
+                    throw error
+                }
                 let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
                 let taxProfile: [ViralTaxProfile]
                 if let tpURL = result.taxProfileURL {
@@ -1866,7 +1887,28 @@ extension AppDelegate {
                         }
                     )
 
-                    let detections = (try? EsVirituDetectionParser.parse(url: pipelineResult.detectionURL)) ?? []
+                    // A column-validation failure means the EsViritu output
+                    // format changed: record this sample as failed rather than
+                    // reporting an empty detection set as a successful run.
+                    let detections: [ViralDetection]
+                    do {
+                        detections = try EsVirituDetectionParser.parse(url: pipelineResult.detectionURL)
+                    } catch {
+                        let parseErrorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .error,
+                                    message: "\(samplePrefix): Failed to parse EsViritu detections: \(parseErrorDesc)"
+                                )
+                            }
+                        }
+                        appDelegateLogger.error(
+                            "runEsVirituBatch: Sample \(sampleID, privacy: .public) detection parse failed - \(parseErrorDesc, privacy: .public)"
+                        )
+                        throw error
+                    }
                     let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
                     let taxProfile: [ViralTaxProfile]
                     if let tpURL = pipelineResult.taxProfileURL {

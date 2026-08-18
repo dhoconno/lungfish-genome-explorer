@@ -7,6 +7,9 @@ import LungfishCore
 import SQLite3
 import os.log
 
+/// Logger for index-time parse failures that are tolerated but must stay visible.
+private let indexerLogger = Logger(subsystem: LogSubsystem.io, category: "UniversalSearchIndexers")
+
 extension ProjectUniversalSearchIndex {
 
     // MARK: - Indexers
@@ -453,8 +456,20 @@ extension ProjectUniversalSearchIndex {
 
         if let detectionPath = attributes["detectionpath"] as? String {
             let detectionURL = resultDirectory.appendingPathComponent(detectionPath)
-            if FileManager.default.fileExists(atPath: detectionURL.path),
-               let detections = try? EsVirituDetectionParser.parse(url: detectionURL) {
+            // Indexing is best-effort: a parse failure skips the virus-hit rows
+            // for this result rather than failing the whole index rebuild, but it
+            // is logged at error level so a format change is not invisible.
+            var parsedDetections: [ViralDetection]?
+            if FileManager.default.fileExists(atPath: detectionURL.path) {
+                do {
+                    parsedDetections = try EsVirituDetectionParser.parse(url: detectionURL)
+                } catch {
+                    indexerLogger.error(
+                        "Universal search index: failed to parse EsViritu detections at \(detectionURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+            if let detections = parsedDetections {
                 attributes["detection_count"] = detections.count
 
                 let topDetections = detections

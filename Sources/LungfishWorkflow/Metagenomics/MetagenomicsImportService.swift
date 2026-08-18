@@ -405,12 +405,7 @@ public enum MetagenomicsImportService {
         }
 
         progress?(0.65, "Parsing detections...")
-        let virusCount: Int
-        if let detections = try? EsVirituDetectionParser.parse(url: detectionURL) {
-            virusCount = detections.count
-        } else {
-            virusCount = countDataRows(in: detectionURL)
-        }
+        let virusCount = try parseEsVirituVirusCount(detectionURL: detectionURL)
 
         progress?(0.85, "Writing sidecar...")
         let pipelineResult = EsVirituResult(
@@ -2661,6 +2656,42 @@ private func resolveEsVirituSampleName(preferredName: String?, inputURL: URL, de
     }
 
     return inputURL.deletingPathExtension().lastPathComponent
+}
+
+/// Counts detected viruses in an imported EsViritu detection TSV.
+///
+/// When the file carries a recognisable EsViritu header, a parse failure means
+/// the column set no longer matches what the parser expects (an upstream format
+/// change), so the error propagates instead of being replaced by a raw row count
+/// that would look like a plausible virus count. The raw-count fallback is kept
+/// only for partial exports that have no recognisable header at all.
+///
+/// - Parameter detectionURL: The imported `detected_virus.info.tsv`.
+/// - Returns: The number of detections.
+/// - Throws: ``MetagenomicsImportError/parseFailed(_:_:)`` when a headered file
+///   fails column validation.
+func parseEsVirituVirusCount(detectionURL: URL) throws -> Int {
+    do {
+        return try EsVirituDetectionParser.parse(url: detectionURL).count
+    } catch {
+        let hasHeader = (try? String(contentsOf: detectionURL, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map { EsVirituDetectionParser.isHeaderLine($0.trimmingCharacters(in: .whitespaces)) }
+            ?? false
+
+        guard !hasHeader else {
+            logger.error(
+                "EsViritu import: detection file has an EsViritu header but failed column validation - \(error.localizedDescription, privacy: .public)"
+            )
+            throw MetagenomicsImportError.parseFailed(detectionURL, error.localizedDescription)
+        }
+
+        logger.warning(
+            "EsViritu import: detection file has no recognizable header; falling back to raw row count - \(error.localizedDescription, privacy: .public)"
+        )
+        return countDataRows(in: detectionURL)
+    }
 }
 
 private func countDataRows(in fileURL: URL) -> Int {

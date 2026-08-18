@@ -153,6 +153,75 @@ struct MetagenomicsImportServiceTests {
         #expect(result.virusCount >= 1)
     }
 
+    /// A detection file that carries an EsViritu header but is missing a
+    /// required column is an upstream format change: the import must fail rather
+    /// than substituting a raw row count that looks like a plausible virus count.
+    @Test
+    func esVirituImportThrowsWhenHeaderIsMissingRequiredColumn() throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-esviritu-badheader-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = workspace.appendingPathComponent("esv-source", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+
+        // Same fixture, with the read_count column dropped from header and row.
+        let columns = EsVirituDetectionParser.requiredColumns.filter { $0 != "read_count" }
+        let header = columns.joined(separator: "\t")
+        let row = columns.map { name -> String in
+            switch name {
+            case "Length", "Asm_length": return "1000"
+            case "sample_ID": return "SampleA"
+            default: return "x"
+            }
+        }.joined(separator: "\t")
+
+        let detectionURL = sourceDirectory.appendingPathComponent("SampleA.detected_virus.info.tsv")
+        try [header, row].joined(separator: "\n")
+            .write(to: detectionURL, atomically: true, encoding: .utf8)
+
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+        do {
+            _ = try MetagenomicsImportService.importEsViritu(
+                inputURL: sourceDirectory,
+                outputDirectory: outputDirectory
+            )
+            Issue.record("Expected EsViritu import to throw on a header missing read_count")
+        } catch let error as MetagenomicsImportError {
+            // Must be a parse failure naming the missing column, not some
+            // unrelated import error that would make this test vacuous.
+            guard case .parseFailed(_, let reason) = error else {
+                Issue.record("Expected .parseFailed, got \(error)")
+                return
+            }
+            #expect(reason.contains("read_count"), "Reason should name the missing column, got: \(reason)")
+        }
+    }
+
+    /// A partial export with no recognisable header keeps the raw row-count
+    /// fallback, so importing a fragment still succeeds.
+    @Test
+    func esVirituImportFallsBackToRowCountWhenNoHeaderPresent() throws {
+        let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-esviritu-noheader-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sourceDirectory = workspace.appendingPathComponent("esv-source", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+
+        let detectionURL = sourceDirectory.appendingPathComponent("SampleA.detected_virus.info.tsv")
+        try """
+        not-a-header\tsome\tother\tcolumns
+        row-one\tvalue\tvalue\tvalue
+        row-two\tvalue\tvalue\tvalue
+        """.write(to: detectionURL, atomically: true, encoding: .utf8)
+
+        let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
+        let result = try MetagenomicsImportService.importEsViritu(
+            inputURL: sourceDirectory,
+            outputDirectory: outputDirectory
+        )
+        #expect(result.virusCount == 2)
+    }
+
     @Test
     func taxTriageImportCreatesSidecar() throws {
         let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-taxtriage-")

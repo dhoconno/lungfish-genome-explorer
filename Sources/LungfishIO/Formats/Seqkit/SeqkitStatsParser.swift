@@ -59,7 +59,11 @@ public struct SeqkitStatsRow: Sendable, Equatable {
     public let numSeqs: Int
 
     /// The `sum_len` column, or 0 when absent.
-    public let sumLen: Int
+    ///
+    /// `Int64` because a large sequencing run's total base count can exceed a
+    /// 32-bit range, and because the persisted `SeqkitStatsMetadata.sumLen` is
+    /// `Int64`.
+    public let sumLen: Int64
 
     /// The `min_len` column, or 0 when absent.
     public let minLen: Int
@@ -100,7 +104,7 @@ public struct SeqkitStatsRow: Sendable, Equatable {
     public init(
         file: String,
         numSeqs: Int,
-        sumLen: Int,
+        sumLen: Int64,
         minLen: Int,
         avgLen: Double,
         maxLen: Int,
@@ -226,7 +230,7 @@ public enum SeqkitStatsParser {
             rows.append(SeqkitStatsRow(
                 file: map["file"] ?? "",
                 numSeqs: numSeqs,
-                sumLen: map["sum_len"].flatMap(intValue) ?? 0,
+                sumLen: map["sum_len"].flatMap(int64Value) ?? 0,
                 minLen: map["min_len"].flatMap(intValue) ?? 0,
                 avgLen: map["avg_len"].flatMap(doubleValue) ?? 0,
                 maxLen: map["max_len"].flatMap(intValue) ?? 0,
@@ -261,12 +265,20 @@ public enum SeqkitStatsParser {
     ///
     /// - Returns: The value, or `nil` if the cell is not an integer.
     static func intValue(_ raw: String) -> Int? {
+        int64Value(raw).map(Int.init)
+    }
+
+    /// Parses a 64-bit integer cell, tolerating the thousands separators seqkit
+    /// emits when `-T` is not passed.
+    ///
+    /// - Returns: The value, or `nil` if the cell is not an integer.
+    static func int64Value(_ raw: String) -> Int64? {
         let cleaned = raw.replacingOccurrences(of: ",", with: "")
         guard !cleaned.isEmpty else { return nil }
-        if let value = Int(cleaned) { return value }
+        if let value = Int64(cleaned) { return value }
         // Some seqkit builds report whole-number columns with a trailing ".0".
         if let value = Double(cleaned), value.rounded() == value, value.magnitude < 9e18 {
-            return Int(value)
+            return Int64(value)
         }
         return nil
     }

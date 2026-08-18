@@ -3376,7 +3376,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
         return SeqkitSummary(
             numSeqs: row.numSeqs,
-            sumLen: Int64(row.sumLen),
+            sumLen: row.sumLen,
             minLen: row.minLen,
             avgLen: row.avgLen,
             maxLen: row.maxLen,

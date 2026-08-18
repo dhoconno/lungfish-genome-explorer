@@ -1262,10 +1262,18 @@ extension FASTQDerivativeService {
     /// Parses seqkit stats tabular output into FASTQDatasetStatistics.
     func parseFASTQStats(_ output: String) -> FASTQDatasetStatistics? {
         // Header-driven so a seqkit column change cannot shift values between fields.
-        guard let row = try? SeqkitStatsParser.parse(output) else { return nil }
+        let row: SeqkitStatsRow
+        do {
+            row = try SeqkitStatsParser.parse(output)
+        } catch {
+            derivativeLogger.error(
+                "parseFASTQStats: could not parse seqkit stats output - \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
 
         return FASTQDatasetStatistics(
-            readCount: row.numSeqs, baseCount: Int64(row.sumLen),
+            readCount: row.numSeqs, baseCount: row.sumLen,
             meanReadLength: row.avgLen, minReadLength: row.minLen, maxReadLength: row.maxLen,
             medianReadLength: Int(row.avgLen), n50ReadLength: 0,
             meanQuality: 0, q20Percentage: 0, q30Percentage: 0, gcContent: 0,

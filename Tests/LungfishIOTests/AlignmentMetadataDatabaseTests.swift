@@ -525,6 +525,26 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         XCTAssertThrowsError(try AlignmentMetadataDatabase.parseIdxstats(text))
     }
 
+    /// The strict parser must not coerce a non-numeric count to zero.
+    func testParseIdxstatsThrowsOnNonNumericCount() {
+        let text = """
+        chr1\t248956422\t1000\t10
+        chr2\t242193529\tNOT_A_NUMBER\t20
+        """
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseIdxstats(text)) { error in
+            guard let parseError = error as? SamtoolsOutputParseError,
+                  case .malformedIdxstatsRow(let line, _) = parseError else {
+                return XCTFail("Expected .malformedIdxstatsRow, got \(error)")
+            }
+            XCTAssertEqual(line, 2)
+        }
+    }
+
+    func testParseIdxstatsThrowsOnNonNumericLength() {
+        let text = "chr1\tlots\t1000\t10\n"
+        XCTAssertThrowsError(try AlignmentMetadataDatabase.parseIdxstats(text))
+    }
+
     func testParseIdxstatsThrowsOnEmptyOutput() {
         XCTAssertThrowsError(try AlignmentMetadataDatabase.parseIdxstats("   \n\n"))
     }

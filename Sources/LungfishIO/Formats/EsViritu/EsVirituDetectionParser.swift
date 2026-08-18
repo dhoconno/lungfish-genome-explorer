@@ -274,7 +274,12 @@ public enum EsVirituDetectionParser {
     /// Detection is by cell content rather than by position, so a reordered
     /// upstream header is still recognised as a header (and then resolved by
     /// name) instead of being misread as a data row.
-    static func isHeaderLine(_ trimmed: String) -> Bool {
+    ///
+    /// Public so importers can distinguish "this file has an EsViritu header but
+    /// failed column validation" (a format change, which must surface) from
+    /// "this file has no recognisable header" (a partial export, where a raw row
+    /// count is an acceptable fallback).
+    public static func isHeaderLine(_ trimmed: String) -> Bool {
         let cells = trimmed.split(separator: "\t", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         return cells.contains("sample_id")

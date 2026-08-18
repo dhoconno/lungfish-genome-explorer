@@ -287,7 +287,15 @@ extension FASTQDerivativeService {
         let result = try? await runner.run(.seqkit, arguments: ["stats", "-T", url.path])
         guard let result, result.isSuccess else { return nil }
         // Header-driven so a seqkit column change cannot shift the read count.
-        guard let row = try? SeqkitStatsParser.parse(result.stdout) else { return nil }
+        let row: SeqkitStatsRow
+        do {
+            row = try SeqkitStatsParser.parse(result.stdout)
+        } catch {
+            derivativeLogger.error(
+                "countFASTQReads: could not parse seqkit stats for \(url.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
         let total = row.numSeqs
         return isInterleaved ? total / 2 : total
     }

@@ -98,6 +98,21 @@ private func parseFASTQReadPreviewRecords(from fastqText: String) -> [FASTQReadP
     return records
 }
 
+/// Errors raised while computing the FASTQ quality report.
+enum FASTQQualityReportError: Error, LocalizedError {
+
+    /// seqkit stats could not be run or its output could not be parsed, so no
+    /// statistics are available to display.
+    case statisticsUnavailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .statisticsUnavailable(let detail):
+            return "Statistics unavailable: \(detail)"
+        }
+    }
+}
+
 @MainActor
 public final class FASTQDatasetViewController: NSViewController {
 
@@ -1666,20 +1681,30 @@ public final class FASTQDatasetViewController: NSViewController {
 
                     // Header-driven parsing: a seqkit release that adds or
                     // reorders columns must not shift values between fields.
-                    if seqkitResult.isSuccess,
-                       let row = try? SeqkitStatsParser.parse(seqkitResult.stdout) {
-                        _numSeqs = row.numSeqs
-                        _sumLen = Int64(row.sumLen)
-                        _minLen = row.minLen
-                        _avgLen = row.avgLen
-                        _maxLen = row.maxLen
-                        _medianLen = row.q2.map { Int($0) } ?? 0
-                        _n50Len = row.n50.map { Int($0) } ?? 0
-                        _q20 = row.q20Percent ?? 0
-                        _q30 = row.q30Percent ?? 0
-                        _avgQual = row.avgQual ?? 0
-                        _gc = row.gcPercent ?? 0
+                    // A parse failure surfaces as a failed operation rather than
+                    // rendering zeros as if they were real measurements.
+                    guard seqkitResult.isSuccess else {
+                        throw FASTQQualityReportError.statisticsUnavailable(
+                            "seqkit stats exited \(seqkitResult.exitCode): \(seqkitResult.stderr)"
+                        )
                     }
+                    let row: SeqkitStatsRow
+                    do {
+                        row = try SeqkitStatsParser.parse(seqkitResult.stdout)
+                    } catch {
+                        throw FASTQQualityReportError.statisticsUnavailable(error.localizedDescription)
+                    }
+                    _numSeqs = row.numSeqs
+                    _sumLen = row.sumLen
+                    _minLen = row.minLen
+                    _avgLen = row.avgLen
+                    _maxLen = row.maxLen
+                    _medianLen = row.q2.map { Int($0) } ?? 0
+                    _n50Len = row.n50.map { Int($0) } ?? 0
+                    _q20 = row.q20Percent ?? 0
+                    _q30 = row.q30Percent ?? 0
+                    _avgQual = row.avgQual ?? 0
+                    _gc = row.gcPercent ?? 0
                     numSeqs = _numSeqs; sumLen = _sumLen; minLen = _minLen; avgLen = _avgLen
                     maxLen = _maxLen; medianLen = _medianLen; n50Len = _n50Len
                     q20 = _q20; q30 = _q30; avgQual = _avgQual; gc = _gc
