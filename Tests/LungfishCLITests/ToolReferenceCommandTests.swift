@@ -13,6 +13,10 @@ final class ToolReferenceCommandTests: XCTestCase {
             try await command.run()
         }
 
+        XCTAssertTrue(
+            output.contains("Dependency set: \(ManagedToolLock.bundled.resolvedDependencySet)"),
+            output
+        )
         XCTAssertTrue(output.contains("Bundled and Managed Tools"), output)
         XCTAssertTrue(output.contains("Tool"), output)
         XCTAssertTrue(output.contains("Version"), output)

@@ -16,6 +16,9 @@ struct VersionCommand: AsyncParsableCommand {
 
         guard tools else { return }
 
+        let manifest = ManagedToolLock.bundled
+        Swift.print("Dependency set: \(manifest.resolvedDependencySet) (\(manifest.dependencySetDate ?? "unknown"))")
+
         let entries = ToolReferenceCatalog.sortedEntries()
         Swift.print("")
         Swift.print("Bundled and Managed Tools")

@@ -838,6 +838,7 @@ final class ProvenanceInspectorViewModel {
         appendOptional("Plugin Pack", runtime.pluginPack, to: &rows)
         appendOptional("Container Image", runtime.containerImage, to: &rows)
         appendOptional("Container Digest", runtime.containerDigest, to: &rows)
+        appendOptional("Dependency Set", runtime.dependencySet, to: &rows)
         return rows
     }
 

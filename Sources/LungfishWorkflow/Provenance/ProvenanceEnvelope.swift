@@ -608,6 +608,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
     public let pluginPack: String?
     public let containerImage: String?
     public let containerDigest: String?
+    public let dependencySet: String?
 
     private enum CodingKeys: String, CodingKey {
         case appVersion
@@ -622,6 +623,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         case pluginPack
         case containerImage
         case containerDigest
+        case dependencySet
     }
 
     public init(
@@ -636,7 +638,8 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         condaPrefix: String? = nil,
         pluginPack: String? = nil,
         containerImage: String? = nil,
-        containerDigest: String? = nil
+        containerDigest: String? = nil,
+        dependencySet: String? = ManagedToolLock.bundled.resolvedDependencySet
     ) {
         self.appVersion = ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion)
         self.executablePath = ProvenanceVersion.required(executablePath, fallback: Self.currentExecutablePath)
@@ -651,6 +654,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.pluginPack = pluginPack
         self.containerImage = containerImage
         self.containerDigest = containerDigest
+        self.dependencySet = dependencySet
     }
 
     public init(from decoder: Decoder) throws {
@@ -680,6 +684,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         pluginPack = try container.decodeIfPresent(String.self, forKey: .pluginPack)
         containerImage = try container.decodeIfPresent(String.self, forKey: .containerImage)
         containerDigest = try container.decodeIfPresent(String.self, forKey: .containerDigest)
+        dependencySet = try container.decodeIfPresent(String.self, forKey: .dependencySet)
     }
 
     public static var currentExecutablePath: String {

@@ -176,6 +176,21 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertTrue(aboutText.contains(HardwareRequirements.recommendedDiskDisplay))
     }
 
+    func testAboutWindowShowsDependencySetAboveToolsTable() throws {
+        let controller = AboutWindowController()
+        let root = try XCTUnwrap(controller.window?.contentView)
+        let credits = try XCTUnwrap(root.descendant(matching: "about-credits-text-view") as? NSTextView)
+        let aboutText = credits.string
+
+        let manifest = ManagedToolLock.bundled
+        let dependencySetLine = "Dependency set: \(manifest.resolvedDependencySet) (\(manifest.dependencySetDate ?? "unknown"))"
+        XCTAssertTrue(aboutText.contains(dependencySetLine), aboutText)
+
+        let dependencySetRange = try XCTUnwrap(aboutText.range(of: dependencySetLine))
+        let bundledBootstrapRange = try XCTUnwrap(aboutText.range(of: "Bundled Bootstrap"))
+        XCTAssertLessThan(dependencySetRange.lowerBound, bundledBootstrapRange.lowerBound, aboutText)
+    }
+
     func testThirdPartyLicensesWindowExposesStableAccessibilityIdentifiers() throws {
         let controller = ThirdPartyLicensesWindowController()
         let window = try XCTUnwrap(controller.window)

@@ -278,6 +278,11 @@ final class AboutWindowController: NSWindowController {
             appendBody(line)
         }
 
+        // Dependency set summary, shown above the tools table (mirrors
+        // `lungfish-cli version --tools`'s leading line).
+        let manifest = ManagedToolLock.bundled
+        appendSecondary("Dependency set: \(manifest.resolvedDependencySet) (\(manifest.dependencySetDate ?? "unknown"))")
+
         // Bundled bootstrap tooling stays separate from the pinned managed pack.
         appendHeading("Bundled Bootstrap")
 
