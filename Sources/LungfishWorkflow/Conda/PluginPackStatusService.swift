@@ -140,11 +140,14 @@ public extension PluginPackStatusProviding {
 
 public enum PluginPackStatusServiceError: Swift.Error, LocalizedError, Equatable {
     case storageUnavailable(URL)
+    case smokeTestFailed(requirement: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
         case .storageUnavailable(let root):
             return "Storage location unavailable: \(root.path)"
+        case .smokeTestFailed(let requirement, let reason):
+            return "\(requirement) failed its verification check: \(reason)"
         }
     }
 }
@@ -1012,6 +1015,26 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 missingExecutables: requirement.managedDatabaseID == nil ? requirement.executables : [],
                 smokeTestFailure: nil,
                 storageUnavailablePath: root.path
+            )
+        }
+    }
+
+    /// Runs a requirement's smoke test, throwing when it fails.
+    ///
+    /// The reconciler verifies a freshly created environment the same way status evaluation
+    /// does, so an install that produced a broken environment is recorded as a failure rather
+    /// than as a success the user only discovers at run time. Requirements with no smoke test
+    /// (or database-backed requirements, which have no environment to exercise) pass.
+    public static func runSmokeTest(
+        _ requirement: PackToolRequirement,
+        condaManager: CondaManager = .shared
+    ) async throws {
+        guard requirement.managedDatabaseID == nil, let smokeTest = requirement.smokeTest else { return }
+        let service = PluginPackStatusService(condaManager: condaManager)
+        if let failure = await service.runSmokeTest(smokeTest, for: requirement) {
+            throw PluginPackStatusServiceError.smokeTestFailed(
+                requirement: requirement.displayName,
+                reason: failure
             )
         }
     }

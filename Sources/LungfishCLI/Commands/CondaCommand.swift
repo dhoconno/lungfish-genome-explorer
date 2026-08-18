@@ -182,6 +182,10 @@ extension CondaCommand {
                         switch error {
                         case .storageUnavailable(let root):
                             throw CondaCommand.storageUnavailableValidationError(for: root)
+                        case .smokeTestFailed:
+                            print("")
+                            print(formatter.error("Tool pack '\(pack.name)' failed: \(error.localizedDescription)"))
+                            throw CLIExitCode.dependency.exitCode
                         }
                     } catch {
                         print("")
