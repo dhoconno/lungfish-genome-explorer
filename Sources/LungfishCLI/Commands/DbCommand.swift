@@ -327,7 +327,7 @@ extension DbCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let targets = try await resolveTargets(registry: registry, formatter: formatter)
+            let targets = try await resolveTargets(registry: registry)
             if targets.isEmpty {
                 print(formatter.info("No databases have an update available."))
                 return
@@ -369,8 +369,7 @@ extension DbCommand {
 
         /// The catalog identifiers this invocation should update.
         private func resolveTargets(
-            registry: MetagenomicsDatabaseRegistry,
-            formatter: TerminalFormatter
+            registry: MetagenomicsDatabaseRegistry
         ) async throws -> [String] {
             if let catalogID {
                 return [catalogID]
