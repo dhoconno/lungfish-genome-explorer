@@ -1,0 +1,107 @@
+// DependencyManifestSections.swift - Manifest sections for the single dependency source of truth
+// Copyright (c) 2025 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import CryptoKit
+
+/// The `ManagedToolLock` document, viewed as the app's single dependency manifest:
+/// managed CLI tools, optional pack tools, pipeline pins, bundled/catalog databases,
+/// and bootstrap (micromamba) metadata.
+public typealias DependencyManifest = ManagedToolLock
+
+/// A pinned tool belonging to an optional `PluginPack` (as opposed to the always-installed
+/// `ManagedToolLock.tools`).
+public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
+    public var id: String { "\(packID)/\(toolID)" }
+    public let packID: String
+    public let toolID: String
+    public let environment: String
+    public let packageSpec: String
+    public let executables: [String]
+    public let version: String
+    public let license: String?
+    public let sourceUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case packID, toolID = "id", environment, packageSpec, executables, version, license, sourceUrl
+    }
+}
+
+/// A pinned external pipeline (e.g. a Nextflow pipeline repository) the app invokes.
+public struct PipelineSpec: Sendable, Codable, Hashable, Identifiable {
+    public let id: String
+    public let repository: String
+    public let revision: String
+    public let releaseVersion: String
+}
+
+/// Whether a database update is merely advisory (the app notes a newer version exists) or
+/// required (the app blocks/prompts because the installed database is incompatible).
+public enum DatabaseUpdatePolicy: String, Sendable, Codable {
+    case advisory
+    case required
+}
+
+/// A pinned reference database: either a bundled sidecar (human-scrubber, deacon indexes)
+/// or a catalog entry the user downloads on demand (Kraken2 collections, EsViritu, etc.).
+public struct DatabaseSpec: Sendable, Codable, Hashable, Identifiable {
+    public let id: String
+    public let tool: String
+    public let displayName: String
+    public let version: String
+    public let url: String?
+    public let filename: String?
+    public let md5: String?
+    public let sha256: String?
+    public let md5Sidecar: Bool?
+    public let indexFormat: Int?
+    public let minimumToolVersion: String?
+    public let sizeBytes: Int64?
+    public let sizeOnDisk: Int64?
+    public let recommendedRAM: Int64?
+    public let description: String?
+    public let releaseDate: String?
+    public let sourceUrl: String?
+    public let releasesUrl: String?
+    public let updatePolicy: DatabaseUpdatePolicy?
+    /// Kraken2 collection raw value when this entry is a Kraken2 catalog entry (e.g. "standard-16").
+    public let collection: String?
+
+    public var effectiveUpdatePolicy: DatabaseUpdatePolicy { updatePolicy ?? .advisory }
+}
+
+/// Pinned micromamba binary metadata used to bootstrap the conda root.
+public struct MicromambaSpec: Sendable, Codable, Hashable {
+    public let version: String
+    /// Keyed by platform ("osx-arm64").
+    public let sha256: [String: String]?
+}
+
+/// Bootstrap-time pins (currently just micromamba itself).
+public struct BootstrapSpec: Sendable, Codable, Hashable {
+    public let micromamba: MicromambaSpec
+}
+
+public extension ManagedToolLock {
+    /// The manifest's dependency set, falling back to a legacy synthetic identifier
+    /// (`legacy-<version>`) for manifests written before `dependencySet` existed.
+    var resolvedDependencySet: String { dependencySet ?? "legacy-\(version)" }
+
+    func packTool(packID: String, id: String) -> PackToolSpec? {
+        packTools.first { $0.packID == packID && $0.toolID == id }
+    }
+    func pipeline(id: String) -> PipelineSpec? { pipelines.first { $0.id == id } }
+    func database(id: String) -> DatabaseSpec? { databases.first { $0.id == id } }
+
+    /// Every conda spec the manifest pins (managed tools + pack tools).
+    var allCondaSpecs: [String] { tools.map(\.packageSpec) + packTools.map(\.packageSpec) }
+
+    /// sha256 over canonical (sorted-keys) JSON of the manifest.
+    var manifestHash: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(self)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}

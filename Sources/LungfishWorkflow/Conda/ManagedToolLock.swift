@@ -148,19 +148,57 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
     public let version: String
     public let tools: [ToolSpec]
     public let managedData: [ManagedDataSpec]
+    public let dependencySet: String?
+    public let dependencySetDate: String?
+    public let packTools: [PackToolSpec]
+    public let pipelines: [PipelineSpec]
+    public let databases: [DatabaseSpec]
+    public let bootstrap: BootstrapSpec?
 
     public init(
         packID: String,
         displayName: String,
         version: String,
         tools: [ToolSpec],
-        managedData: [ManagedDataSpec]
+        managedData: [ManagedDataSpec],
+        dependencySet: String? = nil,
+        dependencySetDate: String? = nil,
+        packTools: [PackToolSpec] = [],
+        pipelines: [PipelineSpec] = [],
+        databases: [DatabaseSpec] = [],
+        bootstrap: BootstrapSpec? = nil
     ) {
         self.packID = packID
         self.displayName = displayName
         self.version = version
         self.tools = tools
         self.managedData = managedData
+        self.dependencySet = dependencySet
+        self.dependencySetDate = dependencySetDate
+        self.packTools = packTools
+        self.pipelines = pipelines
+        self.databases = databases
+        self.bootstrap = bootstrap
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case packID, displayName, version, tools, managedData
+        case dependencySet, dependencySetDate, packTools, pipelines, databases, bootstrap
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        packID = try c.decode(String.self, forKey: .packID)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        version = try c.decode(String.self, forKey: .version)
+        tools = try c.decode([ToolSpec].self, forKey: .tools)
+        managedData = try c.decodeIfPresent([ManagedDataSpec].self, forKey: .managedData) ?? []
+        dependencySet = try c.decodeIfPresent(String.self, forKey: .dependencySet)
+        dependencySetDate = try c.decodeIfPresent(String.self, forKey: .dependencySetDate)
+        packTools = try c.decodeIfPresent([PackToolSpec].self, forKey: .packTools) ?? []
+        pipelines = try c.decodeIfPresent([PipelineSpec].self, forKey: .pipelines) ?? []
+        databases = try c.decodeIfPresent([DatabaseSpec].self, forKey: .databases) ?? []
+        bootstrap = try c.decodeIfPresent(BootstrapSpec.self, forKey: .bootstrap)
     }
 
     public func tool(named id: String) -> ToolSpec? {
