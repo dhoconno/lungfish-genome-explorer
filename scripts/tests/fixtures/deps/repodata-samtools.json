@@ -1,0 +1,287 @@
+{
+ "query": {
+  "query": "samtools",
+  "type": "search"
+ },
+ "result": {
+  "pkgs": [
+   {
+    "build": "h36b3a25_15",
+    "build_number": 15,
+    "build_string": "h36b3a25_15",
+    "channel": "bioconda",
+    "depends": [
+     "__osx >=11.0",
+     "libzlib >=1.3.2,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-0.1.19-h36b3a25_15.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1777103027,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-0.1.19-h36b3a25_15.conda",
+    "version": "0.1.19"
+   },
+   {
+    "build": "h267f7b9_0",
+    "build_number": 0,
+    "build_string": "h267f7b9_0",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.23,<1.24.0a0",
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.23-h267f7b9_0.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1765917344,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.23-h267f7b9_0.conda",
+    "version": "1.23"
+   },
+   {
+    "build": "hc612e98_0",
+    "build_number": 0,
+    "build_string": "hc612e98_0",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.23.1,<1.24.0a0",
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.23.1-hc612e98_0.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1773861469,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.23.1-hc612e98_0.conda",
+    "version": "1.23.1"
+   },
+   {
+    "build": "h36b3a25_0",
+    "build_number": 0,
+    "build_string": "h36b3a25_0",
+    "channel": "bioconda",
+    "depends": [
+     "__osx >=11.0",
+     "htslib >=1.24,<1.25.0a0",
+     "libzlib >=1.3.2,<2.0a0",
+     "ncurses >=6.6,<7.0a0"
+    ],
+    "fn": "samtools-1.24-h36b3a25_0.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1783617349,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.24-h36b3a25_0.conda",
+    "version": "1.24"
+   },
+   {
+    "build": "h36b3a25_1",
+    "build_number": 1,
+    "build_string": "h36b3a25_1",
+    "channel": "bioconda",
+    "depends": [
+     "__osx >=11.0",
+     "htslib >=1.24,<1.25.0a0",
+     "libzlib >=1.3.2,<2.0a0",
+     "ncurses >=6.6,<7.0a0"
+    ],
+    "fn": "samtools-1.24-h36b3a25_1.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1784061895,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.24-h36b3a25_1.conda",
+    "version": "1.24"
+   },
+   {
+    "build": "hd980e65_13",
+    "build_number": 13,
+    "build_string": "hd980e65_13",
+    "channel": "bioconda",
+    "depends": [
+     "bzip2 >=1.0.8,<2.0a0",
+     "curl",
+     "liblzma >=5.8.1,<6.0a0",
+     "libzlib >=1.3.1,<2.0a0"
+    ],
+    "fn": "samtools-1.6-hd980e65_13.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1758587827,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.6-hd980e65_13.conda",
+    "version": "1.6"
+   },
+   {
+    "build": "h41019b5_3",
+    "build_number": 3,
+    "build_string": "h41019b5_3",
+    "channel": "bioconda",
+    "depends": [
+     "__osx >=11.0",
+     "bzip2 >=1.0.8,<2.0a0",
+     "curl",
+     "liblzma >=5.8.3,<6.0a0",
+     "libzlib >=1.3.2,<2.0a0"
+    ],
+    "fn": "samtools-1.7-h41019b5_3.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1784193247,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.7-h41019b5_3.conda",
+    "version": "1.7"
+   },
+   {
+    "build": "h41019b5_6",
+    "build_number": 6,
+    "build_string": "h41019b5_6",
+    "channel": "bioconda",
+    "depends": [
+     "__osx >=11.0",
+     "bzip2 >=1.0.8,<2.0a0",
+     "curl",
+     "liblzma >=5.8.3,<6.0a0",
+     "libzlib >=1.3.2,<2.0a0"
+    ],
+    "fn": "samtools-1.8-h41019b5_6.conda",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1784146939,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.8-h41019b5_6.conda",
+    "version": "1.8"
+   },
+   {
+    "build": "h267f7b9_14",
+    "build_number": 14,
+    "build_string": "h267f7b9_14",
+    "channel": "bioconda",
+    "depends": [
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0",
+     "zlib"
+    ],
+    "fn": "samtools-0.1.18-h267f7b9_14.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1733303892,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-0.1.18-h267f7b9_14.tar.bz2",
+    "version": "0.1.18"
+   },
+   {
+    "build": "h267f7b9_14",
+    "build_number": 14,
+    "build_string": "h267f7b9_14",
+    "channel": "bioconda",
+    "depends": [
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-0.1.19-h267f7b9_14.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1754068601,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-0.1.19-h267f7b9_14.tar.bz2",
+    "version": "0.1.19"
+   },
+   {
+    "build": "hc9c1273_1",
+    "build_number": 1,
+    "build_string": "hc9c1273_1",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.20,<1.21.0a0",
+     "libzlib >=1.2.13,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.20-hc9c1273_1.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1720648014,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.20-hc9c1273_1.tar.bz2",
+    "version": "1.20"
+   },
+   {
+    "build": "h267f7b9_1",
+    "build_number": 1,
+    "build_string": "h267f7b9_1",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.21,<1.22.0a0",
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.21-h267f7b9_1.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1733982286,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.21-h267f7b9_1.tar.bz2",
+    "version": "1.21"
+   },
+   {
+    "build": "hc9c1273_0",
+    "build_number": 0,
+    "build_string": "hc9c1273_0",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.21,<1.22.0a0",
+     "libzlib >=1.2.13,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.21-hc9c1273_0.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1726175382,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.21-hc9c1273_0.tar.bz2",
+    "version": "1.21"
+   },
+   {
+    "build": "h267f7b9_0",
+    "build_number": 0,
+    "build_string": "h267f7b9_0",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.22,<1.23.0a0",
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.22-h267f7b9_0.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1748907915,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.22-h267f7b9_0.tar.bz2",
+    "version": "1.22"
+   },
+   {
+    "build": "h267f7b9_0",
+    "build_number": 0,
+    "build_string": "h267f7b9_0",
+    "channel": "bioconda",
+    "depends": [
+     "htslib >=1.22.1,<1.23.0a0",
+     "libzlib >=1.3.1,<2.0a0",
+     "ncurses >=6.5,<7.0a0"
+    ],
+    "fn": "samtools-1.22.1-h267f7b9_0.tar.bz2",
+    "license": "MIT",
+    "name": "samtools",
+    "subdir": "osx-arm64",
+    "timestamp": 1752527988,
+    "url": "https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.22.1-h267f7b9_0.tar.bz2",
+    "version": "1.22.1"
+   }
+  ],
+  "status": "OK"
+ }
+}

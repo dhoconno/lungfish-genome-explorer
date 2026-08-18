@@ -1,0 +1,22 @@
+{
+ "tag_name": "2.9.0-0",
+ "published_at": "2026-08-07T18:44:16Z",
+ "assets": [
+  {
+   "name": "micromamba-osx-arm64",
+   "browser_download_url": "https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-osx-arm64"
+  },
+  {
+   "name": "micromamba-osx-arm64.sha256",
+   "browser_download_url": "https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-osx-arm64.sha256"
+  },
+  {
+   "name": "micromamba-osx-arm64.tar.bz2",
+   "browser_download_url": "https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-osx-arm64.tar.bz2"
+  },
+  {
+   "name": "micromamba-osx-arm64.tar.bz2.sha256",
+   "browser_download_url": "https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-osx-arm64.tar.bz2.sha256"
+  }
+ ]
+}
