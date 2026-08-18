@@ -154,6 +154,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Register for system notifications
         registerNotifications()
 
+        // Bring managed tools and databases in line with the bundled dependency manifest.
+        // No-ops on the fast path when this machine already matches the shipped tool set.
+        scheduleDependencyReconciliation()
+
         // Clean up stale temp files from previous sessions
         Task {
             await TempFileManager.shared.setMaxAge(hours: AppSettings.shared.tempFileRetentionHours)

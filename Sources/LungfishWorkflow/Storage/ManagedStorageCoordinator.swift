@@ -70,6 +70,7 @@ public actor ManagedStorageCoordinator {
             try await databaseMigrator(current.databaseRootURL, validated.databaseRootURL)
             try await toolInstaller(validated.condaRootURL)
             try await verifier(validated)
+            copyDependencyReceipt(from: current, to: validated)
             try saveBootstrapConfig(ManagedStorageBootstrapConfig(
                 activeRootPath: validated.rootURL.path,
                 previousRootPath: current.rootURL.path,
@@ -95,7 +96,11 @@ public actor ManagedStorageCoordinator {
 
         if previousRoot != activeRoot, fileManager.fileExists(atPath: previousRoot.path) {
             let previousLocation = ManagedStorageLocation(rootURL: previousRoot)
-            for managedURL in [previousLocation.condaRootURL, previousLocation.databaseRootURL] {
+            for managedURL in [
+                previousLocation.condaRootURL,
+                previousLocation.databaseRootURL,
+                previousLocation.dependencyReceiptURL,
+            ] {
                 if fileManager.fileExists(atPath: managedURL.path) {
                     try fileManager.removeItem(at: managedURL)
                 }
@@ -113,6 +118,27 @@ public actor ManagedStorageCoordinator {
         config.previousRootPath = nil
         config.migrationState = nil
         try saveBootstrapConfig(config)
+    }
+
+    /// Carries the dependency receipt to the new root.
+    ///
+    /// Best-effort on purpose: the tools and databases are already in place by this point, and
+    /// a missing receipt only costs the next launch a re-plan (which will synthesize one from
+    /// disk). Failing the whole relocation over a bookkeeping file would be worse.
+    private func copyDependencyReceipt(
+        from previous: ManagedStorageLocation,
+        to destination: ManagedStorageLocation
+    ) {
+        let source = previous.dependencyReceiptURL
+        let target = destination.dependencyReceiptURL
+        guard source.standardizedFileURL != target.standardizedFileURL,
+              fileManager.fileExists(atPath: source.path) else {
+            return
+        }
+        if fileManager.fileExists(atPath: target.path) {
+            try? fileManager.removeItem(at: target)
+        }
+        try? fileManager.copyItem(at: source, to: target)
     }
 
     private func persistedConfigState() -> PersistedConfigState {

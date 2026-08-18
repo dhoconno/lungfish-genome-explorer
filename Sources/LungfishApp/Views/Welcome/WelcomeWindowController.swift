@@ -187,6 +187,7 @@ final class WelcomeViewModel: ObservableObject {
     private var setupRefreshTask: Task<Void, Never>?
     private var scheduledSetupRefreshTask: Task<Void, Never>?
     private var managedResourcesObserver: WelcomeNotificationObserver?
+    private var dependencyReconciliationObserver: WelcomeNotificationObserver?
     private var scheduledSetupRefreshGeneration = 0
     private var requiredSetupInstallGeneration = 0
     private var pendingSetupInvalidation = false
@@ -220,12 +221,30 @@ final class WelcomeViewModel: ObservableObject {
             }
         }
         managedResourcesObserver = WelcomeNotificationObserver(notificationCenter: notificationCenter, token: token)
+
+        // The Update Tools sheet can install the required pack out from under this window, so
+        // the launch gate has to be re-read once it finishes rather than staying on the stale
+        // status captured before the sheet ran.
+        let reconciliationToken = notificationCenter.addObserver(
+            forName: .lungfishDependencyReconciliationDidFinish,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleSetupRefresh(requiresFreshRead: true)
+            }
+        }
+        dependencyReconciliationObserver = WelcomeNotificationObserver(
+            notificationCenter: notificationCenter,
+            token: reconciliationToken
+        )
     }
 
     deinit {
         setupRefreshTask?.cancel()
         scheduledSetupRefreshTask?.cancel()
         managedResourcesObserver = nil
+        dependencyReconciliationObserver = nil
     }
 
     private func handleManagedResourcesDidChange(sourceObjectIdentifier: ObjectIdentifier?) {

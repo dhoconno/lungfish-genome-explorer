@@ -16,6 +16,7 @@ enum PluginManagerAccessibilityID {
     static let orphanedEnvironmentsRemoveButton = "plugin-manager-orphaned-environments-remove-button"
     static let databasesRefreshButton = "plugin-manager-databases-refresh-button"
     static let storageSettingsButton = "plugin-manager-storage-settings-button"
+    static let checkForToolUpdatesButton = "plugin-manager-check-for-tool-updates-button"
 
     static func tab(_ tab: PluginManagerViewModel.Tab) -> String {
         switch tab {
@@ -142,13 +143,37 @@ private struct InstalledTabView: View {
     @State private var expandedEnvironments: Set<String> = []
 
     var body: some View {
-        if viewModel.isLoading && viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
-            loadingPlaceholder
-        } else if viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
-            emptyPlaceholder
-        } else {
-            environmentList
+        VStack(spacing: 0) {
+            checkForUpdatesBar
+            Divider()
+            if viewModel.isLoading && viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
+                loadingPlaceholder
+            } else if viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
+                emptyPlaceholder
+            } else {
+                environmentList
+            }
         }
+    }
+
+    private var checkForUpdatesBar: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            if viewModel.isCheckingForToolUpdates {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.lungfishCreamsicleFallback)
+            }
+            Button("Check for Tool Updates...") {
+                viewModel.checkForToolUpdates()
+            }
+            .controlSize(.small)
+            .disabled(viewModel.isCheckingForToolUpdates)
+            .accessibilityIdentifier(PluginManagerAccessibilityID.checkForToolUpdatesButton)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.lungfishCanvasBackground)
     }
 
     private var loadingPlaceholder: some View {

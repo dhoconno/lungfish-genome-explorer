@@ -192,6 +192,42 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         XCTAssertNil(config.migrationState)
     }
 
+    func testChangeLocationCarriesDependencyReceiptToTheNewRoot() async throws {
+        let home = tempDir.appendingPathComponent("home", isDirectory: true)
+        let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)
+        let newRoot = tempDir.appendingPathComponent("new-root", isDirectory: true)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        try configStore.setActiveRoot(oldRoot)
+        try FileManager.default.createDirectory(at: oldRoot, withIntermediateDirectories: true)
+        let receiptPayload = Data(#"{"schemaVersion":1}"#.utf8)
+        FileManager.default.createFile(
+            atPath: ManagedStorageLocation(rootURL: oldRoot).dependencyReceiptURL.path,
+            contents: receiptPayload
+        )
+
+        let coordinator = ManagedStorageCoordinator(
+            configStore: configStore,
+            validator: { ManagedStorageLocation(rootURL: $0) },
+            databaseMigrator: { _, _ in },
+            toolInstaller: { _ in },
+            verifier: { _ in }
+        )
+
+        try await coordinator.changeLocation(to: newRoot)
+
+        let movedReceipt = ManagedStorageLocation(rootURL: newRoot).dependencyReceiptURL
+        XCTAssertTrue(FileManager.default.fileExists(atPath: movedReceipt.path))
+        XCTAssertEqual(try Data(contentsOf: movedReceipt), receiptPayload)
+
+        // Cleanup takes the stale copy with the rest of the managed content.
+        try await coordinator.removeOldLocalCopies()
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: ManagedStorageLocation(rootURL: oldRoot).dependencyReceiptURL.path
+            )
+        )
+    }
+
     func testRemoveOldLocalCopiesRejectsNestedRootRelationships() async throws {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)

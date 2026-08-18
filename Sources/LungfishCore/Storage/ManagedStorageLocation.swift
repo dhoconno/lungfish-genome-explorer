@@ -46,6 +46,15 @@ public struct ManagedStorageLocation: Sendable, Codable, Equatable {
         rootURL.appendingPathComponent("databases", isDirectory: true)
     }
 
+    /// The dependency install receipt for this root.
+    ///
+    /// It records what the reconciler installed *here*, so it belongs to the root and travels
+    /// with it on relocation. Leaving it behind would make a freshly moved root look
+    /// un-provisioned and re-plan work that already happened.
+    public var dependencyReceiptURL: URL {
+        rootURL.appendingPathComponent("dependency-receipt.json", isDirectory: false)
+    }
+
     public static func defaultLocation(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ManagedStorageLocation {
         ManagedStorageLocation(rootURL: homeDirectory.appendingPathComponent(".lungfish", isDirectory: true))
     }

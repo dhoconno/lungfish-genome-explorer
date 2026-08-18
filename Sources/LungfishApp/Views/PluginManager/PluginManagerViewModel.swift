@@ -274,6 +274,62 @@ final class PluginManagerViewModel {
 
     @ObservationIgnored private var storageLocationChangeObserver: StorageLocationChangeObserver?
 
+    /// True while a "Check for Tool Updates" request is planning, so the button can show
+    /// progress and refuse to stack a second plan on top of the first.
+    var isCheckingForToolUpdates = false
+
+    /// Plans against the bundled dependency manifest and either reports that nothing is due or
+    /// presents the same Update Tools sheet the launch trigger uses.
+    ///
+    /// Deliberately shares ``DependencyReconciliationFactory`` with the launch path so the two
+    /// entry points cannot disagree about storage root, manifest, or progress reporting.
+    func checkForToolUpdates() {
+        guard !isCheckingForToolUpdates else { return }
+        isCheckingForToolUpdates = true
+
+        let storageRoot = DependencyReconciliationFactory.storageRoot
+        let reconciler = DependencyReconciliationFactory.makeReconciler(storageRoot: storageRoot)
+
+        Task { @MainActor [weak self] in
+            defer { self?.isCheckingForToolUpdates = false }
+            do {
+                let plan = try await reconciler.currentPlan()
+                guard let self else { return }
+                guard let window = UpdateToolsSheetController.hostWindow() else {
+                    logger.error("Check for Tool Updates: no window available to present on")
+                    return
+                }
+                guard !plan.isEmpty else {
+                    self.presentToolsUpToDateAlert(
+                        dependencySet: plan.targetDependencySet,
+                        on: window
+                    )
+                    return
+                }
+                UpdateToolsSheetController.present(
+                    plan: plan,
+                    reconciler: reconciler,
+                    storageRoot: storageRoot,
+                    on: window,
+                    onFinished: { receipt in
+                        AppDelegate.stampLaunchDefaultsIfCurrent(receipt: receipt)
+                    }
+                )
+            } catch {
+                self?.handleError(error, context: "checking for tool updates")
+            }
+        }
+    }
+
+    private func presentToolsUpToDateAlert(dependencySet: String, on window: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = "Tools are up to date (\(dependencySet))"
+        alert.informativeText = "Every managed tool and required database on this Mac matches the tool set shipped with this version of Lungfish."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
     /// Opens the Storage tab in Settings.
     func openStorageSettings() {
         SettingsNavigationState.shared.open(.storage)
