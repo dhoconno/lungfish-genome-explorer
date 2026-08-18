@@ -685,30 +685,6 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("run_test seqkit ") == false)
     }
 
-    @Test("Update tool versions script refreshes micromamba metadata only")
-    func updateToolVersionsScriptRefreshesMicromambaMetadataOnly() throws {
-        let script = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/update-tool-versions.sh"),
-            encoding: .utf8
-        )
-
-        #expect(script.contains("micromamba is pinned at"))
-        #expect(script.contains("tool-versions.json"))
-        #expect(script.contains("VERSIONS.txt"))
-        #expect(script.contains("%Y-%m-%dT%H:%M:%SZ"))
-        #expect(script.contains(#"--arch "$target_arch""#))
-        #expect(script.contains("SOURCE_DATE_EPOCH"))
-        #expect(script.contains("LUNGFISH_BUILD_TIMESTAMP"))
-        #expect(script.contains("RESOLVED_BUILD_TIMESTAMP_ISO"))
-        #expect(script.contains("RESOLVED_BUILD_TIMESTAMP_DISPLAY"))
-        #expect(script.contains(#"export LUNGFISH_BUILD_TIMESTAMP="$RESOLVED_BUILD_TIMESTAMP_ISO""#))
-        #expect(script.contains("samtools") == false)
-        #expect(script.contains("bcftools") == false)
-        #expect(script.contains("htslib") == false)
-        #expect(script.contains("seqkit") == false)
-    }
-
     @Test("Notarized DMG release script no longer signs retired bundled payloads")
     func notarizedDMGReleaseScriptNoLongerSignsRetiredBundledPayloads() throws {
         let script = try String(

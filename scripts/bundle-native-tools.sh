@@ -127,6 +127,7 @@ verify_micromamba_checksum() {
     local output_path="$2"
 
     if [ ! -f "$LOCK_MANIFEST" ]; then
+        echo "Note: dependency manifest not found at $LOCK_MANIFEST; skipping checksum verification" >&2
         return
     fi
 

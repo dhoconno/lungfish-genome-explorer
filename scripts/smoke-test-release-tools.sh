@@ -221,8 +221,18 @@ if [ -z "$BOOTSTRAP_VERSION" ]; then
     exit 66
 fi
 
-if ! "$RG_BIN" -F -q "\"version\": \"$BOOTSTRAP_VERSION\"" "$TOOLS_DIR/tool-versions.json"; then
-    echo "tool-versions.json micromamba version does not match manifest bootstrap version ($BOOTSTRAP_VERSION)" >&2
+TOOL_VERSIONS_MICROMAMBA_VERSION=$(/usr/bin/python3 -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+for tool in data.get("tools", []):
+    if tool.get("name") == "micromamba":
+        print(tool.get("version", ""))
+        break
+' "$TOOLS_DIR/tool-versions.json")
+
+if [ "$TOOL_VERSIONS_MICROMAMBA_VERSION" != "$BOOTSTRAP_VERSION" ]; then
+    echo "tool-versions.json micromamba version ($TOOL_VERSIONS_MICROMAMBA_VERSION) does not match manifest bootstrap version ($BOOTSTRAP_VERSION)" >&2
     exit 66
 fi
 
