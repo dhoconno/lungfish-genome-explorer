@@ -1,6 +1,14 @@
 import unittest
 from pathlib import Path
 
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def yaml_load(path):
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
 
 class CIWorkflowTests(unittest.TestCase):
     def setUp(self):
@@ -41,6 +49,66 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertLess(self.workflow.index(htslib_link), self.workflow.index(smoke_tests))
         self.assertLess(self.workflow.index(samtools_link), self.workflow.index(smoke_tests))
         self.assertLess(self.workflow.index(seqkit_link), self.workflow.index(smoke_tests))
+
+    def test_toolset_conformance_job_exists_and_is_dispatch_only(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        self.assertIn("workflow_dispatch", job["if"])
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("tools update --apply --yes --required-only", steps)
+        self.assertIn("LUNGFISH_REQUIRE_TOOLS", steps)
+        self.assertIn("full-suite-gate.sh --require-tools", steps)
+
+    def test_toolset_conformance_provisions_conformance_packs_and_viral_db(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        for pack in (
+            "read-mapping",
+            "assembly",
+            "phylogenetics",
+            "multiple-sequence-alignment",
+            "metagenomics",
+            "full-length-mhc-genotyping",
+        ):
+            self.assertIn(f"conda install --pack {pack}", steps)
+        self.assertIn("conda db download Viral", steps)
+
+    def test_toolset_conformance_filter_covers_the_conformance_allowlist(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        expected_filter = (
+            "Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|"
+            "NativeToolRunnerTests|MAFFTAlignmentPipelineTests|"
+            "ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|"
+            "BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests"
+        )
+        self.assertIn(expected_filter, steps)
+
+    def test_toolset_conformance_runs_golden_diff(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        steps = " ".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("scripts/deps/diff_goldens.py", steps)
+        self.assertIn("scripts/deps/regenerate-goldens.sh", steps)
+
+    def test_toolset_conformance_caches_managed_tools_by_manifest_hash(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        cache_steps = [step for step in job["steps"] if step.get("uses", "").startswith("actions/cache")]
+        self.assertEqual(len(cache_steps), 1)
+        cache_step = cache_steps[0]
+        self.assertIn("~/.lungfish/conda", cache_step["with"]["path"])
+        self.assertIn("manifest.outputs.hash", cache_step["with"]["key"])
+
+    def test_toolset_conformance_uploads_gate_logs_even_on_failure(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        upload_steps = [step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact")]
+        self.assertEqual(len(upload_steps), 1)
+        self.assertEqual(upload_steps[0].get("if"), "always()")
+        self.assertEqual(upload_steps[0]["with"]["path"], ".build/gate-logs")
 
 
 if __name__ == "__main__":

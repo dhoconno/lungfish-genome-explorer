@@ -152,3 +152,73 @@ jobs:
 
       - name: Run full package tests
         run: swift test
+
+  toolset-conformance:
+    name: Toolset conformance
+    runs-on: macos-26
+    timeout-minutes: 120
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 26.4.1
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build CLI
+        run: swift build --product lungfish-cli
+
+      - name: Compute manifest hash
+        id: manifest
+        run: echo "hash=$(shasum -a 256 Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache managed tools and viral DB
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.lungfish/conda
+            ~/.lungfish/databases/kraken2/viral
+            ~/.lungfish/databases/metagenomics-db-registry.json
+            ~/.lungfish/dependency-receipt.json
+          key: lungfish-tools-${{ runner.os }}-${{ steps.manifest.outputs.hash }}
+
+      - name: Provision required tools
+        run: .build/debug/lungfish-cli tools update --apply --yes --required-only
+
+      - name: Provision conformance packs
+        run: |
+          .build/debug/lungfish-cli conda install --pack read-mapping
+          .build/debug/lungfish-cli conda install --pack assembly
+          .build/debug/lungfish-cli conda install --pack phylogenetics
+          .build/debug/lungfish-cli conda install --pack multiple-sequence-alignment
+          .build/debug/lungfish-cli conda install --pack metagenomics
+          .build/debug/lungfish-cli conda install --pack full-length-mhc-genotyping
+
+      - name: Provision Kraken2 viral DB
+        run: .build/debug/lungfish-cli conda db download Viral
+
+      - name: Run conformance suites
+        run: |
+          # LUNGFISH_REQUIRE_TOOLS=1 is set internally by --require-tools: every
+          # tool-availability XCTSkip in the conformance allowlist becomes an
+          # XCTFail instead, so a missing tool or database fails this job
+          # rather than silently skipping.
+          bash scripts/full-suite-gate.sh --require-tools --filter 'Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests'
+
+      - name: Golden diff
+        run: |
+          dependency_set="$(python3 -c 'import json;print(json.load(open("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"))["dependencySet"])')"
+          bash scripts/deps/regenerate-goldens.sh --set "$dependency_set" --out .build/goldens
+          python3 scripts/deps/diff_goldens.py --recipes scripts/deps/goldens.json --candidate .build/goldens --set "$dependency_set"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: toolset-conformance-logs
+          path: .build/gate-logs

@@ -991,7 +991,9 @@ class RunnerAndCITests(unittest.TestCase):
         )
 
     def test_ci_uses_full_history_exact_block_and_always_uploads(self):
-        self.assertEqual(self.workflow.count("fetch-depth: 0"), 2)
+        # fast, full, and toolset-conformance jobs each check out with full
+        # history (fetch-depth: 0).
+        self.assertEqual(self.workflow.count("fetch-depth: 0"), 3)
         self.assertIn(
             'task9_implementation_sha="$(git log --diff-filter=A '
             "--format=%H -1 -- scripts/verification/"
