@@ -177,6 +177,57 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     )
 }
 
+public enum PluginPackManifestError: Error, CustomStringConvertible {
+    case missingPackTool(packID: String, id: String)
+
+    public var description: String {
+        switch self {
+        case let .missingPackTool(packID, id):
+            return "Manifest has no packTools entry for \(packID)/\(id)"
+        }
+    }
+}
+
+public extension PackToolRequirement {
+    /// Builds a requirement whose conda spec, version, license, and source URL come from the
+    /// dependency manifest. Display metadata, executables, and smoke tests stay in Swift.
+    static func fromManifest(
+        _ manifest: ManagedToolLock,
+        packID: String,
+        id: String,
+        displayName: String,
+        executables: [String],
+        fallbackExecutablePaths: [String: [String]] = [:],
+        smokeTest: PackToolSmokeTest? = nil
+    ) -> PackToolRequirement {
+        guard let spec = manifest.packTool(packID: packID, id: id) else {
+            // Surface loudly in debug; keep the pack visible but uninstallable in release.
+            assertionFailure(PluginPackManifestError.missingPackTool(packID: packID, id: id).description)
+            return PackToolRequirement(
+                id: id,
+                displayName: displayName,
+                environment: id,
+                installPackages: [],
+                executables: executables,
+                fallbackExecutablePaths: fallbackExecutablePaths,
+                smokeTest: smokeTest
+            )
+        }
+        return PackToolRequirement(
+            id: id,
+            displayName: displayName,
+            environment: spec.environment,
+            installPackages: [spec.packageSpec],
+            executables: executables,
+            fallbackExecutablePaths: fallbackExecutablePaths,
+            smokeTest: smokeTest,
+            version: spec.version,
+            license: spec.license,
+            sourceURL: spec.sourceUrl
+        )
+    }
+}
+
 public struct PostInstallHook: Sendable, Codable, Hashable {
     public let description: String
     public let environment: String
@@ -361,11 +412,11 @@ public extension PluginPack {
             category: "Mapping",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "read-mapping",
                     id: "minimap2",
                     displayName: "minimap2",
-                    environment: "minimap2",
-                    installPackages: ["bioconda::minimap2=2.30"],
                     executables: ["minimap2"],
                     smokeTest: .command(
                         executable: "minimap2",
@@ -373,16 +424,13 @@ public extension PluginPack {
                         timeoutSeconds: 10,
                         acceptedExitCodes: [0, 1],
                         requiredOutputSubstring: "Usage"
-                    ),
-                    version: "2.30",
-                    license: "MIT",
-                    sourceURL: "https://github.com/lh3/minimap2"
+                    )
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "read-mapping",
                     id: "bwa-mem2",
                     displayName: "BWA-MEM2",
-                    environment: "bwa-mem2",
-                    installPackages: ["bioconda::bwa-mem2=2.3"],
                     executables: ["bwa-mem2"],
                     smokeTest: .command(
                         executable: "bwa-mem2",
@@ -390,16 +438,13 @@ public extension PluginPack {
                         timeoutSeconds: 10,
                         acceptedExitCodes: [1],
                         requiredOutputSubstring: "Usage: bwa-mem2"
-                    ),
-                    version: "2.3",
-                    license: "MIT",
-                    sourceURL: "https://github.com/bwa-mem2/bwa-mem2"
+                    )
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "read-mapping",
                     id: "bowtie2",
                     displayName: "Bowtie2",
-                    environment: "bowtie2",
-                    installPackages: ["bioconda::bowtie2=2.5.4"],
                     executables: ["bowtie2", "bowtie2-build"],
                     smokeTest: .command(
                         executable: "bowtie2",
@@ -407,10 +452,7 @@ public extension PluginPack {
                         timeoutSeconds: 10,
                         acceptedExitCodes: [0, 1],
                         requiredOutputSubstring: "bowtie2"
-                    ),
-                    version: "2.5.4",
-                    license: "GPL-3.0",
-                    sourceURL: "https://bowtie-bio.sourceforge.net/bowtie2/manual.shtml"
+                    )
                 ),
             ],
             estimatedSizeMB: 260
@@ -424,36 +466,30 @@ public extension PluginPack {
             category: "Specialized Workflows",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "full-length-mhc-genotyping",
                     id: "savont",
                     displayName: "Savont",
-                    environment: "savont",
-                    installPackages: ["bioconda::savont=0.5.0=ha819e4a_0"],
                     executables: ["savont"],
                     smokeTest: .command(
                         arguments: ["--help"],
                         timeoutSeconds: 10,
                         requiredOutputSubstring: "Turn >~ 98% accuracy long reads into ASVs"
-                    ),
-                    version: "0.5.0",
-                    license: "MIT",
-                    sourceURL: "https://github.com/bluenote-1577/savont"
+                    )
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "full-length-mhc-genotyping",
                     id: "blast",
                     displayName: "NCBI BLAST+",
-                    environment: "blast",
-                    installPackages: ["bioconda::blast=2.16.0=hb260f6e_5"],
                     executables: ["blastn"],
                     smokeTest: .command(
                         executable: "blastn",
                         arguments: ["-help"],
                         timeoutSeconds: 10,
                         requiredOutputSubstring: "Nucleotide-Nucleotide BLAST"
-                    ),
-                    version: "2.16.0",
-                    license: "Public Domain",
-                    sourceURL: "https://blast.ncbi.nlm.nih.gov/"
+                    )
                 ),
             ],
             estimatedSizeMB: 650
@@ -467,47 +503,38 @@ public extension PluginPack {
             category: "Variant Calling",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "variant-calling",
                     id: "lofreq",
                     displayName: "LoFreq",
-                    environment: "lofreq",
-                    installPackages: ["bioconda::lofreq=2.1.5"],
                     executables: ["lofreq"],
                     smokeTest: .command(
                         arguments: ["version"],
                         requiredOutputSubstring: "version:"
-                    ),
-                    version: "2.1.5",
-                    license: "MIT",
-                    sourceURL: "https://csb5.github.io/lofreq/"
+                    )
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "variant-calling",
                     id: "ivar",
                     displayName: "iVar",
-                    environment: "ivar",
-                    installPackages: ["bioconda::ivar=1.4.4"],
                     executables: ["ivar"],
-                    smokeTest: .command(arguments: ["version"]),
-                    version: "1.4.4",
-                    license: "GPL-3.0-or-later",
-                    sourceURL: "https://andersen-lab.github.io/ivar/html/"
+                    smokeTest: .command(arguments: ["version"])
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "variant-calling",
                     id: "medaka",
                     displayName: "Medaka",
-                    environment: "medaka",
-                    installPackages: ["bioconda::medaka=2.1.1"],
                     executables: ["medaka"],
-                    smokeTest: .command(arguments: ["--help"]),
-                    version: "2.1.1",
-                    license: "MPL-2.0",
-                    sourceURL: "https://github.com/nanoporetech/medaka"
+                    smokeTest: .command(arguments: ["--help"])
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "variant-calling",
                     id: "clair3",
                     displayName: "Clair3",
-                    environment: "clair3",
-                    installPackages: ["bioconda::clair3=2.0.0=py311h9aa1f4a_2"],
                     executables: ["run_clair3.sh"],
                     smokeTest: .command(
                         executable: "run_clair3.sh",
@@ -515,10 +542,7 @@ public extension PluginPack {
                         timeoutSeconds: 30,
                         acceptedExitCodes: [0, 1],
                         requiredOutputSubstring: "Usage"
-                    ),
-                    version: "2.0.0",
-                    license: "BSD-3-Clause",
-                    sourceURL: "https://github.com/HKU-BAL/Clair3"
+                    )
                 ),
             ],
             estimatedSizeMB: 260
@@ -533,21 +557,18 @@ public extension PluginPack {
             isActive: true,
             isExperimental: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "gatk-core",
                     id: "gatk4",
                     displayName: "GATK4",
-                    environment: "gatk-core",
-                    installPackages: ["bioconda::gatk4=4.6.2.0"],
                     executables: ["gatk"],
                     smokeTest: .command(
                         executable: "gatk",
                         arguments: ["--version"],
                         timeoutSeconds: 30,
                         requiredOutputSubstring: "The Genome Analysis Toolkit"
-                    ),
-                    version: "4.6.2.0",
-                    license: "BSD-3-Clause",
-                    sourceURL: "https://github.com/broadinstitute/gatk"
+                    )
                 ),
             ],
             estimatedSizeMB: 600
@@ -562,20 +583,17 @@ public extension PluginPack {
             isActive: true,
             isExperimental: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "phasing",
                     id: "whatshap",
                     displayName: "WhatsHap",
-                    environment: "phasing",
-                    installPackages: ["bioconda::whatshap=2.3"],
                     executables: ["whatshap"],
                     smokeTest: .command(
                         executable: "whatshap",
                         arguments: ["--version"],
                         timeoutSeconds: 10
-                    ),
-                    version: "2.3",
-                    license: "MIT",
-                    sourceURL: "https://github.com/whatshap/whatshap"
+                    )
                 ),
             ],
             estimatedSizeMB: 180
@@ -589,60 +607,45 @@ public extension PluginPack {
             category: "Assembly",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "assembly",
                     id: "spades",
                     displayName: "SPAdes",
-                    environment: "spades",
-                    installPackages: ["bioconda::spades=4.2.0"],
                     executables: ["spades.py"],
-                    smokeTest: .command(executable: "spades.py", arguments: ["--version"], timeoutSeconds: 10),
-                    version: "4.2.0",
-                    license: "GPL-2.0-only",
-                    sourceURL: "https://github.com/ablab/spades"
+                    smokeTest: .command(executable: "spades.py", arguments: ["--version"], timeoutSeconds: 10)
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "assembly",
                     id: "megahit",
                     displayName: "MEGAHIT",
-                    environment: "megahit",
-                    installPackages: ["bioconda::megahit=1.2.9"],
                     executables: ["megahit"],
-                    smokeTest: .command(executable: "megahit", arguments: ["--help"], timeoutSeconds: 10),
-                    version: "1.2.9",
-                    license: "GPL-3.0",
-                    sourceURL: "https://github.com/voutcn/megahit"
+                    smokeTest: .command(executable: "megahit", arguments: ["--help"], timeoutSeconds: 10)
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "assembly",
                     id: "skesa",
                     displayName: "SKESA",
-                    environment: "skesa",
-                    installPackages: ["bioconda::skesa=2.5.1"],
                     executables: ["skesa"],
-                    smokeTest: .command(executable: "skesa", arguments: ["--help"], timeoutSeconds: 10),
-                    version: "2.5.1",
-                    license: "Public Domain",
-                    sourceURL: "https://github.com/ncbi/SKESA"
+                    smokeTest: .command(executable: "skesa", arguments: ["--help"], timeoutSeconds: 10)
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "assembly",
                     id: "flye",
                     displayName: "Flye",
-                    environment: "flye",
-                    installPackages: ["bioconda::flye=2.9.6"],
                     executables: ["flye"],
-                    smokeTest: .command(executable: "flye", arguments: ["--help"], timeoutSeconds: 10),
-                    version: "2.9.6",
-                    license: "BSD",
-                    sourceURL: "https://github.com/mikolmogorov/Flye"
+                    smokeTest: .command(executable: "flye", arguments: ["--help"], timeoutSeconds: 10)
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "assembly",
                     id: "hifiasm",
                     displayName: "hifiasm",
-                    environment: "hifiasm",
-                    installPackages: ["bioconda::hifiasm=0.25.0"],
                     executables: ["hifiasm"],
-                    smokeTest: .command(executable: "hifiasm", arguments: ["-h"], timeoutSeconds: 10),
-                    version: "0.25.0",
-                    license: "MIT",
-                    sourceURL: "https://github.com/chhylp123/hifiasm"
+                    smokeTest: .command(executable: "hifiasm", arguments: ["-h"], timeoutSeconds: 10)
                 ),
             ],
             estimatedSizeMB: 950
@@ -656,11 +659,11 @@ public extension PluginPack {
             category: "Phylogenetics",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "multiple-sequence-alignment",
                     id: "mafft",
                     displayName: "MAFFT",
-                    environment: "mafft",
-                    installPackages: ["conda-forge::mafft=7.526"],
                     executables: ["mafft"],
                     smokeTest: .command(
                         executable: "mafft",
@@ -668,10 +671,7 @@ public extension PluginPack {
                         timeoutSeconds: 10,
                         acceptedExitCodes: [0, 1],
                         requiredOutputSubstring: "MAFFT"
-                    ),
-                    version: "7.526",
-                    license: "BSD-3-Clause",
-                    sourceURL: "https://mafft.cbrc.jp/alignment/software/"
+                    )
                 ),
             ],
             estimatedSizeMB: 120
@@ -685,21 +685,18 @@ public extension PluginPack {
             category: "Phylogenetics",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "phylogenetics",
                     id: "iqtree",
                     displayName: "IQ-TREE",
-                    environment: "iqtree",
-                    installPackages: ["bioconda::iqtree=3.1.1"],
                     executables: ["iqtree3"],
                     smokeTest: .command(
                         executable: "iqtree3",
                         arguments: ["--help"],
                         timeoutSeconds: 10,
                         requiredOutputSubstring: "IQ-TREE"
-                    ),
-                    version: "3.1.1",
-                    license: "GPL-2.0-or-later",
-                    sourceURL: "https://github.com/iqtree/iqtree3"
+                    )
                 ),
             ],
             estimatedSizeMB: 180
@@ -713,54 +710,42 @@ public extension PluginPack {
             category: "Metagenomics",
             isActive: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "metagenomics",
                     id: "kraken2",
                     displayName: "Kraken 2",
-                    environment: "kraken2",
-                    installPackages: ["bioconda::kraken2=2.17.1"],
                     executables: ["kraken2", "kraken2-build"],
-                    smokeTest: .command(arguments: ["--version"]),
-                    version: "2.17.1",
-                    license: "GPL-3.0-or-later",
-                    sourceURL: "https://github.com/DerrickWood/kraken2"
+                    smokeTest: .command(arguments: ["--version"])
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "metagenomics",
                     id: "bracken",
                     displayName: "Bracken",
-                    environment: "bracken",
-                    installPackages: ["bioconda::bracken=1.0.0"],
                     executables: ["bracken", "bracken-build"],
-                    smokeTest: .command(arguments: ["--help"]),
-                    version: "1.0.0",
-                    license: "GPL-3.0",
-                    sourceURL: "https://github.com/jenniferlu717/Bracken"
+                    smokeTest: .command(arguments: ["--help"])
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "metagenomics",
                     id: "esviritu",
                     displayName: "EsViritu",
-                    environment: "esviritu",
-                    installPackages: ["bioconda::esviritu=1.3.1"],
                     executables: ["EsViritu"],
-                    smokeTest: .command(arguments: ["--help"]),
-                    version: "1.3.1",
-                    license: "MIT",
-                    sourceURL: "https://github.com/cmmr/EsViritu"
+                    smokeTest: .command(arguments: ["--help"])
                 ),
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "metagenomics",
                     id: "ribodetector",
                     displayName: "RiboDetector",
-                    environment: "ribodetector",
-                    installPackages: ["bioconda::ribodetector=0.3.3"],
                     executables: ["ribodetector_cpu"],
                     smokeTest: .command(
                         executable: "ribodetector_cpu",
                         arguments: ["--help"],
                         timeoutSeconds: 10,
                         requiredOutputSubstring: "usage:"
-                    ),
-                    version: "0.3.3",
-                    license: "GPL-3.0-or-later",
-                    sourceURL: "https://github.com/hzi-bifo/RiboDetector"
+                    )
                 ),
             ],
             estimatedSizeMB: 1200
@@ -784,16 +769,13 @@ public extension PluginPack {
             isActive: true,
             isExperimental: true,
             requirements: [
-                PackToolRequirement(
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "wastewater-surveillance",
                     id: "freyja",
                     displayName: "Freyja",
-                    environment: "freyja",
-                    installPackages: ["bioconda::freyja=2.0.0"],
                     executables: ["freyja"],
-                    smokeTest: .command(arguments: ["--help"], requiredOutputSubstring: "usage:"),
-                    version: "2.0.0",
-                    license: "BSD-2-Clause",
-                    sourceURL: "https://github.com/andersen-lab/Freyja"
+                    smokeTest: .command(arguments: ["--help"], requiredOutputSubstring: "usage:")
                 ),
                 PackToolRequirement.package(
                     "ivar",

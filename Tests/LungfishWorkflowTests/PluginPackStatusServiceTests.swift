@@ -414,14 +414,18 @@ final class PluginPackStatusServiceTests: XCTestCase {
         )
         _ = try await manager.ensureMicromamba()
 
+        // Mirror the shipped pin so the drift check exercises the production spec, not a
+        // hand-written one: install the manifest's minimap2, then plant an older conda-meta.
+        let minimap2Spec = try XCTUnwrap(ManagedToolLock.bundled.packTool(packID: "read-mapping", id: "minimap2"))
+        let installedVersion = try XCTUnwrap(previousVersion(of: minimap2Spec.version))
         let requirement = PackToolRequirement(
             id: "minimap2",
             displayName: "minimap2",
             environment: "minimap2",
-            installPackages: ["bioconda::minimap2=2.30=h577a1d6_0"],
+            installPackages: [minimap2Spec.packageSpec],
             executables: ["minimap2"],
             smokeTest: .command(arguments: ["--version"], timeoutSeconds: 10),
-            version: "2.30"
+            version: minimap2Spec.version
         )
         let envURL = await manager.environmentURL(named: requirement.environment)
         let binURL = envURL.appendingPathComponent("bin", isDirectory: true)
@@ -434,7 +438,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         try writeCondaMetaPackage(
             envURL: envURL,
             name: "minimap2",
-            version: "2.29",
+            version: installedVersion,
             subdir: "osx-arm64"
         )
 
@@ -459,7 +463,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(toolStatus.statusText, "Needs reinstall")
         XCTAssertEqual(
             toolStatus.smokeTestFailure,
-            "minimap2 is version 2.29, but Lungfish requires 2.30. Reinstall this tool."
+            "minimap2 is version \(installedVersion), but Lungfish requires \(minimap2Spec.version). Reinstall this tool."
         )
     }
 
@@ -1911,6 +1915,19 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// A version strictly below `version`, used to simulate an out-of-date install of a
+    /// manifest-pinned tool without hardcoding a second version literal. Decrements the
+    /// right-most component that is a positive integer (so "2.30" -> "2.29", "2.0.0" -> "1.0.0").
+    private func previousVersion(of version: String) -> String? {
+        var components = version.split(separator: ".").map(String.init)
+        for index in components.indices.reversed() {
+            guard let value = Int(components[index]), value > 0 else { continue }
+            components[index] = String(value - 1)
+            return components.joined(separator: ".")
+        }
+        return nil
     }
 
     private func writeCondaMetaPackage(

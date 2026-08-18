@@ -84,6 +84,21 @@ public struct BootstrapSpec: Sendable, Codable, Hashable {
 }
 
 public extension ManagedToolLock {
+    /// The bundled dependency manifest, decoded once and cached.
+    ///
+    /// Callers that build static tables (`PluginPack.builtIn`) read specs through this
+    /// instead of re-decoding the JSON per lookup. If the bundled resource cannot be
+    /// loaded, this is an empty manifest, so downstream tables fall back to their own
+    /// missing-entry handling rather than trapping at launch.
+    static let bundled: ManagedToolLock = (try? loadFromBundle())
+        ?? ManagedToolLock(
+            packID: "lungfish-tools",
+            displayName: "Third-Party Tools",
+            version: "unknown",
+            tools: [],
+            managedData: []
+        )
+
     /// The manifest's dependency set, falling back to a legacy synthetic identifier
     /// (`legacy-<version>`) for manifests written before `dependencySet` existed.
     var resolvedDependencySet: String { dependencySet ?? "legacy-\(version)" }

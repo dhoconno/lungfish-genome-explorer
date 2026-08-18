@@ -1052,15 +1052,16 @@ final class MetagenomicsPluginPackTests: XCTestCase {
     }
 
     func testKraken2AndBrackenRequirementsIncludeDatabaseBuildExecutables() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.builtIn.first { $0.id == "metagenomics" })
         let kraken2 = try XCTUnwrap(pack.requirements.first { $0.id == "kraken2" })
         let bracken = try XCTUnwrap(pack.requirements.first { $0.id == "bracken" })
 
         XCTAssertEqual(kraken2.environment, "kraken2")
-        XCTAssertEqual(kraken2.installPackages, ["bioconda::kraken2=2.17.1"])
+        XCTAssertEqual(kraken2.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "kraken2")).packageSpec])
         XCTAssertEqual(kraken2.executables, ["kraken2", "kraken2-build"])
         XCTAssertEqual(bracken.environment, "bracken")
-        XCTAssertEqual(bracken.installPackages, ["bioconda::bracken=1.0.0"])
+        XCTAssertEqual(bracken.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "bracken")).packageSpec])
         XCTAssertEqual(bracken.executables, ["bracken", "bracken-build"])
         XCTAssertNotEqual(kraken2.environment, bracken.environment)
     }

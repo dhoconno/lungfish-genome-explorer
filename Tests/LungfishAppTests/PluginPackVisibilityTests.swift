@@ -652,7 +652,8 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertTrue(logText.contains("Pack ID: multiple-sequence-alignment"))
         XCTAssertTrue(logText.contains("Requirement: MAFFT (mafft)"))
         XCTAssertTrue(logText.contains("Environment: mafft"))
-        XCTAssertTrue(logText.contains("Package specs: conda-forge::mafft=7.526"))
+        let mafftSpec = try XCTUnwrap(ManagedToolLock.bundled.packTool(packID: "multiple-sequence-alignment", id: "mafft")).packageSpec
+        XCTAssertTrue(logText.contains("Package specs: \(mafftSpec)"))
         XCTAssertTrue(logText.contains("Solving environment for MAFFT"))
         XCTAssertTrue(logText.contains("Verification: MAFFT - Ready"))
     }
@@ -745,7 +746,8 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(item.state, .failed)
         XCTAssertEqual(item.errorMessage, "mafft solver failed")
         XCTAssertEqual(item.detail, "Failed to reinstall Multiple Sequence Alignment")
-        XCTAssertTrue(item.errorDetail?.contains("Package specs: conda-forge::mafft=7.526") == true)
+        let mafftSpec = try XCTUnwrap(ManagedToolLock.bundled.packTool(packID: "multiple-sequence-alignment", id: "mafft")).packageSpec
+        XCTAssertTrue(item.errorDetail?.contains("Package specs: \(mafftSpec)") == true)
         XCTAssertTrue(item.logEntries.map(\.message).joined(separator: "\n").contains("Solving environment for MAFFT"))
     }
 

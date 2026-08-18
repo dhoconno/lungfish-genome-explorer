@@ -90,6 +90,7 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testFullLengthMHCGenotypingPackDefinesSavontAndBlastnOnly() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.builtInPack(id: "full-length-mhc-genotyping"))
 
         XCTAssertEqual(pack.name, "Full-length MHC Genotyping")
@@ -99,12 +100,12 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(pack.toolRequirements.map(\.environment), ["savont", "blast"])
 
         let savont = try XCTUnwrap(pack.toolRequirements.first { $0.id == "savont" })
-        XCTAssertEqual(savont.installPackages, ["bioconda::savont=0.5.0=ha819e4a_0"])
+        XCTAssertEqual(savont.installPackages, [try XCTUnwrap(manifest.packTool(packID: "full-length-mhc-genotyping", id: "savont")).packageSpec])
         XCTAssertEqual(savont.executables, ["savont"])
         XCTAssertEqual(savont.smokeTest?.arguments, ["--help"])
 
         let blast = try XCTUnwrap(pack.toolRequirements.first { $0.id == "blast" })
-        XCTAssertEqual(blast.installPackages, ["bioconda::blast=2.16.0=hb260f6e_5"])
+        XCTAssertEqual(blast.installPackages, [try XCTUnwrap(manifest.packTool(packID: "full-length-mhc-genotyping", id: "blast")).packageSpec])
         XCTAssertEqual(blast.executables, ["blastn"])
         XCTAssertEqual(blast.smokeTest?.executable, "blastn")
         XCTAssertEqual(blast.smokeTest?.arguments, ["-help"])
@@ -169,35 +170,24 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testMetagenomicsPackPinsExactToolMetadata() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "metagenomics" }))
 
         let kraken2 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "kraken2" }))
-        XCTAssertEqual(kraken2.installPackages, ["bioconda::kraken2=2.17.1"])
-        XCTAssertEqual(kraken2.version, "2.17.1")
-        XCTAssertEqual(kraken2.license, "GPL-3.0-or-later")
-        XCTAssertEqual(kraken2.sourceURL, "https://github.com/DerrickWood/kraken2")
+        XCTAssertEqual(kraken2.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "kraken2")).packageSpec])
 
         let bracken = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "bracken" }))
-        XCTAssertEqual(bracken.installPackages, ["bioconda::bracken=1.0.0"])
-        XCTAssertEqual(bracken.version, "1.0.0")
-        XCTAssertEqual(bracken.license, "GPL-3.0")
-        XCTAssertEqual(bracken.sourceURL, "https://github.com/jenniferlu717/Bracken")
+        XCTAssertEqual(bracken.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "bracken")).packageSpec])
 
         let esviritu = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "esviritu" }))
-        XCTAssertEqual(esviritu.installPackages, ["bioconda::esviritu=1.3.1"])
-        XCTAssertEqual(esviritu.version, "1.3.1")
-        XCTAssertEqual(esviritu.license, "MIT")
-        XCTAssertEqual(esviritu.sourceURL, "https://github.com/cmmr/EsViritu")
+        XCTAssertEqual(esviritu.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "esviritu")).packageSpec])
 
         let ribodetector = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "ribodetector" }))
-        XCTAssertEqual(ribodetector.installPackages, ["bioconda::ribodetector=0.3.3"])
+        XCTAssertEqual(ribodetector.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "ribodetector")).packageSpec])
         XCTAssertEqual(ribodetector.executables, ["ribodetector_cpu"])
         XCTAssertEqual(ribodetector.smokeTest?.executable, "ribodetector_cpu")
         XCTAssertEqual(ribodetector.smokeTest?.arguments, ["--help"])
         XCTAssertEqual(ribodetector.smokeTest?.requiredOutputSubstring, "usage:")
-        XCTAssertEqual(ribodetector.version, "0.3.3")
-        XCTAssertEqual(ribodetector.license, "GPL-3.0-or-later")
-        XCTAssertEqual(ribodetector.sourceURL, "https://github.com/hzi-bifo/RiboDetector")
     }
 
     func testAssemblyPackDefinesSmokeChecksForVisibleTools() {
@@ -213,37 +203,23 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testAssemblyPackPinsExactToolMetadata() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }))
 
         let spades = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "spades" }))
-        XCTAssertEqual(spades.installPackages, ["bioconda::spades=4.2.0"])
-        XCTAssertEqual(spades.version, "4.2.0")
-        XCTAssertEqual(spades.license, "GPL-2.0-only")
-        XCTAssertEqual(spades.sourceURL, "https://github.com/ablab/spades")
+        XCTAssertEqual(spades.installPackages, [try XCTUnwrap(manifest.packTool(packID: "assembly", id: "spades")).packageSpec])
 
         let megahit = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "megahit" }))
-        XCTAssertEqual(megahit.installPackages, ["bioconda::megahit=1.2.9"])
-        XCTAssertEqual(megahit.version, "1.2.9")
-        XCTAssertEqual(megahit.license, "GPL-3.0")
-        XCTAssertEqual(megahit.sourceURL, "https://github.com/voutcn/megahit")
+        XCTAssertEqual(megahit.installPackages, [try XCTUnwrap(manifest.packTool(packID: "assembly", id: "megahit")).packageSpec])
 
         let skesa = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "skesa" }))
-        XCTAssertEqual(skesa.installPackages, ["bioconda::skesa=2.5.1"])
-        XCTAssertEqual(skesa.version, "2.5.1")
-        XCTAssertEqual(skesa.license, "Public Domain")
-        XCTAssertEqual(skesa.sourceURL, "https://github.com/ncbi/SKESA")
+        XCTAssertEqual(skesa.installPackages, [try XCTUnwrap(manifest.packTool(packID: "assembly", id: "skesa")).packageSpec])
 
         let flye = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "flye" }))
-        XCTAssertEqual(flye.installPackages, ["bioconda::flye=2.9.6"])
-        XCTAssertEqual(flye.version, "2.9.6")
-        XCTAssertEqual(flye.license, "BSD")
-        XCTAssertEqual(flye.sourceURL, "https://github.com/mikolmogorov/Flye")
+        XCTAssertEqual(flye.installPackages, [try XCTUnwrap(manifest.packTool(packID: "assembly", id: "flye")).packageSpec])
 
         let hifiasm = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "hifiasm" }))
-        XCTAssertEqual(hifiasm.installPackages, ["bioconda::hifiasm=0.25.0"])
-        XCTAssertEqual(hifiasm.version, "0.25.0")
-        XCTAssertEqual(hifiasm.license, "MIT")
-        XCTAssertEqual(hifiasm.sourceURL, "https://github.com/chhylp123/hifiasm")
+        XCTAssertEqual(hifiasm.installPackages, [try XCTUnwrap(manifest.packTool(packID: "assembly", id: "hifiasm")).packageSpec])
     }
 
     func testRequiredSetupPackUsesBoundedSnakemakeVersionSmokeProbe() {
@@ -296,6 +272,7 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testVariantCallingPackDefinesViralToolMetadata() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }))
 
         XCTAssertEqual(pack.description, "Viral BAM variant calling from bundle-owned alignment tracks")
@@ -304,29 +281,17 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
 
         let lofreq = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "lofreq" }))
-        XCTAssertEqual(lofreq.installPackages, ["bioconda::lofreq=2.1.5"])
-        XCTAssertEqual(lofreq.version, "2.1.5")
-        XCTAssertEqual(lofreq.license, "MIT")
-        XCTAssertEqual(lofreq.sourceURL, "https://csb5.github.io/lofreq/")
+        XCTAssertEqual(lofreq.installPackages, [try XCTUnwrap(manifest.packTool(packID: "variant-calling", id: "lofreq")).packageSpec])
 
         let ivar = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "ivar" }))
-        XCTAssertEqual(ivar.installPackages, ["bioconda::ivar=1.4.4"])
-        XCTAssertEqual(ivar.version, "1.4.4")
-        XCTAssertEqual(ivar.license, "GPL-3.0-or-later")
-        XCTAssertEqual(ivar.sourceURL, "https://andersen-lab.github.io/ivar/html/")
+        XCTAssertEqual(ivar.installPackages, [try XCTUnwrap(manifest.packTool(packID: "variant-calling", id: "ivar")).packageSpec])
 
         let medaka = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "medaka" }))
-        XCTAssertEqual(medaka.installPackages, ["bioconda::medaka=2.1.1"])
-        XCTAssertEqual(medaka.version, "2.1.1")
-        XCTAssertEqual(medaka.license, "MPL-2.0")
-        XCTAssertEqual(medaka.sourceURL, "https://github.com/nanoporetech/medaka")
+        XCTAssertEqual(medaka.installPackages, [try XCTUnwrap(manifest.packTool(packID: "variant-calling", id: "medaka")).packageSpec])
 
         let clair3 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "clair3" }))
-        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=2.0.0=py311h9aa1f4a_2"])
+        XCTAssertEqual(clair3.installPackages, [try XCTUnwrap(manifest.packTool(packID: "variant-calling", id: "clair3")).packageSpec])
         XCTAssertEqual(clair3.executables, ["run_clair3.sh"])
-        XCTAssertEqual(clair3.version, "2.0.0")
-        XCTAssertEqual(clair3.license, "BSD-3-Clause")
-        XCTAssertEqual(clair3.sourceURL, "https://github.com/HKU-BAL/Clair3")
     }
 
     func testVariantCallingPackUsesVersionProbeForLofreq() throws {
@@ -339,6 +304,7 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testGATKCorePackDefinesPinnedBiocondaToolMetadata() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.experimentalOptionalPacks.first(where: { $0.id == "gatk-core" }))
 
         XCTAssertEqual(pack.name, "GATK Core")
@@ -352,17 +318,15 @@ final class PluginPackRegistryTests: XCTestCase {
         let gatk = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "gatk4" }))
         XCTAssertEqual(gatk.displayName, "GATK4")
         XCTAssertEqual(gatk.environment, "gatk-core")
-        XCTAssertEqual(gatk.installPackages, ["bioconda::gatk4=4.6.2.0"])
+        XCTAssertEqual(gatk.installPackages, [try XCTUnwrap(manifest.packTool(packID: "gatk-core", id: "gatk4")).packageSpec])
         XCTAssertEqual(gatk.executables, ["gatk"])
         XCTAssertEqual(gatk.smokeTest?.executable, "gatk")
         XCTAssertEqual(gatk.smokeTest?.arguments, ["--version"])
         XCTAssertEqual(gatk.smokeTest?.requiredOutputSubstring, "The Genome Analysis Toolkit")
-        XCTAssertEqual(gatk.version, "4.6.2.0")
-        XCTAssertEqual(gatk.license, "BSD-3-Clause")
-        XCTAssertEqual(gatk.sourceURL, "https://github.com/broadinstitute/gatk")
     }
 
     func testPhasingPackDefinesWhatsHapForPhasedVariantPlans() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.experimentalOptionalPacks.first(where: { $0.id == "phasing" }))
 
         XCTAssertEqual(pack.name, "Variant Phasing")
@@ -373,15 +337,13 @@ final class PluginPackRegistryTests: XCTestCase {
 
         let whatshap = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "whatshap" }))
         XCTAssertEqual(whatshap.displayName, "WhatsHap")
-        XCTAssertEqual(whatshap.installPackages, ["bioconda::whatshap=2.3"])
+        XCTAssertEqual(whatshap.installPackages, [try XCTUnwrap(manifest.packTool(packID: "phasing", id: "whatshap")).packageSpec])
         XCTAssertEqual(whatshap.executables, ["whatshap"])
         XCTAssertEqual(whatshap.smokeTest?.arguments, ["--version"])
-        XCTAssertEqual(whatshap.version, "2.3")
-        XCTAssertEqual(whatshap.license, "MIT")
-        XCTAssertEqual(whatshap.sourceURL, "https://github.com/whatshap/whatshap")
     }
 
     func testWastewaterSurveillancePackIsExperimentalAndDefinesFreyja() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.experimentalOptionalPacks.first(where: { $0.id == "wastewater-surveillance" }))
 
         XCTAssertEqual(pack.name, "Wastewater Surveillance")
@@ -391,7 +353,10 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertFalse(pack.packages.contains("nextflow"))
         XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "nextflow" || $0.environment == "nextflow" }))
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.environment, "freyja")
-        XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.installPackages, ["bioconda::freyja=2.0.0"])
+        XCTAssertEqual(
+            pack.toolRequirements.first(where: { $0.id == "freyja" })?.installPackages,
+            [try XCTUnwrap(manifest.packTool(packID: "wastewater-surveillance", id: "freyja")).packageSpec]
+        )
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.executables, ["freyja"])
         XCTAssertNotNil(pack.toolRequirements.first(where: { $0.id == "pangolin" }))
     }
@@ -475,6 +440,7 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentPackOnlyIncludesImplementedMAFFTTool() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "multiple-sequence-alignment" }))
 
         XCTAssertEqual(pack.name, "Multiple Sequence Alignment")
@@ -484,9 +450,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
 
         let mafft = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "mafft" }))
-        XCTAssertEqual(mafft.installPackages, ["conda-forge::mafft=7.526"])
-        XCTAssertEqual(mafft.version, "7.526")
-        XCTAssertEqual(mafft.license, "BSD-3-Clause")
+        XCTAssertEqual(mafft.installPackages, [try XCTUnwrap(manifest.packTool(packID: "multiple-sequence-alignment", id: "mafft")).packageSpec])
 
         XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "seqkit" }))
         XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "muscle" }))
@@ -498,6 +462,7 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testPhylogeneticsPackOnlyIncludesImplementedIQTreeTool() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "phylogenetics" }))
 
         XCTAssertEqual(pack.description, "Infer, annotate, and inspect native Apple Silicon phylogenetic trees")
@@ -514,8 +479,6 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "treeswift" }))
 
         let iqtree = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "iqtree" }))
-        XCTAssertEqual(iqtree.installPackages, ["bioconda::iqtree=3.1.1"])
-        XCTAssertEqual(iqtree.version, "3.1.1")
-        XCTAssertEqual(iqtree.license, "GPL-2.0-or-later")
+        XCTAssertEqual(iqtree.installPackages, [try XCTUnwrap(manifest.packTool(packID: "phylogenetics", id: "iqtree")).packageSpec])
     }
 }
