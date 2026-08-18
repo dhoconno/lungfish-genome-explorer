@@ -4,6 +4,35 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
+    func testProvenanceToolDescriptorsUseManifestSpecsForManagedAndPackTools() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        let descriptors = ONTBarcodeDemuxGenotypingPipeline.managedToolDescriptors(
+            ids: ["minimap2", "samtools", "pysam", "openpyxl", "not-a-tool"],
+            manifest: manifest
+        )
+        XCTAssertEqual(descriptors.count, 4, "unknown ids are dropped")
+
+        func descriptor(_ id: String) throws -> [String: Any] {
+            try XCTUnwrap(descriptors.first { ($0["id"] as? String) == id }, "missing descriptor for \(id)")
+        }
+
+        // minimap2 is an optional pack tool: its spec must be the manifest's build-pinned packTools entry.
+        let minimap2 = try descriptor("minimap2")
+        let packSpec = try XCTUnwrap(manifest.packTools.first { $0.toolID == "minimap2" })
+        XCTAssertEqual(minimap2["packageSpec"] as? String, packSpec.packageSpec)
+        XCTAssertEqual(minimap2["packID"] as? String, packSpec.packID)
+        XCTAssertEqual(minimap2["version"] as? String, packSpec.version)
+        XCTAssertEqual(minimap2["environment"] as? String, packSpec.environment)
+        XCTAssertEqual(minimap2["executables"] as? [String], packSpec.executables)
+        XCTAssertNotNil(CondaSpec(spec: packSpec.packageSpec)?.build, "manifest pack spec must carry a build string")
+
+        // samtools is a managed (required-pack) tool: spec comes from manifest.tools.
+        let samtools = try descriptor("samtools")
+        let managed = try XCTUnwrap(manifest.tool(named: "samtools"))
+        XCTAssertEqual(samtools["packageSpec"] as? String, managed.packageSpec)
+        XCTAssertEqual(samtools["environment"] as? String, managed.environment)
+    }
+
     func testProcessExitWaiterReturnsAlreadyExitedStatusWithoutTerminationNotification() async throws {
         let terminationRequested = LockedFlag()
         let waiter = ONTGenotypingProcessExitWaiter(pollInterval: 0.001)

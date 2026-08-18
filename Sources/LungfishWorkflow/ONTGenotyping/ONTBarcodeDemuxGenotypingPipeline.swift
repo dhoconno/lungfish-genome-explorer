@@ -5527,9 +5527,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     }
 
     private func managedToolDescriptors(ids: [String]) -> [[String: Any]] {
-        let lock = try? ManagedToolLock.loadFromBundle()
-        return ids.compactMap { id in
-            if let tool = lock?.tool(named: id) {
+        Self.managedToolDescriptors(ids: ids, manifest: ManagedToolLock.bundled)
+    }
+
+    /// Builds provenance descriptors for the tools this pipeline invokes.
+    ///
+    /// Managed (required-pack) tools resolve through `manifest.tools`; optional pack
+    /// tools such as minimap2 resolve through `manifest.packTools` by tool id, so the
+    /// recorded `packageSpec` is always the manifest's build-pinned spec.
+    static func managedToolDescriptors(ids: [String], manifest: ManagedToolLock) -> [[String: Any]] {
+        ids.compactMap { id in
+            if let tool = manifest.tool(named: id) {
                 return [
                     "id": tool.id,
                     "environment": tool.environment,
@@ -5540,17 +5548,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     "sourceUrl": tool.sourceUrl as Any? ?? NSNull(),
                 ]
             }
-            if id == "minimap2" {
-                let packageSpec = ManagedToolLock.bundled.packageSpec(forEnvironment: "minimap2") ?? "bioconda::minimap2"
-                let version = ManagedToolLock.bundled.toolVersion(forEnvironment: "minimap2") ?? "unknown"
+            if let packTool = manifest.packTools.first(where: { $0.toolID == id }) {
                 return [
-                    "id": "minimap2",
-                    "environment": "minimap2",
-                    "packageSpec": packageSpec,
-                    "executables": ["minimap2"],
-                    "version": version,
-                    "license": "MIT",
-                    "sourceUrl": "https://github.com/lh3/minimap2",
+                    "id": packTool.toolID,
+                    "packID": packTool.packID,
+                    "environment": packTool.environment,
+                    "packageSpec": packTool.packageSpec,
+                    "executables": packTool.executables,
+                    "version": packTool.version,
+                    "license": packTool.license as Any? ?? NSNull(),
+                    "sourceUrl": packTool.sourceUrl as Any? ?? NSNull(),
                 ]
             }
             return nil
