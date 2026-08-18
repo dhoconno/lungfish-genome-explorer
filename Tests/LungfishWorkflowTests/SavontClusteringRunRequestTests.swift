@@ -10,7 +10,7 @@ final class SavontClusteringRunRequestTests: XCTestCase {
         )
 
         XCTAssertEqual(SavontClusteringRunRequest.workflowVersion, "1")
-        XCTAssertEqual(SavontClusteringRunRequest.toolVersion, "0.5.0")
+        XCTAssertEqual(SavontClusteringRunRequest.toolVersion, ManagedToolLock.bundled.toolVersion(forEnvironment: "savont"))
         XCTAssertEqual(SavontClusteringRunRequest.condaEnvironment, "savont")
         XCTAssertEqual(request.threads, max(1, ProcessInfo.processInfo.activeProcessorCount))
         XCTAssertEqual(request.qualityValueCutoff, 90)

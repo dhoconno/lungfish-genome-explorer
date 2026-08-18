@@ -31,7 +31,7 @@ public enum SavontClusteringRunRequestError: Error, LocalizedError, Equatable {
 
 public struct SavontClusteringRunRequest: Sendable, Codable, Equatable {
     public static let workflowVersion = "1"
-    public static let toolVersion = "0.5.0"
+    public static var toolVersion: String { FullLengthONTMHCGenotypingRunRequest.savontToolVersion }
     public static let condaEnvironment = "savont"
 
     public let inputFASTQURL: URL

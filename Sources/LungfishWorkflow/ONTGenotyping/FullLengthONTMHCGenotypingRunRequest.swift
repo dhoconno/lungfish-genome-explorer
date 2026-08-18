@@ -17,9 +17,9 @@ public enum FullLengthONTPBAAClusterSourceMode: String, Sendable, Codable, Equat
 public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable {
     public static let defaultSavontQualityValueCutoff = 90
     public static let defaultSavontMinimumClusterSize = 3
-    public static let savontToolVersion = "0.5.0"
+    public static var savontToolVersion: String { ManagedToolLock.bundled.toolVersion(forEnvironment: "savont") ?? "unknown" }
     public static let savontCondaEnvironment = "savont"
-    public static let savontPackageSpec = "bioconda::savont=0.5.0=ha819e4a_0"
+    public static var savontPackageSpec: String { ManagedToolLock.bundled.packageSpec(forEnvironment: "savont") ?? "bioconda::savont" }
 
     public let inputFASTQURLs: [URL]
     public let referenceSourceURL: URL

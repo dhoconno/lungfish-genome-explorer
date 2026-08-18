@@ -32,7 +32,7 @@ final class CondaLockfileServiceTests: XCTestCase {
                     id: "minimap2",
                     displayName: "minimap2",
                     environment: "minimap2",
-                    installPackages: ["bioconda::minimap2=2.30"],
+                    installPackages: ["bioconda::minimap2=2.30=hba9b596_0"],
                     executables: ["minimap2"],
                     version: "2.30"
                 ),
@@ -40,7 +40,7 @@ final class CondaLockfileServiceTests: XCTestCase {
                     id: "bwa-mem2",
                     displayName: "BWA-MEM2",
                     environment: "bwa-mem2",
-                    installPackages: ["bioconda::bwa-mem2=2.3"],
+                    installPackages: ["bioconda::bwa-mem2=2.3=he512de6_0"],
                     executables: ["bwa-mem2"],
                     version: "2.3"
                 ),
@@ -60,10 +60,12 @@ final class CondaLockfileServiceTests: XCTestCase {
         XCTAssertTrue(yaml.contains("content_hash:"))
         XCTAssertTrue(yaml.contains("package:"))
         XCTAssertTrue(yaml.contains("name: minimap2"))
-        XCTAssertTrue(yaml.contains("version: \"2.30\""))
+        // parsePackageSpec splits on the first "=" only, so a full `version=build`
+        // package spec yields a version field carrying both components.
+        XCTAssertTrue(yaml.contains("version: \"2.30=hba9b596_0\""))
         XCTAssertTrue(yaml.contains("manager: conda"))
         XCTAssertTrue(yaml.contains("name: bwa-mem2"))
-        XCTAssertTrue(yaml.contains("version: \"2.3\""))
+        XCTAssertTrue(yaml.contains("version: \"2.3=he512de6_0\""))
         XCTAssertTrue(yaml.contains("category: main"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
     }

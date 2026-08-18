@@ -109,6 +109,19 @@ public extension ManagedToolLock {
     func pipeline(id: String) -> PipelineSpec? { pipelines.first { $0.id == id } }
     func database(id: String) -> DatabaseSpec? { databases.first { $0.id == id } }
 
+    /// The conda package spec (`channel::name=version=build`) for a managed tool or pack tool,
+    /// looked up by its `environment` name. Managed `tools` are searched before `packTools`.
+    func packageSpec(forEnvironment environment: String) -> String? {
+        tools.first { $0.environment == environment }?.packageSpec
+            ?? packTools.first { $0.environment == environment }?.packageSpec
+    }
+
+    /// The pinned version for a managed tool or pack tool, looked up by its `environment` name.
+    func toolVersion(forEnvironment environment: String) -> String? {
+        tools.first { $0.environment == environment }?.version
+            ?? packTools.first { $0.environment == environment }?.version
+    }
+
     /// Every conda spec the manifest pins (managed tools + pack tools).
     var allCondaSpecs: [String] { tools.map(\.packageSpec) + packTools.map(\.packageSpec) }
 

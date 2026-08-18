@@ -614,12 +614,13 @@ public struct ONTGenotypingPipeline: Sendable {
     ) throws {
         let lockTool = try? ManagedToolLock.loadFromBundle().tool(named: "pysam")
         let pysamVersion = lockTool?.version ?? "unknown"
-        let pysamPackageSpec = lockTool?.packageSpec ?? "bioconda::pysam"
+        let pysamPackageSpec = lockTool?.packageSpec ?? ManagedToolLock.bundled.packageSpec(forEnvironment: "pysam") ?? "bioconda::pysam"
         let minimap2Requirement = PluginPack.builtInPack(id: "read-mapping")?
             .toolRequirements
             .first { $0.id == "minimap2" }
         let minimap2Version = minimap2Requirement?.version ?? "unknown"
-        let minimap2PackageSpec = minimap2Requirement?.installPackages.joined(separator: " ") ?? "bioconda::minimap2"
+        let minimap2PackageSpec = minimap2Requirement?.installPackages.joined(separator: " ")
+            ?? ManagedToolLock.bundled.packageSpec(forEnvironment: "minimap2") ?? "bioconda::minimap2"
         let runtime = ProvenanceRuntimeIdentity(
             condaEnvironment: "pysam (\(pysamPackageSpec))",
             condaPrefix: CondaManager.shared.rootPrefix.appendingPathComponent("envs/pysam", isDirectory: true).path,

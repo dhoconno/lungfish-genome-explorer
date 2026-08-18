@@ -5541,12 +5541,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ]
             }
             if id == "minimap2" {
+                let packageSpec = ManagedToolLock.bundled.packageSpec(forEnvironment: "minimap2") ?? "bioconda::minimap2"
+                let version = ManagedToolLock.bundled.toolVersion(forEnvironment: "minimap2") ?? "unknown"
                 return [
                     "id": "minimap2",
                     "environment": "minimap2",
-                    "packageSpec": "bioconda::minimap2=2.30",
+                    "packageSpec": packageSpec,
                     "executables": ["minimap2"],
-                    "version": "2.30",
+                    "version": version,
                     "license": "MIT",
                     "sourceUrl": "https://github.com/lh3/minimap2",
                 ]

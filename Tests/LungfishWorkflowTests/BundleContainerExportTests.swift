@@ -35,7 +35,7 @@ final class BundleContainerExportTests: XCTestCase {
                     id: "minimap2",
                     displayName: "minimap2",
                     environment: "minimap2",
-                    installPackages: ["bioconda::minimap2=2.30"],
+                    installPackages: ["bioconda::minimap2=2.30=hba9b596_0"],
                     executables: ["minimap2"],
                     version: "2.30",
                     license: "MIT",

@@ -318,7 +318,9 @@ public actor EsVirituPipeline {
     public static let esVirituEnvironment = "esviritu"
 
     /// Human-readable GitHub release tag for the pinned EsViritu package.
-    public static let esVirituGithubReleaseVersion = "v1.3.1"
+    public static var esVirituGithubReleaseVersion: String {
+        "v" + (ManagedToolLock.bundled.toolVersion(forEnvironment: "esviritu") ?? "unknown")
+    }
 
     /// Shared instance for convenience.
     public static let shared = EsVirituPipeline()

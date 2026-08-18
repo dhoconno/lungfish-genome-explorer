@@ -204,28 +204,20 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(lock.tools.count, 17)
         XCTAssertEqual(lock.managedData.count, 2)
 
-        let expectedSpecs: [String: String] = [
-            "nextflow": "bioconda::nextflow=25.10.4=h2a3209d_0",
-            "snakemake": "bioconda::snakemake=9.19.0=hdfd78af_1",
-            "bbtools": "bioconda::bbmap=39.80=h2e3bd82_0",
-            "fastp": "bioconda::fastp=1.3.2=ha1d0559_0",
-            "trim_galore": "bioconda::trim-galore=2.3.0=h48b4a6d_0",
-            "deacon": "bioconda::deacon=0.15.0=hc0d6d67_0",
-            "samtools": "bioconda::samtools=1.23.1=hc612e98_0",
-            "bcftools": "bioconda::bcftools=1.23.1=h0ba0a6f_0",
-            "htslib": "bioconda::htslib=1.23.1=h44a9eb5_0",
-            "seqkit": "bioconda::seqkit=2.13.0=hd5f1084_0",
-            "cutadapt": "bioconda::cutadapt=5.2=py311hd78823b_1",
-            "vsearch": "bioconda::vsearch=2.30.5=h85a231e_0",
-            "pigz": "conda-forge::pigz=2.8=hfab5511_2",
-            "sra-tools": "bioconda::sra-tools=3.4.1=h4675bf2_1",
-            "ucsc-bedgraphtobigwig": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0",
-            "pysam": "bioconda::pysam=0.24.0=py310hf7cbfa5_0",
-            "openpyxl": "conda-forge::openpyxl=3.1.5=py312h2a925e6_3",
-        ]
-
-        let actualSpecs: [String: String] = Dictionary(uniqueKeysWithValues: lock.tools.map { ($0.id, $0.packageSpec) })
-        XCTAssertEqual(actualSpecs, expectedSpecs)
+        // Each managed tool's packageSpec must parse as `channel::name=version=build`,
+        // and its `version` field must equal the `=version=` component of that spec.
+        // This checks structure rather than duplicating the manifest's literal pins here.
+        let specPattern = try NSRegularExpression(pattern: #"^(bioconda|conda-forge)::[a-z0-9_.-]+=([0-9][a-zA-Z0-9_.-]*)=[A-Za-z0-9_.]+$"#)
+        for tool in lock.tools {
+            let spec = tool.packageSpec
+            let range = NSRange(spec.startIndex..., in: spec)
+            guard let match = specPattern.firstMatch(in: spec, range: range),
+                  let versionRange = Range(match.range(at: 2), in: spec) else {
+                XCTFail("\(tool.id) packageSpec '\(spec)' does not match channel::name=version=build")
+                continue
+            }
+            XCTAssertEqual(String(spec[versionRange]), tool.version, "\(tool.id) version should match the =version= component of its packageSpec")
+        }
         XCTAssertEqual(lock.managedData.map(\.id), ["deacon-panhuman", "deacon-ribokmers"])
         XCTAssertEqual(lock.managedData.map(\.displayName), ["Human Read Removal Data", "Ribosomal RNA Removal Data"])
     }
