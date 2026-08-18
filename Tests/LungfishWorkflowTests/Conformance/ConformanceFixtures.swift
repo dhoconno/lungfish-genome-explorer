@@ -1,0 +1,125 @@
+// ConformanceFixtures.swift
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Shared helpers for the tool-version and pipeline conformance suites: fixture
+// path resolution, scratch directories, the bundled dependency manifest, the
+// per-tool version-check command table, and the installed Kraken2 viral DB.
+
+import Foundation
+@testable import LungfishWorkflow
+
+enum ConformanceFixtures {
+    /// Root of the shared fixtures tree (`Tests/Fixtures`), resolved relative to
+    /// this source file so it works regardless of the current working directory.
+    private static var fixturesRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Conformance/
+            .deletingLastPathComponent()   // LungfishWorkflowTests/
+            .deletingLastPathComponent()   // Tests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Tests/Fixtures")
+    }
+
+    /// The shared SARS-CoV-2 fixture directory (`Tests/Fixtures/sarscov2`).
+    static var sarscov2: URL {
+        fixturesRoot.appendingPathComponent("sarscov2")
+    }
+
+    /// Resolves a path under `Tests/Fixtures/` for the given relative path.
+    static func fixture(_ relative: String) -> URL {
+        fixturesRoot.appendingPathComponent(relative)
+    }
+
+    /// Creates a unique scratch directory under the system temp directory. The
+    /// caller is responsible for removing it (e.g. in `tearDown`).
+    static func tempDir(_ name: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-conformance-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// The bundled dependency manifest (`third-party-tools-lock.json`).
+    static func manifest() throws -> ManagedToolLock {
+        try ManagedToolLock.loadFromBundle()
+    }
+
+    /// The installed Kraken2 "Viral" database directory, if ready.
+    ///
+    /// Returns `nil` when the database is not registered, not `.ready`, or its
+    /// directory is missing `hash.k2d` -- callers route that through
+    /// `ToolAvailability.requireDatabase` to skip or fail depending on
+    /// `LUNGFISH_REQUIRE_TOOLS`.
+    static func viralKrakenDB() async throws -> URL? {
+        try await MetagenomicsDatabaseRegistry.shared.loadIfNeeded()
+        guard let db = try await MetagenomicsDatabaseRegistry.shared.database(named: "Viral"),
+              db.status == .ready,
+              let path = db.path else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: path.appendingPathComponent("hash.k2d").path) else {
+            return nil
+        }
+        return path
+    }
+
+    /// The version-check command for a manifest tool, keyed by tool id (the
+    /// manifest's `tools[].id` / `packTools[].id`, e.g. "samtools", "iqtree").
+    ///
+    /// Falls back to `<primary executable> --version` using the manifest's
+    /// declared executables when the tool id has no entry here.
+    static func versionCommand(for toolID: String) -> (executable: String, arguments: [String]) {
+        switch toolID {
+        case "nextflow": return ("nextflow", ["-version"])
+        case "snakemake": return ("snakemake", ["--version"])
+        case "bbtools": return ("reformat.sh", ["--version"])
+        case "fastp": return ("fastp", ["--version"])
+        case "deacon": return ("deacon", ["--version"])
+        case "samtools": return ("samtools", ["--version"])
+        case "bcftools": return ("bcftools", ["--version"])
+        case "htslib": return ("bgzip", ["--version"])
+        case "seqkit": return ("seqkit", ["version"])
+        case "cutadapt": return ("cutadapt", ["--version"])
+        case "trim_galore", "trim-galore": return ("trim_galore", ["--version"])
+        case "vsearch": return ("vsearch", ["--version"])
+        case "pigz": return ("pigz", ["--version"])
+        case "sra-tools": return ("fasterq-dump", ["--version"])
+        case "ucsc-bedgraphtobigwig": return ("bedGraphToBigWig", [])
+        case "pysam": return ("python", ["-c", "import pysam;print(pysam.__version__)"])
+        case "openpyxl": return ("python", ["-c", "import openpyxl;print(openpyxl.__version__)"])
+        case "minimap2": return ("minimap2", ["--version"])
+        case "bwa-mem2": return ("bwa-mem2", ["version"])
+        case "bowtie2": return ("bowtie2", ["--version"])
+        case "savont": return ("savont", ["--version"])
+        case "blast": return ("blastn", ["-version"])
+        case "lofreq": return ("lofreq", ["version"])
+        case "ivar": return ("ivar", ["version"])
+        case "medaka": return ("medaka", ["--version"])
+        case "clair3": return ("run_clair3.sh", ["--version"])
+        case "spades": return ("spades.py", ["--version"])
+        case "megahit": return ("megahit", ["--version"])
+        case "skesa": return ("skesa", ["--version"])
+        case "flye": return ("flye", ["--version"])
+        case "hifiasm": return ("hifiasm", ["--version"])
+        case "mafft": return ("mafft", ["--version"])
+        case "iqtree": return ("iqtree3", ["--version"])
+        case "kraken2": return ("kraken2", ["--version"])
+        case "bracken": return ("bracken", ["-v"])
+        case "esviritu": return ("EsViritu", ["--version"])
+        case "ribodetector": return ("ribodetector", ["-v"])
+        case "freyja": return ("freyja", ["--version"])
+        case "gatk4": return ("gatk", ["--version"])
+        case "whatshap": return ("whatshap", ["--version"])
+        default:
+            return (toolID, ["--version"])
+        }
+    }
+
+    /// True for tools whose version-check command is expected to just run
+    /// successfully (usage/help output) rather than contain the pinned version
+    /// string -- `ucsc-bedgraphtobigwig` prints usage and can exit non-zero.
+    static func skipsVersionMatch(for toolID: String) -> Bool {
+        toolID == "ucsc-bedgraphtobigwig"
+    }
+}
