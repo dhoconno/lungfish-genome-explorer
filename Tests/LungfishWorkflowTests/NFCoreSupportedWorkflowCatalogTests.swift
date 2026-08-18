@@ -2,15 +2,16 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class NFCoreSupportedWorkflowCatalogTests: XCTestCase {
-    func testSupportedWorkflowCatalogExposesOnlyViralRecon() {
+    func testSupportedWorkflowCatalogExposesOnlyViralRecon() throws {
         XCTAssertEqual(NFCoreSupportedWorkflowCatalog.supportedWorkflows.map(\.name), ["viralrecon"])
         XCTAssertEqual(NFCoreSupportedWorkflowCatalog.firstWave.map(\.name), ["viralrecon"])
         XCTAssertTrue(NFCoreSupportedWorkflowCatalog.legacyWorkflows.isEmpty)
         XCTAssertTrue(NFCoreSupportedWorkflowCatalog.futureCustomInterfaceWorkflows.isEmpty)
 
         let workflow = NFCoreSupportedWorkflowCatalog.supportedWorkflows[0]
+        let spec = try XCTUnwrap(ManagedToolLock.bundled.pipeline(id: "nf-core-viralrecon"))
         XCTAssertEqual(workflow.fullName, "nf-core/viralrecon")
-        XCTAssertEqual(workflow.pinnedVersion, "3.0.0")
+        XCTAssertEqual(workflow.pinnedVersion, spec.revision)
         XCTAssertEqual(workflow.difficulty, .easy)
         XCTAssertTrue(workflow.resultSurfaces.contains(.variantTracks))
         XCTAssertEqual(workflow.supportedAdapterIDs, ["viralrecon"])

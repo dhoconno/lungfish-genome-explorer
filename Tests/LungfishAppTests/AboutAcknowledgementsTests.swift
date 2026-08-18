@@ -83,8 +83,9 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertEqual(workflowCredits.entries.map(\.id), ["nf-core-viralrecon"])
 
         let viralrecon = try XCTUnwrap(workflowCredits.entries.first(where: { $0.id == "nf-core-viralrecon" }))
+        let spec = try XCTUnwrap(ManagedToolLock.bundled.pipeline(id: "nf-core-viralrecon"))
         XCTAssertEqual(viralrecon.displayName, "nf-core/viralrecon")
-        XCTAssertEqual(viralrecon.detail, "Pinned 3.0.0")
+        XCTAssertEqual(viralrecon.detail, "Pinned \(spec.revision)")
         XCTAssertEqual(viralrecon.secondaryDetail, "Easy Nextflow workflow")
         XCTAssertEqual(viralrecon.sourceURL, "https://nf-co.re/viralrecon")
     }
