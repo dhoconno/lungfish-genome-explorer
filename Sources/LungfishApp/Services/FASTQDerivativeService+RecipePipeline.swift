@@ -286,11 +286,9 @@ extension FASTQDerivativeService {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let result = try? await runner.run(.seqkit, arguments: ["stats", "-T", url.path])
         guard let result, result.isSuccess else { return nil }
-        // seqkit stats -T output: file\tformat\ttype\tnum_seqs\tsum_len\tmin_len\tavg_len\tmax_len
-        let lines = result.stdout.split(separator: "\n", omittingEmptySubsequences: true)
-        guard lines.count >= 2 else { return nil }
-        let fields = lines[1].split(separator: "\t")
-        guard fields.count >= 4, let total = Int(fields[3]) else { return nil }
+        // Header-driven so a seqkit column change cannot shift the read count.
+        guard let row = try? SeqkitStatsParser.parse(result.stdout) else { return nil }
+        let total = row.numSeqs
         return isInterleaved ? total / 2 : total
     }
 

@@ -1261,22 +1261,13 @@ extension FASTQDerivativeService {
 
     /// Parses seqkit stats tabular output into FASTQDatasetStatistics.
     func parseFASTQStats(_ output: String) -> FASTQDatasetStatistics? {
-        let lines = output.split(separator: "\n")
-        guard lines.count >= 2 else { return nil }
-        let values = lines[1].split(separator: "\t")
-        // seqkit stats --tabular: file, format, type, num_seqs, sum_len, min_len, avg_len, max_len
-        guard values.count >= 8,
-              let readCount = Int(values[3].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")),
-              let totalBases = Int(values[4].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")),
-              let minLength = Int(values[5].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")),
-              let avgLength = Double(values[6].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")),
-              let maxLength = Int(values[7].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ""))
-        else { return nil }
+        // Header-driven so a seqkit column change cannot shift values between fields.
+        guard let row = try? SeqkitStatsParser.parse(output) else { return nil }
 
         return FASTQDatasetStatistics(
-            readCount: readCount, baseCount: Int64(totalBases),
-            meanReadLength: avgLength, minReadLength: minLength, maxReadLength: maxLength,
-            medianReadLength: Int(avgLength), n50ReadLength: 0,
+            readCount: row.numSeqs, baseCount: Int64(row.sumLen),
+            meanReadLength: row.avgLen, minReadLength: row.minLen, maxReadLength: row.maxLen,
+            medianReadLength: Int(row.avgLen), n50ReadLength: 0,
             meanQuality: 0, q20Percentage: 0, q30Percentage: 0, gcContent: 0,
             readLengthHistogram: [:], qualityScoreHistogram: [:],
             perPositionQuality: []
