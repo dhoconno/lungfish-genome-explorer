@@ -236,6 +236,110 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         }
     }
 
+    // MARK: - Rows registered from disk (no catalog identity)
+
+    /// The rows real users have are registered from disk and carry no `catalogID`, so
+    /// an update that resolved installed rows by `catalogID` alone reported every one of
+    /// them as "not found in registry" -- while `db list` and `db info`, which resolve by
+    /// name and tool, went on advertising the update. This is that case: a persisted
+    /// manifest holding one Kraken2 row with a null `catalogID`.
+    func testUpdateResolvesRowRegisteredWithoutCatalogIdentity() async throws {
+        let base = tempDir!
+        let installedPath = try seedCatalogIDLessViralDatabase(in: base, marker: "old")
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        // The precondition the defect report rests on: the row is installed, is
+        // advertising an update, and has no catalog identity to be found by.
+        let storedBefore = try await registry.database(named: "Viral")
+        let before = try XCTUnwrap(storedBefore)
+        XCTAssertNil(before.catalogID)
+        XCTAssertTrue(before.isUpdateAvailable)
+
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "new")
+            return nil
+        }
+
+        try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+
+        let storedAfter = try await registry.database(named: "Viral")
+        let after = try XCTUnwrap(storedAfter)
+        let targetVersion = ManagedToolLock.bundled.database(id: "kraken2-viral")?.version
+        XCTAssertEqual(after.version, targetVersion)
+        // The identity the update just proved the row has is now recorded on it.
+        XCTAssertEqual(after.catalogID, "kraken2-viral")
+        XCTAssertFalse(after.isUpdateAvailable)
+        XCTAssertEqual(
+            try String(contentsOf: XCTUnwrap(after.path).appendingPathComponent("hash.k2d"), encoding: .utf8),
+            "new"
+        )
+        XCTAssertEqual(after.path?.standardizedFileURL, installedPath.standardizedFileURL)
+
+        // The stamped identity survives a reload, so the next update resolves directly.
+        let reloaded = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await reloaded.loadIfNeeded()
+        let reloadedRow = try await reloaded.database(named: "Viral")
+        XCTAssertEqual(reloadedRow?.catalogID, "kraken2-viral")
+    }
+
+    /// The display name is what `db list` prints and what a user reaches for, so it
+    /// addresses the same row the catalog id does.
+    func testUpdateAcceptsDisplayNameAsIdentifier() async throws {
+        let base = tempDir!
+        _ = try seedCatalogIDLessViralDatabase(in: base, marker: "old")
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "new")
+            return nil
+        }
+
+        try await registry.updateDatabase(catalogID: "Viral") { _, _ in }
+
+        let stored = try await registry.database(named: "Viral")
+        let after = try XCTUnwrap(stored)
+        XCTAssertEqual(after.version, ManagedToolLock.bundled.database(id: "kraken2-viral")?.version)
+        XCTAssertEqual(after.catalogID, "kraken2-viral")
+    }
+
+    /// A row that already carries a catalog identity is authoritative: a different
+    /// catalog entry that happens to share its display name must not capture it.
+    func testUpdateDoesNotRetargetARowThatAlreadyHasADifferentIdentity() async throws {
+        let base = tempDir!
+        let directory = base.appendingPathComponent("kraken2/viral", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeKraken2Payload(at: directory, marker: "old")
+
+        guard var entry = MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-viral") else {
+            throw XCTSkip("Manifest pins no kraken2-viral entry")
+        }
+        // Same display name, foreign identity.
+        entry.catalogID = "kraken2-some-other-database"
+        entry.path = directory
+        entry.status = .ready
+        entry.version = "20240904"
+        entry.installedAt = Date()
+        entry.lastUpdated = Date()
+        try writeRegistryManifest([entry], in: base)
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        await XCTAssertThrowsErrorAsync(
+            try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+        ) { error in
+            guard case MetagenomicsDatabaseRegistryError.databaseNotFound = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+        }
+    }
+
     func testUpdateThrowsWhenCatalogEntryIsNotInstalled() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         try await registry.loadIfNeeded()
@@ -564,6 +668,40 @@ final class DatabaseUpdateFlowTests: XCTestCase {
             to: base.appendingPathComponent("metagenomics-db-registry.json"),
             options: .atomic
         )
+    }
+
+    /// Seeds an installed Kraken2 Viral row that carries no catalog identity, which is
+    /// how `registerExisting` records a database it did not install from the catalog and
+    /// therefore how the rows in a real user's registry actually look.
+    ///
+    /// The manifest is written directly rather than going through `registerExisting`,
+    /// because `loadIfNeeded` pre-seeds the catalog rows: registering "Viral" against a
+    /// live registry takes the branch that reuses the pre-seeded row and inherits its
+    /// `catalogID`, which is precisely the case that already worked.
+    @discardableResult
+    private func seedCatalogIDLessViralDatabase(in base: URL, marker: String) throws -> URL {
+        let directory = base.appendingPathComponent("kraken2/viral", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeKraken2Payload(at: directory, marker: marker)
+
+        let row = MetagenomicsDatabaseInfo(
+            name: "Viral",
+            tool: MetagenomicsTool.kraken2.rawValue,
+            version: "20240904",
+            sizeBytes: 1024,
+            sizeOnDisk: 1024,
+            downloadURL: nil,
+            catalogID: nil,
+            description: "User-imported Kraken2 database",
+            collection: nil,
+            path: directory,
+            installedAt: Date(),
+            lastUpdated: Date(),
+            status: .ready,
+            recommendedRAM: 1024
+        )
+        try writeRegistryManifest([row], in: base)
+        return directory
     }
 
     /// Seeds an installed EsViritu catalog entry by writing the registry manifest

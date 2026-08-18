@@ -399,9 +399,10 @@ extension DbCommand {
             discussion: """
             Replaces an installed database with the version pinned in the dependency manifest.
 
-            Name one database by its catalog identifier, or pass --all to update every
-            installed database that has an update available. Either way --yes is required,
-            because the update replaces the installed copy.
+            Name one database by its catalog identifier ('kraken2-viral') or by the display
+            name it is listed under ('Viral'), or pass --all to update every installed
+            database that has an update available. Either way --yes is required, because
+            the update replaces the installed copy.
 
             Databases that are built locally rather than downloaded cannot be updated in
             place; they are reported as skipped and are refreshed by reinstalling instead.
@@ -409,15 +410,16 @@ extension DbCommand {
             Exit codes:
               0   nothing to update, or every selected database updated
               2   usage error, such as a missing target or --yes
-              1   a database failed to update
+              1   a database failed to update, or --all found updates it could not apply
 
             Examples:
               lungfish conda db update kraken2-viral --yes
+              lungfish conda db update Viral --yes
               lungfish conda db update --all --yes
             """
         )
 
-        @Argument(help: "Catalog identifier of the database to update (e.g., 'kraken2-viral')")
+        @Argument(help: "Catalog identifier or display name of the database to update (e.g., 'kraken2-viral', 'Viral')")
         var catalogID: String?
 
         @Flag(name: .customLong("all"), help: "Update every installed database with an update available")
@@ -450,6 +452,24 @@ extension DbCommand {
 
             let targets = try await resolveTargets(registry: registry)
             if targets.isEmpty {
+                // "Nothing to update" is only true if nothing is advertising an update.
+                // If `db list` is showing updates that this command could not turn into
+                // targets, saying "no updates" and exiting 0 is a silent false success:
+                // a sweep script would record the databases as current when they are not.
+                if all {
+                    let advertised = try await registry.availableDatabases()
+                        .filter(\.isUpdateAvailable)
+                        .map(\.name)
+                        .sorted()
+                    if !advertised.isEmpty {
+                        print(formatter.error(
+                            "\(advertised.count) database(s) have an update available but none could be "
+                            + "resolved to an update target: \(advertised.joined(separator: ", ")). "
+                            + "Run 'lungfish conda db info <name>' for details."
+                        ))
+                        throw CLIExitCode.failure.exitCode
+                    }
+                }
                 print(formatter.info("No databases have an update available."))
                 return
             }
@@ -488,7 +508,19 @@ extension DbCommand {
             }
         }
 
-        /// The catalog identifiers this invocation should update.
+        /// The database identifiers this invocation should update.
+        ///
+        /// For `--all` this is exactly the set of rows `db list` marks as having an
+        /// update available. The previous form mapped that set through `compactMap(\.catalogID)`,
+        /// which silently dropped every row registered by `registerExisting` -- the way
+        /// most real installs look, since those rows carry no catalog identity. With all
+        /// such rows dropped the command printed "No databases have an update available"
+        /// and exited 0 while `db list` was still advertising the update, so a scripted
+        /// sweep recorded a successful update that never happened.
+        ///
+        /// A row without a catalogID is addressed by its display name, which
+        /// `updateDatabase` resolves through the same name-and-tool match that decided
+        /// the update was available in the first place.
         private func resolveTargets(
             registry: MetagenomicsDatabaseRegistry
         ) async throws -> [String] {
@@ -498,7 +530,7 @@ extension DbCommand {
             let databases = try await registry.availableDatabases()
             return databases
                 .filter { $0.isUpdateAvailable }
-                .compactMap(\.catalogID)
+                .map { $0.catalogID ?? $0.name }
                 .sorted()
         }
     }

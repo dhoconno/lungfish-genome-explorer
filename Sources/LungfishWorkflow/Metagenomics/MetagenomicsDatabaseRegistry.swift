@@ -1074,7 +1074,8 @@ public actor MetagenomicsDatabaseRegistry {
     /// leaves the installed database untouched; a failure during the swap restores it.
     ///
     /// - Parameters:
-    ///   - catalogID: Stable catalog identity of the database to update (e.g. `kraken2-viral`).
+    ///   - catalogID: Stable catalog identity of the database to update (e.g. `kraken2-viral`),
+    ///     or the display name of an installed row (e.g. `Viral`).
     ///   - progress: Receives fraction complete and a status message.
     public func updateDatabase(
         catalogID: String,
@@ -1082,20 +1083,12 @@ public actor MetagenomicsDatabaseRegistry {
     ) async throws {
         try loadIfNeeded()
 
-        // Sorted so a manifest that somehow holds two rows for one catalog identity
-        // resolves the same way on every run.
-        guard let (name, installed) = databases
-            .filter({ $0.value.catalogID == catalogID && $0.value.path != nil })
-            .sorted(by: { $0.key < $1.key })
-            .first else {
+        guard let (name, installed, catalogEntry) = resolveUpdateTarget(identifier: catalogID) else {
             throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: catalogID)
         }
         guard let installedPath = installed.path,
               FileManager.default.fileExists(atPath: installedPath.path) else {
             throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: name)
-        }
-        guard let catalogEntry = MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID) else {
-            throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: catalogID)
         }
 
         // Locally built databases are produced by kraken2-build/bracken-build through
@@ -1159,7 +1152,11 @@ public actor MetagenomicsDatabaseRegistry {
 
             try Task.checkCancellation()
             progress(0.88, "Verifying \(name)…")
-            if let spec = ManagedToolLock.bundled.database(id: catalogID),
+            // Keyed on the resolved entry's identity rather than the caller's
+            // argument: the caller may have named the row by display name, and a
+            // lookup on that string would silently find no spec and skip verification.
+            if let resolvedCatalogID = catalogEntry.catalogID,
+               let spec = ManagedToolLock.bundled.database(id: resolvedCatalogID),
                let expected = expectedChecksum(spec),
                let archiveURL {
                 let actual = try computeChecksum(archiveURL, expected.algorithm)
@@ -1223,6 +1220,12 @@ public actor MetagenomicsDatabaseRegistry {
         var updated = installed
         updated.path = installedPath
         updated.version = catalogEntry.version
+        // A row registered by `registerExisting` carries no catalog identity, so it was
+        // resolved here by display name and tool. Stamping the identity it just proved
+        // it has means the next update, the reconciler, and the plan all address it by
+        // its stable id rather than re-deriving the match from a display name the user
+        // is free to change.
+        updated.catalogID = installed.catalogID ?? catalogEntry.catalogID
         updated.downloadURL = catalogEntry.downloadURL
         updated.installationRecipe = catalogEntry.installationRecipe
         updated.sizeOnDisk = Self.directorySize(at: installedPath)
@@ -1261,6 +1264,56 @@ public actor MetagenomicsDatabaseRegistry {
         logger.info(
             "Updated '\(name, privacy: .public)' to version \(catalogEntry.version ?? "unknown", privacy: .public)"
         )
+    }
+
+    /// Resolves the installed row an update should replace, and the catalog entry it
+    /// should be replaced with.
+    ///
+    /// A row installed through the catalog carries its `catalogID`, but the rows real
+    /// users actually have are usually registered by `registerExisting`, which records
+    /// no catalog identity at all. Matching only on `catalogID` therefore reported
+    /// every hand-registered database as "not found in registry" while `db list` and
+    /// `db info` were happily advertising an update for it, because those read
+    /// ``MetagenomicsDatabaseInfo/availableUpdateVersion``, which falls back to a
+    /// name-and-tool match against the built-in catalog.
+    ///
+    /// This applies the same two-step match, in the same order, so the command that
+    /// applies an update sees exactly the set of rows the commands that advertise one
+    /// do. The identifier may be either a catalog id (`kraken2-viral`) or the display
+    /// name of an installed row (`Viral`).
+    ///
+    /// Candidate rows are sorted by name so a manifest that somehow holds two rows for
+    /// one catalog identity resolves the same way on every run.
+    private func resolveUpdateTarget(
+        identifier: String
+    ) -> (name: String, installed: MetagenomicsDatabaseInfo, catalogEntry: MetagenomicsDatabaseInfo)? {
+        let installedRows = databases
+            .filter { $0.value.path != nil }
+            .sorted { $0.key < $1.key }
+
+        // 1. The row that records this catalog identity, which is the identity the
+        //    catalog entry is then looked up by.
+        if let match = installedRows.first(where: { $0.value.catalogID == identifier }),
+           let entry = MetagenomicsDatabaseInfo.catalogEntry(catalogID: identifier) {
+            return (match.key, match.value, entry)
+        }
+
+        // 2. Otherwise the identifier names a catalog entry whose name and tool match an
+        //    installed row that has no identity of its own, or it names such a row
+        //    directly. Rows that already carry a different catalogID are excluded: their
+        //    identity is authoritative and must not be overridden by a name collision.
+        let candidateEntries = MetagenomicsDatabaseInfo.builtInCatalog.filter {
+            $0.catalogID == identifier || $0.name == identifier
+        }
+        for entry in candidateEntries {
+            if let match = installedRows.first(where: { _, row in
+                row.catalogID == nil && row.name == entry.name && row.tool == entry.tool
+            }) {
+                return (match.key, match.value, entry)
+            }
+        }
+
+        return nil
     }
 
     /// Writes a canonical provenance sidecar for a promoted update.

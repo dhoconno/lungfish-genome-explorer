@@ -61,7 +61,14 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     ///
     /// Unlike ``collection``, this accommodates catalog entries that are not
     /// AWS Kraken2 collections.
-    public let catalogID: String?
+    ///
+    /// Mutable within the module so the registry can stamp the identity onto a row
+    /// that was registered from disk by ``MetagenomicsDatabaseRegistry/registerExisting(at:name:)``
+    /// and therefore started with none. Once an update has resolved such a row to a
+    /// catalog entry by name and tool, recording the identity means every later lookup
+    /// addresses it directly instead of re-deriving the match. Existing identities are
+    /// never overwritten.
+    public internal(set) var catalogID: String?
 
     /// Reproducible installation recipe for this database, if known.
     ///
