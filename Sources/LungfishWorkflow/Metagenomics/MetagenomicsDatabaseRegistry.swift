@@ -4,6 +4,7 @@
 
 import Foundation
 import os.log
+import CryptoKit
 import LungfishCore
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "MetagenomicsDBRegistry")
@@ -33,6 +34,15 @@ public enum MetagenomicsDatabaseRegistryError: Error, LocalizedError, Sendable {
     /// Download was cancelled.
     case downloadCancelled(name: String)
 
+    /// The staged update payload did not match the checksum pinned in the dependency manifest.
+    case checksumMismatch(name: String, expected: String, actual: String)
+
+    /// This database cannot be updated in place through the staged update flow.
+    case updateNotSupported(name: String, reason: String)
+
+    /// The staged update payload was not a usable database.
+    case invalidStagedPayload(name: String, missingFiles: [String])
+
     public var errorDescription: String? {
         switch self {
         case .databaseNotFound(let name):
@@ -49,7 +59,32 @@ public enum MetagenomicsDatabaseRegistryError: Error, LocalizedError, Sendable {
             return "Download of '\(name)' failed: \(reason)"
         case .downloadCancelled(let name):
             return "Download of '\(name)' was cancelled"
+        case .checksumMismatch(let name, let expected, let actual):
+            return "Checksum mismatch for '\(name)': expected \(expected), got \(actual). The previously installed copy was kept."
+        case .updateNotSupported(let name, let reason):
+            return "'\(name)' cannot be updated automatically: \(reason)"
+        case .invalidStagedPayload(let name, let missing):
+            return "Staged update for '\(name)' is incomplete: missing \(missing.joined(separator: ", "))"
         }
+    }
+}
+
+// MARK: - Checksum
+
+/// A checksum algorithm the dependency manifest can pin for a database payload.
+public enum MetagenomicsDatabaseChecksumAlgorithm: String, Sendable, Equatable {
+    case md5
+    case sha256
+}
+
+/// An expected payload checksum, as pinned in the dependency manifest.
+public struct MetagenomicsDatabaseChecksum: Sendable, Equatable {
+    public let algorithm: MetagenomicsDatabaseChecksumAlgorithm
+    public let hex: String
+
+    public init(algorithm: MetagenomicsDatabaseChecksumAlgorithm, hex: String) {
+        self.algorithm = algorithm
+        self.hex = hex
     }
 }
 
@@ -137,6 +172,39 @@ public actor MetagenomicsDatabaseRegistry {
     private let manifestWriter: @Sendable (Data, URL) throws -> Void
     private var activeSecurityScopedURLs: [String: URL] = [:]
 
+    // MARK: - Update Seams
+
+    /// Downloads and unpacks an archive recipe into `destination`, returning the
+    /// downloaded archive file when one exists so its checksum can be verified.
+    ///
+    /// Test seam: the live default downloads and extracts through the same archive
+    /// transfer the installer uses. Doubles return `nil` when they synthesize a
+    /// payload without a real archive.
+    typealias ArchiveInstalling = @Sendable (
+        _ source: URL,
+        _ destination: URL,
+        _ progress: @Sendable @escaping (Double, String) -> Void
+    ) async throws -> URL?
+
+    /// Resolves the checksum the manifest pins for a database, if any.
+    ///
+    /// Test seam. The live default reads `sha256` (preferred) then `md5` from the
+    /// manifest spec, so it returns `nil` for the entries that pin neither today,
+    /// making verification a no-op rather than a hard failure.
+    typealias ExpectedChecksumResolving = @Sendable (DatabaseSpec) -> MetagenomicsDatabaseChecksum?
+
+    /// Computes a checksum over a downloaded archive.
+    ///
+    /// Test seam. The live default streams the file through CryptoKit.
+    typealias ChecksumComputing = @Sendable (URL, MetagenomicsDatabaseChecksumAlgorithm) throws -> String
+
+    private var archiveInstaller: ArchiveInstalling
+    private var expectedChecksum: ExpectedChecksumResolving
+    private var computeChecksum: ChecksumComputing
+
+    /// Writes the canonical receipt for a promoted update.
+    private let provenanceWriter: any MetagenomicsDatabaseInstallProvenanceWriting
+
     /// Files required for a valid Kraken2 database directory.
     static let requiredKraken2Files = ["hash.k2d", "opts.k2d", "taxo.k2d"]
 
@@ -156,6 +224,10 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
         self.databaseInstaller = Self.productionDatabaseInstaller()
         self.manifestWriter = Self.defaultManifestWriter
+        self.archiveInstaller = Self.liveArchiveInstaller
+        self.expectedChecksum = Self.manifestChecksum
+        self.computeChecksum = Self.fileChecksum
+        self.provenanceWriter = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
     }
 
     init(storageConfigStore: ManagedStorageConfigStore) {
@@ -170,6 +242,10 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
         self.databaseInstaller = Self.productionDatabaseInstaller()
         self.manifestWriter = Self.defaultManifestWriter
+        self.archiveInstaller = Self.liveArchiveInstaller
+        self.expectedChecksum = Self.manifestChecksum
+        self.computeChecksum = Self.fileChecksum
+        self.provenanceWriter = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
     }
 
     /// Creates a registry backed by a custom directory.
@@ -188,6 +264,10 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
         self.databaseInstaller = Self.productionDatabaseInstaller()
         self.manifestWriter = Self.defaultManifestWriter
+        self.archiveInstaller = Self.liveArchiveInstaller
+        self.expectedChecksum = Self.manifestChecksum
+        self.computeChecksum = Self.fileChecksum
+        self.provenanceWriter = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
     }
 
     init(
@@ -210,6 +290,10 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStopper = securityScopedAccessStopper
         self.databaseInstaller = databaseInstaller ?? Self.productionDatabaseInstaller()
         self.manifestWriter = manifestWriter
+        self.archiveInstaller = Self.liveArchiveInstaller
+        self.expectedChecksum = Self.manifestChecksum
+        self.computeChecksum = Self.fileChecksum
+        self.provenanceWriter = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
     }
 
     deinit {
@@ -975,6 +1059,274 @@ public actor MetagenomicsDatabaseRegistry {
         logger.info("Installed database '\(name, privacy: .public)' at \(prepared.result.finalURL.path, privacy: .public)")
 
         return prepared.result.finalURL
+    }
+
+    // MARK: - Update Support
+
+    /// Replaces an installed catalog database with the version pinned in the
+    /// dependency manifest, without ever leaving the user without a usable copy.
+    ///
+    /// The new payload is downloaded into a staging directory that is a sibling of
+    /// the installed directory (so promotion is a rename on the same volume), verified
+    /// against the manifest checksum when one is pinned, and only then swapped in. The
+    /// superseded copy is removed after the swap succeeds. Any failure before the swap
+    /// leaves the installed database untouched; a failure during the swap restores it.
+    ///
+    /// - Parameters:
+    ///   - catalogID: Stable catalog identity of the database to update (e.g. `kraken2-viral`).
+    ///   - progress: Receives fraction complete and a status message.
+    public func updateDatabase(
+        catalogID: String,
+        progress: @Sendable @escaping (Double, String) -> Void
+    ) async throws {
+        try loadIfNeeded()
+
+        // Sorted so a manifest that somehow holds two rows for one catalog identity
+        // resolves the same way on every run.
+        guard let (name, installed) = databases
+            .filter({ $0.value.catalogID == catalogID && $0.value.path != nil })
+            .sorted(by: { $0.key < $1.key })
+            .first else {
+            throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: catalogID)
+        }
+        guard let installedPath = installed.path,
+              FileManager.default.fileExists(atPath: installedPath.path) else {
+            throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: name)
+        }
+        guard let catalogEntry = MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID) else {
+            throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: catalogID)
+        }
+
+        // Locally built databases are produced by kraken2-build/bracken-build through
+        // the installer's own staged transaction, which owns its final path. Routing
+        // that into this flow's staging directory would mean duplicating the
+        // installer's promotion logic, so those rebuild through `downloadDatabase`.
+        guard case .archive(let source)? = catalogEntry.installationRecipe else {
+            throw MetagenomicsDatabaseRegistryError.updateNotSupported(
+                name: name,
+                reason: "locally built databases are rebuilt by reinstalling, not updated in place"
+            )
+        }
+
+        let startedAt = Date()
+        let targetVersion = catalogEntry.version ?? "latest"
+        let parent = installedPath.deletingLastPathComponent()
+        let staging = parent.appendingPathComponent(
+            "\(installedPath.lastPathComponent).staging-\(Self.safeSuffix(targetVersion))",
+            isDirectory: true
+        )
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: staging.path) {
+            try fm.removeItem(at: staging)
+        }
+
+        do {
+            progress(0, "Downloading \(name)…")
+            let archiveURL = try await archiveInstaller(source, staging) { fraction, message in
+                progress(min(fraction * 0.85, 0.85), message)
+            }
+
+            try Task.checkCancellation()
+            progress(0.88, "Verifying \(name)…")
+            if let spec = ManagedToolLock.bundled.database(id: catalogID),
+               let expected = expectedChecksum(spec),
+               let archiveURL {
+                let actual = try computeChecksum(archiveURL, expected.algorithm)
+                guard actual.caseInsensitiveCompare(expected.hex) == .orderedSame else {
+                    throw MetagenomicsDatabaseRegistryError.checksumMismatch(
+                        name: name, expected: expected.hex, actual: actual
+                    )
+                }
+            }
+
+            // A staged payload that is not a usable database must never replace a
+            // working one, checksum or no checksum.
+            let missing = Self.missingRequiredFiles(in: staging, tool: installed.tool)
+            guard missing.isEmpty else {
+                throw MetagenomicsDatabaseRegistryError.invalidStagedPayload(
+                    name: name, missingFiles: missing
+                )
+            }
+        } catch {
+            try? fm.removeItem(at: staging)
+            logger.error(
+                "Update of '\(name, privacy: .public)' failed before promotion; installed copy retained: \(error.localizedDescription, privacy: .public)"
+            )
+            throw error
+        }
+
+        progress(0.92, "Installing \(name)…")
+        let retired = parent.appendingPathComponent(
+            "\(installedPath.lastPathComponent).old-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fm.moveItem(at: installedPath, to: retired)
+        do {
+            try fm.moveItem(at: staging, to: installedPath)
+        } catch {
+            // Promotion failed: put the previous copy back before surfacing the error.
+            try? fm.moveItem(at: retired, to: installedPath)
+            try? fm.removeItem(at: staging)
+            throw MetagenomicsDatabaseRegistryError.downloadFailed(
+                name: name, reason: "Could not install the updated database: \(error.localizedDescription)"
+            )
+        }
+
+        // The user-visible database is already the new one; removing the superseded
+        // copy is cleanup, so a failure here is logged rather than raised.
+        do {
+            try fm.removeItem(at: retired)
+            logger.info("Removed superseded copy of '\(name, privacy: .public)'")
+        } catch {
+            logger.warning(
+                "Updated '\(name, privacy: .public)' but could not remove the superseded copy at \(retired.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
+
+        // Provenance for the promoted payload. The database is already usable, so a
+        // receipt failure is recorded as a warning rather than undoing a good update;
+        // `verify` treats a row without a payload digest as unaudited, not corrupt.
+        writeUpdateProvenance(
+            database: installed,
+            finalURL: installedPath,
+            catalogEntry: catalogEntry,
+            source: source,
+            startedAt: startedAt
+        )
+
+        let previous = databases[name]
+        var updated = installed
+        updated.path = installedPath
+        updated.version = catalogEntry.version
+        updated.downloadURL = catalogEntry.downloadURL
+        updated.installationRecipe = catalogEntry.installationRecipe
+        updated.sizeOnDisk = Self.directorySize(at: installedPath)
+        // The staged payload is not the installer's transaction, so it carries no
+        // verified aggregate digest; clearing it keeps `verify` from reporting the
+        // freshly installed copy as corrupt against the old payload's digest.
+        updated.payloadDigest = nil
+        updated.installedAt = Date()
+        updated.lastUpdated = Date()
+        updated.status = .ready
+        databases[name] = updated
+
+        do {
+            try saveManifest()
+        } catch {
+            databases[name] = previous
+            throw error
+        }
+
+        progress(1, "Updated \(name)")
+        logger.info(
+            "Updated '\(name, privacy: .public)' to version \(catalogEntry.version ?? "unknown", privacy: .public)"
+        )
+    }
+
+    /// Writes a canonical provenance sidecar for a promoted update.
+    ///
+    /// Uses the same writer the installer uses, so an updated database carries the
+    /// same kind of receipt as a freshly installed one. Failures are logged: the
+    /// payload is already in place and scientifically usable, and discarding a good
+    /// database over a receipt problem would be the worse outcome.
+    private func writeUpdateProvenance(
+        database: MetagenomicsDatabaseInfo,
+        finalURL: URL,
+        catalogEntry: MetagenomicsDatabaseInfo,
+        source: URL,
+        startedAt: Date
+    ) {
+        do {
+            let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: finalURL)
+            let resolved: [String: ParameterValue] = [
+                "databaseRoot": .file(finalURL),
+                "updatedFromVersion": .string(database.version ?? "unknown"),
+                "updatedToVersion": .string(catalogEntry.version ?? "unknown"),
+            ]
+            let attempt = MetagenomicsDatabaseInstallAttempt(
+                database: catalogEntry,
+                finalURL: finalURL,
+                recipeSource: source.absoluteString,
+                explicitOptions: ["catalogID": .string(catalogEntry.catalogID ?? "unknown")],
+                defaultOptions: [:],
+                resolvedOptions: resolved,
+                steps: [],
+                startedAt: startedAt,
+                completedAt: Date()
+            )
+            try provenanceWriter.writeSuccess(attempt, snapshot: snapshot)
+        } catch {
+            logger.warning(
+                "Updated '\(database.name, privacy: .public)' but could not write install provenance: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    /// Downloads and extracts an archive recipe into `destination`, returning the
+    /// downloaded archive so its checksum can be verified.
+    private static let liveArchiveInstaller: ArchiveInstalling = { source, destination, progress in
+        let transfer = URLSessionTarDatabaseArchiveTransfer()
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let archive = try await transfer.download(from: source) { fraction in
+            progress(fraction, "Downloading…")
+        }
+        progress(0.9, "Extracting…")
+        let extraction = try await transfer.extract(archive: archive, destination: destination)
+        guard extraction.exitStatus == 0 else {
+            throw MetagenomicsDatabaseInstallerError.toolFailed(
+                tool: "tar", exitStatus: extraction.exitStatus, stderr: String(extraction.stderr.prefix(16_384))
+            )
+        }
+        return archive
+    }
+
+    /// Reads the checksum the manifest pins for a database spec, preferring sha256.
+    private static let manifestChecksum: ExpectedChecksumResolving = { spec in
+        if let sha256 = spec.sha256, !sha256.isEmpty {
+            return MetagenomicsDatabaseChecksum(algorithm: .sha256, hex: sha256)
+        }
+        if let md5 = spec.md5, !md5.isEmpty {
+            return MetagenomicsDatabaseChecksum(algorithm: .md5, hex: md5)
+        }
+        return nil
+    }
+
+    /// Streams a file through the requested digest.
+    private static let fileChecksum: ChecksumComputing = { url, algorithm in
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var md5 = Insecure.MD5()
+        var sha256 = SHA256()
+        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            switch algorithm {
+            case .md5: md5.update(data: chunk)
+            case .sha256: sha256.update(data: chunk)
+            }
+        }
+        switch algorithm {
+        case .md5: return md5.finalize().map { String(format: "%02x", $0) }.joined()
+        case .sha256: return sha256.finalize().map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    /// Replaces characters that are awkward in a path component.
+    private static func safeSuffix(_ version: String) -> String {
+        String(version.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." ? $0 : "-" })
+    }
+
+    // MARK: - Test Seams
+
+    func setArchiveInstallerForTesting(_ installer: @escaping ArchiveInstalling) {
+        archiveInstaller = installer
+    }
+
+    func setExpectedChecksumForTesting(_ resolver: @escaping ExpectedChecksumResolving) {
+        expectedChecksum = resolver
+    }
+
+    func setComputeChecksumForTesting(_ compute: @escaping ChecksumComputing) {
+        computeChecksum = compute
     }
 
     // MARK: - Private Helpers

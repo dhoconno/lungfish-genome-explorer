@@ -560,6 +560,11 @@ public actor DatabaseRegistry {
             try fileManager.moveItem(at: tempDownloadURL, to: destinationURL)
             try? fileManager.removeItem(at: downloadedMD5.fileURL)
             try? fileManager.removeItem(at: tempMD5URL)
+            removeSupersededDatabaseFiles(
+                in: installDirectory,
+                keeping: manifest.filename,
+                databaseID: databaseID
+            )
             try writeManagedDatabaseInstallProvenance(
                 installDirectory: installDirectory,
                 manifest: manifest,
@@ -990,6 +995,44 @@ public actor DatabaseRegistry {
             .filter { isUsableInstalledDatabaseCandidate($0) }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }  // newest first by name
             .first
+    }
+
+    /// Deletes payload files left over from earlier versions of a managed database.
+    ///
+    /// Called only after the freshly downloaded, checksum-verified payload is in
+    /// place, so the directory keeps exactly one payload plus its provenance sidecar.
+    /// Without this, `userInstalledPath`'s newest-name-wins fallback could resolve a
+    /// superseded copy, and old databases would accumulate on disk indefinitely.
+    /// Directories and the provenance sidecar are left alone; removal failures are
+    /// logged rather than raised, because the new database is already usable.
+    private func removeSupersededDatabaseFiles(
+        in directory: URL,
+        keeping filename: String,
+        databaseID: String
+    ) {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        ) else { return }
+
+        for candidate in contents {
+            let name = candidate.lastPathComponent
+            guard name != filename,
+                  name != ProvenanceRecorder.provenanceFilename,
+                  !name.hasPrefix("."),
+                  (try? candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            else { continue }
+
+            do {
+                try fileManager.removeItem(at: candidate)
+                dbLogger.info("Removed superseded '\(databaseID)' database file: \(name)")
+            } catch {
+                dbLogger.warning(
+                    "Could not remove superseded '\(databaseID)' database file \(name): \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     private func isUsableInstalledDatabaseCandidate(_ url: URL) -> Bool {
