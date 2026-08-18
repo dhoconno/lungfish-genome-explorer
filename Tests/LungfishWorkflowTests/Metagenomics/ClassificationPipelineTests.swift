@@ -1035,23 +1035,24 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
             try ToolAvailability.skipOrFail("Viral database path not available")
         }
 
-        // Create a minimal FASTQ input.
+        // Real SARS-CoV-2 reads, not synthetic repeats. The previous synthetic
+        // input ("ATCGATCG..." x2) matched nothing in the viral database, so
+        // the assertions below had to accept emptyReport as success -- meaning
+        // a pipeline that classified nothing at all still passed. These are the
+        // same fixture reads the Kraken2 conformance suite classifies against
+        // this database, so a real report is now required.
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("integration-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        let fastqURL = tempDir.appendingPathComponent("test.fastq")
-        let fastqContent = """
-        @read1
-        ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG
-        +
-        IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-        @read2
-        GCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAG
-        +
-        IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-        """
-        try Data(fastqContent.utf8).write(to: fastqURL)
+        let fixtureReads = ConformanceFixtures.sarscov2.appendingPathComponent("test_1.fastq.gz")
+        guard FileManager.default.fileExists(atPath: fixtureReads.path) else {
+            // A missing fixture is a checkout problem, not a tool gap, so it
+            // stays an unconditional skip in both modes.
+            throw XCTSkip("sarscov2 fixture reads missing at \(fixtureReads.path)")
+        }
+        let fastqURL = tempDir.appendingPathComponent("test_1.fastq.gz")
+        try FileManager.default.copyItem(at: fixtureReads, to: fastqURL)
 
         let outputDir = tempDir.appendingPathComponent("output")
 
@@ -1068,35 +1069,35 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
 
         let tracker = ProgressTracker()
 
-        // Classification may throw emptyReport when random test sequences
-        // don't match anything in the viral database. This is a valid outcome
-        // for synthetic test data, not a pipeline failure.
+        // With real viral reads against the viral database, kraken2 must
+        // produce a report. emptyReport and kreportNotProduced are therefore
+        // failures here, not tolerated outcomes: they are exactly the shape a
+        // kraken2 or database regression would take.
+        let result: ClassificationResult
         do {
-            let result = try await pipeline.classify(config: config) { fraction, message in
+            result = try await pipeline.classify(config: config) { fraction, message in
                 tracker.record(fraction, message)
             }
-
-            // Verify outputs exist.
-            XCTAssertTrue(FileManager.default.fileExists(atPath: result.reportURL.path))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputURL.path))
-
-            // Verify the tree was parsed.
-            XCTAssertGreaterThan(result.tree.totalReads, 0)
-
-            // Verify provenance was recorded.
-            XCTAssertNotNil(result.provenanceId)
         } catch {
-            // An empty report from kraken2 is acceptable: the random test sequences
-            // are not expected to match anything in the viral database.
             let desc = String(describing: error)
+            // Still a tool-availability gap rather than a pipeline result, so
+            // it routes through skipOrFail like every other tool check.
             if desc.contains("micromambaNotFound") {
                 try ToolAvailability.skipOrFail("micromamba not installed in managed tool environment")
             }
-            XCTAssertTrue(
-                desc.contains("emptyReport") || desc.contains("kreportNotProduced"),
-                "Unexpected pipeline error: \(error)"
-            )
+            XCTFail("Classification of the sarscov2 fixture against the viral database failed: \(error)")
+            return
         }
+
+        // Verify outputs exist.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.reportURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputURL.path))
+
+        // Verify the tree was parsed and reads were actually classified.
+        XCTAssertGreaterThan(result.tree.totalReads, 0)
+
+        // Verify provenance was recorded.
+        XCTAssertNotNil(result.provenanceId)
 
         // Verify progress was reported regardless of classification outcome.
         XCTAssertFalse(tracker.updates.isEmpty)

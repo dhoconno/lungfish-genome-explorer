@@ -76,8 +76,27 @@ final class DeaconFastpSeqkitConformanceTests: XCTestCase {
         let tmp = try ConformanceFixtures.tempDir("bb")
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let c = try ProcessRunner.run(cutadapt, ["-a", "AGATCGGAAGAGC", "-o", tmp.appendingPathComponent("c.fq.gz").path, r1.path])
+        let cutadaptOut = tmp.appendingPathComponent("c.fq.gz")
+        let c = try ProcessRunner.run(cutadapt, ["-a", "AGATCGGAAGAGC", "-o", cutadaptOut.path, r1.path])
         XCTAssertEqual(c.status, 0, c.stderr)
+
+        // Exit 0 alone would pass on a cutadapt that wrote an empty or
+        // truncated file. Adapter trimming shortens reads but never drops
+        // them, so the output must carry the same read count as the input.
+        let seqkit = try await ToolAvailability.require("seqkit", environment: "seqkit")
+        let inputStats = try ProcessRunner.run(seqkit, ["stats", "-T", r1.path])
+        XCTAssertEqual(inputStats.status, 0, inputStats.stderr)
+        let trimmedStats = try ProcessRunner.run(seqkit, ["stats", "-T", cutadaptOut.path])
+        XCTAssertEqual(trimmedStats.status, 0, trimmedStats.stderr)
+
+        let inputReads = try SeqkitStatsParser.parse(inputStats.stdout).numSeqs
+        let trimmedRow = try SeqkitStatsParser.parse(trimmedStats.stdout)
+        XCTAssertGreaterThan(inputReads, 0, "fixture read file is empty")
+        XCTAssertEqual(
+            trimmedRow.numSeqs,
+            inputReads,
+            "cutadapt dropped reads: adapter trimming shortens reads, it does not remove them"
+        )
 
         let env = CoreToolLocator.bbToolsEnvironment(
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,

@@ -346,12 +346,21 @@ while IFS= read -r recipe_id; do
     # "N" on macOS/BSD.
     start_seconds="$(python3 -c 'import time; print(time.time())')"
     status=0
-    PATH="${env_bin}:${PATH}" bash -o pipefail -c "${expanded}" || status=$?
+    # Capture stderr rather than letting it scroll past: when a recipe fails,
+    # the tool's own diagnostic is the only thing that explains why, and on a
+    # long multi-recipe run it would otherwise be buried or lost entirely.
+    # stderr is not part of the golden comparison (diff_goldens.py only reads
+    # the declared outputs), so this file is a debugging aid.
+    stderr_log="${recipe_out}/stderr.log"
+    PATH="${env_bin}:${PATH}" bash -o pipefail -c "${expanded}" 2> >(tee "${stderr_log}" >&2) || status=$?
     end_seconds="$(python3 -c 'import time; print(time.time())')"
 
     if [[ ${status} -ne 0 ]]; then
         echo "FAIL ${recipe_id}: command exited ${status}" >&2
         echo "     ${expanded}" >&2
+        if [[ -s "${stderr_log}" ]]; then
+            echo "     stderr saved to ${stderr_log}" >&2
+        fi
         failures=$((failures + 1))
         continue
     fi

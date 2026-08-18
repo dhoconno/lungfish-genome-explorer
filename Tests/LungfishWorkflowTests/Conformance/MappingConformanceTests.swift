@@ -46,6 +46,35 @@ final class MappingConformanceTests: XCTestCase {
         let mappedFraction = Double(stats.mappedReads) / Double(stats.totalReads)
         XCTAssertGreaterThan(mappedFraction, 0.5, "most fixture reads should map to the SARS-CoV-2 reference")
 
+        // The JSON form is the one the app prefers, so it needs live coverage
+        // too: a samtools release that changes its JSON key names or shape
+        // would otherwise only be caught by fixtures that this suite never
+        // regenerates.
+        let flagstatJSON = try ProcessRunner.run(samtools, ["flagstat", "-O", "json", bam.path], timeout: 60)
+        XCTAssertEqual(flagstatJSON.status, 0, flagstatJSON.stderr)
+        let jsonStats = try AlignmentMetadataDatabase.parseFlagstat(json: flagstatJSON.stdout)
+
+        // Both forms describe the same BAM, so they must agree.
+        XCTAssertEqual(jsonStats.totalReads, stats.totalReads)
+        XCTAssertEqual(jsonStats.mappedReads, stats.mappedReads)
+        XCTAssertEqual(jsonStats.properlyPaired, stats.properlyPaired)
+        XCTAssertEqual(jsonStats.duplicateReads, stats.duplicateReads)
+
+        // samtools emits the same categories in the same order in both forms,
+        // so the ordering the inspector displays must match across them.
+        XCTAssertEqual(
+            jsonStats.orderedCategories.first,
+            "total",
+            "samtools JSON no longer leads with the total: \(jsonStats.orderedCategories)"
+        )
+        let sharedCategories = Set(stats.orderedCategories).intersection(jsonStats.orderedCategories)
+        XCTAssertFalse(sharedCategories.isEmpty, "text and JSON flagstat share no category names")
+        XCTAssertEqual(
+            stats.orderedCategories.filter(sharedCategories.contains),
+            jsonStats.orderedCategories.filter(sharedCategories.contains),
+            "text and JSON flagstat disagree on category order"
+        )
+
         let idx = try ProcessRunner.run(samtools, ["idxstats", bam.path], timeout: 60)
         XCTAssertEqual(idx.status, 0, idx.stderr)
         let idxRows = try AlignmentMetadataDatabase.parseIdxstats(idx.stdout)

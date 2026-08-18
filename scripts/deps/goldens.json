@@ -4,12 +4,25 @@
       "id": "kraken2-mini-SRR35517702",
       "tool": "kraken2",
       "env": "kraken2",
-      "inputs": ["Tests/Fixtures/kraken2-mini/SRR35517702/source.fastq"],
+      "inputs": [
+        "Tests/Fixtures/kraken2-mini/SRR35517702/source.fastq"
+      ],
       "database": "Viral",
       "command": "kraken2 --db {db} --report {out}/classification.kreport --output {out}/classification.kraken {in0} >/dev/null 2>&1",
       "outputs": {
-        "classification.kreport": { "kind": "kreport" },
-        "classification.kraken": { "kind": "tsv", "keyColumns": [1], "compareColumns": [0, 2] }
+        "classification.kreport": {
+          "kind": "kreport"
+        },
+        "classification.kraken": {
+          "kind": "tsv",
+          "keyColumns": [
+            1
+          ],
+          "compareColumns": [
+            0,
+            2
+          ]
+        }
       },
       "golden": "Tests/Fixtures/conformance/{set}/kraken2-mini-SRR35517702"
     },
@@ -17,10 +30,15 @@
       "id": "sarscov2-flagstat",
       "tool": "samtools",
       "env": "samtools",
-      "inputs": ["Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"],
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+      ],
       "command": "samtools flagstat -O json {in0} > {out}/flagstat.json",
       "outputs": {
-        "flagstat.json": { "kind": "json", "numericTolerance": 0 }
+        "flagstat.json": {
+          "kind": "json",
+          "numericTolerance": 0
+        }
       },
       "golden": "Tests/Fixtures/conformance/{set}/sarscov2-flagstat"
     },
@@ -28,10 +46,22 @@
       "id": "sarscov2-idxstats",
       "tool": "samtools",
       "env": "samtools",
-      "inputs": ["Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"],
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+      ],
       "command": "samtools idxstats {in0} > {out}/idxstats.tsv",
       "outputs": {
-        "idxstats.tsv": { "kind": "tsv", "keyColumns": [0], "compareColumns": [1, 2, 3] }
+        "idxstats.tsv": {
+          "kind": "tsv",
+          "keyColumns": [
+            0
+          ],
+          "compareColumns": [
+            1,
+            2,
+            3
+          ]
+        }
       },
       "golden": "Tests/Fixtures/conformance/{set}/sarscov2-idxstats"
     },
@@ -39,12 +69,21 @@
       "id": "sarscov2-seqkit-stats",
       "tool": "seqkit",
       "env": "seqkit",
-      "inputs": ["Tests/Fixtures/sarscov2/test_1.fastq.gz"],
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+      ],
       "command": "seqkit stats -a -T {in0} | sed 's#{in0}#IN#' > {out}/stats.tsv",
       "outputs": {
         "stats.tsv": {
           "kind": "tsv-header",
-          "compareColumns": ["num_seqs", "sum_len", "min_len", "avg_len", "max_len", "GC(%)"],
+          "compareColumns": [
+            "num_seqs",
+            "sum_len",
+            "min_len",
+            "avg_len",
+            "max_len",
+            "GC(%)"
+          ],
           "numericTolerance": 0.001
         }
       },
@@ -54,12 +93,19 @@
       "id": "sarscov2-fastp",
       "tool": "fastp",
       "env": "fastp",
-      "inputs": ["Tests/Fixtures/sarscov2/test_1.fastq.gz"],
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+      ],
       "command": "fastp -i {in0} -o {out}/trim.fq.gz -j {out}/fastp.json -h /dev/null -w 1 2>/dev/null && python3 -c \"import json; d=json.load(open('{out}/fastp.json')); json.dump({'before': d['summary']['before_filtering'], 'after': d['summary']['after_filtering']}, open('{out}/summary.json','w'), sort_keys=True, indent=2)\" && rm -f {out}/trim.fq.gz {out}/fastp.json",
       "outputs": {
-        "summary.json": { "kind": "json", "numericTolerance": 0.02, "relative": true }
+        "summary.json": {
+          "kind": "json",
+          "numericTolerance": 0.02,
+          "relative": true
+        }
       },
-      "golden": "Tests/Fixtures/conformance/{set}/sarscov2-fastp"
+      "golden": "Tests/Fixtures/conformance/{set}/sarscov2-fastp",
+      "_stderrNote": "stderr redirected: fastp prints a ~33-line run report to stderr on every successful run. regenerate-goldens.sh tees each recipe's stderr to <out>/<id>/stderr.log, so a failure is still diagnosable."
     },
     {
       "id": "sarscov2-minimap2",
@@ -72,20 +118,32 @@
       ],
       "command": "minimap2 -ax sr {in0} {in1} {in2} 2>/dev/null | {samtools} sort -o {out}/aln.bam - && {samtools} flagstat -O json {out}/aln.bam > {out}/flagstat.json && rm -f {out}/aln.bam",
       "outputs": {
-        "flagstat.json": { "kind": "json", "numericTolerance": 0.01, "relative": true }
+        "flagstat.json": {
+          "kind": "json",
+          "numericTolerance": 0.01,
+          "relative": true
+        }
       },
-      "golden": "Tests/Fixtures/conformance/{set}/sarscov2-minimap2"
+      "golden": "Tests/Fixtures/conformance/{set}/sarscov2-minimap2",
+      "_stderrNote": "stderr redirected: minimap2 prints ~213 lines of per-batch progress to stderr on every successful run. regenerate-goldens.sh tees each recipe's stderr to <out>/<id>/stderr.log, so a failure is still diagnosable."
     },
     {
       "id": "sarscov2-spades",
       "tool": "spades",
       "env": "spades",
-      "inputs": ["Tests/Fixtures/sarscov2/test_1.fastq.gz", "Tests/Fixtures/sarscov2/test_2.fastq.gz"],
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test_1.fastq.gz",
+        "Tests/Fixtures/sarscov2/test_2.fastq.gz"
+      ],
       "command": "spades.py --sc -k 21 -1 {in0} -2 {in1} -t 4 -m 8 -o {out}/spades >/dev/null 2>&1 && {seqkit} stats -a -T {out}/spades/contigs.fasta | sed 's#{out}/spades/##' > {out}/contigs-stats.tsv && rm -rf {out}/spades",
       "outputs": {
         "contigs-stats.tsv": {
           "kind": "tsv-header",
-          "compareColumns": ["num_seqs", "sum_len", "N50"],
+          "compareColumns": [
+            "num_seqs",
+            "sum_len",
+            "N50"
+          ],
           "numericTolerance": 0.05,
           "relative": true
         }
@@ -96,12 +154,19 @@
       "id": "sarscov2-megahit",
       "tool": "megahit",
       "env": "megahit",
-      "inputs": ["Tests/Fixtures/sarscov2/test_1.fastq.gz", "Tests/Fixtures/sarscov2/test_2.fastq.gz"],
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test_1.fastq.gz",
+        "Tests/Fixtures/sarscov2/test_2.fastq.gz"
+      ],
       "command": "megahit -1 {in0} -2 {in1} -t 2 -o {out}/megahit >/dev/null 2>&1 && {seqkit} stats -a -T {out}/megahit/final.contigs.fa | sed 's#{out}/megahit/##' > {out}/contigs-stats.tsv && rm -rf {out}/megahit",
       "outputs": {
         "contigs-stats.tsv": {
           "kind": "tsv-header",
-          "compareColumns": ["num_seqs", "sum_len", "N50"],
+          "compareColumns": [
+            "num_seqs",
+            "sum_len",
+            "N50"
+          ],
           "numericTolerance": 0.05,
           "relative": true
         }
@@ -112,10 +177,14 @@
       "id": "sarscov2-vsearch-derep",
       "tool": "vsearch",
       "env": "vsearch",
-      "inputs": ["Tests/Fixtures/sarscov2/test_1.fastq.gz"],
-      "command": "{seqkit} fq2fa {in0} -o {out}/r.fa 2>/dev/null && vsearch --derep_fulllength {out}/r.fa --output {out}/d.fa --sizeout --quiet && grep -c '^>' {out}/d.fa > {out}/count.txt && rm -f {out}/r.fa {out}/d.fa",
+      "inputs": [
+        "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+      ],
+      "command": "{seqkit} fq2fa {in0} -o {out}/r.fa && vsearch --derep_fulllength {out}/r.fa --output {out}/d.fa --sizeout --quiet && grep -c '^>' {out}/d.fa > {out}/count.txt && rm -f {out}/r.fa {out}/d.fa",
       "outputs": {
-        "count.txt": { "kind": "text" }
+        "count.txt": {
+          "kind": "text"
+        }
       },
       "golden": "Tests/Fixtures/conformance/{set}/sarscov2-vsearch-derep"
     },
@@ -123,8 +192,11 @@
       "id": "sarscov2-deacon",
       "tool": "deacon",
       "env": "deacon",
-      "inputs": ["Tests/Fixtures/sarscov2/genome.fasta", "Tests/Fixtures/sarscov2/test_1.fastq.gz"],
-      "command": "deacon index build {in0} -o {out}/ref.idx 2>/dev/null && deacon filter -d {out}/ref.idx {in1} -o /dev/null --summary {out}/raw-summary.json 2>/dev/null && python3 -c \"import json; d=json.load(open('{out}/raw-summary.json')); [d.pop(k, None) for k in ('version','index','input','input2','output','output2','time','seqs_per_second','bp_per_second','seqs_per_second_total','bp_per_second_total')]; json.dump(d, open('{out}/summary.json','w'), sort_keys=True, indent=2)\" && rm -f {out}/ref.idx {out}/raw-summary.json",
+      "inputs": [
+        "Tests/Fixtures/sarscov2/genome.fasta",
+        "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+      ],
+      "command": "deacon index build {in0} -o {out}/ref.idx && deacon filter -d {out}/ref.idx {in1} -o /dev/null --summary {out}/raw-summary.json && python3 -c \"import json; d=json.load(open('{out}/raw-summary.json')); [d.pop(k, None) for k in ('version','index','input','input2','output','output2','time','seqs_per_second','bp_per_second','seqs_per_second_total','bp_per_second_total')]; json.dump(d, open('{out}/summary.json','w'), sort_keys=True, indent=2)\" && rm -f {out}/ref.idx {out}/raw-summary.json",
       "outputs": {
         "summary.json": {
           "kind": "json",
@@ -151,13 +223,26 @@
       "id": "sarscov2-bcftools",
       "tool": "bcftools",
       "env": "bcftools",
-      "inputs": ["Tests/Fixtures/sarscov2/genome.fasta", "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"],
-      "command": "bcftools mpileup -f {in0} -Ou {in1} 2>/dev/null | bcftools call -mv -Ov 2>/dev/null | grep -v '^##' > {out}/calls.vcf",
+      "inputs": [
+        "Tests/Fixtures/sarscov2/genome.fasta",
+        "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+      ],
+      "command": "bcftools mpileup -f {in0} -Ou {in1} | bcftools call -mv -Ov | grep -v '^##' > {out}/calls.vcf",
       "outputs": {
         "calls.vcf": {
           "kind": "tsv-header",
-          "keyColumns": ["#CHROM", "POS", "REF", "ALT"],
-          "compareColumns": ["#CHROM", "POS", "REF", "ALT"]
+          "keyColumns": [
+            "#CHROM",
+            "POS",
+            "REF",
+            "ALT"
+          ],
+          "compareColumns": [
+            "#CHROM",
+            "POS",
+            "REF",
+            "ALT"
+          ]
         }
       },
       "golden": "Tests/Fixtures/conformance/{set}/sarscov2-bcftools"
@@ -166,10 +251,14 @@
       "id": "iqtree-known-sarcopterygian",
       "tool": "iqtree",
       "env": "iqtree",
-      "inputs": ["Tests/Fixtures/phylogenetics/known-sarcopterygian/alignment.fasta"],
+      "inputs": [
+        "Tests/Fixtures/phylogenetics/known-sarcopterygian/alignment.fasta"
+      ],
       "command": "iqtree3 -s {in0} -m JC -seed 1 -nt 2 -pre {out}/run -redo >/dev/null 2>&1 && cp {out}/run.treefile {out}/tree.nwk && rm -f {out}/run.*",
       "outputs": {
-        "tree.nwk": { "kind": "newick-topology" }
+        "tree.nwk": {
+          "kind": "newick-topology"
+        }
       },
       "golden": "Tests/Fixtures/conformance/{set}/iqtree-known-sarcopterygian"
     }
