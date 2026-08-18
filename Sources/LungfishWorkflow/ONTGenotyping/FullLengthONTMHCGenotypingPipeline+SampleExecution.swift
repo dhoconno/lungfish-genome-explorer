@@ -340,23 +340,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             sampleDirectory: sampleDirectory
         )
         try writeFASTARecords(records, to: queryURL)
-        let outfmt = [
-            "6",
-            "qseqid",
-            "sseqid",
-            "pident",
-            "length",
-            "mismatch",
-            "gapopen",
-            "qstart",
-            "qend",
-            "sstart",
-            "send",
-            "evalue",
-            "bitscore",
-            "qlen",
-            "slen",
-        ].joined(separator: " ")
+        let outfmt = (["6"] + FullLengthONTMHCBlastRescueParser.outfmt6Fields).joined(separator: " ")
         let arguments = [
             "-query", queryURL.path,
             "-subject", referenceFASTAURL.path,

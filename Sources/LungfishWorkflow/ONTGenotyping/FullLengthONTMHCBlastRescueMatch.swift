@@ -24,7 +24,48 @@ struct FullLengthONTMHCBlastRescueMatch: Sendable, Codable, Equatable {
     let closestMatchID: String
 }
 
+enum FullLengthONTMHCBlastRescueParseError: Error, Equatable {
+    case fieldCountMismatch(expected: Int, actual: Int)
+}
+
 enum FullLengthONTMHCBlastRescueParser {
+    /// The `-outfmt 6` field list the blast-rescue pipeline requests from
+    /// `blastn`, in order. Single-sourced here so the pipeline's actual
+    /// invocation and any conformance test asserting against real `blastn`
+    /// output can never drift apart.
+    static let outfmt6Fields: [String] = [
+        "qseqid",
+        "sseqid",
+        "pident",
+        "length",
+        "mismatch",
+        "gapopen",
+        "qstart",
+        "qend",
+        "sstart",
+        "send",
+        "evalue",
+        "bitscore",
+        "qlen",
+        "slen",
+    ]
+
+    /// Parses a single `-outfmt 6` line into the fields declared by
+    /// ``outfmt6Fields``, without any of the acceptance-threshold or
+    /// cluster-lookup logic `acceptedMatches` applies. Exists so callers
+    /// (and conformance tests against real `blastn` output) can validate
+    /// that a line matches the declared field contract.
+    static func parseLine(_ line: String) throws -> [String: String] {
+        let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        guard fields.count == outfmt6Fields.count else {
+            throw FullLengthONTMHCBlastRescueParseError.fieldCountMismatch(
+                expected: outfmt6Fields.count,
+                actual: fields.count
+            )
+        }
+        return Dictionary(uniqueKeysWithValues: zip(outfmt6Fields, fields))
+    }
+
     static func acceptedMatches(
         sample: String,
         recordsByCluster: [String: FullLengthONTMHCClusterFASTARecord],
