@@ -33,7 +33,11 @@ while [ $# -gt 0 ]; do
         --quiet) QUIET=1; shift ;;
         --require-tools) REQUIRE_TOOLS=1; shift ;;
         --filter)
-            FILTER="${2:-}"
+            # Without this guard a bare `--filter` shifts past the end of the
+            # argument list and leaves FILTER empty, which silently means "run
+            # the entire suite" -- a multi-hour run the caller did not ask for.
+            [ $# -ge 2 ] || { echo "--filter requires a value" >&2; exit 64; }
+            FILTER="$2"
             shift 2
             ;;
         *)

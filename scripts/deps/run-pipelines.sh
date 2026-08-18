@@ -89,22 +89,39 @@ Output:
 EOF
 }
 
+# Reject a value-taking flag that was given no value. Without this, `shift 2`
+# on a one-element argument list aborts under `set -u` with an opaque message,
+# or leaves the variable empty and the run proceeds against a wrong target.
+# 64 is EX_USAGE, matching the unknown-argument arm below.
+require_value() {
+    local flag="$1" remaining="$2"
+    if [[ ${remaining} -lt 2 ]]; then
+        echo "${flag} requires a value" >&2
+        usage >&2
+        exit 64
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --which)
-            which_target="${2:-}"
+            require_value "$1" $#
+            which_target="$2"
             shift 2
             ;;
         --out)
-            out_dir="${2:-}"
+            require_value "$1" $#
+            out_dir="$2"
             shift 2
             ;;
         --accession)
-            accession="${2:-}"
+            require_value "$1" $#
+            accession="$2"
             shift 2
             ;;
         --cli)
-            cli_bin="${2:-}"
+            require_value "$1" $#
+            cli_bin="$2"
             shift 2
             ;;
         -h|--help)

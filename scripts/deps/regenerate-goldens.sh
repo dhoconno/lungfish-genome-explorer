@@ -33,22 +33,39 @@ usage() {
     echo "usage: $(basename "$0") --set <id> --out <dir> [--only id,...] [--recipes <path>] [--print-command]" >&2
 }
 
+# Reject a value-taking flag that was given no value. Without this, `shift 2`
+# on a one-element argument list aborts under `set -u` with an opaque message,
+# or (worse) leaves the variable empty and the run proceeds with a wrong value.
+# 64 is EX_USAGE, matching the unknown-argument arm below.
+require_value() {
+    local flag="$1" remaining="$2"
+    if [[ ${remaining} -lt 2 ]]; then
+        echo "${flag} requires a value" >&2
+        usage
+        exit 64
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --set)
-            dependency_set="${2:-}"
+            require_value "$1" $#
+            dependency_set="$2"
             shift 2
             ;;
         --out)
-            out_dir="${2:-}"
+            require_value "$1" $#
+            out_dir="$2"
             shift 2
             ;;
         --only)
-            only="${2:-}"
+            require_value "$1" $#
+            only="$2"
             shift 2
             ;;
         --recipes)
-            recipes="${2:-}"
+            require_value "$1" $#
+            recipes="$2"
             shift 2
             ;;
         --print-command)
