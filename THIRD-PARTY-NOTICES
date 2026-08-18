@@ -319,8 +319,10 @@ The following tools are NOT bundled with Lungfish. They are executed inside
 isolated Linux containers or are expected to be installed separately by the
 user. No binary distribution obligations apply.
 
+<!-- managed-tools:begin -->
 - minimap2      MIT          https://github.com/lh3/minimap2
 - BWA           GPL-3.0      https://github.com/lh3/bwa
 - SPAdes        GPL-2.0      https://github.com/ablab/spades
 - FastQC        GPL-2.0      https://github.com/s-andrews/FastQC
 - MultiQC       GPL-3.0      https://github.com/MultiQC/MultiQC
+<!-- managed-tools:end -->
