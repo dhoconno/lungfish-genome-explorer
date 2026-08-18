@@ -15,6 +15,10 @@ enum ItemStatus: Equatable {
     case running(String)
     case done
     case failed(String)
+    /// The reconciler declined to do this item. Removals are the case in practice: they are
+    /// held back when a required install failed, so the machine is not stripped of a working
+    /// tool before its replacement is in place.
+    case skipped(String)
 }
 
 /// Drives ``UpdateToolsSheet``: which pieces of the plan the user has chosen, how much that
@@ -48,6 +52,10 @@ final class UpdateToolsSheetViewModel {
     /// whether the launch-time defaults may be stamped.
     private(set) var resultReceipt: DependencyReceipt?
 
+    /// Last sampled free space on the storage volume, or nil when it could not be read.
+    /// Sampled at init and refreshed via ``refreshFreeSpace()`` rather than read per access.
+    private(set) var freeSpaceBytes: Int64?
+
     private let reconciler: DependencyReconciler?
     private let freeSpaceProvider: @Sendable () -> Int64?
 
@@ -66,6 +74,7 @@ final class UpdateToolsSheetViewModel {
         self.selectedDatabases = Set(
             plan.databaseUpdates.filter { $0.policy == .required }.map(\.id)
         )
+        self.freeSpaceBytes = freeSpaceProvider()
     }
 
     // MARK: - Plan partitioning
@@ -98,9 +107,18 @@ final class UpdateToolsSheetViewModel {
 
     // MARK: - Gating and sizing
 
-    /// "Later" is offered only when nothing in the plan is required; otherwise the sheet
-    /// offers "Quit" instead, matching the launch gate.
-    var canDismissLater: Bool { !plan.hasRequiredWork }
+    /// Whether this host can let the user walk away from required work.
+    ///
+    /// Only the Welcome-hosted launch path sets this false: that is the one context where the
+    /// app genuinely has nowhere to go without its required tools, so the button reads "Quit"
+    /// and really terminates. Every other host (Plugin Manager, a restored project window)
+    /// leaves it true and offers "Later", because terminating out from under a user's open
+    /// windows would be worse than deferring, and new analyses stay gated by the Welcome
+    /// required-setup check anyway.
+    var allowsDeferral: Bool = true
+
+    /// "Later" is offered when the host permits deferral, or when nothing is required at all.
+    var canDismissLater: Bool { allowsDeferral || !plan.hasRequiredWork }
 
     /// Download size of the current selection.
     ///
@@ -130,11 +148,20 @@ final class UpdateToolsSheetViewModel {
     /// Set when the storage volume does not have comfortable headroom for the selection.
     ///
     /// The 1.1 factor covers the unpacked-versus-downloaded gap and conda's staging copies.
+    /// Derived from ``freeSpaceBytes``, which is a stored sample rather than a live read: this
+    /// is evaluated on every SwiftUI body pass, and hitting the volume synchronously from a
+    /// computed property would put filesystem I/O on the main thread each time.
     var freeSpaceWarning: String? {
-        guard estimatedBytes > 0, let free = freeSpaceProvider() else { return nil }
+        guard estimatedBytes > 0, let free = freeSpaceBytes else { return nil }
         let needed = Int64(Double(estimatedBytes) * 1.1)
         guard free < needed else { return nil }
-        return "This update needs about \(Self.format(needed)) of free space but the storage volume has \(Self.format(free)). Uncheck optional items or free up space."
+        return "This update needs about \(Self.format(needed)) of free space but the storage volume has about \(Self.format(free)). Uncheck optional items or free up space."
+    }
+
+    /// Re-samples the volume. Called when the sheet appears and after a run, since a run both
+    /// consumes space and may free it by removing retired environments.
+    func refreshFreeSpace() {
+        freeSpaceBytes = freeSpaceProvider()
     }
 
     /// True when the free-space check says there is not enough room to start.
@@ -171,9 +198,18 @@ final class UpdateToolsSheetViewModel {
         guard let reconciler, !isRunning, !completed else { return }
         isRunning = true
         failureSummary = nil
+        // Tell the rest of the app that conda is busy, so Welcome's required-setup install and
+        // the Plugin Manager's install/reinstall buttons stand down rather than racing us into
+        // the same environments.
+        DependencyReconciliationActivity.shared.begin()
         let currentSelection = selection()
         for id in currentSelection.environments.union(currentSelection.databases) {
             itemStatus[id] = .pending
+        }
+        if currentSelection.includeRemovals {
+            for name in plan.removeEnvironments {
+                itemStatus[Self.removalStatusKey(name)] = .pending
+            }
         }
 
         // The progress closure is `@Sendable` and called from the reconciler's actor context,
@@ -197,6 +233,14 @@ final class UpdateToolsSheetViewModel {
             isRunning = false
             completed = true
         }
+        DependencyReconciliationActivity.shared.end()
+        refreshFreeSpace()
+    }
+
+    /// Namespaces a removal's status so it cannot collide with an install or reinstall of an
+    /// environment that happens to carry the same name.
+    static func removalStatusKey(_ environment: String) -> String {
+        "remove:\(environment)"
     }
 
     private func applyProgress(id: String, fraction: Double, detail: String) {
@@ -220,6 +264,23 @@ final class UpdateToolsSheetViewModel {
         }
         for (id, message) in result.failed {
             itemStatus[id] = .failed(message)
+        }
+
+        // The reconciler reports removals under the bare environment name and holds all of
+        // them back when a required item failed, so anything still unresolved here was skipped
+        // rather than attempted. Saying so beats leaving the row blank.
+        if includeRemovals {
+            let succeededNames = Set(result.succeeded)
+            for name in plan.removeEnvironments {
+                let key = Self.removalStatusKey(name)
+                if succeededNames.contains(name) {
+                    itemStatus[key] = .done
+                } else if let message = result.failed[name] {
+                    itemStatus[key] = .failed(message)
+                } else {
+                    itemStatus[key] = .skipped("Skipped (required item failed)")
+                }
+            }
         }
         resultReceipt = result.receipt
         if result.failed.isEmpty {

@@ -163,6 +163,10 @@ final class WelcomeViewModel: ObservableObject {
     @Published private(set) var isRefreshingRequiredSetup = false
     @Published private(set) var isRefreshingOptionalPacks = false
     @Published var isInstallingRequiredSetup = false
+    /// Mirrors ``DependencyReconciliationActivity/isApplying``. Held as published state rather
+    /// than read through on each access because this view model is `ObservableObject`, so a
+    /// computed passthrough to an `@Observable` would not republish when the flag flips.
+    @Published private(set) var isDependencyReconciliationRunning = false
     @Published var requiredSetupProgress: Double?
     @Published var requiredSetupProgressMessage: String?
     @Published var requiredSetupItemProgress: [String: Double] = [:]
@@ -188,6 +192,7 @@ final class WelcomeViewModel: ObservableObject {
     private var scheduledSetupRefreshTask: Task<Void, Never>?
     private var managedResourcesObserver: WelcomeNotificationObserver?
     private var dependencyReconciliationObserver: WelcomeNotificationObserver?
+    private var dependencyReconciliationStartObserver: WelcomeNotificationObserver?
     private var scheduledSetupRefreshGeneration = 0
     private var requiredSetupInstallGeneration = 0
     private var pendingSetupInvalidation = false
@@ -231,12 +236,29 @@ final class WelcomeViewModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.isDependencyReconciliationRunning = false
                 self?.scheduleSetupRefresh(requiresFreshRead: true)
             }
         }
         dependencyReconciliationObserver = WelcomeNotificationObserver(
             notificationCenter: notificationCenter,
             token: reconciliationToken
+        )
+
+        // While the sheet is applying, this window's Install button must stand down: both
+        // drive CondaManager against the same environments.
+        let reconciliationStartToken = notificationCenter.addObserver(
+            forName: .lungfishDependencyReconciliationDidStart,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.isDependencyReconciliationRunning = true
+            }
+        }
+        dependencyReconciliationStartObserver = WelcomeNotificationObserver(
+            notificationCenter: notificationCenter,
+            token: reconciliationStartToken
         )
     }
 
@@ -245,6 +267,7 @@ final class WelcomeViewModel: ObservableObject {
         scheduledSetupRefreshTask?.cancel()
         managedResourcesObserver = nil
         dependencyReconciliationObserver = nil
+        dependencyReconciliationStartObserver = nil
     }
 
     private func handleManagedResourcesDidChange(sourceObjectIdentifier: ObjectIdentifier?) {
@@ -259,6 +282,9 @@ final class WelcomeViewModel: ObservableObject {
         return (requiredSetupReady || debugLaunchConfiguration.bypassRequiredSetup)
             && !isInstallingRequiredSetup
             && !isRefreshingRequiredSetup
+            // A tool update in flight can be reinstalling the very environments the status was
+            // read from, so the status on screen is stale until it finishes.
+            && !isDependencyReconciliationRunning
     }
 
     var currentStorageRootURL: URL {
@@ -419,6 +445,7 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func installRequiredSetup() {
+        guard !isDependencyReconciliationRunning else { return }
         guard let requiredSetupStatus, !isInstallingRequiredSetup else { return }
         let pack = requiredSetupStatus.pack
         let shouldReinstall = requiredSetupStatus.shouldReinstall

@@ -164,11 +164,11 @@ private struct InstalledTabView: View {
                     .controlSize(.small)
                     .tint(.lungfishCreamsicleFallback)
             }
-            Button("Check for Tool Updates...") {
+            Button("Check for Tool Updates…") {
                 viewModel.checkForToolUpdates()
             }
             .controlSize(.small)
-            .disabled(viewModel.isCheckingForToolUpdates)
+            .disabled(viewModel.isCheckingForToolUpdates || viewModel.isDependencyReconciliationRunning)
             .accessibilityIdentifier(PluginManagerAccessibilityID.checkForToolUpdatesButton)
         }
         .padding(.horizontal, 16)
@@ -643,6 +643,9 @@ private struct PackCard: View {
                         } label: { Text(title) }
                         .controlSize(.small)
                         .buttonStyle(.borderedProminent)
+                        // A tool update owns conda while it runs; installing into the same
+                        // environments concurrently is not safe.
+                        .disabled(DependencyReconciliationActivity.shared.isApplying)
                         .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
                     case .removeAll:
                         if let onRemoveAll {
@@ -651,6 +654,7 @@ private struct PackCard: View {
                             } label: { Text("Remove All") }
                             .controlSize(.small)
                             .tint(.lungfishDangerFallback)
+                            .disabled(DependencyReconciliationActivity.shared.isApplying)
                             .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                         }
                     }

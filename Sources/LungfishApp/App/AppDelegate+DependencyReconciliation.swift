@@ -32,6 +32,8 @@ extension AppDelegate {
     static let lastLaunchedDependencySetKey = "com.lungfish.lastLaunchedDependencySet"
     /// UserDefaults key holding the app version that last confirmed it.
     static let lastLaunchedAppVersionKey = "com.lungfish.lastLaunchedAppVersion"
+    /// UserDefaults key holding the manifest hash the user last said "Later" to.
+    static let deferredDependencyManifestHashKey = "com.lungfish.deferredDependencyManifestHash"
 
     /// Checks whether this machine matches the bundled dependency manifest and, if not,
     /// presents the Update Tools sheet.
@@ -71,12 +73,29 @@ extension AppDelegate {
                     return
                 }
                 await MainActor.run {
+                    // An all-optional plan the user already declined must not reappear at every
+                    // launch. The deferral is keyed to the manifest hash, so a new manifest (or
+                    // any plan that turns out to have required work) asks again.
+                    if Self.shouldSuppressDeferredPlan(plan, manifest: manifest, defaults: defaults) {
+                        debugLog("Dependency reconciliation deferred by the user for this manifest")
+                        return
+                    }
                     self?.presentUpdateToolsSheet(plan: plan, reconciler: reconciler, storageRoot: root)
                 }
             } catch {
                 debugLog("Dependency reconciliation failed to plan: \(error)")
             }
         }
+    }
+
+    /// True when this exact manifest was deferred and the outstanding work is all optional.
+    static func shouldSuppressDeferredPlan(
+        _ plan: ReconciliationPlan,
+        manifest: ManagedToolLock,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard !plan.hasRequiredWork else { return false }
+        return defaults.string(forKey: deferredDependencyManifestHashKey) == manifest.manifestHash
     }
 
     /// Presents the sheet on whatever window is on screen, retrying shortly if the app has not
@@ -105,22 +124,38 @@ extension AppDelegate {
             return
         }
 
-        let canDefer = !plan.hasRequiredWork
+        // "Quit" is only honest on the Welcome window: that is the one host where the app has
+        // nothing else on screen to fall back to. If the user has restored project windows,
+        // terminating under them would destroy more than it protects, so those hosts get
+        // "Later" and rely on Welcome's required-setup gate to block new analyses.
+        let isWelcomeHost = window.isWelcomeWindow
+        let allowsDeferral = !(isWelcomeHost && plan.hasRequiredWork)
+
         UpdateToolsSheetController.present(
             plan: plan,
             reconciler: reconciler,
             storageRoot: storageRoot,
             on: window,
+            allowsDeferral: allowsDeferral,
             onDismissWithoutRunning: {
-                // With required work outstanding the sheet's button reads "Quit", because the
-                // app cannot run its pipelines against a half-provisioned tool set.
-                if !canDefer {
+                if !allowsDeferral {
                     NSApp.terminate(nil)
+                } else {
+                    Self.recordDeferral()
                 }
             },
             onFinished: { receipt in
                 Self.stampLaunchDefaultsIfCurrent(receipt: receipt)
             }
+        )
+    }
+
+    /// Remembers that the user declined this manifest's optional work, so the next launch does
+    /// not ask again until the manifest changes.
+    static func recordDeferral() {
+        UserDefaults.standard.set(
+            ManagedToolLock.bundled.manifestHash,
+            forKey: deferredDependencyManifestHashKey
         )
     }
 
@@ -136,5 +171,8 @@ extension AppDelegate {
         let defaults = UserDefaults.standard
         defaults.set(dependencySet, forKey: lastLaunchedDependencySetKey)
         defaults.set(LungfishAppVersion.short, forKey: lastLaunchedAppVersionKey)
+        // A successful run supersedes any earlier "Later": the work is done, so the deferral
+        // must not keep suppressing a future plan built from the same manifest.
+        defaults.removeObject(forKey: deferredDependencyManifestHashKey)
     }
 }

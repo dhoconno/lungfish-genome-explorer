@@ -278,6 +278,12 @@ final class PluginManagerViewModel {
     /// progress and refuse to stack a second plan on top of the first.
     var isCheckingForToolUpdates = false
 
+    /// True while an Update Tools run owns conda, so this window's install affordances stand
+    /// down instead of racing the reconciler into the same environments.
+    var isDependencyReconciliationRunning: Bool {
+        DependencyReconciliationActivity.shared.isApplying
+    }
+
     /// Plans against the bundled dependency manifest and either reports that nothing is due or
     /// presents the same Update Tools sheet the launch trigger uses.
     ///

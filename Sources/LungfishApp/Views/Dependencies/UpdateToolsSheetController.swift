@@ -21,6 +21,15 @@ public extension Notification.Name {
     )
 }
 
+extension NSWindow {
+    /// The Welcome window, identified by the accessibility id it sets on itself. Used to decide
+    /// whether a required-work sheet may offer "Quit" (it may only there) and which window the
+    /// sheet should prefer as its host.
+    var isWelcomeWindow: Bool {
+        accessibilityIdentifier() == "welcome-window"
+    }
+}
+
 /// Presents ``UpdateToolsSheet`` as a sheet, never as a modal session.
 @MainActor
 enum UpdateToolsSheetController {
@@ -32,6 +41,8 @@ enum UpdateToolsSheetController {
     /// Presents the sheet on `window`.
     ///
     /// - Parameters:
+    ///   - allowsDeferral: When false the dismiss button reads "Quit" and the caller is expected
+    ///     to terminate; only the Welcome-hosted launch path passes false.
     ///   - onDismissWithoutRunning: Invoked when the user chose "Later" or "Quit". The caller
     ///     decides which of those it means, because only the caller knows whether the app can
     ///     keep running.
@@ -40,6 +51,7 @@ enum UpdateToolsSheetController {
         reconciler: DependencyReconciler,
         storageRoot: URL,
         on window: NSWindow,
+        allowsDeferral: Bool = true,
         onDismissWithoutRunning: (() -> Void)? = nil,
         onFinished: ((DependencyReceipt?) -> Void)? = nil
     ) {
@@ -54,6 +66,7 @@ enum UpdateToolsSheetController {
             reconciler: reconciler,
             freeSpaceProvider: Self.freeSpaceProvider(for: storageRoot)
         )
+        viewModel.allowsDeferral = allowsDeferral
 
         let panel = NSPanel(
             contentRect: .zero,
@@ -94,9 +107,15 @@ enum UpdateToolsSheetController {
         }
     }
 
-    /// A window suitable to hang the sheet on: the key window if there is one, else any
-    /// visible window, else nil (the app has not put anything on screen yet).
+    /// A window suitable to hang the sheet on.
+    ///
+    /// The Welcome window wins when it is up, because it is the host where a required-work
+    /// sheet can honestly offer "Quit" and because it is the window whose setup gate the sheet
+    /// unblocks. Otherwise the key window, otherwise any visible window.
     static func hostWindow() -> NSWindow? {
+        if let welcome = NSApp.windows.first(where: { $0.isVisible && $0.isWelcomeWindow }) {
+            return welcome
+        }
         if let key = NSApp.keyWindow, key.isVisible {
             return key
         }

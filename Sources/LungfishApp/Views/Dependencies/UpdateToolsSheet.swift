@@ -14,6 +14,11 @@ enum UpdateToolsSheetAccessibilityID {
     static let doneButton = "update-tools-done-button"
     static let freeSpaceWarning = "update-tools-free-space-warning"
     static let failureSummary = "update-tools-failure-summary"
+
+    static let removalsToggle = "updateTools.removals"
+
+    static func environmentToggle(_ name: String) -> String { "updateTools.env.\(name)" }
+    static func databaseToggle(_ id: String) -> String { "updateTools.db.\(id)" }
 }
 
 /// Presents a ``ReconciliationPlan`` for review and runs the pieces the user keeps.
@@ -39,6 +44,11 @@ struct UpdateToolsSheet: View {
         .frame(width: 500)
         .frame(minHeight: 420, maxHeight: 560)
         .accessibilityIdentifier(UpdateToolsSheetAccessibilityID.root)
+        .onAppear {
+            // Re-sample here rather than reading the volume from a computed property: the
+            // free-space figure is only meaningful at the moment the sheet is shown.
+            viewModel.refreshFreeSpace()
+        }
     }
 
     // MARK: - Header
@@ -113,11 +123,23 @@ struct UpdateToolsSheet: View {
                         subtitle: "Retired tools that are no longer part of the tool set."
                     ) {
                         Toggle(isOn: $viewModel.includeRemovals) {
-                            Text(viewModel.plan.removeEnvironments.sorted().joined(separator: ", "))
+                            Text("Remove retired tools")
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
                         }
                         .disabled(viewModel.isRunning || viewModel.completed)
+                        .accessibilityIdentifier(UpdateToolsSheetAccessibilityID.removalsToggle)
+
+                        ForEach(viewModel.plan.removeEnvironments.sorted(), id: \.self) { name in
+                            HStack(spacing: 8) {
+                                Text(name)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                statusBadge(
+                                    for: UpdateToolsSheetViewModel.removalStatusKey(name)
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -171,12 +193,19 @@ struct UpdateToolsSheet: View {
                         .font(.callout)
                 }
                 .disabled(viewModel.isRunning || viewModel.completed)
+                .accessibilityIdentifier(
+                    UpdateToolsSheetAccessibilityID.environmentToggle(change.environment)
+                )
             } else {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.lungfishOrangeFallback)
                     .accessibilityHidden(true)
                 Text(change.environment)
                     .font(.callout)
+                    .accessibilityIdentifier(
+                        UpdateToolsSheetAccessibilityID.environmentToggle(change.environment)
+                    )
+                    .accessibilityLabel("\(change.environment), required")
             }
             Spacer()
             Text(versionTransition(from: change.currentSpec, to: change.targetSpec))
@@ -199,12 +228,19 @@ struct UpdateToolsSheet: View {
                         .font(.callout)
                 }
                 .disabled(viewModel.isRunning || viewModel.completed)
+                .accessibilityIdentifier(
+                    UpdateToolsSheetAccessibilityID.databaseToggle(change.id)
+                )
             } else {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.lungfishOrangeFallback)
                     .accessibilityHidden(true)
                 Text(change.displayName)
                     .font(.callout)
+                    .accessibilityIdentifier(
+                        UpdateToolsSheetAccessibilityID.databaseToggle(change.id)
+                    )
+                    .accessibilityLabel("\(change.displayName), required")
             }
             Spacer()
             Text(databaseDetail(change))
@@ -246,6 +282,11 @@ struct UpdateToolsSheet: View {
                 .foregroundStyle(.orange)
                 .help(message)
                 .accessibilityLabel("Failed: \(message)")
+        case .skipped(let reason):
+            Text(reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         case .pending, .none:
             EmptyView()
         }
@@ -298,7 +339,7 @@ struct UpdateToolsSheet: View {
 
             HStack(spacing: 12) {
                 if !viewModel.completed {
-                    Text("Estimated download: \(formatted(viewModel.estimatedBytes))")
+                    Text("Estimated download: about \(formatted(viewModel.estimatedBytes))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
