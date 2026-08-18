@@ -269,107 +269,211 @@ produce. An earlier draft of this section predicted a bracken conda-meta drift
 entry in default mode; that prediction was wrong and this paragraph records the
 measured result instead.
 
+
 ## Group 1 (task C5)
 
-Status: **BLOCKED before any bump was committed.** The apply run was executed,
-inspected, and reverted; the tree is back at 189da463 with no manifest change.
-The blocker is a defect in `scripts/deps/bump.py`, not in the candidate set.
+Applied at commit `b59126ab`, on top of the repaired `bump.py` (`78ad27e8`).
+Twenty-two low-risk ids moved and `dependencySet` advanced to 2026.2 dated
+2026-08-18.
 
-### Candidate scan
+An earlier attempt at this task was reverted rather than committed, because the
+then-current `bump.py` rewrote digests for ids it had not bumped: held
+micromamba 2.0.5-0 was paired with 2.9.0-0's sha256, and the held rolling
+ncbi-taxonomy entry grew an md5 key. That defect is fixed in `78ad27e8`
+(checksum refetch scoped to bumped ids, micromamba addressed by pinned version,
+dry runs network-free), and this run re-verified both guards after applying.
+
+### Commands
 
 ```
 python3 scripts/deps/check-upstream.py --json /tmp/candidates.json --markdown /tmp/candidates.md
+python3 scripts/deps/bump.py --set 2026.2 --date 2026-08-18 --from /tmp/candidates.json --only <22 ids>
+swift package update Sparkle
+bash scripts/check-package-resolved-consistency.sh --repair
+swift build
+swift test --skip-update --filter 'Dependency|Manifest|PluginPack|CondaManager|TaxTriage|Metagenomics|Provenance|NoLiteral'
+bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify
+bash scripts/deps/verify.sh --tier 2 --root ~/.lungfish-verify
 ```
 
-The scan agrees with the plan. All 22 group 1 ids report `status: update`.
-`metagenomics/bracken` and `full-length-mhc-genotyping/blast` both report
-`no-arm64-build`, and the dry run confirms `bump.py` skips them on status alone,
-so neither can be moved by accident. `ncbi-taxonomy` reports the expected move
-from the rolling `taxdump.tar.gz` to the dated `taxdmp_2026-08-01.zip`.
+### What moved
 
-### Dry run
+Tools: fastp 1.3.2 to 1.3.6, vsearch 2.30.5 to 2.31.0, minimap2 2.30 to 2.31,
+bowtie2 2.5.4 to 2.5.5, medaka 2.1.1 to 2.2.2, clair3 2.0.0 to 2.0.2, iqtree
+3.1.1 to 3.1.3, esviritu 1.3.1 to 1.3.3, freyja 2.0.0 to 2.0.3, snakemake
+9.19.0 to 9.25.2, nextflow 25.10.4 to 26.04.6, deacon 0.15.0 to 0.16.0.
+Pipelines: taxtriage v3.3.6 to v3.3.8, revision
+`e10bfebda32a62711f38a4e23ab03b61725a9675` recorded as the resolved commit sha
+rather than the tag. Databases: the eight Kraken2 catalog entries 20240904 to
+20260626, human-scrubber 20250916v2 to 20260706v2. Sparkle 2.9.1 to 2.9.6 as an
+exact pin, `Package.resolved` moved that one package and nothing else.
+
+### Held, and why
+
+`ncbi-taxonomy` stays at 2025-03. The dated candidate is
+`taxdmp_2026-08-01.zip`, and the archive path handles only gzipped tar in more
+than one file: `MetagenomicsDatabaseInstaller.swift:222` runs `/usr/bin/tar xzf`
+and reports a tar-specific `toolVersion` plus `argv` into the provenance record,
+lines 216 and 274 name the downloaded temp file `...tar.gz` unconditionally, and
+`MetagenomicsDatabaseRegistry.swift:1838` holds a second independent
+`extractTarball` that also hardcodes `tar xzf`. Adding zip support means two
+files, a format-dispatch decision, and a change to what provenance reports as
+the extraction tool, which exceeds the one-file bar the ruling set.
+`BinaryDownloadProvisioner.swift:98-104` already dispatches `.tar.gz` versus
+`.zip` and is the natural model for a dedicated task.
+
+`bracken` and `blast` were skipped by `check-upstream` as `no-arm64-build`,
+confirmed in the dry run, so neither can move by accident. EuPathDB reports
+`same` at 20230407. micromamba, samtools/bcftools/htslib/spades, bbmap/savont,
+and cutadapt/pysam belong to groups 2 through 4.
+
+### Held-pin guards
+
+Re-checked against the written manifest after the run:
+
+- `bootstrap.micromamba` reads version `2.0.5-0` with sha256
+  `a8d78f72db1bdcd24e7758551006610a15beb40a34006b3e3e176085a0dbc780`, which is
+  the digest that genuinely belongs to 2.0.5-0.
+- `ncbi-taxonomy` carries no `md5` key.
+
+No checksum lines were emitted at all, which is correct: none of the 22 bumped
+ids has a digest resolver, since the three that do (esviritu-viral-v3,
+ncbi-taxonomy, micromamba) are all held.
+
+### Build and unit gate
+
+`swift build` completes. The filtered suite passes: 192 swift-testing tests in
+15 suites, 0 failures. No test mirrors needed fixing, as Plan A predicted.
+
+### Tier 1
+
+`verify.sh --tier 1 --root ~/.lungfish-verify`: **GATE PASS**, 189 tests
+executed, 0 failures, 0 skips
+(`.build/gate-logs/gate-20260818-151654-8403ff22.log`). The reconciler
+reinstalled the changed environments (iqtree, bracken, esviritu, medaka, clair3
+and the rest) in the isolated root.
+
+### Tier 2
+
+All 13 recipes executed successfully against the newly installed tools. The
+comparison against the committed 2026.1 goldens is **12 same, 1 different, 0
+missing**.
+
+Goldens have not been regenerated, and `Tests/Fixtures/conformance/2026.2/` does
+not exist, so a comparison keyed to set 2026.2 reports all 13 as `missing` by
+construction. That is C9's work, not a result. The meaningful comparison is
+against 2026.1, reported here.
+
+The single difference, verbatim:
+
+| recipe | output | status | first difference |
+| --- | --- | --- | --- |
+| sarscov2-deacon | summary.json | different | `$.check_pairs: only in candidate` |
+
+deacon 0.16.0 adds one key to its summary JSON, `"check_pairs": false`. Every
+numeric field is bit-for-bit identical to the 0.15.0 golden: `bp_in` 13897,
+`bp_out` 307, `bp_removed` 13590, `seqs_in` 100, `seqs_out` 3, `seqs_removed`
+97, and both proportions to full precision
+(`bp_out_proportion` 0.022091098798301793,
+`bp_removed_proportion` 0.9779089012016982). The depletion result is unchanged;
+this is an additive schema field sitting at its default. The other twelve
+recipes, including the iqtree topology and the bcftools call set, are unchanged.
+
+### Database update path
+
+`tools update --plan` in the isolated root listed exactly one pending item,
+`database human-scrubber unknown -> 20260706v2 [advisory]`, and no taxonomy
+entry, which is correct given the hold.
+
+`tools update --apply --yes --include-databases` applied it successfully. The
+directory afterwards holds only `human_filter.db.20260706v2`; the previous
+`20250916v2` file is gone. `tools update --plan` then reports `Nothing to do.`
+and exits 0.
+
+`Kraken2BrackenConformanceTests` under `LUNGFISH_REQUIRE_TOOLS=1` and
+`LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify` passes 2 of 2, still detecting
+SARS-CoV-2 with kraken2 2.17.1.
+
+### Defect found: catalog database updates cannot be applied
+
+The Kraken2 viral database update could **not** be exercised, because of a
+product defect this task surfaced. It is pre-existing and not caused by the
+bump.
+
+`db info Viral` and `db list` both report the update correctly
+(`Available update: 20260626` for Viral and Standard-16). But every route to
+apply it fails:
 
 ```
-python3 scripts/deps/bump.py --set 2026.2 --date 2026-08-18 --from /tmp/candidates.json \
-  --dry-run --no-checksums --only <the 22 group 1 ids>
+lungfish-cli conda db update kraken2-viral --yes
+  -> Failed 'kraken2-viral': Database 'kraken2-viral' not found in registry
+lungfish-cli conda db update Viral --yes
+  -> Failed 'Viral': Database 'Viral' not found in registry
+lungfish-cli conda db update --all --yes
+  -> No databases have an update available.   (exit 0)
 ```
 
-The version half of the tool is correct. Exactly the 22 selected ids moved,
-every unselected id logged `skipped: not in --only`, the two no-arm64 tools
-logged `skipped: no-arm64-build`, and `taxtriage` recorded the resolved commit
-`e10bfebda32a62711f38a4e23ab03b61725a9675` as its revision with `v3.3.8` as the
-release version, which is the correct shape and not a tag written into the
-revision field.
+The cause is that the installed registry rows carry no catalog identity. In
+`~/.lungfish-verify/databases/metagenomics-db-registry.json`, the installed
+`Viral` and `Standard-16` rows both have `catalogID: null`; only the special
+databases (SILVA, written by a different code path) carry one.
+`updateDatabase(catalogID:)` selects with
+`$0.value.catalogID == catalogID && $0.value.path != nil`
+(`MetagenomicsDatabaseRegistry.swift:1088`), which no null row can satisfy, so
+the named form throws `databaseNotFound` and the `--all` form resolves an empty
+target list.
 
-### Blocking defect: fetch_checksums ignores --only and --hold
+The `--all` behaviour is the more dangerous of the two: it prints "No databases
+have an update available" and exits 0, so a user or a script sees success while
+nothing was updated, even though `db list` in the same session advertises the
+update.
 
-The real run (without `--no-checksums`, as required) additionally rewrote
-digests for two entries whose versions were deliberately not bumped.
+That the registry knows about this class of row makes the gap clearer. The
+freshness matcher at lines 1597-1602 explicitly tolerates the legacy shape
+("Old manifests have no catalogID. An exact built-in display name is the ..."),
+so the reporting path handles null identity and the update path does not.
 
-`bump.py` `fetch_checksums` walks the whole manifest and refreshes every digest
-it knows how to resolve, with no reference to the `--only` or `--hold` sets that
-constrained `apply_bumps`. Two consequences were observed in the produced
-manifest:
+Pre-existing, not a bump artifact: the pre-bump backup
+`metagenomics-db-registry.pre-special-version-fix-20260815.json` already shows
+`Viral` and `Standard-16` with `catalogID: null`.
 
-1. **micromamba pin corrupted.** micromamba is held for group 3 and stayed at
-   `2.0.5-0`, but `_micromamba_sha256` always reads
-   `MICROMAMBA_RELEASES_LATEST` (`upstream_sources.py:509`) and so returned the
-   digest of the newest release. The written manifest paired version
-   `2.0.5-0` with sha256 `ec2a072f028e1a7cf20f3e2e74d5a8127cf5a5f27636375b5359811565f4e5be`.
-   That digest belongs to 2.9.0-0. Verified directly against upstream:
+Consequence for this sweep: the viral index in the verify root remains at
+20240904, so the conformance re-run above validates kraken2 2.17.1 against the
+old index rather than 20260626. The 20260626 index cannot be exercised until the
+lookup is fixed. Suggested fix, for whoever owns it: fall back to matching the
+built-in display name when `catalogID` is null, the way the freshness matcher
+already does, and backfill `catalogID` on load for rows that resolve to a known
+catalog entry.
 
-   ```
-   2.0.5-0 -> a8d78f72db1bdcd24e7758551006610a15beb40a34006b3e3e176085a0dbc780  (the value in the manifest before the run)
-   2.9.0-0 -> ec2a072f028e1a7cf20f3e2e74d5a8127cf5a5f27636375b5359811565f4e5be  (the value bump.py wrote)
-   ```
+### Tier 3: BLOCKED
 
-   This is a supply-chain-relevant defect: the manifest would attest a digest
-   that the pinned binary cannot match, so bootstrap checksum verification
-   fails closed at best, and at worst the pin stops meaning anything.
+`bash scripts/deps/run-pipelines.sh --which all --out .build/pipelines-2026.2`
+ran under a 15 minute bound and failed fast on prerequisites rather than
+hanging. Both pipelines are blocked, for two distinct environmental reasons:
 
-2. **ncbi-taxonomy gained an md5 it never had.** The held entry kept version
-   `2025-03` and the rolling `taxdump.tar.gz` URL but grew
-   `"md5": "cf43694f5307de386d84fdd54655a548"`. The URL is rolling, so that
-   digest is only true on the day it was fetched and rots without any version
-   change to signal it.
+- **TaxTriage**: `FAIL TaxTriage: exit 1`. Apple Containers is not installed on
+  this machine (`container` is not on PATH), so the script fell back to its
+  `docker` profile, and the Docker daemon is not reachable:
+  `Cannot connect to the Docker daemon at unix:///Users/dho/.docker/run/docker.sock`.
+  The Docker CLI 28.3.2 is present but has no running server.
+- **EsViritu**: `FAIL EsViritu: exit 3`,
+  `Database directory not found: /Users/dho/.lungfish/databases/esviritu/v3.2.4`.
+  Note the path: `run-pipelines.sh` never sets `LUNGFISH_STORAGE_ROOT`, so tier
+  3 resolves against the developer's real `~/.lungfish` rather than the isolated
+  verify root. Provisioning that database would mean writing to `~/.lungfish`,
+  which this sweep must not touch. Teaching the script to honour the verify root
+  is a prerequisite for running tier 3 in isolation at all.
 
-Both writes are wrong in the same way: a digest must be fetched for the version
-the manifest actually pins, and an entry excluded from the bump must not be
-edited at all. The existing coverage,
-`scripts/tests/test_bump.py::test_fetch_checksums_fills_esviritu_taxonomy_and_micromamba`,
-cannot catch this because its fake fetcher serves a single release, so the
-pinned and latest versions coincide.
+The structural diff therefore reports `0 same, 0 different, 4 missing`, with all
+four missing on the candidate side because neither pipeline produced output.
+Tier 3 is manual and advisory this sweep, so this is recorded as BLOCKED with
+specifics rather than treated as a regression. The TaxTriage v3.3.8 report
+schema is consequently unverified, and `TaxTriageReportParser` and
+`TaxTriageMetricsParser` remain unexercised against the new release.
 
-The fix belongs in `bump.py` and is out of scope for a bump task, so no
-hand-edit of the manifest was made. Suggested shape, for whoever owns it:
-resolve the micromamba digest from the pinned version's release assets rather
-than `latest`, skip entries excluded by `--only`/`--hold`, and add a regression
-test whose fetcher serves a pinned version distinct from latest.
+### Cosmetic note
 
-### ncbi-taxonomy: HELD this sweep
-
-Independently of the defect above, `ncbi-taxonomy` is held, per the controller's
-"invasive or unclear" branch. The dated archive is a `.zip` and the archive path
-handles only gzipped tar in more than one file:
-
-- `MetagenomicsDatabaseInstaller.swift:222` runs `/usr/bin/tar xzf` and reports
-  `argv` plus a tar-specific `toolVersion` into the provenance record
-  (`extractionToolVersion`, `normalizedTarVersion`).
-- `MetagenomicsDatabaseInstaller.swift:216` and `:274` both name the downloaded
-  temp file `...tar.gz` unconditionally.
-- `MetagenomicsDatabaseRegistry.swift:1838` has a second, independent
-  `extractTarball` that also hardcodes `tar xzf`.
-
-Adding zip support therefore means editing two files, introducing a
-format-dispatch decision, and changing what the provenance record reports as the
-extraction tool and its version. That exceeds the one-file bar the ruling set,
-so taxonomy stays at `2025-03` and the work is left for a dedicated task.
-`BinaryDownloadProvisioner.swift:98-104` already dispatches on `.tar.gz` versus
-`.zip` and is the natural model to follow.
-
-### Not reached
-
-Because no bump was committed, the remaining C5 steps did not run: Sparkle
-2.9.6, `swift build`, the filtered unit gate, verify tiers 1 and 2, the isolated
-database update path, and tier 3. None of them would have been meaningful
-against a manifest carrying a knowingly wrong micromamba digest.
+`human-scrubber` moved to version `20260706v2` but its `releaseDate` field still
+reads `2025-09-16`. `bump.py` does not refresh `releaseDate`. This is display
+metadata only, with no effect on resolution, download, or verification, and is
+left for whoever owns the bump tooling to decide.
