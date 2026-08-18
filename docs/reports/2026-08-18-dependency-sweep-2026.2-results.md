@@ -477,3 +477,126 @@ schema is consequently unverified, and `TaxTriageReportParser` and
 reads `2025-09-16`. `bump.py` does not refresh `releaseDate`. This is display
 metadata only, with no effect on resolution, download, or verification, and is
 left for whoever owns the bump tooling to decide.
+
+## Group 1 follow-up (task C5 fixes)
+
+The four items the group 1 run left open are now closed. Each was recorded above
+as a finding rather than a result; this section records what changed and what
+the fix was verified against.
+
+### 1. Catalog database updates now apply to rows registered from disk
+
+The defect recorded above under "Defect found" is fixed.
+`MetagenomicsDatabaseRegistry.updateDatabase` resolved the installed row by
+`catalogID` alone, but rows created by `registerExisting` carry none, which is
+what a real user's registry looks like: in this machine's own `~/.lungfish`,
+`Viral`, `Standard-16`, `EsViritu Viral DB` and `NCBI Taxonomy` all persist with
+`catalogID: null`. Meanwhile `db list` and `db info` advertise updates through
+`availableUpdateVersion`, which falls back to a name-and-tool match against the
+built-in catalog, so the commands that advertise an update and the command that
+applies one disagreed about which rows exist.
+
+Resolution now applies that same two-step match, an identifier may be either a
+catalog id or the display name `db list` prints, and a row resolved by name is
+stamped with the identity it just proved it has. `--all` no longer prints
+"No databases have an update available" and exits 0 while updates are
+advertised; it exits non-zero with the list of rows it could not resolve.
+
+The live update against the isolated verify root:
+
+```
+LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify \
+  .build/debug/lungfish-cli conda db update kraken2-viral --yes
+
+Updating kraken2-viral
+[0%] Downloading Viral...
+[77%] Extracting...
+[88%] Verifying Viral...
+[92%] Installing Viral...
+[100%] Updated Viral
+Database 'kraken2-viral' updated
+exit 0
+```
+
+`db info Viral` afterwards reports `Current version: 20260626`,
+`Available update: none`, installed 2026-08-18T23:24:08Z, 1.17 GB at
+`~/.lungfish-verify/databases/kraken2/viral`. The superseded copy is gone: the
+parent directory holds only `viral`, with no `.staging-*` or `.old-*` sibling.
+The registry row now carries `catalogID: kraken2-viral`, so the next update
+resolves it directly rather than by name.
+
+### 2. SARS-CoV-2 species rename in the 20260626 index
+
+Running `Kraken2BrackenConformanceTests` against the newly installed index
+failed, and the cause is worth recording because it is a real upstream change
+rather than a tooling problem:
+
+```
+XCTAssertNotNil failed - Bracken should report an abundance row for SARS-CoV-2
+```
+
+Classification itself is perfect. All 100 fixture reads classify, and Kraken2
+reports them under a species NCBI has renamed. In the 20260626 index the level-S
+row is `Betacoronavirus pandemicum` (taxid 3418604), with
+`Severe acute respiratory syndrome coronavirus 2` (taxid 2697049) demoted to the
+S1 rank beneath it. Bracken aggregates at level S and therefore emits only the
+new name, so the test's substring match on "Severe acute respiratory syndrome"
+found nothing.
+
+The assertion now matches on taxonomy id rather than display name. Checking the
+old index turned up a third id in play: 20240904 rolls the same fixture up to
+`Severe acute respiratory syndrome-related coronavirus` (taxid 694009), which
+the old substring match covered only by accident. All three ids are accepted.
+
+Verified in both modes:
+
+- default (`~/.lungfish`, 20240904 index): 2 of 2 passed
+- `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify`
+  (20260626 index): 2 of 2 passed
+
+Consumers that key on the SARS-CoV-2 species by name rather than taxid should be
+reviewed before this index ships to users. The parsers themselves are unaffected,
+since they carry the taxid through.
+
+### 3. verify.sh plan gate no longer trips on advisory updates
+
+The gate read `tools update --plan`'s exit status, which is 10 for any pending
+work at all, so the advisory `human-scrubber` update recorded above failed the
+exit-65 gate on a root that was otherwise correctly provisioned. The gate now
+reads `--plan --json` and judges the contents: pending environment installs,
+reinstalls, removals, a bootstrap update, or a database update with policy
+`required` still fail; advisory-only is printed and the run continues.
+
+### 4. Tier 3 honours the isolated root
+
+`run-pipelines.sh` never set `LUNGFISH_STORAGE_ROOT`, which is why the EsViritu
+failure recorded above named a path under the developer's real `~/.lungfish`. It
+now takes `--root` (defaulting to an exported `LUNGFISH_STORAGE_ROOT`), exports
+it for both CLI pipelines, derives the conda root the read-fetch and subsample
+steps use from the same place, and has a `--dry-run` that prints the resolved
+commands and environment. `verify.sh` passes its isolated root through
+explicitly. The pipelines themselves were not run here; the two blockers
+recorded above (no container runtime, and the EsViritu database absent from the
+verify root) are unchanged.
+
+### 5. Database releaseDate now follows a dated version pin
+
+The cosmetic note above is closed. `bump.py` derives `releaseDate` from the new
+version whenever the version encodes a date (`YYYYMMDD`, `YYYY-MM-DD`, or either
+with a trailing rebuild counter), and reports the move in the change log.
+Versions carrying no date, and eight-digit strings that are not real dates, are
+left alone. The shipped `human-scrubber` entry is corrected to `2026-07-06`, and
+a guard asserts the committed manifest holds no `releaseDate` its own version
+contradicts.
+
+### Verification
+
+```
+swift build                                                       clean
+swift test --filter 'DatabaseUpdateFlowTests|MetagenomicsDatabase|
+  DbCommand|ToolsCommand|Kraken2BrackenConformanceTests'           172 tests, 0 failures
+Kraken2BrackenConformanceTests, default mode                       2 of 2 passed
+Kraken2BrackenConformanceTests, require + verify root              2 of 2 passed
+python3 -B -m unittest discover -s scripts/tests                   393 tests, OK
+bash -n scripts/deps/verify.sh scripts/deps/run-pipelines.sh       clean
+```
