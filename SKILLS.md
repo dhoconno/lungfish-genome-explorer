@@ -11,3 +11,10 @@ Use `scripts/release/build-notarized-dmg.sh` with the release machine's
 Developer ID Application identity and `notarytool` Keychain profile, verify the
 result with `stapler validate`, and attach the notarized DMG to the GitHub
 release before considering the release complete.
+
+## Dependency Sweep
+
+Before any release, confirm the manifest's `dependencySet` matches the
+receipt from `scripts/deps/verify.sh` and that a green `toolset-conformance`
+CI run exists for the manifest hash. See `docs/release/dependency-sweep.md`
+for the full semiannual sweep checklist.

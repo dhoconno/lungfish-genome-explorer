@@ -64,7 +64,8 @@
 2. Query versioned GitHub releases and Git tags, excluding Sparkle feed tags.
 3. Increment the active release channel from the newest published version unless the user supplied a version; reject collisions and silent channel changes.
 4. Write detailed narrative release notes centered on Savont standalone clustering and the other user-visible improvements included since the prior release.
-5. Commit version/notes, rerun release tests, push main, and create/push the exact annotated tag after one final collision check.
+5. Gate: `dependencySet` in the manifest equals the receipt from `scripts/deps/verify.sh`; a green `toolset-conformance` run exists for the manifest hash. See `docs/release/dependency-sweep.md`.
+6. Commit version/notes, rerun release tests, push main, and create/push the exact annotated tag after one final collision check.
 
 ### Task 6: Build, notarize, and publish
 
