@@ -57,6 +57,9 @@ extension ToolsCommand {
 
             A failure to record the dependency receipt warns on stderr but still exits 0:
             the tools installed, they just were not written down.
+
+            --required-only restricts databases to the required ones, so combining it with
+            --include-databases has no effect; a note is printed to stderr saying so.
             """
         )
 
@@ -75,7 +78,10 @@ extension ToolsCommand {
         @Flag(name: .customLong("required-only"), help: "Only work the user cannot defer")
         var requiredOnly: Bool = false
 
-        @Flag(name: .customLong("include-databases"), help: "Include advisory database updates")
+        @Flag(
+            name: .customLong("include-databases"),
+            help: "Include advisory database updates (no effect with --required-only)"
+        )
         var includeDatabases: Bool = false
 
         @Option(name: .customLong("storage-root"), help: "Managed storage root (default: the configured location)")
@@ -91,6 +97,16 @@ extension ToolsCommand {
                     Data("Error: --plan and --apply are mutually exclusive\n".utf8)
                 )
                 throw CLIExitCode.usage.exitCode
+            }
+
+            // `--required-only` already narrows databases to the required ones, so asking for
+            // advisory ones alongside it cannot be honored. Silently dropping the flag would
+            // leave a script believing it had downloaded databases it did not. Reported before
+            // any work starts, so the note is visible even on a run that later fails.
+            if requiredOnly && includeDatabases {
+                FileHandle.standardError.write(Data(
+                    "Note: --include-databases has no effect with --required-only; only required database updates are applied\n".utf8
+                ))
             }
 
             let root = try resolvedStorageRoot()

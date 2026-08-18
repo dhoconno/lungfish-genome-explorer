@@ -243,19 +243,68 @@ final class UpdateToolsSheetViewModel {
         "remove:\(environment)"
     }
 
+    // MARK: - Row text
+
+    /// What changes about an environment, in the terms a reader cares about.
+    ///
+    /// The plan carries full conda specs (channel, package, version, and build string), which
+    /// are the right thing to act on and the wrong thing to read: channel and package name
+    /// repeat on every row and bury the one part that differs. So the row shows versions, and falls back
+    /// to the raw spec only when it cannot be parsed. A rebuild at the same version would
+    /// otherwise render as "2.30 to 2.30", which reads as a bug rather than a build bump, so
+    /// that case appends the build strings instead.
+    static func displayTransition(for change: ReconciliationPlan.EnvironmentChange) -> String {
+        let targetSpec = CondaSpec(spec: change.targetSpec)
+        let targetVersion = targetSpec?.version ?? change.targetSpec
+
+        guard let currentSpecString = change.currentSpec, !currentSpecString.isEmpty else {
+            return targetVersion
+        }
+        guard let currentSpec = CondaSpec(spec: currentSpecString), let targetSpec else {
+            // An unparsable spec on either side: show what we were given rather than inventing
+            // a tidier string that might not describe the same package.
+            return "\(currentSpecString) to \(change.targetSpec)"
+        }
+
+        guard currentSpec.version == targetSpec.version else {
+            return "\(currentSpec.version) to \(targetSpec.version)"
+        }
+        // Same version: the build is the only thing that moved, so it is the only thing worth
+        // printing. Missing build strings degrade to the plain version rather than "()".
+        guard let currentBuild = currentSpec.build, let targetBuild = targetSpec.build,
+              currentBuild != targetBuild else {
+            return targetSpec.version
+        }
+        return "\(targetSpec.version) (build \(currentBuild) → \(targetBuild))"
+    }
+
     private func applyProgress(id: String, fraction: Double, detail: String) {
+        let key = statusKey(forProgressItem: id)
         // A finished item must not be dragged back into `.running` by a late progress callback.
-        switch itemStatus[id] {
+        switch itemStatus[key] {
         case .done, .failed:
             return
         default:
             break
         }
         if fraction >= 1.0 {
-            itemStatus[id] = .done
+            itemStatus[key] = .done
         } else {
-            itemStatus[id] = .running(detail)
+            itemStatus[key] = .running(detail)
         }
+    }
+
+    /// Which row a progress callback belongs to.
+    ///
+    /// The reconciler reports every item under its bare identifier, so a removal arrives as the
+    /// plain environment name while its row is keyed `remove:<name>` to keep it distinct from an
+    /// install of the same environment. Without this mapping a removal's progress lands on a key
+    /// nothing renders and the row sits blank until ``finish(with:)`` resolves it.
+    private func statusKey(forProgressItem id: String) -> String {
+        guard plan.removeEnvironments.contains(id) else { return id }
+        // An environment being installed *and* removed in the same run would be ambiguous, but
+        // the planner never produces that: a name is either still wanted or retired, not both.
+        return Self.removalStatusKey(id)
     }
 
     private func finish(with result: ReconciliationResult) {

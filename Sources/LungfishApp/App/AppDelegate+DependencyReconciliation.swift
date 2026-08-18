@@ -73,6 +73,15 @@ extension AppDelegate {
                     return
                 }
                 await MainActor.run {
+                    // A brand-new machine belongs to Welcome's required-setup flow, which is
+                    // already the front door for a first install. Two installers offering the
+                    // same work at the same launch is worse than one.
+                    if Self.isFreshInstallOwnedByWelcome(plan, hasReceipt: receipt != nil) {
+                        debugLog(
+                            "Dependency reconciliation stood down: fresh install of \(plan.installEnvironments.count) tool(s) is Welcome's required-setup flow to run"
+                        )
+                        return
+                    }
                     // An all-optional plan the user already declined must not reappear at every
                     // launch. The deferral is keyed to the manifest hash, so a new manifest (or
                     // any plan that turns out to have required work) asks again.
@@ -86,6 +95,33 @@ extension AppDelegate {
                 debugLog("Dependency reconciliation failed to plan: \(error)")
             }
         }
+    }
+
+    /// True when this plan is a first install and therefore belongs to Welcome, not to us.
+    ///
+    /// A machine with no tools at all produces a plan that is nothing but `.missing` installs.
+    /// Presenting the Update Tools sheet for it puts two installers on screen for the same work:
+    /// Welcome's required-setup flow is already the front door for a fresh machine, and it is
+    /// the one that explains what is being installed and why. Reconciliation exists to carry a
+    /// machine from one dependency set to the next, so it stands down until there is something
+    /// to carry.
+    ///
+    /// Any reinstall, removal, or bootstrap change means the machine has a tool set already and
+    /// this really is an update, so the sheet is presented. So does an existing receipt: that is
+    /// the record of a previous install, which makes "fresh machine" false however empty the
+    /// disk looks now.
+    static func isFreshInstallOwnedByWelcome(
+        _ plan: ReconciliationPlan,
+        hasReceipt: Bool
+    ) -> Bool {
+        guard !hasReceipt else { return false }
+        guard plan.reinstallEnvironments.isEmpty,
+              plan.removeEnvironments.isEmpty,
+              plan.bootstrapUpdate == nil,
+              plan.databaseUpdates.isEmpty else { return false }
+        // Nothing at all to do is not a fresh install; that case is stamped, not presented.
+        guard !plan.installEnvironments.isEmpty else { return false }
+        return plan.installEnvironments.allSatisfy { $0.reason == .missing }
     }
 
     /// True when this exact manifest was deferred and the outstanding work is all optional.

@@ -208,11 +208,14 @@ struct UpdateToolsSheet: View {
                     .accessibilityLabel("\(change.environment), required")
             }
             Spacer()
-            Text(versionTransition(from: change.currentSpec, to: change.targetSpec))
+            // Versions on the row, whole specs in the tooltip: the row has to stay readable at
+            // 500pt, and the exact pin is still one hover away for anyone who needs it.
+            Text(UpdateToolsSheetViewModel.displayTransition(for: change))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(specTooltip(change))
             statusBadge(for: change.environment)
         }
     }
@@ -256,9 +259,20 @@ struct UpdateToolsSheet: View {
         return "\(versions), \(formatted(change.estimatedBytes))"
     }
 
+    /// Plain version transition, for the rows whose values are already bare versions
+    /// (databases, micromamba). Environment rows carry conda specs and use
+    /// ``UpdateToolsSheetViewModel/displayTransition(for:)`` instead.
     private func versionTransition(from current: String?, to target: String) -> String {
         guard let current, !current.isEmpty else { return target }
         return "\(current) to \(target)"
+    }
+
+    /// The exact pins behind an environment row, surfaced on hover.
+    private func specTooltip(_ change: ReconciliationPlan.EnvironmentChange) -> String {
+        guard let current = change.currentSpec, !current.isEmpty else {
+            return "Installing \(change.targetSpec)"
+        }
+        return "\(current)\nto \(change.targetSpec)"
     }
 
     @ViewBuilder

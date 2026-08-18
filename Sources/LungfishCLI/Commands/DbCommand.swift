@@ -307,6 +307,11 @@ extension DbCommand {
             Databases that are built locally rather than downloaded cannot be updated in
             place; they are reported as skipped and are refreshed by reinstalling instead.
 
+            Exit codes:
+              0   nothing to update, or every selected database updated
+              2   usage error, such as a missing target or --yes
+              1   a database failed to update
+
             Examples:
               lungfish conda db update kraken2-viral --yes
               lungfish conda db update --all --yes
@@ -328,17 +333,20 @@ extension DbCommand {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let registry = MetagenomicsDatabaseRegistry.shared
 
+            // How the command was invoked, not what it found: these are the same class of
+            // mistake `tools update` reports as a usage error, and a script branching on exit
+            // codes should not have to learn a different convention for each command.
             guard catalogID != nil || all else {
                 print(formatter.error("Specify a database catalog identifier or --all"))
-                throw CLIExitCode.inputError.exitCode
+                throw CLIExitCode.usage.exitCode
             }
             guard !(catalogID != nil && all) else {
                 print(formatter.error("Specify either a database catalog identifier or --all, not both"))
-                throw CLIExitCode.inputError.exitCode
+                throw CLIExitCode.usage.exitCode
             }
             guard yes else {
                 print(formatter.error("Updating a database replaces the installed copy; re-run with --yes to confirm"))
-                throw CLIExitCode.inputError.exitCode
+                throw CLIExitCode.usage.exitCode
             }
 
             let targets = try await resolveTargets(registry: registry)

@@ -79,6 +79,58 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
         return plan
     }
 
+    // MARK: - Row text
+
+    private func change(
+        environment: String = "minimap2",
+        currentSpec: String?,
+        targetSpec: String,
+        reason: ReconciliationPlan.ChangeReason = .specChanged
+    ) -> ReconciliationPlan.EnvironmentChange {
+        .init(
+            environment: environment,
+            packID: "read-mapping",
+            currentSpec: currentSpec,
+            targetSpec: targetSpec,
+            reason: reason,
+            isRequired: false
+        )
+    }
+
+    func testDisplayTransitionShowsVersionsRatherThanWholeSpecs() {
+        let text = UpdateToolsSheetViewModel.displayTransition(for: change(
+            currentSpec: "bioconda::minimap2=2.30=hba9b596_0",
+            targetSpec: "bioconda::minimap2=2.31=h6bd33b9_0"
+        ))
+        XCTAssertEqual(text, "2.30 to 2.31")
+    }
+
+    func testDisplayTransitionNamesTheBuildWhenOnlyTheBuildChanged() {
+        let text = UpdateToolsSheetViewModel.displayTransition(for: change(
+            currentSpec: "bioconda::minimap2=2.30=hba9b596_0",
+            targetSpec: "bioconda::minimap2=2.30=h6bd33b9_0",
+            reason: .buildChanged
+        ))
+        // "2.30 to 2.30" would read as a bug, so the build is what gets shown.
+        XCTAssertEqual(text, "2.30 (build hba9b596_0 → h6bd33b9_0)")
+    }
+
+    func testDisplayTransitionShowsOnlyTheTargetVersionForAFreshInstall() {
+        let text = UpdateToolsSheetViewModel.displayTransition(for: change(
+            currentSpec: nil,
+            targetSpec: "bioconda::minimap2=2.31=h6bd33b9_0"
+        ))
+        XCTAssertEqual(text, "2.31")
+    }
+
+    func testDisplayTransitionFallsBackToRawSpecsWhenUnparsable() {
+        let text = UpdateToolsSheetViewModel.displayTransition(for: change(
+            currentSpec: "garbage",
+            targetSpec: "also-garbage"
+        ))
+        XCTAssertEqual(text, "garbage to also-garbage")
+    }
+
     func testDefaultsSelectRequiredDBsAndAllOptionalEnvs() {
         let viewModel = UpdateToolsSheetViewModel(plan: plan(), reconciler: nil)
         XCTAssertEqual(viewModel.selectedOptionalEnvironments, ["minimap2"])
@@ -232,6 +284,81 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
         XCTAssertFalse(
             AppDelegate.shouldSuppressDeferredPlan(optionalOnly, manifest: manifest, defaults: defaults)
         )
+    }
+
+    // MARK: - Fresh install belongs to Welcome
+
+    private func emptyPlan() -> ReconciliationPlan {
+        ReconciliationPlan(
+            installEnvironments: [],
+            reinstallEnvironments: [],
+            removeEnvironments: [],
+            databaseUpdates: [],
+            pipelinePrefetch: [],
+            bootstrapUpdate: nil,
+            targetDependencySet: "2026.2",
+            estimatedDownloadBytes: 0
+        )
+    }
+
+    private func missingInstall(_ environment: String) -> ReconciliationPlan.EnvironmentChange {
+        .init(
+            environment: environment,
+            packID: "lungfish-tools",
+            currentSpec: nil,
+            targetSpec: "bioconda::\(environment)=1.0=h0",
+            reason: .missing,
+            isRequired: true
+        )
+    }
+
+    func testAllMissingInstallPlanWithNoReceiptIsLeftToWelcome() {
+        var plan = emptyPlan()
+        plan.installEnvironments = [missingInstall("samtools"), missingInstall("bcftools")]
+        XCTAssertTrue(AppDelegate.isFreshInstallOwnedByWelcome(plan, hasReceipt: false))
+    }
+
+    func testAReceiptMeansTheMachineIsNotFreshEvenWhenEverythingIsMissing() {
+        var plan = emptyPlan()
+        plan.installEnvironments = [missingInstall("samtools")]
+        XCTAssertFalse(
+            AppDelegate.isFreshInstallOwnedByWelcome(plan, hasReceipt: true),
+            "a receipt records a previous install, so this is a repair rather than a first run"
+        )
+    }
+
+    func testAnyReinstallOrRemovalOrBootstrapMakesItAnUpdate() {
+        var withReinstall = emptyPlan()
+        withReinstall.installEnvironments = [missingInstall("samtools")]
+        withReinstall.reinstallEnvironments = [
+            .init(environment: "minimap2", packID: "read-mapping", currentSpec: "a",
+                  targetSpec: "b", reason: .specChanged, isRequired: false)
+        ]
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(withReinstall, hasReceipt: false))
+
+        var withRemoval = emptyPlan()
+        withRemoval.installEnvironments = [missingInstall("samtools")]
+        withRemoval.removeEnvironments = ["trimmomatic"]
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(withRemoval, hasReceipt: false))
+
+        var withBootstrap = emptyPlan()
+        withBootstrap.installEnvironments = [missingInstall("samtools")]
+        withBootstrap.bootstrapUpdate = .init(currentVersion: "2.0.5", targetVersion: "2.9.0-0")
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(withBootstrap, hasReceipt: false))
+
+        var withDatabase = emptyPlan()
+        withDatabase.installEnvironments = [missingInstall("samtools")]
+        withDatabase.databaseUpdates = [
+            .init(id: "deacon-panhuman", displayName: "PH", installedVersion: "1",
+                  targetVersion: "2", policy: .required, estimatedBytes: 1,
+                  managedBy: .databaseRegistry)
+        ]
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(withDatabase, hasReceipt: false))
+    }
+
+    func testAnEmptyPlanIsNotAFreshInstall() {
+        // Nothing to do is stamped, not presented and not handed to Welcome.
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(emptyPlan(), hasReceipt: false))
     }
 
     /// The shared busy flag is what stops Welcome's required-setup installer and the Plugin

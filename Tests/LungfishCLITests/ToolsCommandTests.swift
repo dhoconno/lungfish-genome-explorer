@@ -194,7 +194,9 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        // How the command was invoked, not what it found: the same usage code `tools update`
+        // returns, so one convention covers both.
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue)
         XCTAssertTrue(
             (result.stdout + result.stderr).contains("--yes"),
             "output:\n\(result.stdout)\(result.stderr)"
@@ -210,11 +212,78 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue)
         XCTAssertTrue(
             (result.stdout + result.stderr).contains("--all"),
             "output:\n\(result.stdout)\(result.stderr)"
         )
+    }
+
+    func testDbUpdateRejectsBothATargetAndAll() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = try runCLI(
+            ["conda", "db", "update", "kraken2-viral", "--all", "--yes"],
+            environment: ["LUNGFISH_STORAGE_ROOT": root.path]
+        )
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("not both"),
+            "output:\n\(result.stdout)\(result.stderr)"
+        )
+    }
+
+    // MARK: - Flag interaction
+
+    /// `--required-only` already narrows databases to the required ones. Combining it with
+    /// `--include-databases` cannot be honored, and a script must not be left believing it
+    /// downloaded advisory databases that were never selected.
+    func testRequiredOnlyWithIncludeDatabasesPrintsANoteOnStderr() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // The note is emitted before any work starts, so `--apply` without `--yes` reaches it
+        // and then refuses -- which keeps this test from installing conda environments.
+        let result = try runCLI(
+            ["tools", "update", "--apply", "--required-only", "--include-databases"],
+            environment: ["LUNGFISH_STORAGE_ROOT": root.path]
+        )
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue, "stderr:\n\(result.stderr)")
+        XCTAssertTrue(
+            result.stderr.contains("--include-databases has no effect with --required-only"),
+            "stderr:\n\(result.stderr)"
+        )
+    }
+
+    func testToolsUpdateHelpDocumentsTheRequiredOnlyDatabaseInteraction() throws {
+        let result = try runCLI(["tools", "update", "--help"], environment: [:])
+
+        XCTAssertEqual(result.exitCode, 0, "stderr:\n\(result.stderr)")
+        XCTAssertTrue(
+            result.stdout.contains("--include-databases"),
+            "stdout:\n\(result.stdout)"
+        )
+        XCTAssertTrue(
+            result.stdout.contains("no effect"),
+            "help should say the combination is a no-op:\n\(result.stdout)"
+        )
+    }
+
+    /// `db update` is the per-database twin of `tools update`, so it documents the same
+    /// scripting contract.
+    func testDbUpdateHelpDocumentsTheExitCodes() throws {
+        let result = try runCLI(["conda", "db", "update", "--help"], environment: [:])
+
+        XCTAssertEqual(result.exitCode, 0, "stderr:\n\(result.stderr)")
+        for expected in ["Exit codes", "usage error", "failed"] {
+            XCTAssertTrue(
+                result.stdout.contains(expected),
+                "help should mention '\(expected)':\n\(result.stdout)"
+            )
+        }
     }
 
     // MARK: - JSON envelope
