@@ -5,7 +5,8 @@ final class DependencyPlannerTests: XCTestCase {
     private func manifest(set: String = "2026.2",
                           tools: [(env: String, spec: String)] = [("samtools", "bioconda::samtools=1.24=h36b3a25_1")],
                           packTools: [(pack: String, env: String, spec: String)] = [("read-mapping", "minimap2", "bioconda::minimap2=2.31=h6bd33b9_0")],
-                          databases: [DatabaseSpec] = []) -> ManagedToolLock {
+                          databases: [DatabaseSpec] = [],
+                          retired: [String] = []) -> ManagedToolLock {
         ManagedToolLock(
             packID: "lungfish-tools", displayName: "T", version: "0",
             tools: tools.map { ManagedToolLock.ToolSpec(id: $0.env, environment: $0.env, packageSpec: $0.spec, executables: [$0.env], version: CondaSpec(spec: $0.spec)!.version) },
@@ -13,13 +14,21 @@ final class DependencyPlannerTests: XCTestCase {
             packTools: packTools.map { PackToolSpec(packID: $0.pack, toolID: $0.env, environment: $0.env, packageSpec: $0.spec, executables: [$0.env], version: CondaSpec(spec: $0.spec)!.version, license: nil, sourceUrl: nil) },
             pipelines: [PipelineSpec(id: "taxtriage", repository: "r", revision: "abc", releaseVersion: "v1")],
             databases: databases,
-            bootstrap: BootstrapSpec(micromamba: MicromambaSpec(version: "2.9.0-0", sha256: nil)))
+            bootstrap: BootstrapSpec(micromamba: MicromambaSpec(version: "2.9.0-0", sha256: nil)),
+            retiredEnvironments: retired)
     }
     private func meta(_ name: String, _ v: String, _ b: String) -> CondaMetaPackage { .init(name: name, version: v, build: b, subdir: "osx-arm64", channel: nil) }
     private func inputs(_ m: ManagedToolLock, receipt: DependencyReceipt = .empty(), envs: [String: [CondaMetaPackage]] = [:],
-                        packs: Set<String> = [], regDB: [String: String] = [:], metaDB: [String: String] = [:], mm: String? = "2.9.0-0") -> DependencyPlannerInputs {
+                        packs: Set<String> = [], regDB: [String: String] = [:], metaDB: [String: String] = [:], mm: String? = "2.9.0-0",
+                        known: Set<String> = []) -> DependencyPlannerInputs {
         .init(manifest: m, receipt: receipt, installedEnvironments: envs, installedPackIDs: packs,
-              registryDatabaseVersions: regDB, metagenomicsDatabaseVersions: metaDB, installedMicromambaVersion: mm, estimatedEnvBytes: { _ in 100 })
+              registryDatabaseVersions: regDB, metagenomicsDatabaseVersions: metaDB, installedMicromambaVersion: mm, estimatedEnvBytes: { _ in 100 },
+              knownEnvironmentNames: known)
+    }
+
+    /// A receipt entry marking `env` as one Lungfish installed (so it may be swept when dropped).
+    private func lungfishOwned(_ env: String, spec: String) -> DependencyReceipt.EnvironmentEntry {
+        .init(packageSpec: spec, packID: "lungfish-tools", installedAt: Date(), state: .installed)
     }
 
     func testFreshInstallPlansRequiredToolsOnly() {
@@ -54,12 +63,54 @@ final class DependencyPlannerTests: XCTestCase {
     }
 
     func testRetiredNamedEnvIsRemovedAndHexEnvsIgnored() {
-        let plan = DependencyPlanner.plan(inputs(manifest(), envs: [
+        // trim_galore is retired because our own receipt shows Lungfish installed it.
+        var r = DependencyReceipt.empty()
+        r.environments["trim_galore"] = lungfishOwned("trim_galore", spec: "bioconda::trim-galore=2.3.0=h48b4a6d_0")
+        let plan = DependencyPlanner.plan(inputs(manifest(), receipt: r, envs: [
             "samtools": [meta("samtools", "1.24", "h36b3a25_1")],
             "trim_galore": [meta("trim-galore", "2.3.0", "h48b4a6d_0")],
             "env-e09e297bc7c40f8b3a57d80c8b5390c6": [meta("python", "3.10", "x")],
         ]))
         XCTAssertEqual(plan.removeEnvironments, ["trim_galore"])
+    }
+
+    func testManifestRetiredEnvIsRemovedWithoutReceiptEntry() {
+        // The sweep tooling names a dropped tool in retiredEnvironments; that alone licenses removal.
+        let plan = DependencyPlanner.plan(inputs(manifest(retired: ["trimmomatic"]), envs: [
+            "samtools": [meta("samtools", "1.24", "h36b3a25_1")],
+            "trimmomatic": [meta("trimmomatic", "0.39", "hdfd78af_2")],
+        ]))
+        XCTAssertEqual(plan.removeEnvironments, ["trimmomatic"])
+    }
+
+    func testUserCreatedEnvIsNeverRemoved() {
+        // Unknown to the manifest AND absent from the receipt: the user made it, so leave it alone.
+        let plan = DependencyPlanner.plan(inputs(manifest(), envs: [
+            "samtools": [meta("samtools", "1.24", "h36b3a25_1")],
+            "pbaa-env": [meta("pbaa", "1.0.3", "h9ee0642_0")],
+            "test-env": [meta("python", "3.12", "h1234567_0")],
+        ]))
+        XCTAssertTrue(plan.removeEnvironments.isEmpty, "\(plan.removeEnvironments)")
+    }
+
+    func testKnownEnvironmentNameIsNeverRemovedEvenWhenRetired() {
+        // Another part of the app still owns this environment; knownEnvironmentNames wins.
+        let plan = DependencyPlanner.plan(inputs(manifest(retired: ["fastqc"]), envs: [
+            "samtools": [meta("samtools", "1.24", "h36b3a25_1")],
+            "fastqc": [meta("fastqc", "0.12.1", "hdfd78af_0")],
+        ], known: ["fastqc"]))
+        XCTAssertTrue(plan.removeEnvironments.isEmpty, "\(plan.removeEnvironments)")
+    }
+
+    func testHiddenEntriesAreNeverRemoved() {
+        // `.env-<hex>.lock` is a bookkeeping file sitting beside the envs, not an environment.
+        var r = DependencyReceipt.empty()
+        r.environments[".env-e09e297bc7c40f8b3a57d80c8b5390c6.lock"] = lungfishOwned(".lock", spec: "x::y=1")
+        let plan = DependencyPlanner.plan(inputs(manifest(retired: [".env-e09e297bc7c40f8b3a57d80c8b5390c6.lock"]), receipt: r, envs: [
+            "samtools": [meta("samtools", "1.24", "h36b3a25_1")],
+            ".env-e09e297bc7c40f8b3a57d80c8b5390c6.lock": [],
+        ]))
+        XCTAssertTrue(plan.removeEnvironments.isEmpty, "\(plan.removeEnvironments)")
     }
 
     func testInstalledOptionalPackIsReinstalledWhenSpecChanges() {

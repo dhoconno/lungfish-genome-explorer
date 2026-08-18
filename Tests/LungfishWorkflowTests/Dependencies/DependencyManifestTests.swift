@@ -38,6 +38,18 @@ final class DependencyManifestTests: XCTestCase {
         XCTAssertTrue(manifest.packTools.isEmpty)
     }
 
+    func testRetiredEnvironmentsDecodes() throws {
+        // Absent -> empty, so pre-existing manifests never license any removal.
+        let without = try JSONDecoder().decode(ManagedToolLock.self, from: Data(#"{"packID":"p","displayName":"d","version":"1","tools":[],"managedData":[]}"#.utf8))
+        XCTAssertTrue(without.retiredEnvironments.isEmpty)
+
+        let with = try JSONDecoder().decode(ManagedToolLock.self, from: Data(#"{"packID":"p","displayName":"d","version":"1","tools":[],"managedData":[],"retiredEnvironments":["trim_galore","trimmomatic"]}"#.utf8))
+        XCTAssertEqual(with.retiredEnvironments, ["trim_galore", "trimmomatic"])
+
+        // The bundled manifest carries the key.
+        XCTAssertTrue(ManagedToolLock.bundled.retiredEnvironments.isEmpty)
+    }
+
     func testManifestHashIsStableAcrossKeyOrder() throws {
         let a = try JSONDecoder().decode(ManagedToolLock.self, from: Data(#"{"packID":"p","displayName":"d","version":"1","tools":[],"managedData":[],"dependencySet":"2026.1"}"#.utf8))
         let b = try JSONDecoder().decode(ManagedToolLock.self, from: Data(#"{"dependencySet":"2026.1","managedData":[],"tools":[],"version":"1","displayName":"d","packID":"p"}"#.utf8))

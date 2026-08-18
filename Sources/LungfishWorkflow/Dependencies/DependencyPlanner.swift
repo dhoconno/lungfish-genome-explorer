@@ -16,6 +16,10 @@ public struct DependencyPlannerInputs: Sendable {
     public let installedEnvironments: [String: [CondaMetaPackage]]
     /// Optional packs the user has installed; pack tools for other packs are not planned.
     public let installedPackIDs: Set<String>
+    /// Every environment name the app itself knows about beyond this manifest (all
+    /// `PluginPack.builtIn` package/requirement environments). Named here so an environment
+    /// another Lungfish feature owns is never mistaken for a stale leftover.
+    public let knownEnvironmentNames: Set<String>
     /// `DatabaseRegistry`-managed databases: id -> installed version. Installed entries only.
     public let registryDatabaseVersions: [String: String]
     /// Metagenomics catalog databases: catalog id -> installed version. Ready entries only.
@@ -32,12 +36,14 @@ public struct DependencyPlannerInputs: Sendable {
         registryDatabaseVersions: [String: String],
         metagenomicsDatabaseVersions: [String: String],
         installedMicromambaVersion: String?,
-        estimatedEnvBytes: @escaping @Sendable (String) -> Int64 = { _ in 150 * 1_048_576 }
+        estimatedEnvBytes: @escaping @Sendable (String) -> Int64 = { _ in 150 * 1_048_576 },
+        knownEnvironmentNames: Set<String> = []
     ) {
         self.manifest = manifest
         self.receipt = receipt
         self.installedEnvironments = installedEnvironments
         self.installedPackIDs = installedPackIDs
+        self.knownEnvironmentNames = knownEnvironmentNames
         self.registryDatabaseVersions = registryDatabaseVersions
         self.metagenomicsDatabaseVersions = metagenomicsDatabaseVersions
         self.installedMicromambaVersion = installedMicromambaVersion
@@ -167,11 +173,26 @@ public enum DependencyPlanner {
 
     private static func planRemovals(_ inputs: DependencyPlannerInputs, into plan: inout ReconciliationPlan) {
         let manifest = inputs.manifest
-        // Every environment the manifest knows, including pack tools for packs that are not
+        // Every environment the manifest still wants, including pack tools for packs that are not
         // installed: an uninstalled pack's environment is absent, not retired.
-        let known = Set(manifest.tools.map(\.environment) + manifest.packTools.map(\.environment))
-        for name in inputs.installedEnvironments.keys.sorted()
-        where !known.contains(name) && !isHexCacheEnvironment(name) {
+        let pinned = Set(manifest.tools.map(\.environment) + manifest.packTools.map(\.environment))
+        let retired = Set(manifest.retiredEnvironments)
+
+        for name in inputs.installedEnvironments.keys.sorted() {
+            // Still wanted, or owned by another part of the app.
+            if pinned.contains(name) || inputs.knownEnvironmentNames.contains(name) { continue }
+            // Hidden entries (e.g. `.env-<hex>.lock`) are bookkeeping files, not environments.
+            if name.hasPrefix(".") { continue }
+            // Nextflow work-directory caches.
+            if isHexCacheEnvironment(name) { continue }
+
+            // Removal must be positively licensed: the manifest retired this name, or our own
+            // receipt shows Lungfish created it. Anything else is the user's own environment and
+            // is left strictly alone -- an unrecognized name is not evidence of a leftover.
+            let manifestRetired = retired.contains(name)
+            let lungfishCreated = inputs.receipt.environments[name]?.packID != nil
+            guard manifestRetired || lungfishCreated else { continue }
+
             plan.removeEnvironments.append(name)
         }
     }

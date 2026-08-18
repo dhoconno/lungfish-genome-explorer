@@ -154,6 +154,12 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
     public let pipelines: [PipelineSpec]
     public let databases: [DatabaseSpec]
     public let bootstrap: BootstrapSpec?
+    /// Environment names this manifest has explicitly dropped, so reconciliation may remove them.
+    ///
+    /// Absence from `tools`/`packTools` is NOT enough to retire an environment: the user's conda
+    /// root also holds envs Lungfish never created. The sweep tooling appends a name here when a
+    /// tool is dropped from the manifest, which is what licenses its removal.
+    public let retiredEnvironments: [String]
 
     public init(
         packID: String,
@@ -166,7 +172,8 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         packTools: [PackToolSpec] = [],
         pipelines: [PipelineSpec] = [],
         databases: [DatabaseSpec] = [],
-        bootstrap: BootstrapSpec? = nil
+        bootstrap: BootstrapSpec? = nil,
+        retiredEnvironments: [String] = []
     ) {
         self.packID = packID
         self.displayName = displayName
@@ -179,11 +186,13 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         self.pipelines = pipelines
         self.databases = databases
         self.bootstrap = bootstrap
+        self.retiredEnvironments = retiredEnvironments
     }
 
     enum CodingKeys: String, CodingKey {
         case packID, displayName, version, tools, managedData
         case dependencySet, dependencySetDate, packTools, pipelines, databases, bootstrap
+        case retiredEnvironments
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,6 +208,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         pipelines = try c.decodeIfPresent([PipelineSpec].self, forKey: .pipelines) ?? []
         databases = try c.decodeIfPresent([DatabaseSpec].self, forKey: .databases) ?? []
         bootstrap = try c.decodeIfPresent(BootstrapSpec.self, forKey: .bootstrap)
+        retiredEnvironments = try c.decodeIfPresent([String].self, forKey: .retiredEnvironments) ?? []
     }
 
     public func tool(named id: String) -> ToolSpec? {

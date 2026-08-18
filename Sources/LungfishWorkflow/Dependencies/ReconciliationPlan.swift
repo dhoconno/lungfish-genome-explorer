@@ -23,8 +23,14 @@ public struct ReconciliationPlan: Codable, Sendable, Equatable {
         /// unreadable `conda-meta`, or a receipt entry that never reached `.installed`).
         case metadataMismatch
         /// The environment is no longer pinned by the manifest.
+        ///
+        /// Reserved for UI mapping: retirements travel in `removeEnvironments` (plain names), so
+        /// the planner never attaches this reason to an `EnvironmentChange` today.
         case retired
         /// Bootstrap (micromamba) work.
+        ///
+        /// Reserved for UI mapping: bootstrap work travels in `bootstrapUpdate`, so the planner
+        /// never attaches this reason to an `EnvironmentChange` today.
         case bootstrap
     }
 
