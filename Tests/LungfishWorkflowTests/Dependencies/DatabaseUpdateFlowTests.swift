@@ -250,6 +250,188 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         }
     }
 
+    // MARK: - Crash recovery
+
+    /// A crash between the two renames leaves the installed directory missing and a
+    /// `.old-*` sibling holding the previous payload. Load must put it back.
+    func testLoadRestoresPreviousCopyAfterInterruptedSwap() async throws {
+        let base = tempDir!
+        let installedPath = try seedInstalledViralDatabase(in: base, marker: "old")
+
+        // Simulate the crash state: installed dir renamed away, staging left behind.
+        let retired = base.appendingPathComponent("kraken2/.viral.old-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.moveItem(at: installedPath, to: retired)
+        let staging = base.appendingPathComponent("kraken2/.viral.staging-20240904", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try Self.writeKraken2Payload(at: staging, marker: "new")
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        let recoveredPath = try XCTUnwrap(db.path)
+        XCTAssertEqual(recoveredPath.standardizedFileURL, installedPath.standardizedFileURL)
+        XCTAssertEqual(db.status, .ready)
+        XCTAssertEqual(
+            try String(contentsOf: recoveredPath.appendingPathComponent("hash.k2d"), encoding: .utf8),
+            "old"
+        )
+        // Both orphans are swept.
+        let siblings = try FileManager.default.contentsOfDirectory(
+            atPath: base.appendingPathComponent("kraken2").path
+        )
+        XCTAssertEqual(siblings.sorted(), ["viral"])
+    }
+
+    /// If only a complete staging copy survives, it is promoted and the row takes the
+    /// version recorded in the staging directory name.
+    func testLoadPromotesCompleteStagingCopyWhenNoPreviousCopySurvives() async throws {
+        let base = tempDir!
+        let installedPath = try seedInstalledViralDatabase(in: base, marker: "old")
+        try FileManager.default.removeItem(at: installedPath)
+
+        let staging = base.appendingPathComponent("kraken2/.viral.staging-20240904", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try Self.writeKraken2Payload(at: staging, marker: "new")
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        let recoveredPath = try XCTUnwrap(db.path)
+        XCTAssertEqual(db.status, .ready)
+        XCTAssertEqual(db.version, "20240904")
+        XCTAssertEqual(
+            try String(contentsOf: recoveredPath.appendingPathComponent("hash.k2d"), encoding: .utf8),
+            "new"
+        )
+        let siblings = try FileManager.default.contentsOfDirectory(
+            atPath: base.appendingPathComponent("kraken2").path
+        )
+        XCTAssertEqual(siblings.sorted(), ["viral"])
+    }
+
+    /// An incomplete staging copy is not a database: the row is marked missing rather
+    /// than pointed at a broken payload.
+    func testLoadMarksRowMissingWhenNoUsableCopySurvives() async throws {
+        let base = tempDir!
+        let installedPath = try seedInstalledViralDatabase(in: base, marker: "old")
+        try FileManager.default.removeItem(at: installedPath)
+
+        // Staging exists but is incomplete (hash.k2d only).
+        let staging = base.appendingPathComponent("kraken2/.viral.staging-20240904", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try "new".write(to: staging.appendingPathComponent("hash.k2d"), atomically: true, encoding: .utf8)
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        XCTAssertEqual(db.status, .missing)
+        XCTAssertNil(db.path)
+        let siblings = try FileManager.default.contentsOfDirectory(
+            atPath: base.appendingPathComponent("kraken2").path
+        )
+        XCTAssertTrue(siblings.isEmpty, "Unusable orphans should be swept, got \(siblings)")
+    }
+
+    /// A database missing for ordinary reasons (deleted, unmounted volume) has no
+    /// transaction residue and must not be touched by recovery.
+    func testLoadLeavesOrdinaryMissingDatabaseAlone() async throws {
+        let base = tempDir!
+        let installedPath = try seedInstalledViralDatabase(in: base, marker: "old")
+        try FileManager.default.removeItem(at: installedPath)
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        // Recovery did not run, so the row still claims its path; `verify` owns this case.
+        XCTAssertEqual(db.path?.standardizedFileURL, installedPath.standardizedFileURL)
+        XCTAssertEqual(db.status, .ready)
+    }
+
+    /// An unmounted external volume looks like a missing directory. Recovery must not
+    /// claim it, because `resolveAllBookmarks`/`verify` model it as `.volumeNotMounted`.
+    func testLoadDoesNotClaimUnmountedExternalDatabase() async throws {
+        let base = tempDir!
+        let installedPath = try seedInstalledViralDatabase(in: base, marker: "old", isExternal: true)
+        try FileManager.default.removeItem(at: installedPath)
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        XCTAssertEqual(db.path?.standardizedFileURL, installedPath.standardizedFileURL)
+        XCTAssertNotEqual(db.status, .missing)
+    }
+
+    // MARK: - External volumes
+
+    func testUpdateRefreshesBookmarkForExternalDatabase() async throws {
+        let base = tempDir!
+        let installedPath = try seedInstalledViralDatabase(in: base, marker: "old", isExternal: true)
+
+        let refreshedBookmark = Data("refreshed-bookmark".utf8)
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: base,
+            externalVolumeDetector: { _ in true },
+            bookmarkCreator: { _ in refreshedBookmark },
+            securityScopedAccessStarter: { _ in true },
+            securityScopedAccessStopper: { _ in }
+        )
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "new")
+            return nil
+        }
+
+        try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        XCTAssertTrue(db.isExternal)
+        XCTAssertEqual(db.bookmarkData, refreshedBookmark, "Bookmark must be re-created for the swapped directory")
+        XCTAssertEqual(
+            try String(contentsOf: XCTUnwrap(db.path).appendingPathComponent("hash.k2d"), encoding: .utf8),
+            "new"
+        )
+        _ = installedPath
+    }
+
+    func testUpdateThrowsWhenExternalVolumeIsUnavailable() async throws {
+        let base = tempDir!
+        _ = try seedInstalledViralDatabase(in: base, marker: "old", isExternal: true)
+
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: base,
+            externalVolumeDetector: { _ in true },
+            securityScopedAccessStarter: { _ in false },
+            securityScopedAccessStopper: { _ in }
+        )
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, _, _ in
+            XCTFail("Update must not download when the volume is unavailable")
+            return nil
+        }
+
+        await XCTAssertThrowsErrorAsync(
+            try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+        ) { error in
+            guard case MetagenomicsDatabaseRegistryError.updateNotSupported(let name, _) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(name, "Viral")
+        }
+    }
+
     // MARK: - Managed sidecar registry
 
     func testManagedDatabaseReinstallRemovesSupersededCopies() async throws {
@@ -339,6 +521,51 @@ final class DatabaseUpdateFlowTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Seeds an installed Kraken2 Viral catalog entry by writing the registry manifest
+    /// directly, so a registry constructed later loads it as already installed.
+    ///
+    /// Recovery tests need the persisted row to exist *before* `loadIfNeeded()` runs,
+    /// which `registerExisting` cannot provide (it requires a live registry and the
+    /// directory to be present).
+    @discardableResult
+    private func seedInstalledViralDatabase(
+        in base: URL,
+        marker: String,
+        isExternal: Bool = false
+    ) throws -> URL {
+        let directory = base.appendingPathComponent("kraken2/viral", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Self.writeKraken2Payload(at: directory, marker: marker)
+
+        guard var entry = MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-viral") else {
+            throw XCTSkip("Manifest pins no kraken2-viral entry")
+        }
+        entry.path = directory
+        entry.status = .ready
+        entry.version = "20230605-installed"
+        entry.isExternal = isExternal
+        entry.bookmarkData = isExternal ? Data("stale-bookmark".utf8) : nil
+        entry.installedAt = Date()
+        entry.lastUpdated = Date()
+
+        try writeRegistryManifest([entry], in: base)
+        return directory
+    }
+
+    private func writeRegistryManifest(
+        _ entries: [MetagenomicsDatabaseInfo],
+        in base: URL
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let manifest = DatabaseManifest(version: 1, databases: entries)
+        try encoder.encode(manifest).write(
+            to: base.appendingPathComponent("metagenomics-db-registry.json"),
+            options: .atomic
+        )
+    }
+
     /// Seeds an installed EsViritu catalog entry by writing the registry manifest
     /// directly.
     ///
@@ -363,14 +590,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         entry.installedAt = Date()
         entry.lastUpdated = Date()
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let manifest = DatabaseManifest(version: 1, databases: [entry])
-        try encoder.encode(manifest).write(
-            to: base.appendingPathComponent("metagenomics-db-registry.json"),
-            options: .atomic
-        )
+        try writeRegistryManifest([entry], in: base)
         return directory
     }
 
@@ -392,5 +612,3 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
-
-import CryptoKit

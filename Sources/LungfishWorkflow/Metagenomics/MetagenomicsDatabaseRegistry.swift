@@ -426,11 +426,12 @@ public actor MetagenomicsDatabaseRegistry {
                     addedCount += 1
                 }
             }
+            let recoveredCount = recoverInterruptedUpdates()
             let correctedCount = reconcileCatalogURLs()
-            if addedCount > 0 || correctedCount > 0 {
+            if addedCount > 0 || correctedCount > 0 || recoveredCount > 0 {
                 try saveManifest()
                 logger.info(
-                    "Merged \(addedCount, privacy: .public) new catalog entries and corrected \(correctedCount, privacy: .public) stale download URLs"
+                    "Merged \(addedCount, privacy: .public) new catalog entries, corrected \(correctedCount, privacy: .public) stale download URLs, and recovered \(recoveredCount, privacy: .public) interrupted updates"
                 )
             }
         } else {
@@ -1108,17 +1109,45 @@ public actor MetagenomicsDatabaseRegistry {
             )
         }
 
+        // An external-volume database is reachable only inside a security scope, and
+        // its bookmark encodes the directory identity that the swap replaces. Access
+        // is held across the renames and the bookmark is re-created afterwards, the
+        // same way `relocateDatabase` handles a moved external database.
+        if installed.isExternal {
+            guard beginSecurityScopedAccess(for: name, url: installedPath) else {
+                throw MetagenomicsDatabaseRegistryError.updateNotSupported(
+                    name: name,
+                    reason: "its external volume is not currently accessible; reconnect the volume and try again"
+                )
+            }
+        }
+
+        // `DatabaseSpec.version` is non-optional, so a catalog-backed entry always has
+        // a concrete target version; there is no "latest" fallback to stage under.
+        guard let targetVersion = catalogEntry.version else {
+            throw MetagenomicsDatabaseRegistryError.updateNotSupported(
+                name: name,
+                reason: "the catalog entry does not pin a version"
+            )
+        }
+
         let startedAt = Date()
-        let targetVersion = catalogEntry.version ?? "latest"
         let parent = installedPath.deletingLastPathComponent()
-        let staging = parent.appendingPathComponent(
-            "\(installedPath.lastPathComponent).staging-\(Self.safeSuffix(targetVersion))",
-            isDirectory: true
-        )
+        let staging = Self.stagingURL(for: installedPath, version: targetVersion)
 
         let fm = FileManager.default
         if fm.fileExists(atPath: staging.path) {
             try fm.removeItem(at: staging)
+        }
+
+        // Declared outside the transaction block so the cleanup below covers every
+        // exit path, including a checksum mismatch. A database tarball can be tens of
+        // gigabytes, so it must never be left behind in the temp directory.
+        var downloadedArchive: URL?
+        defer {
+            if let downloadedArchive {
+                try? fm.removeItem(at: downloadedArchive)
+            }
         }
 
         do {
@@ -1126,6 +1155,7 @@ public actor MetagenomicsDatabaseRegistry {
             let archiveURL = try await archiveInstaller(source, staging) { fraction, message in
                 progress(min(fraction * 0.85, 0.85), message)
             }
+            downloadedArchive = archiveURL
 
             try Task.checkCancellation()
             progress(0.88, "Verifying \(name)…")
@@ -1158,7 +1188,7 @@ public actor MetagenomicsDatabaseRegistry {
 
         progress(0.92, "Installing \(name)…")
         let retired = parent.appendingPathComponent(
-            "\(installedPath.lastPathComponent).old-\(UUID().uuidString)",
+            "\(Self.retiredPrefix(for: installedPath))\(UUID().uuidString)",
             isDirectory: true
         )
         try fm.moveItem(at: installedPath, to: retired)
@@ -1174,15 +1204,9 @@ public actor MetagenomicsDatabaseRegistry {
         }
 
         // The user-visible database is already the new one; removing the superseded
-        // copy is cleanup, so a failure here is logged rather than raised.
-        do {
-            try fm.removeItem(at: retired)
-            logger.info("Removed superseded copy of '\(name, privacy: .public)'")
-        } catch {
-            logger.warning(
-                "Updated '\(name, privacy: .public)' but could not remove the superseded copy at \(retired.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
+        // copy is cleanup, so a failure here is logged rather than raised. This also
+        // sweeps residue from any earlier interrupted attempt.
+        Self.removeTransactionSiblings(for: installedPath, name: name)
 
         // Provenance for the promoted payload. The database is already usable, so a
         // receipt failure is recorded as a warning rather than undoing a good update;
@@ -1209,6 +1233,21 @@ public actor MetagenomicsDatabaseRegistry {
         updated.installedAt = Date()
         updated.lastUpdated = Date()
         updated.status = .ready
+        // The swap replaced the directory the old bookmark resolved to, so an external
+        // database needs a bookmark for the new one. A stale bookmark would strand the
+        // database on the next launch, but the payload itself is already correct, so a
+        // refresh failure downgrades to path-only access rather than failing the update.
+        if updated.isExternal {
+            do {
+                updated.bookmarkData = try createBookmark(for: installedPath)
+                beginSecurityScopedAccess(for: name, url: installedPath)
+            } catch {
+                updated.bookmarkData = nil
+                logger.warning(
+                    "Updated '\(name, privacy: .public)' but could not refresh its external-volume bookmark: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
         databases[name] = updated
 
         do {
@@ -1315,6 +1354,66 @@ public actor MetagenomicsDatabaseRegistry {
         String(version.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." ? $0 : "-" })
     }
 
+    // MARK: - Update Transaction Naming
+    //
+    // Transaction directories are dot-prefixed siblings of the installed directory,
+    // matching the installer's `.install-<uuid>` / `.backup-<uuid>` convention. The
+    // dot keeps them out of `skipsHiddenFiles` enumerations, so payload digesting and
+    // directory sizing never see a half-written or superseded copy.
+
+    /// `.<name>.staging-<version>`, a sibling of the installed directory.
+    static func stagingURL(for installedPath: URL, version: String) -> URL {
+        installedPath.deletingLastPathComponent().appendingPathComponent(
+            ".\(installedPath.lastPathComponent).staging-\(safeSuffix(version))",
+            isDirectory: true
+        )
+    }
+
+    /// Prefix shared by every retired copy of a database: `.<name>.old-`.
+    static func retiredPrefix(for installedPath: URL) -> String {
+        ".\(installedPath.lastPathComponent).old-"
+    }
+
+    /// Prefix shared by every staging directory of a database: `.<name>.staging-`.
+    static func stagingPrefix(for installedPath: URL) -> String {
+        ".\(installedPath.lastPathComponent).staging-"
+    }
+
+    /// Sibling transaction directories (`.old-*` / `.staging-*`) belonging to a database.
+    private static func transactionSiblings(for installedPath: URL) -> [URL] {
+        let parent = installedPath.deletingLastPathComponent()
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: parent,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) else { return [] }
+        let retired = retiredPrefix(for: installedPath)
+        let staging = stagingPrefix(for: installedPath)
+        return contents.filter {
+            let name = $0.lastPathComponent
+            return name.hasPrefix(retired) || name.hasPrefix(staging)
+        }
+    }
+
+    /// Deletes any leftover transaction directories for a database.
+    ///
+    /// Runs after a successful update so an interrupted earlier attempt cannot leave
+    /// stale copies consuming disk space next to the live database.
+    private static func removeTransactionSiblings(for installedPath: URL, name: String) {
+        for orphan in transactionSiblings(for: installedPath) {
+            do {
+                try FileManager.default.removeItem(at: orphan)
+                logger.info(
+                    "Removed leftover update directory for '\(name, privacy: .public)': \(orphan.lastPathComponent, privacy: .public)"
+                )
+            } catch {
+                logger.warning(
+                    "Could not remove leftover update directory \(orphan.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+    }
+
     // MARK: - Test Seams
 
     func setArchiveInstallerForTesting(_ installer: @escaping ArchiveInstalling) {
@@ -1366,6 +1465,102 @@ public actor MetagenomicsDatabaseRegistry {
 
     static func defaultManifestWriter(_ data: Data, _ url: URL) throws {
         try data.write(to: url, options: .atomic)
+    }
+
+    /// Repairs databases left mid-swap by a crash during ``updateDatabase(catalogID:progress:)``.
+    ///
+    /// The swap is two renames (installed -> `.old-<uuid>`, staging -> installed). A
+    /// process death between them leaves the manifest claiming a `.ready` database at
+    /// a path that no longer exists. Nothing else sweeps that state, so it is repaired
+    /// at load, before any caller can read a row pointing at a missing directory.
+    ///
+    /// Recovery prefers the previous copy, because it is the payload the row's recorded
+    /// version actually describes:
+    /// 1. A `.old-*` sibling is renamed back into place (the crash happened between the
+    ///    two renames, so the row's version still matches this payload).
+    /// 2. Otherwise a complete `.staging-<version>` sibling is promoted, and the row's
+    ///    version is taken from the directory name, which is where the target version
+    ///    was recorded when staging began.
+    /// 3. Otherwise the row is marked `.missing` with a nil path.
+    ///
+    /// Any leftover transaction directories are removed once the outcome is decided.
+    ///
+    /// - Returns: The number of rows changed, so the caller knows to persist.
+    private func recoverInterruptedUpdates() -> Int {
+        let fm = FileManager.default
+        var recovered = 0
+
+        for (name, db) in databases {
+            guard let path = db.path, !fm.fileExists(atPath: path.path) else { continue }
+
+            // An external database that is merely unmounted looks identical to a
+            // missing one. `resolveAllBookmarks`/`verify` own that case and can mark it
+            // `.volumeNotMounted`; recovery must not race them into `.missing`.
+            guard !db.isExternal else { continue }
+
+            let siblings = Self.transactionSiblings(for: path)
+            guard !siblings.isEmpty else {
+                // No transaction residue: this is an ordinary missing database (an
+                // unmounted volume or a user deletion), which `verify` already models.
+                continue
+            }
+
+            let retiredPrefix = Self.retiredPrefix(for: path)
+            let stagingPrefix = Self.stagingPrefix(for: path)
+            var updated = db
+            var didRecover = false
+
+            if let retired = siblings
+                .filter({ $0.lastPathComponent.hasPrefix(retiredPrefix) })
+                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+                .first,
+               (try? fm.moveItem(at: retired, to: path)) != nil {
+                updated.status = .ready
+                updated.lastUpdated = Date()
+                didRecover = true
+                logger.notice(
+                    "Restored '\(name, privacy: .public)' from an interrupted update; the previously installed version is in place"
+                )
+            } else if let staged = siblings
+                .filter({ $0.lastPathComponent.hasPrefix(stagingPrefix) })
+                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+                .first,
+                Self.missingRequiredFiles(in: staged, tool: db.tool).isEmpty,
+                (try? fm.moveItem(at: staged, to: path)) != nil {
+                updated.status = .ready
+                // The suffix is `safeSuffix(version)`, which preserves letters, digits,
+                // dots, and dashes, so real pinned versions ("20240904", "v3.2.4") round
+                // trip unchanged. A version containing other characters would recover
+                // with them replaced by dashes, which is cosmetic: the payload is
+                // correct, and the next update overwrites the string from the catalog.
+                updated.version = String(
+                    staged.lastPathComponent.dropFirst(stagingPrefix.count)
+                )
+                updated.payloadDigest = nil
+                updated.sizeOnDisk = Self.directorySize(at: path)
+                updated.installedAt = Date()
+                updated.lastUpdated = Date()
+                didRecover = true
+                logger.notice(
+                    "Completed an interrupted update of '\(name, privacy: .public)' from its staged copy"
+                )
+            } else {
+                updated.status = .missing
+                updated.path = nil
+                didRecover = true
+                logger.warning(
+                    "'\(name, privacy: .public)' was left without a usable copy by an interrupted update and is marked missing"
+                )
+            }
+
+            if didRecover {
+                databases[name] = updated
+                recovered += 1
+                Self.removeTransactionSiblings(for: path, name: name)
+            }
+        }
+
+        return recovered
     }
 
     /// Re-points catalog-backed entries that are not installed at the currently pinned
