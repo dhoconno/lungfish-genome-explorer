@@ -84,7 +84,9 @@ final class FASTQIngestionPipelineTests: XCTestCase {
         XCTAssertGreaterThan(fileSize(at: outputURL), 0, "Output FASTQ should not be empty")
         XCTAssertEqual(result.pairingMode, .interleaved)
         XCTAssertEqual(result.processingTool, "clumpify.sh")
-        XCTAssertEqual(result.processingToolVersion, "39.80")
+        // Sourced from the manifest rather than a literal so a dependency sweep that
+        // re-pins bbmap does not leave a stale expectation behind here.
+        XCTAssertEqual(result.processingToolVersion, ManagedToolLock.bundled.toolVersion(forEnvironment: "bbtools"))
         XCTAssertNotNil(result.processingCommandLine)
         XCTAssertTrue(result.processingCommandLine?.contains("threads=1") == true)
         XCTAssertTrue(result.processingCommandLine?.contains("quantize=0,8,13,22,27,32,37") == true)
