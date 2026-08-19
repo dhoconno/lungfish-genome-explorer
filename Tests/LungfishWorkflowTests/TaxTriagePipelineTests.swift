@@ -1075,7 +1075,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(args.contains(snapshotURL.path))
         XCTAssertFalse(args.contains("-r"))
         XCTAssertTrue(metadata.contains("workflow_repository: jhuapl-bio/taxtriage"))
-        XCTAssertTrue(metadata.contains("workflow_github_release_version: v3.3.6"))
+        XCTAssertTrue(metadata.contains("workflow_github_release_version: v3.3.8"))
         XCTAssertTrue(metadata.contains("workflow_revision: 8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"))
         XCTAssertTrue(metadata.contains("workflow_snapshot_directory: \(snapshotURL.path)"))
         XCTAssertTrue(metadata.contains("nextflow_command: nextflow -c \(runtimeConfigURL.path) run \(snapshotURL.path)"))

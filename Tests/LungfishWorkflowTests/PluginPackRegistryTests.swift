@@ -33,7 +33,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(pack.estimatedSizeMB, 2700)
         XCTAssertEqual(
             pack.toolRequirements.first(where: { $0.environment == "bbtools" })?.installPackages,
-            ["bioconda::bbmap=39.80=h2e3bd82_0"]
+            ["bioconda::bbmap=40.02=he046917_0"]
         )
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.environment == "bbtools" })?.executables, [
             "clumpify.sh", "bbduk.sh", "bbmerge.sh",
@@ -134,7 +134,7 @@ final class PluginPackRegistryTests: XCTestCase {
         let pysam = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "pysam" }))
         XCTAssertEqual(pysam.displayName, "pysam")
         XCTAssertEqual(pysam.environment, "pysam")
-        XCTAssertEqual(pysam.installPackages, ["bioconda::pysam=0.24.0=py310hf7cbfa5_0"])
+        XCTAssertEqual(pysam.installPackages, ["bioconda::pysam=0.24.0=py310hf7cbfa5_1"])
         XCTAssertEqual(pysam.executables, ["python"])
         XCTAssertEqual(pysam.smokeTest?.executable, "python")
         XCTAssertEqual(pysam.smokeTest?.arguments, ["-c", "import pysam; print(pysam.__version__)"])

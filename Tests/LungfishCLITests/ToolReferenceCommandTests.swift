@@ -21,11 +21,11 @@ final class ToolReferenceCommandTests: XCTestCase {
         XCTAssertTrue(output.contains("Tool"), output)
         XCTAssertTrue(output.contains("Version"), output)
         XCTAssertTrue(output.contains("micromamba"), output)
-        XCTAssertTrue(output.contains("2.0.5-0"), output)
+        XCTAssertTrue(output.contains("2.9.0-0"), output)
         XCTAssertTrue(output.contains("Nextflow"), output)
-        XCTAssertTrue(output.contains("25.10.4"), output)
+        XCTAssertTrue(output.contains("26.04.6"), output)
         XCTAssertTrue(output.contains("Samtools"), output)
-        XCTAssertTrue(output.contains("1.23.1"), output)
+        XCTAssertTrue(output.contains("1.24"), output)
     }
 
     func testVersionToolsParsesThroughTopLevelCLI() throws {

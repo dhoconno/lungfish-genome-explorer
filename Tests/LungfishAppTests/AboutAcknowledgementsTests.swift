@@ -34,18 +34,18 @@ final class AboutAcknowledgementsTests: XCTestCase {
 
         let required = try XCTUnwrap(sections.first(where: { $0.title == PluginPack.requiredSetupPack.name }))
         let nextflow = try XCTUnwrap(required.entries.first(where: { $0.id == "nextflow" }))
-        XCTAssertEqual(nextflow.detail, "25.10.4")
+        XCTAssertEqual(nextflow.detail, "26.04.6")
         XCTAssertEqual(nextflow.secondaryDetail, "Apache-2.0")
         XCTAssertEqual(nextflow.sourceURL, "https://github.com/nextflow-io/nextflow")
 
         let bcftools = try XCTUnwrap(required.entries.first(where: { $0.id == "bcftools" }))
-        XCTAssertEqual(bcftools.detail, "1.23.1")
+        XCTAssertEqual(bcftools.detail, "1.24")
         XCTAssertEqual(bcftools.secondaryDetail, "GPL")
         XCTAssertEqual(bcftools.sourceURL, "https://github.com/samtools/bcftools")
 
         let assembly = try XCTUnwrap(sections.first(where: { $0.title == "Genome Assembly" }))
         let spades = try XCTUnwrap(assembly.entries.first(where: { $0.id == "spades" }))
-        XCTAssertEqual(spades.detail, "4.2.0")
+        XCTAssertEqual(spades.detail, "4.3.0")
         XCTAssertEqual(spades.secondaryDetail, "GPL-2.0-only")
         XCTAssertEqual(spades.sourceURL, "https://github.com/ablab/spades")
 
@@ -61,7 +61,7 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertEqual(kraken2.sourceURL, "https://github.com/DerrickWood/kraken2")
 
         let esviritu = try XCTUnwrap(metagenomics.entries.first(where: { $0.id == "esviritu" }))
-        XCTAssertEqual(esviritu.detail, "1.3.1")
+        XCTAssertEqual(esviritu.detail, "1.3.3")
         XCTAssertEqual(esviritu.secondaryDetail, "MIT")
         XCTAssertEqual(esviritu.sourceURL, "https://github.com/cmmr/EsViritu")
     }

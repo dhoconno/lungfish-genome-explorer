@@ -1343,7 +1343,7 @@ final class BundledToolSpecRegressionTests: XCTestCase {
         let spec = BundledToolSpec.micromamba()
         XCTAssertEqual(spec.name, "micromamba")
         XCTAssertEqual(spec.displayName, "micromamba")
-        XCTAssertEqual(spec.version, "2.0.5-0")
+        XCTAssertEqual(spec.version, "2.9.0-0")
         XCTAssertEqual(spec.executables, ["micromamba"])
         XCTAssertTrue(spec.dependencies.isEmpty)
         XCTAssertEqual(spec.license.spdxId, "BSD-3-Clause")
@@ -1405,7 +1405,7 @@ final class ToolProvisioningOrchestratorRegressionTests: XCTestCase {
         )
 
         XCTAssertTrue(versions.contains("Lungfish Bundled Bootstrap Tools"))
-        XCTAssertTrue(versions.contains("- micromamba: 2.0.5-0 (BSD-3-Clause license)"))
+        XCTAssertTrue(versions.contains("- micromamba: 2.9.0-0 (BSD-3-Clause license)"))
         XCTAssertTrue(versions.contains("managed separately."))
         XCTAssertFalse(versions.contains("already installed"))
         XCTAssertFalse(versions.contains("failed"))
