@@ -98,3 +98,21 @@ tier 1 run, because it grepped the first `Executed N tests` line, which belongs 
 early sub-suite, rather than XCTest's grand total. A pass therefore looked like a filter
 that had matched almost nothing. Fixed to take the last line and to include the
 swift-testing total.
+
+## Full suite after the fixes
+
+13457 XCTest executed, 35 skipped, 3 failures, plus 7 swift-testing issues.
+
+All of them are known environmental, not regressions from this work:
+
+- `FileSystemWatcherTests` (7 swift-testing issues): FSEvents callbacks never fire in
+  the full swift-testing phase on this machine. Fails the same way on main.
+- `AssemblyConformanceTests.testMegahitProducesFinalContigs` (3 assertions, one test):
+  MEGAHIT 1.2.9 exited 245 with no contigs. The same test passed in both tier 1 gates
+  the same day and passes in isolation in under a second. MEGAHIT 1.2.9 on arm64 is
+  already documented as load sensitive in this file's own test comment, which caps the
+  invocation at two threads because four segfaults. This run was under heavy load from
+  a parallel apply.
+
+None of the commits in this range touch assembly code: the diff is confined to the
+dependency planner, the manifest, two test files, the gate script, and docs.
