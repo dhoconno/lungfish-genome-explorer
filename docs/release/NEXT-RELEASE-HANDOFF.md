@@ -32,6 +32,20 @@ merge: see `docs/verification/2026-08-19-upgrade-path-rehearsal.md`. Users upgra
 from an earlier set get 23 environment reinstalls, 3 advisory database updates and a
 micromamba bootstrap, about 3.5 GB, with no environments removed.
 
+## Merged after the first handoff draft
+
+Two additional bodies of work landed on main after the section below was written:
+
+- The tier 3 first run and its fixes: a shipped esviritu detect path bug, the
+  TaxTriage v3.3.8 --db requirement, and refreshed pipeline goldens. See
+  docs/verification/2026-08-19-tier3-first-run.md.
+- The codex/fix-bracken-installer branch, reconciled by merge: the Metagenomics
+  pack now builds Bracken 3.1 from source (sha256-pinned tarball plus pinned
+  toolchain), and Kraken read indexes are portable (main's implementation kept;
+  the two branches had built the same feature independently). Serialized conda
+  environment mutations, special database version migration, and per-sample
+  Kraken extraction scoping also arrive with this merge.
+
 ## Known state at merge
 
 - Full suite on merged main: see the run recorded in the rehearsal document. The only
