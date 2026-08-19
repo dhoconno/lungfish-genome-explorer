@@ -19,10 +19,10 @@ Verification: verify.sh tiers 1 and 2 in the isolated root `~/.lungfish-verify` 
 
 ## Open items (user-gated or environment-gated)
 
-1. GUI walkthroughs on a fresh root and an upgraded 2026.1 root (Update Tools sheet, Plugin Manager Update button, deferral memory) need Computer Use.
+1. GUI walkthroughs: DONE 2026-08-19 on a fresh isolated root (Update Tools sheet with the 2026.2 pins and the `catalogID: nil` Viral row planned; Plugin Manager Update button driving a real download and the locally-built notice inline; Operations panel lifecycle). Record: `docs/verification/2026-08-18-update-tools-sheet.md`. Still unrun: the Update button disabled while a reconciliation is applying, an update carried to completion with the receipt written, and the upgraded 2026.1 root in the GUI (its plan was verified through the CLI).
 2. CI `toolset-conformance` dispatch needs the branch pushed (`gh workflow run ci.yml --ref claude/lge-dependency-upgrade-plan-b6b53b`).
 3. Tier 3 (`run-pipelines.sh`) needs Apple Containers or Docker on the host.
-4. savont 0.6.3 end-to-end on real ONT MHC data.
+4. savont 0.6.3 end-to-end: an ONT fixture is now pinned (SRR31764993, fetched by `scripts/deps/fetch-savont-fixture.sh`) and the integration test picks it up automatically. Remaining gap: a primate MHC amplicon on R10.4 or newer chemistry, since the pinned fixture is 16S.
 5. Kraken2 index integrity: the S3 bucket publishes no checksum sidecars; follow-up is multipart-ETag verification.
 6. ncbi-taxonomy zip support; bracken-build in a container as a candidate for special databases.
 

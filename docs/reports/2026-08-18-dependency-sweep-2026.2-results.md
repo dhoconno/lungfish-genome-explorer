@@ -1354,12 +1354,22 @@ after extraction.
 
 ### Still open after this wave
 
-- **GUI walkthroughs remain pending.** Computer Use was unavailable in this
-  session, so the new Databases-tab **Update** button has been verified only by
-  unit test and by build, never rendered. The upgrade walkthrough must confirm:
-  the button appears on a row with an "Update available" badge, is absent on an
-  up-to-date row, is disabled while an Update Tools run is applying, drives an
-  Operations panel row through to completion, and shows the locally-built notice
-  inline for SILVA or Greengenes rather than raising an error alert.
-- The Tier 3, savont, and CI dispatch items from the release notes are
-  unchanged by this wave.
+- **GUI walkthroughs: DONE on 2026-08-19.** Verified in the running debug app
+  (0.5.0-beta29) against an isolated storage root. The Update Tools sheet renders
+  the 2026.2 pins with "Quit" rather than "Later" while required work is pending,
+  and its Databases section lists both seeded rows including the `catalogID: nil`
+  Viral row as "20240904 to 20260626". In the Plugin Manager Databases tab the
+  **Update** button renders in Lungfish Orange next to Remove on rows carrying an
+  "Update available" badge; clicking it on the Viral row started a real download
+  with progress, and clicking it on the locally built Greengenes row rendered the
+  not-supported guidance inline with a Dismiss control. The Operations panel
+  showed `Update Database: Viral` in progress and `Update Database: Greengenes...`
+  as "Completed with Warnings". Full record and reproduction steps:
+  `docs/verification/2026-08-18-update-tools-sheet.md`. Two checks remain unrun:
+  the button being disabled while an Update Tools run is applying, and a database
+  update carried through to completion with the receipt written.
+- **savont end-to-end: recipe now exists.** SRR31764993 is the pinned ONT
+  fixture; see `scripts/deps/fetch-savont-fixture.sh` and the sweep checklist.
+  The remaining gap is a primate MHC amplicon on R10.4 or newer chemistry.
+- The Tier 3 and CI dispatch items from the release notes are unchanged by this
+  wave.
