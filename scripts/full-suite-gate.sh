@@ -106,7 +106,14 @@ run_gate() {
     fi
 
     if [ "$status" -eq 0 ] && [ "$xctest_fail" -eq 0 ] && [ "$swifttesting_fail" -eq 0 ] && [ "$conformance_skips" -eq 0 ]; then
-        echo "GATE PASS ($SHA) - $(grep -m1 -oE "Executed [0-9]+ tests" "$LOG" || echo "suite") - log: $LOG"
+        # The LAST "Executed N tests" line is XCTest's grand total. Using the first
+        # match reported an early sub-suite instead, which understated a 189-test run
+        # as "Executed 2 tests" and made a real pass look like a coverage gap.
+        local xctest_total
+        xctest_total=$(grep -oE "Executed [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
+        local swifttesting_total
+        swifttesting_total=$(grep -oE "Test run with [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
+        echo "GATE PASS ($SHA) - ${xctest_total:-suite}${swifttesting_total:+, $swifttesting_total} - log: $LOG"
         return 0
     else
         {
