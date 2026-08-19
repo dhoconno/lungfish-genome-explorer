@@ -68,7 +68,7 @@ jobs:
           brew install ripgrep
           python3 -m venv .ci-python
           .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow openpyxl
+          .ci-python/bin/python -m pip install Pillow openpyxl PyYAML
 
       - name: Run release and fixture script tests
         env:
@@ -149,7 +149,7 @@ jobs:
           brew install ripgrep
           python3 -m venv .ci-python
           .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow openpyxl
+          .ci-python/bin/python -m pip install Pillow openpyxl PyYAML
 
       - name: Run release and fixture script tests
         env:

@@ -41,7 +41,7 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
             #!/bin/sh
             trap '' TERM
             while true; do
-              printf 'still-running\\n' 1>&2
+              :
             done
             """,
             to: wrapper
@@ -49,18 +49,29 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
         let checks = LockedCounter()
         let started = Date()
 
+        // The timeout is deliberately far above the elapsed bound: the hang this
+        // test exists to catch would ride the timeout path and take the full 30
+        // seconds, while a working cancellation returns in well under 15 even on a
+        // heavily loaded CI runner. The first CI exposure measured 4.8 seconds
+        // against a 3 second bound, purely from runner scheduling stalls (the
+        // stdout/stderr drain threads run at utility QoS and can be starved into
+        // the reaper's 2s+1s fallback waits), so a tight bound tests the runner,
+        // not the code.
         XCTAssertThrowsError(
             try GenotypeWorkbookManagedRuntimeProbe.probe(
                 pythonExecutableURL: wrapper,
-                timeout: 10,
+                timeout: 30,
                 cancellationCheck: {
                     checks.incrementAndGet() > 2
                 }
             )
         ) { error in
-            XCTAssertTrue(error is CancellationError)
+            XCTAssertTrue(
+                error is CancellationError,
+                "expected CancellationError, got \(type(of: error)): \(error)"
+            )
         }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 15)
     }
 
     func testProbeTerminatesSustainedStderrAtBoundedOutputLimit() throws {

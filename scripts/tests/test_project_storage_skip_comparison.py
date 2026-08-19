@@ -991,9 +991,11 @@ class RunnerAndCITests(unittest.TestCase):
         )
 
     def test_ci_uses_full_history_exact_block_and_always_uploads(self):
-        # fast, full, and toolset-conformance jobs each check out with full
-        # history (fetch-depth: 0).
-        self.assertEqual(self.workflow.count("fetch-depth: 0"), 3)
+        # fast, build-smoke, full, and toolset-conformance jobs each check out
+        # with full history (fetch-depth: 0). The project-storage comparison
+        # itself lives in the dispatch-only build-smoke job, which needs the
+        # full history to check out the baseline sha.
+        self.assertEqual(self.workflow.count("fetch-depth: 0"), 4)
         self.assertIn(
             'task9_implementation_sha="$(git log --diff-filter=A '
             "--format=%H -1 -- scripts/verification/"
