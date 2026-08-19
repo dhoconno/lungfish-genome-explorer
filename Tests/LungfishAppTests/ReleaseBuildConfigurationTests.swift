@@ -24,8 +24,8 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseBlock.contains("ENABLE_HARDENED_RUNTIME = YES;"))
     }
 
-    @Test("Release identity uses canonical beta version and Sparkle channel")
-    func releaseIdentityUsesCanonicalBetaVersionAndSparkleChannel() throws {
+    @Test("Release identity uses canonical CalVer and the preview Sparkle channel")
+    func releaseIdentityUsesCanonicalCalVerAndPreviewSparkleChannel() throws {
         let repositoryRoot = Self.repositoryRoot()
         let project = try String(
             contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
@@ -1064,7 +1064,7 @@ struct ReleaseBuildConfigurationTests {
             "Determine the next version",
             "CFBundleShortVersionString",
             "lungfish-cli --version",
-            "docs/release-notes/v",
+            "docs/release-notes/<new-version>.md",
             "git tag",
             "gh release create",
             "gh release view",
