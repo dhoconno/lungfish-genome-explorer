@@ -8,7 +8,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed by event so a push never cancels a long dispatch validation: pushes
+  # supersede pushes (the gate is minutes), and a new dispatch supersedes the
+  # previous one. With a single group, every push killed whatever multi-hour
+  # dispatch run was mid-flight, which is why no dispatch had ever finished
+  # while development was active.
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
