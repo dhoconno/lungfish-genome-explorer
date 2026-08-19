@@ -4,10 +4,24 @@
 //
 // Asserts that every tool the dependency manifest pins actually reports that
 // pinned version when its version-check command runs against the local
-// conda install. By default a missing tool or drifted pack-tool version is a
-// skip (dev machines drift); with LUNGFISH_REQUIRE_TOOLS=1 both become hard
-// failures so a conformance run can assert the full toolset is present and
-// pinned.
+// conda install.
+//
+// Both installed-version tests treat a MISSING tool and a DRIFTED version the
+// same way, and the mode decides what that way is:
+//
+//   * default (LUNGFISH_REQUIRE_TOOLS unset): drift is an XCTSkip naming every
+//     drifted tool. A developer machine's real root legitimately lags the
+//     manifest during a dependency sweep, between the moment a pin lands and
+//     the moment `tools update --apply` (or the Update Tools sheet) runs
+//     against that root. The default gate, including the pre-push hook, must
+//     stay green in that window; the skip message is what tells the developer
+//     the remedy is available.
+//   * LUNGFISH_REQUIRE_TOOLS=1: drift is an XCTFail. verify.sh and CI run in
+//     this mode against a reconciled root, so conformance is genuinely
+//     enforced there and a real drift cannot ship unnoticed.
+//
+// The skip therefore relaxes WHERE conformance is enforced, not WHETHER: no
+// merge path reaches main without a require-mode run asserting these pins.
 
 import XCTest
 import LungfishTestSupport
@@ -22,9 +36,22 @@ final class ToolVersionConformanceTests: XCTestCase {
     static let selfReportedVersionIsUnreliable: Set<String> = ["bwa-mem2", "bracken"]
 
     /// Every manifest tool env must report the manifest version from its version command.
+    ///
+    /// Version drift is a skip by default and a failure under
+    /// `LUNGFISH_REQUIRE_TOOLS=1`; see the file comment for why.
     func testEveryManifestToolReportsPinnedVersion() async throws {
         let manifest = try ConformanceFixtures.manifest()
         var failures: [String] = []
+        var drifted: [String] = []
+        /// Route a version mismatch by mode: enforced under require, reported
+        /// as drift otherwise. Missing tools keep their own semantics below.
+        func recordDrift(_ message: String) {
+            if ToolAvailability.requireTools {
+                failures.append(message)
+            } else {
+                drifted.append(message)
+            }
+        }
         for tool in manifest.tools {
             let (exe, args) = ConformanceFixtures.versionCommand(for: tool.id)
             let url: URL
@@ -48,18 +75,23 @@ final class ToolVersionConformanceTests: XCTestCase {
                     let helpResult = try? ProcessRunner.run(helpURL, ["--help"], timeout: 60)
                     let helpText = (helpResult?.stdout ?? "") + (helpResult?.stderr ?? "")
                     if !ConformanceFixtures.textReportsVersion(helpText, version: expected) {
-                        failures.append("\(tool.id): expected \(expected) in --version or --help output: \(text.prefix(200)) / \(helpText.prefix(200))")
+                        recordDrift("\(tool.id): expected \(expected) in --version or --help output: \(text.prefix(200)) / \(helpText.prefix(200))")
                     }
                 }
                 continue
             }
             if !ConformanceFixtures.textReportsVersion(text, version: expected) {
-                failures.append("\(tool.id): expected \(expected) in: \(text.prefix(200))")
+                recordDrift("\(tool.id): expected \(expected) in: \(text.prefix(200))")
             }
         }
         XCTAssertTrue(failures.isEmpty, failures.joined(separator: "\n"))
+        if !drifted.isEmpty {
+            throw XCTSkip("tool version drift (run with LUNGFISH_REQUIRE_TOOLS=1 to enforce): \(drifted.joined(separator: "; "))")
+        }
     }
 
+    /// Version drift is a skip by default and a failure under
+    /// `LUNGFISH_REQUIRE_TOOLS=1`; see the file comment for why.
     func testEveryInstalledPackToolReportsPinnedVersion() async throws {
         let manifest = try ConformanceFixtures.manifest()
         var failures: [String] = []
