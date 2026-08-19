@@ -212,14 +212,22 @@ public struct BrackenProfileOutcome: Sendable, Codable, Equatable {
         resolution: nil
     )
 
+    /// A profile that ran to completion.
+    ///
+    /// `message` carries a note about how the run was carried out when there is one worth
+    /// the reader's attention -- most importantly that the database had no kmer distribution
+    /// for the requested read length and a nearby one was substituted, which changes the
+    /// abundance estimates and was previously visible only in the system log.
     public static func completed(
         resolution: BrackenProfileResolution,
-        toolVersion: String? = nil
+        toolVersion: String? = nil,
+        message: String? = nil
     ) -> BrackenProfileOutcome {
         BrackenProfileOutcome(
             state: .completed,
             resolution: resolution,
-            toolVersion: toolVersion
+            toolVersion: toolVersion,
+            message: message
         )
     }
 

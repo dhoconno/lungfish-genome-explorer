@@ -270,4 +270,57 @@ final class BrackenInvocationFormTests: XCTestCase {
             stderr: "AttributeError: 'int' object has no attribute 'children'"
         ))
     }
+
+    // MARK: - Provenance argv rendering
+
+    /// A space-joined argv is ambiguous exactly where it matters: a database path containing
+    /// a space reads as two arguments, so the recorded command is not the command that ran.
+    func testProvenanceArgvQuotesArgumentsContainingSpaces() {
+        let rendered = ClassificationPipeline.shellQuotedArgv([
+            "bracken",
+            "-d", "/Volumes/My Drive/kraken2/viral",
+            "-r", "150",
+        ])
+
+        XCTAssertEqual(rendered, "bracken -d '/Volumes/My Drive/kraken2/viral' -r 150")
+    }
+
+    func testProvenanceArgvLeavesPlainArgumentsUnquoted() {
+        XCTAssertEqual(
+            ClassificationPipeline.shellQuotedArgv(["bracken", "-d", "/tmp/viral", "-l", "S"]),
+            "bracken -d /tmp/viral -l S"
+        )
+    }
+
+    /// An embedded single quote uses the standard `'\''` escape, so the rendered string can be
+    /// pasted back into a shell and yield the same argument.
+    func testProvenanceArgvEscapesEmbeddedSingleQuotes() {
+        XCTAssertEqual(
+            ClassificationPipeline.shellQuotedArgv(["/tmp/dave's db"]),
+            #"'/tmp/dave'\''s db'"#
+        )
+    }
+
+    // MARK: - Substituted read length
+
+    /// A completed profile can carry a note, which is how the nearest-read-length
+    /// substitution reaches the user instead of living only in the system log.
+    func testCompletedOutcomeCarriesASubstitutionMessage() {
+        let resolution = BrackenProfileResolution(
+            request: .automatic,
+            rank: .species,
+            source: .compatibilityDefault,
+            readLength: 100,
+            threshold: 10
+        )
+        let outcome = BrackenProfileOutcome.completed(
+            resolution: resolution,
+            toolVersion: "3.1",
+            message: "used the nearest available read length 150"
+        )
+
+        XCTAssertEqual(outcome.state, .completed)
+        XCTAssertEqual(outcome.message, "used the nearest available read length 150")
+        XCTAssertNil(BrackenProfileOutcome.completed(resolution: resolution).message)
+    }
 }

@@ -765,6 +765,7 @@ public actor ClassificationPipeline {
                     config: effectiveConfig,
                     resolution: profileResolution,
                     distributionURL: preflight.distributionURL,
+                    dialect: brackenDialect,
                     provenanceRecorder: provenanceRecorder,
                     runID: runID,
                     dependsOn: resultDependencyIDs
@@ -786,6 +787,7 @@ public actor ClassificationPipeline {
                         levelCode: levelCode,
                         dialect: brackenDialect,
                         distributionURL: preflight.distributionURL,
+                        substitutionNote: preflight.substitutionNote,
                         provenanceRecorder: provenanceRecorder,
                         runID: runID,
                         dependsOn: resultDependencyIDs
@@ -1231,6 +1233,10 @@ public actor ClassificationPipeline {
         let distributionURL: URL
         let degradedOutcome: BrackenProfileOutcome?
         let stepID: UUID?
+        /// Set when the database had no kmer distribution for the requested read length and
+        /// a nearby one was used instead. Carried to the completed outcome so the substitution
+        /// reaches the result the user reads, not just the system log.
+        let substitutionNote: String?
     }
 
     private struct BrackenExecutionResult {
@@ -1266,7 +1272,18 @@ public actor ClassificationPipeline {
                 inDatabase: config.databasePath
             )
         )
+        var substitutionNote: String?
         if let distributionResolution, distributionResolution.isSubstituted {
+            // The substituted read length changes the abundance estimates, so it belongs in
+            // the result the user reads and not only in the system log.
+            substitutionNote = """
+                The database has no kmer distribution for read length \
+                \(distributionResolution.requestedReadLength); \
+                Bracken used the nearest available read length \
+                \(distributionResolution.readLength) \
+                (\(distributionResolution.url.lastPathComponent)) instead, \
+                so the abundance estimates are approximate.
+                """
             logger.info(
                 """
                 Bracken kmer distribution for read length \
@@ -1340,9 +1357,15 @@ public actor ClassificationPipeline {
             toolName: "Lungfish Bracken Preflight",
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,
+            // The dialect and the argv this step actually ran with, so the preflight record
+            // stands on its own rather than requiring the reader to find the later execution
+            // step to learn which Bracken form was in play.
             resolvedOptions: brackenResolvedOptions(
                 resolution: resolution,
-                distributionURL: distributionURL
+                distributionURL: distributionURL,
+                dialect: dialect,
+                effectiveArgv: command,
+                substitutionNote: substitutionNote
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: inputs,
@@ -1359,7 +1382,8 @@ public actor ClassificationPipeline {
             degradedOutcome: failure.map {
                 .degraded(resolution: resolution, reason: $0.0, message: $0.1)
             },
-            stepID: stepID
+            stepID: stepID,
+            substitutionNote: substitutionNote
         )
     }
 
@@ -1367,6 +1391,7 @@ public actor ClassificationPipeline {
         config: ClassificationConfig,
         resolution: BrackenProfileResolution,
         distributionURL: URL,
+        dialect: BrackenCLIDialect,
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
         dependsOn: [UUID]
@@ -1382,14 +1407,17 @@ public actor ClassificationPipeline {
             return BrackenOutputPreparationResult(degradedOutcome: nil, stepID: nil)
         } catch {
             let message = "Could not remove stale Bracken target before profiling: \(error.localizedDescription)"
+            let command = ["LungfishWorkflow", "remove-stale-output", config.brackenURL.path]
             let stepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "Lungfish Bracken Output Preparation",
                 toolVersion: WorkflowRun.currentAppVersion,
-                command: ["LungfishWorkflow", "remove-stale-output", config.brackenURL.path],
+                command: command,
                 resolvedOptions: brackenResolvedOptions(
                     resolution: resolution,
-                    distributionURL: distributionURL
+                    distributionURL: distributionURL,
+                    dialect: dialect,
+                    effectiveArgv: command
                 ),
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
                 inputs: [],
@@ -1417,6 +1445,7 @@ public actor ClassificationPipeline {
         levelCode: String,
         dialect: BrackenCLIDialect,
         distributionURL: URL,
+        substitutionNote: String?,
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
         dependsOn: [UUID]
@@ -1464,7 +1493,8 @@ public actor ClassificationPipeline {
             resolution: resolution,
             distributionURL: distributionURL,
             dialect: dialect,
-            effectiveArgv: brackenCommand
+            effectiveArgv: brackenCommand,
+            substitutionNote: substitutionNote
         )
         let runtimeIdentity = managedRuntimeIdentity(
             toolName: "bracken",
@@ -1798,7 +1828,11 @@ public actor ClassificationPipeline {
         return BrackenExecutionResult(
             tree: mergedTree,
             outputURL: config.brackenURL,
-            outcome: .completed(resolution: resolution, toolVersion: brackenVersion),
+            outcome: .completed(
+                resolution: resolution,
+                toolVersion: brackenVersion,
+                message: substitutionNote
+            ),
             terminalStepID: stepID
         )
     }
@@ -2029,7 +2063,8 @@ public actor ClassificationPipeline {
         resolution: BrackenProfileResolution,
         distributionURL: URL,
         dialect: BrackenCLIDialect? = nil,
-        effectiveArgv: [String]? = nil
+        effectiveArgv: [String]? = nil,
+        substitutionNote: String? = nil
     ) -> [String: ParameterValue] {
         var options: [String: ParameterValue] = [
             "requestedRank": .string(resolution.request.provenanceValue),
@@ -2046,9 +2081,28 @@ public actor ClassificationPipeline {
             options["brackenCLIDialect"] = .string(dialect.rawValue)
         }
         if let effectiveArgv {
-            options["effectiveArgv"] = .string(effectiveArgv.joined(separator: " "))
+            options["effectiveArgv"] = .string(Self.shellQuotedArgv(effectiveArgv))
+        }
+        // Present only when a substitution happened, so its absence is not evidence of one.
+        if let substitutionNote {
+            options["kmerDistributionSubstitution"] = .string(substitutionNote)
         }
         return options
+    }
+
+    /// Joins argv for the provenance record so a reader can paste it back into a shell.
+    ///
+    /// A bare space-join is ambiguous exactly where it matters: a database path containing
+    /// a space reads as two arguments, so the recorded command is not the command that ran.
+    /// Single-quoting the items that need it (with the standard `'\''` escape for an embedded
+    /// quote) makes the record unambiguous without touching the argv actually passed to the
+    /// tool, which never goes through a shell.
+    static func shellQuotedArgv(_ argv: [String]) -> String {
+        argv.map { argument in
+            guard argument.contains(where: { $0 == " " || $0 == "\t" || $0 == "'" || $0 == "\"" })
+            else { return argument }
+            return "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }.joined(separator: " ")
     }
 
     private func managedRuntimeIdentity(
