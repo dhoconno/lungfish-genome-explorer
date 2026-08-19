@@ -1,0 +1,83 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "kraken2-mini-SRR35517702"
+  ],
+  "createdAt": "2026-08-19T01:50:30Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "921bcb150508ac20f3ad6b6359fda02a749229298ecbc5dd5af7b5faf41f11d2",
+      "fileSize": 110,
+      "path": "classification.kraken",
+      "size": 110
+    },
+    {
+      "checksumSHA256": "08165632252993e64560d9a8a1c6c27b15933a7ab04274af0be8171d7655aaff",
+      "fileSize": 28,
+      "path": "classification.kreport",
+      "size": 28
+    },
+    {
+      "checksumSHA256": "c7dcc7de683fa9226972327478ece97418187c089d998a2b4a36f345d4de8c80",
+      "fileSize": 219,
+      "path": "meta.json",
+      "size": 219
+    }
+  ],
+  "options": {
+    "condaEnvironment": "kraken2",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "kraken2",
+    "fixtureWorkflowName": "conformance-golden-kraken2-mini-SRR35517702",
+    "goldenRecipeID": "kraken2-mini-SRR35517702",
+    "inputPaths": [
+      "Tests/Fixtures/kraken2-mini/SRR35517702/source.fastq"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/kraken2-mini-SRR35517702",
+    "purpose": "Retained kraken2 conformance golden for dependency set 2026.2 (recipe kraken2-mini-SRR35517702). Byte-identical to 2026.1 even though the Viral index moved to 20260626: the fixture's three synthetic reads are all unclassified, so this recipe does not exercise the index taxonomy.",
+    "recipeCommand": "kraken2 --db {db} --report {out}/classification.kreport --output {out}/classification.kraken {in0} >/dev/null 2>&1",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/kraken2-mini-SRR35517702",
+      "tool": "kraken2"
+    }
+  },
+  "output": {
+    "checksumSHA256": "e979ddac0e0b61e4fb408f58fdb68a389a7a52e0dab45f232e1806aa5cc6633e",
+    "fileSize": 357,
+    "path": "Tests/Fixtures/conformance/2026.2/kraken2-mini-SRR35517702",
+    "size": 357
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only kraken2-mini-SRR35517702",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only kraken2-mini-SRR35517702",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "kraken2",
+    "version": "2.17.1"
+  },
+  "toolName": "kraken2",
+  "toolVersion": "2.17.1",
+  "wallTimeSeconds": 0.305,
+  "workflowName": "conformance-golden-kraken2-mini-SRR35517702"
+}

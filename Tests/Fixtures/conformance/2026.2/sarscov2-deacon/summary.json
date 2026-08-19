@@ -1,0 +1,21 @@
+{
+  "abs_threshold": 2,
+  "bp_in": 13897,
+  "bp_out": 307,
+  "bp_out_proportion": 0.022091098798301793,
+  "bp_removed": 13590,
+  "bp_removed_proportion": 0.9779089012016982,
+  "check_pairs": false,
+  "deplete": true,
+  "k": 31,
+  "prefix_length": 0,
+  "rel_threshold": 0.01,
+  "rename": false,
+  "rename_random": false,
+  "seqs_in": 100,
+  "seqs_out": 3,
+  "seqs_out_proportion": 0.03,
+  "seqs_removed": 97,
+  "seqs_removed_proportion": 0.97,
+  "w": 15
+}

@@ -1,0 +1,78 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-megahit"
+  ],
+  "createdAt": "2026-08-19T01:50:41Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "21b98e4d0c42d259c7cd35a7514d7aa82f96818c952eb02ea9e250840d4cd226",
+      "fileSize": 207,
+      "path": "contigs-stats.tsv",
+      "size": 207
+    },
+    {
+      "checksumSHA256": "765b32641b8fee6dfc5e53f57aee29466f830cf24383f299bfe3ce2d2212d6ff",
+      "fileSize": 210,
+      "path": "meta.json",
+      "size": 210
+    }
+  ],
+  "options": {
+    "condaEnvironment": "megahit",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "megahit",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-megahit",
+    "goldenRecipeID": "sarscov2-megahit",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "Tests/Fixtures/sarscov2/test_2.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-megahit",
+    "purpose": "Retained megahit conformance golden for dependency set 2026.2 (recipe sarscov2-megahit). The megahit pin did not move this sweep; one regeneration run out of seven produced 11 contigs rather than 12, which is run to run assembler nondeterminism under the recipe's two threads, so the reproducible 12 contig result was recorded.",
+    "recipeCommand": "megahit -1 {in0} -2 {in1} -t 2 -o {out}/megahit >/dev/null 2>&1 && {seqkit} stats -a -T {out}/megahit/final.contigs.fa | sed 's#{out}/megahit/##' > {out}/contigs-stats.tsv && rm -rf {out}/megahit",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-megahit",
+      "tool": "megahit"
+    }
+  },
+  "output": {
+    "checksumSHA256": "cebb70e9eb446fa4caa9f1fcb81dcc71d25790622194c55a2dc8e98d4d466c54",
+    "fileSize": 417,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-megahit",
+    "size": 417
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-megahit",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-megahit",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "megahit",
+    "version": "1.2.9"
+  },
+  "toolName": "megahit",
+  "toolVersion": "1.2.9",
+  "wallTimeSeconds": 0.466,
+  "workflowName": "conformance-golden-sarscov2-megahit"
+}

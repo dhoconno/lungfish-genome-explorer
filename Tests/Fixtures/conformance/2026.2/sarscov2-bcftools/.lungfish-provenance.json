@@ -1,0 +1,78 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-bcftools"
+  ],
+  "createdAt": "2026-08-19T01:50:42Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "45f577a330bf79f591550fc8f51e0eecf01faba0696c9ce9b01a162597862814",
+      "fileSize": 1631,
+      "path": "calls.vcf",
+      "size": 1631
+    },
+    {
+      "checksumSHA256": "fa6254e010ed01324964c678d70f6818605f0c9a5436db3d1a2acb2365876bcb",
+      "fileSize": 212,
+      "path": "meta.json",
+      "size": 212
+    }
+  ],
+  "options": {
+    "condaEnvironment": "bcftools",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "bcftools",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-bcftools",
+    "goldenRecipeID": "sarscov2-bcftools",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/genome.fasta",
+      "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-bcftools",
+    "purpose": "Retained bcftools conformance golden for dependency set 2026.2 (recipe sarscov2-bcftools). bcftools moved 1.23.1 to 1.24 and the called variants are unchanged.",
+    "recipeCommand": "bcftools mpileup -f {in0} -Ou {in1} | bcftools call -mv -Ov | grep -v '^##' > {out}/calls.vcf",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-bcftools",
+      "tool": "bcftools"
+    }
+  },
+  "output": {
+    "checksumSHA256": "a8cc54efe649590357ecb3a75121f911a3d2102981cf1994cf5450566d27c5f5",
+    "fileSize": 1843,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-bcftools",
+    "size": 1843
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-bcftools",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-bcftools",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "bcftools",
+    "version": "1.24"
+  },
+  "toolName": "bcftools",
+  "toolVersion": "1.24",
+  "wallTimeSeconds": 0.107,
+  "workflowName": "conformance-golden-sarscov2-bcftools"
+}

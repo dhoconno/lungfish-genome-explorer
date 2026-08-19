@@ -3,12 +3,17 @@ import os
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "testing"))
+
+from fixture_provenance import RETAINED_FIXTURES as REAL_RETAINED_FIXTURES  # noqa: E402
+
 AUDIT_SCRIPT = PROJECT_ROOT / "scripts" / "testing" / "audit-fixture-provenance.sh"
 BACKFILL_SCRIPT = PROJECT_ROOT / "scripts" / "testing" / "write-analysis-fixture-provenance.py"
 RETAINED_FIXTURES = [
@@ -28,8 +33,21 @@ RETAINED_FIXTURES = [
 GOLDEN_RECIPES = json.loads(
     (PROJECT_ROOT / "scripts" / "deps" / "goldens.json").read_text(encoding="utf-8")
 )["goldens"]
+# Every dependency set that is actually registered, not just the newest one:
+# retired sets stay on disk as history and remain in RETAINED_FIXTURES, so the
+# synthetic root these tests build has to contain all of them or the audit
+# reports the ones it did not create as missing.
+CONFORMANCE_GOLDEN_SETS = sorted(
+    {
+        metadata["dependencySet"]
+        for metadata in REAL_RETAINED_FIXTURES.values()
+        if "dependencySet" in metadata
+    }
+)
 CONFORMANCE_GOLDEN_FIXTURES = [
-    recipe["golden"].replace("{set}", "2026.1") for recipe in GOLDEN_RECIPES
+    recipe["golden"].replace("{set}", dependency_set)
+    for dependency_set in CONFORMANCE_GOLDEN_SETS
+    for recipe in GOLDEN_RECIPES
 ]
 RETAINED_FIXTURES = RETAINED_FIXTURES + CONFORMANCE_GOLDEN_FIXTURES
 CLASSIFIER_FULL_VIEWER_FIXTURE = "Tests/Fixtures/classifier-full-viewer"

@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.2",
+  "environment": "kraken2",
+  "generatedAt": "2026-08-19T01:50:30Z",
+  "recipeID": "kraken2-mini-SRR35517702",
+  "tool": "kraken2",
+  "toolVersion": "2.17.1",
+  "wallTimeSeconds": 0.305
+}

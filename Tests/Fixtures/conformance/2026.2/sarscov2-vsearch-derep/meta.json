@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.2",
+  "environment": "vsearch",
+  "generatedAt": "2026-08-19T01:50:41Z",
+  "recipeID": "sarscov2-vsearch-derep",
+  "tool": "vsearch",
+  "toolVersion": "2.31.0",
+  "wallTimeSeconds": 0.05
+}

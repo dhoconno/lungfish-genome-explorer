@@ -1,0 +1,77 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-seqkit-stats"
+  ],
+  "createdAt": "2026-08-19T01:50:30Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "691d428bcf5231d226061c69b1cf19a53e693c92cb85961602a2937d5759bc6a",
+      "fileSize": 214,
+      "path": "meta.json",
+      "size": 214
+    },
+    {
+      "checksumSHA256": "027cbbb413808fef1b44dc41a8c8224c0a98bc033613018a07d29e9b6ca0ea93",
+      "fileSize": 197,
+      "path": "stats.tsv",
+      "size": 197
+    }
+  ],
+  "options": {
+    "condaEnvironment": "seqkit",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "seqkit",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-seqkit-stats",
+    "goldenRecipeID": "sarscov2-seqkit-stats",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-seqkit-stats",
+    "purpose": "Retained seqkit conformance golden for dependency set 2026.2 (recipe sarscov2-seqkit-stats).",
+    "recipeCommand": "seqkit stats -a -T {in0} | sed 's#{in0}#IN#' > {out}/stats.tsv",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-seqkit-stats",
+      "tool": "seqkit"
+    }
+  },
+  "output": {
+    "checksumSHA256": "e17ff41adfef1cc44f6e834d59dbda069701dabcb2a7d6a924b8f3261c574338",
+    "fileSize": 411,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-seqkit-stats",
+    "size": 411
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-seqkit-stats",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-seqkit-stats",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "seqkit",
+    "version": "2.13.0"
+  },
+  "toolName": "seqkit",
+  "toolVersion": "2.13.0",
+  "wallTimeSeconds": 0.039,
+  "workflowName": "conformance-golden-sarscov2-seqkit-stats"
+}

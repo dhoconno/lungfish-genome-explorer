@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.2",
+  "environment": "samtools",
+  "generatedAt": "2026-08-19T01:50:30Z",
+  "recipeID": "sarscov2-idxstats",
+  "tool": "samtools",
+  "toolVersion": "1.24",
+  "wallTimeSeconds": 0.03
+}

@@ -4,7 +4,7 @@ Committed tool outputs for one dependency set, used to answer a single question
 when third-party tools are upgraded: did any tool change what it produces for the
 same input?
 
-Each subdirectory of `2026.1/` holds the outputs of one recipe from
+Each subdirectory of a set directory such as `2026.2/` holds the outputs of one recipe from
 `scripts/deps/goldens.json`, plus a `meta.json` recording the tool version, the
 environment, and when the golden was generated. The recipes reduce every tool run
 to a small summary (counts, statistics, a topology, a variant table) so a golden
@@ -15,14 +15,14 @@ directory stays a few kilobytes rather than carrying whole BAMs or assemblies.
 Generate a fresh set of outputs with the currently installed tools:
 
 ```bash
-bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out /tmp/goldens-2026.1
+bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out /tmp/goldens-2026.2
 ```
 
 Compare that candidate tree against the committed goldens:
 
 ```bash
 python3 scripts/deps/diff_goldens.py --recipes scripts/deps/goldens.json \
-    --candidate /tmp/goldens-2026.1 --set 2026.1
+    --candidate /tmp/goldens-2026.2 --set 2026.2
 ```
 
 The comparison exits 0 when everything matches, 2 when an output differs, and 3
@@ -69,6 +69,43 @@ each recipe's outputs into its golden directory, add the new directories to
 `RETAINED_FIXTURES` in `scripts/testing/fixture_provenance.py` with a
 `dependencySet` field, and run `bash scripts/testing/audit-fixture-provenance.sh`
 to write and validate the provenance sidecars.
+
+## Golden changes
+
+What moved between committed sets, and why each change was accepted.
+
+### 2026.1 to 2026.2
+
+Twelve of the thirteen compared outputs were unchanged. Only `sarscov2-deacon`
+differed, and the megahit recipe raised a question that turned out to be
+nondeterminism rather than a tool change.
+
+- `sarscov2-deacon`: deacon 0.16.0 adds one key to its filter summary,
+  `check_pairs`, which is `false` for this single ended recipe. Every numeric
+  field is identical to 2026.1, so the change is purely additive and was taken.
+- `sarscov2-megahit`: the megahit pin did not move this sweep, and the recorded
+  golden is the 12 contig result that 13 of 13 isolated runs produce. Two
+  full-batch runs produced 11 contigs instead, which exceeds the 5 percent
+  tolerance on both `num_seqs` and `N50` and fails tier 2. This is megahit's own
+  run to run nondeterminism under the recipe's two threads, surfacing when the
+  machine is busy: the flip has only ever appeared in a full batch run, where
+  megahit follows SPAdes, and never in 13 isolated runs. It is not a tool
+  regression. Treat a lone megahit difference as a prompt to rerun that recipe
+  on an idle machine before treating it as a finding, and see the note below on
+  making this recipe deterministic.
+
+Follow-up worth doing: this recipe is the one golden that can fail for reasons
+unrelated to a dependency change, which weakens tier 2 as a gate. Options are to
+run megahit single threaded so the assembly is deterministic, or to compare only
+`sum_len`, which moved 2.7 percent and stayed inside tolerance while the
+contig count and N50 did not.
+- `kraken2-mini-SRR35517702`: byte identical to 2026.1 despite the Viral index
+  moving to 20260626. That index renames the SARS-CoV-2 species to
+  Betacoronavirus pandemicum under taxid 3418604, but this recipe's three
+  synthetic reads are all unclassified, so the recipe never touches the index
+  taxonomy and cannot witness the rename. See the section below.
+- samtools, bcftools, and SPAdes moved versions (1.23.1 to 1.24 and 4.2.0 to
+  4.3.0) with byte identical outputs.
 
 ## Why kraken2-mini has its own golden
 

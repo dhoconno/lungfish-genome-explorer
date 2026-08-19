@@ -1,0 +1,77 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-fastp"
+  ],
+  "createdAt": "2026-08-19T01:50:31Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "8b1468f04af37f094097cdd593b7e677e8474cad85da4767ea0ebbedfc790839",
+      "fileSize": 204,
+      "path": "meta.json",
+      "size": 204
+    },
+    {
+      "checksumSHA256": "1038c75123b0d23263cbc337bf7da505020df17514859d211dc1c8e316793dcd",
+      "fileSize": 450,
+      "path": "summary.json",
+      "size": 450
+    }
+  ],
+  "options": {
+    "condaEnvironment": "fastp",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "fastp",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-fastp",
+    "goldenRecipeID": "sarscov2-fastp",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-fastp",
+    "purpose": "Retained fastp conformance golden for dependency set 2026.2 (recipe sarscov2-fastp).",
+    "recipeCommand": "fastp -i {in0} -o {out}/trim.fq.gz -j {out}/fastp.json -h /dev/null -w 1 2>/dev/null && python3 -c \"import json; d=json.load(open('{out}/fastp.json')); json.dump({'before': d['summary']['before_filtering'], 'after': d['summary']['after_filtering']}, open('{out}/summary.json','w'), sort_keys=True, indent=2)\" && rm -f {out}/trim.fq.gz {out}/fastp.json",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-fastp",
+      "tool": "fastp"
+    }
+  },
+  "output": {
+    "checksumSHA256": "6d7f58c3ecc4a570afe26c3db42db1440b613e70e7d45814d15e8cbdc73e77b7",
+    "fileSize": 654,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-fastp",
+    "size": 654
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-fastp",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-fastp",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "fastp",
+    "version": "1.3.6"
+  },
+  "toolName": "fastp",
+  "toolVersion": "1.3.6",
+  "wallTimeSeconds": 0.364,
+  "workflowName": "conformance-golden-sarscov2-fastp"
+}

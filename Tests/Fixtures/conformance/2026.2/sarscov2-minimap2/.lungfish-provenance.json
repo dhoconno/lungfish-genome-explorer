@@ -1,0 +1,79 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-minimap2"
+  ],
+  "createdAt": "2026-08-19T01:50:31Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "1b7aea864cf98cbd8d7803ab182688bb5fb8ab028d7fc7abd5d83e84af33f9b5",
+      "fileSize": 1098,
+      "path": "flagstat.json",
+      "size": 1098
+    },
+    {
+      "checksumSHA256": "8b4b761c287a62914f5872ca0dfeca4da3fa4ab6547d88e74250fa1ad1bfb8f3",
+      "fileSize": 212,
+      "path": "meta.json",
+      "size": 212
+    }
+  ],
+  "options": {
+    "condaEnvironment": "minimap2",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "minimap2",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-minimap2",
+    "goldenRecipeID": "sarscov2-minimap2",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/genome.fasta",
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "Tests/Fixtures/sarscov2/test_2.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-minimap2",
+    "purpose": "Retained minimap2 conformance golden for dependency set 2026.2 (recipe sarscov2-minimap2).",
+    "recipeCommand": "minimap2 -ax sr {in0} {in1} {in2} 2>/dev/null | {samtools} sort -o {out}/aln.bam - && {samtools} flagstat -O json {out}/aln.bam > {out}/flagstat.json && rm -f {out}/aln.bam",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-minimap2",
+      "tool": "minimap2"
+    }
+  },
+  "output": {
+    "checksumSHA256": "e24a7236d60b8c5059838c097ad21a43efb67b58c1a40587a17c05c193bdb852",
+    "fileSize": 1310,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-minimap2",
+    "size": 1310
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-minimap2",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-minimap2",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "minimap2",
+    "version": "2.31"
+  },
+  "toolName": "minimap2",
+  "toolVersion": "2.31",
+  "wallTimeSeconds": 0.044,
+  "workflowName": "conformance-golden-sarscov2-minimap2"
+}

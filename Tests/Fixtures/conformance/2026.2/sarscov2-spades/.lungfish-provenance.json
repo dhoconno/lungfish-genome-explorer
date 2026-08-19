@@ -1,0 +1,78 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-spades"
+  ],
+  "createdAt": "2026-08-19T01:50:41Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "09b98a3985d9b55398f5e73bcda4518edc237a8738f697e194012f50f6184fb9",
+      "fileSize": 204,
+      "path": "contigs-stats.tsv",
+      "size": 204
+    },
+    {
+      "checksumSHA256": "8e83fc14531fa23e34ef59b3d67dfb4c96578f609fe4e15d825e929bb986cafe",
+      "fileSize": 207,
+      "path": "meta.json",
+      "size": 207
+    }
+  ],
+  "options": {
+    "condaEnvironment": "spades",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "spades",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-spades",
+    "goldenRecipeID": "sarscov2-spades",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "Tests/Fixtures/sarscov2/test_2.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-spades",
+    "purpose": "Retained spades conformance golden for dependency set 2026.2 (recipe sarscov2-spades). SPAdes moved 4.2.0 to 4.3.0 and the contig statistics are unchanged.",
+    "recipeCommand": "spades.py --sc -k 21 -1 {in0} -2 {in1} -t 4 -m 8 -o {out}/spades >/dev/null 2>&1 && {seqkit} stats -a -T {out}/spades/contigs.fasta | sed 's#{out}/spades/##' > {out}/contigs-stats.tsv && rm -rf {out}/spades",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-spades",
+      "tool": "spades"
+    }
+  },
+  "output": {
+    "checksumSHA256": "69bfc2357b86f85b4501a3a0ff7b48c61ce61ac6718c15cc16e488db4f7b13dd",
+    "fileSize": 411,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-spades",
+    "size": 411
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-spades",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-spades",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "spades",
+    "version": "4.3.0"
+  },
+  "toolName": "spades",
+  "toolVersion": "4.3.0",
+  "wallTimeSeconds": 9.607,
+  "workflowName": "conformance-golden-sarscov2-spades"
+}

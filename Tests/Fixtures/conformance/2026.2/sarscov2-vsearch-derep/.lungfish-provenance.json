@@ -1,0 +1,77 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.2",
+    "--out",
+    "build/goldens-2026.2",
+    "--only",
+    "sarscov2-vsearch-derep"
+  ],
+  "createdAt": "2026-08-19T01:50:41Z",
+  "dependencySet": "2026.2",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "eea8254c7500ba3de996aa8ad6af399183f04e17d4a8102fde539dbc93a90012",
+      "fileSize": 4,
+      "path": "count.txt",
+      "size": 4
+    },
+    {
+      "checksumSHA256": "92ef119cc4625127c6aa40e1f646c4842796e4aa1beac6545a12c8527356e83b",
+      "fileSize": 216,
+      "path": "meta.json",
+      "size": 216
+    }
+  ],
+  "options": {
+    "condaEnvironment": "vsearch",
+    "dependencySet": "2026.2",
+    "fixtureToolName": "vsearch",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-vsearch-derep",
+    "goldenRecipeID": "sarscov2-vsearch-derep",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-vsearch-derep",
+    "purpose": "Retained vsearch conformance golden for dependency set 2026.2 (recipe sarscov2-vsearch-derep).",
+    "recipeCommand": "{seqkit} fq2fa {in0} -o {out}/r.fa && vsearch --derep_fulllength {out}/r.fa --output {out}/d.fa --sizeout --quiet && grep -c '^>' {out}/d.fa > {out}/count.txt && rm -f {out}/r.fa {out}/d.fa",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-vsearch-derep",
+      "tool": "vsearch"
+    }
+  },
+  "output": {
+    "checksumSHA256": "02c70dc6da6fcdd957bd6575dc43040b981cbf152e03c301c22a499f51eb2e95",
+    "fileSize": 220,
+    "path": "Tests/Fixtures/conformance/2026.2/sarscov2-vsearch-derep",
+    "size": 220
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-vsearch-derep",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out build/goldens-2026.2 --only sarscov2-vsearch-derep",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 44863,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "vsearch",
+    "version": "2.31.0"
+  },
+  "toolName": "vsearch",
+  "toolVersion": "2.31.0",
+  "wallTimeSeconds": 0.05,
+  "workflowName": "conformance-golden-sarscov2-vsearch-derep"
+}

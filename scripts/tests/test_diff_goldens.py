@@ -17,7 +17,13 @@ import diff_goldens  # noqa: E402
 DIFF_SCRIPT = ROOT / "scripts" / "deps" / "diff_goldens.py"
 REGENERATE_SCRIPT = ROOT / "scripts" / "deps" / "regenerate-goldens.sh"
 RECIPES = ROOT / "scripts" / "deps" / "goldens.json"
-CURRENT_SET = "2026.1"
+TOOL_MANIFEST = (
+    ROOT / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+)
+# Read the set from the tool manifest rather than restating it, so a sweep that
+# bumps dependencySet cannot leave this test asserting against the previous set's
+# goldens (which still exist on disk, so a stale literal would silently pass).
+CURRENT_SET = json.loads(TOOL_MANIFEST.read_text(encoding="utf-8"))["dependencySet"]
 GOLDEN_RECIPES = json.loads(RECIPES.read_text(encoding="utf-8"))["goldens"]
 
 
