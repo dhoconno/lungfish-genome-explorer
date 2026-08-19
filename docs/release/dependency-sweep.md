@@ -58,6 +58,30 @@ regression). A bump of a tool with a known output-format risk gets a note in
 the same draft so step 4's tier 2 review has context. Expected time: 30 to 90
 minutes of judgment, not compute.
 
+A held tool needs one further question: is the pin still better than what a
+user is likely to already have? For a tool whose only installable build on
+this architecture is broken or ancient, the answer can be no, and reinstalling
+over a working local build makes the machine worse rather than better. That is
+what `preserveExistingInstall` is for.
+
+Set `preserveExistingInstall: true` on the manifest entry when all of the
+following hold, and leave it absent otherwise:
+
+- the pinned build is not an improvement on a plausible source build (bracken's
+  arm64 pin ships no driver at all, and is version 1.0.0 against a source build
+  of 3.0.1);
+- a source build of the tool leaves no `conda-meta` record, so reconciliation
+  reads the environment as unverifiable and plans a reinstall it should not;
+- the entry's `executables` are a real test of usability, since presence of all
+  of them in the environment's `bin/` is the whole check.
+
+It is an exception per tool, never a policy. It suppresses only the
+"no record of the pinned package" flavour of `metadataMismatch`, and never a
+`specChanged`, a `buildChanged`, a first install into an absent environment, or
+a receipt entry stuck in `pending` or `failed`. `bracken` is the only entry
+carrying it, and `DependencyPlannerTests` asserts that. Adding a second is a
+decision to argue in the release notes, not a default.
+
 ### 3. Rewrite the manifest
 
 ```bash
@@ -359,3 +383,11 @@ The 2026.2 sweep added three more:
    since fixed should be removed so the tool is checked normally again.
 9. Java runtime dependencies on a bbtools major bump, since the tool locator
    resolves a JRE inside the bbtools environment by a hardcoded path.
+10. Whether the sweep's own plan would destroy something. Apply the plan to a
+    clone of a real storage root and compare each touched environment before
+    and after, rather than reading the plan and assuming a reinstall is
+    harmless. The 2026.2 sweep found that reinstalling the held `bracken` pin
+    replaced a working source build of 3.0.1 with the driverless bioconda
+    1.0.0 package, dropping `bin/` from 294 files to 120. Every entry carrying
+    `preserveExistingInstall` should also be rechecked each sweep: if upstream
+    has published a build worth having, bump the pin and drop the flag.

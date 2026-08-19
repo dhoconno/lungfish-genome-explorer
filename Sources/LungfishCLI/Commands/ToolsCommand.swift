@@ -210,6 +210,17 @@ extension ToolsCommand {
 
         static func render(_ plan: ReconciliationPlan) -> String {
             var lines = ["Target dependency set: \(plan.targetDependencySet)"]
+            // Preserved environments are advisory and do not count as work, so they are printed
+            // before the empty check: a user whose local build is being kept should be told so
+            // even when there is nothing else to do.
+            for change in plan.preservedEnvironments {
+                lines.append(
+                    "preserve  \(change.environment)  local install kept; pinned \(change.targetSpec) not applied"
+                )
+                lines.append(
+                    "          remove the '\(change.environment)' environment and reinstall the pack to take the pinned build"
+                )
+            }
             guard !plan.isEmpty else {
                 lines.append("Nothing to do.")
                 return lines.joined(separator: "\n")

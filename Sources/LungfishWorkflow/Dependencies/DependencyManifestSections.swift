@@ -22,9 +22,43 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
     public let version: String
     public let license: String?
     public let sourceUrl: String?
+    /// Opt-in: when this environment already exists on disk with all `executables` present but
+    /// its conda-meta carries no record of the pinned package, keep what is there instead of
+    /// reinstalling over it.
+    ///
+    /// Absent (or false) means the ordinary policy applies: unreadable provenance is a
+    /// `.metadataMismatch` and the environment is reinstalled from the pin. Set this only for a
+    /// tool whose pinned build is not an improvement on what a user is likely to have built
+    /// themselves, because it trades "the manifest is the authority" for "do not destroy a
+    /// working local install". It never suppresses a genuine version or build change, and never
+    /// suppresses the first install of a missing environment.
+    public let preserveExistingInstall: Bool?
+
+    public init(
+        packID: String,
+        toolID: String,
+        environment: String,
+        packageSpec: String,
+        executables: [String],
+        version: String,
+        license: String?,
+        sourceUrl: String?,
+        preserveExistingInstall: Bool? = nil
+    ) {
+        self.packID = packID
+        self.toolID = toolID
+        self.environment = environment
+        self.packageSpec = packageSpec
+        self.executables = executables
+        self.version = version
+        self.license = license
+        self.sourceUrl = sourceUrl
+        self.preserveExistingInstall = preserveExistingInstall
+    }
 
     enum CodingKeys: String, CodingKey {
         case packID, toolID = "id", environment, packageSpec, executables, version, license, sourceUrl
+        case preserveExistingInstall
     }
 }
 

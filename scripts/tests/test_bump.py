@@ -195,6 +195,32 @@ class ManifestIOTests(unittest.TestCase):
             self.assertEqual(positions, sorted(positions))
             self.assertEqual(json.loads(text)["tools"], manifest["tools"])
 
+    def test_preserve_existing_install_round_trips_inline(self):
+        """The per-tool opt-in survives a rewrite, on one line with its entry."""
+        manifest = manifest_io.load(MANIFEST)
+        bracken = [t for t in manifest["packTools"] if t["id"] == "bracken"]
+        self.assertEqual(len(bracken), 1, "manifest must pin exactly one bracken packTool")
+        self.assertIs(bracken[0]["preserveExistingInstall"], True)
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "lock.json"
+            manifest_io.dump(manifest, out)
+            text = out.read_text(encoding="utf-8")
+            line = [ln for ln in text.splitlines() if '"id": "bracken"' in ln]
+            self.assertEqual(len(line), 1, "packTools entries stay one per line")
+            self.assertIn('"preserveExistingInstall": true', line[0])
+            reloaded = json.loads(text)["packTools"]
+            self.assertEqual(reloaded, manifest["packTools"])
+
+    def test_preserve_existing_install_is_a_bracken_only_exception(self):
+        """Loosening provenance checks is opt-in per tool, never a fleet-wide policy."""
+        manifest = manifest_io.load(MANIFEST)
+        opted = [
+            entry["id"]
+            for entry in manifest["tools"] + manifest["packTools"]
+            if entry.get("preserveExistingInstall")
+        ]
+        self.assertEqual(opted, ["bracken"])
+
 
 class ApplyBumpsTests(unittest.TestCase):
     def test_apply_bumps_updates_spec_version_and_set(self):

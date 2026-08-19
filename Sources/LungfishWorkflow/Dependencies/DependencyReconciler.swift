@@ -69,6 +69,11 @@ public struct ReconcilerServices: Sendable {
     public var registryDatabaseVersions: @Sendable () async -> [String: String]
     public var metagenomicsDatabaseVersions: @Sendable () async -> [String: String]
     public var installedMicromambaVersion: @Sendable () async -> String?
+    /// Whether `envs/<environment>/bin/<executable>` exists and is executable.
+    ///
+    /// Read by the planner only for manifest entries that set `preserveExistingInstall`: it is
+    /// how "a usable install is already here" is judged without running the tool.
+    public var environmentExecutableExists: @Sendable (_ environment: String, _ executable: String) -> Bool
 
     public init(
         createEnvironment: @escaping @Sendable (String, String, @escaping @Sendable (Double, String) -> Void) async throws -> Void,
@@ -82,7 +87,8 @@ public struct ReconcilerServices: Sendable {
         installedPackIDs: @escaping @Sendable () async -> Set<String>,
         registryDatabaseVersions: @escaping @Sendable () async -> [String: String],
         metagenomicsDatabaseVersions: @escaping @Sendable () async -> [String: String],
-        installedMicromambaVersion: @escaping @Sendable () async -> String?
+        installedMicromambaVersion: @escaping @Sendable () async -> String?,
+        environmentExecutableExists: @escaping @Sendable (String, String) -> Bool = { _, _ in false }
     ) {
         self.createEnvironment = createEnvironment
         self.removeEnvironment = removeEnvironment
@@ -96,6 +102,7 @@ public struct ReconcilerServices: Sendable {
         self.registryDatabaseVersions = registryDatabaseVersions
         self.metagenomicsDatabaseVersions = metagenomicsDatabaseVersions
         self.installedMicromambaVersion = installedMicromambaVersion
+        self.environmentExecutableExists = environmentExecutableExists
     }
 }
 
@@ -163,6 +170,11 @@ public extension ReconcilerServices {
             },
             installedMicromambaVersion: {
                 await Self.readMicromambaVersion(at: condaManager.rootPrefix.appendingPathComponent("bin/micromamba"))
+            },
+            environmentExecutableExists: { environment, executable in
+                let url = condaManager.rootPrefix
+                    .appendingPathComponent("envs/\(environment)/bin/\(executable)")
+                return FileManager.default.isExecutableFile(atPath: url.path)
             }
         )
     }
@@ -509,7 +521,8 @@ public actor DependencyReconciler {
             registryDatabaseVersions: await services.registryDatabaseVersions(),
             metagenomicsDatabaseVersions: await services.metagenomicsDatabaseVersions(),
             installedMicromambaVersion: await services.installedMicromambaVersion(),
-            knownEnvironmentNames: Self.builtInPackEnvironmentNames()
+            knownEnvironmentNames: Self.builtInPackEnvironmentNames(),
+            environmentExecutableExists: services.environmentExecutableExists
         )
         return DependencyPlanner.plan(inputs)
     }

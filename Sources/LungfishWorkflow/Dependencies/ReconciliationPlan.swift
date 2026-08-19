@@ -32,6 +32,12 @@ public struct ReconciliationPlan: Codable, Sendable, Equatable {
         /// Reserved for UI mapping: bootstrap work travels in `bootstrapUpdate`, so the planner
         /// never attaches this reason to an `EnvironmentChange` today.
         case bootstrap
+        /// The environment would have been reinstalled for unreadable provenance, but the
+        /// manifest entry sets `preserveExistingInstall` and a usable install is already there.
+        ///
+        /// Advisory only: entries carrying this reason travel in `preservedEnvironments` and are
+        /// never installed, reinstalled, or removed.
+        case localInstallPreserved
     }
 
     public struct EnvironmentChange: Codable, Sendable, Equatable, Identifiable {
@@ -118,6 +124,12 @@ public struct ReconciliationPlan: Codable, Sendable, Equatable {
 
     public var installEnvironments: [EnvironmentChange]
     public var reinstallEnvironments: [EnvironmentChange]
+    /// Environments deliberately left alone: the manifest pins a different build, but the entry
+    /// opted into `preserveExistingInstall` and a usable local install is already present.
+    ///
+    /// Advisory: this list is reported, never applied. It is excluded from `isEmpty` and
+    /// `hasRequiredWork` so a machine carrying a preserved environment still reconciles clean.
+    public var preservedEnvironments: [EnvironmentChange]
     public var removeEnvironments: [String]
     public var databaseUpdates: [DatabaseChange]
     public var pipelinePrefetch: [PipelineChange]
@@ -133,16 +145,32 @@ public struct ReconciliationPlan: Codable, Sendable, Equatable {
         pipelinePrefetch: [PipelineChange],
         bootstrapUpdate: BootstrapChange?,
         targetDependencySet: String,
-        estimatedDownloadBytes: Int64
+        estimatedDownloadBytes: Int64,
+        preservedEnvironments: [EnvironmentChange] = []
     ) {
         self.installEnvironments = installEnvironments
         self.reinstallEnvironments = reinstallEnvironments
+        self.preservedEnvironments = preservedEnvironments
         self.removeEnvironments = removeEnvironments
         self.databaseUpdates = databaseUpdates
         self.pipelinePrefetch = pipelinePrefetch
         self.bootstrapUpdate = bootstrapUpdate
         self.targetDependencySet = targetDependencySet
         self.estimatedDownloadBytes = estimatedDownloadBytes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        installEnvironments = try c.decode([EnvironmentChange].self, forKey: .installEnvironments)
+        reinstallEnvironments = try c.decode([EnvironmentChange].self, forKey: .reinstallEnvironments)
+        // Plans written before this field existed decode as "nothing was preserved".
+        preservedEnvironments = try c.decodeIfPresent([EnvironmentChange].self, forKey: .preservedEnvironments) ?? []
+        removeEnvironments = try c.decode([String].self, forKey: .removeEnvironments)
+        databaseUpdates = try c.decode([DatabaseChange].self, forKey: .databaseUpdates)
+        pipelinePrefetch = try c.decode([PipelineChange].self, forKey: .pipelinePrefetch)
+        bootstrapUpdate = try c.decodeIfPresent(BootstrapChange.self, forKey: .bootstrapUpdate)
+        targetDependencySet = try c.decode(String.self, forKey: .targetDependencySet)
+        estimatedDownloadBytes = try c.decode(Int64.self, forKey: .estimatedDownloadBytes)
     }
 
     /// True when there is nothing at all to do.

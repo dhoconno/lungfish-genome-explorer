@@ -27,6 +27,13 @@ public struct DependencyPlannerInputs: Sendable {
     public let installedMicromambaVersion: String?
     /// Download-size estimate per environment, used for the plan's progress budget.
     public let estimatedEnvBytes: @Sendable (String) -> Int64
+    /// Whether `bin/<executable>` exists and is executable inside the named environment.
+    ///
+    /// Consulted only for entries that opted into `preserveExistingInstall`: preserving an
+    /// environment whose declared executables are gone would strand the user with a broken
+    /// tool the app has promised never to repair. The default answers false, so a caller that
+    /// does not wire this up never preserves anything.
+    public let environmentExecutableExists: @Sendable (_ environment: String, _ executable: String) -> Bool
 
     public init(
         manifest: ManagedToolLock,
@@ -37,7 +44,8 @@ public struct DependencyPlannerInputs: Sendable {
         metagenomicsDatabaseVersions: [String: String],
         installedMicromambaVersion: String?,
         estimatedEnvBytes: @escaping @Sendable (String) -> Int64 = { _ in 150 * 1_048_576 },
-        knownEnvironmentNames: Set<String> = []
+        knownEnvironmentNames: Set<String> = [],
+        environmentExecutableExists: @escaping @Sendable (String, String) -> Bool = { _, _ in false }
     ) {
         self.manifest = manifest
         self.receipt = receipt
@@ -48,6 +56,7 @@ public struct DependencyPlannerInputs: Sendable {
         self.metagenomicsDatabaseVersions = metagenomicsDatabaseVersions
         self.installedMicromambaVersion = installedMicromambaVersion
         self.estimatedEnvBytes = estimatedEnvBytes
+        self.environmentExecutableExists = environmentExecutableExists
     }
 }
 
@@ -70,6 +79,10 @@ public enum DependencyPlanner {
         let spec: String
         let packID: String
         let isRequired: Bool
+        /// This entry's `preserveExistingInstall` opt-in (absent means false).
+        let preserveExistingInstall: Bool
+        /// Executables the entry declares, used to judge whether a preserved install is usable.
+        let executables: [String]
     }
 
     public static func plan(_ inputs: DependencyPlannerInputs) -> ReconciliationPlan {
@@ -82,7 +95,8 @@ public enum DependencyPlanner {
             pipelinePrefetch: [],
             bootstrapUpdate: nil,
             targetDependencySet: manifest.resolvedDependencySet,
-            estimatedDownloadBytes: 0
+            estimatedDownloadBytes: 0,
+            preservedEnvironments: []
         )
 
         planEnvironments(inputs, into: &plan)
@@ -100,11 +114,15 @@ public enum DependencyPlanner {
         let manifest = inputs.manifest
         // Managed tools are always desired; pack tools only for packs the user installed.
         var desired = manifest.tools.map {
-            DesiredEnvironment(environment: $0.environment, spec: $0.packageSpec, packID: manifest.packID, isRequired: true)
+            // Managed tools never opt in: they are required, and the app is their only installer.
+            DesiredEnvironment(environment: $0.environment, spec: $0.packageSpec, packID: manifest.packID,
+                               isRequired: true, preserveExistingInstall: false, executables: $0.executables)
         }
         for packTool in manifest.packTools where inputs.installedPackIDs.contains(packTool.packID) {
             desired.append(DesiredEnvironment(environment: packTool.environment, spec: packTool.packageSpec,
-                                              packID: packTool.packID, isRequired: false))
+                                              packID: packTool.packID, isRequired: false,
+                                              preserveExistingInstall: packTool.preserveExistingInstall ?? false,
+                                              executables: packTool.executables))
         }
 
         for target in desired.sorted(by: { $0.environment < $1.environment }) {
@@ -129,12 +147,50 @@ public enum DependencyPlanner {
             }
 
             guard let reason = reinstallReason(target: target, onDisk: onDisk, receiptEntry: receiptEntry) else { continue }
+            if shouldPreserveExistingInstall(target: target, reason: reason, receiptEntry: receiptEntry, inputs: inputs) {
+                plan.preservedEnvironments.append(change(.localInstallPreserved))
+                continue
+            }
             plan.reinstallEnvironments.append(change(reason))
             plan.estimatedDownloadBytes += inputs.estimatedEnvBytes(target.environment)
         }
 
         plan.installEnvironments.sort { $0.environment < $1.environment }
         plan.reinstallEnvironments.sort { $0.environment < $1.environment }
+        plan.preservedEnvironments.sort { $0.environment < $1.environment }
+    }
+
+    /// Whether an environment the planner would reinstall should instead be left exactly as it is.
+    ///
+    /// The narrow case this exists for: a tool whose pinned conda build is unusable on this
+    /// architecture, where the working copy on a user's machine was built from source and so
+    /// leaves no `conda-meta` record. Reinstalling from the pin would replace a working binary
+    /// with a broken one, which is a strictly worse machine than the one we started with.
+    ///
+    /// Deliberately narrow, because the manifest is otherwise the authority:
+    /// * only for entries that set `preserveExistingInstall`;
+    /// * only for `.metadataMismatch`, never `.specChanged` or `.buildChanged` (those are real
+    ///   upgrades the user asked for by taking a new dependency set);
+    /// * only when the pinned package is ABSENT from `conda-meta`. A mismatch where the package
+    ///   is present at some other version is legible provenance and gets the ordinary treatment;
+    /// * only when the receipt does not record an install that never completed, because a
+    ///   `.pending`/`.failed` entry describes a half-written environment, not a local build;
+    /// * only when every declared executable is present and executable in the environment.
+    private static func shouldPreserveExistingInstall(
+        target: DesiredEnvironment,
+        reason: ReconciliationPlan.ChangeReason,
+        receiptEntry: DependencyReceipt.EnvironmentEntry?,
+        inputs: DependencyPlannerInputs
+    ) -> Bool {
+        guard target.preserveExistingInstall, reason == .metadataMismatch else { return false }
+        if let receiptEntry, receiptEntry.state != .installed { return false }
+        guard let targetSpec = CondaSpec(spec: target.spec) else { return false }
+        let onDisk = inputs.installedEnvironments[target.environment] ?? []
+        // Only the "no record of the pinned package" flavour of mismatch is eligible.
+        guard !onDisk.contains(where: { $0.name == targetSpec.name }) else { return false }
+        // An environment with none of its executables named cannot be judged usable.
+        guard !target.executables.isEmpty else { return false }
+        return target.executables.allSatisfy { inputs.environmentExecutableExists(target.environment, $0) }
     }
 
     /// Why this existing environment needs reinstalling, or nil when it already satisfies the manifest.

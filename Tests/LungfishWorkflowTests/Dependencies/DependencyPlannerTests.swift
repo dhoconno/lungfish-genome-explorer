@@ -299,4 +299,154 @@ final class DependencyPlannerTests: XCTestCase {
             "the required pack is in scope whether or not its environments exist"
         )
     }
+
+    // MARK: - preserveExistingInstall
+
+    /// A manifest whose sole (installed) pack tool is `bracken`, optionally opting into
+    /// `preserveExistingInstall`. Mirrors the real shape: an arm64 bioconda pin whose build
+    /// ships no working driver, against a machine carrying a source build with no conda-meta.
+    private func brackenManifest(preserve: Bool?, spec: String = "bioconda::bracken=1.0.0=1") -> ManagedToolLock {
+        ManagedToolLock(
+            packID: "lungfish-tools", displayName: "T", version: "0",
+            tools: [], managedData: [], dependencySet: "2026.2",
+            packTools: [PackToolSpec(
+                packID: "metagenomics", toolID: "bracken", environment: "bracken",
+                packageSpec: spec, executables: ["bracken", "bracken-build"],
+                version: CondaSpec(spec: spec)!.version, license: nil, sourceUrl: nil,
+                preserveExistingInstall: preserve
+            )],
+            bootstrap: BootstrapSpec(micromamba: MicromambaSpec(version: "2.9.0-0", sha256: nil))
+        )
+    }
+
+    /// Inputs for the bracken fixture: the pack is installed, and `executables` names which
+    /// declared binaries the probe should report as present in the environment's `bin/`.
+    private func brackenInputs(
+        preserve: Bool?,
+        envs: [String: [CondaMetaPackage]],
+        executables: Set<String> = ["bracken", "bracken-build"],
+        receipt: DependencyReceipt = .empty(),
+        spec: String = "bioconda::bracken=1.0.0=1"
+    ) -> DependencyPlannerInputs {
+        .init(
+            manifest: brackenManifest(preserve: preserve, spec: spec), receipt: receipt,
+            installedEnvironments: envs, installedPackIDs: ["metagenomics"],
+            registryDatabaseVersions: [:], metagenomicsDatabaseVersions: [:],
+            installedMicromambaVersion: "2.9.0-0", estimatedEnvBytes: { _ in 100 },
+            environmentExecutableExists: { env, exe in env == "bracken" && executables.contains(exe) }
+        )
+    }
+
+    /// A source-built bracken: 49 unrelated conda-meta records, none of them `bracken-*`.
+    private var sourceBuiltBrackenEnv: [String: [CondaMetaPackage]] {
+        ["bracken": [meta("python", "3.12.7", "h739c21a_0"), meta("kraken2", "2.17.1", "pl5321h158e17b_0")]]
+    }
+
+    func testPreserveKeepsUsableLocalInstallWhenProvenanceIsMissing() {
+        let plan = DependencyPlanner.plan(brackenInputs(preserve: true, envs: sourceBuiltBrackenEnv))
+        XCTAssertTrue(plan.reinstallEnvironments.isEmpty, "the working local build must not be clobbered: \(plan)")
+        XCTAssertEqual(plan.preservedEnvironments.map(\.environment), ["bracken"])
+        XCTAssertEqual(plan.preservedEnvironments.first?.reason, .localInstallPreserved)
+        XCTAssertEqual(plan.preservedEnvironments.first?.targetSpec, "bioconda::bracken=1.0.0=1")
+        // Advisory only: nothing to apply, nothing to download.
+        XCTAssertTrue(plan.isEmpty, "a preserved environment is not work: \(plan)")
+        XCTAssertFalse(plan.hasRequiredWork)
+        XCTAssertEqual(plan.estimatedDownloadBytes, 0)
+    }
+
+    func testPreserveDoesNotApplyWhenDeclaredExecutablesAreMissing() {
+        // `bracken-build` is absent, so what is on disk is not a usable install of this tool.
+        let plan = DependencyPlanner.plan(brackenInputs(
+            preserve: true, envs: sourceBuiltBrackenEnv, executables: ["bracken"]
+        ))
+        XCTAssertTrue(plan.preservedEnvironments.isEmpty)
+        XCTAssertEqual(plan.reinstallEnvironments.map(\.environment), ["bracken"])
+        XCTAssertEqual(plan.reinstallEnvironments.first?.reason, .metadataMismatch)
+    }
+
+    func testWithoutTheFlagMissingProvenanceStillReinstalls() {
+        // Today's behavior, which every other tool keeps.
+        for preserve in [nil, false] as [Bool?] {
+            let plan = DependencyPlanner.plan(brackenInputs(preserve: preserve, envs: sourceBuiltBrackenEnv))
+            XCTAssertTrue(plan.preservedEnvironments.isEmpty, "preserve=\(String(describing: preserve))")
+            XCTAssertEqual(plan.reinstallEnvironments.map(\.environment), ["bracken"],
+                           "preserve=\(String(describing: preserve))")
+            XCTAssertEqual(plan.reinstallEnvironments.first?.reason, .metadataMismatch)
+        }
+    }
+
+    func testPreserveDoesNotSuppressTheFirstInstallOfAnAbsentEnvironment() {
+        // No environment directory at all: the user gets the pinned build, flag or not.
+        let plan = DependencyPlanner.plan(brackenInputs(preserve: true, envs: [:]))
+        XCTAssertTrue(plan.preservedEnvironments.isEmpty)
+        XCTAssertEqual(plan.installEnvironments.map(\.environment), ["bracken"])
+        XCTAssertEqual(plan.installEnvironments.first?.reason, .missing)
+    }
+
+    func testPreserveDoesNotSuppressSpecOrBuildChanges() {
+        // Version bump: the package IS on disk, at a legible older version. Real upgrade.
+        let specChanged = DependencyPlanner.plan(brackenInputs(
+            preserve: true, envs: ["bracken": [meta("bracken", "0.9.0", "1")]], spec: "bioconda::bracken=1.0.0=1"
+        ))
+        XCTAssertTrue(specChanged.preservedEnvironments.isEmpty)
+        XCTAssertEqual(specChanged.reinstallEnvironments.first?.reason, .specChanged)
+
+        // Rebuild at the same version: also a real change.
+        let buildChanged = DependencyPlanner.plan(brackenInputs(
+            preserve: true, envs: ["bracken": [meta("bracken", "1.0.0", "0")]], spec: "bioconda::bracken=1.0.0=1"
+        ))
+        XCTAssertTrue(buildChanged.preservedEnvironments.isEmpty)
+        XCTAssertEqual(buildChanged.reinstallEnvironments.first?.reason, .buildChanged)
+    }
+
+    func testPreserveDoesNotSuppressAMismatchWhereThePackageIsPresent() {
+        // Receipt claims the pinned spec while disk says otherwise: tampering, not a local build.
+        var r = DependencyReceipt.empty()
+        r.environments["bracken"] = .init(packageSpec: "bioconda::bracken=1.0.0=1", packID: "metagenomics",
+                                          installedAt: Date(), state: .installed)
+        let plan = DependencyPlanner.plan(brackenInputs(
+            preserve: true, envs: ["bracken": [meta("bracken", "2.9", "0")]], receipt: r
+        ))
+        XCTAssertTrue(plan.preservedEnvironments.isEmpty)
+        XCTAssertEqual(plan.reinstallEnvironments.first?.reason, .metadataMismatch)
+    }
+
+    func testPreserveDoesNotSuppressAnIncompleteRecordedInstall() {
+        // A half-written environment the app itself left behind is not a local build.
+        for state in [DependencyReceipt.EntryState.pending, .failed] {
+            var r = DependencyReceipt.empty()
+            r.environments["bracken"] = .init(packageSpec: "bioconda::bracken=1.0.0=1", packID: "metagenomics",
+                                              installedAt: Date(), state: state)
+            let plan = DependencyPlanner.plan(brackenInputs(preserve: true, envs: sourceBuiltBrackenEnv, receipt: r))
+            XCTAssertTrue(plan.preservedEnvironments.isEmpty, "state=\(state)")
+            XCTAssertEqual(plan.reinstallEnvironments.map(\.environment), ["bracken"], "state=\(state)")
+        }
+    }
+
+    func testPreservedEnvironmentIsNeverProposedForRemoval() {
+        var r = DependencyReceipt.empty()
+        r.environments["bracken"] = .init(packageSpec: "bioconda::bracken=1.0.0=1", packID: "metagenomics",
+                                          installedAt: Date(), state: .installed)
+        let plan = DependencyPlanner.plan(brackenInputs(preserve: true, envs: sourceBuiltBrackenEnv, receipt: r))
+        XCTAssertTrue(plan.removeEnvironments.isEmpty, "still pinned, so never retired: \(plan)")
+        XCTAssertEqual(plan.preservedEnvironments.map(\.environment), ["bracken"])
+    }
+
+    func testBundledManifestOptsInForBrackenOnly() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        let opted = manifest.packTools.filter { $0.preserveExistingInstall == true }.map(\.toolID)
+        XCTAssertEqual(opted, ["bracken"], "preserveExistingInstall is a per-tool exception, not a policy")
+    }
+
+    func testPlanDecodesWithoutThePreservedField() throws {
+        // A plan serialized before `preservedEnvironments` existed must still decode.
+        let legacy = """
+        {"installEnvironments":[],"reinstallEnvironments":[],"removeEnvironments":[],\
+        "databaseUpdates":[],"pipelinePrefetch":[],"targetDependencySet":"2026.1",\
+        "estimatedDownloadBytes":0}
+        """
+        let plan = try JSONDecoder().decode(ReconciliationPlan.self, from: Data(legacy.utf8))
+        XCTAssertTrue(plan.preservedEnvironments.isEmpty)
+        XCTAssertTrue(plan.isEmpty)
+    }
 }
