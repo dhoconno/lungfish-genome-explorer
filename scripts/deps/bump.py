@@ -525,19 +525,60 @@ def _micromamba_version(manifest):
 
 
 def _refresh_tool_versions(manifest, path, now):
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    """Rewrite the file, or return False when only its timestamp would move.
+
+    Both derived files stamp the moment they were generated, so writing them
+    unconditionally left a dirty tree after a run that bumped nothing -- and a
+    tree that is dirty for no reason is one a sweep cannot tell apart from a
+    real change. Comparing everything *except* the stamp, and skipping the write
+    when the rest matches, keeps a no-change run a no-op.
+    """
+    original = path.read_text(encoding="utf-8")
+    payload = json.loads(original)
+    previous_stamp = payload.get("lastUpdated")
     payload["lastUpdated"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     version = _micromamba_version(manifest)
     for tool in payload.get("tools") or []:
         if tool.get("name") == "micromamba":
             tool["version"] = version
+
+    unstamped = dict(payload)
+    unstamped["lastUpdated"] = previous_stamp
+    if json.dumps(unstamped, indent=2, ensure_ascii=False) + "\n" == original:
+        return False
+
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return True
 
 
 def _refresh_versions_txt(manifest, path, now, architecture):
-    """Reproduce the file ``scripts/bundle-native-tools.sh`` writes."""
+    """Reproduce the file ``scripts/bundle-native-tools.sh`` writes.
+
+    Returns False when only the build date would move; see
+    ``_refresh_tool_versions`` for why.
+    """
     version = _micromamba_version(manifest)
-    path.write_text(
+    rendered = _render_versions_txt(version, now, architecture)
+
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+        # The build date is the one line that differs on every run, so compare
+        # with it stripped from both sides.
+        if _without_build_date(existing) == _without_build_date(rendered):
+            return False
+
+    path.write_text(rendered, encoding="utf-8")
+    return True
+
+
+def _without_build_date(text):
+    return "\n".join(
+        line for line in text.splitlines() if not line.startswith("Build date:")
+    )
+
+
+def _render_versions_txt(version, now, architecture):
+    return (
         "Lungfish Bundled Bootstrap Tools\n"
         "=================================\n"
         "\n"
@@ -555,8 +596,7 @@ def _refresh_versions_txt(manifest, path, now, architecture):
         "- micromamba: https://github.com/mamba-org/mamba\n"
         "\n"
         "Licenses:\n"
-        "- micromamba: https://github.com/mamba-org/mamba/blob/main/LICENSE\n",
-        encoding="utf-8",
+        "- micromamba: https://github.com/mamba-org/mamba/blob/main/LICENSE\n"
     )
 
 
@@ -601,8 +641,11 @@ def _refresh_notices(manifest, path):
     if NOTICES_BEGIN in text and NOTICES_END in text:
         head, rest = text.split(NOTICES_BEGIN, 1)
         _, tail = rest.split(NOTICES_END, 1)
-        path.write_text(head + block + tail, encoding="utf-8")
-        return
+        rendered = head + block + tail
+        if rendered == text:
+            return False
+        path.write_text(rendered, encoding="utf-8")
+        return True
 
     # No markers yet: append the generated block as a new trailing section,
     # leaving every existing byte of the file untouched.
@@ -618,27 +661,32 @@ def _refresh_notices(manifest, path):
         + "\n",
         encoding="utf-8",
     )
+    return True
 
 
 def refresh_derived_files(manifest, repo_root, architecture="arm64"):
-    """Rewrite the files derived from the manifest. Returns the paths written."""
+    """Rewrite the files derived from the manifest.
+
+    Returns the paths actually written. A file whose content (timestamps aside)
+    already matches the manifest is left alone, so a run that bumps nothing
+    leaves the tree clean.
+    """
     repo_root = pathlib.Path(repo_root)
     now = _now()
     written = []
 
     tool_versions = repo_root / TOOL_VERSIONS_REL
-    if tool_versions.exists():
-        _refresh_tool_versions(manifest, tool_versions, now)
+    if tool_versions.exists() and _refresh_tool_versions(manifest, tool_versions, now):
         written.append(tool_versions)
 
     versions_txt = repo_root / VERSIONS_TXT_REL
-    if versions_txt.parent.exists():
-        _refresh_versions_txt(manifest, versions_txt, now, architecture)
+    if versions_txt.parent.exists() and _refresh_versions_txt(
+        manifest, versions_txt, now, architecture
+    ):
         written.append(versions_txt)
 
     notices = repo_root / NOTICES_REL
-    if notices.exists():
-        _refresh_notices(manifest, notices)
+    if notices.exists() and _refresh_notices(manifest, notices):
         written.append(notices)
 
     return written

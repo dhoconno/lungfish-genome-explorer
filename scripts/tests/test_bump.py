@@ -550,6 +550,60 @@ class DerivedFileTests(unittest.TestCase):
             twice = (root / "THIRD-PARTY-NOTICES").read_text(encoding="utf-8")
             self.assertEqual(once, twice)
 
+    def test_second_run_with_no_change_writes_nothing(self):
+        """A no-change run must leave the tree clean.
+
+        Both derived files stamp the moment they were generated, so an
+        unconditional rewrite dirtied them on every run -- and a tree that is
+        dirty for no reason is one a sweep cannot tell apart from a real change.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            self._scaffold(root)
+            m = sample_manifest()
+            m["bootstrap"] = {"micromamba": {"version": "2.9.0-0", "sha256": {}}}
+
+            first = bump.refresh_derived_files(m, root)
+            self.assertTrue(first, "the first run must write the derived files")
+            paths = [
+                root / "Sources/LungfishWorkflow/Resources/Tools/tool-versions.json",
+                root / "Sources/LungfishWorkflow/Resources/Tools/VERSIONS.txt",
+                root / "THIRD-PARTY-NOTICES",
+            ]
+            before = {p: p.read_text(encoding="utf-8") for p in paths}
+
+            # A later run, at a different clock time, with the same manifest.
+            old = os.environ.get("SOURCE_DATE_EPOCH")
+            os.environ["SOURCE_DATE_EPOCH"] = "1800000000"
+            try:
+                second = bump.refresh_derived_files(m, root)
+            finally:
+                if old is None:
+                    os.environ.pop("SOURCE_DATE_EPOCH", None)
+                else:
+                    os.environ["SOURCE_DATE_EPOCH"] = old
+
+            self.assertEqual(second, [], "a no-change run must report nothing written")
+            for path, text in before.items():
+                self.assertEqual(path.read_text(encoding="utf-8"), text, str(path))
+
+    def test_a_real_change_still_rewrites_the_derived_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            self._scaffold(root)
+            m = sample_manifest()
+            m["bootstrap"] = {"micromamba": {"version": "2.9.0-0", "sha256": {}}}
+            bump.refresh_derived_files(m, root)
+
+            m["bootstrap"]["micromamba"]["version"] = "2.10.0-0"
+            written = bump.refresh_derived_files(m, root)
+
+            self.assertEqual(len(written), 2, "the two micromamba-derived files must move")
+            versions = (root / "Sources/LungfishWorkflow/Resources/Tools/VERSIONS.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("2.10.0-0", versions)
+
     def test_repo_notices_already_carries_the_markers(self):
         text = NOTICES.read_text(encoding="utf-8")
         self.assertIn(bump.NOTICES_BEGIN, text)

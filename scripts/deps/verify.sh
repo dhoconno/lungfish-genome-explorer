@@ -148,13 +148,14 @@ manifest_hash="$(shasum -a 256 "${manifest}" | cut -d' ' -f1)"
 
 echo "verify: set=${dependency_set} manifest=${manifest_hash} root=${storage_root} tier=${tier}"
 
-if [[ ${dry_run} -eq 1 ]]; then
-    exit 0
-fi
-
 # Guard against the one mistake that would be expensive: pointing the isolated
 # root at the developer's real managed storage, which provisioning would
 # rewrite to match the manifest.
+#
+# Checked BEFORE the --dry-run return, not after. --dry-run is what a developer
+# reaches for to see what a command would do, so it is exactly where a bad --root
+# should be caught; returning 0 first meant the rehearsal blessed a plan the real
+# run would refuse.
 real_root="$(cd "${HOME}" && pwd)/.lungfish"
 resolved_root="${storage_root}"
 case "${resolved_root}" in
@@ -165,6 +166,10 @@ if [[ "$(python3 -c 'import os,sys; print(os.path.realpath(os.path.expanduser(sy
     echo "error: --root must not be the real managed storage root (${real_root})" >&2
     echo "       verify.sh reinstalls environments to match the manifest." >&2
     exit 64
+fi
+
+if [[ ${dry_run} -eq 1 ]]; then
+    exit 0
 fi
 
 mkdir -p "${storage_root}"
