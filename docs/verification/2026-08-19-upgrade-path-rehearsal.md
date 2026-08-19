@@ -73,6 +73,24 @@ instead of a reinstall, and applying leaves Bracken v3.0.1 in place with its 294
 files. A user who wants the pinned build removes the `bracken` environment and
 reinstalls the pack, which the advisory line states.
 
+## The preserve flag collided with a conformance test
+
+Preserving Bracken made `ToolVersionConformanceTests.testEveryInstalledPackToolReportsPinnedVersion`
+fail: bracken is on that test's `selfReportedVersionIsUnreliable` list precisely because
+it cannot report its own version, so conda-meta was the fallback authority, and a
+preserved install has neither.
+
+The first attempt recorded it as drift, which turns the test into a skip. That is also
+wrong: tier 1 forbids skipped conformance tests, so the gate would still have failed,
+just with a less obvious message. The check now asserts what is actually verifiable for
+a preserved install, namely that every declared executable is present and executable.
+Verified both ways: the preserved root passes with zero skips, and hiding
+`bracken-build` fails the test with the missing executable named.
+
+Sequence worth remembering for the next sweep: a change to reconciliation semantics is
+not finished when the planner does the right thing. Tier 1 is what proves the rest of
+the system agrees.
+
 ## Gate summary reporting
 
 `scripts/full-suite-gate.sh` printed "GATE PASS - Executed 2 tests" for the 189-test
