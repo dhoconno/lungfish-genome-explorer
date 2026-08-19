@@ -317,6 +317,15 @@ extension TaxTriageCommand {
                     print(formatter.error("Database not found: \(dbPath)"))
                     throw CLIExitCode.inputError.exitCode
                 }
+            } else {
+                // TaxTriage v3.3.x validates its own parameters and rejects a run with
+                // neither --db nor --download_db. Without this check the omission
+                // surfaces as an opaque "pipeline failed with exit code 1" from deep
+                // inside Nextflow, so fail here with something actionable instead.
+                print(formatter.error("A Kraken2 database is required: pass --db <path>"))
+                print(formatter.info("  List installed databases: lungfish conda db list"))
+                print(formatter.info("  Install one:              lungfish conda db download Viral"))
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Determine effective skipAssembly (default true unless --no-skip-assembly)

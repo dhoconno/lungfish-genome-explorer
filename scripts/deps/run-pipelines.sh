@@ -9,7 +9,7 @@
 # during a dependency sweep; see docs/release/dependency-sweep.md.
 #
 # Usage:
-#   bash scripts/deps/run-pipelines.sh --which taxtriage|esviritu|all --out <dir> [--accession SRR35517702] [--root DIR]
+#   bash scripts/deps/run-pipelines.sh --which taxtriage|esviritu|all --out <dir> [--accession SRR35517702] [--root DIR] [--kraken2-db DIR]
 #
 # The CLI resolves its tools and databases from the managed storage root. Pass
 # --root, or export LUNGFISH_STORAGE_ROOT, to point this run at the isolated root
@@ -57,6 +57,7 @@ diff_script="${script_dir}/diff_goldens.py"
 which_target=""
 out_dir=""
 accession="SRR35517702"
+kraken2_db=""
 subsample_reads=50000
 subsample_seed=11
 # The managed storage root the CLI resolves tools and databases from. Defaults to
@@ -140,6 +141,11 @@ while [[ $# -gt 0 ]]; do
         --accession)
             require_value "$1" $#
             accession="$2"
+            shift 2
+            ;;
+        --kraken2-db)
+            require_value "$1" $#
+            kraken2_db="$2"
             shift 2
             ;;
         --cli)
@@ -226,6 +232,32 @@ mkdir -p "${reads_dir}" "${diff_candidate_dir}"
 sra_tools_bin="${conda_root}/envs/sra-tools/bin"
 seqkit_bin="${conda_root}/envs/seqkit/bin"
 
+# TaxTriage v3.3.x validates its own parameters and refuses to start without
+# --db (or --download_db), so the runner has to name a Kraken2 database. Prefer
+# an explicit --kraken2-db, otherwise take the first of viral or standard-16
+# that is actually present in the root under test. Leaving it unset made the
+# pipeline fail inside Nextflow with an opaque exit 1, which is how this was
+# missed until tier 3 first ran.
+databases_root="${LUNGFISH_STORAGE_ROOT:-${HOME}/.lungfish}/databases/kraken2"
+if [[ -z "${kraken2_db}" ]]; then
+    for candidate in viral standard-16; do
+        if [[ -d "${databases_root}/${candidate}" ]]; then
+            kraken2_db="${databases_root}/${candidate}"
+            break
+        fi
+    done
+fi
+if [[ ${run_taxtriage} -eq 1 && -z "${kraken2_db}" ]]; then
+    echo "no Kraken2 database found under ${databases_root}" >&2
+    echo "install one with: ${cli_bin} conda db download Viral" >&2
+    echo "or pass --kraken2-db <dir>" >&2
+    exit 66
+fi
+if [[ -n "${kraken2_db}" && ! -d "${kraken2_db}" ]]; then
+    echo "Kraken2 database directory not found: ${kraken2_db}" >&2
+    exit 66
+fi
+
 r1_full="${reads_dir}/${accession}_1.fastq"
 r2_full="${reads_dir}/${accession}_2.fastq"
 r1_sub="${reads_dir}/${accession}_1.subsampled.fastq"
@@ -247,7 +279,7 @@ if [[ ${dry_run} -eq 1 ]]; then
     echo "  PATH=${seqkit_bin}:\$PATH seqkit sample -n ${subsample_reads} -s ${subsample_seed} ${r1_full} -o ${r1_sub}"
     echo "  PATH=${seqkit_bin}:\$PATH seqkit sample -n ${subsample_reads} -s ${subsample_seed} ${r2_full} -o ${r2_sub}"
     if [[ ${run_taxtriage} -eq 1 ]]; then
-        echo "  ${cli_bin} taxtriage run --input ${r1_sub} --input2 ${r2_sub} --sample ${accession} --output ${out_dir}/taxtriage"
+        echo "  ${cli_bin} taxtriage run --input ${r1_sub} --input2 ${r2_sub} --sample ${accession} --db ${kraken2_db} --output ${out_dir}/taxtriage"
     fi
     if [[ ${run_esviritu} -eq 1 ]]; then
         echo "  ${cli_bin} esviritu detect --input ${r1_sub} ${r2_sub} --paired --sample ${accession} --output ${out_dir}/esviritu"
@@ -328,6 +360,7 @@ if [[ ${run_taxtriage} -eq 1 ]]; then
         --input "${r1_sub}" \
         --input2 "${r2_sub}" \
         --sample "${accession}" \
+        --db "${kraken2_db}" \
         --output "${taxtriage_out}" \
         || taxtriage_status=$?
 
