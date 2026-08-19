@@ -187,13 +187,17 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
     }
 
     private func openpyxlPythonURL() -> URL? {
+        // Same candidate order as FastqGenotypingCommandTests.openpyxlPythonURL:
+        // explicit override first, then the managed openpyxl environment CI
+        // provisions, resolved the way the app resolves its conda root.
+        let env = ProcessInfo.processInfo.environment
+        let condaRoot = env["LUNGFISH_CONDA_ROOT"].map(URL.init(fileURLWithPath:))
+            ?? env["LUNGFISH_STORAGE_ROOT"].map { URL(fileURLWithPath: $0).appendingPathComponent("conda") }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".lungfish/conda")
         let candidates = [
-            ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"]
-                .map(URL.init(fileURLWithPath:)),
-            URL(
-                fileURLWithPath:
-                    "/Users/dho/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
-            ),
+            env["LUNGFISH_TEST_PYTHON"].map(URL.init(fileURLWithPath:)),
+            condaRoot.appendingPathComponent("envs/openpyxl/bin/python3"),
         ].compactMap { $0 }
         for candidate in candidates
         where FileManager.default.isExecutableFile(atPath: candidate.path) {

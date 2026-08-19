@@ -12086,8 +12086,20 @@ print(json.dumps(payload))
     }
 
     private var testPythonExecutableURL: URL? {
-        let bundled = URL(fileURLWithPath: "/Users/dho/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3")
-        return FileManager.default.isExecutableFile(atPath: bundled.path) ? bundled : nil
+        // Explicit override first, then the managed openpyxl environment CI provisions,
+        // resolved the way the app resolves its conda root. Same order as the
+        // openpyxlPythonURL helpers in the other workbook test files.
+        let env = ProcessInfo.processInfo.environment
+        if let configured = env["LUNGFISH_TEST_PYTHON"],
+           FileManager.default.isExecutableFile(atPath: configured) {
+            return URL(fileURLWithPath: configured)
+        }
+        let condaRoot = env["LUNGFISH_CONDA_ROOT"].map(URL.init(fileURLWithPath:))
+            ?? env["LUNGFISH_STORAGE_ROOT"].map { URL(fileURLWithPath: $0).appendingPathComponent("conda") }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".lungfish/conda")
+        let managed = condaRoot.appendingPathComponent("envs/openpyxl/bin/python3")
+        return FileManager.default.isExecutableFile(atPath: managed.path) ? managed : nil
     }
 
     private func runPython(_ arguments: [String]) throws -> String {

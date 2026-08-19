@@ -1415,10 +1415,16 @@ wb.save(path)
         ] {
             candidates.append(URL(fileURLWithPath: configured))
         }
-        candidates.append(URL(
-            fileURLWithPath:
-                "/Users/dho/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
-        ))
+        // The managed openpyxl environment is what CI provisions and what require
+        // mode promises; it must come before any system python. Resolve its root the
+        // way the app does: LUNGFISH_CONDA_ROOT, else LUNGFISH_STORAGE_ROOT/conda,
+        // else ~/.lungfish/conda.
+        let env = ProcessInfo.processInfo.environment
+        let condaRoot = env["LUNGFISH_CONDA_ROOT"].map(URL.init(fileURLWithPath:))
+            ?? env["LUNGFISH_STORAGE_ROOT"].map { URL(fileURLWithPath: $0).appendingPathComponent("conda") }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".lungfish/conda")
+        candidates.append(condaRoot.appendingPathComponent("envs/openpyxl/bin/python3"))
         let which = Process()
         which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         which.arguments = ["python3"]
