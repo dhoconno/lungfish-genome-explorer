@@ -5,7 +5,22 @@ import XCTest
 
 final class SavontClusteringIntegrationTests: XCTestCase {
     private static let inputEnvironmentVariable = "LUNGFISH_SAVONT_TEST_INPUT"
+    private static let fixtureDirectoryEnvironmentVariable = "LUNGFISH_SAVONT_FIXTURE_DIR"
     private static let boundedReadCount = 1_000
+
+    /// Basename of the fixture that `scripts/deps/fetch-savont-fixture.sh`
+    /// downloads (ENA run SRR31764993, Oxford Nanopore full-length 16S
+    /// amplicon). Kept in sync with the `accession` in that script.
+    private static let fixtureFileName = "SRR31764993.fastq.gz"
+
+    /// Default cache directory the fetch script writes to. Mirrors the script's
+    /// own default so the test finds an already-fetched fixture with no
+    /// environment configuration at all.
+    private static var defaultFixtureDirectoryURL: URL? {
+        guard let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty else { return nil }
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".cache/lungfish-deps/savont-fixture", isDirectory: true)
+    }
 
     func testManagedSavontPublishesCountedClustersWithDurableProvenance() async throws {
         let sourceURL = try configuredSourceURL()
@@ -125,19 +140,63 @@ final class SavontClusteringIntegrationTests: XCTestCase {
         )
     }
 
+    /// Resolves the ONT FASTQ this test clusters, preferring an explicitly
+    /// configured input and otherwise falling back to the fixture that
+    /// `scripts/deps/fetch-savont-fixture.sh` caches.
+    ///
+    /// This test never downloads anything. The fixture is fetched by the sweep
+    /// operator running that script; here it is only discovered. That keeps a
+    /// plain `swift test` offline and keeps the network failure mode in the
+    /// script, where it can report a useful error, rather than in a test.
+    ///
+    /// Skip-versus-fail policy, which `LUNGFISH_REQUIRE_TOOLS=1` deliberately
+    /// does not change for an absent fixture:
+    ///
+    ///   * input configured but missing -> failure, always. The operator named
+    ///     a path; a typo must not read as "nothing to do".
+    ///   * no input and no cached fixture -> skip, even in require mode. The
+    ///     fixture is a multi-megabyte download that CI is not expected to
+    ///     have, so its absence is a missing input, not a broken toolset.
+    ///   * fixture present -> the test runs, and a Savont failure is a real
+    ///     failure under any mode.
     private func configuredSourceURL() throws -> URL {
-        guard let path = ProcessInfo.processInfo.environment[Self.inputEnvironmentVariable],
-              !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw XCTSkip(
-                "Set \(Self.inputEnvironmentVariable) to a FASTQ file or .lungfishfastq bundle to run this real-tool test."
-            )
+        let environment = ProcessInfo.processInfo.environment
+        if let path = environment[Self.inputEnvironmentVariable]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            let sourceURL = URL(fileURLWithPath: path).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                XCTFail("Configured Savont test input does not exist: \(sourceURL.path)")
+                throw CocoaError(.fileNoSuchFile)
+            }
+            return sourceURL
         }
-        let sourceURL = URL(fileURLWithPath: path).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-            XCTFail("Configured Savont test input does not exist: \(sourceURL.path)")
-            throw CocoaError(.fileNoSuchFile)
+
+        let fixtureDirectoryURL: URL?
+        if let configuredDirectory = environment[Self.fixtureDirectoryEnvironmentVariable]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredDirectory.isEmpty {
+            fixtureDirectoryURL = URL(fileURLWithPath: configuredDirectory, isDirectory: true)
+        } else {
+            fixtureDirectoryURL = Self.defaultFixtureDirectoryURL
         }
-        return sourceURL
+
+        if let fixtureDirectoryURL {
+            let fixtureURL = fixtureDirectoryURL
+                .appendingPathComponent(Self.fixtureFileName)
+                .standardizedFileURL
+            if FileManager.default.fileExists(atPath: fixtureURL.path) {
+                return fixtureURL
+            }
+        }
+
+        throw XCTSkip(
+            """
+            No Savont ONT input available. Fetch the regression fixture with \
+            `bash scripts/deps/fetch-savont-fixture.sh`, or set \
+            \(Self.inputEnvironmentVariable) to a FASTQ file or .lungfishfastq bundle.
+            """
+        )
     }
 
     private func installedManagedCondaManager() throws -> CondaManager {
