@@ -16,6 +16,10 @@ import XCTest
 /// highlighting, and database removal. These tests exercise the
 /// ``PluginManagerViewModel`` data layer and ``MetagenomicsDatabaseInfo``
 /// catalog without rendering SwiftUI views or performing real downloads.
+/// Thrown by `waitUntil` after it has already recorded the timeout as a failure, so the
+/// calling test stops instead of failing a second time on a follow-up unwrap.
+private struct WaitTimeout: Error {}
+
 @MainActor
 final class DatabasesTabTests: XCTestCase {
 
@@ -699,7 +703,10 @@ final class DatabasesTabTests: XCTestCase {
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
-            if Date() > deadline { return XCTFail("condition not met within \(timeout)s") }
+            if Date() > deadline {
+                XCTFail("condition not met within \(timeout)s")
+                throw WaitTimeout()
+            }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
     }

@@ -1300,22 +1300,17 @@ public actor MetagenomicsDatabaseRegistry {
             return (match.key, match.value, entry)
         }
 
-        // 2. Otherwise the identifier names a catalog entry whose name and tool match an
-        //    installed row that has no identity of its own, or it names such a row
-        //    directly. Rows that already carry a different catalogID are excluded: their
-        //    identity is authoritative and must not be overridden by a name collision.
-        //
-        //    Sorted by catalogID so that a display name shared by two catalog entries
-        //    resolves to the same one on every run, the same reason the installed rows
-        //    above are sorted by name.
-        let candidateEntries = MetagenomicsDatabaseInfo.builtInCatalog
-            .filter { $0.catalogID == identifier || $0.name == identifier }
-            .sorted { ($0.catalogID ?? "") < ($1.catalogID ?? "") }
-        for entry in candidateEntries {
-            if let match = installedRows.first(where: { _, row in
-                row.catalogID == nil && row.name == entry.name && row.tool == entry.tool
-            }) {
-                return (match.key, match.value, entry)
+        // 2. Otherwise the identifier names a catalog entry, or the display name of a row,
+        //    that resolves through the shared name+tool fallback. Each candidate row is
+        //    resolved by ``MetagenomicsDatabaseInfo/resolvedCatalogEntry`` itself, so the
+        //    survivor when a display name maps to two catalog entries is exactly the one
+        //    the reconciler and `availableUpdateVersion` pick. Rows that already carry a
+        //    different catalogID resolve to that entry (or to nil) and therefore never
+        //    match by name collision.
+        for (name, row) in installedRows where row.catalogID == nil {
+            guard let entry = row.resolvedCatalogEntry else { continue }
+            if entry.catalogID == identifier || entry.name == identifier || name == identifier {
+                return (name, row, entry)
             }
         }
 
