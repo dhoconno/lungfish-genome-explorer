@@ -16,9 +16,70 @@ permissions:
 
 jobs:
   fast:
+    # Push/PR gate: fast, deterministic, and free of Swift compilation. The old
+    # gate compiled the app, the CLI, the whole Xcode project, and five test
+    # invocations; it could not finish inside its 30 minute timeout, so every
+    # push run since beta25 was cancelled at the limit and gated nothing.
+    # Releases are verified locally (full 14k-test suite and the dependency
+    # regression tiers); CI's job on push is to catch cheap structural drift
+    # quickly. The Swift work now lives in the dispatch-only build-smoke job.
     name: Fast gate
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate dependency manifest
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          sys.path.insert(0, "scripts/deps")
+          import manifest_io
+          path = "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+          json.load(open(path))
+          m = manifest_io.load(path)
+          import tempfile, pathlib
+          with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+              tmp = f.name
+          manifest_io.dump(m, tmp)
+          if pathlib.Path(path).read_text() != pathlib.Path(tmp).read_text():
+              raise SystemExit("manifest is not byte-stable under manifest_io round-trip")
+          print("manifest valid and byte-stable")
+          EOF
+
+      - name: Check Package.resolved and Xcode project pin consistency
+        run: bash scripts/check-package-resolved-consistency.sh
+
+      - name: Shell script syntax
+        run: |
+          rc=0
+          for f in scripts/*.sh scripts/deps/*.sh scripts/release/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f" || { echo "syntax error: $f" >&2; rc=1; }
+          done
+          exit "$rc"
+
+      - name: Install script test dependencies
+        run: |
+          brew install ripgrep
+          python3 -m venv .ci-python
+          .ci-python/bin/python -m pip install --upgrade pip
+          .ci-python/bin/python -m pip install Pillow openpyxl
+
+      - name: Run release and fixture script tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: .ci-python/bin/python -B -m unittest discover -s scripts/tests
+
+  build-smoke:
+    name: Build and smoke tests
+    runs-on: macos-26
+    timeout-minutes: 90
+    if: ${{ github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Check out repository
@@ -129,7 +190,7 @@ jobs:
   full:
     name: Full suite
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 120
     needs: fast
     if: ${{ github.event_name == 'workflow_dispatch' }}
 
