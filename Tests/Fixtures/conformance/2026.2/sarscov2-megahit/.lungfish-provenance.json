@@ -9,7 +9,7 @@
     "--only",
     "sarscov2-megahit"
   ],
-  "createdAt": "2026-08-19T01:50:41Z",
+  "createdAt": "2026-08-19T03:15:53Z",
   "dependencySet": "2026.2",
   "exitStatus": 0,
   "files": [
@@ -20,7 +20,7 @@
       "size": 207
     },
     {
-      "checksumSHA256": "765b32641b8fee6dfc5e53f57aee29466f830cf24383f299bfe3ce2d2212d6ff",
+      "checksumSHA256": "e19482339c05adc533f652890a9cb322fefe8ea96c241f8d9e265ee0e29692bb",
       "fileSize": 210,
       "path": "meta.json",
       "size": 210
@@ -37,8 +37,8 @@
       "Tests/Fixtures/sarscov2/test_2.fastq.gz"
     ],
     "outputDirectory": "Tests/Fixtures/conformance/2026.2/sarscov2-megahit",
-    "purpose": "Retained megahit conformance golden for dependency set 2026.2 (recipe sarscov2-megahit). The megahit pin did not move this sweep; one regeneration run out of seven produced 11 contigs rather than 12, which is run to run assembler nondeterminism under the recipe's two threads, so the reproducible 12 contig result was recorded.",
-    "recipeCommand": "megahit -1 {in0} -2 {in1} -t 2 -o {out}/megahit >/dev/null 2>&1 && {seqkit} stats -a -T {out}/megahit/final.contigs.fa | sed 's#{out}/megahit/##' > {out}/contigs-stats.tsv && rm -rf {out}/megahit",
+    "purpose": "Retained megahit conformance golden for dependency set 2026.2 (recipe sarscov2-megahit). The megahit pin did not move this sweep. The recipe now runs megahit single threaded (-t 1) so the assembly is deterministic: under the previous -t 2 the contig count flipped between 12 and 11 on a loaded machine, which exceeded the recipe's 5 percent tolerance and could fail tier 2 for reasons unrelated to any dependency change. Three consecutive -t 1 regenerations produce the identical 12 contig result recorded here, so the golden content is unchanged from the -t 2 recording.",
+    "recipeCommand": "megahit -1 {in0} -2 {in1} -t 1 -o {out}/megahit >/dev/null 2>&1 && {seqkit} stats -a -T {out}/megahit/final.contigs.fa | sed 's#{out}/megahit/##' > {out}/contigs-stats.tsv && rm -rf {out}/megahit",
     "resolvedDefaults": {
       "comparisonTool": "scripts/deps/diff_goldens.py",
       "recipeManifest": "scripts/deps/goldens.json"
@@ -49,7 +49,7 @@
     }
   },
   "output": {
-    "checksumSHA256": "cebb70e9eb446fa4caa9f1fcb81dcc71d25790622194c55a2dc8e98d4d466c54",
+    "checksumSHA256": "94db61b179b533ccc9d0deffde1e3736761079cf2ec630fba27059da55402663",
     "fileSize": 417,
     "path": "Tests/Fixtures/conformance/2026.2/sarscov2-megahit",
     "size": 417
@@ -60,9 +60,9 @@
     "condaEnvironment": null,
     "containerImage": null,
     "executablePath": "python3",
-    "gitRevision": "745c5332effcdb0ab3301d4263dc57102ba5cc66",
+    "gitRevision": "e182aa3c1cc9a6999f470311fa1161722d6134bb",
     "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
-    "processIdentifier": 44863,
+    "processIdentifier": 31334,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,
@@ -73,6 +73,6 @@
   },
   "toolName": "megahit",
   "toolVersion": "1.2.9",
-  "wallTimeSeconds": 0.466,
+  "wallTimeSeconds": 0.446,
   "workflowName": "conformance-golden-sarscov2-megahit"
 }

@@ -158,7 +158,7 @@
         "Tests/Fixtures/sarscov2/test_1.fastq.gz",
         "Tests/Fixtures/sarscov2/test_2.fastq.gz"
       ],
-      "command": "megahit -1 {in0} -2 {in1} -t 2 -o {out}/megahit >/dev/null 2>&1 && {seqkit} stats -a -T {out}/megahit/final.contigs.fa | sed 's#{out}/megahit/##' > {out}/contigs-stats.tsv && rm -rf {out}/megahit",
+      "command": "megahit -1 {in0} -2 {in1} -t 1 -o {out}/megahit >/dev/null 2>&1 && {seqkit} stats -a -T {out}/megahit/final.contigs.fa | sed 's#{out}/megahit/##' > {out}/contigs-stats.tsv && rm -rf {out}/megahit",
       "outputs": {
         "contigs-stats.tsv": {
           "kind": "tsv-header",

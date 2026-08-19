@@ -83,22 +83,25 @@ nondeterminism rather than a tool change.
 - `sarscov2-deacon`: deacon 0.16.0 adds one key to its filter summary,
   `check_pairs`, which is `false` for this single ended recipe. Every numeric
   field is identical to 2026.1, so the change is purely additive and was taken.
-- `sarscov2-megahit`: the megahit pin did not move this sweep, and the recorded
-  golden is the 12 contig result that 13 of 13 isolated runs produce. Two
-  full-batch runs produced 11 contigs instead, which exceeds the 5 percent
-  tolerance on both `num_seqs` and `N50` and fails tier 2. This is megahit's own
-  run to run nondeterminism under the recipe's two threads, surfacing when the
-  machine is busy: the flip has only ever appeared in a full batch run, where
-  megahit follows SPAdes, and never in 13 isolated runs. It is not a tool
-  regression. Treat a lone megahit difference as a prompt to rerun that recipe
-  on an idle machine before treating it as a finding, and see the note below on
-  making this recipe deterministic.
+- `sarscov2-megahit`: the megahit pin did not move this sweep. The recorded
+  golden is the 12 contig result, and the recipe now runs megahit single
+  threaded so it stays that way. Under the previous `-t 2` the contig count
+  flipped between 12 and 11 depending on machine load, which exceeds the 5
+  percent tolerance on both `num_seqs` and `N50` and fails tier 2 for a reason
+  unrelated to any dependency change. The flip only ever appeared in a full
+  batch run, where megahit follows SPAdes, and never in 13 isolated runs.
 
-Follow-up worth doing: this recipe is the one golden that can fail for reasons
-unrelated to a dependency change, which weakens tier 2 as a gate. Options are to
-run megahit single threaded so the assembly is deterministic, or to compare only
-`sum_len`, which moved 2.7 percent and stayed inside tolerance while the
-contig count and N50 did not.
+The recipe was changed to `-t 1` for this reason, and the golden regenerated.
+Three consecutive regenerations produced byte identical output, and that output
+matches what `-t 2` recorded, so no numbers moved and the tolerance was left at
+5 percent. A megahit difference in a future sweep is now a real signal rather
+than something to rerun and dismiss.
+
+Note that `AssemblyConformanceTests.testMegahitProducesFinalContigs` keeps
+`-t 2` deliberately. It asserts structure only, that the run exits zero and
+produces at least one contig, and its thread cap documents the MEGAHIT 1.2.9
+arm64 crash above two threads. Determinism is a golden concern, not its
+concern.
 - `kraken2-mini-SRR35517702`: byte identical to 2026.1 despite the Viral index
   moving to 20260626. That index renames the SARS-CoV-2 species to
   Betacoronavirus pandemicum under taxid 3418604, but this recipe's three

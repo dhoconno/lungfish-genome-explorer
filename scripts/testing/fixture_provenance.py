@@ -188,7 +188,7 @@ RETAINED_FIXTURES = {
         "fixtureWorkflowName": "conformance-golden-sarscov2-megahit",
         "fixtureToolName": "megahit",
         "dependencySet": "2026.2",
-        "purpose": "Retained megahit conformance golden for dependency set 2026.2 (recipe sarscov2-megahit). The megahit pin did not move this sweep; the recorded 12 contig result is what 13 of 13 isolated runs produce, while two full-batch runs produced 11, which is megahit's own nondeterminism under the recipe's two threads on a busy machine rather than a tool regression.",
+        "purpose": "Retained megahit conformance golden for dependency set 2026.2 (recipe sarscov2-megahit). The megahit pin did not move this sweep. The recipe now runs megahit single threaded (-t 1) so the assembly is deterministic: under the previous -t 2 the contig count flipped between 12 and 11 on a loaded machine, which exceeded the recipe's 5 percent tolerance and could fail tier 2 for reasons unrelated to any dependency change. Three consecutive -t 1 regenerations produce the identical 12 contig result recorded here, so the golden content is unchanged from the -t 2 recording.",
         "goldenRecipeID": "sarscov2-megahit",
     },
     "Tests/Fixtures/conformance/2026.2/sarscov2-vsearch-derep": {
