@@ -355,7 +355,8 @@ and the rest) in the isolated root.
 
 ### Tier 2
 
-All 13 recipes executed successfully against the newly installed tools. The
+All 12 recipes executed successfully against the newly installed tools, producing
+13 outputs. The
 comparison against the committed 2026.1 goldens is **12 same, 1 different, 0
 missing**.
 
@@ -688,7 +689,8 @@ isolated root, then reported `Nothing to do.` and an empty dependency plan.
 
 ### Tier 2
 
-All 13 recipes executed successfully against the newly installed tools. Keyed to
+All 12 recipes executed successfully against the newly installed tools, producing
+13 outputs. Keyed to
 set 2026.2 the comparison reports 13 missing, purely because
 `Tests/Fixtures/conformance/2026.2/` does not exist yet; that is C9's work, not
 a result. The comparison against the committed 2026.1 goldens is **12 same, 1
@@ -1256,3 +1258,81 @@ ZhangArtifactCanaryTests, 1 VCFRobustnessTests plus the documented load flakes),
 this run is green: the 9 TCC failures did not appear here because the gate does
 not reach those external volumes, and the two that did appear are on the
 documented flake list.
+
+## Final fix wave (post-review)
+
+Applied after the final review of Plan C. Four code changes and this
+documentation pass.
+
+### Reconciliation now plans databases registered from disk
+
+`ReconcilerServices.live.metagenomicsDatabaseVersions` kept only rows carrying a
+recorded `catalogID`. Every row created by
+`MetagenomicsDatabaseRegistry.registerExisting` has none, which is how the
+databases on real machines (`Viral`, `Standard-16`) are recorded, so
+`DependencyPlanner.planDatabases` never proposed their update while `db list`
+and `db info` advertised one the whole time, because those read
+`MetagenomicsDatabaseInfo.availableUpdateVersion`, which already fell back to a
+name-and-tool match.
+
+The two-step match is now expressed once, as
+`MetagenomicsDatabaseInfo.resolvedCatalogEntry` / `resolvedCatalogID`, and the
+version map keys by the resolved id. Where two rows resolve to one catalog
+identity, the row that records the identity wins, because that is the row
+`resolveUpdateTarget` will actually replace.
+
+Covered by `ReconcilerMetagenomicsVersionMapTests` (4 cases),
+`DependencyPlannerTests.testRegisterExistingDatabaseWithoutCatalogIDIsPlanned`,
+and a CLI-level test that seeds a temp root and asserts
+`tools update --plan --json` lists the same database `db list` advertises.
+
+### Plugin Manager can apply a database update
+
+The Databases tab showed the "Update available" badge with no action behind it.
+An **Update** button now sits beside Remove for rows that advertise one, running
+`updateDatabase(catalogID:progress:)` as an `OperationCenter` `.download`
+operation, disabled while `DependencyReconciliationActivity.shared.isApplying`.
+A locally built database reports the registry's `updateNotSupported` message
+inline on the row rather than as an app error.
+
+### Kraken2 index integrity
+
+The Kraken2 index bucket publishes **no checksum sidecars**. Probed directly:
+
+```
+https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20260626.tar.gz.md5     -> 404
+https://genome-idx.s3.amazonaws.com/kraken/k2_viral_20260626.tar.gz.sha256  -> 404
+```
+
+The only integrity signal S3 offers for these objects is the ETag, and it is a
+multipart digest, not a plain MD5 of the payload:
+
+```
+ETag: "df6f9dd95095a9ea2e0cfc580b0f684a-69"
+Content-Length: 572487594
+```
+
+The `-69` suffix means the object was uploaded in 69 parts and the ETag is the
+MD5 of the concatenated part digests, so it cannot be compared against a hash of
+the downloaded file without knowing the exact part size the uploader used. The
+manifest therefore pins no digest for these entries, and the installer validates
+the extracted payload structurally (the `.k2d` files and taxonomy dumps must be
+present and non-empty) rather than cryptographically.
+
+**Follow-up:** verify the multipart ETag by deriving the part size from
+`Content-Length` and the part count, recomputing the part-wise digest locally,
+and pinning the result. That is its own task; it is not a blocker for 2026.2,
+because the transport is HTTPS to a known host and the payload is validated
+after extraction.
+
+### Still open after this wave
+
+- **GUI walkthroughs remain pending.** Computer Use was unavailable in this
+  session, so the new Databases-tab **Update** button has been verified only by
+  unit test and by build, never rendered. The upgrade walkthrough must confirm:
+  the button appears on a row with an "Update available" badge, is absent on an
+  up-to-date row, is disabled while an Update Tools run is applying, drives an
+  Operations panel row through to completion, and shows the locally-built notice
+  inline for SILVA or Greengenes rather than raising an error alert.
+- The Tier 3, savont, and CI dispatch items from the release notes are
+  unchanged by this wave.
