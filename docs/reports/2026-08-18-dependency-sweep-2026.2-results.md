@@ -613,3 +613,139 @@ Kraken2BrackenConformanceTests, require + verify root              2 of 2 passed
 python3 -B -m unittest discover -s scripts/tests                   393 tests, OK
 bash -n scripts/deps/verify.sh scripts/deps/run-pipelines.sh       clean
 ```
+
+## Group 2 (task C6)
+
+Applied at commit `aaf492fa`. Four medium-risk ids moved: the htslib family
+(samtools, bcftools, htslib) from 1.23.1 to 1.24, and SPAdes from 4.2.0 to
+4.3.0. `dependencySet` was already 2026.2 dated 2026-08-18 from group 1, so it
+did not move again.
+
+### Commands
+
+```
+python3 scripts/deps/check-upstream.py --json /tmp/candidates.json
+python3 scripts/deps/bump.py --set 2026.2 --date 2026-08-18 --from /tmp/candidates.json \
+  --only samtools,bcftools,htslib,assembly/spades --dry-run
+python3 scripts/deps/bump.py --set 2026.2 --date 2026-08-18 --from /tmp/candidates.json \
+  --only samtools,bcftools,htslib,assembly/spades
+swift build
+swift test --skip-update --filter 'Dependency|Manifest|PluginPack|CondaManager|BAMImport|
+  AlignmentMetadata|VCF|BAMPrimerTrim|MappingViewer|ReadsToVariants|SPAdes|Assembly'
+bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify
+bash scripts/deps/verify.sh --tier 2 --root ~/.lungfish-verify
+python3 scripts/deps/diff_goldens.py --candidate .build/goldens-2026.2 --set 2026.1
+```
+
+### What moved
+
+```
+samtools        1.23.1 -> 1.24     bioconda::samtools=1.24=h36b3a25_1
+bcftools        1.23.1 -> 1.24     bioconda::bcftools=1.24=h6bd33b9_2
+htslib          1.23.1 -> 1.24     bioconda::htslib=1.24=hd3c6ec9_0
+assembly/spades 4.2.0  -> 4.3.0    bioconda::spades=4.3.0=hd468e49_1
+```
+
+A semantic diff of the manifest before and after the write confirms exactly
+these four entries changed and nothing else. Every other tool, pack tool,
+pipeline, database, and the bootstrap block are byte-identical, and no checksum
+lines were emitted, which is correct since none of the four has a digest
+resolver. The derived files moved with them: `THIRD-PARTY-NOTICES`,
+`third-party-tools-lock.json`, and the timestamp in
+`Tools/tool-versions.json` and `VERSIONS.txt`. That last pair is the micromamba
+bootstrap manifest, whose only content change is `lastUpdated`, since micromamba
+is held for group 4.
+
+### Build and unit gate
+
+`swift build` clean. The filtered suite finished at 1162 XCTest plus 16
+swift-testing tests, with one remaining failure, described under live checks
+below.
+
+Five test cases failed on the first run. Four were stale mirrors already failing
+at HEAD before this bump, verified by stashing the manifest change and
+re-running: `PluginPackRegistryTests` still asserted nextflow 25.10.4,
+`DatabaseRegistryTests` and `HumanScrubberDatabaseTests` still asserted the
+`human_filter.db.20250916v2` filename, release date, and download URLs. All are
+group 1 pins that C5 moved without updating the mirrors. They were corrected to
+the manifest values. The fifth mirror, bcftools 1.23.1 in
+`PluginPackRegistryTests`, belongs to this group and moved to 1.24.
+
+`NoLiteralDependencyPinsTests` also failed at HEAD, flagging
+`ClassificationPipeline.swift` and `BrackenInvocationForm.swift`. All three
+matches are comment prose documenting the upstream bracken packaging defect
+found in C4, not pins an installer can drift away from. The guard now strips
+comment lines before matching, which keeps it strict about real code rather than
+allowlisting two whole files.
+
+### Tier 1
+
+`verify.sh --tier 1 --root ~/.lungfish-verify`: **GATE PASS**, 189 tests
+executed, 0 failures, 0 skips
+(`.build/gate-logs/gate-20260818-190528-aaf492fa.log`). Same count as the group
+1 baseline. The reconciler reinstalled the four changed environments in the
+isolated root, then reported `Nothing to do.` and an empty dependency plan.
+
+### Tier 2
+
+All 13 recipes executed successfully against the newly installed tools. Keyed to
+set 2026.2 the comparison reports 13 missing, purely because
+`Tests/Fixtures/conformance/2026.2/` does not exist yet; that is C9's work, not
+a result. The comparison against the committed 2026.1 goldens is **12 same, 1
+different, 0 missing**. Goldens were not regenerated.
+
+The one difference, verbatim:
+
+| recipe | output | status | first difference |
+| --- | --- | --- | --- |
+| sarscov2-deacon | summary.json | different | `$.check_pairs: only in candidate` |
+
+That is group 1's accepted deacon 0.16.0 additive key, unchanged and unrelated
+to this group. **Every output touched by this group is byte-identical to its
+2026.1 golden**, which is the strongest form of the expected outcome:
+
+- `sarscov2-flagstat` flagstat.json: same, byte-for-byte.
+- `sarscov2-idxstats` idxstats.tsv: same, byte-for-byte.
+- `sarscov2-minimap2` flagstat.json: same (samtools reads the mapping output).
+- `sarscov2-bcftools` calls.vcf: same. The call set was also diffed with headers
+  stripped, to separate a genuine call change from a version banner: 12 variant
+  records, identical. `bcftools call` defaults did not change.
+- `sarscov2-spades` contigs-stats.tsv: same. 32 contigs, 9030 bp total, N50 307,
+  max 707, GC 38.85 percent. No tolerance had to be spent; the 5 percent
+  allowance for changed assembly heuristics was not needed, and the `NODE_`
+  header regex holds.
+
+Each recipe's `meta.json` records the tool version it actually ran, confirming
+the identical outputs came from the new binaries and not a stale environment:
+spades 4.3.0, samtools 1.24, bcftools 1.24, all stamped `dependencySet 2026.2`.
+
+### Live checks in the verify root
+
+With `LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify`:
+
+```
+samtools --version      samtools 1.24 / Using htslib 1.24
+bcftools --version      bcftools 1.24 / Using htslib 1.24
+bgzip --version         bgzip (htslib) 1.24
+tabix --version         tabix (htslib) 1.24
+spades.py --version     SPAdes genome assembler v4.3.0
+```
+
+samtools and bcftools both link the matching htslib 1.24, so the three moved
+together rather than leaving a mixed-ABI environment.
+
+`samtools flagstat -O json` still parses. The 1.24 output is byte-identical to
+the golden, loads as JSON with the same two top-level keys
+(`QC-passed reads`, `QC-failed reads`), and the nested counts are unchanged.
+`MappingConformanceTests` covers this path in require mode and is inside the 189
+that passed at tier 1.
+
+### One remaining unit failure, environmental
+
+`ToolVersionConformanceTests.testEveryManifestToolReportsPinnedVersion` fails in
+a bare `swift test`, reporting `nextflow: expected 26.04.6`. It is a live-tool
+check, and a bare run resolves against the developer's real `~/.lungfish`, where
+nextflow is still on the old pin. That root is deliberately untouched by this
+sweep. The same test passes inside the isolated verify root once tier 1
+reconciles it, and it is one of the 189 that passed there. The failure is group
+1's pin, not this group's.
