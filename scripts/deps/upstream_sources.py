@@ -289,6 +289,51 @@ def _package_sort_key(pkg):
 
 
 # --------------------------------------------------------------------------
+# python ABI tags in conda build strings
+
+# Matches the interpreter tag conda puts at the front of a build string:
+# "py310hf7cbfa5_0" -> 310, "py39hfb5fbb1_1" -> 39, "py3_10..." -> 3_10.
+_PY_ABI = re.compile(r"^py(\d+)(?:_(\d+))?")
+
+
+def python_abi(build_string):
+    """``(major, minor)`` for a conda build string carrying a py tag, else None.
+
+    ``py310...`` and ``py3_10...`` both read as ``(3, 10)``. The packed form is
+    parsed as major=first digit, minor=rest, which is what conda means by
+    ``py39`` (3.9) and ``py310`` (3.10). Comparing these as tuples is the whole
+    point: as bare strings ``"py39" > "py310"`` lexically, which is how a
+    py310 pin was once offered a py39 "upgrade".
+    """
+    match = _PY_ABI.match(str(build_string or ""))
+    if not match:
+        return None
+    packed, split_minor = match.group(1), match.group(2)
+    if split_minor is not None:
+        return (int(packed), int(split_minor))
+    return (int(packed[0]), int(packed[1:])) if len(packed) > 1 else (int(packed), 0)
+
+
+def _abi_index(abi):
+    """Flatten ``(major, minor)`` so two interpreters can be subtracted."""
+    return abi[0] * 1000 + abi[1]
+
+
+def _abi_compatible(candidate_build, current_abi):
+    """True when ``candidate_build`` does not move the interpreter backwards.
+
+    Builds with no py tag at all are always acceptable: they are not tied to an
+    interpreter, so the question does not arise.
+    """
+    if current_abi is None:
+        return True
+    candidate_abi = python_abi(candidate_build)
+    if candidate_abi is None:
+        return True
+    return candidate_abi >= current_abi
+
+
+# --------------------------------------------------------------------------
 # conda
 
 
@@ -301,7 +346,15 @@ def _channel_name(pkg):
     return channel.rstrip("/").split("/")[-1] or "bioconda"
 
 
-def _best_for_platform(pkg_name, channel_hint, platform, fetcher):
+def _best_for_platform(pkg_name, channel_hint, platform, fetcher, current_abi=None):
+    """Newest build of ``pkg_name`` on ``platform``, never lowering the py ABI.
+
+    When ``current_abi`` is set, builds whose interpreter is older than the
+    current pin are discarded before choosing, and the remaining candidates are
+    ranked by version then build number. ``_lowerABIOnly`` is attached to the
+    result when a discarded build was otherwise the newest, so the caller can
+    explain the hold instead of silently reporting the pin as current.
+    """
     # Any failure for a single platform is treated as "nothing here": a missing
     # subdir must never sink the whole lookup.
     try:
@@ -313,28 +366,109 @@ def _best_for_platform(pkg_name, channel_hint, platform, fetcher):
     if channel_hint:
         matching = [p for p in packages if _channel_name(p) == channel_hint]
         packages = matching or packages
-    return max(packages, key=_package_sort_key) if packages else None
+    if not packages:
+        return None
+
+    unrestricted_best = max(packages, key=_package_sort_key)
+    if current_abi is None:
+        return unrestricted_best
+
+    allowed = [
+        p
+        for p in packages
+        if _abi_compatible(p.get("build") or p.get("build_string"), current_abi)
+    ]
+    if not allowed:
+        # Every published build is on an older interpreter. Report nothing for
+        # this platform, but name the build that was rejected.
+        rejected = dict(unrestricted_best)
+        rejected["_lowerABIOnly"] = True
+        return rejected
+
+    # Among equally new builds, take the one closest to the interpreter already
+    # pinned. Packages are rebuilt once per interpreter, so several builds tie on
+    # version and build number and the tie would otherwise fall to the build
+    # string, which would jump a py310 pin straight to py314. Staying on the
+    # current interpreter makes the move a pure rebuild.
+    def _abi_preference_key(pkg):
+        abi = python_abi(pkg.get("build") or pkg.get("build_string"))
+        distance = 0 if abi is None or current_abi is None else _abi_index(abi) - _abi_index(current_abi)
+        return (
+            ComparableVersion(pkg.get("version", "")),
+            int(pkg.get("build_number", 0) or 0),
+            -distance,
+            pkg.get("build", ""),
+        )
+
+    best = max(allowed, key=_abi_preference_key)
+    if _package_sort_key(unrestricted_best) > _package_sort_key(best) and not _abi_compatible(
+        unrestricted_best.get("build") or unrestricted_best.get("build_string"), current_abi
+    ):
+        best = dict(best)
+        best["_lowerABIRejected"] = (
+            unrestricted_best.get("build") or unrestricted_best.get("build_string")
+        )
+    return best
 
 
-def latest_conda(pkg_name, channel_hint, fetcher):
+def latest_conda(pkg_name, channel_hint, fetcher, current_build=None):
     """Newest installable build of ``pkg_name``, preferring osx-arm64 over noarch.
 
     Returns ``{"version","build","subdir","channel","build_number",
-    "linuxOnlyVersion"}`` or None when neither subdir carries the package.
+    "linuxOnlyVersion","lowerABIOnly"}`` or None when neither subdir carries the
+    package.
 
     ``linuxOnlyVersion`` is set when bioconda publishes a strictly newer version
     that has no osx-arm64 or noarch build (bracken 3.x is the live example).
     Without it the sweep would report a comfortable ``same`` while upstream had
     moved several major versions ahead on Linux only.
+
+    ``current_build`` is the build string of the pin in force. When it carries a
+    Python ABI tag, builds on an older interpreter are never proposed: packages
+    rebuilt across several interpreters publish each one separately, and picking
+    the newest by build string alone would recommend an interpreter downgrade
+    (a py310 pin being offered a py39 build). ``lowerABIOnly`` names the build
+    that was rejected on those grounds so the caller can explain the hold.
     """
+    current_abi = python_abi(current_build)
+
     by_subdir = {}
     for platform in ("osx-arm64", "noarch"):
-        best = _best_for_platform(pkg_name, channel_hint, platform, fetcher)
+        best = _best_for_platform(pkg_name, channel_hint, platform, fetcher, current_abi)
         if best is not None:
             by_subdir[platform] = best
 
     if not by_subdir:
         return None
+
+    # A subdir whose only builds are on an older interpreter is not a candidate;
+    # keep the rejected build string to report, then drop it from selection.
+    lower_abi_only = None
+    usable = {}
+    for platform, pkg in by_subdir.items():
+        if pkg.get("_lowerABIOnly"):
+            lower_abi_only = lower_abi_only or (
+                pkg.get("build") or pkg.get("build_string")
+            )
+        else:
+            usable[platform] = pkg
+            if pkg.get("_lowerABIRejected"):
+                lower_abi_only = lower_abi_only or pkg["_lowerABIRejected"]
+
+    if not usable:
+        # Nothing installable without lowering the interpreter. Report the pin
+        # itself as the best available and let the caller mark it `same`.
+        return {
+            "version": None,
+            "build": None,
+            "build_number": 0,
+            "subdir": None,
+            "channel": channel_hint or "bioconda",
+            "linuxOnlyVersion": None,
+            "lowerABIOnly": lower_abi_only,
+        }
+
+    by_subdir = usable
 
     # Prefer the native build; fall back to noarch only when arm64 has none, or
     # when noarch actually ships a strictly newer version.
@@ -357,6 +491,7 @@ def latest_conda(pkg_name, channel_hint, fetcher):
         "subdir": best.get("subdir"),
         "channel": _channel_name(best),
         "linuxOnlyVersion": linux_only,
+        "lowerABIOnly": lower_abi_only,
     }
 
 

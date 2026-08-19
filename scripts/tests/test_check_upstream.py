@@ -141,6 +141,117 @@ class CheckUpstreamTests(unittest.TestCase):
         self.f.repodata[("ghost", "noarch")] = {"result": {"pkgs": []}}
         self.assertIsNone(us.latest_conda("ghost", "bioconda", self.f))
 
+    # ------------------------------------------------------- python ABI tags
+
+    def _pysam_pkg(self, build, build_number):
+        return {
+            "name": "pysam",
+            "version": "0.24.0",
+            "build": build,
+            "build_number": build_number,
+            "subdir": "osx-arm64",
+            "channel": "https://conda.anaconda.org/bioconda/osx-arm64",
+        }
+
+    def _pysam_repodata(self, builds):
+        self.f.repodata[("pysam", "osx-arm64")] = {
+            "result": {"pkgs": [self._pysam_pkg(b, n) for b, n in builds]}
+        }
+        self.f.repodata[("pysam", "noarch")] = {"result": {"pkgs": []}}
+        self.f.repodata[("pysam", "linux-64")] = {"result": {"pkgs": []}}
+
+    def test_python_abi_parses_packed_and_split_tags(self):
+        self.assertEqual(us.python_abi("py310hf7cbfa5_0"), (3, 10))
+        self.assertEqual(us.python_abi("py39hfb5fbb1_1"), (3, 9))
+        self.assertEqual(us.python_abi("py3_10abc_0"), (3, 10))
+        self.assertIsNone(us.python_abi("h36b3a25_1"))
+        self.assertIsNone(us.python_abi(None))
+
+    def test_python_abi_orders_py39_below_py310(self):
+        # The bug this guards: as bare strings "py39" > "py310" lexically.
+        self.assertLess(us.python_abi("py39x_0"), us.python_abi("py310x_0"))
+
+    def test_latest_conda_prefers_same_abi_build_over_newer_lower_abi(self):
+        # pysam-like: a py39 build is newest by build string, but a py310
+        # rebuild at the same build number exists and must win.
+        self._pysam_repodata(
+            [("py39hfb5fbb1_3", 3), ("py310hf7cbfa5_1", 1), ("py310hf7cbfa5_0", 0)]
+        )
+        r = us.latest_conda("pysam", "bioconda", self.f, "py310hf7cbfa5_0")
+        self.assertEqual(r["build"], "py310hf7cbfa5_1")
+        self.assertEqual(r["version"], "0.24.0")
+        self.assertEqual(r["lowerABIOnly"], "py39hfb5fbb1_3")
+
+    def test_equal_build_numbers_prefer_the_current_interpreter(self):
+        # The live pysam case: bioconda rebuilds every interpreter at the same
+        # build number, so py310/py311/py312/py313/py314 all tie at _1. Falling
+        # back to the build string would jump a py310 pin to py314; the closest
+        # compatible ABI keeps the move a pure rebuild.
+        self._pysam_repodata(
+            [
+                ("py314h3004d98_1", 1),
+                ("py313hae41486_1", 1),
+                ("py312h12d0683_1", 1),
+                ("py311ha4c8de3_1", 1),
+                ("py310hf7cbfa5_1", 1),
+                ("py39hfb5fbb1_1", 1),
+                ("py310hf7cbfa5_0", 0),
+            ]
+        )
+        r = us.latest_conda("pysam", "bioconda", self.f, "py310hf7cbfa5_0")
+        self.assertEqual(r["build"], "py310hf7cbfa5_1")
+
+    def test_higher_build_number_still_wins_over_a_closer_abi(self):
+        # ABI closeness is only a tie-break; a genuinely newer build still wins.
+        self._pysam_repodata([("py313hae41486_4", 4), ("py310hf7cbfa5_1", 1)])
+        r = us.latest_conda("pysam", "bioconda", self.f, "py310hf7cbfa5_0")
+        self.assertEqual(r["build"], "py313hae41486_4")
+
+    def test_latest_conda_takes_forward_abi_build(self):
+        # Moving py310 -> py313 is fine; only backwards moves are blocked.
+        self._pysam_repodata([("py313aaaaaaa_2", 2), ("py310hf7cbfa5_1", 1)])
+        r = us.latest_conda("pysam", "bioconda", self.f, "py310hf7cbfa5_0")
+        self.assertEqual(r["build"], "py313aaaaaaa_2")
+        self.assertIsNone(r["lowerABIOnly"])
+
+    def test_latest_conda_ignores_abi_when_pin_has_no_py_tag(self):
+        # samtools has no interpreter tag, so the rule must not engage.
+        r = us.latest_conda("samtools", "bioconda", self.f, "hc612e98_0")
+        self.assertEqual(r["build"], "h36b3a25_1")
+        self.assertIsNone(r["lowerABIOnly"])
+
+    def _pysam_row(self, builds, spec_build="py310hf7cbfa5_0"):
+        self._pysam_repodata(builds)
+        m = self._manifest()
+        m["tools"] = [
+            {
+                "id": "pysam",
+                "environment": "pysam",
+                "packageSpec": f"bioconda::pysam=0.24.0={spec_build}",
+                "version": "0.24.0",
+            }
+        ]
+        return check_upstream.build_candidates(m, self.f)["tools"][0]
+
+    def test_same_abi_rebuild_is_offered_as_the_update(self):
+        row = self._pysam_row(
+            [("py39hfb5fbb1_3", 3), ("py310hf7cbfa5_1", 1), ("py310hf7cbfa5_0", 0)]
+        )
+        self.assertEqual(row["status"], "update")
+        self.assertEqual(row["latestSpec"], "bioconda::pysam=0.24.0=py310hf7cbfa5_1")
+        self.assertIn("py39hfb5fbb1_3", row["notes"])
+        self.assertIn("lower Python ABI", row["notes"])
+
+    def test_lower_abi_only_reports_same_with_a_note_not_an_update(self):
+        # The exact case the 2026.2 sweep hit: the only newer build is py39.
+        row = self._pysam_row([("py39hfb5fbb1_1", 1), ("py310hf7cbfa5_0", 0)])
+        self.assertEqual(row["status"], "same")
+        self.assertEqual(row["latest"], "0.24.0")
+        self.assertIn("newer build only on lower Python ABI", row["notes"])
+        self.assertIn("py39hfb5fbb1_1", row["notes"])
+        # It must not propose the downgrade as the thing to install.
+        self.assertNotIn("py39", row["latestSpec"])
+
     def test_version_key_orders_numerically_not_lexically(self):
         key = us.version_key
         self.assertGreater(key("2.17.1"), key("2.1.6"))

@@ -780,7 +780,7 @@ entry moved: for bbtools and savont the `version` and `packageSpec` fields, for
 micromamba the `version` and the `sha256` digest. Every other tool, pack tool,
 pipeline, database and the rest of the bootstrap block were byte-identical.
 
-Commits: `84d457a2` bbmap, `653f93f5` savont, `18591b89` micromamba.
+Commits: `84d457a2` bbmap, `608a13b8` savont, `18591b89` micromamba.
 
 ### bbmap 40.02
 

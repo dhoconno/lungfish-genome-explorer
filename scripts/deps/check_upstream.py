@@ -111,7 +111,7 @@ def _tool_candidate(entry, kind, entry_id, fetcher):
     package_name = package_name or entry.get("id", "")
 
     try:
-        latest = us.latest_conda(package_name, channel_hint, fetcher)
+        latest = us.latest_conda(package_name, channel_hint, fetcher, spec_build)
     except us.FetchError as exc:
         row["notes"] = str(exc)
         return row
@@ -121,6 +121,18 @@ def _tool_candidate(entry, kind, entry_id, fetcher):
 
     if latest is None:
         row["notes"] = f"no {package_name} package found on bioconda/conda-forge"
+        return row
+
+    # Every published build is on an older Python than the pin. Hold rather than
+    # propose an interpreter downgrade: the pin is the newest usable build.
+    if latest.get("version") is None and latest.get("lowerABIOnly"):
+        row["status"] = STATUS_SAME
+        row["latest"] = current
+        row["latestSpec"] = entry.get("packageSpec", "")
+        row["notes"] = (
+            f"newer build only on lower Python ABI: "
+            f"{channel_hint or 'bioconda'}::{package_name}={current}={latest['lowerABIOnly']}"
+        )
         return row
 
     row["latest"] = latest["version"]
@@ -148,11 +160,26 @@ def _tool_candidate(entry, kind, entry_id, fetcher):
 
     if same_version and (not spec_build or spec_build == latest["build"]):
         row["status"] = STATUS_SAME
+        # The pin is already the newest build that keeps the interpreter, but a
+        # newer one exists on an older Python. Name it so the hold is visible
+        # rather than reading as a plain "nothing to do".
+        if latest.get("lowerABIOnly"):
+            row["notes"] = row["notes"] or (
+                f"newer build only on lower Python ABI: "
+                f"{latest['channel']}::{package_name}={latest['version']}="
+                f"{latest['lowerABIOnly']}"
+            )
     elif same_version:
         row["status"] = STATUS_UPDATE
         row["notes"] = (
             row["notes"] or f"same version, newer build ({spec_build} -> {latest['build']})"
         )
+        # A newer build existed but sat on an older interpreter; say so, so the
+        # chosen build is not mistaken for the newest published one.
+        if latest.get("lowerABIOnly"):
+            row["notes"] += (
+                f"; skipped {latest['lowerABIOnly']} (lower Python ABI)"
+            )
     elif us.compare_versions(latest["version"], current) > 0:
         row["status"] = STATUS_UPDATE
     else:

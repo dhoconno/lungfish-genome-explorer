@@ -8,7 +8,7 @@ managed separately.
 Versions:
 - micromamba: 2.9.0-0 (BSD-3-Clause license)
 
-Build date: 2026-08-19 01:10:22 UTC
+Build date: 2026-08-19 01:36:16 UTC
 Build architecture: arm64
 
 Source URLs:

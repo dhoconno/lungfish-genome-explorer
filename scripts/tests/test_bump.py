@@ -955,9 +955,15 @@ class MainTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(rc, 0)
+            original = json.loads(MANIFEST.read_text(encoding="utf-8"))
+            before = [t for t in original["tools"] if t["id"] == "samtools"][0]
             written = json.loads(manifest_path.read_text(encoding="utf-8"))
             samtools = [t for t in written["tools"] if t["id"] == "samtools"][0]
-            self.assertEqual(samtools["version"], "1.23.1")
+            # --hold pins the tool wherever the manifest already had it. Compared
+            # against the real manifest rather than a literal, so re-pinning
+            # samtools in a later sweep cannot make this a stale mirror.
+            self.assertEqual(samtools["version"], before["version"])
+            self.assertEqual(samtools["packageSpec"], before["packageSpec"])
             self.assertEqual(written["retiredEnvironments"], ["oldenv"])
 
 
