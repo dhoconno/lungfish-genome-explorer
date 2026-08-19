@@ -770,8 +770,16 @@ final class EsVirituParserTests: XCTestCase {
         }
     }
 
-    /// requiredColumns must match the real upstream header names, verified against
-    /// the checked-in EsViritu fixture.
+    /// requiredColumns must name real upstream columns, verified against the
+    /// checked-in EsViritu fixture.
+    ///
+    /// This asserts containment, not equality. `requiredColumns` is the MINIMUM set the
+    /// parser needs: `makeColumnIndex` resolves positions by name and only throws for
+    /// names it cannot find, and the per-row guard is `columns.count >= expectedColumnCount`.
+    /// EsViritu 3.14 added `adj_taxonomy` and `consensus_ref_identity`, an additive change
+    /// the parser handles correctly, and an equality assertion turned that into a failure.
+    /// A column that upstream REMOVES or RENAMES still fails here, which is the drift worth
+    /// catching, since the parser would then throw missingColumns at runtime.
     func testRequiredColumnsMatchFixtureHeader() throws {
         let fixture = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // LungfishIOTests
@@ -784,7 +792,19 @@ final class EsVirituParserTests: XCTestCase {
             return XCTFail("Fixture has no header line")
         }
         let headerColumns = headerLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        XCTAssertEqual(headerColumns, EsVirituDetectionParser.requiredColumns)
+        let missing = EsVirituDetectionParser.requiredColumns.filter { !headerColumns.contains($0) }
+        XCTAssertTrue(
+            missing.isEmpty,
+            "requiredColumns names columns the upstream fixture no longer has: \(missing.joined(separator: ", "))"
+        )
+        // The headerless positional fallback assumes the required columns come first and in
+        // order, so guard that too: additions upstream must append, not interleave.
+        let prefix = Array(headerColumns.prefix(EsVirituDetectionParser.requiredColumns.count))
+        XCTAssertEqual(
+            prefix.filter { EsVirituDetectionParser.requiredColumns.contains($0) },
+            EsVirituDetectionParser.requiredColumns.filter { prefix.contains($0) },
+            "required columns changed relative order, which breaks the headerless fallback"
+        )
     }
 
     /// The parser must still read the checked-in fixture end to end.
