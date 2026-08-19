@@ -247,16 +247,6 @@ if [[ -z "${kraken2_db}" ]]; then
         fi
     done
 fi
-if [[ ${run_taxtriage} -eq 1 && -z "${kraken2_db}" ]]; then
-    echo "no Kraken2 database found under ${databases_root}" >&2
-    echo "install one with: ${cli_bin} conda db download Viral" >&2
-    echo "or pass --kraken2-db <dir>" >&2
-    exit 66
-fi
-if [[ -n "${kraken2_db}" && ! -d "${kraken2_db}" ]]; then
-    echo "Kraken2 database directory not found: ${kraken2_db}" >&2
-    exit 66
-fi
 
 r1_full="${reads_dir}/${accession}_1.fastq"
 r2_full="${reads_dir}/${accession}_2.fastq"
@@ -285,6 +275,21 @@ if [[ ${dry_run} -eq 1 ]]; then
         echo "  ${cli_bin} esviritu detect --input ${r1_sub} ${r2_sub} --paired --sample ${accession} --output ${out_dir}/esviritu"
     fi
     exit 0
+fi
+
+# Checked AFTER the --dry-run return, unlike verify.sh's real-root guard. That guard
+# prevents damage, so it has to fire even for a rehearsal; this one only validates an
+# input a dry run never consumes, and failing it would stop a developer from seeing the
+# commands the runner would issue on a machine that has no database yet.
+if [[ ${run_taxtriage} -eq 1 && -z "${kraken2_db}" ]]; then
+    echo "no Kraken2 database found under ${databases_root}" >&2
+    echo "install one with: ${cli_bin} conda db download Viral" >&2
+    echo "or pass --kraken2-db <dir>" >&2
+    exit 66
+fi
+if [[ -n "${kraken2_db}" && ! -d "${kraken2_db}" ]]; then
+    echo "Kraken2 database directory not found: ${kraken2_db}" >&2
+    exit 66
 fi
 
 collect_failures=0
