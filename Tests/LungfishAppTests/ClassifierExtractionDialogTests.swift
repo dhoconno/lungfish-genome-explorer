@@ -265,6 +265,46 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertEqual(displayName, "my-custom-name", "Custom name should be used verbatim without any suffix")
     }
 
+    func testResolveDestination_bundleRecordsStructuredSelectionMapping() async throws {
+        let context = TaxonomyReadExtractionAction.Context(
+            tool: .kraken2,
+            resultPath: URL(fileURLWithPath: "/tmp/kraken2-batch"),
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: "sample-A",
+                    accessions: ["ACC_A"],
+                    taxIds: [1270, 1]
+                ),
+                ClassifierRowSelector(
+                    sampleId: "sample-B",
+                    accessions: [],
+                    taxIds: [562]
+                ),
+            ],
+            suggestedName: "structured-selection"
+        )
+        let model = ClassifierExtractionDialogViewModel(
+            tool: .kraken2,
+            selectionCount: context.selections.count,
+            suggestedName: context.suggestedName
+        )
+        model.destination = .bundle
+        model.name = "structured-selection-custom"
+
+        let destination = try await TaxonomyReadExtractionAction.shared
+            .resolveDestinationForTesting(model: model, context: context)
+        guard case .bundle(_, _, let metadata) = destination else {
+            return XCTFail("Expected .bundle, got \(destination)")
+        }
+
+        XCTAssertEqual(
+            metadata.parameters["selectionsJSON"],
+            #"[{"accessions":["ACC_A"],"sample":"sample-A","taxIds":[1270,1]},{"accessions":[],"sample":"sample-B","taxIds":[562]}]"#
+        )
+        XCTAssertEqual(metadata.parameters["taxIds"], "1270,1,562")
+        XCTAssertEqual(metadata.parameters["accessions"], "ACC_A")
+    }
+
     // MARK: - CLI command reconstruction
 
     func testBuildCLIString_bundle_roundTripsAsByClassifier() {
@@ -410,6 +450,99 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertEqual(provenance?.explicitOptions["destination"]?.stringValue, "file")
         XCTAssertEqual(provenance?.explicitOptions["outputPath"]?.fileValue?.path, outputURL.path)
         XCTAssertEqual(provenance?.resolved["samtoolsExcludeFlags"]?.integerValue, 0x400)
+    }
+
+    func testFileProvenanceOptionsPreserveStructuredKrakenSelectionsThroughResolver() async throws {
+        let batchRoot = ClassifierExtractionFixtures.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/kraken2-mini")
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("app-k2-provenance-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+        let outputURL = outputDir.appendingPathComponent("selected.fastq")
+        let selectors = [
+            ClassifierRowSelector(
+                sampleId: "SRR35517702",
+                accessions: [],
+                taxIds: [1270]
+            ),
+            ClassifierRowSelector(
+                sampleId: "SRR35517703",
+                accessions: [],
+                taxIds: [1]
+            ),
+        ]
+        let context = TaxonomyReadExtractionAction.Context(
+            tool: .kraken2,
+            resultPath: batchRoot,
+            selections: selectors,
+            suggestedName: "selected"
+        )
+        let options = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            ExtractionOptions(),
+            context: context,
+            destination: .file(outputURL)
+        )
+
+        let outcome = try await ClassifierReadResolver().resolveAndExtract(
+            tool: .kraken2,
+            resultPath: batchRoot,
+            selections: selectors,
+            options: options,
+            destination: .file(outputURL)
+        )
+        guard case .file(let writtenURL, let readCount) = outcome else {
+            return XCTFail("Expected .file, got \(outcome)")
+        }
+        XCTAssertEqual(readCount, 3)
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: ProvenanceRecorder.fileSidecarURL(for: writtenURL)
+            )
+        )
+        let structuredSelections = try XCTUnwrap(
+            envelope.options.explicit["selections"]?.arrayValue
+        )
+        XCTAssertEqual(structuredSelections.count, 2)
+        XCTAssertEqual(
+            structuredSelections[0].dictionaryValue?["sample"]?.stringValue,
+            "SRR35517702"
+        )
+        XCTAssertEqual(
+            structuredSelections[0].dictionaryValue?["accessions"]?.arrayValue,
+            []
+        )
+        XCTAssertEqual(
+            structuredSelections[0].dictionaryValue?["taxIds"]?.arrayValue?
+                .compactMap(\.integerValue),
+            [1270]
+        )
+        XCTAssertEqual(
+            structuredSelections[1].dictionaryValue?["sample"]?.stringValue,
+            "SRR35517703"
+        )
+        XCTAssertEqual(
+            structuredSelections[1].dictionaryValue?["taxIds"]?.arrayValue?
+                .compactMap(\.integerValue),
+            [1]
+        )
+
+        let selectionStart = try XCTUnwrap(envelope.argv.firstIndex(of: "--sample"))
+        let outputStart = try XCTUnwrap(envelope.argv.firstIndex(of: "--output"))
+        XCTAssertEqual(
+            Array(envelope.argv[selectionStart..<outputStart]),
+            [
+                "--sample", "SRR35517702", "--taxon", "1270",
+                "--sample", "SRR35517703", "--taxon", "1",
+            ]
+        )
+        XCTAssertEqual(envelope.output?.path, writtenURL.path)
+        XCTAssertEqual(
+            envelope.output?.fileSize,
+            try ProvenanceFileHasher.fileSize(of: writtenURL)
+        )
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
     }
 
     func testFileProvenanceOptions_recordsNaoMgsReadNameAllowlist() {

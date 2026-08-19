@@ -163,6 +163,10 @@ public actor MetagenomicsDatabaseRegistry {
     /// In-memory database entries, keyed by name.
     private var databases: [String: MetagenomicsDatabaseInfo] = [:]
 
+    /// Catalog entries supplied by this build. Persisted rows may retain a
+    /// historical recipe, so installation must resolve against this catalog.
+    private let catalog: [MetagenomicsDatabaseInfo]
+
     private let externalVolumeDetector: @Sendable (URL) -> Bool
     private let bookmarkCreator: @Sendable (URL) throws -> Data
     private let bookmarkResolver: @Sendable (Data) throws -> BookmarkResolution
@@ -217,6 +221,7 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = storageConfigStore
         self.databasesBaseURL = base
         self.manifestURL = base.appendingPathComponent("metagenomics-db-registry.json")
+        self.catalog = MetagenomicsDatabaseInfo.builtInCatalog
         self.externalVolumeDetector = Self.isExternalVolume
         self.bookmarkCreator = Self.defaultBookmarkData
         self.bookmarkResolver = Self.defaultBookmarkResolution
@@ -235,6 +240,7 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = storageConfigStore
         self.databasesBaseURL = base
         self.manifestURL = base.appendingPathComponent("metagenomics-db-registry.json")
+        self.catalog = MetagenomicsDatabaseInfo.builtInCatalog
         self.externalVolumeDetector = Self.isExternalVolume
         self.bookmarkCreator = Self.defaultBookmarkData
         self.bookmarkResolver = Self.defaultBookmarkResolution
@@ -257,6 +263,7 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = nil
         self.databasesBaseURL = baseDirectory
         self.manifestURL = baseDirectory.appendingPathComponent("metagenomics-db-registry.json")
+        self.catalog = MetagenomicsDatabaseInfo.builtInCatalog
         self.externalVolumeDetector = Self.isExternalVolume
         self.bookmarkCreator = Self.defaultBookmarkData
         self.bookmarkResolver = Self.defaultBookmarkResolution
@@ -272,6 +279,7 @@ public actor MetagenomicsDatabaseRegistry {
 
     init(
         baseDirectory: URL,
+        catalog: [MetagenomicsDatabaseInfo] = MetagenomicsDatabaseInfo.builtInCatalog,
         externalVolumeDetector: @escaping @Sendable (URL) -> Bool = MetagenomicsDatabaseRegistry.isExternalVolume,
         bookmarkCreator: @escaping @Sendable (URL) throws -> Data = MetagenomicsDatabaseRegistry.defaultBookmarkData,
         bookmarkResolver: @escaping @Sendable (Data) throws -> BookmarkResolution = MetagenomicsDatabaseRegistry.defaultBookmarkResolution,
@@ -283,6 +291,7 @@ public actor MetagenomicsDatabaseRegistry {
         self.storageConfigStore = nil
         self.databasesBaseURL = baseDirectory
         self.manifestURL = baseDirectory.appendingPathComponent("metagenomics-db-registry.json")
+        self.catalog = catalog
         self.externalVolumeDetector = externalVolumeDetector
         self.bookmarkCreator = bookmarkCreator
         self.bookmarkResolver = bookmarkResolver
@@ -394,6 +403,7 @@ public actor MetagenomicsDatabaseRegistry {
 
         // Try loading an existing manifest.
         if fm.fileExists(atPath: manifestURL.path) {
+            var didMigrateVersion = false
             do {
                 let data = try Data(contentsOf: manifestURL)
                 let decoder = JSONDecoder()
@@ -402,6 +412,11 @@ public actor MetagenomicsDatabaseRegistry {
                 for var db in manifest.databases {
                     if db.path != nil, db.installedAt == nil {
                         db.installedAt = db.lastUpdated
+                    }
+                    if let catalogVersion = currentCatalogVersionProvenByReceipt(for: db),
+                       db.version != catalogVersion {
+                        db.version = catalogVersion
+                        didMigrateVersion = true
                     }
                     databases[db.name] = db
                 }
@@ -417,7 +432,7 @@ public actor MetagenomicsDatabaseRegistry {
             // Merge any new built-in catalog entries that weren't in the
             // persisted manifest (e.g., EsViritu DB added in a newer version).
             var addedCount = 0
-            for entry in MetagenomicsDatabaseInfo.builtInCatalog {
+            for entry in catalog {
                 let alreadyPresent = databases.values.contains { persisted in
                     Self.matchesCatalogEntry(persisted, catalog: entry)
                 }
@@ -428,15 +443,15 @@ public actor MetagenomicsDatabaseRegistry {
             }
             let recoveredCount = recoverInterruptedUpdates()
             let correctedCount = reconcileCatalogURLs()
-            if addedCount > 0 || correctedCount > 0 || recoveredCount > 0 {
+            if addedCount > 0 || correctedCount > 0 || recoveredCount > 0 || didMigrateVersion {
                 try saveManifest()
                 logger.info(
-                    "Merged \(addedCount, privacy: .public) new catalog entries, corrected \(correctedCount, privacy: .public) stale download URLs, and recovered \(recoveredCount, privacy: .public) interrupted updates"
+                    "Merged \(addedCount, privacy: .public) new catalog entries, corrected \(correctedCount, privacy: .public) stale download URLs, recovered \(recoveredCount, privacy: .public) interrupted updates, migrated special versions: \(didMigrateVersion, privacy: .public)"
                 )
             }
         } else {
             // First launch: populate from built-in catalog.
-            for entry in MetagenomicsDatabaseInfo.builtInCatalog {
+            for entry in catalog {
                 databases[entry.name] = entry
             }
             try saveManifest()
@@ -589,7 +604,7 @@ public actor MetagenomicsDatabaseRegistry {
         }
 
         // If this is a catalog entry, reset to undownloaded state rather than deleting.
-        let catalogEntry = Self.catalogEntry(matching: existing)
+        let catalogEntry = catalogEntry(matching: existing)
         if let catalogEntry {
             endSecurityScopedAccess(for: name)
             databases[name] = catalogEntry
@@ -985,6 +1000,11 @@ public actor MetagenomicsDatabaseRegistry {
             )
         }
 
+        // Persisted catalog rows can contain an older recipe. Resolve through
+        // the stable catalog identity before preparation so the actual build,
+        // canonical receipt, and stored version all describe the current recipe.
+        let preparationDatabase = catalogEntry(matching: prior) ?? prior
+
         var db = prior
         db.status = .downloading
         databases[name] = db
@@ -998,7 +1018,7 @@ public actor MetagenomicsDatabaseRegistry {
         let prepared: PreparedMetagenomicsDatabaseInstallation
         do {
             prepared = try await databaseInstaller.prepareInstallation(
-                database: db,
+                database: preparationDatabase,
                 databasesBaseURL: databasesBaseURL,
                 threads: 4,
                 progress: progress
@@ -1016,7 +1036,12 @@ public actor MetagenomicsDatabaseRegistry {
 
         let installedAt = prior.installedAt ?? Date()
         db.path = prepared.result.finalURL
-        db.version = prepared.result.version
+        if case .kraken2Special? = preparationDatabase.installationRecipe {
+            db.version = preparationDatabase.version
+                ?? prepared.result.version
+        } else {
+            db.version = prepared.result.version
+        }
         db.payloadDigest = prepared.result.payloadDigest
         db.sizeOnDisk = prepared.result.sizeOnDisk
         db.installedAt = installedAt
@@ -1658,16 +1683,46 @@ public actor MetagenomicsDatabaseRegistry {
             && (persisted.collection == nil || persisted.collection == catalog.collection)
     }
 
-    private static func catalogEntry(
+    private func catalogEntry(
         matching database: MetagenomicsDatabaseInfo
     ) -> MetagenomicsDatabaseInfo? {
         if let catalogID = database.catalogID {
-            return MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID)
+            return catalog.first { $0.catalogID == catalogID }
         }
-        return MetagenomicsDatabaseInfo.builtInCatalog.first {
+        return catalog.first {
             database.name == $0.name
                 && (database.collection == nil || database.collection == $0.collection)
         }
+    }
+
+    private func currentCatalogVersionProvenByReceipt(
+        for database: MetagenomicsDatabaseInfo
+    ) -> String? {
+        guard database.status == .ready,
+              database.version?.hasPrefix("built-") == true,
+              case .some(.kraken2Special) = database.installationRecipe,
+              let catalogID = database.catalogID,
+              let currentCatalog = catalogEntry(matching: database),
+              currentCatalog.catalogID == catalogID,
+              let catalogVersion = currentCatalog.version,
+              !catalogVersion.isEmpty,
+              let path = database.path,
+              let payloadDigest = database.payloadDigest else {
+            return nil
+        }
+
+        let sidecar = path.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar),
+              envelope.workflowName == "metagenomics.database.install",
+              envelope.workflowVersion == catalogVersion,
+              envelope.exitStatus == 0,
+              envelope.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue == payloadDigest,
+              envelope.options.resolvedDefaults["intendedFinalPath"]?.stringValue
+                == path.standardizedFileURL.path else {
+            return nil
+        }
+
+        return catalogVersion
     }
 
     private static func validateManagedPayload(

@@ -1115,7 +1115,9 @@ final class MetagenomicsPluginPackTests: XCTestCase {
         XCTAssertEqual(kraken2.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "kraken2")).packageSpec])
         XCTAssertEqual(kraken2.executables, ["kraken2", "kraken2-build"])
         XCTAssertEqual(bracken.environment, "bracken")
-        XCTAssertEqual(bracken.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "bracken")).packageSpec])
+        XCTAssertFalse(bracken.installPackages.contains(where: { $0.contains("bracken=") }))
+        XCTAssertNotNil(bracken.sourceOverlay)
+        XCTAssertEqual(bracken.sourceOverlay?.version, "3.1")
         XCTAssertEqual(bracken.executables, ["bracken", "bracken-build"])
         XCTAssertNotEqual(kraken2.environment, bracken.environment)
     }

@@ -93,6 +93,27 @@ public struct PackToolSmokeTest: Sendable, Codable, Hashable {
     )
 }
 
+/// A checksum-pinned source payload installed into an otherwise managed conda
+/// environment. This is deliberately a typed contract so status evaluation can
+/// distinguish a valid managed source tool from an arbitrary executable.
+public struct PackToolSourceOverlay: Sendable, Codable, Hashable {
+    public enum Kind: String, Sendable, Codable, Hashable {
+        case bracken
+    }
+
+    public let kind: Kind
+    public let version: String
+    public let sourceURL: URL
+    public let sha256: String
+
+    public init(kind: Kind, version: String, sourceURL: URL, sha256: String) {
+        self.kind = kind
+        self.version = version
+        self.sourceURL = sourceURL
+        self.sha256 = sha256.lowercased()
+    }
+}
+
 public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let id: String
     public let displayName: String
@@ -105,6 +126,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let version: String?
     public let license: String?
     public let sourceURL: String?
+    public let sourceOverlay: PackToolSourceOverlay?
 
     public init(
         id: String,
@@ -117,7 +139,8 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         managedDatabaseID: String? = nil,
         version: String? = nil,
         license: String? = nil,
-        sourceURL: String? = nil
+        sourceURL: String? = nil,
+        sourceOverlay: PackToolSourceOverlay? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -130,6 +153,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         self.version = version
         self.license = license
         self.sourceURL = sourceURL
+        self.sourceOverlay = sourceOverlay
     }
 
     public static func package(
@@ -191,6 +215,16 @@ public enum PluginPackManifestError: Error, CustomStringConvertible {
 public extension PackToolRequirement {
     /// Builds a requirement whose conda spec, version, license, and source URL come from the
     /// dependency manifest. Display metadata, executables, and smoke tests stay in Swift.
+    /// - Parameters:
+    ///   - installPackagesOverride: Conda packages to install INSTEAD of the manifest's
+    ///     packageSpec. Used with `sourceOverlay` for a tool built from source: the
+    ///     packages are the build and runtime toolchain, and the overlay supplies the
+    ///     tool itself. The manifest entry remains the reconciler's description of the
+    ///     conda fallback and carries `preserveExistingInstall`, so a source-built
+    ///     environment is not clobbered by `tools update`.
+    ///   - sourceOverlay: Source build applied on top of the installed environment.
+    ///     When present its version describes what is actually installed, so it wins
+    ///     over the manifest spec's version.
     static func fromManifest(
         _ manifest: ManagedToolLock,
         packID: String,
@@ -198,7 +232,9 @@ public extension PackToolRequirement {
         displayName: String,
         executables: [String],
         fallbackExecutablePaths: [String: [String]] = [:],
-        smokeTest: PackToolSmokeTest? = nil
+        smokeTest: PackToolSmokeTest? = nil,
+        installPackagesOverride: [String]? = nil,
+        sourceOverlay: PackToolSourceOverlay? = nil
     ) -> PackToolRequirement {
         guard let spec = manifest.packTool(packID: packID, id: id) else {
             // Surface loudly in debug; keep the pack visible but uninstallable in release.
@@ -210,20 +246,22 @@ public extension PackToolRequirement {
                 installPackages: [],
                 executables: executables,
                 fallbackExecutablePaths: fallbackExecutablePaths,
-                smokeTest: smokeTest
+                smokeTest: smokeTest,
+                sourceOverlay: sourceOverlay
             )
         }
         return PackToolRequirement(
             id: id,
             displayName: displayName,
             environment: spec.environment,
-            installPackages: [spec.packageSpec],
+            installPackages: installPackagesOverride ?? [spec.packageSpec],
             executables: executables,
             fallbackExecutablePaths: fallbackExecutablePaths,
             smokeTest: smokeTest,
-            version: spec.version,
+            version: sourceOverlay?.version ?? spec.version,
             license: spec.license,
-            sourceURL: spec.sourceUrl
+            sourceURL: spec.sourceUrl,
+            sourceOverlay: sourceOverlay
         )
     }
 }
@@ -724,7 +762,24 @@ public extension PluginPack {
                     id: "bracken",
                     displayName: "Bracken",
                     executables: ["bracken", "bracken-build"],
-                    smokeTest: .command(arguments: ["--help"])
+                    smokeTest: .command(arguments: ["--help"]),
+                    // Bracken is BUILT FROM SOURCE: bioconda's only arm64 build (1.0.0)
+                    // ships no driver, so the pack installs a pinned toolchain and the
+                    // source overlay compiles v3.1 into the environment. The manifest's
+                    // bracken entry stays the conda fallback the reconciler understands,
+                    // and its preserveExistingInstall flag keeps `tools update` from
+                    // clobbering the source build this overlay produces.
+                    installPackagesOverride: [
+                        "conda-forge::python=3.11.13",
+                        "conda-forge::cxx-compiler=1.9.0",
+                        "conda-forge::llvm-openmp=21.1.8",
+                    ],
+                    sourceOverlay: PackToolSourceOverlay(
+                        kind: .bracken,
+                        version: "3.1",
+                        sourceURL: URL(string: "https://github.com/jenniferlu717/Bracken/archive/refs/tags/v3.1.tar.gz")!,
+                        sha256: "c0a35331a8aac1e0dbb14c2a92c4de6f89f0aac540101c05c2eec54032107560"
+                    )
                 ),
                 PackToolRequirement.fromManifest(
                     ManagedToolLock.bundled,

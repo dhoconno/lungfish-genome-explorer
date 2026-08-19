@@ -868,6 +868,131 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         XCTAssertEqual(status, .ready)
     }
 
+    func testLegacyBuiltSpecialDatabaseMigratesToCurrentCatalogVersionWhenReceiptProvesCurrentRecipe() async throws {
+        let databaseDirectory = createMockSpecialKraken2Database(name: "legacy-special-current")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databaseDirectory)
+        let catalog = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        )
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: catalog,
+            finalURL: databaseDirectory,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(databaseDirectory)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
+
+        var legacy = catalog
+        legacy.version = "built-20260815-\(snapshot.aggregateSHA256.prefix(12))"
+        legacy.path = databaseDirectory
+        legacy.status = .ready
+        legacy.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let migratedResult = try await registry.database(named: catalog.name)
+        let migrated = try XCTUnwrap(migratedResult)
+        XCTAssertEqual(migrated.version, "kraken2-special-v1")
+        XCTAssertFalse(migrated.isUpdateAvailable)
+
+        let manifestData = try Data(
+            contentsOf: tempDir.appendingPathComponent("metagenomics-db-registry.json")
+        )
+        let manifest = try JSONDecoder().decode(DatabaseManifest.self, from: manifestData)
+        let persisted = try XCTUnwrap(manifest.databases.first { $0.name == catalog.name })
+        XCTAssertEqual(persisted.version, "kraken2-special-v1")
+    }
+
+    func testLegacyBuiltSpecialDatabaseRetainsVersionWhenReceiptProvesDifferentRecipe() async throws {
+        let databaseDirectory = createMockSpecialKraken2Database(name: "legacy-special-mismatched")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databaseDirectory)
+        let catalog = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        )
+        var oldRecipeCatalog = catalog
+        oldRecipeCatalog.version = "kraken2-special-v0"
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: oldRecipeCatalog,
+            finalURL: databaseDirectory,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(databaseDirectory)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
+
+        var legacy = catalog
+        legacy.version = "built-20260815-\(snapshot.aggregateSHA256.prefix(12))"
+        legacy.path = databaseDirectory
+        legacy.status = .ready
+        legacy.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let persistedResult = try await registry.database(named: catalog.name)
+        let persisted = try XCTUnwrap(persistedResult)
+        XCTAssertTrue(persisted.version?.hasPrefix("built-") == true)
+        XCTAssertTrue(persisted.isUpdateAvailable)
+    }
+
+    func testLegacyBuiltSpecialDatabaseRetainsVersionWithoutCatalogIdentity() async throws {
+        let databaseDirectory = createMockSpecialKraken2Database(name: "legacy-special-no-catalog-id")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databaseDirectory)
+        let catalog = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        )
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: catalog,
+            finalURL: databaseDirectory,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(databaseDirectory)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
+
+        let encodedCatalog = try JSONEncoder().encode(catalog)
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encodedCatalog) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "catalogID")
+        var legacy = try JSONDecoder().decode(
+            MetagenomicsDatabaseInfo.self,
+            from: JSONSerialization.data(withJSONObject: legacyObject)
+        )
+        legacy.version = "built-20260815-\(snapshot.aggregateSHA256.prefix(12))"
+        legacy.path = databaseDirectory
+        legacy.status = .ready
+        legacy.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let persistedResult = try await registry.database(named: catalog.name)
+        let persisted = try XCTUnwrap(persistedResult)
+        XCTAssertTrue(persisted.version?.hasPrefix("built-") == true)
+        XCTAssertTrue(persisted.isUpdateAvailable)
+    }
+
     func testCatalogReconciliationUsesStableCatalogIDWithoutDuplicatingRenamedRow() async throws {
         var renamed = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva"))
         let encoded = try JSONEncoder().encode(renamed)
@@ -899,14 +1024,58 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let stored = try XCTUnwrap(storedValue)
         XCTAssertEqual(stored.status, .ready)
         XCTAssertEqual(stored.path?.standardizedFileURL, final.standardizedFileURL)
+        XCTAssertEqual(stored.version, "kraken2-special-v1")
+        XCTAssertFalse(stored.isUpdateAvailable)
         XCTAssertEqual(stored.payloadDigest, installer.digest)
-        XCTAssertEqual(stored.version, installer.version)
         let manifestText = try String(
             contentsOf: tempDir.appendingPathComponent("metagenomics-db-registry.json"),
             encoding: .utf8
         )
         XCTAssertFalse(manifestText.contains(".install-"))
         XCTAssertFalse(manifestText.contains(".backup-"))
+    }
+
+    func testSpecialRecipeDownloadUsesCurrentCatalogVersionForPreparationManifestAndReceipt() async throws {
+        var currentCatalog = MetagenomicsDatabaseInfo.builtInCatalog
+        let silvaIndex = try XCTUnwrap(
+            currentCatalog.firstIndex { $0.catalogID == "kraken2-special-silva" }
+        )
+        currentCatalog[silvaIndex].version = "kraken2-special-v2"
+
+        var persistedV1 = currentCatalog[silvaIndex]
+        persistedV1.version = "kraken2-special-v1"
+        try writeManifest([persistedV1])
+
+        let installer = RegistryInstallerSpy()
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: tempDir,
+            catalog: currentCatalog,
+            databaseInstaller: installer
+        )
+
+        let final = try await registry.downloadDatabase(name: "SILVA", progress: { _, _ in })
+
+        let storedValue = try await registry.database(named: "SILVA")
+        let stored = try XCTUnwrap(storedValue)
+        XCTAssertEqual(installer.preparedDatabases.last?.version, "kraken2-special-v2")
+        XCTAssertEqual(stored.version, "kraken2-special-v2")
+        let receipt = try XCTUnwrap(
+            try ProvenanceEnvelopeReader.loadCanonical(
+                fromSidecar: final.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+            )
+        )
+        XCTAssertEqual(receipt.workflowVersion, "kraken2-special-v2")
+    }
+
+    func testArchiveRecipeDownloadRetainsInstallerGeneratedVersion() async throws {
+        let installer = RegistryInstallerSpy()
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir, databaseInstaller: installer)
+
+        _ = try await registry.downloadDatabase(name: "Standard", progress: { _, _ in })
+
+        let storedValue = try await registry.database(named: "Standard")
+        let stored = try XCTUnwrap(storedValue)
+        XCTAssertEqual(stored.version, installer.version)
     }
 
     func testManifestFailureRollsBackPreparedInstallAndRestoresPriorRow() async throws {
@@ -1494,17 +1663,35 @@ private final class RegistryInstallerSpy: MetagenomicsDatabaseInstalling, @unche
     let digest = String(repeating: "a", count: 64)
     let version = "built-20260812-aaaaaaaaaaaa"
     var threads: [Int] = []
+    var preparedDatabases: [MetagenomicsDatabaseInfo] = []
     var finalized: [URL] = []
     var rolledBack: [URL] = []
     var manifestWasReadyWhenFinalized = false
 
     func prepareInstallation(database: MetagenomicsDatabaseInfo, databasesBaseURL: URL, threads: Int, progress: @Sendable @escaping (Double, String) -> Void) async throws -> PreparedMetagenomicsDatabaseInstallation {
         self.threads.append(threads)
+        preparedDatabases.append(database)
         let final = databasesBaseURL.appendingPathComponent("kraken2/kraken2-special-silva", isDirectory: true)
         try FileManager.default.createDirectory(at: final, withIntermediateDirectories: true)
         for file in MetagenomicsDatabaseRegistry.requiredKraken2Files {
             try Data("new".utf8).write(to: final.appendingPathComponent(file))
         }
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: final)
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: database,
+            finalURL: final,
+            recipeSource: "fixture",
+            explicitOptions: [:],
+            defaultOptions: [:],
+            resolvedOptions: [:],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
         return PreparedMetagenomicsDatabaseInstallation(
             result: .init(finalURL: final, version: version, payloadDigest: digest, sizeOnDisk: 9),
             stagingURL: databasesBaseURL.appendingPathComponent("kraken2/.install-spy")

@@ -92,6 +92,63 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 
+    func testEstimateKraken2ReadCountLoadsPerSampleBatchResult() async throws {
+        let sampleResult = try kraken2MiniResultPath()
+        let classResult = try ClassificationResult.load(from: sampleResult)
+        let taxon = try XCTUnwrap(
+            classResult.tree.allNodes().first { $0.taxId != 0 && $0.readsClade > 0 },
+            "kraken2-mini fixture has no taxa with classified reads"
+        )
+
+        let estimate = try await ClassifierReadResolver().estimateReadCount(
+            tool: .kraken2,
+            resultPath: sampleResult.deletingLastPathComponent(),
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: sampleResult.lastPathComponent,
+                    accessions: [],
+                    taxIds: [taxon.taxId]
+                )
+            ],
+            options: ExtractionOptions()
+        )
+
+        XCTAssertEqual(estimate, taxon.readsClade)
+    }
+
+    func testEstimateKraken2ReadCountDoesNotDoubleCountSelectedDescendant() async throws {
+        let sampleResult = try kraken2MiniResultPath()
+        let classResult = try ClassificationResult.load(from: sampleResult)
+        let ancestor = try XCTUnwrap(classResult.tree.node(taxId: 1))
+        let descendant = try XCTUnwrap(classResult.tree.node(taxId: 1270))
+        var currentParent = descendant.parent
+        var isRealAncestor = false
+        while let parent = currentParent {
+            if parent === ancestor {
+                isRealAncestor = true
+                break
+            }
+            currentParent = parent.parent
+        }
+        XCTAssertTrue(isRealAncestor, "Fixture nodes must be related through TaxonNode.parent")
+        XCTAssertGreaterThan(descendant.readsClade, 0)
+
+        let estimate = try await ClassifierReadResolver().estimateReadCount(
+            tool: .kraken2,
+            resultPath: sampleResult,
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: nil,
+                    accessions: [],
+                    taxIds: [ancestor.taxId, descendant.taxId]
+                )
+            ],
+            options: ExtractionOptions()
+        )
+
+        XCTAssertEqual(estimate, ancestor.readsClade)
+    }
+
     // MARK: - resolveBAMURL (per-tool)
 
     /// Helper: creates a throwaway directory layout that looks like a real
@@ -902,6 +959,72 @@ final class ClassifierReadResolverTests: XCTestCase {
         }
         XCTAssertEqual(url.standardizedFileURL.path, tempOut.standardizedFileURL.path)
         XCTAssertGreaterThan(n, 0, "Expected non-zero reads for taxon \(taxon.taxId)")
+    }
+
+    func testExtractViaKraken2BatchScopesTaxaToEachSample() async throws {
+        let firstSample = try kraken2MiniResultPath()
+        let batchRoot = firstSample.deletingLastPathComponent()
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("k2-batch-scoped-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+        let outputURL = outputDir.appendingPathComponent("scoped.fastq")
+
+        let outcome = try await ClassifierReadResolver().resolveAndExtract(
+            tool: .kraken2,
+            resultPath: batchRoot,
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: "SRR35517702",
+                    taxIds: [1270]
+                ),
+                ClassifierRowSelector(
+                    sampleId: "SRR35517703",
+                    taxIds: [1]
+                ),
+            ],
+            options: ExtractionOptions(),
+            destination: .file(outputURL)
+        )
+
+        guard case .file(let writtenURL, let readCount) = outcome else {
+            return XCTFail("Expected .file outcome, got \(outcome)")
+        }
+        XCTAssertEqual(readCount, 3)
+        let output = try String(contentsOf: writtenURL, encoding: .utf8)
+        XCTAssertFalse(output.contains("@SRR35517702_classified_1\n"))
+        XCTAssertTrue(output.contains("@SRR35517702_classified_2\n"))
+        XCTAssertTrue(output.contains("@SRR35517703_classified_1\n"))
+        XCTAssertTrue(output.contains("@SRR35517703_classified_2\n"))
+    }
+
+    func testExtractViaKraken2RejectsMixedSingleAndBatchSelectors() async throws {
+        let sampleResult = try kraken2MiniResultPath()
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("k2-mixed-mode-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        do {
+            _ = try await ClassifierReadResolver().resolveAndExtract(
+                tool: .kraken2,
+                resultPath: sampleResult.deletingLastPathComponent(),
+                selections: [
+                    ClassifierRowSelector(sampleId: nil, taxIds: [1270]),
+                    ClassifierRowSelector(sampleId: "SRR35517703", taxIds: [1]),
+                ],
+                options: ExtractionOptions(),
+                destination: .file(outputDir.appendingPathComponent("mixed.fastq"))
+            )
+            XCTFail("Expected mixed selector modes to be rejected")
+        } catch ClassifierExtractionError.mixedSampleSelectionModes {
+            XCTAssertEqual(
+                ClassifierExtractionError.mixedSampleSelectionModes.localizedDescription,
+                "Cannot combine single-sample and batch-sample selections in one extraction."
+            )
+        } catch {
+            XCTFail("Expected mixedSampleSelectionModes, got \(error)")
+        }
     }
 
     // MARK: - R3-R3ML-10: countFASTQRecords trailing-newline undercounting

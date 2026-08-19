@@ -177,7 +177,16 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(kraken2.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "kraken2")).packageSpec])
 
         let bracken = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "bracken" }))
-        XCTAssertEqual(bracken.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "bracken")).packageSpec])
+        // Bracken is the one pack tool that does NOT install its manifest packageSpec:
+        // it installs a build toolchain and compiles v3.1 from a source overlay, because
+        // bioconda's only arm64 build ships no driver. The manifest entry remains the
+        // reconciler's conda fallback.
+        XCTAssertEqual(bracken.version, "3.1")
+        XCTAssertFalse(bracken.installPackages.contains(where: { $0.contains("bracken=") }))
+        XCTAssertTrue(bracken.installPackages.contains(where: { $0.contains("python=") }))
+        XCTAssertNotNil(bracken.sourceOverlay)
+        XCTAssertEqual(bracken.license, "GPL-3.0")
+        XCTAssertEqual(bracken.sourceURL, "https://github.com/jenniferlu717/Bracken")
 
         let esviritu = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "esviritu" }))
         XCTAssertEqual(esviritu.installPackages, [try XCTUnwrap(manifest.packTool(packID: "metagenomics", id: "esviritu")).packageSpec])
@@ -424,6 +433,30 @@ final class PluginPackRegistryTests: XCTestCase {
             pack.description,
             "Taxonomic classification and pathogen detection from metagenomic samples"
         )
+    }
+
+    func testMetagenomicsBrackenRequirementUsesPinnedManagedSourceOverlay() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "metagenomics" }))
+        let bracken = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "bracken" }))
+        let overlay = try XCTUnwrap(bracken.sourceOverlay)
+
+        XCTAssertEqual(bracken.version, "3.1")
+        XCTAssertEqual(bracken.executables, ["bracken", "bracken-build"])
+        XCTAssertFalse(bracken.installPackages.contains("bioconda::bracken=1.0.0"))
+        XCTAssertFalse(bracken.installPackages.contains(where: { $0.contains("bracken=") }))
+        XCTAssertEqual(overlay.kind, .bracken)
+        XCTAssertEqual(overlay.version, "3.1")
+        XCTAssertEqual(
+            overlay.sourceURL,
+            URL(string: "https://github.com/jenniferlu717/Bracken/archive/refs/tags/v3.1.tar.gz")!
+        )
+        XCTAssertEqual(
+            overlay.sha256,
+            "c0a35331a8aac1e0dbb14c2a92c4de6f89f0aac540101c05c2eec54032107560"
+        )
+        XCTAssertTrue(bracken.installPackages.contains(where: { $0.contains("python=") }))
+        XCTAssertTrue(bracken.installPackages.contains(where: { $0.contains("cxx-compiler") }))
+        XCTAssertTrue(bracken.installPackages.contains(where: { $0.contains("llvm-openmp") }))
     }
 
     func testVisibleCLIPacksIncludeRequiredAndActiveOptional() {

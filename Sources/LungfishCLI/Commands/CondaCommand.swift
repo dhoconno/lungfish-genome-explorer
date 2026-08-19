@@ -185,6 +185,9 @@ extension CondaCommand {
                         case .smokeTestFailed:
                             print("")
                             print(formatter.error("Tool pack '\(pack.name)' failed: \(error.localizedDescription)"))
+                        case .verificationFailed(_, let reason):
+                            print("")
+                            print(formatter.error("Tool pack '\(pack.name)' failed verification: \(reason)"))
                             throw CLIExitCode.dependency.exitCode
                         }
                     } catch {

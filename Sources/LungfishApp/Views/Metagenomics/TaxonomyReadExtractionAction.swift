@@ -463,6 +463,7 @@ public final class TaxonomyReadExtractionAction {
         switch model.destination {
         case .bundle:
             let projectRoot = ClassifierReadResolver.resolveProjectRoot(from: context.resultPath)
+            let selectionsJSON = try Self.selectionsJSON(context.selections)
             // If the user left the name at the default `context.suggestedName`, append
             // a UTC timestamp suffix so back-to-back extractions don't silently
             // overwrite the same bundle directory. If the user customized the
@@ -481,6 +482,7 @@ public final class TaxonomyReadExtractionAction {
                     "resultPath": context.resultPath.path,
                     "accessions": context.selections.flatMap { $0.accessions }.joined(separator: ","),
                     "taxIds": context.selections.flatMap { $0.taxIds.map(String.init) }.joined(separator: ","),
+                    "selectionsJSON": selectionsJSON,
                     "format": model.format.rawValue,
                     "includeUnmappedMates": model.includeUnmappedMates ? "yes" : "no",
                 ]
@@ -678,6 +680,7 @@ public final class TaxonomyReadExtractionAction {
             "samples": .array(context.selections.compactMap(\.sampleId).map(ParameterValue.string)),
             "accessions": .array(context.selections.flatMap(\.accessions).map(ParameterValue.string)),
             "taxIds": .array(context.selections.flatMap { $0.taxIds }.map(ParameterValue.integer)),
+            "selections": .array(context.selections.map(selectionParameterValue(for:))),
         ]
 
         switch destination {
@@ -750,6 +753,32 @@ public final class TaxonomyReadExtractionAction {
             resolved: resolvedOptions
         )
         return options.recordingFileProvenance(provenance)
+    }
+
+    private static func selectionParameterValue(
+        for selector: ClassifierRowSelector
+    ) -> ParameterValue {
+        .dictionary([
+            "sample": selector.sampleId.map(ParameterValue.string) ?? .null,
+            "accessions": .array(selector.accessions.map(ParameterValue.string)),
+            "taxIds": .array(selector.taxIds.map(ParameterValue.integer)),
+        ])
+    }
+
+    private static func selectionsJSON(
+        _ selections: [ClassifierRowSelector]
+    ) throws -> String {
+        let records = selections
+            .map(selectionParameterValue(for:))
+            .map { $0.toJSONObject() }
+        let data = try JSONSerialization.data(
+            withJSONObject: records,
+            options: [.sortedKeys]
+        )
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        return json
     }
 
     private static func mergedReadNameAllowlist(from selections: [ClassifierRowSelector]) -> [String] {

@@ -77,6 +77,7 @@ public struct CondaOfflinePackInstallResult: Sendable, Hashable {
 
 public struct CondaOfflinePackService {
     public static let manifestFilename = "offline-pack-manifest.json"
+    public static let installFailureProvenanceFilename = ".lungfish-offline-pack-install-failure.provenance.json"
 
     private let fileManager: FileManager
 
@@ -213,77 +214,161 @@ public struct CondaOfflinePackService {
     ) async throws -> CondaOfflinePackInstallResult {
         let start = Date()
         let destinationCondaRoot = condaRoot.standardizedFileURL
-        let mutationLock = try CondaRootMutationLock.acquire(root: destinationCondaRoot)
-        defer { mutationLock.release() }
-
         let prepared = try preparePackDirectory(from: packDirectory)
         defer { prepared.cleanup?() }
 
         let resolvedPackDirectory = prepared.directory
         let manifestURL = resolvedPackDirectory.appendingPathComponent(Self.manifestFilename)
         let manifest = try readManifest(from: manifestURL)
-        try validate(manifest: manifest, in: resolvedPackDirectory)
-        let destinationEnvsRoot = destinationCondaRoot.appendingPathComponent("envs", isDirectory: true)
-        try fileManager.createDirectory(at: destinationEnvsRoot, withIntermediateDirectories: true)
-
-        var installedEnvironments: [URL] = []
-        for environment in manifest.environments {
-            let source = resolvedPackDirectory.appendingPathComponent(environment.relativePath, isDirectory: true)
-            let destination = destinationEnvsRoot.appendingPathComponent(environment.name, isDirectory: true)
-            if fileManager.fileExists(atPath: destination.path) {
-                guard overwrite else {
-                    throw CondaError.environmentCreationFailed(
-                        "Environment '\(environment.name)' already exists. Re-run with --overwrite to replace it."
-                    )
-                }
-                try fileManager.removeItem(at: destination)
-            }
-            try fileManager.copyItem(at: source, to: destination)
-            installedEnvironments.append(destination)
-        }
-
-        let copiedFiles = installedEnvironments.flatMap { regularFiles(under: $0) }
         let sanitizedCommandLine = Self.redactedCommandLine(commandLine)
-        var inputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .input)]
-        if resolvedPackDirectory.standardizedFileURL != packDirectory.standardizedFileURL {
-            inputRecords.append(ProvenanceRecorder.fileRecord(url: packDirectory, role: .input))
-        }
-        inputRecords.append(contentsOf: manifest.files.map {
-            FileRecord(
-                path: resolvedPackDirectory.appendingPathComponent($0.relativePath).path,
-                sha256: $0.sha256,
-                sizeBytes: $0.sizeBytes,
-                role: .input
-            )
-        })
-        let provenanceURL = try writeProvenance(
-            name: "Conda Offline Pack Install",
-            toolName: CLICommandIdentity.executableName,
-            commandLine: sanitizedCommandLine,
-            inputs: inputRecords,
-            outputs: copiedFiles.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
-            parameters: [
-                "packID": .string(manifest.packID),
-                "packName": .string(manifest.packName),
-                "packVersion": .string(manifest.packVersion ?? "unknown"),
-                "sourceBundle": .string(packDirectory.standardizedFileURL.path),
-                "sourcePackDirectory": .string(resolvedPackDirectory.standardizedFileURL.path),
-                "destinationCondaRoot": .string(condaRoot.standardizedFileURL.path),
-                "overwrite": .boolean(overwrite),
-                "environments": .array(manifest.environments.map { .string($0.name) }),
-                "runtimeUser": .string(WorkflowRun.currentUser),
-                "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
-            ],
-            outputDirectory: condaRoot.standardizedFileURL,
-            start: start,
-            exitCode: 0,
-            stderr: nil
+        let inputRecords = installInputRecords(
+            manifest: manifest,
+            manifestURL: manifestURL,
+            sourceBundle: packDirectory,
+            resolvedPackDirectory: resolvedPackDirectory
         )
 
-        return CondaOfflinePackInstallResult(
-            installedEnvironments: installedEnvironments,
-            provenanceURL: provenanceURL
+        do {
+            // Complete source-side validation before this import claims any
+            // destination environment lease. This resolves the targets while
+            // avoiding a long-held lock for a malformed bundle.
+            try validate(manifest: manifest, in: resolvedPackDirectory)
+        } catch {
+            do {
+                try writeFailureProvenanceWhileHoldingRootLock(
+                    manifest: manifest,
+                    sourceBundle: packDirectory,
+                    resolvedPackDirectory: resolvedPackDirectory,
+                    destinationCondaRoot: destinationCondaRoot,
+                    overwrite: overwrite,
+                    commandLine: sanitizedCommandLine,
+                    inputs: inputRecords,
+                    outputs: [],
+                    probes: [],
+                    attemptedProbe: nil,
+                    failure: error,
+                    rollbackFailures: [],
+                    start: start
+                )
+            } catch let provenanceError {
+                throw CondaOfflinePackError.failureProvenanceWriteFailed(
+                    originalFailure: error.localizedDescription,
+                    provenanceFailure: provenanceError.localizedDescription
+                )
+            }
+            throw error
+        }
+
+        // The common transaction implementation takes sorted per-environment
+        // flock locks before the root lock. It is held through copy, probes,
+        // rollback if needed, and the final provenance receipt.
+        let mutationTransaction = try await CondaEnvironmentMutationTransaction.acquire(
+            root: destinationCondaRoot,
+            environments: manifest.environments.map(\.name)
         )
+        defer { mutationTransaction.release() }
+
+        let destinationEnvsRoot = destinationCondaRoot.appendingPathComponent("envs", isDirectory: true)
+        var installedEnvironments: [URL] = []
+        var managedSourceReadinessProbes: [ManagedToolSourceRuntimeProbe] = []
+        var environmentMutations: [OfflineImportEnvironmentMutation] = []
+
+        do {
+            try fileManager.createDirectory(at: destinationEnvsRoot, withIntermediateDirectories: true)
+            for environment in manifest.environments {
+                let source = resolvedPackDirectory.appendingPathComponent(environment.relativePath, isDirectory: true)
+                let destination = destinationEnvsRoot.appendingPathComponent(environment.name, isDirectory: true)
+                let staging = offlineImportStagingURL(for: destination)
+                environmentMutations.append(
+                    .init(destination: destination, staging: staging, backup: nil, published: false)
+                )
+                let mutationIndex = environmentMutations.index(before: environmentMutations.endIndex)
+
+                // Copy into a same-filesystem staging directory first. A copy
+                // failure leaves the prior destination untouched, and final
+                // publication is an atomic rename inside envs/.
+                try fileManager.copyItem(at: source, to: staging)
+
+                if fileManager.fileExists(atPath: destination.path) {
+                    guard overwrite else {
+                        throw CondaError.environmentCreationFailed(
+                            "Environment '\(environment.name)' already exists. Re-run with --overwrite to replace it."
+                        )
+                    }
+                    let backup = offlineImportBackupURL(for: destination)
+                    try fileManager.moveItem(at: destination, to: backup)
+                    environmentMutations[mutationIndex].backup = backup
+                }
+                try fileManager.moveItem(at: staging, to: destination)
+                environmentMutations[mutationIndex].published = true
+
+                managedSourceReadinessProbes.append(
+                    contentsOf: try await validateImportedManagedSourceOverlay(in: destination)
+                )
+                installedEnvironments.append(destination)
+            }
+
+            let copiedFiles = installedEnvironments.flatMap { regularFiles(under: $0) }
+            let provenanceURL = try writeProvenance(
+                name: "Conda Offline Pack Install",
+                toolName: CLICommandIdentity.executableName,
+                commandLine: sanitizedCommandLine,
+                inputs: inputRecords,
+                outputs: copiedFiles.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
+                parameters: installProvenanceParameters(
+                    manifest: manifest,
+                    sourceBundle: packDirectory,
+                    resolvedPackDirectory: resolvedPackDirectory,
+                    destinationCondaRoot: destinationCondaRoot,
+                    overwrite: overwrite,
+                    probes: managedSourceReadinessProbes,
+                    attemptedProbe: nil
+                ),
+                outputDirectory: destinationCondaRoot,
+                start: start,
+                exitCode: 0,
+                stderr: nil
+            )
+            // Publication, runtime probes, and durable success provenance are
+            // already complete. Cleanup is no longer part of the rollbackable
+            // transaction: a failure here must leave the verified replacement
+            // installed (and may conservatively retain its hidden backup).
+            _ = discardOfflineImportBackups(environmentMutations)
+            return CondaOfflinePackInstallResult(
+                installedEnvironments: installedEnvironments,
+                provenanceURL: provenanceURL
+            )
+        } catch {
+            let rollbackFailures = rollbackOfflineImport(environmentMutations)
+            let attemptedProbe = runtimeProbe(from: error)
+            let restoredOutputs = manifest.environments.flatMap { environment -> [URL] in
+                let destination = destinationEnvsRoot.appendingPathComponent(environment.name, isDirectory: true)
+                return fileManager.fileExists(atPath: destination.path) ? regularFiles(under: destination) : []
+            }
+            do {
+                _ = try writeFailureProvenance(
+                    manifest: manifest,
+                    sourceBundle: packDirectory,
+                    resolvedPackDirectory: resolvedPackDirectory,
+                    destinationCondaRoot: destinationCondaRoot,
+                    overwrite: overwrite,
+                    commandLine: sanitizedCommandLine,
+                    inputs: inputRecords,
+                    outputs: restoredOutputs.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
+                    probes: managedSourceReadinessProbes,
+                    attemptedProbe: attemptedProbe,
+                    failure: error,
+                    rollbackFailures: rollbackFailures,
+                    start: start
+                )
+            } catch let provenanceError {
+                throw CondaOfflinePackError.failureProvenanceWriteFailed(
+                    originalFailure: error.localizedDescription,
+                    provenanceFailure: provenanceError.localizedDescription
+                )
+            }
+            throw error
+        }
     }
 
     public static func redactedCommandLine(_ commandLine: [String]) -> [String] {
@@ -327,6 +412,160 @@ public struct CondaOfflinePackService {
         return redacted
     }
 
+    private func installInputRecords(
+        manifest: CondaOfflinePackManifest,
+        manifestURL: URL,
+        sourceBundle: URL,
+        resolvedPackDirectory: URL
+    ) -> [FileRecord] {
+        var records = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .input)]
+        if resolvedPackDirectory.standardizedFileURL != sourceBundle.standardizedFileURL {
+            records.append(ProvenanceRecorder.fileRecord(url: sourceBundle, role: .input))
+        }
+        records.append(contentsOf: manifest.files.map {
+            FileRecord(
+                path: resolvedPackDirectory.appendingPathComponent($0.relativePath).path,
+                sha256: $0.sha256,
+                sizeBytes: $0.sizeBytes,
+                role: .input
+            )
+        })
+        return records
+    }
+
+    private func installProvenanceParameters(
+        manifest: CondaOfflinePackManifest,
+        sourceBundle: URL,
+        resolvedPackDirectory: URL,
+        destinationCondaRoot: URL,
+        overwrite: Bool,
+        probes: [ManagedToolSourceRuntimeProbe],
+        attemptedProbe: ManagedToolSourceRuntimeProbe?
+    ) -> [String: ParameterValue] {
+        var parameters: [String: ParameterValue] = [
+            "packID": .string(manifest.packID),
+            "packName": .string(manifest.packName),
+            "packVersion": .string(manifest.packVersion ?? "unknown"),
+            "sourceBundle": .string(sourceBundle.standardizedFileURL.path),
+            "sourcePackDirectory": .string(resolvedPackDirectory.standardizedFileURL.path),
+            "destinationCondaRoot": .string(destinationCondaRoot.standardizedFileURL.path),
+            "overwrite": .boolean(overwrite),
+            "environments": .array(manifest.environments.map { .string($0.name) }),
+            "resolvedOptions": .dictionary([
+                "overwrite": .boolean(overwrite),
+                "environmentNames": .array(manifest.environments.map { .string($0.name) }),
+            ]),
+            "managedSourceReadinessProbes": .array(probes.map(runtimeProbeParameterValue)),
+            "runtimeUser": .string(WorkflowRun.currentUser),
+            "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
+        ]
+        if let attemptedProbe {
+            parameters["attemptedProbe"] = runtimeProbeParameterValue(attemptedProbe)
+        }
+        return parameters
+    }
+
+    private func runtimeProbeParameterValue(
+        _ probe: ManagedToolSourceRuntimeProbe
+    ) -> ParameterValue {
+        .dictionary([
+            "argv": .array(([probe.executablePath] + probe.arguments).map(ParameterValue.string)),
+            "exitStatus": .integer(Int(probe.exitStatus)),
+            "stderr": .string(probe.stderr),
+        ])
+    }
+
+    private func writeFailureProvenanceWhileHoldingRootLock(
+        manifest: CondaOfflinePackManifest,
+        sourceBundle: URL,
+        resolvedPackDirectory: URL,
+        destinationCondaRoot: URL,
+        overwrite: Bool,
+        commandLine: [String],
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        probes: [ManagedToolSourceRuntimeProbe],
+        attemptedProbe: ManagedToolSourceRuntimeProbe?,
+        failure: Error,
+        rollbackFailures: [String],
+        start: Date
+    ) throws {
+        // No environment locks have been acquired for a preflight validation
+        // failure, so taking only the root receipt lock cannot invert the
+        // environment-then-root mutation order.
+        let rootLock = try CondaRootMutationLock.acquire(root: destinationCondaRoot)
+        defer { rootLock.release() }
+        _ = try writeFailureProvenance(
+            manifest: manifest,
+            sourceBundle: sourceBundle,
+            resolvedPackDirectory: resolvedPackDirectory,
+            destinationCondaRoot: destinationCondaRoot,
+            overwrite: overwrite,
+            commandLine: commandLine,
+            inputs: inputs,
+            outputs: outputs,
+            probes: probes,
+            attemptedProbe: attemptedProbe,
+            failure: failure,
+            rollbackFailures: rollbackFailures,
+            start: start
+        )
+    }
+
+    private func writeFailureProvenance(
+        manifest: CondaOfflinePackManifest,
+        sourceBundle: URL,
+        resolvedPackDirectory: URL,
+        destinationCondaRoot: URL,
+        overwrite: Bool,
+        commandLine: [String],
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        probes: [ManagedToolSourceRuntimeProbe],
+        attemptedProbe: ManagedToolSourceRuntimeProbe?,
+        failure: Error,
+        rollbackFailures: [String],
+        start: Date
+    ) throws -> URL {
+        var parameters = installProvenanceParameters(
+            manifest: manifest,
+            sourceBundle: sourceBundle,
+            resolvedPackDirectory: resolvedPackDirectory,
+            destinationCondaRoot: destinationCondaRoot,
+            overwrite: overwrite,
+            probes: probes,
+            attemptedProbe: attemptedProbe
+        )
+        parameters["failureMessage"] = .string(failure.localizedDescription)
+        parameters["rollbackFailures"] = .array(rollbackFailures.map(ParameterValue.string))
+
+        let stderrParts = [attemptedProbe?.stderr, failure.localizedDescription]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            + rollbackFailures
+        return try writeProvenance(
+            name: "Conda Offline Pack Install",
+            toolName: CLICommandIdentity.executableName,
+            commandLine: commandLine,
+            inputs: inputs,
+            outputs: outputs,
+            parameters: parameters,
+            outputDirectory: destinationCondaRoot,
+            start: start,
+            exitCode: attemptedProbe?.exitStatus ?? 1,
+            stderr: stderrParts.joined(separator: "\n"),
+            filename: Self.installFailureProvenanceFilename
+        )
+    }
+
+    private func runtimeProbe(from error: Error) -> ManagedToolSourceRuntimeProbe? {
+        guard let offlineError = error as? CondaOfflinePackError,
+              case .runtimeProbeFailed(let probe) = offlineError else {
+            return nil
+        }
+        return probe
+    }
+
     private func readManifest(from url: URL) throws -> CondaOfflinePackManifest {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -340,6 +579,42 @@ public struct CondaOfflinePackService {
         try encoder.encode(value).write(to: url, options: .atomic)
     }
 
+    /// An imported source-backed environment must be usable before the offline
+    /// import is recorded as successful. Probe explicit paths so the validation
+    /// does not accidentally resolve an executable from the host PATH.
+    private func validateImportedManagedSourceOverlay(
+        in environmentURL: URL
+    ) async throws -> [ManagedToolSourceRuntimeProbe] {
+        let recordURL = environmentURL
+            .appendingPathComponent("share/lungfish/managed-tools/bracken.json")
+        guard fileManager.fileExists(atPath: recordURL.path) else { return [] }
+        guard let record = try? ManagedToolSourceInstallationRecord.load(from: recordURL) else {
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken source receipt is unreadable in \(environmentURL.path)"
+            )
+        }
+        guard record.source.kind == .bracken else { return [] }
+        guard record.validatesIntegrity(environmentURL: environmentURL) else {
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken source receipt does not match the imported runtime in \(environmentURL.path)"
+            )
+        }
+        do {
+            return try await ManagedToolSourceInstaller.probeBrackenRuntime(in: environmentURL)
+        } catch let error as ManagedToolSourceInstallerError {
+            if case .runtimeProbeFailed(let probe) = error {
+                throw CondaOfflinePackError.runtimeProbeFailed(probe)
+            }
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken runtime probe failed after offline import: \(error.localizedDescription)"
+            )
+        } catch {
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken runtime probe failed after offline import: \(error.localizedDescription)"
+            )
+        }
+    }
+
     private func writeProvenance(
         name: String,
         toolName: String,
@@ -350,7 +625,8 @@ public struct CondaOfflinePackService {
         outputDirectory: URL,
         start: Date,
         exitCode: Int32,
-        stderr: String?
+        stderr: String?,
+        filename: String = ProvenanceRecorder.provenanceFilename
     ) throws -> URL {
         let end = Date()
         let step = StepExecution(
@@ -373,7 +649,8 @@ public struct CondaOfflinePackService {
             steps: [step],
             parameters: parameters
         )
-        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let provenanceURL = outputDirectory.appendingPathComponent(filename)
         try writeJSON(run, to: provenanceURL)
         return provenanceURL
     }
@@ -399,6 +676,13 @@ public struct CondaOfflinePackService {
     private enum ArchiveKind {
         case tar
         case gzipTar
+    }
+
+    private struct OfflineImportEnvironmentMutation {
+        let destination: URL
+        let staging: URL
+        var backup: URL?
+        var published: Bool
     }
 
     private struct PreparedPackDirectory {
@@ -441,6 +725,80 @@ public struct CondaOfflinePackService {
             try? fileManager.removeItem(at: extractionRoot)
             throw error
         }
+    }
+
+    private func offlineImportStagingURL(for destination: URL) -> URL {
+        destination.deletingLastPathComponent().appendingPathComponent(
+            ".lungfish-offline-import-staging-\(destination.lastPathComponent)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    }
+
+    private func offlineImportBackupURL(for destination: URL) -> URL {
+        destination.deletingLastPathComponent().appendingPathComponent(
+            ".lungfish-offline-import-backup-\(destination.lastPathComponent)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    }
+
+    private func discardOfflineImportBackups(
+        _ mutations: [OfflineImportEnvironmentMutation]
+    ) -> [String] {
+        var failures: [String] = []
+        for mutation in mutations {
+            if let backup = mutation.backup,
+               fileManager.fileExists(atPath: backup.path) {
+                do {
+                    try fileManager.removeItem(at: backup)
+                } catch {
+                    failures.append("Could not discard offline import backup \(backup.path): \(error.localizedDescription)")
+                }
+            }
+            if fileManager.fileExists(atPath: mutation.staging.path) {
+                do {
+                    try fileManager.removeItem(at: mutation.staging)
+                } catch {
+                    failures.append("Could not discard offline import staging \(mutation.staging.path): \(error.localizedDescription)")
+                }
+            }
+        }
+        return failures
+    }
+
+    /// Restores all destinations touched by this import in reverse publication
+    /// order. A freshly created destination is removed; an overwritten one is
+    /// replaced with its same-filesystem backup. Failures are retained in the
+    /// provenance receipt rather than masking the original import error.
+    private func rollbackOfflineImport(
+        _ mutations: [OfflineImportEnvironmentMutation]
+    ) -> [String] {
+        var failures: [String] = []
+        for mutation in mutations.reversed() {
+            if mutation.published,
+               fileManager.fileExists(atPath: mutation.destination.path) {
+                do {
+                    try fileManager.removeItem(at: mutation.destination)
+                } catch {
+                    failures.append("Could not remove imported environment \(mutation.destination.path): \(error.localizedDescription)")
+                }
+            }
+            if fileManager.fileExists(atPath: mutation.staging.path) {
+                do {
+                    try fileManager.removeItem(at: mutation.staging)
+                } catch {
+                    failures.append("Could not remove import staging \(mutation.staging.path): \(error.localizedDescription)")
+                }
+            }
+            if let backup = mutation.backup,
+               fileManager.fileExists(atPath: backup.path) {
+                do {
+                    try fileManager.moveItem(at: backup, to: mutation.destination)
+                } catch {
+                    failures.append("Could not restore known-good environment \(mutation.destination.path): \(error.localizedDescription)")
+                }
+            }
+        }
+        return failures
     }
 
     private func createArchive(from packDirectory: URL, to archiveURL: URL, kind: ArchiveKind) throws {
@@ -559,6 +917,7 @@ public struct CondaOfflinePackService {
         }
 
         for environment in manifest.environments {
+            try validateEnvironmentName(environment.name)
             try validateRelativePath(environment.relativePath, description: "environment \(environment.name)")
             let source = packDirectory.appendingPathComponent(environment.relativePath, isDirectory: true)
             var isDirectory: ObjCBool = false
@@ -593,6 +952,15 @@ public struct CondaOfflinePackService {
         }
     }
 
+    private func validateEnvironmentName(_ name: String) throws {
+        guard !name.isEmpty,
+              name != ".",
+              name != "..",
+              !name.contains("/") else {
+            throw CondaOfflinePackError.invalidPack("Unsafe environment name: \(name)")
+        }
+    }
+
     private func fileSize(_ url: URL) -> UInt64? {
         let attributes = try? fileManager.attributesOfItem(atPath: url.path)
         return attributes?[.size] as? UInt64
@@ -609,6 +977,8 @@ public struct CondaOfflinePackService {
 public enum CondaOfflinePackError: Error, LocalizedError, Sendable {
     case invalidPack(String)
     case archiveFailed(operation: String, stderr: String)
+    case runtimeProbeFailed(ManagedToolSourceRuntimeProbe)
+    case failureProvenanceWriteFailed(originalFailure: String, provenanceFailure: String)
 
     public var errorDescription: String? {
         switch self {
@@ -620,6 +990,10 @@ public enum CondaOfflinePackError: Error, LocalizedError, Sendable {
                 return "Failed to \(operation) offline conda pack archive"
             }
             return "Failed to \(operation) offline conda pack archive: \(detail)"
+        case .runtimeProbeFailed(let probe):
+            return "Managed Bracken runtime probe failed after offline import: \(URL(fileURLWithPath: probe.executablePath).lastPathComponent) exited \(probe.exitStatus)."
+        case .failureProvenanceWriteFailed(let originalFailure, let provenanceFailure):
+            return "Offline conda pack failed (\(originalFailure)), and required failure provenance could not be written: \(provenanceFailure)"
         }
     }
 }
