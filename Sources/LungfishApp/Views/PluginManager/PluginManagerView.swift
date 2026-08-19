@@ -69,6 +69,10 @@ enum PluginManagerAccessibilityID {
         "plugin-manager-database-remove-\(slug(name))"
     }
 
+    static func databaseUpdateButton(_ name: String) -> String {
+        "plugin-manager-database-update-\(slug(name))"
+    }
+
     static func databaseDismissErrorButton(_ name: String) -> String {
         "plugin-manager-database-dismiss-error-\(slug(name))"
     }
@@ -908,6 +912,9 @@ struct DatabasesTabView: View {
                             isRecommended: viewModel.isRecommendedDatabase(db),
                             isDownloading: viewModel.downloadingDatabases.contains(db.name),
                             isRemoving: viewModel.removingDatabases.contains(db.name),
+                            isUpdating: viewModel.updatingDatabases.contains(db.name),
+                            canUpdate: viewModel.canUpdateDatabase(db),
+                            updateNotice: viewModel.databaseUpdateNotice[db.name],
                             progress: viewModel.downloadProgress[db.name],
                             progressMessage: viewModel.downloadMessage[db.name],
                             errorMessage: viewModel.downloadError[db.name],
@@ -918,11 +925,15 @@ struct DatabasesTabView: View {
                             onCancel: {
                                 viewModel.cancelDownload(name: db.name)
                             },
+                            onUpdate: {
+                                viewModel.updateDatabase(db)
+                            },
                             onRemove: {
                                 viewModel.requestRemoveDatabase(name: db.name)
                             },
                             onDismissError: {
                                 viewModel.downloadError.removeValue(forKey: db.name)
+                                viewModel.databaseUpdateNotice.removeValue(forKey: db.name)
                             }
                         )
                         .listRowBackground(Color.lungfishCardBackground)
@@ -984,12 +995,16 @@ private struct DatabaseRow: View {
     let isRecommended: Bool
     let isDownloading: Bool
     let isRemoving: Bool
+    let isUpdating: Bool
+    let canUpdate: Bool
+    let updateNotice: String?
     let progress: Double?
     let progressMessage: String?
     let errorMessage: String?
     let systemRAMBytes: UInt64
     let onDownload: () -> Void
     let onCancel: () -> Void
+    let onUpdate: () -> Void
     let onRemove: () -> Void
     let onDismissError: () -> Void
 
@@ -1093,8 +1108,32 @@ private struct DatabaseRow: View {
                 .padding(.bottom, 2)
             }
 
+            // An update the registry declined to apply (locally built databases). Not an
+            // error: it names the one route that does work, so it reads as guidance.
+            if let updateNotice {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(Color.lungfishCreamsicleFallback)
+                    Text(updateNotice)
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer()
+
+                    Button("Dismiss") {
+                        onDismissError()
+                    }
+                    .font(.caption)
+                    .controlSize(.mini)
+                }
+                .padding(.leading, 34)
+                .padding(.bottom, 2)
+            }
+
             // Download progress
-            if isDownloading, let progressValue = progress {
+            if isDownloading || isUpdating, let progressValue = progress {
                 VStack(alignment: .leading, spacing: 2) {
                     ProgressView(value: progressValue)
                         .tint(.lungfishCreamsicleFallback)
@@ -1146,7 +1185,7 @@ private struct DatabaseRow: View {
 
     @ViewBuilder
     private var actionView: some View {
-        if isRemoving {
+        if isRemoving || isUpdating {
             ProgressView()
                 .controlSize(.small)
                 .tint(.lungfishCreamsicleFallback)
@@ -1163,6 +1202,20 @@ private struct DatabaseRow: View {
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSageFallback)
                     .fontWeight(.medium)
+
+                // Offered only when the catalog has a newer version for this row, so the
+                // badge above and the action here always agree about what is on offer.
+                if database.isUpdateAvailable {
+                    Button {
+                        onUpdate()
+                    } label: { Text("Update") }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.lungfishCreamsicleFallback)
+                    .disabled(!canUpdate)
+                    .help("Replace this database with the version Lungfish pins")
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.databaseUpdateButton(database.name))
+                }
 
                 Button {
                     onRemove()

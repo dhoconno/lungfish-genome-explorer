@@ -237,6 +237,28 @@ final class PluginManagerViewModel {
     /// Set of database names currently being removed.
     var removingDatabases: Set<String> = []
 
+    /// Set of database names currently being updated in place.
+    ///
+    /// Tracked separately from ``downloadingDatabases`` because an update replaces an
+    /// installed database rather than acquiring a new one: the row must keep saying
+    /// "Installed" and offering nothing but progress while the swap is in flight.
+    var updatingDatabases: Set<String> = []
+
+    /// Map of database name to the message from an update that could not be applied.
+    ///
+    /// Locally built databases (the Kraken2 special rRNA indexes) advertise a newer catalog
+    /// version but cannot be swapped in place, so the registry rejects them with
+    /// `updateNotSupported`. That is guidance, not a crash, so it is shown inline on the row
+    /// rather than raised as an app-level error.
+    var databaseUpdateNotice: [String: String] = [:]
+
+    /// Applies a metagenomics database update. Injected so the action is testable without
+    /// the real registry, the network, or a multi-gigabyte download.
+    private let updateDatabaseAction: @Sendable (
+        _ catalogID: String,
+        _ progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> Void
+
     /// Database name pending removal confirmation, drives the confirmation alert.
     var databasePendingRemoval: String?
 
@@ -350,11 +372,21 @@ final class PluginManagerViewModel {
         packStatusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
         notificationCenter: NotificationCenter = .default,
         automaticallyRefresh: Bool = true,
-        operationCenter: OperationCenter = .shared
+        operationCenter: OperationCenter = .shared,
+        updateDatabaseAction: @escaping @Sendable (
+            String,
+            @escaping @Sendable (Double, String) -> Void
+        ) async throws -> Void = { catalogID, progress in
+            try await MetagenomicsDatabaseRegistry.shared.updateDatabase(
+                catalogID: catalogID,
+                progress: progress
+            )
+        }
     ) {
         self.packStatusProvider = packStatusProvider
         self.notificationCenter = notificationCenter
         self.operationCenter = operationCenter
+        self.updateDatabaseAction = updateDatabaseAction
         refreshStorageLocationState()
         self.storageLocationChangeObserver = StorageLocationChangeObserver(
             notificationCenter: notificationCenter
@@ -770,6 +802,117 @@ final class PluginManagerViewModel {
         guard let task = downloadTasks[name] else { return }
         task.cancel()
         logger.info("Cancelling download of database '\(name, privacy: .public)'")
+    }
+
+    // MARK: - Database update
+
+    /// Whether the row's Update button should be offered and enabled.
+    ///
+    /// Enablement is the same question `db update` answers: the catalog has a newer version
+    /// for a row that is installed and addressable by a catalog identity. A row already
+    /// updating is excluded so a second click cannot stack two swaps of the same payload,
+    /// and the whole affordance stands down while an Update Tools run owns the registries,
+    /// for the same reason pack installs do.
+    func canUpdateDatabase(_ database: MetagenomicsDatabaseInfo) -> Bool {
+        database.isUpdateAvailable
+            && database.resolvedCatalogID != nil
+            && !updatingDatabases.contains(database.name)
+            && !downloadingDatabases.contains(database.name)
+            && !removingDatabases.contains(database.name)
+            && !isDependencyReconciliationRunning
+    }
+
+    /// Updates an installed database to the version the built-in catalog pins.
+    ///
+    /// The registry is addressed by the row's *resolved* catalog id rather than its recorded
+    /// one, so a database registered from disk (which records none) updates like a
+    /// catalog-installed one. Runs as an `OperationCenter` operation because it is a long
+    /// download the user must be able to watch and audit from the Operations panel.
+    ///
+    /// A database that cannot be swapped in place (the locally built rRNA indexes) fails with
+    /// `updateNotSupported`; that message lands on the row rather than in the error alert,
+    /// because it tells the user what to do rather than reporting a fault.
+    func updateDatabase(_ database: MetagenomicsDatabaseInfo) {
+        guard canUpdateDatabase(database), let catalogID = database.resolvedCatalogID else { return }
+        let name = database.name
+        let targetVersion = database.availableUpdateVersion ?? "latest"
+
+        updatingDatabases.insert(name)
+        databaseUpdateNotice.removeValue(forKey: name)
+        downloadError.removeValue(forKey: name)
+
+        let operationID = operationCenter.start(
+            title: "Update Database: \(name)",
+            detail: "Updating \(name) to \(targetVersion)",
+            operationType: .download,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "conda db update",
+                args: [catalogID, "--yes"]
+            )
+        )
+        operationCenter.log(
+            id: operationID,
+            level: .info,
+            message: "Updating \(name) from \(database.version ?? "unknown") to \(targetVersion) (\(catalogID))"
+        )
+
+        Task {
+            defer {
+                updatingDatabases.remove(name)
+                downloadProgress.removeValue(forKey: name)
+                downloadMessage.removeValue(forKey: name)
+            }
+
+            do {
+                try await updateDatabaseAction(catalogID) { [weak self] fraction, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard let self else { return }
+                            self.downloadProgress[name] = fraction
+                            self.downloadMessage[name] = message
+                            _ = self.operationCenter.update(
+                                id: operationID,
+                                progress: fraction,
+                                detail: message
+                            )
+                        }
+                    }
+                }
+                operationCenter.log(id: operationID, level: .info, message: "\(name) updated to \(targetVersion)")
+                _ = operationCenter.complete(id: operationID, detail: "\(name) is now \(targetVersion)")
+                logger.info("Database '\(name, privacy: .public)' updated to \(targetVersion, privacy: .public)")
+                refreshDatabases()
+                postManagedResourcesDidChange()
+            } catch let error as MetagenomicsDatabaseRegistryError {
+                if case .updateNotSupported = error {
+                    databaseUpdateNotice[name] = error.localizedDescription
+                    operationCenter.log(id: operationID, level: .warning, message: error.localizedDescription)
+                    _ = operationCenter.completeWithWarning(
+                        id: operationID,
+                        detail: "\(name) cannot be updated in place"
+                    )
+                } else {
+                    recordDatabaseUpdateFailure(error, name: name, operationID: operationID)
+                }
+                refreshDatabases()
+            } catch {
+                recordDatabaseUpdateFailure(error, name: name, operationID: operationID)
+                refreshDatabases()
+            }
+        }
+    }
+
+    private func recordDatabaseUpdateFailure(_ error: Error, name: String, operationID: UUID) {
+        downloadError[name] = error.localizedDescription
+        operationCenter.log(id: operationID, level: .error, message: "Update failed: \(error.localizedDescription)")
+        _ = operationCenter.fail(
+            id: operationID,
+            detail: "Failed to update \(name)",
+            errorMessage: error.localizedDescription
+        )
+        logger.error(
+            "Database '\(name, privacy: .public)' update failed: \(error.localizedDescription, privacy: .public)"
+        )
     }
 
     /// Requests removal of a database, showing a confirmation alert first.
