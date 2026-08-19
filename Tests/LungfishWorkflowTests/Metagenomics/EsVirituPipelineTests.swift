@@ -686,6 +686,60 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
         XCTAssertTrue(dbURL.path.contains(EsVirituDatabaseManager.currentVersion))
     }
 
+    /// Regression: `databaseURL` must agree with `isInstalled()` about where the
+    /// database is.
+    ///
+    /// The Plugin Manager and `conda db download` write the database to
+    /// `databases/esviritu/esviritu-viral-db/`, and `isInstalled()` has always preferred
+    /// that path. `databaseURL` returned the versioned path unconditionally, so on a real
+    /// installed machine `isInstalled()` returned true and the caller was handed a path
+    /// that does not exist. `lungfish esviritu detect` then failed with "Database
+    /// directory not found" on a correctly installed database, which is how the tier 3
+    /// pipeline runner surfaced it.
+    func testDatabaseURLPrefersRegistryPathWhenItExists() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("esviritu-registry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // `storageRoot:` IS the databases root for this initializer, so the registry
+        // directory sits directly beneath it.
+        let registryDir = root
+            .appendingPathComponent("esviritu/esviritu-viral-db", isDirectory: true)
+        try fm.createDirectory(at: registryDir, withIntermediateDirectories: true)
+        try Data(">seq\nACGT\n".utf8)
+            .write(to: registryDir.appendingPathComponent("viral.fna"))
+
+        let manager = EsVirituDatabaseManager(storageRoot: root)
+
+        let installed = await manager.isInstalled()
+        XCTAssertTrue(installed)
+        let dbURL = await manager.databaseURL
+        XCTAssertTrue(
+            fm.fileExists(atPath: dbURL.path),
+            "databaseURL must point at a directory that exists: \(dbURL.path)"
+        )
+        XCTAssertTrue(dbURL.path.contains("esviritu-viral-db"))
+        // The versioned path stays available for a fresh download.
+        let versioned = await manager.versionedDatabaseURL
+        XCTAssertTrue(versioned.path.contains(EsVirituDatabaseManager.currentVersion))
+    }
+
+    /// With no registry directory, the versioned layout is still the answer, so a fresh
+    /// download target is unchanged.
+    func testDatabaseURLFallsBackToVersionedPathWithoutRegistryDirectory() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("esviritu-noreg-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let manager = EsVirituDatabaseManager(storageRoot: root)
+        let dbURL = await manager.databaseURL
+        XCTAssertTrue(dbURL.path.contains(EsVirituDatabaseManager.currentVersion))
+        let installed = await manager.isInstalled()
+        XCTAssertFalse(installed)
+    }
+
     func testDatabaseVersionIsNonEmpty() {
         XCTAssertFalse(EsVirituDatabaseManager.currentVersion.isEmpty)
         XCTAssertTrue(EsVirituDatabaseManager.currentVersion.hasPrefix("v"))

@@ -147,10 +147,32 @@ public actor EsVirituDatabaseManager {
             ?? ManagedStorageConfigStore().currentLocation().databaseRootURL
     }
 
-    /// The storage path for the current version of the EsViritu database.
+    /// The storage path for the EsViritu database.
     ///
-    /// Returns `<configured managed storage root>/databases/esviritu/<version>/`.
+    /// Prefers the registry-managed directory
+    /// (`<configured managed storage root>/databases/esviritu/esviritu-viral-db/`) when it
+    /// exists, and otherwise returns the versioned path
+    /// (`<configured managed storage root>/databases/esviritu/<version>/`).
+    ///
+    /// The registry path has to win, because it is where the Plugin Manager and
+    /// `conda db download` actually put the database. ``isInstalled()`` and
+    /// ``installedDatabaseInfo()`` already prefer it; this property did not, so on a
+    /// machine with the registry layout `isInstalled()` returned true and callers were
+    /// then handed a versioned path that does not exist. `lungfish esviritu detect`
+    /// failed with "Database directory not found" on a database that was correctly
+    /// installed, which is how tier 3 first surfaced this.
     public var databaseURL: URL {
+        if let registryPath = registryDatabasePath() {
+            return resolveDBDirectory(registryPath)
+        }
+        return versionedDatabaseURL
+    }
+
+    /// The versioned layout, `<configured managed storage root>/databases/esviritu/<version>/`.
+    ///
+    /// This is where a fresh download is written, so it stays the answer whenever the
+    /// registry directory is absent.
+    public var versionedDatabaseURL: URL {
         databasesRoot
             .appendingPathComponent("esviritu")
             .appendingPathComponent(Self.currentVersion)
@@ -172,7 +194,7 @@ public actor EsVirituDatabaseManager {
         }
 
         // Fall back to the legacy versioned path
-        return directoryContainsEsVirituDB(databaseURL)
+        return directoryContainsEsVirituDB(versionedDatabaseURL)
     }
 
     /// Returns the database path from the registry-managed location.
@@ -228,7 +250,7 @@ public actor EsVirituDatabaseManager {
         }
 
         // Fall back to legacy path
-        let dbDir = databaseURL
+        let dbDir = versionedDatabaseURL
         let size = directorySize(at: dbDir)
         return (version: Self.currentVersion, path: dbDir, sizeBytes: size)
     }
@@ -279,7 +301,9 @@ public actor EsVirituDatabaseManager {
         progress: @Sendable @escaping (Double, String) -> Void
     ) async throws -> URL {
         let fm = FileManager.default
-        let dbDir = databaseURL
+        // A download creates a fresh install, so it always writes the versioned layout
+        // rather than whatever an existing registry directory resolved to.
+        let dbDir = versionedDatabaseURL
 
         // Step 1: Check disk space.
         progress(0.0, "Checking disk space...")
@@ -346,7 +370,9 @@ public actor EsVirituDatabaseManager {
     /// - Throws: File system errors.
     public func remove() throws {
         let fm = FileManager.default
-        let dbDir = databaseURL
+        // Remove the registry directory itself when present, not the inner directory
+        // `databaseURL` resolves to, which would leave an empty shell behind.
+        let dbDir = registryDatabasePath() ?? versionedDatabaseURL
         if fm.fileExists(atPath: dbDir.path) {
             try fm.removeItem(at: dbDir)
             logger.info("Removed EsViritu database at \(dbDir.path)")
