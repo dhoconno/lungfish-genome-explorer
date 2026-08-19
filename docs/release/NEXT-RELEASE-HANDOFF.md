@@ -1,0 +1,50 @@
+# Handoff: cutting the release that ships dependency set 2026.2
+
+Merged to main on 2026-08-19 at f99b2bf6 (tag `deps-plan-c-complete`). Main was
+fast-forwarded from `claude/lge-dependency-upgrade-plan-b6b53b`, 115 commits.
+
+This branch did NOT bump the app version. Main still reads 0.5.0-beta29, which is the
+version already released. The release build must bump it first.
+
+## Version bump sites (all must move together)
+
+- `Sources/LungfishCore/AppVersion.swift` is the single source for the app version.
+- `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, the
+  top-level `"version"` field (NOT the per-tool `version` fields, which are tool pins).
+- `Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist`.
+- Test expectations that assert the version literally:
+  `Tests/LungfishCoreTests/AppVersionTests.swift`,
+  `Tests/LungfishWorkflowTests/Dependencies/ProvenanceDependencySetTests.swift`,
+  `Tests/LungfishWorkflowTests/Dependencies/DependencyManifestTests.swift`.
+
+Write `docs/release-notes/v<new-version>.md` before building: the release script copies
+it into the Sparkle appcast entry. `docs/release-notes/deps-2026.2.md` already holds the
+dependency-set notes and contains a draft block intended for that file.
+
+## What ships in this release
+
+Dependency set 2026.2: 31 manifest entries moved, plus SwiftPM package updates. Full
+detail in `docs/release-notes/deps-2026.2.md` and
+`docs/reports/2026-08-18-dependency-sweep-2026.2-results.md`.
+
+The upgrade path was rehearsed against a clone of a real 57-environment install before
+merge: see `docs/verification/2026-08-19-upgrade-path-rehearsal.md`. Users upgrading
+from an earlier set get 23 environment reinstalls, 3 advisory database updates and a
+micromamba bootstrap, about 3.5 GB, with no environments removed.
+
+## Known state at merge
+
+- Full suite on merged main: see the run recorded in the rehearsal document. The only
+  failures are the known environmental ones (`FileSystemWatcherTests` FSEvents, and a
+  load-sensitive MEGAHIT 1.2.9 crash that passes in isolation and in tier 1).
+- Tier 3 (`scripts/deps/run-pipelines.sh`) has still never run: it needs Apple
+  Containers or Docker on the build host.
+- CI `toolset-conformance` has not been dispatched, because the branch was never pushed
+  before merging. Consider running it against main now that main carries the manifest.
+
+## Release invocation
+
+See `project_release_build` notes and `docs/release/sparkle-updates.md`. Two gotchas that
+have bitten before: the tagged commit must already exist on origin before
+`gh release create --target <sha>`, and never pass `--reuse-archive` after a successful
+notarize and staple, because re-signing corrupts the stapled bundle.
