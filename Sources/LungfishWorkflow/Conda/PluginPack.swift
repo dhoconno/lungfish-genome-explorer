@@ -215,16 +215,13 @@ public enum PluginPackManifestError: Error, CustomStringConvertible {
 public extension PackToolRequirement {
     /// Builds a requirement whose conda spec, version, license, and source URL come from the
     /// dependency manifest. Display metadata, executables, and smoke tests stay in Swift.
-    /// - Parameters:
-    ///   - installPackagesOverride: Conda packages to install INSTEAD of the manifest's
-    ///     packageSpec. Used with `sourceOverlay` for a tool built from source: the
-    ///     packages are the build and runtime toolchain, and the overlay supplies the
-    ///     tool itself. The manifest entry remains the reconciler's description of the
-    ///     conda fallback and carries `preserveExistingInstall`, so a source-built
-    ///     environment is not clobbered by `tools update`.
-    ///   - sourceOverlay: Source build applied on top of the installed environment.
-    ///     When present its version describes what is actually installed, so it wins
-    ///     over the manifest spec's version.
+    /// When the manifest entry carries a `sourceBuild`, the requirement installs the
+    /// build's toolchain packages instead of `packageSpec` and applies the source
+    /// overlay on top; the build's version describes what is actually installed, so it
+    /// wins over the spec's. Every pin involved lives in the manifest, where the sweep
+    /// tooling and the no-literal-pins guard can see it. The manifest entry remains the
+    /// reconciler's conda fallback and can carry `preserveExistingInstall`, so a
+    /// source-built environment is not clobbered by `tools update`.
     static func fromManifest(
         _ manifest: ManagedToolLock,
         packID: String,
@@ -232,9 +229,7 @@ public extension PackToolRequirement {
         displayName: String,
         executables: [String],
         fallbackExecutablePaths: [String: [String]] = [:],
-        smokeTest: PackToolSmokeTest? = nil,
-        installPackagesOverride: [String]? = nil,
-        sourceOverlay: PackToolSourceOverlay? = nil
+        smokeTest: PackToolSmokeTest? = nil
     ) -> PackToolRequirement {
         guard let spec = manifest.packTool(packID: packID, id: id) else {
             // Surface loudly in debug; keep the pack visible but uninstallable in release.
@@ -246,22 +241,36 @@ public extension PackToolRequirement {
                 installPackages: [],
                 executables: executables,
                 fallbackExecutablePaths: fallbackExecutablePaths,
-                smokeTest: smokeTest,
-                sourceOverlay: sourceOverlay
+                smokeTest: smokeTest
             )
+        }
+        var overlay: PackToolSourceOverlay?
+        if let build = spec.sourceBuild {
+            if let kind = PackToolSourceOverlay.Kind(rawValue: id), let url = URL(string: build.url) {
+                overlay = PackToolSourceOverlay(
+                    kind: kind,
+                    version: build.version,
+                    sourceURL: url,
+                    sha256: build.sha256
+                )
+            } else {
+                // A sourceBuild for a tool the installer has no recipe for is a manifest
+                // error: fail loudly in debug, fall back to the conda spec in release.
+                assertionFailure("manifest sourceBuild for \(id) has no installer recipe or an invalid URL")
+            }
         }
         return PackToolRequirement(
             id: id,
             displayName: displayName,
             environment: spec.environment,
-            installPackages: installPackagesOverride ?? [spec.packageSpec],
+            installPackages: overlay != nil ? spec.sourceBuild!.toolchainPackages : [spec.packageSpec],
             executables: executables,
             fallbackExecutablePaths: fallbackExecutablePaths,
             smokeTest: smokeTest,
-            version: sourceOverlay?.version ?? spec.version,
+            version: overlay?.version ?? spec.version,
             license: spec.license,
             sourceURL: spec.sourceUrl,
-            sourceOverlay: sourceOverlay
+            sourceOverlay: overlay
         )
     }
 }
@@ -762,24 +771,10 @@ public extension PluginPack {
                     id: "bracken",
                     displayName: "Bracken",
                     executables: ["bracken", "bracken-build"],
-                    smokeTest: .command(arguments: ["--help"]),
-                    // Bracken is BUILT FROM SOURCE: bioconda's only arm64 build (1.0.0)
-                    // ships no driver, so the pack installs a pinned toolchain and the
-                    // source overlay compiles v3.1 into the environment. The manifest's
-                    // bracken entry stays the conda fallback the reconciler understands,
-                    // and its preserveExistingInstall flag keeps `tools update` from
-                    // clobbering the source build this overlay produces.
-                    installPackagesOverride: [
-                        "conda-forge::python=3.11.13",
-                        "conda-forge::cxx-compiler=1.9.0",
-                        "conda-forge::llvm-openmp=21.1.8",
-                    ],
-                    sourceOverlay: PackToolSourceOverlay(
-                        kind: .bracken,
-                        version: "3.1",
-                        sourceURL: URL(string: "https://github.com/jenniferlu717/Bracken/archive/refs/tags/v3.1.tar.gz")!,
-                        sha256: "c0a35331a8aac1e0dbb14c2a92c4de6f89f0aac540101c05c2eec54032107560"
-                    )
+                    // Built from source: the manifest entry's sourceBuild pins the v3.1
+                    // tarball and its toolchain, because bioconda's only arm64 build
+                    // ships no driver. fromManifest derives the overlay from it.
+                    smokeTest: .command(arguments: ["--help"])
                 ),
                 PackToolRequirement.fromManifest(
                     ManagedToolLock.bundled,

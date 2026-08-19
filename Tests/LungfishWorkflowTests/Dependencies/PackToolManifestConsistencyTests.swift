@@ -16,12 +16,27 @@ final class PackToolManifestConsistencyTests: XCTestCase {
                     )
                     continue
                 }
-                XCTAssertEqual(
-                    req.installPackages,
-                    [spec.packageSpec],
-                    "\(pack.id)/\(req.id) must install the manifest spec"
-                )
-                XCTAssertEqual(req.version, spec.version, "\(pack.id)/\(req.id) version must match the manifest")
+                if let build = spec.sourceBuild {
+                    // A source-built tool installs the manifest's toolchain pins and
+                    // applies the manifest's overlay; its version is the build's.
+                    XCTAssertEqual(
+                        req.installPackages,
+                        build.toolchainPackages,
+                        "\(pack.id)/\(req.id) must install the manifest sourceBuild toolchain"
+                    )
+                    XCTAssertEqual(req.version, build.version, "\(pack.id)/\(req.id) version must be the sourceBuild's")
+                    XCTAssertEqual(req.sourceOverlay?.version, build.version)
+                    XCTAssertEqual(req.sourceOverlay?.sourceURL.absoluteString, build.url)
+                    XCTAssertEqual(req.sourceOverlay?.sha256, build.sha256)
+                } else {
+                    XCTAssertEqual(
+                        req.installPackages,
+                        [spec.packageSpec],
+                        "\(pack.id)/\(req.id) must install the manifest spec"
+                    )
+                    XCTAssertNil(req.sourceOverlay, "\(pack.id)/\(req.id) has an overlay with no manifest sourceBuild")
+                    XCTAssertEqual(req.version, spec.version, "\(pack.id)/\(req.id) version must match the manifest")
+                }
                 XCTAssertEqual(req.environment, spec.environment, "\(pack.id)/\(req.id) environment must match the manifest")
                 XCTAssertEqual(req.license, spec.license, "\(pack.id)/\(req.id) license must match the manifest")
                 XCTAssertEqual(req.sourceURL, spec.sourceUrl, "\(pack.id)/\(req.id) sourceURL must match the manifest")

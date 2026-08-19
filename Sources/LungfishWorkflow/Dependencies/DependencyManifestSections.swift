@@ -33,6 +33,12 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
     /// working local install". It never suppresses a genuine version or build change, and never
     /// suppresses the first install of a missing environment.
     public let preserveExistingInstall: Bool?
+    /// Present when the pack builds this tool FROM SOURCE instead of installing
+    /// `packageSpec`. The pins a source build depends on (its toolchain packages and the
+    /// pinned tarball) live here so the sweep tooling can see them; the guard tests
+    /// forbid conda spec literals outside the manifest. `packageSpec` remains the conda
+    /// fallback the reconciler applies when it must rebuild the environment itself.
+    public let sourceBuild: SourceBuildSpec?
 
     public init(
         packID: String,
@@ -43,7 +49,8 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
         version: String,
         license: String?,
         sourceUrl: String?,
-        preserveExistingInstall: Bool? = nil
+        preserveExistingInstall: Bool? = nil,
+        sourceBuild: SourceBuildSpec? = nil
     ) {
         self.packID = packID
         self.toolID = toolID
@@ -54,11 +61,32 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
         self.license = license
         self.sourceUrl = sourceUrl
         self.preserveExistingInstall = preserveExistingInstall
+        self.sourceBuild = sourceBuild
     }
 
     enum CodingKeys: String, CodingKey {
         case packID, toolID = "id", environment, packageSpec, executables, version, license, sourceUrl
         case preserveExistingInstall
+        case sourceBuild
+    }
+}
+
+/// A source build a pack tool applies instead of its conda `packageSpec`.
+public struct SourceBuildSpec: Sendable, Codable, Hashable {
+    /// The version the source build produces; this is what the tool actually is.
+    public let version: String
+    /// The pinned source archive.
+    public let url: String
+    /// SHA-256 of the archive, lowercase hex.
+    public let sha256: String
+    /// Conda packages the build and runtime need, installed in place of `packageSpec`.
+    public let toolchainPackages: [String]
+
+    public init(version: String, url: String, sha256: String, toolchainPackages: [String]) {
+        self.version = version
+        self.url = url
+        self.sha256 = sha256.lowercased()
+        self.toolchainPackages = toolchainPackages
     }
 }
 
