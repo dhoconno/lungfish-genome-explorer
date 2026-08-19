@@ -15,6 +15,16 @@ class CIWorkflowTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         self.workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
+    def test_script_test_environments_install_pyyaml(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        for job_name in ("fast", "build-smoke"):
+            install = next(
+                step
+                for step in wf["jobs"][job_name]["steps"]
+                if step.get("name") == "Install script test dependencies"
+            )
+            self.assertIn("PyYAML", install.get("run", ""), job_name)
+
     def test_fast_gate_repairs_xcode_lockfile_before_and_after_xcodebuild_then_checks_afterward(self):
         repair = "bash scripts/check-package-resolved-consistency.sh --repair"
         xcodebuild = "xcodebuild -project Lungfish.xcodeproj -scheme Lungfish"
