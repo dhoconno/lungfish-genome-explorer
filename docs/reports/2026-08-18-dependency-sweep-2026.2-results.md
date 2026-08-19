@@ -898,7 +898,9 @@ attributable to group 3.** Goldens were not regenerated.
 ## Held builds (task C8)
 
 Held tools were revisited to pick up newer build strings at the same version.
-One was taken and one was held. Commit `4a3d35cf`.
+cutadapt was taken directly. pysam was held at first, then taken once the
+selection logic learned about Python ABI tags. Commits `4a3d35cf` and
+`6645040a`.
 
 ### Taken: cutadapt
 
@@ -916,30 +918,59 @@ Tier 1 with the C8 filter
 **GATE PASS, 115 executed, 0 failures, 0 skips**. The reconciler reinstalled
 cutadapt for the build change and left pysam untouched.
 
-### Held: pysam, and why
+### Held first, then taken: pysam
 
-pysam stays at `0.24.0=py310hf7cbfa5_0`. The candidate build
-`py39hfb5fbb1_1` is newer by publication time but moves the interpreter
-backwards, py310 to py39.
+```
+pysam 0.24.0   py310hf7cbfa5_0 -> py310hf7cbfa5_1
+```
 
-This is worth stating plainly because the tooling recommended it.
-`check-upstream.py` selects the newest build by timestamp and has no notion of
-Python ABI direction, so for packages that are rebuilt across several
-interpreters it can propose an interpreter downgrade while calling it a newer
-build. For pysam that matters more than for most: Lungfish ships its own Python
-script that does `import pysam` (`ONTGenotypingPysamFilterRunner`), so the
-interpreter is part of the contract rather than an environment detail.
+pysam was initially held, because the build the tooling proposed
+(`py39hfb5fbb1_1`) was newer by publication time but moved the interpreter
+backwards, py310 to py39. That matters more for pysam than for most tools:
+Lungfish ships its own Python script that does `import pysam`
+(`ONTGenotypingPysamFilterRunner`), so the interpreter is part of the contract
+rather than an environment detail.
 
-bioconda also publishes `py310hf7cbfa5_1`, the same-ABI rebuild at the newer
-build number, which is the move this hold is really waiting on. Taking it
-requires the build-selection logic to prefer a same-or-forward ABI over the
-newest timestamp, which is a change to `check-upstream.py` rather than a pin
-edit, so it is left out of this sweep.
+The hold was a symptom of a tooling gap, so the tooling was fixed rather than
+the pin left behind. `check-upstream.py` now understands Python ABI tags:
+
+- `latest_conda` receives the build string of the pin in force. When that build
+  carries a py tag, candidates on an older interpreter are discarded before
+  selection.
+- Among the survivors the highest build number wins. Packages like pysam are
+  rebuilt once per interpreter at the same build number, so several candidates
+  tie; the tie is broken by closeness to the interpreter already pinned rather
+  than by the build string. Without that the raw string comparison jumped a
+  py310 pin straight to py314, and before the ABI filter it picked py39
+  outright, because `py39` sorts above `py310` lexically.
+- ABI closeness is only a tie-break. A genuinely higher build number still
+  wins, and a forward interpreter move is taken when it is the newest.
+- When every published build sits on a lower ABI, the row is reported as `same`
+  with the note `newer build only on lower Python ABI: <spec>` rather than
+  proposing a downgrade. When a same-ABI build is chosen but a newer lower-ABI
+  one was skipped, the note names the skipped build so the chosen one is not
+  mistaken for the newest published.
+
+With that in place the candidate for pysam became `py310hf7cbfa5_1`, the
+same-ABI rebuild at the newer build number, which is what the hold had been
+waiting on. Verified live in the reconciled verify root: pysam 0.24.0 build
+`_1` on Python 3.10.20, with `import pysam` succeeding.
+
+Three other rows flipped from `update` to `same` as a side effect: openpyxl,
+lofreq and flye. Each is already at the highest build number published for its
+own interpreter (`_3`, `_1` and `_16`), so nothing is masked. Their only newer
+builds were interpreter jumps that this sweep was never going to take.
+
+Tier 1 after the pysam bump: **GATE PASS, 189 executed, 0 failures, 0 skips**.
+Require mode in the verify root with filter
+`ONTGenotyping|NativeToolRunner|ToolVersionConformance`: **80 executed, 0
+failures, 0 skips**. Python suite: 411 tests, all passing.
 
 ### Every remaining hold
 
-`check-upstream.py --markdown` after the bump reports cutadapt as `same`.
-Everything still listed is a deliberate hold:
+`check-upstream.py --markdown` after the bumps reports cutadapt and pysam as
+`same`, along with openpyxl, lofreq and flye. Everything still listed is a
+deliberate hold:
 
 | id | status | reason |
 | --- | --- | --- |
@@ -951,12 +982,9 @@ Everything still listed is a deliberate hold:
 | deacon-panhuman | manual-check | no machine-readable index |
 | deacon-ribokmers | manual-check | no machine-readable index |
 | ncbi-taxonomy | update available | held this sweep per the C5 ruling: the dated archive is a `.zip` and extraction spans two files plus the provenance contract |
-| pysam | build only | interpreter would move backwards, py310 to py39; see above |
-| sra-tools | build only | not in scope for this task; no Python ABI involved |
-| openpyxl | build only | not in scope for this task; py312 to py314, forward |
-| variant-calling/lofreq | build only | not in scope for this task; py310 to py313, forward |
-| assembly/flye | build only | not in scope for this task; py310 to py313, forward |
+| sra-tools | build only | not in scope for this task; no Python ABI involved, so the ABI rule does not apply |
 
-Of the build-only rows, pysam is the only one whose candidate regresses the
-Python ABI. The other three move forward and are simply outside this task's
-scope.
+No tool is now held because of a Python ABI regression. pysam, the one case
+that was, moved to its same-ABI rebuild once the selection logic could see it.
+sra-tools is the only build-only row left outstanding, and it is outside this
+task's scope rather than blocked on anything.
