@@ -749,3 +749,214 @@ nextflow is still on the old pin. That root is deliberately untouched by this
 sweep. The same test passes inside the isolated verify root once tier 1
 reconciles it, and it is one of the 189 that passed there. The failure is group
 1's pin, not this group's.
+
+## Group 3 (task C7)
+
+The higher-risk group: a major bbmap version, a savont minor that could have
+changed its CLI, and the micromamba bootstrap itself. Each was bumped, verified
+and committed on its own so a problem in one could not strand the others.
+
+### Commands
+
+```
+python3 scripts/deps/check-upstream.py --json /tmp/candidates.json
+python3 scripts/deps/bump.py --set 2026.2 --date 2026-08-18 \
+    --from /tmp/candidates.json --only <id>          # dry run first, then real
+bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify
+bash scripts/deps/verify.sh --tier 2 --root ~/.lungfish-verify
+```
+
+### What moved
+
+```
+bbtools                                39.80   -> 40.02    bioconda::bbmap=40.02=he046917_0
+full-length-mhc-genotyping/savont      0.5.0   -> 0.6.3    bioconda::savont=0.6.3=ha819e4a_0
+micromamba (bootstrap)                 2.0.5-0 -> 2.9.0-0
+```
+
+Each bump was checked with a semantic diff of the manifest before and after the
+write, not a reading of the diffstat. In all three cases only the intended
+entry moved: for bbtools and savont the `version` and `packageSpec` fields, for
+micromamba the `version` and the `sha256` digest. Every other tool, pack tool,
+pipeline, database and the rest of the bootstrap block were byte-identical.
+
+Commits: `84d457a2` bbmap, `653f93f5` savont, `18591b89` micromamba.
+
+### bbmap 40.02
+
+Two things were worth checking on a major version jump.
+
+The Java runtime. bbtools is Java, and the locator hard-codes `lib/jvm/bin/java`
+inside the bbtools environment, so a changed JRE dependency in the 40.x package
+would break every bbtools call. It did not change: the reconciled 40.02
+environment still ships `openjdk 25.0.2` and still exposes
+`lib/jvm/bin/java`, so `CoreToolLocator.bbToolsEnvironment` resolves as before.
+`clumpify.sh --version` in that environment reports BBTools 40.02 and runs
+through the managed JRE.
+
+The stderr summaries. The brief asked whether the ingestion pipeline parses
+reformat and clumpify counts out of stderr, which would make the 40.x output
+text a compatibility surface. It does not. Every bbtools call site checks the
+exit status and uses `result.stderr` only for an error message or to store a
+provenance envelope. No code reads counts back out, so a reworded summary in
+40.x cannot change behaviour.
+
+One test carried a hard-coded `39.80`. Rather than replace it with `40.02`, it
+now reads the pinned version from `ManagedToolLock`, so the next re-pin cannot
+leave the same stale expectation behind. That test runs clumpify for real, so
+it doubles as a live check that 40.02 works.
+
+Filtered unit run: 87 XCTest and 1 swift-testing, zero failures in both halves.
+
+### savont 0.6.3
+
+A minor version on a tool Lungfish drives through a long argument list, so the
+CLI contract was checked against the installed binary rather than assumed.
+
+Every flag `SavontClusteringRunRequest.arguments` can emit still exists in 0.6.3
+with the same spelling: the `asv` subcommand, `-o`, `-t`,
+`--quality-value-cutoff`, `--min-cluster-size`, `--min-read-length`,
+`--max-read-length` and `--single-strand`. No pipeline change was needed.
+
+0.6.3 does change several upstream defaults and adds new subcommands
+(`classify`, `download`, `sintax`, `export`) and presets. The defaults that
+moved include `--quality-value-cutoff` to 98, `--min-cluster-size` to 12,
+`--min-read-length` to 1100 and `--max-read-length` to 2000. Lungfish passes
+each of these explicitly, so its behaviour is unchanged, but any flag left
+unset in future work would now pick up a different default than under 0.5.0.
+
+`SavontCLIContractTests` was added to hold this ground. It runs
+`savont asv --help` in the installed environment and asserts every option token
+the argument builder can emit is still documented. The flag list is derived by
+calling the production argument builder rather than restated by hand, so a
+newly added flag is covered automatically. The matcher was checked against a
+simulated 0.7 that renames `--min-cluster-size` and drops `--single-strand`, and
+it reports both; it also does not match `--min-read-length` inside
+`--max-read-length` or `-o` inside `--output-dir`. Like the rest of the
+conformance suite it skips when savont is absent and enforces under
+`LUNGFISH_REQUIRE_TOOLS=1`, where it passes with zero skips.
+
+Filtered unit run (`FullLengthONTMHC|Savont|Genotype`): 2377 XCTest, zero
+failures, 9 skips. All 9 are environmental: 7 `GenotypeRealBundleSmokeTests`,
+1 performance test, and `SavontClusteringIntegrationTests`, which needs a real
+ONT FASTQ supplied through an environment variable.
+
+**Manual verification pending.** A real full-length ONT MHC genotyping run
+needs the user's own ONT data, which is not available to this task. The bump is
+covered by the CLI contract test, the argument-construction tests and
+require-mode conformance, but an end-to-end run on real reads has not been done.
+
+### micromamba 2.9.0
+
+The bootstrap is the one component that installs everything else, so it got the
+most direct proof.
+
+The checksum was verified two independent ways. `bump.py` cleared the stale
+digest and refetched it from the pinned `2.9.0-0` release rather than carrying
+the old value forward, which is the supply-chain fix C5 landed, and the result
+matches a direct download and hash of the release asset:
+`ec2a072f028e1a7cf20f3e2e74d5a8127cf5a5f27636375b5359811565f4e5be`. After
+`scripts/bundle-native-tools.sh --arch arm64`, the vendored binary on disk
+hashes to that same value and self-reports 2.9.0.
+
+Environment creation with 2.9 was proven in a fresh isolated root
+(`/tmp/lge-verify-mm29`) seeded from a root whose bootstrap was still 2.0.5, so
+the replacement had something real to replace. The reconciler logged
+`bootstrap micromamba 2.0.5 -> 2.9.0-0`, the root afterwards reports 2.9.0 at
+the pinned digest, and environments were created with the new bootstrap during
+the same run. `tools update --plan` in that root then reports `Nothing to do.`,
+so the reconciled state is stable. Tier 1 there: GATE PASS, 189 executed, zero
+failures, zero skips. Separately, 2.9.0 was asked to solve and create a brand
+new environment from scratch, which it did.
+
+Filtered unit run (`CondaManagerTests|BundledDatabaseManifestTests|
+DependencyManifestTests`): 65 executed, zero failures.
+
+### Tier 1
+
+`verify.sh --tier 1 --root ~/.lungfish-verify` after each bump: **GATE PASS,
+189 executed, 0 failures, 0 skips**, the same count as the group 1 and group 2
+baselines. Read from the gate log rather than the console tail, which prints
+the last swift-testing suite rather than the total.
+
+### Tier 2
+
+Run once after the bbmap bump, the only group 3 change that can alter pipeline
+output. Keyed to 2026.2 the comparison reports all 13 outputs as `missing`,
+because `Tests/Fixtures/conformance/2026.2/` does not exist yet; that is C9's
+work and not a result. Against the committed 2026.1 goldens: **12 same, 1
+different, 0 missing**, and the one difference is verbatim the same row group 2
+recorded.
+
+| recipe | output | status | first difference |
+| --- | --- | --- | --- |
+| sarscov2-deacon | summary.json | different | `$.check_pairs: only in candidate` |
+
+That is group 1's already-accepted additive deacon key. **Zero differences are
+attributable to group 3.** Goldens were not regenerated.
+
+## Held builds (task C8)
+
+Held tools were revisited to pick up newer build strings at the same version.
+One was taken and one was held. Commit `4a3d35cf`.
+
+### Taken: cutadapt
+
+```
+cutadapt 5.2   py311hd78823b_1 -> py313hf513372_2
+```
+
+Build number 1 to 2, with the interpreter moving forward from py311 to py313.
+cutadapt is invoked as a binary and is not imported by any Lungfish Python, so
+the interpreter is internal to its environment. Verified live in the reconciled
+verify root: cutadapt reports 5.2 running on Python 3.13.15.
+
+Tier 1 with the C8 filter
+(`FASTQToolIntegration|NativeToolRunner|ONTGenotyping|Conformance`):
+**GATE PASS, 115 executed, 0 failures, 0 skips**. The reconciler reinstalled
+cutadapt for the build change and left pysam untouched.
+
+### Held: pysam, and why
+
+pysam stays at `0.24.0=py310hf7cbfa5_0`. The candidate build
+`py39hfb5fbb1_1` is newer by publication time but moves the interpreter
+backwards, py310 to py39.
+
+This is worth stating plainly because the tooling recommended it.
+`check-upstream.py` selects the newest build by timestamp and has no notion of
+Python ABI direction, so for packages that are rebuilt across several
+interpreters it can propose an interpreter downgrade while calling it a newer
+build. For pysam that matters more than for most: Lungfish ships its own Python
+script that does `import pysam` (`ONTGenotypingPysamFilterRunner`), so the
+interpreter is part of the contract rather than an environment detail.
+
+bioconda also publishes `py310hf7cbfa5_1`, the same-ABI rebuild at the newer
+build number, which is the move this hold is really waiting on. Taking it
+requires the build-selection logic to prefer a same-or-forward ABI over the
+newest timestamp, which is a change to `check-upstream.py` rather than a pin
+edit, so it is left out of this sweep.
+
+### Every remaining hold
+
+`check-upstream.py --markdown` after the bump reports cutadapt as `same`.
+Everything still listed is a deliberate hold:
+
+| id | status | reason |
+| --- | --- | --- |
+| read-mapping/minimap2 | no-arm64-build | 2.0.r191 exists but publishes no osx-arm64 or noarch build |
+| full-length-mhc-genotyping/blast | no-arm64-build | 2.17.0 is linux only; 2.16.0 is the newest installable |
+| metagenomics/bracken | no-arm64-build | 3.1p1 is linux only; 1.0.0 is the only arm64 build, and the C4 product fix is the durable answer |
+| kraken2-special-silva | manual-check | special index, rebuilt or re-downloaded by hand |
+| kraken2-special-greengenes | manual-check | special index, rebuilt or re-downloaded by hand |
+| deacon-panhuman | manual-check | no machine-readable index |
+| deacon-ribokmers | manual-check | no machine-readable index |
+| ncbi-taxonomy | update available | held this sweep per the C5 ruling: the dated archive is a `.zip` and extraction spans two files plus the provenance contract |
+| pysam | build only | interpreter would move backwards, py310 to py39; see above |
+| sra-tools | build only | not in scope for this task; no Python ABI involved |
+| openpyxl | build only | not in scope for this task; py312 to py314, forward |
+| variant-calling/lofreq | build only | not in scope for this task; py310 to py313, forward |
+| assembly/flye | build only | not in scope for this task; py310 to py313, forward |
+
+Of the build-only rows, pysam is the only one whose candidate regresses the
+Python ABI. The other three move forward and are simply outside this task's
+scope.
