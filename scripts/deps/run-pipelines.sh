@@ -369,14 +369,13 @@ if [[ ${run_taxtriage} -eq 1 ]]; then
         report_lines+=("## TaxTriage: FAILED (exit ${taxtriage_status})")
         pipeline_failures=$((pipeline_failures + 1))
     else
-        collect_output taxtriage-multiqc-confidences "multiqc_confidences.txt" \
-            "${taxtriage_out}/report/multiqc_data/multiqc_confidences.txt" || true
-        # The combined gcfmap is named after the sample, which is the accession
-        # this run was given; the bare glob is the fallback for a pipeline that
-        # names it differently.
-        collect_output taxtriage-combine-gcfmap "${accession}.combined.gcfmap.tsv" \
-            "${taxtriage_out}/combine/${accession}.combined.gcfmap.tsv" \
-            "${taxtriage_out}"/combine/*.combined.gcfmap.tsv || true
+        # top_report.tsv is named after the sample, which is the accession this run
+        # was given; the bare glob is the fallback for a pipeline that names it
+        # differently. It replaced multiqc_confidences.txt, which TaxTriage v3.3.8
+        # no longer emits at all.
+        collect_output taxtriage-top-report "${accession}.top_report.tsv" \
+            "${taxtriage_out}/top/${accession}.top_report.tsv" \
+            "${taxtriage_out}"/top/*.top_report.tsv || true
         report_lines+=("## TaxTriage: OK")
         report_lines+=("Output: ${taxtriage_out}")
     fi

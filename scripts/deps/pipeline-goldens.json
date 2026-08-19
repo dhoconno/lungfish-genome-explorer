@@ -1,37 +1,39 @@
 {
-  "_comment": "Tier 3 (manual) structural diff recipes for scripts/deps/run-pipelines.sh. Every output uses kind 'tsv-header' with compareColumns [] so only the column header (schema) is compared; value-level drift is expected between a fresh SRA pull and the committed mini fixtures and is reported informationally, not as a failure. Output names use a {sample} placeholder that run-pipelines.sh resolves from --accession into a run-local copy of this manifest, so a sweep against a different accession compares that accession's files rather than reporting every output missing. The committed mini fixtures are named for SRR35517702, so a run against another accession will report the golden as missing (exit 3, a failure) until matching fixtures are added. Golden paths point at the committed mini fixture files directly (goldens.json's {set} substitution is not used here); run-pipelines.sh lays out the candidate directory as <candidate>/<recipe id>/<output name>. See docs/release/dependency-sweep.md step 4 (tier 3).",
-  "goldens": [
-    {
-      "id": "taxtriage-multiqc-confidences",
-      "tool": "taxtriage",
-      "outputs": {
-        "multiqc_confidences.txt": { "kind": "tsv-header", "compareColumns": [] }
-      },
-      "golden": "Tests/Fixtures/taxtriage-mini/report/multiqc_data"
-    },
-    {
-      "id": "taxtriage-combine-gcfmap",
-      "tool": "taxtriage",
-      "outputs": {
-        "{sample}.combined.gcfmap.tsv": { "kind": "tsv-header", "compareColumns": [] }
-      },
-      "golden": "Tests/Fixtures/taxtriage-mini/combine"
-    },
-    {
-      "id": "esviritu-detected-virus-info",
-      "tool": "esviritu",
-      "outputs": {
-        "{sample}.detected_virus.info.tsv": { "kind": "tsv-header", "compareColumns": [] }
-      },
-      "golden": "Tests/Fixtures/esviritu-mini/SRR35517702"
-    },
-    {
-      "id": "esviritu-virus-coverage-windows",
-      "tool": "esviritu",
-      "outputs": {
-        "{sample}.virus_coverage_windows.tsv": { "kind": "tsv-header", "compareColumns": [] }
-      },
-      "golden": "Tests/Fixtures/esviritu-mini/SRR35517702"
+ "_comment": "Tier 3 (manual) structural diff recipes for scripts/deps/run-pipelines.sh. Every output uses kind 'tsv-header' with compareColumns [] so only the column header (schema) is compared; value-level drift is expected between a fresh SRA pull and the committed mini fixtures and is reported informationally, not as a failure. Output names use a {sample} placeholder that run-pipelines.sh resolves from --accession into a run-local copy of this manifest, so a sweep against a different accession compares that accession's files rather than reporting every output missing. The committed mini fixtures are named for SRR35517702, so a run against another accession will report the golden as missing (exit 3, a failure) until matching fixtures are added. Golden paths point at the committed mini fixture files directly (goldens.json's {set} substitution is not used here); run-pipelines.sh lays out the candidate directory as <candidate>/<recipe id>/<output name>. See docs/release/dependency-sweep.md step 4 (tier 3). REMOVED 2026-08-19: the taxtriage-combine-gcfmap recipe. <sample>.combined.gcfmap.tsv has no header row, so a tsv-header comparison reads its first data record (a reference accession) and reports ordinary biological difference as schema drift. Golden and candidate both have 4 columns, so the schema was never actually drifting. Restore it only alongside a comparison kind that checks column count rather than column names. Also replaced taxtriage-multiqc-confidences with taxtriage-top-report: TaxTriage v3.3.8 no longer emits multiqc_confidences.txt at all.",
+ "goldens": [
+  {
+   "id": "taxtriage-top-report",
+   "tool": "taxtriage",
+   "_comment": "Replaces taxtriage-multiqc-confidences. TaxTriage v3.3.8 no longer emits report/multiqc_data/multiqc_confidences.txt at all (verified: no file matching *confidence* anywhere in a completed v3.3.8 run, work directories included). top/<sample>.top_report.tsv carries the classification schema this recipe is meant to guard and does have a real header row.",
+   "outputs": {
+    "{sample}.top_report.tsv": {
+     "kind": "tsv-header",
+     "compareColumns": []
     }
-  ]
+   },
+   "golden": "Tests/Fixtures/taxtriage-mini/top"
+  },
+  {
+   "id": "esviritu-detected-virus-info",
+   "tool": "esviritu",
+   "outputs": {
+    "{sample}.detected_virus.info.tsv": {
+     "kind": "tsv-header",
+     "compareColumns": []
+    }
+   },
+   "golden": "Tests/Fixtures/esviritu-mini/SRR35517702"
+  },
+  {
+   "id": "esviritu-virus-coverage-windows",
+   "tool": "esviritu",
+   "outputs": {
+    "{sample}.virus_coverage_windows.tsv": {
+     "kind": "tsv-header",
+     "compareColumns": []
+    }
+   },
+   "golden": "Tests/Fixtures/esviritu-mini/SRR35517702"
+  }
+ ]
 }
