@@ -137,6 +137,25 @@ final class ToolVersionConformanceTests: XCTestCase {
                     message = meta.version == tool.version
                         ? nil
                         : "\(tool.toolID): conda-meta version \(meta.version) does not match manifest pin \(tool.version)"
+                } else if tool.preserveExistingInstall == true {
+                    // A tool that opted into preserveExistingInstall may legitimately
+                    // have no conda-meta record: the reconciler deliberately keeps a
+                    // working local build (for example a source-built Bracken) rather
+                    // than overwriting it with the pin. That is a supported end state,
+                    // not drift and not a skip, so assert what can actually be checked:
+                    // every declared executable is present and executable. Skipping here
+                    // would trip the tier 1 no-skips rule; failing would punish the
+                    // documented behaviour.
+                    let missing = tool.executables.filter { name in
+                        let url = envURL.appendingPathComponent("bin/\(name)")
+                        return !FileManager.default.isExecutableFile(atPath: url.path)
+                    }
+                    if !missing.isEmpty {
+                        failures.append(
+                            "\(tool.toolID): local install preserved but missing executables: \(missing.joined(separator: ", "))"
+                        )
+                    }
+                    continue
                 } else {
                     message = "\(tool.toolID): no conda-meta record in env \(tool.environment)"
                 }
