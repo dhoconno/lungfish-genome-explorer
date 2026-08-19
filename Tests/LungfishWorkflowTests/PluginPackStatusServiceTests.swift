@@ -132,7 +132,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         _ = await service.status(for: .requiredSetupPack)
 
         let calls = await recorder.recordedCalls()
-        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
+        XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
     }
 
     func testVisibleStatusesReuseCachedResultWithinTTL() async throws {
@@ -245,7 +245,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         XCTAssertLessThan(elapsed, 1.0)
         let calls = await recorder.recordedCalls()
-        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
+        XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
     }
 
     func testStatusForPackEvaluatesToolRequirementsConcurrentlyWithOrderPreservingResults() async throws {
@@ -692,7 +692,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         XCTAssertLessThan(elapsed, 1.0)
         let calls = await recorder.recordedCalls()
-        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
+        XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
     }
 
     func testStatusForPackUsesPersistedSnapshotBeyondTTLWhenFingerprintUnchanged() async throws {
@@ -1625,7 +1625,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         }
 
         let calls = await recorder.recordedCalls()
-        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
+        XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
         let fractions = await recorder.recordedFractions()
         XCTAssertEqual(fractions, [0.55, 0.55])
         let events = eventRecorder.recordedEvents()
