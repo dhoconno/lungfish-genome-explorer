@@ -159,12 +159,7 @@ public extension ReconcilerServices {
             },
             metagenomicsDatabaseVersions: {
                 let databases = (try? await MetagenomicsDatabaseRegistry.shared.availableDatabases()) ?? []
-                var versions: [String: String] = [:]
-                for database in databases where database.status == .ready {
-                    guard let catalogID = database.catalogID, let version = database.version else { continue }
-                    versions[catalogID] = version
-                }
-                return versions
+                return Self.metagenomicsDatabaseVersions(from: databases)
             },
             installedMicromambaVersion: {
                 await Self.readMicromambaVersion(at: condaManager.rootPrefix.appendingPathComponent("bin/micromamba"))
@@ -219,6 +214,37 @@ public extension ReconcilerServices {
             }
         }
         return nil
+    }
+
+    /// Installed versions for `MetagenomicsDatabaseRegistry`-managed databases, keyed by
+    /// the manifest database id the planner compares against.
+    ///
+    /// Keying by the row's *recorded* `catalogID` alone silently dropped every database a
+    /// user registered from disk: `registerExisting` stores no catalog identity, so `Viral`
+    /// and `Standard-16` on real machines have `catalogID == nil` and were never planned,
+    /// while `db list` and `db info` advertised an update for them the whole time. Resolving
+    /// through ``MetagenomicsDatabaseInfo/resolvedCatalogID`` applies the same two-step match
+    /// those surfaces use, so what is advertised is what gets planned.
+    ///
+    /// When two rows resolve to the same catalog id (a hand-registered copy alongside a
+    /// catalog-installed one, say), the row that records the identity itself wins: it is the
+    /// one `resolveUpdateTarget` will actually replace, so the planned "installed version"
+    /// must be its version and not the other row's.
+    static func metagenomicsDatabaseVersions(
+        from databases: [MetagenomicsDatabaseInfo]
+    ) -> [String: String] {
+        var versions: [String: String] = [:]
+        var keyedByRecordedID: Set<String> = []
+        for database in databases.sorted(by: { $0.name < $1.name }) where database.status == .ready {
+            guard let catalogID = database.resolvedCatalogID, let version = database.version else { continue }
+            if database.catalogID != nil {
+                versions[catalogID] = version
+                keyedByRecordedID.insert(catalogID)
+            } else if !keyedByRecordedID.contains(catalogID), versions[catalogID] == nil {
+                versions[catalogID] = version
+            }
+        }
+        return versions
     }
 
     /// Installed versions for `DatabaseRegistry`-managed databases.

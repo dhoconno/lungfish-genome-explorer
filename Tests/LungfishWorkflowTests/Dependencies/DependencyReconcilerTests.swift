@@ -584,3 +584,61 @@ final class DependencyReconcilerTests: XCTestCase {
         func fail(id: UUID, detail: String, error: String) { lock.withLock { failed += 1 } }
     }
 }
+
+// MARK: - Metagenomics installed-version map
+
+/// The map `ReconcilerServices.live` hands the planner, which decides whether a metagenomics
+/// database is planned for update at all.
+///
+/// Rows registered from disk by `registerExisting` carry no `catalogID`. Keying the map by the
+/// recorded id alone dropped every one of them, so a real machine's hand-registered `Viral` was
+/// never planned while `db list` and `db info` advertised an update for it.
+final class ReconcilerMetagenomicsVersionMapTests: XCTestCase {
+    private func row(
+        name: String,
+        tool: String = "kraken2",
+        version: String?,
+        catalogID: String? = nil,
+        status: DatabaseStatus = .ready,
+        path: URL? = URL(fileURLWithPath: "/tmp/db")
+    ) -> MetagenomicsDatabaseInfo {
+        MetagenomicsDatabaseInfo(
+            name: name, tool: tool, version: version, sizeBytes: 0,
+            catalogID: catalogID, description: "", path: path,
+            status: status, recommendedRAM: 0
+        )
+    }
+
+    func testRegisterExistingRowIsKeyedByResolvedCatalogID() {
+        let versions = ReconcilerServices.metagenomicsDatabaseVersions(
+            from: [row(name: "Viral", version: "20240904")]
+        )
+        XCTAssertEqual(versions["kraken2-viral"], "20240904")
+    }
+
+    func testCatalogInstalledRowStillKeyedByItsRecordedID() {
+        let versions = ReconcilerServices.metagenomicsDatabaseVersions(
+            from: [row(name: "Viral", version: "20240904", catalogID: "kraken2-viral")]
+        )
+        XCTAssertEqual(versions["kraken2-viral"], "20240904")
+    }
+
+    func testRecordedIdentityWinsOverANameMatchForTheSameCatalogEntry() {
+        // Two rows resolve to kraken2-viral; the one that records the identity is the one
+        // `resolveUpdateTarget` will replace, so its version is the installed version.
+        let versions = ReconcilerServices.metagenomicsDatabaseVersions(from: [
+            row(name: "Viral", version: "20230101"),
+            row(name: "Viral copy", version: "20240904", catalogID: "kraken2-viral"),
+        ])
+        XCTAssertEqual(versions["kraken2-viral"], "20240904")
+    }
+
+    func testNonReadyAndUnversionedAndUnknownRowsAreSkipped() {
+        let versions = ReconcilerServices.metagenomicsDatabaseVersions(from: [
+            row(name: "Viral", version: "20240904", status: .missing, path: nil),
+            row(name: "Standard-16", version: nil),
+            row(name: "My Custom DB", version: "1.0"),
+        ])
+        XCTAssertTrue(versions.isEmpty, "\(versions)")
+    }
+}

@@ -151,6 +151,36 @@ final class DbCommandUpdateTargetTests: XCTestCase {
         XCTAssertEqual(result.exitCode, 0, "stdout:\n\(result.stdout)\nstderr:\n\(result.stderr)")
     }
 
+    /// `tools update --plan` must propose the same database update `db list` advertises.
+    ///
+    /// The reconciler's installed-version map keyed metagenomics rows by their *recorded*
+    /// `catalogID`, which every `registerExisting` row lacks, so the plan silently omitted
+    /// exactly the databases real users have while `db list` kept offering the update.
+    /// Offline: `--plan` reads the filesystem and never contacts the network.
+    func testToolsUpdatePlanIncludesADatabaseRegisteredWithoutCatalogIdentity() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try seedLocallyBuiltRow(in: root, name: "SILVA")
+
+        let list = try runCLI(["conda", "db", "list"], storageRoot: root)
+        XCTAssertTrue(
+            list.stdout.split(separator: "\n").first { $0.hasPrefix("SILVA ") }?.contains("yes (") == true,
+            "precondition: db list must advertise an update:\n\(list.stdout)"
+        )
+
+        let plan = try runCLI(["tools", "update", "--plan", "--json"], storageRoot: root)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(plan.stdout.utf8)) as? [String: Any],
+            "stdout was not a JSON object:\n\(plan.stdout)\nstderr:\n\(plan.stderr)"
+        )
+        let updates = try XCTUnwrap(json["databaseUpdates"] as? [[String: Any]])
+        let silva = try XCTUnwrap(
+            updates.first { ($0["id"] as? String) == "kraken2-special-silva" },
+            "plan omitted the database db list advertises: \(updates.map { $0["id"] ?? "?" })"
+        )
+        XCTAssertEqual(silva["managedBy"] as? String, "metagenomicsRegistry")
+    }
+
     // MARK: - Helpers
 
     /// Writes an installed row for a locally built Kraken2 special database, with a null

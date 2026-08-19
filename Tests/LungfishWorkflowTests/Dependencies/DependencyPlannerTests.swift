@@ -140,6 +140,34 @@ final class DependencyPlannerTests: XCTestCase {
         XCTAssertFalse(plan.databaseUpdates.contains { $0.id == "kraken2-standard" })
     }
 
+    /// End to end for the `registerExisting` gap: a `Viral` row registered from disk carries no
+    /// `catalogID`, and the version map used to drop it, so the plan never proposed the update
+    /// that `db list` and `db info` were already advertising.
+    func testRegisterExistingDatabaseWithoutCatalogIDIsPlanned() {
+        let viral = MetagenomicsDatabaseInfo(
+            name: "Viral", tool: "kraken2", version: "20240904", sizeBytes: 0,
+            catalogID: nil, description: "", path: URL(fileURLWithPath: "/tmp/viral"),
+            status: .ready, recommendedRAM: 0
+        )
+        let metaDB = ReconcilerServices.metagenomicsDatabaseVersions(from: [viral])
+        // The manifest's own kraken2-viral pin, so the test moves with the sweep.
+        guard let spec = ManagedToolLock.bundled.database(id: "kraken2-viral") else {
+            return XCTFail("manifest has no kraken2-viral database")
+        }
+        XCTAssertNotEqual(spec.version, "20240904", "fixture version must predate the manifest")
+
+        let plan = DependencyPlanner.plan(inputs(
+            manifest(databases: [spec]),
+            envs: ["samtools": [meta("samtools", "1.24", "h36b3a25_1")]],
+            metaDB: metaDB
+        ))
+        let update = plan.databaseUpdates.first { $0.id == "kraken2-viral" }
+        XCTAssertNotNil(update, "plan: \(plan.databaseUpdates.map(\.id))")
+        XCTAssertEqual(update?.managedBy, .metagenomicsRegistry)
+        XCTAssertEqual(update?.installedVersion, "20240904")
+        XCTAssertEqual(update?.targetVersion, spec.version)
+    }
+
     func testEnvironmentWithoutReadableMetadataIsReinstalled() {
         // Env directory exists but conda-meta yielded nothing: the install cannot be confirmed.
         var r = DependencyReceipt.empty()

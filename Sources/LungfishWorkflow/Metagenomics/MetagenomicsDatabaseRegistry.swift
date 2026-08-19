@@ -1280,7 +1280,9 @@ public actor MetagenomicsDatabaseRegistry {
     /// This applies the same two-step match, in the same order, so the command that
     /// applies an update sees exactly the set of rows the commands that advertise one
     /// do. The identifier may be either a catalog id (`kraken2-viral`) or the display
-    /// name of an installed row (`Viral`).
+    /// name of an installed row (`Viral`). ``MetagenomicsDatabaseInfo/resolvedCatalogEntry``
+    /// is the shared expression of that match; this method adds only the reverse
+    /// direction, resolving an identifier to a row rather than a row to an entry.
     ///
     /// Candidate rows are sorted by name so a manifest that somehow holds two rows for
     /// one catalog identity resolves the same way on every run.

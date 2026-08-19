@@ -279,13 +279,40 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
 
 extension MetagenomicsDatabaseInfo {
 
+    /// The built-in catalog entry this row corresponds to, by the project's one
+    /// two-step match: the recorded ``catalogID`` first, then name and tool.
+    ///
+    /// Rows installed through the catalog carry a `catalogID`, but the rows real users
+    /// actually have are usually registered by
+    /// ``MetagenomicsDatabaseRegistry/registerExisting(at:name:)``, which records no
+    /// catalog identity at all. Every place that asks "which catalog entry is this?"
+    /// must apply the same fallback or the surfaces disagree: `db list` and `db info`
+    /// advertise an update (they read ``availableUpdateVersion``) while the reconciler's
+    /// installed-version map and the update command silently skip the row.
+    ///
+    /// Shared here so those call sites cannot drift apart again.
+    public var resolvedCatalogEntry: MetagenomicsDatabaseInfo? {
+        if let catalogID, let entry = Self.catalogEntry(catalogID: catalogID) { return entry }
+        // A row that records some *other* catalogID is authoritative about its identity,
+        // so a mere name collision must not override it.
+        guard catalogID == nil else { return nil }
+        return Self.builtInCatalog.first { $0.name == name && $0.tool == tool }
+    }
+
+    /// The catalog identity this row addresses, resolved through ``resolvedCatalogEntry``.
+    ///
+    /// This is the id to hand to
+    /// ``MetagenomicsDatabaseRegistry/updateDatabase(catalogID:progress:)`` and to key
+    /// installed-version maps by, so a hand-registered `Viral` row is planned and updated
+    /// under `kraken2-viral` like a catalog-installed one.
+    public var resolvedCatalogID: String? {
+        catalogID ?? resolvedCatalogEntry?.catalogID
+    }
+
     /// Latest catalog version for this database, when it can be determined.
     public var availableUpdateVersion: String? {
         guard status == .ready, path != nil else { return nil }
-        guard let catalogEntry = catalogID.flatMap({ Self.catalogEntry(catalogID: $0) })
-            ?? Self.builtInCatalog.first(where: { entry in
-                entry.name == name && entry.tool == tool
-            }) else { return nil }
+        guard let catalogEntry = resolvedCatalogEntry else { return nil }
         guard let latestVersion = catalogEntry.version else { return nil }
         guard latestVersion != version else { return nil }
         return latestVersion
