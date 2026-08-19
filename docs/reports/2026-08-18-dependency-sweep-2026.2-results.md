@@ -988,3 +988,271 @@ No tool is now held because of a Python ABI regression. pysam, the one case
 that was, moved to its same-ABI rebuild once the selection logic could see it.
 sra-tools is the only build-only row left outstanding, and it is outside this
 task's scope rather than blocked on anything.
+
+## Goldens 2026.2 (task C9)
+
+Committed at `c7deabf1`.
+
+### Commands
+
+```bash
+LUNGFISH_CONDA_ROOT=$HOME/.lungfish-verify/conda \
+LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify \
+    bash scripts/deps/regenerate-goldens.sh --set 2026.2 --out .build/goldens-2026.2
+
+python3 scripts/deps/diff_goldens.py --recipes scripts/deps/goldens.json \
+    --candidate .build/goldens-2026.2 --set 2026.1
+```
+
+All twelve recipes ran clean, with the kraken2 recipe resolving the Viral
+database from the verify root's registry at the new 20260626 index.
+
+### Candidate against the 2026.1 goldens
+
+| recipe | output | status | first difference |
+| --- | --- | --- | --- |
+| kraken2-mini-SRR35517702 | classification.kreport | same |  |
+| kraken2-mini-SRR35517702 | classification.kraken | same |  |
+| sarscov2-flagstat | flagstat.json | same |  |
+| sarscov2-idxstats | idxstats.tsv | same |  |
+| sarscov2-seqkit-stats | stats.tsv | same |  |
+| sarscov2-fastp | summary.json | same |  |
+| sarscov2-minimap2 | flagstat.json | same |  |
+| sarscov2-spades | contigs-stats.tsv | same |  |
+| sarscov2-megahit | contigs-stats.tsv | different | row 0 column num_seqs: golden '12', candidate '11' |
+| sarscov2-vsearch-derep | count.txt | same |  |
+| sarscov2-deacon | summary.json | different | $.check_pairs: only in candidate |
+| sarscov2-bcftools | calls.vcf | same |  |
+| iqtree-known-sarcopterygian | tree.nwk | same |  |
+
+11 same, 2 different, 0 missing.
+
+Only one of those two differences was a real tool change.
+
+### Accepted: deacon adds an additive key
+
+`sarscov2-deacon` differs by exactly one line, `"check_pairs": false`, which
+deacon 0.16.0 adds to its filter summary and which is false for this single
+ended recipe. Every numeric field is unchanged. This is the additive key group 1
+predicted, and it is carried into the 2026.2 golden.
+
+### Investigated and rejected: megahit is nondeterministic
+
+`sarscov2-megahit` is not a tool change. The megahit pin
+`bioconda::megahit=1.2.9=h96a01ab_8` is byte identical to 2026.1, so nothing
+about megahit moved this sweep.
+
+Rerunning told the real story. Thirteen isolated runs of the recipe all produced
+12 contigs, matching the 2026.1 golden. A full rerun of the whole batch also
+produced 12, and the diff came back 12 same, 1 different with only the deacon
+key outstanding. The 11 contig result has appeared twice, both times in a full
+batch run where megahit follows SPAdes, and never once in isolation. This is
+megahit's own run to run nondeterminism under the recipe's two threads,
+surfacing when the machine is loaded, and the machine used here sits at a load
+average around 30 from unrelated user applications.
+
+The flip matters because it is not absorbed by the tolerance. Against the 12
+contig golden, 11 contigs is 8.3 percent on `num_seqs` and the N50 move from 332
+to 351 is 5.7 percent, both outside the recipe's 5 percent relative tolerance.
+Only `sum_len` stayed inside, at 2.7 percent.
+
+The reproducible 12 contig result is what was recorded.
+
+**Open item.** This is the one golden that can fail for a reason unrelated to
+any dependency change, which weakens tier 2 as a gate: a later sweep can see a
+red tier 2 that means nothing. A second tier 2 run during this task did exactly
+that. Two fixes are worth considering, neither taken here because both change a
+recipe rather than a pin: run megahit single threaded so the assembly is
+deterministic, or compare only `sum_len`. Recorded in
+`Tests/Fixtures/conformance/README.md` next to the golden.
+
+### Investigated: kraken2 cannot witness the index rename
+
+The kraken2 golden is byte identical to 2026.1 even though the Viral index moved
+to 20260626, which was expected to change it. The index in the verify root is
+genuinely the new one: `inspect.txt` contains `Betacoronavirus pandemicum` at
+taxid 3418604, and the database provenance records workflow version 20260626.
+
+The recipe cannot see it. `Tests/Fixtures/kraken2-mini/SRR35517702/source.fastq`
+holds three synthetic 12-base reads (`ACGTACGTACGT` and friends), and all three
+come back unclassified, so the report is a single `unclassified` line that no
+index change can move. The recipe pins that kraken2 runs and produces a
+well-formed report, not that any particular taxonomy is in the database.
+
+This is recorded because the unchanged golden is misleading on its face: it must
+not be read by a later sweep as evidence that the 20260626 taxonomy was
+verified. Nothing in the conformance goldens covers the SARS-CoV-2 species
+rename, and the name-keyed display surfaces called out in the group 1 release
+notes item still need their own review before shipping.
+
+### Provenance and audit
+
+The twelve candidate directories were copied to
+`Tests/Fixtures/conformance/2026.2/`, excluding the `stderr.log` that
+`regenerate-goldens.sh` writes as a debugging aid, matching the 2026.1 layout.
+Each is registered in `scripts/testing/fixture_provenance.py` with
+`dependencySet: "2026.2"`, and the four goldens with something to explain
+(deacon, megahit, kraken2, plus the version moves on spades and bcftools) carry
+that explanation in their `purpose` string.
+
+The writer created all twelve sidecars without needing `--overwrite`, so the
+guard that aborts at the classifier-full-viewer check was never reached and the
+delete-then-write fallback was not needed. `bash
+scripts/testing/audit-fixture-provenance.sh` reports **fixture provenance audit
+passed**.
+
+`Tests/Fixtures/conformance` is 252K in total, well under the 5 MB ceiling, so
+the 2026.1 goldens stay as history.
+
+### Two guards were asserting against the wrong set
+
+Both restated the current dependency set as a literal `"2026.1"`, so after this
+bump they would have kept checking the previous set's goldens while still
+passing, which is the failure mode where a guard goes quiet exactly when it
+starts being needed.
+
+- `scripts/tests/test_diff_goldens.py` now reads `dependencySet` from
+  `third-party-tools-lock.json` rather than restating it.
+- `scripts/tests/test_fixture_provenance_scripts.py` built its synthetic root
+  from a hardcoded 2026.1 while the audit it invokes reads the real
+  `RETAINED_FIXTURES`, so once 2026.2 was registered the two disagreed and two
+  tests failed with twelve missing fixture directories. It now derives the set
+  list from `RETAINED_FIXTURES` itself and covers every registered set, which
+  keeps retired sets working since they stay on disk as history.
+
+Python suite after both fixes: **411 tests, OK**. Verified the second fix is not
+vacuous: the test list now contains all 33 real entries with none missing.
+
+### Tier 2 at 2026.2
+
+`bash scripts/deps/verify.sh --tier 2 --root ~/.lungfish-verify`, now keyed to
+2026.2 from the manifest: **13 same, 0 different, 0 missing**.
+
+A second run of the same command returned exit 2 on the megahit flip described
+above, with the other twelve outputs same. That is the flakiness, not a
+regression.
+
+## SwiftPM (task C10)
+
+### Package.resolved delta
+
+`swift package update` moved twenty packages and added one. Every exact pin
+held: containerization 0.24.5, grpc-swift 1.27.5, swift-protobuf 1.35.0 and
+Sparkle 2.9.6 are all unchanged.
+
+| package | old | new |
+| --- | --- | --- |
+| async-http-client | 1.30.3 | 1.36.0 |
+| swift-argument-parser | 1.7.0 | 1.8.2 |
+| swift-asn1 | 1.5.1 | 1.7.1 |
+| swift-async-algorithms | 1.1.1 | 1.1.5 |
+| swift-atomics | 1.3.0 | 1.3.1 |
+| swift-certificates | 1.17.1 | 1.19.4 |
+| swift-collections | 1.3.0 | 1.6.0 |
+| swift-configuration | not present | 1.2.0 |
+| swift-distributed-tracing | 1.3.1 | 1.4.1 |
+| swift-http-structured-headers | 1.6.0 | 1.7.0 |
+| swift-http-types | 1.5.1 | 1.6.0 |
+| swift-log | 1.9.1 | 1.15.0 |
+| swift-nio | 2.94.0 | 2.101.3 |
+| swift-nio-extras | 1.32.1 | 1.34.3 |
+| swift-nio-http2 | 1.39.0 | 1.45.0 |
+| swift-nio-ssl | 2.36.0 | 2.37.2 |
+| swift-nio-transport-services | 1.26.0 | 1.28.0 |
+| swift-service-context | 1.2.1 | 1.3.0 |
+| swift-service-lifecycle | 2.9.1 | 2.12.0 |
+| swift-system | 1.6.4 | 1.8.1 |
+
+`swift-configuration` 1.2.0 is new to the graph, pulled in transitively by the
+updated server-side packages rather than added by us.
+
+`swift package update` printed one diagnostic at the end of resolution:
+
+```
+error: Disabled default traits on package 'async-http-client' (async-http-client) that declares no traits. This is prohibited to allow packages to adopt traits initially without causing an API break.
+```
+
+It is labelled `error` but did not stop resolution, and `Package.resolved` was
+written. Both products build, so it is a resolution-time complaint about a
+transitive dependency declaring disabled default traits, not a build failure.
+Worth watching on a future SwiftPM upgrade in case it becomes fatal.
+
+`bash scripts/check-package-resolved-consistency.sh --repair`: **PASS
+Package.resolved consistency (no Xcode workspace lockfile)**.
+
+### Builds
+
+`swift build --product Lungfish` and `swift build --product lungfish-cli` both
+complete cleanly.
+
+### Full suite gate
+
+The first gate run, at `c7deabf1`, came back **GATE FAIL** with 12 XCTest
+failures across seven tests, none of them in the known-environmental baseline.
+
+They were not caused by this task. The goldens commit and the SwiftPM commit
+touch no Swift source at all. Every one of the seven restates a pin that groups
+1 through 3 moved, so each was already failing at `745c5332` before this task
+began: this was simply the first full gate since those bumps landed.
+
+| test | restated | manifest |
+| --- | --- | --- |
+| AboutAcknowledgementsTests.testCurrentSectionsRenderPinnedMetadataForManagedTools | nextflow 25.10.4, bcftools 1.23.1, spades 4.2.0, esviritu 1.3.1 | 26.04.6, 1.24, 4.3.0, 1.3.3 |
+| ToolReferenceCommandTests.testVersionToolsPrintsBundledAndManagedToolTable | micromamba 2.0.5-0, nextflow 25.10.4, samtools 1.23.1 | 2.9.0-0, 26.04.6, 1.24 |
+| PluginPackRegistryTests.testRequiredSetupPackDefinesPerToolChecks | bbmap 39.80 | 40.02 |
+| PluginPackRegistryTests.testRequiredSetupPackExposesPinnedAboutMetadata | pysam build `_0` | `_1` |
+| WorkflowRegressionTests.testMicromambaFactory | micromamba 2.0.5-0 | 2.9.0-0 |
+| WorkflowRegressionTests.testCreateVersionInfoWritesMicromambaOnlySummary | micromamba 2.0.5-0 in VERSIONS.txt | 2.9.0-0 |
+| TaxTriagePipelineTests.testBuildLaunchMetadataUsesDurableWorkflowSnapshotAndReleaseLabel | taxtriage v3.3.6 | v3.3.8 |
+
+This is the same class as the four mirrors C6 fixed and the one C7/C8 fixed.
+Nine such mirrors have now been found across the sweep, which is worth noting
+as a pattern: a pin bump is not finished when the manifest and the live root
+agree, because the mirrors only surface on a full gate.
+
+Fixed at `7e0ed286` by updating each literal to the manifest's current value.
+
+**These were deliberately kept as literals rather than read from
+`ManagedToolLock`.** The first attempt derived them, which is tempting because
+it never goes stale, and it was wrong: `AboutAcknowledgements` builds its detail
+string from the same manifest, so a derived assertion compares the manifest
+against itself. That was verified rather than assumed, by sabotaging the built
+resource bundle to report a bogus bcftools version. The derived assertion still
+passed. A literal is what catches a pin moving when nobody intended it to,
+which is the reason these mirrors exist, so refreshing them each sweep is the
+intended cost rather than a defect to engineer away. C6 set the same precedent
+at `aaf492fa`.
+
+Every replacement literal was checked against the manifest, including taxtriage
+v3.3.8, which comes from the pipeline entry's `releaseVersion` field and not
+from its revision.
+
+Affected suites after the fix: 97 tests, 0 failures.
+
+The gate rerun at `7e0ed286`:
+
+```
+Executed 13433 tests, with 36 tests skipped and 1 failure (0 unexpected) in 1383.921 seconds
+```
+
+All seven tool-pin failures are gone. The two that remain are both documented
+environmental failures on this machine, and both were confirmed rather than
+assumed by rerunning each in isolation:
+
+- `SRASearchIntegrationTests.testBatchThreeAccessions` resolved 1 of 3
+  accessions against a required 2. This is the known NCBI SRA reachability
+  flake. In isolation: 6 tests, 0 failures.
+- The swift-testing `FileSystemWatcher Tests` suite failed with 6 issues, every
+  one a watcher callback that never arrived within its timeout. This is the
+  documented load-sensitive flake. In isolation: 17 tests, all passed.
+
+Neither touches a dependency pin. The machine ran at a load average near 30
+throughout from unrelated user applications, which is the same condition behind
+the megahit golden flip.
+
+The gate script still reports **GATE FAIL** because it counts any failure. Read
+against the known-environmental baseline (6 GenotypeRealBundleSmokeTests, 2
+ZhangArtifactCanaryTests, 1 VCFRobustnessTests plus the documented load flakes),
+this run is green: the 9 TCC failures did not appear here because the gate does
+not reach those external volumes, and the two that did appear are on the
+documented flake list.
