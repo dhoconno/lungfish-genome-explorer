@@ -843,10 +843,37 @@ failures, 9 skips. All 9 are environmental: 7 `GenotypeRealBundleSmokeTests`,
 1 performance test, and `SavontClusteringIntegrationTests`, which needs a real
 ONT FASTQ supplied through an environment variable.
 
-**Manual verification pending.** A real full-length ONT MHC genotyping run
-needs the user's own ONT data, which is not available to this task. The bump is
-covered by the CLI contract test, the argument-construction tests and
-require-mode conformance, but an end-to-end run on real reads has not been done.
+**Savont end-to-end on real ONT data: now has a recipe.** This item was
+originally left open because a full-length ONT MHC genotyping run needs the
+user's own ONT data. It is now covered by a public fixture, so the end-to-end
+path can be exercised on any machine without private data:
+
+```bash
+export LUNGFISH_SAVONT_TEST_INPUT="$(bash scripts/deps/fetch-savont-fixture.sh | tail -1)"
+LUNGFISH_CONDA_ROOT="$HOME/.lungfish-verify/conda" \
+  swift test --filter SavontClusteringIntegrationTests
+```
+
+The fixture is ENA run SRR31764993, an Oxford Nanopore full-length 16S
+amplicon run described in the tier 3 section of
+`docs/release/dependency-sweep.md`. The test discovers the cached file
+automatically, so the explicit export above is only needed when the fixture
+lives somewhere other than the default cache.
+
+Measured on 2026-08-19 against savont 0.6.3 in an isolated root: the test
+passes in 4.2 seconds, and the full `--filter Savont` suite is 144 tests with
+zero failures. Savont on the whole run produces 10 ASVs on default parameters,
+byte identical across two runs; on the 1,000-read subset the test actually
+clusters it produces 4, also byte identical. The published FASTA headers carry
+the terminal supporting-read counts the pipeline parses, so this run does
+witness the output contract rather than merely exercising the process.
+
+What this does and does not cover. It covers the Savont invocation, the cluster
+FASTA parse, the read-count normalization, and the provenance envelope, on real
+ONT reads. It is a 16S amplicon rather than an MHC amplicon, so it does not
+cover the MHC-specific reference matching downstream of clustering. Closing
+that remaining gap still needs real MHC data; see the tier 3 section for why a
+primate amplicon was not usable here.
 
 ### micromamba 2.9.0
 

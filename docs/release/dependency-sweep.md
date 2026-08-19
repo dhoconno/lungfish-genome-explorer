@@ -183,6 +183,79 @@ present in whichever root you pass. Both were absent during the 2026.2 sweep,
 which is why that set shipped with tier 3 unrun. A tier 3 that cannot run is
 recorded as blocked with the specific missing prerequisite, not as a pass.
 
+#### Savont on real ONT reads
+
+Savont's output contract is item 2 on the known-risk checklist below, and it
+is the one item that cannot be checked without real Oxford Nanopore reads.
+Fetch the fixture and run the integration test:
+
+```bash
+bash scripts/deps/fetch-savont-fixture.sh
+LUNGFISH_CONDA_ROOT="$HOME/.lungfish-verify/conda" \
+  swift test --filter SavontClusteringIntegrationTests
+```
+
+The fetch is idempotent, so a second sweep on the same machine reuses the
+cached copy and costs nothing. The test finds the cached fixture on its own;
+set `LUNGFISH_SAVONT_TEST_INPUT` only to point it at different reads. The test
+never downloads anything itself, so it stays a skip on a machine where the
+fixture was never fetched, including under `LUNGFISH_REQUIRE_TOOLS=1`.
+
+Fixture provenance:
+
+| Field | Value |
+| --- | --- |
+| Run accession | SRR31764993 |
+| Study | PRJNA1199206, nationwide multicenter ONT 16S rRNA species identification |
+| Platform | Oxford Nanopore MinION, AMPLICON, PCR, synthetic metagenome |
+| First public | 2025-05-28 (public, no login, no controlled access) |
+| Size | 14,809,727 bytes compressed |
+| md5 | `5faa45002beffae3649e6aee28a4d9c8` |
+| sha256 | `d6e6ce7945d1965848cd36d1ccac6583bfe0e7292b2c02b122c8e2393fe35732` |
+
+Expected statistics, measured 2026-08-19 with the managed `seqkit`:
+
+| Statistic | Value |
+| --- | --- |
+| Reads | 14,971 |
+| Total bases | 21,640,873 |
+| Mean read length | 1,445.5 bp (median 1,462, max 3,177) |
+| Reads in Savont's default 1100-2000 bp window | 14,659 (97.9%) |
+| Q20 | 82.81% (mean quality 16.91) |
+
+Expected Savont result at 0.6.3, byte identical across two consecutive runs:
+10 ASVs on the whole run with default parameters, and 4 ASVs on the 1,000-read
+subset the integration test clusters. A cluster count of zero is the failure
+mode to watch for; see below for why.
+
+Why this accession. Savont needs an amplicon whose reads land in its
+length window and whose accuracy clears its consensus quality gate, and the
+sweep needs a file small enough to fetch in seconds. This run is a full-length
+16S amplicon at roughly 1.45 kb, which sits almost entirely inside Savont's
+default window, and is modern enough chemistry to produce consensuses. Being a
+synthetic metagenome, its amplicon pool has genuinely distinct members, so the
+clustering has real structure to find rather than one dominant sequence.
+
+Why not a primate MHC amplicon, which would match the domain better. Human HLA
+class I ONT amplicon runs exist and are attractively small: PRJNA434212 offers
+30 runs of roughly 4.1 kb HLA-A, HLA-B and HLA-C amplicons at 4 to 14 MB.
+They do not work. SRR6729382 was fetched and tested during this evaluation:
+Savont 0.6.3 forms 38 clusters and then discards every one of them at the
+low-quality consensus filter, writing an empty `final_asvs.fasta`. The cause is
+the chemistry, not the parameters. That study is from 2018 R9.4 2D basecalls
+with mean quality 13.7 and Q20 near 50%, and lowering `--n-depth-cutoff` from
+250 to 20 does not recover any consensus. A fixture that yields zero clusters
+cannot witness an output-contract regression, since the empty result looks the
+same whether the contract broke or not. Read accuracy therefore won over
+taxonomic proximity.
+
+The consequence is that this fixture covers the Savont invocation, the cluster
+FASTA parse, the supporting-read-count normalization, and the provenance
+envelope, but not the MHC-specific reference matching downstream of clustering.
+That part still needs real MHC data. If a future sweep wants to close the gap,
+look for a primate MHC amplicon run on R10.4 or later chemistry rather than
+revisiting the 2018 studies.
+
 ### 5. GUI walkthroughs
 
 Drive the app with Computer Use, per the project's GUI-testing rule, against
