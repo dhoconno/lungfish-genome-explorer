@@ -38,8 +38,8 @@ final class DatabaseRegistryTests: XCTestCase {
         XCTAssertNotNil(manifest)
         XCTAssertEqual(manifest?.id, "human-scrubber")
         XCTAssertEqual(manifest?.displayName, "Human Read Scrubber Database")
-        XCTAssertEqual(manifest?.filename, "human_filter.db.20250916v2")
-        XCTAssertEqual(manifest?.releaseDate, "2025-09-16")
+        XCTAssertEqual(manifest?.filename, "human_filter.db.20260706v2")
+        XCTAssertEqual(manifest?.releaseDate, "2026-07-06")
         XCTAssertEqual(
             manifest?.description,
             "k-mer database for human read identification and removal, built from human RefSeq. Eukaryota-derived k-mers with non-Eukaryota k-mers subtracted. Conservative on viral and bacterial pathogens."

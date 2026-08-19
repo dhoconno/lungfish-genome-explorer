@@ -53,10 +53,10 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(artifactURLs.databaseURL.lastPathComponent, "human_filter.db.20250916v2")
-        XCTAssertEqual(artifactURLs.databaseURL.absoluteString, "https://ftp.ncbi.nlm.nih.gov/sra/dbs/human_filter/human_filter.db.20250916v2")
-        XCTAssertEqual(artifactURLs.md5URL.lastPathComponent, "human_filter.db.20250916v2.md5")
-        XCTAssertEqual(artifactURLs.md5URL.absoluteString, "https://ftp.ncbi.nlm.nih.gov/sra/dbs/human_filter/human_filter.db.20250916v2.md5")
+        XCTAssertEqual(artifactURLs.databaseURL.lastPathComponent, "human_filter.db.20260706v2")
+        XCTAssertEqual(artifactURLs.databaseURL.absoluteString, "https://ftp.ncbi.nlm.nih.gov/sra/dbs/human_filter/human_filter.db.20260706v2")
+        XCTAssertEqual(artifactURLs.md5URL.lastPathComponent, "human_filter.db.20260706v2.md5")
+        XCTAssertEqual(artifactURLs.md5URL.absoluteString, "https://ftp.ncbi.nlm.nih.gov/sra/dbs/human_filter/human_filter.db.20260706v2.md5")
     }
 
     func testRequiredDatabasePathThrowsInstallRequiredWhenHumanScrubberDatabaseMissing() async throws {
@@ -188,7 +188,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             let outputURL = downloadDirectory
                 .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
             let data = url.lastPathComponent.hasSuffix(".md5")
-                ? Data("\(expectedMD5)  human_filter.db.20250916v2\n".utf8)
+                ? Data("\(expectedMD5)  human_filter.db.20260706v2\n".utf8)
                 : payload
             try data.write(to: outputURL)
             progress(1.0, Int64(data.count), Int64(data.count))
@@ -229,7 +229,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             let outputURL = downloadDirectory
                 .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
             let data = url.lastPathComponent.hasSuffix(".md5")
-                ? Data("\(expectedMD5)  human_filter.db.20250916v2\n".utf8)
+                ? Data("\(expectedMD5)  human_filter.db.20260706v2\n".utf8)
                 : payload
             try data.write(to: outputURL)
             progress(1.0, Int64(data.count), Int64(data.count))
@@ -359,7 +359,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             let outputURL = downloadDirectory
                 .appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
             let data = url.lastPathComponent.hasSuffix(".md5")
-                ? Data("\(expectedMD5)  human_filter.db.20250916v2\n".utf8)
+                ? Data("\(expectedMD5)  human_filter.db.20260706v2\n".utf8)
                 : payload
             try data.write(to: outputURL)
             progress(1.0, Int64(data.count), Int64(data.count))
@@ -391,7 +391,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let installDirectory = userRoot.appendingPathComponent("human-scrubber", isDirectory: true)
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: installDirectory.appendingPathComponent("human_filter.db.20250916v2").path
+                atPath: installDirectory.appendingPathComponent("human_filter.db.20260706v2").path
             )
         )
         XCTAssertFalse(

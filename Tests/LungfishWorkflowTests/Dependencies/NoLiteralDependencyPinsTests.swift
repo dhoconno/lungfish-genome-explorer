@@ -23,7 +23,14 @@ final class NoLiteralDependencyPinsTests: XCTestCase {
             let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
             if allowlist.contains(rel) { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
-            if pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+            // Only real code counts. Comments may name a spec when documenting an
+            // upstream packaging defect (see BrackenInvocationForm), and that
+            // prose is not a pin the installer can drift away from.
+            let code = text
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            if pattern.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
                 offenders.append(rel)
             }
         }

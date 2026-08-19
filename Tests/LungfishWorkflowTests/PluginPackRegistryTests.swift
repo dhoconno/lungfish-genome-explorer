@@ -115,12 +115,12 @@ final class PluginPackRegistryTests: XCTestCase {
         let pack = PluginPack.requiredSetupPack
 
         let nextflow = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "nextflow" }))
-        XCTAssertEqual(nextflow.version, "25.10.4")
+        XCTAssertEqual(nextflow.version, "26.04.6")
         XCTAssertEqual(nextflow.license, "Apache-2.0")
         XCTAssertEqual(nextflow.sourceURL, "https://github.com/nextflow-io/nextflow")
 
         let bcftools = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "bcftools" }))
-        XCTAssertEqual(bcftools.version, "1.23.1")
+        XCTAssertEqual(bcftools.version, "1.24")
         XCTAssertEqual(bcftools.license, "GPL")
         XCTAssertEqual(bcftools.sourceURL, "https://github.com/samtools/bcftools")
 
