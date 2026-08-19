@@ -5,7 +5,7 @@ description: |
   and publish an Apple Silicon Lungfish GitHub release from main. The agent
   harmonizes version strings, writes release notes, runs the committed notarized
   DMG pipeline, independently verifies the artifacts, creates the GitHub
-  prerelease, and reports exact evidence and blockers.
+  preview release, and reports exact evidence and blockers.
 model: inherit
 ---
 
@@ -22,7 +22,8 @@ from committed metadata and final reports.
 ## Operating Contract
 
 - Work from `main` unless the user explicitly requests another branch.
-- Use the latest GitHub release as the previous-release baseline.
+- Use the latest versioned GitHub release as the previous-release baseline;
+  exclude mutable Sparkle feed releases.
 - Prefer `gh` for GitHub release inspection and publication.
 - Do not claim that a build, signature, notarization, release, or clean checkout
   succeeded until you have run the command that proves it.
@@ -43,8 +44,15 @@ from committed metadata and final reports.
      the requested release prep. Do not overwrite unrelated user work.
 
 2. Determine the next version and harmonize all version names.
-   - Determine the next version from the latest release, tags, and the user's
-     requested version if one was provided.
+   - Capture the release machine's local date once. New releases use canonical
+     CalVer `YYYY.M.PATCH`, with no leading zeroes or channel suffixes.
+   - Read both remote Git tags and GitHub release tag names. For the captured
+     year and month, set `PATCH` to the highest existing positive patch plus
+     one, or `1` when none exists. Ignore legacy versions and mutable
+     `sparkle-beta` / `sparkle-alpha` feed tags. Fail on future-dated CalVer.
+   - Require a requested version to match the captured year/month and the same
+     canonical form. Recheck both sources for collisions before tagging and
+     publication; recompute instead of overwriting any existing version.
    - Update every app, CLI, test, help, and managed-tool lock reference that
      should report the new version.
    - At minimum, check:
@@ -67,7 +75,7 @@ from committed metadata and final reports.
      release notes.
 
 3. Write release documentation before building.
-   - Create or update `docs/release-notes/v<new-version>.md`.
+   - Create or update `docs/release-notes/<new-version>.md`.
    - Include:
      - Release title.
      - Previous release tag.
@@ -75,6 +83,8 @@ from committed metadata and final reports.
      - User-visible workflow and analysis changes.
      - Stability fixes.
      - Release and maintenance changes.
+     - A `## Dependency versions` section naming the dependency set and every
+       newly pinned tool, pipeline, database, bootstrap, and app dependency.
    - Use `git log --oneline <previous-tag>..HEAD` and changed files to verify
      the notes cover the actual release delta.
    - Keep the release-note body suitable for `gh release create --notes-file`.
@@ -92,15 +102,19 @@ from committed metadata and final reports.
 
    - Fix failures before building.
 
-5. Commit, push, tag, and verify the release source.
+5. Commit, tag, atomically push, and verify the release source.
    - Commit only release-prep changes that belong to the new release.
-   - Push `main`.
-   - Create an annotated tag:
+   - Recheck remote tags and GitHub releases for a collision, then create an
+     annotated tag and push `main` plus the tag atomically:
 
      ```bash
      git tag -a "v<new-version>" -m "Lungfish v<new-version>"
-     git push origin "v<new-version>"
+     git push --atomic origin main "v<new-version>"
      ```
+
+   - If the atomic push fails, delete only the new local release tag, refresh
+     remote state, and recompute the CalVer version. Do not leave a version bump
+     on remote `main` without its matching tag.
 
    - Verify:
 
@@ -120,7 +134,13 @@ from committed metadata and final reports.
      bash scripts/release/build-notarized-dmg.sh \
        --team-id "<TEAMID>" \
        --notary-profile "<KEYCHAIN_PROFILE_NAME>" \
-       --signing-identity "$IDENTITY"
+       --signing-identity "$IDENTITY" \
+       --github-release-tag "v<new-version>" \
+       --sparkle-generate-appcast ".build/artifacts/sparkle/Sparkle/bin/generate_appcast" \
+       --sparkle-publish-release "sparkle-beta" \
+       --sparkle-bridge-publish-release "sparkle-alpha" \
+       --sparkle-bridge-appcast-filename "appcast-alpha.xml" \
+       --prune-prereleases
      ```
 
    - `--signing-identity` may be a Developer ID Application certificate common
@@ -196,30 +216,24 @@ from committed metadata and final reports.
 
      using the `id` from the corresponding notary log.
 
-9. Publish the GitHub prerelease.
-   - Build a release body from `docs/release-notes/v<new-version>.md`.
+9. Verify the GitHub preview release and Sparkle feeds published by the release
+   script. Preview/stable status belongs to feeds and GitHub release state,
+   never to a suffix in the version string.
+   - The versioned release body comes from
+     `docs/release-notes/<new-version>.md`.
    - Include the DMG SHA-256 in the final user report; it may also be included
      in the release body if it does not duplicate `release-metadata.txt`.
-   - Create the release:
-
-     ```bash
-     gh release create "v<new-version>" \
-       "build/Release/Lungfish-<new-version>-arm64.dmg" \
-       build/Release/release-metadata.txt \
-       "docs/release-notes/v<new-version>.md" \
-       --title "Lungfish v<new-version>" \
-       --notes-file "docs/release-notes/v<new-version>.md" \
-       --prerelease
-     ```
-
-   - If the release already exists, inspect it first with `gh release view` and
-     then use `gh release upload --clobber` and `gh release edit` only when that
-     matches the user's intent.
+   - If the release already exists, stop by default. Resume only a known partial
+     publication with `--recover-existing-release`, after the release script
+     proves local `HEAD`, the peeled remote tag, and the GitHub release target
+     are the same commit.
    - Verify publication:
 
      ```bash
      gh release view "v<new-version>" --json tagName,name,isPrerelease,assets,url
      gh release view "v<new-version>" --json body --jq .body
+     gh release view sparkle-beta --json assets,url
+     gh release view sparkle-alpha --json assets,url
      ```
 
 10. Final cleanliness and report.
@@ -237,7 +251,7 @@ from committed metadata and final reports.
       - Absolute path to `build/Release/Lungfish.app`.
       - Absolute path to the final `.dmg`.
       - Absolute path to `build/Release/release-metadata.txt`.
-      - Absolute path to `docs/release-notes/v<new-version>.md`.
+      - Absolute path to `docs/release-notes/<new-version>.md`.
       - SHA-256 from `release-metadata.txt`.
       - Any warnings that remain unresolved.
     - Be explicit about what is verified versus what remains unresolved.

@@ -3,8 +3,9 @@
 Merged to main on 2026-08-19 at f99b2bf6 (tag `deps-plan-c-complete`). Main was
 fast-forwarded from `claude/lge-dependency-upgrade-plan-b6b53b`, 115 commits.
 
-This branch did NOT bump the app version. Main still reads 0.5.0-beta29, which is the
-version already released. The release build must bump it first.
+This branch did NOT bump the app version. Main still reads the already released
+legacy version `0.5.0-beta29`. The first CalVer release should be `2026.8.1`,
+subject to the release skill's final remote collision check.
 
 ## Version bump sites (all must move together)
 
@@ -12,12 +13,11 @@ version already released. The release build must bump it first.
 - `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, the
   top-level `"version"` field (NOT the per-tool `version` fields, which are tool pins).
 - `Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist`.
-- Test expectations that assert the version literally:
-  `Tests/LungfishCoreTests/AppVersionTests.swift`,
-  `Tests/LungfishWorkflowTests/Dependencies/ProvenanceDependencySetTests.swift`,
-  `Tests/LungfishWorkflowTests/Dependencies/DependencyManifestTests.swift`.
+- Current-version test expectations such as
+  `Tests/LungfishCoreTests/AppVersionTests.swift`. Preserve deliberate legacy
+  decoding fixtures in dependency and provenance tests.
 
-Write `docs/release-notes/v<new-version>.md` before building: the release script copies
+Write `docs/release-notes/<new-version>.md` before building: the release script copies
 it into the Sparkle appcast entry. `docs/release-notes/deps-2026.2.md` already holds the
 dependency-set notes and contains a draft block intended for that file.
 

@@ -63,7 +63,7 @@ body:
     attributes:
       label: Lungfish Genome Explorer version
       description: Find this in Lungfish Genome Explorer > About Lungfish Genome Explorer, or paste the git commit if built from source.
-      placeholder: "Example: 0.5.0-beta1, or git commit abc1234"
+      placeholder: "Example: 2026.8.1, or git commit abc1234"
     validations:
       required: true
 

@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-appcast-filename NAME] [--sparkle-publish-release TAG] [--sparkle-bridge-publish-release TAG] [--sparkle-bridge-appcast-filename NAME] [--prune-prereleases] [--prune-prereleases-keep COUNT] [--defer-remote-publish]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--recover-existing-release] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-appcast-filename NAME] [--sparkle-publish-release TAG] [--sparkle-bridge-publish-release TAG] [--sparkle-bridge-appcast-filename NAME] [--prune-prereleases] [--prune-prereleases-keep COUNT] [--defer-remote-publish]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -26,6 +26,8 @@ Optional:
   --reuse-built-cli   Reuse an existing lungfish-cli from --scratch-path instead of running swift build
   --github-release-tag TAG
                       Upload the notarized DMG to this versioned GitHub release tag with gh
+  --recover-existing-release
+                      Resume the named release only after tag, HEAD, and GitHub target identity checks
   --sparkle-public-ed-key KEY
                       Sparkle public EdDSA key embedded in the app (default: LUNGFISH_SPARKLE_PUBLIC_ED_KEY)
   --sparkle-generate-appcast PATH
@@ -47,7 +49,7 @@ Optional:
   --prune-prereleases
                       After successful remote publishing, delete old prerelease GitHub Release records while preserving git tags
   --prune-prereleases-keep COUNT
-                      Keep this many newest prerelease records for the current beta/alpha series (default: 10)
+                      Keep this many newest preview release records in the current version scheme (default: 10)
   --defer-remote-publish
                       Build, notarize, and generate appcast files without running gh uploads
 
@@ -58,7 +60,9 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "$PROJECT_ROOT"
 PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
+SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-number.py"
 
 SIGNING_IDENTITY=""
 TEAM_ID=""
@@ -82,6 +86,7 @@ SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
+RECOVER_EXISTING_RELEASE=0
 DEFER_REMOTE_PUBLISH=0
 PRERELEASE_PRUNE_ENABLED=0
 PRERELEASE_PRUNE_KEEP=10
@@ -128,6 +133,10 @@ while [ "$#" -gt 0 ]; do
         --github-release-tag)
             GITHUB_RELEASE_TAG="$2"
             shift 2
+            ;;
+        --recover-existing-release)
+            RECOVER_EXISTING_RELEASE=1
+            shift
             ;;
         --sparkle-public-ed-key)
             SPARKLE_PUBLIC_ED_KEY="$2"
@@ -198,6 +207,27 @@ if [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; 
     exit 64
 fi
 
+SOURCE_VERSION=$(awk -F'"' '/public static let short/ { print $2; exit }' \
+    "${PROJECT_ROOT}/Sources/LungfishCore/AppVersion.swift")
+if ! [[ "$SOURCE_VERSION" =~ ^[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
+    echo "invalid release version; expected YYYY.M.PATCH, found: ${SOURCE_VERSION:-<missing>}" >&2
+    exit 64
+fi
+if [ -z "$GITHUB_RELEASE_TAG" ] && [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+    GITHUB_RELEASE_TAG="v${SOURCE_VERSION}"
+fi
+if [ -n "$GITHUB_RELEASE_TAG" ] && [ "$GITHUB_RELEASE_TAG" != "v${SOURCE_VERSION}" ]; then
+    echo "GitHub release tag must be v${SOURCE_VERSION}, found: $GITHUB_RELEASE_TAG" >&2
+    exit 64
+fi
+if [ -n "$GITHUB_RELEASE_TAG" ]; then
+    RELEASE_NOTES_PREFLIGHT_PATH="${SPARKLE_RELEASE_NOTES:-${PROJECT_ROOT}/docs/release-notes/${SOURCE_VERSION}.md}"
+    if [ ! -f "$RELEASE_NOTES_PREFLIGHT_PATH" ]; then
+        echo "detailed release notes must exist before building: $RELEASE_NOTES_PREFLIGHT_PATH" >&2
+        exit 64
+    fi
+fi
+
 if [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; then
     echo "missing Sparkle public EdDSA key; pass --sparkle-public-ed-key or set LUNGFISH_SPARKLE_PUBLIC_ED_KEY" >&2
     exit 64
@@ -245,7 +275,7 @@ require_command() {
 
 require_command rg
 
-for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
+for command in git xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp python3 /usr/bin/plutil /usr/libexec/PlistBuddy; do
     require_command "$command"
 done
 
@@ -256,6 +286,66 @@ if [ "$PRERELEASE_PRUNE_ENABLED" -eq 1 ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; t
     require_command gh
     require_command python3
 fi
+
+verify_versioned_release_identity() {
+    if [ -z "$GITHUB_RELEASE_TAG" ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
+        return
+    fi
+
+    local head_commit
+    local remote_lines
+    local remote_tag_commit
+    local release_exists=0
+    head_commit=$(git rev-parse HEAD)
+    remote_lines=$(git ls-remote --tags origin \
+        "refs/tags/${GITHUB_RELEASE_TAG}" \
+        "refs/tags/${GITHUB_RELEASE_TAG}^{}")
+    remote_tag_commit=$(printf '%s\n' "$remote_lines" \
+        | awk '$2 ~ /\^\{\}$/ { print $1; found=1 } END { if (!found && NR > 0) print first } NR == 1 { first=$1 }' \
+        | head -n 1)
+    if [ -z "$remote_tag_commit" ]; then
+        echo "release tag is not present on origin; push it before publication: $GITHUB_RELEASE_TAG" >&2
+        exit 64
+    fi
+    if [ "$remote_tag_commit" != "$head_commit" ]; then
+        echo "release tag does not point to HEAD: $GITHUB_RELEASE_TAG ($remote_tag_commit != $head_commit)" >&2
+        exit 64
+    fi
+
+    if gh release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
+        release_exists=1
+    fi
+    if [ "$release_exists" -eq 1 ] && [ "$RECOVER_EXISTING_RELEASE" -ne 1 ]; then
+        echo "versioned GitHub release already exists; refusing to overwrite: $GITHUB_RELEASE_TAG" >&2
+        exit 64
+    fi
+    if [ "$release_exists" -eq 0 ] && [ "$RECOVER_EXISTING_RELEASE" -eq 1 ]; then
+        echo "recovery requested but versioned GitHub release does not exist: $GITHUB_RELEASE_TAG" >&2
+        exit 64
+    fi
+    if [ "$release_exists" -eq 1 ]; then
+        local release_target
+        local release_is_draft
+        local release_is_prerelease
+        release_target=$(gh release view "$GITHUB_RELEASE_TAG" --json targetCommitish --jq .targetCommitish)
+        if [ "$release_target" != "$head_commit" ]; then
+            echo "existing GitHub release target does not match HEAD: $release_target != $head_commit" >&2
+            exit 64
+        fi
+        release_is_prerelease=$(gh release view "$GITHUB_RELEASE_TAG" --json isPrerelease --jq .isPrerelease)
+        if [ "$release_is_prerelease" != "true" ]; then
+            echo "recovery is limited to preview releases: $GITHUB_RELEASE_TAG" >&2
+            exit 64
+        fi
+        release_is_draft=$(gh release view "$GITHUB_RELEASE_TAG" --json isDraft --jq .isDraft)
+        if [ "$release_is_draft" != "false" ]; then
+            echo "recovery requires a published, non-draft preview release: $GITHUB_RELEASE_TAG" >&2
+            exit 64
+        fi
+    fi
+}
+
+verify_versioned_release_identity
 
 if [ -n "$SPARKLE_GENERATE_APPCAST" ] && [ ! -x "$SPARKLE_GENERATE_APPCAST" ]; then
     echo "sparkle generate_appcast is not executable: $SPARKLE_GENERATE_APPCAST" >&2
@@ -341,7 +431,7 @@ sparkle_release_notes_source() {
     if [ -n "$SPARKLE_RELEASE_NOTES" ]; then
         printf '%s\n' "$SPARKLE_RELEASE_NOTES"
     else
-        printf '%s\n' "${PROJECT_ROOT}/docs/release-notes/v${VERSION}.md"
+        printf '%s\n' "${PROJECT_ROOT}/docs/release-notes/${VERSION}.md"
     fi
 }
 
@@ -353,14 +443,30 @@ publish_github_release_dmg() {
         return
     fi
 
+    # Signing and notarization can take hours, so repeat the identity and
+    # collision/recovery checks immediately before changing GitHub.
+    verify_versioned_release_identity
+
     local notes_source
     local target_commit
     notes_source="$(sparkle_release_notes_source)"
     target_commit="$(git rev-parse HEAD)"
 
     if gh release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
-        gh release edit "$GITHUB_RELEASE_TAG" --target "$target_commit"
-        gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber
+        local existing_digest
+        local local_digest
+        existing_digest=$(gh release view "$GITHUB_RELEASE_TAG" --json assets \
+            --jq ".assets[] | select(.name == \"$(basename "$DMG_PATH")\") | .digest")
+        if [ -n "$existing_digest" ]; then
+            local_digest="sha256:$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+            if [ "$existing_digest" != "$local_digest" ]; then
+                echo "existing release DMG digest differs; refusing recovery overwrite: $GITHUB_RELEASE_TAG" >&2
+                exit 64
+            fi
+            printf 'Existing release DMG already matches local artifact; keeping it: %s\n' "$DMG_PATH"
+            return
+        fi
+        gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH"
         return
     fi
 
@@ -371,11 +477,7 @@ publish_github_release_dmg() {
         --prerelease
         --target "$target_commit"
     )
-    if [ -f "$notes_source" ]; then
-        create_args+=(--notes-file "$notes_source")
-    else
-        create_args+=(--notes "Lungfish ${VERSION} prerelease.")
-    fi
+    create_args+=(--notes-file "$notes_source")
     gh "${create_args[@]}"
 }
 
@@ -437,8 +539,8 @@ generate_sparkle_appcast() {
             local target_commit
             target_commit="$(git rev-parse HEAD)"
             gh release create "$SPARKLE_PUBLISH_RELEASE" \
-                --title "Lungfish Sparkle Beta Appcast" \
-                --notes "Mutable Sparkle beta appcast feed for Lungfish Genome Explorer." \
+                --title "Lungfish Sparkle Preview Appcast" \
+                --notes "Mutable Sparkle preview appcast feed for Lungfish Genome Explorer." \
                 --prerelease \
                 --target "$target_commit"
         else
@@ -542,6 +644,11 @@ fi
 
 if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
     SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
+fi
+if [ -n "$SPARKLE_GENERATE_APPCAST" ]; then
+    python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+        --planned "$SPARKLE_BUILD_NUMBER" \
+        --appcast-url "$SPARKLE_FEED_URL"
 fi
 
 SWIFT_BUILD_PREFIX_MAP_ARGS=(
@@ -717,6 +824,10 @@ rm -f "$APP_NOTARY_ZIP"
 /usr/bin/ditto "$APP_PATH" "$RELEASE_APP_PATH"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
+if [ "$VERSION" != "$SOURCE_VERSION" ]; then
+    echo "archived app version does not match source version: $VERSION != $SOURCE_VERSION" >&2
+    exit 65
+fi
 DMG_PATH="${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg"
 DMG_STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/lungfish-dmg.XXXXXX")
 trap 'rm -rf "$DMG_STAGING_DIR"' EXIT
@@ -742,10 +853,6 @@ ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
 /usr/bin/xcrun stapler staple "$DMG_PATH"
 
-if [ -z "$GITHUB_RELEASE_TAG" ] && [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
-    GITHUB_RELEASE_TAG="v${VERSION}"
-fi
-
 publish_github_release_dmg
 generate_sparkle_appcast
 prune_github_prereleases
@@ -762,6 +869,7 @@ team_id=<redacted>
 notary_profile=<redacted>
 sparkle_feed_url=${SPARKLE_FEED_URL}
 github_release_tag=${GITHUB_RELEASE_TAG}
+recover_existing_release=${RECOVER_EXISTING_RELEASE}
 sparkle_publish_release=${SPARKLE_PUBLISH_RELEASE}
 sparkle_bridge_publish_release=${SPARKLE_BRIDGE_PUBLISH_RELEASE}
 sparkle_bridge_appcast_filename=${SPARKLE_BRIDGE_APPCAST_FILENAME}

@@ -6,11 +6,14 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import plistlib
 import re
 import shutil
 import subprocess
 import sys
 import time
+import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -29,8 +32,16 @@ CLAUDE_WORKTREE_PREFIX = "worktree-"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development"}
 DEFAULT_TEST_COMMAND = "swift test"
 DEFAULT_SPARKLE_RELEASE = "sparkle-beta"
+DEFAULT_SPARKLE_BRIDGE_RELEASE = "sparkle-alpha"
+DEFAULT_SPARKLE_BRIDGE_APPCAST_FILENAME = "appcast-alpha.xml"
 DEFAULT_PRERELEASES_TO_KEEP = 10
-PRERELEASE_PATTERN = re.compile(r"(.+)-(alpha|beta)(\d+)")
+SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+CALVER_PATTERN = re.compile(
+    r"^v?(?P<year>\d{4})\.(?P<month>[1-9]|1[0-2])\.(?P<patch>[1-9]\d*)$"
+)
+LEGACY_PRERELEASE_PATTERN = re.compile(
+    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)-(?P<channel>alpha|beta)(?P<number>\d+)$"
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -70,44 +81,61 @@ def is_agent_worktree_path(path: Path, root: Path) -> bool:
     return len(parts) >= 3 and parts[0] == ".claude" and parts[1] == "worktrees"
 
 
-def parse_prerelease_version(current_version: str, expected_channel: str | None = None) -> tuple[str, str, int]:
-    match = PRERELEASE_PATTERN.fullmatch(current_version)
-    if not match:
-        raise NightlyReleaseError(f"current version is not a prerelease version: {current_version}")
-    base, channel, number = match.groups()
-    if expected_channel is not None and channel != expected_channel:
-        raise NightlyReleaseError(f"current version is not an {expected_channel} version: {current_version}")
-    return base, channel, int(number)
+def parse_calver_tag(tag: str) -> tuple[int, int, int] | None:
+    match = CALVER_PATTERN.fullmatch(tag)
+    if match is None:
+        return None
+    year = int(match.group("year"))
+    month = int(match.group("month"))
+    patch = int(match.group("patch"))
+    if not 1 <= month <= 12:
+        return None
+    return year, month, patch
 
 
-def next_prerelease_version(current_version: str, tags: list[str]) -> str:
-    base, channel, current_number = parse_prerelease_version(current_version)
-    prefix = f"{base}-{channel}"
-    highest = current_number
-    tag_pattern = re.compile(rf"^v{re.escape(prefix)}(\d+)$")
-    for tag in tags:
-        tag_match = tag_pattern.fullmatch(tag)
-        if tag_match:
-            highest = max(highest, int(tag_match.group(1)))
-    return f"{prefix}{highest + 1}"
+def next_calver_version(version_tags: list[str], release_date: dt.date) -> str:
+    parsed_versions = [parsed for tag in version_tags if (parsed := parse_calver_tag(tag)) is not None]
+    future_versions = [parsed for parsed in parsed_versions if parsed[:2] > (release_date.year, release_date.month)]
+    if future_versions:
+        newest = max(future_versions)
+        raise NightlyReleaseError(
+            "future-dated CalVer exists relative to the release machine clock: "
+            f"{newest[0]}.{newest[1]}.{newest[2]}"
+        )
+    patches = [
+        parsed[2]
+        for parsed in parsed_versions
+        if parsed[:2] == (release_date.year, release_date.month)
+    ]
+    return f"{release_date.year}.{release_date.month}.{max(patches, default=0) + 1}"
 
 
-def previous_prerelease_tag(current_version: str, tags: list[str]) -> str:
-    base, channel, current_number = parse_prerelease_version(current_version)
-    prefix = f"{base}-{channel}"
+def legacy_prerelease_sort_key(tag: str) -> tuple[int, int, int, int, int] | None:
+    match = LEGACY_PRERELEASE_PATTERN.fullmatch(tag)
+    if match is None:
+        return None
+    return (
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+        0 if match.group("channel") == "alpha" else 1,
+        int(match.group("number")),
+    )
+
+
+def previous_release_tag(current_version: str, tags: list[str]) -> str:
     exact_tag = f"v{current_version}"
     if exact_tag in tags:
         return exact_tag
 
-    tag_pattern = re.compile(rf"^v{re.escape(prefix)}(\d+)$")
-    prior_numbers = sorted(
-        int(tag_match.group(1))
-        for tag in tags
-        if (tag_match := tag_pattern.fullmatch(tag)) and int(tag_match.group(1)) < current_number
-    )
-    if not prior_numbers:
-        raise NightlyReleaseError(f"no previous {channel} tag found for {current_version}")
-    return f"v{prefix}{prior_numbers[-1]}"
+    calver_tags = [(parsed, tag) for tag in tags if (parsed := parse_calver_tag(tag)) is not None]
+    if calver_tags:
+        return max(calver_tags)[1]
+
+    legacy_tags = [(parsed, tag) for tag in tags if (parsed := legacy_prerelease_sort_key(tag)) is not None]
+    if legacy_tags:
+        return max(legacy_tags)[1]
+    raise NightlyReleaseError(f"no previous versioned tag found for {current_version}")
 
 
 def update_versioned_files(root: Path, old_version: str, new_version: str) -> list[str]:
@@ -277,6 +305,18 @@ def discover_agent_branches(root: Path, remote: str) -> list[BranchCandidate]:
     return [by_name[name] for name in sorted(by_name)]
 
 
+def select_approved_agent_branches(
+    candidates: list[BranchCandidate], approved_names: list[str]
+) -> list[BranchCandidate]:
+    by_name = {candidate.name: candidate for candidate in candidates}
+    unknown = sorted(set(approved_names) - set(by_name))
+    if unknown:
+        raise NightlyReleaseError(
+            "approved agent branch was not discovered: " + ", ".join(unknown)
+        )
+    return [by_name[name] for name in approved_names]
+
+
 def has_unmerged_status(status: str) -> bool:
     unmerged_codes = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
     for line in status.splitlines():
@@ -416,36 +456,27 @@ def current_version(root: Path) -> str:
 
 def write_release_notes(root: Path, old_version: str, new_version: str, previous_tag: str) -> Path:
     notes_dir = root / "docs" / "release-notes"
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    notes_path = notes_dir / f"v{new_version}.md"
-    if notes_path.exists():
-        return notes_path
-    log = git_output(root, "log", "--oneline", f"{previous_tag}..HEAD")
-    commit_lines = [line.strip() for line in log.splitlines() if line.strip()]
-    if not commit_lines:
-        commit_lines = ["No code changes beyond the nightly release version bump."]
-    bullets = "\n".join(f"- {line}" for line in commit_lines[:80])
-    notes = f"""# Lungfish {new_version}
-
-Previous release: v{old_version}
-
-## Nightly Prerelease Release
-
-This automated nightly prerelease integrates Codex and Claude agent worktrees
-into `main`, publishes a notarized Apple Silicon DMG, and updates the Sparkle
-prerelease appcast for testers.
-
-## Included Commits
-
-{bullets}
-
-## Notes
-
-- This release remains a prerelease build.
-- Rescue archives for cleaned agent worktrees and branches are retained locally
-  for two days under `.build/nightly-release-rescue/`.
-"""
-    notes_path.write_text(notes, encoding="utf-8")
+    notes_path = notes_dir / f"{new_version}.md"
+    if not notes_path.is_file():
+        raise NightlyReleaseError(
+            f"detailed release notes must be written before automation runs: {notes_path}"
+        )
+    notes = notes_path.read_text(encoding="utf-8")
+    required_markers = (
+        f"# Lungfish {new_version}",
+        f"Previous release: {previous_tag}",
+        "## Dependency versions",
+    )
+    for marker in required_markers:
+        if marker not in notes:
+            raise NightlyReleaseError(f"release notes are missing required content: {marker}")
+    manifest_path = root / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    dependency_set = str(manifest.get("dependencySet", "")).strip()
+    if not dependency_set or f"`{dependency_set}`" not in notes:
+        raise NightlyReleaseError(
+            f"release notes must identify pinned dependency set `{dependency_set or '<missing>'}`"
+        )
     return notes_path
 
 
@@ -454,6 +485,48 @@ def prepare_release_commit(root: Path, release_tag: str, old_version: str, new_v
     notes_path = write_release_notes(root, old_version, new_version, previous_tag)
     git(root, "add", *changed, str(notes_path.relative_to(root)))
     git(root, "commit", "-m", f"release: {release_tag}")
+
+
+def verify_prepared_release(root: Path, version: str, previous_tag: str) -> None:
+    app_version_text = (root / "Sources/LungfishCore/AppVersion.swift").read_text(encoding="utf-8")
+    app_match = re.search(r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"', app_version_text)
+    if app_match is None or app_match.group(1) != version:
+        raise NightlyReleaseError("prepared release has the wrong AppVersion.short")
+
+    project_text = (root / "Lungfish.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+    marketing_versions = re.findall(r"MARKETING_VERSION\s*=\s*\"?([^;\"\s]+)\"?\s*;", project_text)
+    if not marketing_versions or set(marketing_versions) != {version}:
+        raise NightlyReleaseError("prepared release has inconsistent MARKETING_VERSION entries")
+
+    help_plist = root / "Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist"
+    with help_plist.open("rb") as handle:
+        help_version = plistlib.load(handle).get("CFBundleShortVersionString")
+    if help_version != version:
+        raise NightlyReleaseError("prepared release has the wrong HelpBook version")
+
+    manifest_path = root / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("version") != version:
+        raise NightlyReleaseError("prepared release has the wrong manifest top-level version")
+
+    tests_text = (root / "Tests/LungfishCoreTests/AppVersionTests.swift").read_text(encoding="utf-8")
+    expected_test_literals = (f'"{version}"', f'"lungfish-cli {version}"')
+    if any(literal not in tests_text for literal in expected_test_literals):
+        raise NightlyReleaseError("prepared release has stale AppVersion test expectations")
+    write_release_notes(root, version, version, previous_tag)
+
+
+def prepare_or_resume_release(
+    root: Path,
+    release_tag: str,
+    old_version: str,
+    new_version: str,
+    previous_tag: str,
+) -> None:
+    if old_version == new_version:
+        verify_prepared_release(root, new_version, previous_tag)
+    else:
+        prepare_release_commit(root, release_tag, old_version, new_version, previous_tag)
 
 
 def run_tests(root: Path, test_command: str) -> None:
@@ -482,6 +555,10 @@ def build_release(
         args.sparkle_generate_appcast,
         "--sparkle-publish-release",
         args.sparkle_publish_release,
+        "--sparkle-bridge-publish-release",
+        args.sparkle_bridge_publish_release,
+        "--sparkle-bridge-appcast-filename",
+        args.sparkle_bridge_appcast_filename,
     ]
     if args.sparkle_public_ed_key:
         command.extend(["--sparkle-public-ed-key", args.sparkle_public_ed_key])
@@ -544,32 +621,91 @@ def github_release_exists(root: Path, release_tag: str) -> bool:
     ).returncode == 0
 
 
+def github_release_tags(root: Path) -> list[str]:
+    raw = output(
+        ["gh", "release", "list", "--limit", "1000", "--json", "tagName"],
+        cwd=root,
+    )
+    releases = json.loads(raw)
+    return [str(release.get("tagName", "")) for release in releases if release.get("tagName")]
+
+
+def remote_release_tags(root: Path, remote: str) -> list[str]:
+    raw = git_output(root, "ls-remote", "--tags", remote)
+    tags: set[str] = set()
+    for line in raw.splitlines():
+        fields = line.split()
+        if len(fields) != 2 or not fields[1].startswith("refs/tags/") or fields[1].endswith("^{}"):
+            continue
+        tags.add(fields[1].removeprefix("refs/tags/"))
+    return sorted(tags)
+
+
+def ensure_release_collision_free(root: Path, remote: str, release_tag: str) -> None:
+    remote_match = git_output(root, "ls-remote", "--tags", remote, f"refs/tags/{release_tag}").strip()
+    if remote_match or github_release_exists(root, release_tag):
+        raise NightlyReleaseError(
+            f"release version collision for {release_tag}; fetch current tags and releases, then recompute CalVer"
+        )
+
+
+def remote_tag_commit(root: Path, remote: str, release_tag: str) -> str:
+    raw = git_output(
+        root,
+        "ls-remote",
+        "--tags",
+        remote,
+        f"refs/tags/{release_tag}",
+        f"refs/tags/{release_tag}^{{}}",
+    )
+    direct = ""
+    for line in raw.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        if fields[1] == f"refs/tags/{release_tag}^{{}}":
+            return fields[0]
+        if fields[1] == f"refs/tags/{release_tag}":
+            direct = fields[0]
+    return direct
+
+
+def ensure_remote_tag_points_to_head(root: Path, remote: str, release_tag: str) -> None:
+    expected = git_output(root, "rev-parse", "HEAD").strip()
+    actual = remote_tag_commit(root, remote, release_tag)
+    if not actual:
+        raise NightlyReleaseError(f"release tag is missing from {remote}: {release_tag}")
+    if actual != expected:
+        raise NightlyReleaseError(
+            f"remote release tag does not point to HEAD: {release_tag} ({actual} != {expected})"
+        )
+
+
 def publish_release(root: Path, args: argparse.Namespace, release_tag: str, metadata: dict[str, str]) -> None:
     target_commit = git_output(root, "rev-parse", "HEAD").strip()
     dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
-    notes_source = root / "docs" / "release-notes" / f"{release_tag}.md"
+    notes_source = root / "docs" / "release-notes" / f"{release_tag.removeprefix('v')}.md"
 
     if github_release_exists(root, release_tag):
-        run(["gh", "release", "edit", release_tag, "--target", target_commit], cwd=root)
-        run(["gh", "release", "upload", release_tag, str(dmg_path), "--clobber"], cwd=root)
+        raise NightlyReleaseError(f"GitHub release already exists: {release_tag}")
+
+    create_args = [
+        "gh",
+        "release",
+        "create",
+        release_tag,
+        str(dmg_path),
+        "--title",
+        release_tag,
+        "--prerelease",
+        "--target",
+        target_commit,
+    ]
+    if notes_source.is_file():
+        create_args.extend(["--notes-file", str(notes_source)])
     else:
-        create_args = [
-            "gh",
-            "release",
-            "create",
-            release_tag,
-            str(dmg_path),
-            "--title",
-            release_tag,
-            "--prerelease",
-            "--target",
-            target_commit,
-        ]
-        if notes_source.is_file():
-            create_args.extend(["--notes-file", str(notes_source)])
-        else:
-            create_args.extend(["--notes", f"Lungfish {metadata.get('version', release_tag)} prerelease."])
-        run(create_args, cwd=root)
+        create_args.extend(["--notes", f"Lungfish {metadata.get('version', release_tag)} preview release."])
+    run(create_args, cwd=root)
 
     sparkle_release = args.sparkle_publish_release
     if not sparkle_release:
@@ -591,9 +727,9 @@ def publish_release(root: Path, args: argparse.Namespace, release_tag: str, meta
                 "create",
                 sparkle_release,
                 "--title",
-                "Lungfish Sparkle Beta Appcast",
+                "Lungfish Sparkle Preview Appcast",
                 "--notes",
-                "Mutable Sparkle beta appcast feed for Lungfish Genome Explorer.",
+                "Mutable Sparkle preview appcast feed for Lungfish Genome Explorer.",
                 "--prerelease",
                 "--target",
                 target_commit,
@@ -611,17 +747,149 @@ def publish_release(root: Path, args: argparse.Namespace, release_tag: str, meta
         if signed_notes_asset.is_file():
             run(["gh", "release", "upload", sparkle_release, str(signed_notes_asset), "--clobber"], cwd=root)
 
+    bridge_release = args.sparkle_bridge_publish_release
+    if bridge_release:
+        bridge_path = appcast_path.parent / args.sparkle_bridge_appcast_filename
+        shutil.copy2(appcast_path, bridge_path)
+        if github_release_exists(root, bridge_release):
+            run(["gh", "release", "edit", bridge_release, "--target", target_commit], cwd=root)
+        else:
+            run(
+                [
+                    "gh",
+                    "release",
+                    "create",
+                    bridge_release,
+                    "--title",
+                    "Lungfish Sparkle Legacy Bridge Appcast",
+                    "--notes",
+                    "Mutable Sparkle bridge for legacy Lungfish update feeds.",
+                    "--prerelease",
+                    "--target",
+                    target_commit,
+                ],
+                cwd=root,
+            )
+        run(["gh", "release", "upload", bridge_release, str(bridge_path), "--clobber"], cwd=root)
+
+
+def asset_named(release: dict[str, object], name: str) -> dict[str, object]:
+    for asset in release.get("assets", []):
+        if isinstance(asset, dict) and asset.get("name") == name:
+            return asset
+    raise NightlyReleaseError(f"published release is missing asset: {name}")
+
+
+def download_asset(asset: dict[str, object]) -> bytes:
+    url = str(asset.get("url", ""))
+    if not url:
+        raise NightlyReleaseError(f"published asset has no download URL: {asset.get('name', '')}")
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "Lungfish release verification"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+    except OSError as exc:
+        raise NightlyReleaseError(f"could not download published asset {asset.get('name', '')}: {exc}") from exc
+
+
+def validate_published_appcast(
+    appcast: bytes,
+    *,
+    version: str,
+    build_number: str,
+    release_tag: str,
+    dmg_name: str,
+) -> None:
+    try:
+        root = ET.fromstring(appcast)
+    except ET.ParseError as exc:
+        raise NightlyReleaseError(f"published Sparkle appcast is not valid XML: {exc}") from exc
+    version_element = f"{{{SPARKLE_NAMESPACE}}}version"
+    short_version_element = f"{{{SPARKLE_NAMESPACE}}}shortVersionString"
+    signature_attribute = f"{{{SPARKLE_NAMESPACE}}}edSignature"
+    for item in root.findall(".//item"):
+        short_version = item.findtext(short_version_element, default="").strip()
+        if short_version != version:
+            continue
+        actual_build = item.findtext(version_element, default="").strip()
+        if actual_build != build_number:
+            raise NightlyReleaseError(
+                f"published Sparkle build number mismatch: {actual_build} != {build_number}"
+            )
+        enclosure = item.find("enclosure")
+        if enclosure is None:
+            raise NightlyReleaseError("published Sparkle item has no enclosure")
+        expected_path = f"/releases/download/{release_tag}/{dmg_name}"
+        if expected_path not in enclosure.attrib.get("url", ""):
+            raise NightlyReleaseError("published Sparkle enclosure does not point at the versioned DMG")
+        if not enclosure.attrib.get(signature_attribute, ""):
+            raise NightlyReleaseError("published Sparkle enclosure has no EdDSA signature")
+        return
+    raise NightlyReleaseError(f"published Sparkle appcast has no item for {version}")
+
 
 def verify_published_release(
     root: Path,
     release_tag: str,
     sparkle_release: str,
+    bridge_release: str,
+    bridge_appcast_filename: str,
     metadata: dict[str, str],
 ) -> dict[str, str]:
-    release_json = output(["gh", "release", "view", release_tag, "--json", "url"], cwd=root)
-    sparkle_json = output(["gh", "release", "view", sparkle_release, "--json", "url"], cwd=root)
-    metadata["github_release"] = json.loads(release_json)["url"]
-    metadata["sparkle_release"] = json.loads(sparkle_json)["url"]
+    target_commit = git_output(root, "rev-parse", "HEAD").strip()
+    release = json.loads(
+        output(
+            [
+                "gh", "release", "view", release_tag,
+                "--json", "url,targetCommitish,isPrerelease,isDraft,assets",
+            ],
+            cwd=root,
+        )
+    )
+    sparkle = json.loads(
+        output(["gh", "release", "view", sparkle_release, "--json", "url,assets"], cwd=root)
+    )
+    if release.get("targetCommitish") != target_commit:
+        raise NightlyReleaseError("published GitHub release target does not match HEAD")
+    if release.get("isDraft") is not False or release.get("isPrerelease") is not True:
+        raise NightlyReleaseError("published versioned release is not a non-draft preview release")
+
+    dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
+    dmg_asset = asset_named(release, dmg_path.name)
+    expected_digest = f"sha256:{metadata.get('dmg_sha256', '')}"
+    if dmg_asset.get("digest") and dmg_asset.get("digest") != expected_digest:
+        raise NightlyReleaseError("published DMG digest does not match the verified local artifact")
+    if dmg_asset.get("size") and int(dmg_asset["size"]) != dmg_path.stat().st_size:
+        raise NightlyReleaseError("published DMG size does not match the verified local artifact")
+
+    appcast_path = release_artifact_path(root, metadata, "sparkle_appcast_path")
+    appcast_asset = asset_named(sparkle, appcast_path.name)
+    published_appcast = download_asset(appcast_asset)
+    local_appcast = appcast_path.read_bytes()
+    if published_appcast != local_appcast:
+        raise NightlyReleaseError("published preview appcast differs from the verified local appcast")
+    version = metadata.get("version", "")
+    build_number = metadata.get("build_number", "")
+    validate_published_appcast(
+        published_appcast,
+        version=version,
+        build_number=build_number,
+        release_tag=release_tag,
+        dmg_name=dmg_path.name,
+    )
+    notes_path = appcast_path.parent / f"Lungfish-{version}-arm64.md"
+    if notes_path.is_file():
+        asset_named(sparkle, notes_path.name)
+
+    metadata["github_release"] = str(release["url"])
+    metadata["sparkle_release"] = str(sparkle["url"])
+    if bridge_release:
+        bridge_json = output(["gh", "release", "view", bridge_release, "--json", "url,assets"], cwd=root)
+        bridge = json.loads(bridge_json)
+        bridge_asset = asset_named(bridge, bridge_appcast_filename)
+        if download_asset(bridge_asset) != published_appcast:
+            raise NightlyReleaseError("published legacy bridge differs from the preview appcast")
+        metadata["sparkle_bridge_release"] = str(bridge["url"])
     return metadata
 
 
@@ -667,19 +935,34 @@ def drop_agent_stashes(root: Path, rescue_dir: Path) -> None:
 
 
 def cleanup_agent_refs(root: Path, remote: str, candidates: list[BranchCandidate], rescue_dir: Path) -> None:
-    drop_agent_stashes(root, rescue_dir)
     for candidate in candidates:
         if candidate.worktree_path is not None and candidate.worktree_path.exists():
-            git(root, "worktree", "remove", "--force", str(candidate.worktree_path))
+            status = output(["git", "status", "--porcelain=v1"], cwd=candidate.worktree_path)
+            if status.strip():
+                print(
+                    f"Preserving agent worktree changed during release: {candidate.worktree_path}",
+                    file=sys.stderr,
+                )
+                continue
+            merged = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", candidate.name, "HEAD"],
+                cwd=root,
+                check=False,
+            ).returncode == 0
+            if not merged:
+                print(
+                    f"Preserving agent worktree whose tip is not merged: {candidate.worktree_path}",
+                    file=sys.stderr,
+                )
+                continue
+            git(root, "worktree", "remove", str(candidate.worktree_path))
     for candidate in candidates:
         if candidate.name in local_branches(root):
-            git(root, "branch", "-D", candidate.name)
-        if candidate.has_remote:
-            subprocess.run(["git", "push", remote, "--delete", candidate.name], cwd=root, check=False)
+            subprocess.run(["git", "branch", "-d", candidate.name], cwd=root, check=False)
 
 
 def print_summary(metadata: dict[str, str], release_tag: str, rescue_dir: Path) -> None:
-    print("Nightly prerelease complete:")
+    print("Nightly preview release complete:")
     print(f"  Release: {release_tag}")
     print(f"  GitHub: {metadata.get('github_release', '')}")
     print(f"  Sparkle: {metadata.get('sparkle_release', '')}")
@@ -689,12 +972,18 @@ def print_summary(metadata: dict[str, str], release_tag: str, rescue_dir: Path) 
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge agent worktrees and publish a nightly Lungfish prerelease.")
+    parser = argparse.ArgumentParser(description="Merge agent worktrees and publish a nightly Lungfish preview release.")
     parser.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--main-branch", default="main")
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--rescue-root", type=Path, default=PROJECT_ROOT / ".build" / "nightly-release-rescue")
     parser.add_argument("--rescue-retention-days", type=int, default=2)
+    parser.add_argument(
+        "--approved-agent-branch",
+        action="append",
+        default=[],
+        help="Agent branch already classified as release work; repeat for each approved branch",
+    )
     parser.add_argument("--test-command", default=DEFAULT_TEST_COMMAND)
     parser.add_argument("--release-script", type=Path, default=PROJECT_ROOT / "scripts" / "release" / "build-notarized-dmg.sh")
     parser.add_argument("--signing-identity", required=True)
@@ -702,6 +991,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--notary-profile", required=True)
     parser.add_argument("--sparkle-generate-appcast", required=True)
     parser.add_argument("--sparkle-publish-release", default=DEFAULT_SPARKLE_RELEASE)
+    parser.add_argument("--sparkle-bridge-publish-release", default=DEFAULT_SPARKLE_BRIDGE_RELEASE)
+    parser.add_argument(
+        "--sparkle-bridge-appcast-filename",
+        default=DEFAULT_SPARKLE_BRIDGE_APPCAST_FILENAME,
+    )
     parser.add_argument("--sparkle-public-ed-key", default=os.environ.get("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", ""))
     parser.add_argument("--sparkle-ed-key-file", default="")
     prune_group = parser.add_mutually_exclusive_group()
@@ -726,33 +1020,51 @@ def main(argv: list[str]) -> int:
 
         old_version = current_version(root)
         tags = git_output(root, "tag", "--list").splitlines()
-        new_version = next_prerelease_version(old_version, tags)
+        release_versions = sorted(set(remote_release_tags(root, args.remote)) | set(github_release_tags(root)))
+        release_date = dt.date.today()
+        new_version = next_calver_version(release_versions, release_date)
         release_tag = f"v{new_version}"
-        if release_tag in tags:
-            raise NightlyReleaseError(f"release tag already exists: {release_tag}")
+        ensure_release_collision_free(root, args.remote, release_tag)
 
-        candidates = discover_agent_branches(root, args.remote)
+        discovered_candidates = discover_agent_branches(root, args.remote)
+        candidates = select_approved_agent_branches(
+            discovered_candidates, args.approved_agent_branch
+        )
         rescue_dir = create_rescue_dir(root, rescue_root, release_tag)
         write_rescue_archive(root, rescue_dir, candidates)
 
         commit_dirty_worktrees(candidates)
         merge_agent_branches(root, candidates)
-        prepare_release_commit(root, release_tag, old_version, new_version, previous_prerelease_tag(old_version, tags))
+        previous_tag = previous_release_tag(old_version, tags)
+        prepare_or_resume_release(root, release_tag, old_version, new_version, previous_tag)
         run_tests(root, args.test_command)
-        git(root, "tag", "-a", release_tag, "-m", f"Lungfish {release_tag}")
+        ensure_release_collision_free(root, args.remote, release_tag)
         build_release(root, args, release_tag, defer_remote_publish=True)
         metadata = verify_release_artifacts(root)
-        git(root, "push", args.remote, args.main_branch)
-        git(root, "push", args.remote, release_tag)
+        ensure_release_collision_free(root, args.remote, release_tag)
+        git(root, "tag", "-a", release_tag, "-m", f"Lungfish {release_tag}")
+        try:
+            git(root, "push", "--atomic", args.remote, args.main_branch, release_tag)
+        except subprocess.CalledProcessError:
+            git(root, "tag", "-d", release_tag)
+            raise
+        ensure_remote_tag_points_to_head(root, args.remote, release_tag)
         publish_release(root, args, release_tag, metadata)
-        metadata = verify_published_release(root, release_tag, args.sparkle_publish_release, metadata)
+        metadata = verify_published_release(
+            root,
+            release_tag,
+            args.sparkle_publish_release,
+            args.sparkle_bridge_publish_release,
+            args.sparkle_bridge_appcast_filename,
+            metadata,
+        )
         prune_github_prereleases(root, args, release_tag)
         cleanup_agent_refs(root, args.remote, candidates, rescue_dir)
         ensure_clean_main(root, args.main_branch)
         print_summary(metadata, release_tag, rescue_dir)
         return 0
     except (NightlyReleaseError, subprocess.CalledProcessError) as exc:
-        print(f"nightly prerelease failed: {exc}", file=sys.stderr)
+        print(f"nightly preview release failed: {exc}", file=sys.stderr)
         return 1
     finally:
         if lock_path is not None and lock_path.exists():

@@ -21,7 +21,7 @@ lead_approved: false
 
 The workflow chapters left things out on purpose. To keep them readable for a bench scientist, we stripped the tool internals and the reproducibility fine print. This appendix is where all of that lives. Every fact here is correct and load-bearing if you script Lungfish, wrap it in a Snakemake or Nextflow pipeline, or validate its output for clinical or regulatory use. None of it is secret. The same details sit inside the provenance sidecar Lungfish writes for every operation. Reading them here is simply faster than reverse-engineering a sidecar after the fact.
 
-A word on conventions. This appendix uses `bash` blocks for canonical commands, `json` blocks for sidecar excerpts, and tables for flag references. The numbers and flag values match the current Lungfish build (0.5.0-alpha11). Future versions may adjust the defaults, and when they disagree with this page, the provenance sidecar for a specific run is the truth.
+A word on conventions. This appendix uses `bash` blocks for canonical commands, `json` blocks for sidecar excerpts, and tables for flag references. The numbers and flag values match dependency set 2026.2. Future versions may adjust the defaults, and when they disagree with this page, the provenance sidecar for a specific run is the truth.
 
 ## iVar variant calling internals
 

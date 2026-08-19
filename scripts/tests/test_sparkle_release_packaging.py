@@ -1,5 +1,9 @@
-import unittest
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
 
 
 class SparkleReleasePackagingTests(unittest.TestCase):
@@ -50,8 +54,86 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("release_notes_url_prefix=", self.release_script)
         self.assertIn('download_url_prefix="${download_url_prefix}/"', self.release_script)
         self.assertIn("gh release upload", self.release_script)
-        self.assertIn('gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber', self.release_script)
+        self.assertIn('release create "$GITHUB_RELEASE_TAG"', self.release_script)
+        self.assertIn('"$DMG_PATH"', self.release_script)
         self.assertIn("Lungfish-${VERSION}-arm64.md", self.release_script)
+        self.assertIn('docs/release-notes/${VERSION}.md', self.release_script)
+        self.assertNotIn('docs/release-notes/v${VERSION}.md', self.release_script)
+
+    def test_xcode_and_swift_package_pin_the_same_sparkle_version(self):
+        self.assertIn('exact: "2.9.6"', self.package_swift)
+        self.assertIn("version = 2.9.6;", self.project)
+
+    def test_release_script_rejects_noncanonical_marketing_versions(self):
+        self.assertIn("invalid release version; expected YYYY.M.PATCH", self.release_script)
+
+    def test_release_script_calver_guard_is_behavioral(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            script = root / "scripts" / "release" / "build-notarized-dmg.sh"
+            version_file = root / "Sources" / "LungfishCore" / "AppVersion.swift"
+            script.parent.mkdir(parents=True)
+            version_file.parent.mkdir(parents=True)
+            shutil.copy2(self.root / "scripts" / "release" / "build-notarized-dmg.sh", script)
+
+            def run(version, tag):
+                version_file.write_text(
+                    f'public enum LungfishAppVersion {{ public static let short = "{version}" }}\n',
+                    encoding="utf-8",
+                )
+                notes = root / "docs" / "release-notes" / f"{version}.md"
+                notes.parent.mkdir(parents=True, exist_ok=True)
+                notes.write_text(f"# Lungfish {version}\n", encoding="utf-8")
+                environment = os.environ.copy()
+                environment.pop("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", None)
+                return subprocess.run(
+                    [
+                        "bash",
+                        str(script),
+                        "--signing-identity",
+                        "dummy",
+                        "--team-id",
+                        "TEAMID",
+                        "--notary-profile",
+                        "dummy",
+                        "--github-release-tag",
+                        tag,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    env=environment,
+                    check=False,
+                )
+
+            valid = run("2026.8.1", "v2026.8.1")
+            self.assertIn("missing Sparkle public EdDSA key", valid.stderr)
+            self.assertNotIn("invalid release version", valid.stderr)
+            for invalid in ("2026.08.1", "2026.8.1-beta1"):
+                self.assertIn("invalid release version", run(invalid, f"v{invalid}").stderr)
+            self.assertIn("GitHub release tag must be v2026.8.1", run("2026.8.1", "v2026.8.2").stderr)
+
+    def test_release_script_rejects_existing_versioned_release_by_default(self):
+        self.assertIn("versioned GitHub release already exists; refusing to overwrite", self.release_script)
+        self.assertNotIn('gh release edit "$GITHUB_RELEASE_TAG"', self.release_script)
+
+    def test_release_script_requires_detailed_notes_before_building(self):
+        self.assertIn("detailed release notes must exist before building", self.release_script)
+        self.assertNotIn("preview release.\")", self.release_script)
+
+    def test_release_script_requires_verified_identity_for_explicit_recovery(self):
+        self.assertIn("--recover-existing-release", self.release_script)
+        self.assertIn("RECOVER_EXISTING_RELEASE", self.release_script)
+        self.assertIn('refs/tags/${GITHUB_RELEASE_TAG}^{}', self.release_script)
+        self.assertIn("targetCommitish", self.release_script)
+        self.assertIn("isPrerelease", self.release_script)
+        self.assertIn("isDraft", self.release_script)
+        self.assertIn("release tag does not point to HEAD", self.release_script)
+        self.assertIn("existing release DMG digest differs", self.release_script)
+        self.assertGreaterEqual(self.release_script.count("verify_versioned_release_identity"), 3)
+
+    def test_release_script_enforces_live_sparkle_build_number(self):
+        self.assertIn("check-sparkle-build-number.py", self.release_script)
+        self.assertIn('--planned "$SPARKLE_BUILD_NUMBER"', self.release_script)
 
     def test_release_script_can_prune_old_prerelease_releases_without_git_tags(self):
         self.assertIn("--prune-prereleases", self.release_script)

@@ -25,11 +25,12 @@ class ReleasingLungfishSkillTests(unittest.TestCase):
         required = {
             "scripts/release/build-notarized-dmg.sh": """#!/bin/sh
 if [ "$1" = "--help" ]; then
-  echo '--github-release-tag --sparkle-generate-appcast --sparkle-publish-release'
+  echo '--github-release-tag --recover-existing-release --sparkle-generate-appcast --sparkle-publish-release'
   echo '--sparkle-bridge-publish-release --sparkle-bridge-appcast-filename'
   echo '--prune-prereleases --prune-prereleases-keep --defer-remote-publish'
 fi
 """,
+            "scripts/release/check-sparkle-build-number.py": "# build-number gate\n",
             "docs/release/sparkle-updates.md": "Sparkle release instructions\n",
             ".codex/agents/release-agent.md": "Release agent instructions\n",
             "SKILLS.md": "Release requirements\n",
@@ -44,6 +45,14 @@ fi
     def test_real_repository_validates(self):
         result = self.run_validator(REPO_ROOT)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_skill_uses_collision_safe_calendar_versions(self):
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("YYYY.M.PATCH", skill)
+        self.assertIn("docs/release-notes/<version>.md", skill)
+        self.assertIn("Git tags and GitHub releases", skill)
+        self.assertNotIn("increment its final prerelease number", skill)
 
     def test_validator_rejects_missing_authoritative_file(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -74,6 +83,17 @@ fi
             result = self.run_validator(root, skill)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("secret-like", (result.stdout + result.stderr).lower())
+
+    def test_validator_rejects_skill_without_calver_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            skill = Path(temporary) / "skill"
+            self.make_fixture(root)
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("---\nname: releasing-lungfish\n---\n")
+            result = self.run_validator(root, skill)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("YYYY.M.PATCH", result.stdout + result.stderr)
 
     def test_installer_creates_idempotent_repository_symlink(self):
         with tempfile.TemporaryDirectory() as temporary:

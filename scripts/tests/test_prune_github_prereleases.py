@@ -169,6 +169,40 @@ class PruneGithubPrereleasesTests(unittest.TestCase):
         flattened = [part for command in calls for part in command]
         self.assertNotIn("--cleanup-tag", flattened)
 
+    def test_calver_plan_keeps_newest_releases_across_month_boundary(self):
+        releases = [
+            {"tagName": "v2026.8.7", "isPrerelease": True},
+            {"tagName": "v2026.8.8", "isPrerelease": True},
+            {"tagName": "v2026.8.9", "isPrerelease": True},
+            {"tagName": "v2026.9.1", "isPrerelease": True},
+            {"tagName": "v0.5.0-beta29", "isPrerelease": True},
+            {"tagName": "sparkle-beta", "isPrerelease": True},
+        ]
+        assets = [
+            {"name": "appcast-beta.xml"},
+            {"name": "Lungfish-2026.8.7-arm64.md"},
+            {"name": "Lungfish-2026.8.8-arm64.md"},
+            {"name": "Lungfish-2026.8.9-arm64.md"},
+            {"name": "Lungfish-2026.9.1-arm64.md"},
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            notes_root = Path(temp_dir)
+            for version in ("2026.8.7", "2026.8.8", "2026.8.9", "2026.9.1"):
+                (notes_root / f"{version}.md").write_text(f"# {version}\n", encoding="utf-8")
+
+            plan = self.prune.build_prune_plan(
+                releases,
+                sparkle_assets=assets,
+                current_tag="v2026.9.1",
+                keep=3,
+                notes_root=notes_root,
+            )
+
+        self.assertEqual(plan.release_tags, ["v2026.8.7"])
+        self.assertEqual(plan.sparkle_note_assets, ["Lungfish-2026.8.7-arm64.md"])
+        self.assertNotIn("v0.5.0-beta29", plan.release_tags)
+
 
 if __name__ == "__main__":
     unittest.main()

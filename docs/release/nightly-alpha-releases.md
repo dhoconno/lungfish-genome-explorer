@@ -1,113 +1,39 @@
-# Nightly Alpha Releases
+# Continuous Preview Releases
 
-During rapid iteration, Lungfish publishes an incrementing alpha DMG every
-morning so testers can pick up the previous day's work through Sparkle.
+This filename is retained for older links. Lungfish no longer uses alpha or
+beta suffixes in app versions. New releases use canonical CalVer
+`YYYY.M.PATCH`, while preview status is represented by the Sparkle feed and the
+GitHub release state.
 
-The nightly job runs only on the local signing Mac because it needs the
-Developer ID certificate, `notarytool` keychain profile, Sparkle EdDSA private
-key, and GitHub release credentials.
-
-## Schedule
-
-The Codex cron automation runs at 2:00 AM local time and executes:
+The local signing Mac runs the compatibility-named coordinator:
 
 ```bash
-scripts/release/run-nightly-alpha-release.sh
+scripts/release/run-nightly-prerelease.sh
 ```
 
-The wrapper delegates to `scripts/release/nightly_alpha_release.py`, which
-coordinates git state, tests, version bumping, the notarized DMG build, GitHub
-release publishing, Sparkle appcast publishing, and cleanup.
+It delegates to `scripts/release/nightly_prerelease_release.py`, which captures
+the local release date once and chooses the next collision-free patch after
+checking both remote Git tags and GitHub releases. For example, after
+`v2026.8.2` the next August release is `v2026.8.3`; September begins at
+`v2026.9.1`. Release notes live at
+`docs/release-notes/<version>.md` without the tag's leading `v`.
+The detailed note must be written before the coordinator runs and must identify
+the previous release plus a `## Dependency versions` section naming the pinned
+dependency set; automation refuses to substitute a generic commit dump.
 
-The Codex automation that triggers the nightly run is responsible for writing a
-human-readable narrative summary into the next release-note file before the
-local release script runs. The standalone Python script remains deterministic
-and model-free; if the release note already exists, it preserves that file
-instead of overwriting it.
+The coordinator integrates only agent branches explicitly repeated with
+`--approved-agent-branch <name>`; discovered but unapproved branches and
+worktrees are preserved untouched. It creates rescue archives under
+`.build/nightly-release-rescue/<release-tag>/`, runs tests, builds and notarizes
+the Apple Silicon DMG, publishes the versioned GitHub preview release, updates
+the `sparkle-beta` preview feed and `sparkle-alpha` legacy bridge, verifies the
+published artifacts, and only then cleans merged agent worktrees and branches.
 
-## Agent Cleanup Scope
+The signing machine must provide a Developer ID Application certificate, a
+working `notarytool` Keychain profile, the Sparkle private EdDSA key, authenticated
+GitHub CLI access, and Sparkle's `generate_appcast` executable. Secrets remain
+local and must never be committed or printed in reports.
 
-The coordinator treats these branches as agent-managed:
-
-- `codex/*`
-- `claude/*`
-- `worktree-*`
-
-Those patterns cover Codex branches and Claude Code's default worktree branch
-format. Worktrees attached to those branches are also managed. A worktree under
-Claude Code's documented `.claude/worktrees/*` directory is also managed even
-if a custom hook gave it a nonstandard branch name. Nonmatching local branches,
-such as `feat/*`, are left alone.
-
-Cleanup happens only after the full release succeeds. A failed merge, test,
-push, notarization, Sparkle update, or verification leaves branches and
-worktrees in place for debugging.
-
-## Rescue Archives
-
-Before committing dirty agent worktrees or deleting branches, worktrees, or
-stashes, the coordinator writes a rescue archive under:
-
-```text
-.build/nightly-release-rescue/<release-tag>/
-```
-
-The rescue path is under `.build/`, which is ignored by git. The coordinator
-fails if the rescue path is not ignored. Each run prunes rescue archives older
-than two days to keep disk use bounded.
-
-Rescue contents include:
-
-- branch bundles
-- dirty worktree status and diffs
-- untracked files from dirty worktrees
-- stash patches for dropped agent-branch stashes
-- main branch status, branch, worktree, stash, and log snapshots
-
-## Release Flow
-
-1. Acquire `.build/nightly-alpha-release.lock`.
-2. Verify the main checkout is clean.
-3. Fetch `origin`, tags, and prune stale remote refs.
-4. Pull `origin/main` with `--ff-only`.
-5. Compute the next alpha version, such as `0.5.0-alpha14`.
-6. Discover Codex and Claude branches/worktrees.
-7. Create the rescue archive.
-8. Commit dirty agent worktrees on their own branches.
-9. Merge each agent branch into `main`.
-10. Update version constants and write release notes.
-11. Commit `release: v<version>`.
-12. Run the full test suite with `swift test`.
-13. Push `main`, create the annotated release tag, and push the tag.
-14. Run `scripts/release/build-notarized-dmg.sh`.
-15. Verify checksum, signing, stapling, Gatekeeper, GitHub release, and Sparkle release.
-16. Remove merged agent worktrees, local agent branches, remote agent branches, and agent stashes.
-
-## Required Local Credentials
-
-- Developer ID Application certificate in the login Keychain.
-- `notarytool` profile named `LungfishNotary`.
-- Sparkle private EdDSA key in the login Keychain, or pass
-  `--sparkle-ed-key-file`.
-- `gh` authenticated with release write permissions.
-- Sparkle `generate_appcast` at
-  `.build/artifacts/sparkle/Sparkle/bin/generate_appcast`.
-
-## Manual Run
-
-To run the same flow manually:
-
-```bash
-scripts/release/run-nightly-alpha-release.sh
-```
-
-If you want the same narrative release-note quality as the scheduled Codex run,
-write the next `docs/release-notes/v<version>.md` summary before invoking the
-script. Otherwise the script will generate a deterministic commit-list release
-note when no file exists yet.
-
-To override the full test command during a local rehearsal:
-
-```bash
-scripts/release/run-nightly-alpha-release.sh --test-command "swift test --filter ReleaseBuildConfigurationTests"
-```
+See `docs/release/sparkle-updates.md` and
+`.codex/skills/releasing-lungfish/SKILL.md` for the authoritative release and
+version-selection policy.

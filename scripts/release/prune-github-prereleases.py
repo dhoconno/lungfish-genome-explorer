@@ -12,18 +12,26 @@ from typing import Any, Callable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PRERELEASE_TAG_PATTERN = re.compile(r"^v(?P<base>\d+\.\d+\.\d+)-(?P<channel>alpha|beta)(?P<number>\d+)$")
-SPARKLE_NOTE_PATTERN = re.compile(
+CALVER_TAG_PATTERN = re.compile(
+    r"^v(?P<year>\d{4})\.(?P<month>[1-9]|1[0-2])\.(?P<patch>[1-9]\d*)$"
+)
+LEGACY_PRERELEASE_TAG_PATTERN = re.compile(
+    r"^v(?P<base>\d+\.\d+\.\d+)-(?P<channel>alpha|beta)(?P<number>\d+)$"
+)
+CALVER_SPARKLE_NOTE_PATTERN = re.compile(
+    r"^Lungfish-(?P<year>\d{4})\.(?P<month>[1-9]|1[0-2])\.(?P<patch>[1-9]\d*)-arm64\.md$"
+)
+LEGACY_SPARKLE_NOTE_PATTERN = re.compile(
     r"^Lungfish-(?P<base>\d+\.\d+\.\d+)-(?P<channel>alpha|beta)(?P<number>\d+)-arm64\.md$"
 )
 PROTECTED_RELEASE_TAGS = frozenset({"sparkle-beta", "sparkle-alpha"})
 
 
-@dataclasses.dataclass(frozen=True, order=True)
-class PrereleaseVersion:
-    base: str
-    channel: str
-    number: int
+@dataclasses.dataclass(frozen=True)
+class ReleaseVersion:
+    scheme: str
+    cohort: tuple[str, ...]
+    sort_key: tuple[int, ...]
     tag: str
 
 
@@ -47,19 +55,34 @@ class PruneError(RuntimeError):
     pass
 
 
-def parse_prerelease_tag(tag: str) -> PrereleaseVersion | None:
-    match = PRERELEASE_TAG_PATTERN.fullmatch(tag)
-    if not match:
-        return None
-    return PrereleaseVersion(
-        base=match.group("base"),
-        channel=match.group("channel"),
-        number=int(match.group("number")),
-        tag=tag,
-    )
+def parse_release_tag(tag: str) -> ReleaseVersion | None:
+    if match := CALVER_TAG_PATTERN.fullmatch(tag):
+        year = int(match.group("year"))
+        month = int(match.group("month"))
+        patch = int(match.group("patch"))
+        if not 1 <= month <= 12:
+            return None
+        return ReleaseVersion(
+            scheme="calver",
+            cohort=("calver",),
+            sort_key=(year, month, patch),
+            tag=tag,
+        )
+    if match := LEGACY_PRERELEASE_TAG_PATTERN.fullmatch(tag):
+        major, minor, patch = (int(part) for part in match.group("base").split("."))
+        return ReleaseVersion(
+            scheme="legacy-prerelease",
+            cohort=(match.group("base"), match.group("channel")),
+            sort_key=(major, minor, patch, int(match.group("number"))),
+            tag=tag,
+        )
+    return None
 
 
 def release_note_path(notes_root: Path, tag: str) -> Path:
+    version = parse_release_tag(tag)
+    if version is not None and version.scheme == "calver":
+        return notes_root / f"{tag.removeprefix('v')}.md"
     return notes_root / f"{tag}.md"
 
 
@@ -76,21 +99,32 @@ def has_committed_release_note(notes_root: Path, tag: str) -> bool:
 def matching_prerelease_versions(
     releases: list[dict[str, Any]],
     *,
-    current: PrereleaseVersion,
-) -> list[PrereleaseVersion]:
-    versions: list[PrereleaseVersion] = []
+    current: ReleaseVersion,
+) -> list[ReleaseVersion]:
+    versions: list[ReleaseVersion] = []
     for release in releases:
         tag = str(release.get("tagName", ""))
         if tag in PROTECTED_RELEASE_TAGS:
             continue
         if not release.get("isPrerelease", False):
             continue
-        version = parse_prerelease_tag(tag)
+        version = parse_release_tag(tag)
         if version is None:
             continue
-        if version.base == current.base and version.channel == current.channel:
+        if version.scheme == current.scheme and version.cohort == current.cohort:
             versions.append(version)
-    return sorted(versions, reverse=True)
+    return sorted(versions, key=lambda item: item.sort_key, reverse=True)
+
+
+def sparkle_note_tag(name: str) -> str | None:
+    if match := CALVER_SPARKLE_NOTE_PATTERN.fullmatch(name):
+        month = int(match.group("month"))
+        if not 1 <= month <= 12:
+            return None
+        return f"v{int(match.group('year'))}.{month}.{int(match.group('patch'))}"
+    if match := LEGACY_SPARKLE_NOTE_PATTERN.fullmatch(name):
+        return f"v{match.group('base')}-{match.group('channel')}{match.group('number')}"
+    return None
 
 
 def build_prune_plan(
@@ -105,7 +139,7 @@ def build_prune_plan(
 ) -> PrunePlan:
     if keep < 1:
         raise PruneError("--keep must be at least 1")
-    current = parse_prerelease_tag(current_tag)
+    current = parse_release_tag(current_tag)
     if current is None:
         raise PruneError(f"current tag is not a supported prerelease tag: {current_tag}")
 
@@ -116,7 +150,7 @@ def build_prune_plan(
     release_tags: list[str] = []
     skipped_release_tags: list[str] = []
     existing_tags = {str(release.get("tagName", "")) for release in releases}
-    for version in sorted(versions, key=lambda item: item.number):
+    for version in sorted(versions, key=lambda item: item.sort_key):
         if version.tag in kept_tags:
             continue
         if has_committed_release_note(notes_root, version.tag):
@@ -129,14 +163,13 @@ def build_prune_plan(
     if prune_sparkle_notes:
         for asset in sparkle_assets:
             name = asset_name(asset)
-            match = SPARKLE_NOTE_PATTERN.fullmatch(name)
-            if not match:
+            tag = sparkle_note_tag(name)
+            if tag is None:
                 continue
-            tag = f"v{match.group('base')}-{match.group('channel')}{match.group('number')}"
-            version = parse_prerelease_tag(tag)
+            version = parse_release_tag(tag)
             if version is None:
                 continue
-            if version.base != current.base or version.channel != current.channel:
+            if version.scheme != current.scheme or version.cohort != current.cohort:
                 continue
             if tag in kept_tags or tag == current_tag:
                 continue

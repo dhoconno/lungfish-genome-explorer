@@ -12,6 +12,7 @@ import sys
 
 REQUIRED_FILES = (
     "scripts/release/build-notarized-dmg.sh",
+    "scripts/release/check-sparkle-build-number.py",
     "docs/release/sparkle-updates.md",
     ".codex/agents/release-agent.md",
     "SKILLS.md",
@@ -21,6 +22,7 @@ REQUIRED_FILES = (
 
 REQUIRED_FLAGS = (
     "--github-release-tag",
+    "--recover-existing-release",
     "--sparkle-generate-appcast",
     "--sparkle-publish-release",
     "--sparkle-bridge-publish-release",
@@ -28,6 +30,12 @@ REQUIRED_FLAGS = (
     "--prune-prereleases",
     "--prune-prereleases-keep",
     "--defer-remote-publish",
+)
+
+REQUIRED_SKILL_MARKERS = (
+    "YYYY.M.PATCH",
+    "docs/release-notes/<version>.md",
+    "Git tags and GitHub releases",
 )
 
 SECRET_PATTERNS = (
@@ -73,8 +81,14 @@ def main() -> int:
             if flag not in script_text:
                 errors.append(f"Release script no longer exposes required flag: {flag}")
 
-    if not (skill_root / "SKILL.md").is_file():
-        errors.append(f"Missing skill instructions: {skill_root / 'SKILL.md'}")
+    skill_file = skill_root / "SKILL.md"
+    if not skill_file.is_file():
+        errors.append(f"Missing skill instructions: {skill_file}")
+    else:
+        skill_text = skill_file.read_text(errors="replace")
+        for marker in REQUIRED_SKILL_MARKERS:
+            if marker not in skill_text:
+                errors.append(f"Release skill is missing required CalVer policy: {marker}")
 
     for path in skill_root.rglob("*") if skill_root.is_dir() else ():
         if not path.is_file() or path.suffix in {".pyc", ".png", ".jpg"}:
