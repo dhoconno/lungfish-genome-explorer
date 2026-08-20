@@ -203,7 +203,12 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     needs: [fast, toolset-conformance]
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    # Dispatch-only, deliberately NOT tag-triggered: the full suite is exactly
+    # what the local release gate already ran before the tag existed, so on a
+    # release it duplicates a stronger local check on a slower, flakier machine.
+    # The tag board keeps what only CI can provide: the Xcode project build and
+    # the fresh-machine toolset provisioning + conformance.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Check out repository
