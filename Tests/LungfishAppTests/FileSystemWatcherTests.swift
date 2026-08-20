@@ -4,13 +4,14 @@
 
 import Testing
 import Foundation
+import CoreServices
 @testable import LungfishApp
 
 /// Tests for the FileSystemWatcher class.
 ///
 /// These tests verify that the FSEvents-based watcher correctly detects
 /// filesystem changes including file creation, deletion, and modification.
-@Suite("FileSystemWatcher Tests")
+@Suite("FileSystemWatcher Tests", .serialized)
 struct FileSystemWatcherTests {
 
     /// Creates a temporary directory for testing
@@ -71,6 +72,41 @@ struct FileSystemWatcherTests {
         try await Task.sleep(for: .milliseconds(500))
     }
 
+    @Test("Failed FSEvents start leaves watcher inactive and releases stream")
+    @MainActor
+    func failedStreamStartCleansUp() throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+
+        var stopCount = 0
+        var invalidationCount = 0
+        var releaseCount = 0
+        let lifecycle = FileSystemWatcher.StreamLifecycle(
+            start: { _ in false },
+            stop: { _ in stopCount += 1 },
+            invalidate: { stream in
+                invalidationCount += 1
+                FSEventStreamInvalidate(stream)
+            },
+            release: { stream in
+                releaseCount += 1
+                FSEventStreamRelease(stream)
+            }
+        )
+        let watcher = FileSystemWatcher(
+            onChange: { _ in },
+            onRootChanged: nil,
+            streamLifecycle: lifecycle
+        )
+
+        watcher.startWatching(directory: tempDir)
+
+        #expect(watcher.isWatching == false)
+        #expect(stopCount == 0)
+        #expect(invalidationCount == 1)
+        #expect(releaseCount == 1)
+    }
+
     @Test("Watcher detects new file creation")
     @MainActor
     func watcherDetectsFileCreation() async throws {
@@ -85,16 +121,15 @@ struct FileSystemWatcherTests {
 
         watcher.startWatching(directory: tempDir)
         #expect(watcher.isWatching == true)
+        try await settleWatcherRegistration()
 
         // Create a file
         let testFile = tempDir.appendingPathComponent("test.txt")
         try "Hello, World!".write(to: testFile, atomically: true, encoding: .utf8)
 
-        // Wait for callback (with timeout)
-        // FSEvents has latency + debounce, so we need to wait
-        try await Task.sleep(for: .seconds(5))
+        let receivedCallback = try await waitUntil { callbackInvoked }
 
-        #expect(callbackInvoked == true, "Callback should be invoked when file is created")
+        #expect(receivedCallback, "Callback should be invoked when file is created")
 
         watcher.stopWatching()
         #expect(watcher.isWatching == false)
@@ -110,23 +145,20 @@ struct FileSystemWatcherTests {
         let testFile = tempDir.appendingPathComponent("test.txt")
         try "Hello, World!".write(to: testFile, atomically: true, encoding: .utf8)
 
-        // Wait a moment for the filesystem to settle
-        try await Task.sleep(for: .seconds(1))
-
         var callbackCount = 0
         let watcher = FileSystemWatcher { _ in
             callbackCount += 1
         }
 
         watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         // Delete the file
         try FileManager.default.removeItem(at: testFile)
 
-        // Wait for callback
-        try await Task.sleep(for: .seconds(5))
+        let receivedCallback = try await waitUntil { callbackCount >= 1 }
 
-        #expect(callbackCount >= 1, "Callback should be invoked when file is deleted")
+        #expect(receivedCallback, "Callback should be invoked when file is deleted")
 
         watcher.stopWatching()
     }
@@ -141,24 +173,21 @@ struct FileSystemWatcherTests {
         let originalFile = tempDir.appendingPathComponent("original.txt")
         try "Hello, World!".write(to: originalFile, atomically: true, encoding: .utf8)
 
-        // Wait a moment for the filesystem to settle
-        try await Task.sleep(for: .seconds(1))
-
         var callbackCount = 0
         let watcher = FileSystemWatcher { _ in
             callbackCount += 1
         }
 
         watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         // Rename the file
         let renamedFile = tempDir.appendingPathComponent("renamed.txt")
         try FileManager.default.moveItem(at: originalFile, to: renamedFile)
 
-        // Wait for callback
-        try await Task.sleep(for: .seconds(5))
+        let receivedCallback = try await waitUntil { callbackCount >= 1 }
 
-        #expect(callbackCount >= 1, "Callback should be invoked when file is renamed")
+        #expect(receivedCallback, "Callback should be invoked when file is renamed")
 
         watcher.stopWatching()
     }
@@ -173,24 +202,21 @@ struct FileSystemWatcherTests {
         let nestedDir = tempDir.appendingPathComponent("nested")
         try FileManager.default.createDirectory(at: nestedDir, withIntermediateDirectories: true)
 
-        // Wait a moment for the filesystem to settle
-        try await Task.sleep(for: .seconds(1))
-
         var callbackInvoked = false
         let watcher = FileSystemWatcher { _ in
             callbackInvoked = true
         }
 
         watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         // Create a file in the nested directory
         let nestedFile = nestedDir.appendingPathComponent("nested_file.txt")
         try "Nested content".write(to: nestedFile, atomically: true, encoding: .utf8)
 
-        // Wait for callback
-        try await Task.sleep(for: .seconds(5))
+        let receivedCallback = try await waitUntil { callbackInvoked }
 
-        #expect(callbackInvoked == true, "Callback should be invoked for changes in nested directories")
+        #expect(receivedCallback, "Callback should be invoked for changes in nested directories")
 
         watcher.stopWatching()
     }
@@ -216,10 +242,9 @@ struct FileSystemWatcherTests {
         let testFile = tempDir.appendingPathComponent("test.txt")
         try "Hello, World!".write(to: testFile, atomically: true, encoding: .utf8)
 
-        // Wait to ensure no callback is triggered
-        try await Task.sleep(for: .seconds(5))
+        let remainedSilent = try await remainsTrue { callbackCount == 0 }
 
-        #expect(callbackCount == 0, "Callback should not be invoked after stopWatching()")
+        #expect(remainedSilent, "Callback should not be invoked after stopWatching()")
     }
 
     @Test("Watcher reports when its root directory is moved")
@@ -239,11 +264,12 @@ struct FileSystemWatcherTests {
             onRootChanged: { rootChanged = true }
         )
         watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         try FileManager.default.moveItem(at: tempDir, to: movedDir)
-        try await Task.sleep(for: .seconds(5))
+        let receivedRootChange = try await waitUntil { rootChanged }
 
-        #expect(rootChanged, "Moving the watched project root must invoke onRootChanged")
+        #expect(receivedRootChange, "Moving the watched project root must invoke onRootChanged")
     }
 
     @Test("Watcher filters hidden files from visible changes")
@@ -260,13 +286,14 @@ struct FileSystemWatcherTests {
             hiddenOnlyCallbackCount += 1
         }
         watcher1.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         // Create a hidden file (like .project.db)
         let hiddenFile = tempDir.appendingPathComponent(".hidden_file")
         try "Hidden content".write(to: hiddenFile, atomically: true, encoding: .utf8)
 
-        // Wait for potential callback
-        try await Task.sleep(for: .seconds(5))
+        // Give a possible directory-level event a bounded observation window.
+        _ = try await waitUntil(timeout: 4) { hiddenOnlyCallbackCount >= 1 }
         watcher1.stopWatching()
 
         // Note: FSEvents may still report directory-level changes, so we can't
@@ -277,15 +304,16 @@ struct FileSystemWatcherTests {
             visibleCallbackCount += 1
         }
         watcher2.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         let visibleFile = tempDir.appendingPathComponent("visible.txt")
         try "Visible content".write(to: visibleFile, atomically: true, encoding: .utf8)
 
-        try await Task.sleep(for: .seconds(5))
+        let receivedVisibleCallback = try await waitUntil { visibleCallbackCount >= 1 }
         watcher2.stopWatching()
 
         // Visible file changes MUST trigger callback
-        #expect(visibleCallbackCount >= 1, "Callback MUST be invoked for visible files")
+        #expect(receivedVisibleCallback, "Callback MUST be invoked for visible files")
 
         // Hidden-only changes should ideally not trigger, but FSEvents behavior varies
         // The important thing is that we filter them in handleFilesystemChange
@@ -432,14 +460,15 @@ struct FileSystemWatcherTests {
             receivedPaths.append(contentsOf: changes.all.map(\.lastPathComponent))
         }
         watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         let service = UniversalProjectSearchService()
         _ = try await service.rebuild(projectURL: tempDir)
-        try await Task.sleep(for: .seconds(5))
+        let remainedSilent = try await remainsTrue { callbackCount == 0 }
 
         watcher.stopWatching()
         #expect(
-            callbackCount == 0,
+            remainedSilent,
             "Search-index output must not trigger another search update; received \(receivedPaths)"
         )
     }

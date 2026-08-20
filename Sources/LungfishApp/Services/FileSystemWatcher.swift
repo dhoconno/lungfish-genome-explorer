@@ -27,6 +27,22 @@ public final class FileSystemWatcher {
 
     // MARK: - Types
 
+    /// Internal seam around the FSEvents lifecycle so start failures and
+    /// cleanup can be exercised deterministically without changing public API.
+    struct StreamLifecycle {
+        let start: (FSEventStreamRef) -> Bool
+        let stop: (FSEventStreamRef) -> Void
+        let invalidate: (FSEventStreamRef) -> Void
+        let release: (FSEventStreamRef) -> Void
+
+        @MainActor static let live = StreamLifecycle(
+            start: { FSEventStreamStart($0) },
+            stop: FSEventStreamStop,
+            invalidate: FSEventStreamInvalidate,
+            release: FSEventStreamRelease
+        )
+    }
+
     /// Paths delivered to the callback, split by sidecar classification.
     public struct ChangedPaths: Sendable {
         /// Paths that are NOT internal sidecars — these trigger sidebar subtree refreshes.
@@ -39,6 +55,7 @@ public final class FileSystemWatcher {
 
     private let onChange: @MainActor (ChangedPaths) -> Void
     private let onRootChanged: (@MainActor () -> Void)?
+    private let streamLifecycle: StreamLifecycle
     private var watchedDirectory: URL?
     private nonisolated(unsafe) var eventStream: FSEventStreamRef?
     private let latency: CFTimeInterval = 3.0
@@ -55,6 +72,18 @@ public final class FileSystemWatcher {
     ) {
         self.onChange = onChange
         self.onRootChanged = onRootChanged
+        self.streamLifecycle = .live
+        logger.debug("FileSystemWatcher initialized")
+    }
+
+    init(
+        onChange: @escaping @MainActor (ChangedPaths) -> Void,
+        onRootChanged: (@MainActor () -> Void)?,
+        streamLifecycle: StreamLifecycle
+    ) {
+        self.onChange = onChange
+        self.onRootChanged = onRootChanged
+        self.streamLifecycle = streamLifecycle
         logger.debug("FileSystemWatcher initialized")
     }
 
@@ -111,10 +140,17 @@ public final class FileSystemWatcher {
             return
         }
 
-        eventStream = stream
         FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
-        FSEventStreamStart(stream)
+        guard streamLifecycle.start(stream) else {
+            logger.error("startWatching: FSEventStreamStart failed — watcher will be inactive")
+            streamLifecycle.invalidate(stream)
+            streamLifecycle.release(stream)
+            watchedDirectory = nil
+            startPollingFallback(directory: directory)
+            return
+        }
 
+        eventStream = stream
         logger.info("startWatching: FSEvents stream started successfully")
     }
 
@@ -126,9 +162,9 @@ public final class FileSystemWatcher {
 
         logger.info("stopWatching: Stopping watcher for '\(self.watchedDirectory?.path ?? "unknown", privacy: .public)'")
 
-        FSEventStreamStop(stream)
-        FSEventStreamInvalidate(stream)
-        FSEventStreamRelease(stream)
+        streamLifecycle.stop(stream)
+        streamLifecycle.invalidate(stream)
+        streamLifecycle.release(stream)
         eventStream = nil
         watchedDirectory = nil
 
@@ -195,6 +231,10 @@ public final class FileSystemWatcher {
         guard let clientCallBackInfo else { return }
         let watcher = Unmanaged<FileSystemWatcher>.fromOpaque(clientCallBackInfo).takeUnretainedValue()
 
+        // startWatching schedules this stream on DispatchQueue.main before it
+        // starts, so handling the callback synchronously on MainActor avoids a
+        // redundant queue hop that can be starved under load.
+
         guard let cfPaths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else { return }
         let flags = UnsafeBufferPointer(start: eventFlags, count: numEvents)
 
@@ -205,12 +245,10 @@ public final class FileSystemWatcher {
             let flag = Int(flags[i])
 
             if flag & kFSEventStreamEventFlagRootChanged != 0 {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        logger.warning("FSEvents: Root directory changed — stopping watcher")
-                        watcher.stopWatching()
-                        watcher.onRootChanged?()
-                    }
+                MainActor.assumeIsolated {
+                    logger.warning("FSEvents: Root directory changed — stopping watcher")
+                    watcher.stopWatching()
+                    watcher.onRootChanged?()
                 }
                 return
             }
@@ -226,29 +264,27 @@ public final class FileSystemWatcher {
             allURLs.append(URL(fileURLWithPath: cfPaths[i]))
         }
 
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                if mustScanSubDirs {
-                    logger.info("FSEvents: MustScanSubDirs flag — delivering empty ChangedPaths to trigger full reload")
-                    watcher.onChange(ChangedPaths(nonSidecar: [], all: []))
-                    return
-                }
-
-                let watchedRoot = watcher.watchedDirectory?.standardizedFileURL
-                let sourceURLs = allURLs.filter {
-                    let canonical = $0.standardizedFileURL
-                    return canonical != watchedRoot
-                        && !FileSystemWatcher.isUniversalSearchInternalPath(canonical)
-                }
-                guard !sourceURLs.isEmpty else { return }
-
-                let nonSidecar = sourceURLs.filter { !FileSystemWatcher.isSidecarPath($0) }
-
-                // Always deliver — the sidebar consumer decides what to do:
-                // - nonSidecar non-empty → incremental sidebar update + search index
-                // - nonSidecar empty (sidecar-only) → search index update only
-                watcher.onChange(ChangedPaths(nonSidecar: nonSidecar, all: sourceURLs))
+        MainActor.assumeIsolated {
+            if mustScanSubDirs {
+                logger.info("FSEvents: MustScanSubDirs flag — delivering empty ChangedPaths to trigger full reload")
+                watcher.onChange(ChangedPaths(nonSidecar: [], all: []))
+                return
             }
+
+            let watchedRoot = watcher.watchedDirectory?.standardizedFileURL
+            let sourceURLs = allURLs.filter {
+                let canonical = $0.standardizedFileURL
+                return canonical != watchedRoot
+                    && !FileSystemWatcher.isUniversalSearchInternalPath(canonical)
+            }
+            guard !sourceURLs.isEmpty else { return }
+
+            let nonSidecar = sourceURLs.filter { !FileSystemWatcher.isSidecarPath($0) }
+
+            // Always deliver — the sidebar consumer decides what to do:
+            // - nonSidecar non-empty → incremental sidebar update + search index
+            // - nonSidecar empty (sidecar-only) → search index update only
+            watcher.onChange(ChangedPaths(nonSidecar: nonSidecar, all: sourceURLs))
         }
     }
 
