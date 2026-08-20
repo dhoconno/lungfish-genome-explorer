@@ -202,7 +202,7 @@ jobs:
     name: Full suite
     runs-on: macos-26
     timeout-minutes: 120
-    needs: fast
+    needs: [fast, toolset-conformance]
     if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
 
     steps:
@@ -221,6 +221,33 @@ jobs:
 
       - name: Resolve dependencies
         run: swift package resolve
+
+      - name: Build CLI
+        run: swift build --product lungfish-cli
+
+      - name: Compute manifest hash
+        id: manifest
+        run: echo "hash=$(shasum -a 256 Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore managed toolset
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.lungfish/conda
+            ~/.lungfish/databases/kraken2/viral
+            ~/.lungfish/databases/metagenomics-db-registry.json
+            ~/.lungfish/dependency-receipt.json
+          key: lungfish-tools-${{ runner.os }}-${{ steps.manifest.outputs.hash }}
+
+      - name: Provision required tools
+        run: .build/debug/lungfish-cli tools update --apply --yes --required-only
+
+      - name: Install full-suite Python dependencies
+        run: |
+          python3 -m venv .ci-python
+          .ci-python/bin/python -m pip install --upgrade pip
+          .ci-python/bin/python -m pip install numpy biopython scipy pandas
+          echo "$PWD/.ci-python/bin" >> "$GITHUB_PATH"
 
       - name: Run full package tests
         run: swift test
@@ -262,6 +289,47 @@ jobs:
 
       - name: Provision required tools
         run: .build/debug/lungfish-cli tools update --apply --yes --required-only
+
+      - name: Verify dependency receipt
+        run: |
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json").read_text())
+          receipt_path = Path.home() / ".lungfish" / "dependency-receipt.json"
+          receipt = json.loads(receipt_path.read_text())
+          # Swift JSONEncoder escapes forward slashes by default. Reproduce the
+          # app's sorted-key encoding so this independently checks manifestHash.
+          canonical_manifest = json.dumps(
+              manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+          ).replace("/", "\\/").encode()
+          canonical_manifest_hash = hashlib.sha256(canonical_manifest).hexdigest()
+          required_environments = {
+              tool["environment"] for tool in manifest.get("tools", [])
+          }
+          receipt_environments = receipt.get("environments", {})
+          bad_states = {
+              name: receipt_environments.get(name, {}).get("state") or "missing"
+              for name in required_environments
+              if receipt_environments.get(name, {}).get("state") != "installed"
+          }
+          if receipt.get("dependencySet") != manifest.get("dependencySet"):
+              raise SystemExit("dependency receipt set does not match the manifest")
+          if receipt.get("synthesized"):
+              raise SystemExit("dependency receipt is synthesized rather than reconciled")
+          if receipt.get("manifestHash") != canonical_manifest_hash:
+              raise SystemExit("dependency receipt hash does not match the canonical manifest")
+          if bad_states:
+              raise SystemExit(f"dependency receipt has incomplete required environments: {bad_states}")
+          print(
+              "verified dependency receipt: "
+              f"set={receipt['dependencySet']} "
+              f"manifest={receipt['manifestHash']} "
+              f"required-installed={len(required_environments)}"
+          )
+          PYTHON
 
       - name: Provision conformance packs
         run: |

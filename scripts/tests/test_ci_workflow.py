@@ -60,6 +60,35 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertLess(self.workflow.index(samtools_link), self.workflow.index(smoke_tests))
         self.assertLess(self.workflow.index(seqkit_link), self.workflow.index(smoke_tests))
 
+    def test_full_suite_provisions_the_manifest_toolset_and_python_used_by_unfiltered_tests(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["full"]
+        steps = "\n".join(step.get("run", "") for step in job["steps"])
+
+        self.assertEqual(job["needs"], ["fast", "toolset-conformance"])
+        self.assertIn("swift build --product lungfish-cli", steps)
+        self.assertIn("tools update --apply --yes --required-only", steps)
+        self.assertIn("pip install numpy biopython scipy pandas", steps)
+        self.assertIn("GITHUB_PATH", steps)
+
+        cache_steps = [
+            step for step in job["steps"]
+            if step.get("uses", "").startswith("actions/cache")
+        ]
+        self.assertEqual(len(cache_steps), 1)
+        self.assertIn("~/.lungfish/conda", cache_steps[0]["with"]["path"])
+        self.assertIn("manifest.outputs.hash", cache_steps[0]["with"]["key"])
+
+        full_suite = next(
+            index for index, step in enumerate(job["steps"])
+            if step.get("name") == "Run full package tests"
+        )
+        provisioning = next(
+            index for index, step in enumerate(job["steps"])
+            if step.get("name") == "Provision required tools"
+        )
+        self.assertLess(provisioning, full_suite)
+
     def test_toolset_conformance_job_exists_and_is_dispatch_only(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
@@ -205,6 +234,21 @@ class CIWorkflowTests(unittest.TestCase):
         cache_step = cache_steps[0]
         self.assertIn("~/.lungfish/conda", cache_step["with"]["path"])
         self.assertIn("manifest.outputs.hash", cache_step["with"]["key"])
+
+    def test_toolset_conformance_verifies_the_reconciled_dependency_receipt(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        receipt_step = next(
+            step for step in job["steps"]
+            if step.get("name") == "Verify dependency receipt"
+        )
+        script = receipt_step.get("run", "")
+        self.assertIn("dependency-receipt.json", script)
+        self.assertIn('receipt.get("dependencySet") != manifest.get("dependencySet")', script)
+        self.assertIn('receipt.get("synthesized")', script)
+        self.assertIn('required_environments', script)
+        self.assertIn('receipt_environments.get(name, {}).get("state") != "installed"', script)
+        self.assertIn('receipt.get("manifestHash") != canonical_manifest_hash', script)
 
     def test_toolset_conformance_uploads_gate_logs_even_on_failure(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
