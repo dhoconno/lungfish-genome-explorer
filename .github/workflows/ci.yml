@@ -17,11 +17,10 @@ on:
     types: [released]
 
 concurrency:
-  # Keyed by event so a push never cancels a long dispatch validation: pushes
-  # supersede pushes (the gate is minutes), and a new dispatch supersedes the
-  # previous one. With a single group, every push killed whatever multi-hour
-  # dispatch run was mid-flight, which is why no dispatch had ever finished
-  # while development was active.
+  # Keyed by event so a push never cancels a long release or ad hoc validation:
+  # pushes supersede pushes (the gate is minutes), while each event class only
+  # supersedes its own earlier run. With a single group, every push killed the
+  # multi-hour validation already in flight.
   group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
@@ -36,7 +35,8 @@ jobs:
     # push run since beta25 was cancelled at the limit and gated nothing.
     # Releases are verified locally (full 14k-test suite and the dependency
     # regression tiers); CI's job on push is to catch cheap structural drift
-    # quickly. The Swift work now lives in the dispatch-only build-smoke job.
+    # quickly. The Swift build work now lives in the release/dispatch
+    # build-smoke job.
     name: Fast gate
     runs-on: macos-26
     timeout-minutes: 10

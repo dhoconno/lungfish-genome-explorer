@@ -27,7 +27,7 @@ class ReleasingLungfishSkillTests(unittest.TestCase):
 if [ "$1" = "--help" ]; then
   echo '--github-release-tag --recover-existing-release --sparkle-generate-appcast --sparkle-publish-release'
   echo '--sparkle-bridge-publish-release --sparkle-bridge-appcast-filename'
-  echo '--prune-prereleases --prune-prereleases-keep --defer-remote-publish'
+  echo '--channel preview|stable --prune-prereleases --prune-prereleases-keep --defer-remote-publish'
 fi
 """,
             "scripts/release/check-sparkle-build-number.py": "# build-number gate\n",
@@ -53,6 +53,29 @@ fi
         self.assertIn("docs/release-notes/<version>.md", skill)
         self.assertIn("Git tags and GitHub releases", skill)
         self.assertNotIn("increment its final prerelease number", skill)
+
+    def test_skill_routes_channel_through_release_state_not_the_version(self):
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("--channel preview", skill)
+        self.assertIn("--channel stable", skill)
+        self.assertIn("Do not manually dispatch CI", skill)
+        self.assertIn("release event", skill)
+        self.assertIn("appcast-beta.xml", skill)
+        self.assertIn("appcast-stable.xml", skill)
+
+    def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+        for marker in (
+            "Channel:",
+            "Previous versioned release:",
+            "Stable baseline:",
+            "Dependency set:",
+            "Included preview releases",
+            "latest full versioned GitHub release",
+        ):
+            self.assertIn(marker, skill)
 
     def test_validator_rejects_missing_authoritative_file(self):
         with tempfile.TemporaryDirectory() as temporary:

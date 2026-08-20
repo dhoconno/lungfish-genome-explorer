@@ -27,6 +27,7 @@ REQUIRED_FLAGS = (
     "--sparkle-publish-release",
     "--sparkle-bridge-publish-release",
     "--sparkle-bridge-appcast-filename",
+    "--channel",
     "--prune-prereleases",
     "--prune-prereleases-keep",
     "--defer-remote-publish",
@@ -36,6 +37,9 @@ REQUIRED_SKILL_MARKERS = (
     "YYYY.M.PATCH",
     "docs/release-notes/<version>.md",
     "Git tags and GitHub releases",
+    "--channel preview",
+    "--channel stable",
+    "Included preview releases",
 )
 
 SECRET_PATTERNS = (

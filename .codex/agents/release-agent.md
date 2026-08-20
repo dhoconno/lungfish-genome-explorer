@@ -5,7 +5,7 @@ description: |
   and publish an Apple Silicon Lungfish GitHub release from main. The agent
   harmonizes version strings, writes release notes, runs the committed notarized
   DMG pipeline, independently verifies the artifacts, creates the GitHub
-  preview release, and reports exact evidence and blockers.
+  selected preview or stable release, and reports exact evidence and blockers.
 model: inherit
 ---
 
@@ -29,7 +29,11 @@ from committed metadata and final reports.
   succeeded until you have run the command that proves it.
 - Stop and report exact evidence if signing, notarization, GitHub upload, or a
   required verification command fails.
-- Keep release notes factual and scoped to changes since the previous release.
+- Keep preview notes factual and scoped to changes since the previous versioned
+  release. Stable notes aggregate the complete delta since the previous full
+  versioned GitHub release.
+- Do not manually dispatch CI. Preview uses the push fast gate and local release
+  gates; publishing a full release triggers the heavy board automatically.
 
 ## Release Workflow
 
@@ -40,6 +44,9 @@ from committed metadata and final reports.
    - Run `gh release list --limit 5`.
    - Run `gh release view <previous-tag> --json tagName,name,isPrerelease,assets,url`
      for the latest previous release.
+   - Select `preview` or `stable` explicitly. Find both the latest immutable
+     versioned release of either channel and the latest full versioned GitHub
+     release; exclude drafts and mutable `sparkle-*` feed containers.
    - If local changes exist, inspect them and decide whether they are part of
      the requested release prep. Do not overwrite unrelated user work.
 
@@ -71,22 +78,31 @@ from committed metadata and final reports.
      ```
 
      The only acceptable remaining old-version references should be explicit
-     historical context, such as `Previous release: v<old-version>` in the new
+     historical context, such as `Previous versioned release: v<old-version>` in the new
      release notes.
 
 3. Write release documentation before building.
    - Create or update `docs/release-notes/<new-version>.md`.
    - Include:
      - Release title.
-     - Previous release tag.
+     - `Channel: Preview` or `Channel: Stable`.
+     - `Previous versioned release: <tag>`.
+     - `Stable baseline: <full-release-tag>` or `None` before the first stable.
+     - `Dependency set: <set>`.
      - High-level highlights.
      - User-visible workflow and analysis changes.
      - Stability fixes.
      - Release and maintenance changes.
      - A `## Dependency versions` section naming the dependency set and every
        newly pinned tool, pipeline, database, bootstrap, and app dependency.
-   - Use `git log --oneline <previous-tag>..HEAD` and changed files to verify
-     the notes cover the actual release delta.
+   - Preview notes use `git log --oneline <previous-versioned-tag>..HEAD`.
+   - Stable notes compare `<stable-baseline-tag>..HEAD`, read every intervening
+     committed versioned note, and include `## Included preview releases`.
+     Aggregate and deduplicate user-visible workflows, correctness/stability,
+     scientific provenance, storage/migrations, dependency/database pins,
+     platform/toolchain compatibility, updater/release infrastructure, and
+     known issues. Git tags, GitHub release state, and committed notes are the
+     durable ledger; do not create a second mutable channel registry.
    - Keep the release-note body suitable for `gh release create --notes-file`.
 
 4. Run release-specific guardrails before tagging.
@@ -123,6 +139,8 @@ from committed metadata and final reports.
      git rev-parse --short HEAD
      git describe --tags --exact-match HEAD
      ```
+   - Require the resulting main-push Fast gate to pass. Do not dispatch the
+     heavy board manually.
 
 6. Run the committed notarized DMG release pipeline.
    - Use the local release machine's Developer ID Application identity and
@@ -132,16 +150,20 @@ from committed metadata and final reports.
      IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
      xcrun notarytool history --keychain-profile "<KEYCHAIN_PROFILE_NAME>"
      bash scripts/release/build-notarized-dmg.sh \
+       --channel preview \
        --team-id "<TEAMID>" \
        --notary-profile "<KEYCHAIN_PROFILE_NAME>" \
        --signing-identity "$IDENTITY" \
        --github-release-tag "v<new-version>" \
        --sparkle-generate-appcast ".build/artifacts/sparkle/Sparkle/bin/generate_appcast" \
-       --sparkle-publish-release "sparkle-beta" \
        --sparkle-bridge-publish-release "sparkle-alpha" \
        --sparkle-bridge-appcast-filename "appcast-alpha.xml" \
        --prune-prereleases
      ```
+
+   - For stable, use `--channel stable` and do not pass preview feed, bridge,
+     or prerelease-pruning overrides. The app must be rebuilt because its
+     selected feed URL is part of the signed bundle.
 
    - `--signing-identity` may be a Developer ID Application certificate common
      name or SHA-1 fingerprint from the local Keychain.
@@ -216,9 +238,12 @@ from committed metadata and final reports.
 
      using the `id` from the corresponding notary log.
 
-9. Verify the GitHub preview release and Sparkle feeds published by the release
+9. Verify the selected GitHub release and Sparkle feed published by the release
    script. Preview/stable status belongs to feeds and GitHub release state,
-   never to a suffix in the version string.
+   never to a suffix in the version string. Preview requires a GitHub
+   prerelease, `sparkle-beta/appcast-beta.xml`, and the legacy alpha bridge.
+   Stable requires a full GitHub release and
+   `sparkle-stable/appcast-stable.xml`.
    - The versioned release body comes from
      `docs/release-notes/<new-version>.md`.
    - Include the DMG SHA-256 in the final user report; it may also be included
@@ -237,6 +262,9 @@ from committed metadata and final reports.
      ```
 
 10. Final cleanliness and report.
+    - For stable, wait for the automatic `release` event's Build/smoke and
+      Toolset conformance jobs on the released tag and require both to pass.
+      Preview deliberately has no heavy post-publication board.
     - Run `git status --short --branch` and report whether `main` is clean and
       up to date.
     - Final output must include:

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -46,6 +47,11 @@ def read_appcast(path: Path | None, url: str | None) -> bytes:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--planned", required=True)
+    parser.add_argument(
+        "--allow-http-not-found",
+        action="store_true",
+        help="Treat an HTTP 404 as an appcast that has not been initialized yet",
+    )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--appcast", type=Path)
     source.add_argument("--appcast-url")
@@ -56,7 +62,17 @@ def main() -> int:
     args = parse_args()
     try:
         planned = positive_integer(args.planned, label="planned Sparkle build")
-        current = live_build_number(read_appcast(args.appcast, args.appcast_url))
+        try:
+            appcast = read_appcast(args.appcast, args.appcast_url)
+        except urllib.error.HTTPError as exc:
+            if args.allow_http_not_found and exc.code == 404:
+                print(
+                    "Sparkle build-number gate passed: no existing appcast at "
+                    f"{args.appcast_url}"
+                )
+                return 0
+            raise
+        current = live_build_number(appcast)
         if planned <= current:
             raise BuildNumberError(
                 f"planned Sparkle build {planned} must exceed live Sparkle build {current}"

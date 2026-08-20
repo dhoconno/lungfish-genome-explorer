@@ -31,7 +31,7 @@ Optional:
   --sparkle-public-ed-key KEY
                       Sparkle public EdDSA key embedded in the app (default: LUNGFISH_SPARKLE_PUBLIC_ED_KEY)
   --sparkle-generate-appcast PATH
-                      Sparkle generate_appcast tool path. When set, update appcast-beta.xml after DMG notarization
+                      Sparkle generate_appcast tool path. When set, update the selected channel's appcast after DMG notarization
   --sparkle-ed-key-file PATH
                       Private Sparkle EdDSA key file passed to generate_appcast instead of using the Keychain
   --sparkle-appcast-dir PATH
@@ -92,6 +92,7 @@ SPARKLE_DOWNLOAD_URL_PREFIX=""
 SPARKLE_PUBLISH_RELEASE=""
 SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
+SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml"
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
 RECOVER_EXISTING_RELEASE=0
@@ -225,6 +226,41 @@ if [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; 
     exit 64
 fi
 
+# The channel decides which Sparkle feed the built app polls and whether the
+# GitHub release is a prerelease. preview (the default, today's behavior) feeds
+# appcast-beta.xml at sparkle-beta and publishes a prerelease; stable feeds
+# appcast-stable.xml at sparkle-stable and publishes a full release, which is
+# what triggers CI's heavy board via the 'released' event. Explicit
+# --sparkle-appcast-filename / --sparkle-publish-release still win. Resolve
+# these defaults before deriving the versioned tag and validating its notes.
+case "$CHANNEL" in
+    preview)
+        if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
+            SPARKLE_PUBLISH_RELEASE="sparkle-beta"
+        fi
+        ;;
+    stable)
+        if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
+            SPARKLE_APPCAST_FILENAME="appcast-stable.xml"
+        fi
+        if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
+            SPARKLE_PUBLISH_RELEASE="sparkle-stable"
+        fi
+        ;;
+    *)
+        echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
+        exit 64
+        ;;
+esac
+if [ "$CHANNEL" = "stable" ] && [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ]; then
+    echo "stable channel does not support a legacy preview-feed bridge" >&2
+    exit 64
+fi
+if [ "$CHANNEL" = "stable" ] && [ "$PRERELEASE_PRUNE_ENABLED" -eq 1 ]; then
+    echo "stable channel does not support preview-release pruning" >&2
+    exit 64
+fi
+
 SOURCE_VERSION=$(awk -F'"' '/public static let short/ { print $2; exit }' \
     "${PROJECT_ROOT}/Sources/LungfishCore/AppVersion.swift")
 if ! [[ "$SOURCE_VERSION" =~ ^[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
@@ -242,6 +278,30 @@ if [ -n "$GITHUB_RELEASE_TAG" ]; then
     RELEASE_NOTES_PREFLIGHT_PATH="${SPARKLE_RELEASE_NOTES:-${PROJECT_ROOT}/docs/release-notes/${SOURCE_VERSION}.md}"
     if [ ! -f "$RELEASE_NOTES_PREFLIGHT_PATH" ]; then
         echo "detailed release notes must exist before building: $RELEASE_NOTES_PREFLIGHT_PATH" >&2
+        exit 64
+    fi
+    case "$CHANNEL" in
+        preview) expected_channel_label="Preview" ;;
+        stable) expected_channel_label="Stable" ;;
+        *)
+            echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
+            exit 64
+            ;;
+    esac
+    manifest_dependency_set=$(python3 -c \
+        'import json,sys; print(json.load(open(sys.argv[1]))["dependencySet"])' \
+        "${PROJECT_ROOT}/Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json")
+    if ! /usr/bin/grep -Fqx "Channel: ${expected_channel_label}" "$RELEASE_NOTES_PREFLIGHT_PATH" \
+        || ! /usr/bin/grep -Eq '^Previous versioned release: v[^[:space:]]+$' "$RELEASE_NOTES_PREFLIGHT_PATH" \
+        || ! /usr/bin/grep -Eq '^Stable baseline: .+' "$RELEASE_NOTES_PREFLIGHT_PATH" \
+        || ! /usr/bin/grep -Fqx "Dependency set: ${manifest_dependency_set}" "$RELEASE_NOTES_PREFLIGHT_PATH" \
+        || ! /usr/bin/grep -Fqx '## Dependency versions' "$RELEASE_NOTES_PREFLIGHT_PATH"; then
+        echo "release notes are missing required audit field(s) for ${expected_channel_label}: $RELEASE_NOTES_PREFLIGHT_PATH" >&2
+        exit 64
+    fi
+    if [ "$CHANNEL" = "stable" ] \
+        && ! /usr/bin/grep -Fqx '## Included preview releases' "$RELEASE_NOTES_PREFLIGHT_PATH"; then
+        echo "stable release notes must include: ## Included preview releases" >&2
         exit 64
     fi
 fi
@@ -277,29 +337,6 @@ fi
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
-# The channel decides which Sparkle feed the built app polls and whether the
-# GitHub release is a prerelease. preview (the default, today's behavior) feeds
-# appcast-beta.xml at sparkle-beta and publishes a prerelease; stable feeds
-# appcast-stable.xml at sparkle-stable and publishes a full release, which is
-# what triggers CI's heavy board via the 'released' event. Explicit
-# --sparkle-appcast-filename / --sparkle-publish-release still win.
-case "$CHANNEL" in
-    preview)
-        : # the declared defaults are the preview channel
-        ;;
-    stable)
-        if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
-            SPARKLE_APPCAST_FILENAME="appcast-stable.xml"
-        fi
-        if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
-            SPARKLE_PUBLISH_RELEASE="sparkle-stable"
-        fi
-        ;;
-    *)
-        echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
-        exit 64
-        ;;
-esac
 
 SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
@@ -375,13 +412,17 @@ verify_versioned_release_identity() {
             exit 64
         fi
         release_is_prerelease=$(gh release view "$GITHUB_RELEASE_TAG" --json isPrerelease --jq .isPrerelease)
-        if [ "$release_is_prerelease" != "true" ]; then
-            echo "recovery is limited to preview releases: $GITHUB_RELEASE_TAG" >&2
+        local expected_prerelease="true"
+        if [ "$CHANNEL" = "stable" ]; then
+            expected_prerelease="false"
+        fi
+        if [ "$release_is_prerelease" != "$expected_prerelease" ]; then
+            echo "existing GitHub release channel does not match --channel ${CHANNEL}: $GITHUB_RELEASE_TAG" >&2
             exit 64
         fi
         release_is_draft=$(gh release view "$GITHUB_RELEASE_TAG" --json isDraft --jq .isDraft)
         if [ "$release_is_draft" != "false" ]; then
-            echo "recovery requires a published, non-draft preview release: $GITHUB_RELEASE_TAG" >&2
+            echo "recovery requires a published, non-draft release: $GITHUB_RELEASE_TAG" >&2
             exit 64
         fi
     fi
@@ -583,12 +624,18 @@ generate_sparkle_appcast() {
     fi
 
     if [ -n "$SPARKLE_PUBLISH_RELEASE" ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
+        local feed_title="Lungfish Sparkle Preview Appcast"
+        local feed_notes="Mutable Sparkle preview appcast feed for Lungfish Genome Explorer."
+        if [ "$CHANNEL" = "stable" ]; then
+            feed_title="Lungfish Sparkle Stable Appcast"
+            feed_notes="Mutable Sparkle stable appcast feed for Lungfish Genome Explorer."
+        fi
         if ! gh release view "$SPARKLE_PUBLISH_RELEASE" >/dev/null 2>&1; then
             local target_commit
             target_commit="$(git rev-parse HEAD)"
             gh release create "$SPARKLE_PUBLISH_RELEASE" \
-                --title "Lungfish Sparkle Preview Appcast" \
-                --notes "Mutable Sparkle preview appcast feed for Lungfish Genome Explorer." \
+                --title "$feed_title" \
+                --notes "$feed_notes" \
                 --prerelease \
                 --target "$target_commit"
         else
@@ -694,9 +741,22 @@ if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
     SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
 fi
 if [ -n "$SPARKLE_GENERATE_APPCAST" ]; then
-    python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-        --planned "$SPARKLE_BUILD_NUMBER" \
-        --appcast-url "$SPARKLE_FEED_URL"
+    if [ "$CHANNEL" = "stable" ]; then
+        # A stable build must remain newer than the preview train even before
+        # the stable feed exists. Only the selected stable feed's initial 404
+        # is optional; every other fetch or validation failure remains fatal.
+        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+            --planned "$SPARKLE_BUILD_NUMBER" \
+            --appcast-url "$SPARKLE_PREVIEW_FEED_URL"
+        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+            --planned "$SPARKLE_BUILD_NUMBER" \
+            --appcast-url "$SPARKLE_FEED_URL" \
+            --allow-http-not-found
+    else
+        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+            --planned "$SPARKLE_BUILD_NUMBER" \
+            --appcast-url "$SPARKLE_FEED_URL"
+    fi
 fi
 
 SWIFT_BUILD_PREFIX_MAP_ARGS=(
@@ -911,6 +971,7 @@ COMMIT_SHA=$(git rev-parse HEAD)
 cat >"$METADATA_PATH" <<EOF
 version=${VERSION}
 build_number=${SPARKLE_BUILD_NUMBER}
+channel=${CHANNEL}
 git_commit=${COMMIT_SHA}
 signing_identity=<redacted>
 team_id=<redacted>

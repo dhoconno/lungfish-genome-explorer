@@ -14,6 +14,7 @@ final class AboutAcknowledgementsTests: XCTestCase {
 
         let bundled = try XCTUnwrap(sections.first(where: { $0.title == "Bundled Bootstrap" }))
         XCTAssertEqual(bundled.entries.map(\.id), ["micromamba"])
+        XCTAssertEqual(bundled.entries.first?.detail, "2.9.0-0")
 
         let required = try XCTUnwrap(sections.first(where: { $0.title == PluginPack.requiredSetupPack.name }))
         XCTAssertEqual(required.entries.map(\.id), try ManagedToolLock.loadFromBundle().tools.map(\.id))
@@ -64,6 +65,11 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertEqual(esviritu.detail, "1.3.3")
         XCTAssertEqual(esviritu.secondaryDetail, "MIT")
         XCTAssertEqual(esviritu.sourceURL, "https://github.com/cmmr/EsViritu")
+
+        let bracken = try XCTUnwrap(metagenomics.entries.first(where: { $0.id == "bracken" }))
+        XCTAssertEqual(bracken.detail, "3.1")
+        XCTAssertEqual(bracken.secondaryDetail, "GPL-3.0")
+        XCTAssertEqual(bracken.sourceURL, "https://github.com/jenniferlu717/Bracken")
     }
 
     func testCurrentSectionsExcludeInactiveAndRemovedTools() {

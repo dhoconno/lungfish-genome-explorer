@@ -14,8 +14,10 @@ release before considering the release complete.
 
 ## Dependency Sweep
 
-Before any release, confirm a green `toolset-conformance` CI run exists for
-the manifest hash. The companion check that the manifest's `dependencySet`
-matches the receipt from `scripts/deps/verify.sh` is pending Plan C: that
-script does not exist yet, so a release today is not blocked on it. See
+Before every release, run `scripts/deps/verify.sh` against an isolated storage
+root and require its reconciled receipt to match the manifest dependency set
+and canonical hash. Preview releases rely on that local evidence plus the
+normal push Fast gate; do not manually dispatch CI as part of release. A full
+stable GitHub release triggers Build/smoke and Toolset conformance through the
+`released` event, and both must pass before the stable release is complete. See
 `docs/release/dependency-sweep.md` for the full semiannual sweep checklist.

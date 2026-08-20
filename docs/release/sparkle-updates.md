@@ -49,13 +49,34 @@ the version string:
 
 Because the feed URL is baked into the bundle, a stable release is built as
 stable from its tagged commit rather than by re-labelling a preview DMG. A
-preview user who wants a promoted build simply receives the equivalent stable
-version through their own feed when it is also published there, or installs the
-stable DMG. If an in-app channel toggle is ever wanted, Sparkle 2's
+preview installation remains on the preview feed; switching to stable currently
+requires installing a stable DMG. If an in-app channel toggle is ever wanted, Sparkle 2's
 `<sparkle:channel>` element and `allowedChannels` delegate support a single-feed
 model where promotion republishes the same signed item without the channel tag;
 adopt that only alongside the settings UI and a migration plan for existing
 preview-feed installs.
+
+## Release Notes Across Channels
+
+Immutable tags, GitHub's prerelease/full state, and committed per-version notes
+are the release ledger. Do not maintain a second channel/version registry.
+Every `docs/release-notes/<version>.md` begins with:
+
+```text
+Channel: Preview|Stable
+Previous versioned release: v<version>
+Stable baseline: v<full-version>|None (bootstrap aggregation baseline: v<version>)
+Dependency set: <set>
+```
+
+Preview notes cover one versioned-release delta. Stable notes compare the latest
+full versioned release with the candidate, then reconcile that Git diff with
+every intervening committed preview note. Before the first stable release, use
+the explicitly recorded bootstrap aggregation baseline rather than repository
+root. Stable notes include `## Included preview releases` and aggregate, without
+duplication, user-facing workflows, correctness and stability, scientific
+provenance, storage or migration changes, dependency/database pins,
+platform/toolchain compatibility, release infrastructure, and known issues.
 
 ## One-Time Setup
 
@@ -76,22 +97,28 @@ builds leave the key empty, which keeps the menu item present but disabled.
 export LUNGFISH_SPARKLE_PUBLIC_ED_KEY="<base64 public key from generate_keys>"
 
 bash scripts/release/build-notarized-dmg.sh \
+  --channel preview \
   --signing-identity "Developer ID Application: Example (TEAMID)" \
   --team-id TEAMID \
   --notary-profile PROFILE \
   --github-release-tag "v2026.8.1" \
   --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
   --sparkle-ed-key-file "/path/to/private-key.txt" \
-  --sparkle-publish-release "sparkle-beta" \
   --sparkle-bridge-publish-release "sparkle-alpha" \
-  --sparkle-bridge-appcast-filename "appcast-alpha.xml"
+  --sparkle-bridge-appcast-filename "appcast-alpha.xml" \
+  --prune-prereleases
 ```
+
+For stable, use `--channel stable` and omit the preview bridge and pruning
+flags. The channel chooses `sparkle-stable/appcast-stable.xml` and makes the
+versioned GitHub release full rather than prerelease. Explicit appcast flags
+remain available for audited recovery or migration and override these defaults.
 
 The script sets `CFBundleVersion` from `git rev-list --count HEAD` unless
 `LUNGFISH_BUILD_NUMBER` is set. Every shipped update must have a greater
 `CFBundleVersion` than the previous shipped build, regardless of the marketing
-version string. The script fetches the live preview appcast and enforces this
-before building.
+version string. The script fetches the selected channel's live appcast and
+enforces this before building.
 
 For direct publication, push the annotated `v<version>` tag first. The release
 script requires that the peeled remote tag, local `HEAD`, and GitHub release
@@ -99,10 +126,12 @@ target all identify the same commit. It refuses to overwrite an existing
 versioned release by default. Use `--recover-existing-release` only to resume a
 known partial publication after those identity checks pass.
 
-The script uploads the notarized DMG to the versioned GitHub preview release, then
-generates `appcast-beta.xml` and uploads that feed to the fixed
-`sparkle-beta` release. Release notes are copied from
-`docs/release-notes/<version>.md` when present.
+The script uploads the notarized DMG to the channel-appropriate versioned
+GitHub release, then generates and publishes that channel's appcast to its
+fixed mutable feed container. Release notes are copied from
+`docs/release-notes/<version>.md` when present. Mutable `sparkle-*` feed
+containers remain prerelease/non-latest infrastructure; only a versioned stable
+release is full and triggers the heavy `release` event board.
 
 ## Preview Retention Policy
 
@@ -134,13 +163,13 @@ For a manual release, opt in explicitly:
 
 ```bash
 bash scripts/release/build-notarized-dmg.sh \
+  --channel preview \
   --signing-identity "Developer ID Application: Example (TEAMID)" \
   --team-id TEAMID \
   --notary-profile PROFILE \
   --github-release-tag "v2026.8.1" \
   --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
   --sparkle-ed-key-file "/path/to/private-key.txt" \
-  --sparkle-publish-release "sparkle-beta" \
   --prune-prereleases \
   --prune-prereleases-keep 10
 ```

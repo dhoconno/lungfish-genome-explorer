@@ -158,7 +158,13 @@ ccc\trefs/tags/v0.5.0-beta29
             prewritten = notes_dir / "2026.8.1.md"
             prewritten_text = """# Lungfish 2026.8.1
 
-Previous release: v0.5.0-beta14
+Channel: Preview
+
+Previous versioned release: v0.5.0-beta14
+
+Stable baseline: None (bootstrap aggregation baseline: v0.5.0-beta29)
+
+Dependency set: 2026.2
 
 ## Summary
 
@@ -257,7 +263,10 @@ Pinned dependency set `2026.2`.
             notes.parent.mkdir(parents=True, exist_ok=True)
             notes.write_text(
                 "# Lungfish 2026.8.1\n\n"
-                "Previous release: v0.5.0-beta29\n\n"
+                "Channel: Preview\n\n"
+                "Previous versioned release: v0.5.0-beta29\n\n"
+                "Stable baseline: None (bootstrap aggregation baseline: v0.5.0-beta29)\n\n"
+                "Dependency set: 2026.2\n\n"
                 "## Dependency versions\n\nPinned dependency set `2026.2`.\n",
                 encoding="utf-8",
             )
@@ -533,6 +542,8 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
 
         self.assertIn("--prune-prereleases", commands[0])
         self.assertIn("--prune-prereleases-keep", commands[0])
+        self.assertIn("--channel", commands[0])
+        self.assertIn("preview", commands[0])
         self.assertNotIn("--prune-prereleases", commands[1])
         self.assertIn("--sparkle-bridge-publish-release", commands[1])
         self.assertIn("sparkle-alpha", commands[1])

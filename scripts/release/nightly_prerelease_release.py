@@ -462,21 +462,20 @@ def write_release_notes(root: Path, old_version: str, new_version: str, previous
             f"detailed release notes must be written before automation runs: {notes_path}"
         )
     notes = notes_path.read_text(encoding="utf-8")
+    manifest_path = root / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    dependency_set = str(manifest.get("dependencySet", "")).strip()
     required_markers = (
         f"# Lungfish {new_version}",
-        f"Previous release: {previous_tag}",
+        "Channel: Preview",
+        f"Previous versioned release: {previous_tag}",
+        "Stable baseline:",
+        f"Dependency set: {dependency_set}",
         "## Dependency versions",
     )
     for marker in required_markers:
         if marker not in notes:
             raise NightlyReleaseError(f"release notes are missing required content: {marker}")
-    manifest_path = root / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    dependency_set = str(manifest.get("dependencySet", "")).strip()
-    if not dependency_set or f"`{dependency_set}`" not in notes:
-        raise NightlyReleaseError(
-            f"release notes must identify pinned dependency set `{dependency_set or '<missing>'}`"
-        )
     return notes_path
 
 
@@ -549,6 +548,8 @@ def build_release(
         args.notary_profile,
         "--signing-identity",
         args.signing_identity,
+        "--channel",
+        "preview",
         "--github-release-tag",
         release_tag,
         "--sparkle-generate-appcast",

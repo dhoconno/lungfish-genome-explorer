@@ -291,17 +291,18 @@ provisioning, the receipt after completion, and that a representative
 analysis (FASTQ QC, Kraken2 viral classification) runs afterward. Expect 30
 to 45 minutes per walkthrough.
 
-### 6. Dispatch toolset-conformance in CI
+### 6. Preserve channel-appropriate verification evidence
 
-```bash
-gh workflow run ci.yml --ref main
-```
+Do not manually dispatch CI as part of a release. Keep the isolated-root tier
+results and reconciled receipt from step 4 as the pre-publication dependency
+evidence for both channels. A preview release also requires the normal main-push
+Fast gate and deliberately triggers no heavy board.
 
-This triggers the `workflow_dispatch`-only `toolset-conformance` job, which
-provisions the manifest's tools from a clean macOS runner and repeats tier 1
-and the golden diff. A green run at the manifest's hash is required before
-release; it is independent evidence beyond the local tier 1 and 2 runs.
-Expect 60 to 100 minutes of CI time.
+Publishing a full stable GitHub release fires the workflow's `released` event.
+That automatically provisions the manifest on a clean macOS runner, validates
+the receipt, repeats tier 1 and the golden diff, and runs build/smoke. Require
+both Toolset conformance and Build/smoke to pass on the released tag before the
+stable release is considered complete. Expect 60 to 100 minutes of CI time.
 
 ### 7. Release notes
 
@@ -338,10 +339,12 @@ carry taxonomy ids.
 ### 8. Bump the app version and release
 
 Bump the app version and run the release skill
-(`.codex/skills/releasing-lungfish/SKILL.md`). Its release gate checks that a
-green `toolset-conformance` run exists for the manifest hash before it will
-proceed, and that `dependencySet` in the manifest matches the receipt
-produced by `scripts/deps/verify.sh`.
+(`.codex/skills/releasing-lungfish/SKILL.md`). Every release gate validates the
+isolated verification receipt against the manifest's exact dependency set and
+canonical hash, then runs the complete local package test suite. A preview uses
+the normal `main`-push Fast gate. Publishing a full stable release triggers the
+heavy build-smoke and toolset-conformance board automatically through GitHub's
+`released` event; never dispatch that board manually as part of a release.
 
 Remember that the app version itself is restated in roughly eight source
 locations plus two test expectations, which all move together.

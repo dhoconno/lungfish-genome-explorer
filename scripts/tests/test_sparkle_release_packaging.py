@@ -60,6 +60,18 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn('docs/release-notes/${VERSION}.md', self.release_script)
         self.assertNotIn('docs/release-notes/v${VERSION}.md', self.release_script)
 
+    def test_channel_defaults_select_the_matching_feed_container(self):
+        self.assertIn('CHANNEL="preview"', self.release_script)
+        self.assertIn('SPARKLE_PUBLISH_RELEASE="sparkle-beta"', self.release_script)
+        self.assertIn('SPARKLE_APPCAST_FILENAME="appcast-beta.xml"', self.release_script)
+        self.assertIn('SPARKLE_PUBLISH_RELEASE="sparkle-stable"', self.release_script)
+        self.assertIn('SPARKLE_APPCAST_FILENAME="appcast-stable.xml"', self.release_script)
+        self.assertIn("invalid --channel", self.release_script)
+        self.assertIn("channel=${CHANNEL}", self.release_script)
+        self.assertIn("stable channel does not support a legacy preview-feed bridge", self.release_script)
+        self.assertIn("stable channel does not support preview-release pruning", self.release_script)
+        self.assertIn("Lungfish Sparkle Stable Appcast", self.release_script)
+
     def test_xcode_and_swift_package_pin_the_same_sparkle_version(self):
         self.assertIn('exact: "2.9.6"', self.package_swift)
         self.assertIn("version = 2.9.6;", self.project)
@@ -72,22 +84,35 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             root = Path(temp_dir)
             script = root / "scripts" / "release" / "build-notarized-dmg.sh"
             version_file = root / "Sources" / "LungfishCore" / "AppVersion.swift"
+            manifest_file = root / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
             script.parent.mkdir(parents=True)
             version_file.parent.mkdir(parents=True)
+            manifest_file.parent.mkdir(parents=True)
             shutil.copy2(self.root / "scripts" / "release" / "build-notarized-dmg.sh", script)
+            manifest_file.write_text('{"dependencySet":"2026.2"}\n', encoding="utf-8")
 
-            def run(version, tag):
+            def run(version, tag=None, notes_text=None, channel="preview"):
                 version_file.write_text(
                     f'public enum LungfishAppVersion {{ public static let short = "{version}" }}\n',
                     encoding="utf-8",
                 )
                 notes = root / "docs" / "release-notes" / f"{version}.md"
                 notes.parent.mkdir(parents=True, exist_ok=True)
-                notes.write_text(f"# Lungfish {version}\n", encoding="utf-8")
+                notes.write_text(
+                    notes_text
+                    or (
+                        f"# Lungfish {version}\n\n"
+                        "Channel: Preview\n\n"
+                        "Previous versioned release: v0.5.0-beta29\n\n"
+                        "Stable baseline: None (bootstrap aggregation baseline: v0.5.0-beta29)\n\n"
+                        "Dependency set: 2026.2\n\n"
+                        "## Dependency versions\n"
+                    ),
+                    encoding="utf-8",
+                )
                 environment = os.environ.copy()
                 environment.pop("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", None)
-                return subprocess.run(
-                    [
+                command = [
                         "bash",
                         str(script),
                         "--signing-identity",
@@ -96,9 +121,13 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                         "TEAMID",
                         "--notary-profile",
                         "dummy",
-                        "--github-release-tag",
-                        tag,
-                    ],
+                        "--channel",
+                        channel,
+                    ]
+                if tag is not None:
+                    command.extend(["--github-release-tag", tag])
+                return subprocess.run(
+                    command,
                     text=True,
                     capture_output=True,
                     env=environment,
@@ -111,6 +140,10 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             for invalid in ("2026.08.1", "2026.8.1-beta1"):
                 self.assertIn("invalid release version", run(invalid, f"v{invalid}").stderr)
             self.assertIn("GitHub release tag must be v2026.8.1", run("2026.8.1", "v2026.8.2").stderr)
+            missing_audit = run("2026.8.1", "v2026.8.1", "# Lungfish 2026.8.1\n")
+            self.assertIn("release notes are missing required audit field", missing_audit.stderr)
+            inferred_tag_missing_audit = run("2026.8.1", notes_text="# Lungfish 2026.8.1\n")
+            self.assertIn("release notes are missing required audit field", inferred_tag_missing_audit.stderr)
 
     def test_release_script_rejects_existing_versioned_release_by_default(self):
         self.assertIn("versioned GitHub release already exists; refusing to overwrite", self.release_script)
@@ -126,6 +159,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn('refs/tags/${GITHUB_RELEASE_TAG}^{}', self.release_script)
         self.assertIn("targetCommitish", self.release_script)
         self.assertIn("isPrerelease", self.release_script)
+        self.assertIn("existing GitHub release channel does not match --channel", self.release_script)
         self.assertIn("isDraft", self.release_script)
         self.assertIn("release tag does not point to HEAD", self.release_script)
         self.assertIn("existing release DMG digest differs", self.release_script)
@@ -134,6 +168,16 @@ class SparkleReleasePackagingTests(unittest.TestCase):
     def test_release_script_enforces_live_sparkle_build_number(self):
         self.assertIn("check-sparkle-build-number.py", self.release_script)
         self.assertIn('--planned "$SPARKLE_BUILD_NUMBER"', self.release_script)
+
+    def test_stable_build_gate_uses_preview_feed_as_strict_global_floor(self):
+        self.assertIn(
+            'SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml"',
+            self.release_script,
+        )
+        preview_gate_index = self._line_index('--appcast-url "$SPARKLE_PREVIEW_FEED_URL"')
+        optional_stable_gate_index = self._line_index("--allow-http-not-found")
+
+        self.assertLess(preview_gate_index, optional_stable_gate_index)
 
     def test_release_script_can_prune_old_prerelease_releases_without_git_tags(self):
         self.assertIn("--prune-prereleases", self.release_script)
