@@ -194,6 +194,7 @@ export LUNGFISH_STORAGE_ROOT="${storage_root}"
 # home. With the variable set, those tests silently run the real seqkit instead
 # of their stub and fail with "unknown command short-output".
 conda_root_for_goldens="${storage_root}/conda"
+parity_python_root="${storage_root}/parity-python"
 
 # Seed the isolated root from an existing one. On APFS `cp -Rc` clones blocks
 # rather than copying them, so a 21 GB conda root is seeded in seconds and
@@ -417,9 +418,24 @@ if [[ ${gate_status} -ne 0 ]]; then
     exit 65
 fi
 
+provision_parity_python() {
+    # The vendored viralrecon oracle runs via `/usr/bin/env python3`. Its
+    # packages are test fixtures, not user-facing managed tools, so keep them
+    # outside the dependency receipt and below this verifier's isolated root.
+    # This mirrors the CI conformance setup while preventing a developer's
+    # Homebrew Python packages from making a local sweep pass accidentally.
+    echo "==> Provisioning isolated Python dependencies for iVar parity"
+    python3 -m venv "${parity_python_root}"
+    "${parity_python_root}/bin/python" -m pip install --upgrade pip
+    "${parity_python_root}/bin/python" -m pip install numpy biopython scipy pandas
+    "${parity_python_root}/bin/python" -c 'import numpy, Bio, scipy, pandas; print("parity deps OK")'
+}
+
 run_tier1() {
     echo "==> Tier 1: conformance suites (no skips allowed)"
-    bash scripts/full-suite-gate.sh --require-tools --filter "${filter:-${default_tier1_filter}}"
+    provision_parity_python
+    PATH="${parity_python_root}/bin:${PATH}" \
+        bash scripts/full-suite-gate.sh --require-tools --filter "${filter:-${default_tier1_filter}}"
 }
 
 run_tier2() {

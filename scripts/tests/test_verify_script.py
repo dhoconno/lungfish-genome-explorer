@@ -127,6 +127,35 @@ class ArgumentGuardTests(unittest.TestCase):
 
 
 class FilterSyncTests(unittest.TestCase):
+    def test_tier1_provisions_an_isolated_parity_python_environment(self):
+        """The iVar oracle must not depend on the developer's Python packages.
+
+        IVarConverterViralReconParityTests invokes `/usr/bin/env python3`, so
+        the verifier must build its fixture-oracle environment below the
+        isolated storage root, prove the imports work, and make that Python
+        visible only while it runs tier 1.
+        """
+        script = VERIFY.read_text(encoding="utf-8")
+        self.assertIn('parity_python_root="${storage_root}/parity-python"', script)
+        self.assertIn('python3 -m venv "${parity_python_root}"', script)
+        self.assertIn(
+            'pip install numpy biopython scipy pandas',
+            script,
+        )
+        self.assertIn(
+            "-c 'import numpy, Bio, scipy, pandas; print(\"parity deps OK\")'",
+            script,
+        )
+
+        tier1 = re.search(
+            r"^run_tier1\(\) \{\n(.*?)\n\}", script, re.MULTILINE | re.DOTALL
+        )
+        self.assertIsNotNone(tier1, "run_tier1 function not found")
+        self.assertIn(
+            'PATH="${parity_python_root}/bin:${PATH}"',
+            tier1.group(1),
+        )
+
     def test_tier1_default_filter_matches_the_ci_job_filter(self):
         """verify.sh tier 1 and the CI conformance job must run the same suites.
 
