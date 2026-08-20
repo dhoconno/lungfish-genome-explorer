@@ -1,6 +1,6 @@
 # Channel-Aware App Identity and First Stable Release Design
 
-**Date:** 2026-08-20  
+**Date:** 2026-08-20
 **Scope:** Distinct Preview and Stable presentation, followed by Lungfish's first
 stable CalVer release
 
