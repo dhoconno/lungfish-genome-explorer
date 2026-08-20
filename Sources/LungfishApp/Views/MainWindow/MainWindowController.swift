@@ -157,7 +157,7 @@ public class MainWindowController: NSWindowController {
             defer: false
         )
 
-        window.title = "Lungfish Genome Explorer"
+        window.title = LungfishAppIdentity.current.fullName
         window.minSize = NSSize(width: 800, height: 500)
         window.setFrameAutosaveName("MainWindow")
         // Disable window restoration — the app does not implement

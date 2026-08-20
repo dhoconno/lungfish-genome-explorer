@@ -468,7 +468,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     for: previousProjectURL
                 )
             }
-            controller.window?.title = "\(fallback.name) - Lungfish Genome Explorer"
+            controller.window?.title = "\(fallback.name) - \(LungfishAppIdentity.current.fullName)"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url)
         }
@@ -481,13 +481,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     internal func updateProjectWindowTitle(_ controller: MainWindowController) {
         guard let projectURL = controller.projectSession.projectURL else {
-            controller.window?.title = "Lungfish Genome Explorer"
+            controller.window?.title = LungfishAppIdentity.current.fullName
             return
         }
         let projectName = projectURL.deletingPathExtension().lastPathComponent
         let number = projectSessionRegistry.windowNumber(for: controller.projectSession)
         let suffix = controller.projectSession.isReadOnlyRecommended ? " (Read Only)" : ""
-        controller.window?.title = "\(projectName) [\(number)]\(suffix) - Lungfish Genome Explorer"
+        controller.window?.title = "\(projectName) [\(number)]\(suffix) - \(LungfishAppIdentity.current.fullName)"
     }
 
     private func refreshProjectWindowTitles(forProjectURL projectURL: URL?) {

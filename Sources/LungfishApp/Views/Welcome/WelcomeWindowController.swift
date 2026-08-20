@@ -1671,7 +1671,7 @@ public final class WelcomeWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Welcome to Lungfish Genome Explorer"
+        window.title = "Welcome to \(LungfishAppIdentity.current.fullName)"
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = false
         window.isRestorable = false

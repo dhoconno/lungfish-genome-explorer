@@ -34,20 +34,22 @@ public final class MainMenu {
         createMainMenu(
             experimentalFeaturesEnabled: experimentalFeaturesEnabled,
             workflowFeatureAvailability: workflowFeatureAvailability,
-            workflowLibraryEnablementStore: .shared
+            workflowLibraryEnablementStore: .shared,
+            appIdentity: .current
         )
     }
 
     static func createMainMenu(
         experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
         workflowFeatureAvailability: WorkflowFeatureAvailability? = nil,
-        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore = .shared
+        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore = .shared,
+        appIdentity: LungfishAppIdentity = .current
     ) -> NSMenu {
         let mainMenu = NSMenu()
         let workflowFeatureAvailability = workflowFeatureAvailability ?? .current()
 
         // Application menu
-        mainMenu.addItem(createApplicationMenu())
+        mainMenu.addItem(createApplicationMenu(appIdentity: appIdentity))
 
         // File menu
         mainMenu.addItem(createFileMenu())
@@ -84,14 +86,14 @@ public final class MainMenu {
 
     // MARK: - Application Menu
 
-    private static func createApplicationMenu() -> NSMenuItem {
-        let appMenuItem = NSMenuItem()
+    private static func createApplicationMenu(appIdentity: LungfishAppIdentity) -> NSMenuItem {
+        let appMenuItem = NSMenuItem(title: appIdentity.shortName, action: nil, keyEquivalent: "")
         appMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.applicationMenu)
         let appMenu = NSMenu()
 
         // About
         appMenu.addItem(
-            withTitle: "About Lungfish Genome Explorer",
+            withTitle: "About \(appIdentity.fullName)",
             action: #selector(AppDelegate.showAboutPanel(_:)),
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.about)
@@ -126,7 +128,7 @@ public final class MainMenu {
 
         // Hide/Show/Quit
         appMenu.addItem(
-            withTitle: "Hide Lungfish Genome Explorer",
+            withTitle: "Hide \(appIdentity.fullName)",
             action: #selector(NSApplication.hide(_:)),
             keyEquivalent: "h"
         )
@@ -147,7 +149,7 @@ public final class MainMenu {
         appMenu.addItem(.separator())
 
         appMenu.addItem(
-            withTitle: "Quit Lungfish Genome Explorer",
+            withTitle: "Quit \(appIdentity.fullName)",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.quit)

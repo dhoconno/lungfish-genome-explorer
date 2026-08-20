@@ -14,6 +14,7 @@ import LungfishWorkflow
 final class AboutWindowController: NSWindowController {
 
     private var creditsTextView: NSTextView!
+    private let appIdentity: LungfishAppIdentity
 
     private enum AccessibilityID {
         static let window = "about-window"
@@ -24,21 +25,27 @@ final class AboutWindowController: NSWindowController {
         static let websiteButton = "about-lab-website-button"
     }
 
-    convenience init() {
+    init(appIdentity: LungfishAppIdentity = .current) {
+        self.appIdentity = appIdentity
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: true
         )
-        window.title = "About Lungfish Genome Explorer"
+        window.title = "About \(appIdentity.fullName)"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.center()
         window.identifier = NSUserInterfaceItemIdentifier(AccessibilityID.window)
         window.isMovableByWindowBackground = true
-        self.init(window: window)
+        super.init(window: window)
         setupContent()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("AboutWindowController does not support storyboard initialization")
     }
 
     // MARK: - Layout
@@ -70,12 +77,25 @@ final class AboutWindowController: NSWindowController {
         container.addSubview(iconView)
 
         // App name
-        let nameLabel = NSTextField(labelWithString: "Lungfish Genome Explorer")
+        let nameLabel = NSTextField(labelWithString: appIdentity.fullName)
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         nameLabel.alignment = .center
         nameLabel.textColor = .labelColor
         container.addSubview(nameLabel)
+
+        let caveatLabel: NSTextField?
+        if let caveat = appIdentity.previewCaveat {
+            let label = NSTextField(wrappingLabelWithString: caveat)
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.font = .systemFont(ofSize: 11)
+            label.alignment = .center
+            label.textColor = .secondaryLabelColor
+            container.addSubview(label)
+            caveatLabel = label
+        } else {
+            caveatLabel = nil
+        }
 
         // Tagline
         let taglineLabel = NSTextField(labelWithString: "Seeing the invisible. Informing action.")
@@ -184,7 +204,10 @@ final class AboutWindowController: NSWindowController {
             nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 20),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -20),
 
-            taglineLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
+            taglineLabel.topAnchor.constraint(
+                equalTo: caveatLabel?.bottomAnchor ?? nameLabel.bottomAnchor,
+                constant: 2
+            ),
             taglineLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
 
             versionLabel.topAnchor.constraint(equalTo: taglineLabel.bottomAnchor, constant: 4),
@@ -208,6 +231,14 @@ final class AboutWindowController: NSWindowController {
             linkButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             linkButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
         ])
+
+        if let caveatLabel {
+            NSLayoutConstraint.activate([
+                caveatLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
+                caveatLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+                caveatLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            ])
+        }
 
         populateCredits()
     }

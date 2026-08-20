@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishWorkflow
 
 /// Displays the full text of third-party licenses for all embedded tools.
@@ -26,7 +27,7 @@ final class ThirdPartyLicensesWindowController: NSWindowController {
             backing: .buffered,
             defer: true
         )
-        window.title = "Third-Party Licenses"
+        window.title = "\(LungfishAppIdentity.current.fullName) \u{2014} Third-Party Licenses"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.center()

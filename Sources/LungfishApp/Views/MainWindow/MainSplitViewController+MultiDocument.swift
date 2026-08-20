@@ -278,7 +278,7 @@ extension MainSplitViewController {
 
         // Update window title to reflect the project name
         let projectName = project.url.deletingPathExtension().lastPathComponent
-        view.window?.title = "\(projectName) \u{2014} Lungfish Genome Explorer"
+        view.window?.title = "\(projectName) \u{2014} \(LungfishAppIdentity.current.fullName)"
 
         // Use the new filesystem-backed sidebar model
         // This will scan the project directory and set up file watching
@@ -310,7 +310,7 @@ extension MainSplitViewController {
         }
 
         let projectName = project.url.deletingPathExtension().lastPathComponent
-        view.window?.title = "\(projectName) - Lungfish Genome Explorer"
+        view.window?.title = "\(projectName) - \(LungfishAppIdentity.current.fullName)"
         sidebarController.openProject(at: project.url)
 
         if let firstDoc = projectSession.activeDocument ?? projectSession.documents.first {
