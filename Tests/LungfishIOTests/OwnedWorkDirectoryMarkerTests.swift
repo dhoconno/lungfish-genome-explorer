@@ -588,7 +588,16 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         let outside = root.appendingPathComponent("outside-parent", isDirectory: true)
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: unsafeParent, withDestinationURL: outside)
-        let baseline = openDescriptorCount()
+        let projectIdentity = try FileSystemObjectIdentity.noFollow(project)
+        let unrelatedDescriptor = Darwin.open("/dev/null", O_RDONLY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(unrelatedDescriptor, 0)
+        var unrelatedDescriptorIsOpen = true
+        defer {
+            if unrelatedDescriptorIsOpen {
+                Darwin.close(unrelatedDescriptor)
+            }
+        }
+        let baseline = openDescriptorCount(matching: projectIdentity)
 
         for _ in 0..<128 {
             var failing = request(prefix: "leak-")
@@ -607,14 +616,25 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
             XCTAssertThrowsError(try OwnedWorkDirectoryMarkerStore.createDirectory(failing))
         }
 
-        XCTAssertEqual(openDescriptorCount(), baseline)
+        XCTAssertEqual(Darwin.close(unrelatedDescriptor), 0)
+        unrelatedDescriptorIsOpen = false
+        XCTAssertEqual(openDescriptorCount(matching: projectIdentity), baseline)
     }
 
     func testLoadClosesDirectoryDescriptorWhenProjectOpenFails() throws {
         let directory = try OwnedWorkDirectoryMarkerStore.createDirectory(request(prefix: "load-leak-"))
         let unsafeProject = root.appendingPathComponent("unsafe-project", isDirectory: true)
         try FileManager.default.createSymbolicLink(at: unsafeProject, withDestinationURL: project)
-        let baseline = openDescriptorCount()
+        let directoryIdentity = try FileSystemObjectIdentity.noFollow(directory)
+        let unrelatedDescriptor = Darwin.open("/dev/null", O_RDONLY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(unrelatedDescriptor, 0)
+        var unrelatedDescriptorIsOpen = true
+        defer {
+            if unrelatedDescriptorIsOpen {
+                Darwin.close(unrelatedDescriptor)
+            }
+        }
+        let baseline = openDescriptorCount(matching: directoryIdentity)
 
         for _ in 0..<128 {
             XCTAssertThrowsError(
@@ -625,7 +645,9 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(openDescriptorCount(), baseline)
+        XCTAssertEqual(Darwin.close(unrelatedDescriptor), 0)
+        unrelatedDescriptorIsOpen = false
+        XCTAssertEqual(openDescriptorCount(matching: directoryIdentity), baseline)
     }
 
     func testRequestRejectsEmbeddedNULInPrefixAndLockPath() throws {
@@ -764,11 +786,14 @@ private final class MarkerRollbackSyncSequence: @unchecked Sendable {
     }
 }
 
-private func openDescriptorCount() -> Int {
+private func openDescriptorCount(matching identity: FileSystemObjectIdentity) -> Int {
     let limit = Int(getdtablesize())
     return (0..<limit).reduce(into: 0) { count, descriptor in
-        errno = 0
-        if fcntl(Int32(descriptor), F_GETFD) != -1 || errno != EBADF {
+        var info = stat()
+        if Darwin.fstat(Int32(descriptor), &info) == 0,
+           info.st_dev >= 0,
+           info.st_ino >= 0,
+           FileSystemObjectIdentity(from: info) == identity {
             count += 1
         }
     }
