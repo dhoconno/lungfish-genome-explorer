@@ -218,6 +218,7 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             command_bin = root / "bin"
             command_bin.mkdir()
             gate_marker = root / "suite-gate-ran"
+            preflight_marker = root / "parity-preflight-ran"
 
             def write_command(name, body):
                 command = command_bin / name
@@ -242,7 +243,12 @@ class Tier1FailurePropagationTests(unittest.TestCase):
                 "if [[ \"${1:-}\" == \"-m\" && \"${2:-}\" == \"venv\" ]]; then\n"
                 "  target=\"$3\"\n"
                 "  mkdir -p \"${target}/bin\"\n"
-                "  printf '%s\\n' '#!/bin/sh' 'exit 42' > \"${target}/bin/python\"\n"
+                "  {\n"
+                "    printf '%s\\n' '#!/bin/sh'\n"
+                "    printf '%s\\n' 'if [ \"${1:-}\" = \"-m\" ] && [ \"${2:-}\" = \"pip\" ]; then exit 0; fi'\n"
+                f"    printf '%s\\n' 'if [ \"${{1:-}}\" = \"-c\" ]; then touch {shlex.quote(str(preflight_marker))}; exit 42; fi'\n"
+                "    printf '%s\\n' 'exit 0'\n"
+                "  } > \"${target}/bin/python\"\n"
                 "  chmod +x \"${target}/bin/python\"\n"
                 "  exit 0\n"
                 "fi\n"
@@ -266,6 +272,7 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             )
 
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(preflight_marker.exists(), "parity import preflight was not reached")
             self.assertFalse(
                 gate_marker.exists(),
                 "full-suite-gate ran after parity Python provisioning failed",
