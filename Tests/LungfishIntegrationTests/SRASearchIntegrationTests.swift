@@ -109,6 +109,27 @@ final class SRASearchIntegrationTests: XCTestCase {
         XCTAssertEqual(accessions, ["DRR028938", "DRR051810", "DRR052292"])
     }
 
+    func testTransientClassifierRecognizesOnlyTransportRateLimitTimeoutAnd5xxFailures() {
+        XCTAssertTrue(Self.isTransientLiveSRAError(URLError(.timedOut)))
+        XCTAssertTrue(Self.isTransientLiveSRAError(URLError(.networkConnectionLost)))
+        XCTAssertTrue(Self.isTransientLiveSRAError(DatabaseServiceError.timeout))
+        XCTAssertTrue(Self.isTransientLiveSRAError(DatabaseServiceError.rateLimitExceeded))
+        XCTAssertTrue(Self.isTransientLiveSRAError(DatabaseServiceError.invalidResponse(statusCode: 429)))
+        XCTAssertTrue(Self.isTransientLiveSRAError(DatabaseServiceError.invalidResponse(statusCode: 503)))
+        XCTAssertTrue(Self.isTransientLiveSRAError(DatabaseServiceError.serverError(message: "HTTP 503")))
+        XCTAssertTrue(Self.isTransientLiveSRAError(DatabaseServiceError.serverError(message: "HTTP 500: unavailable")))
+    }
+
+    func testTransientClassifierPreservesMalformedAndAssertionRelevantFailures() {
+        XCTAssertFalse(Self.isTransientLiveSRAError(DatabaseServiceError.networkError(underlying: "Invalid response type")))
+        XCTAssertFalse(Self.isTransientLiveSRAError(DatabaseServiceError.serverError(message: "Search Backend failed")))
+        XCTAssertFalse(Self.isTransientLiveSRAError(DatabaseServiceError.serverError(message: "address table is empty")))
+        XCTAssertFalse(Self.isTransientLiveSRAError(DatabaseServiceError.serverError(message: "HTTP 503malformed")))
+        XCTAssertFalse(Self.isTransientLiveSRAError(DatabaseServiceError.parseError(message: "malformed HTTP 200 payload")))
+        XCTAssertFalse(Self.isTransientLiveSRAError(DatabaseServiceError.invalidQuery(reason: "Bad request")))
+        XCTAssertFalse(Self.isTransientLiveSRAError(URLError(.cancelled)))
+    }
+
     private func liveSRAESearch(term: String, retmax: Int) async throws -> NCBIService.ESearchSearchResult {
         try await liveSRARequest(source: "NCBI") {
             try await self.ncbiService.sraESearch(term: term, retmax: retmax)
@@ -159,12 +180,30 @@ final class SRASearchIntegrationTests: XCTestCase {
             return false
         }
         switch databaseError {
-        case .networkError, .rateLimitExceeded, .serverError, .timeout:
+        case .rateLimitExceeded, .timeout:
             return true
         case .invalidResponse(let statusCode):
             return statusCode == 429 || (500...599).contains(statusCode)
+        case .serverError(let message):
+            return isExplicit5xxServerMessage(message)
         default:
             return false
         }
+    }
+
+    private static func isExplicit5xxServerMessage(_ message: String) -> Bool {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard normalized.hasPrefix("HTTP ") else {
+            return false
+        }
+        let statusDigits = normalized.dropFirst("HTTP ".count).prefix(while: \.isNumber)
+        guard statusDigits.count == 3, let statusCode = Int(statusDigits) else {
+            return false
+        }
+        let remainder = normalized.dropFirst("HTTP ".count + statusDigits.count)
+        guard remainder.isEmpty || remainder.first == ":" || remainder.first?.isWhitespace == true else {
+            return false
+        }
+        return (500...599).contains(statusCode)
     }
 }

@@ -44,6 +44,25 @@ struct FileSystemWatcherTests {
         return condition()
     }
 
+    /// Observe a negative or bounded condition continuously. Returning as soon
+    /// as it becomes false preserves the first failure while a successful
+    /// result proves the condition held across the complete FSEvents latency
+    /// window rather than only at the first positive callback.
+    @MainActor
+    private func remainsTrue(
+        for observationWindow: TimeInterval = 4,
+        condition: @escaping @MainActor () -> Bool
+    ) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(observationWindow)
+        while Date() < deadline {
+            if !condition() {
+                return false
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return condition()
+    }
+
     /// Give fseventsd a scheduling turn after a new stream starts. This models
     /// the production case (an already-open project) rather than racing file
     /// creation against stream registration.
@@ -293,11 +312,14 @@ struct FileSystemWatcherTests {
         }
 
         let receivedCallback = try await waitUntil { callbackCount >= 1 }
+        let remainedDebounced = receivedCallback
+            ? try await remainsTrue { callbackCount <= 2 }
+            : false
 
         // Due to debouncing, we should get fewer callbacks than file operations
         // Ideally just 1 callback after all the rapid changes
         #expect(receivedCallback, "Should get at least one callback")
-        #expect(callbackCount <= 2, "Debouncing should coalesce rapid changes (got \(callbackCount) callbacks)")
+        #expect(remainedDebounced, "Debouncing should coalesce rapid changes (got \(callbackCount) callbacks)")
 
         watcher.stopWatching()
     }
@@ -337,10 +359,15 @@ struct FileSystemWatcherTests {
         let secondDirectoryChanged = try await waitUntil {
             changedPaths.contains { $0.path.hasPrefix(tempDir2.standardizedFileURL.path + "/") }
         }
+        let firstDirectoryRemainedSilent = secondDirectoryChanged
+            ? try await remainsTrue {
+                !changedPaths.contains { $0.path.hasPrefix(tempDir1.standardizedFileURL.path + "/") }
+            }
+            : false
 
         #expect(secondDirectoryChanged, "Should get a callback from the second directory")
         #expect(
-            !changedPaths.contains { $0.path.hasPrefix(tempDir1.standardizedFileURL.path + "/") },
+            firstDirectoryRemainedSilent,
             "The stopped first directory must not produce callbacks"
         )
 
