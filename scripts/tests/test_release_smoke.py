@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -86,6 +87,59 @@ class ReleaseSmokeTests(unittest.TestCase):
 
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(marker, result.stderr)
+
+    def test_smoke_test_scans_apps_inside_gitignored_build_directory(self):
+        build_root = self.root / "build"
+        build_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=build_root) as temp_dir:
+            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            leak_file = app_path / "Contents" / "Resources" / ".leak.txt"
+            leak_file.write_text("debug path: /Users/runner/project\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("/Users/", result.stderr)
+
+    def test_smoke_test_fails_when_portability_scanner_errors(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            app_path = self._make_minimal_app(temp_root, include_icon=True)
+            stub_bin = temp_root / "bin"
+            stub_bin.mkdir()
+            rg_stub = stub_bin / "rg"
+            real_rg = shutil.which("rg")
+            self.assertIsNotNone(real_rg)
+            rg_stub.write_text(
+                "#!/bin/sh\n"
+                "case \" $* \" in\n"
+                "  *' --hidden '*) echo scanner failed >&2; exit 2 ;;\n"
+                "esac\n"
+                f'exec "{real_rg}" "$@"\n',
+                encoding="utf-8",
+            )
+            os.chmod(rg_stub, 0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{stub_bin}:{environment['PATH']}"
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("portability scan failed", result.stderr)
+            self.assertIn("scanner failed", result.stderr)
 
     def test_package_resolved_guard_fails_when_xcode_lockfile_diverges(self):
         with tempfile.TemporaryDirectory() as temp_dir:

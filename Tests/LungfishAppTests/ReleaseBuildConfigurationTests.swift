@@ -1212,6 +1212,7 @@ struct ReleaseBuildConfigurationTests {
         let embeddedPaths = [
             "prefix\0\(repoRootString)/.build/xcode-cli-release/checkouts/test\0",
             "prefix\0/Users/dho/Documents/ncbi-vdb/libs/vfs/resolver.c\0",
+            "prefix\0/Users/runner/miniforge3/conda-bld/micromamba_123/work/mamba.cpp\0",
             "prefix\0/usr/local/Cellar/openssl@3/3.4.0/lib/engines-3\0",
             "prefix\0/usr/local/etc/openssl@3\0",
             "prefix\0/opt/homebrew/bin\0",
@@ -1226,6 +1227,7 @@ struct ReleaseBuildConfigurationTests {
 
         let sanitized = String(decoding: try Data(contentsOf: vendoredBinaryURL), as: UTF8.self)
         #expect(sanitized.contains("/Users/dho") == false)
+        #expect(sanitized.contains("/Users/runner") == false)
         #expect(sanitized.contains(".build/xcode-cli-release") == false)
         #expect(sanitized.contains("/usr/local/Cellar") == false)
         #expect(sanitized.contains("/usr/local/etc/openssl@3") == false)

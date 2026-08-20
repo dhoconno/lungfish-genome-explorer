@@ -275,10 +275,17 @@ run_portability_scan() {
 
     local pattern
     for pattern in "${leak_patterns[@]}"; do
-        if "$RG_BIN" -a -n --fixed-strings "$pattern" "$APP_PATH" >"$TMP_DIR/portability-scan.stderr" 2>&1; then
+        if "$RG_BIN" -a --hidden --no-ignore -n --fixed-strings "$pattern" "$APP_PATH" >"$TMP_DIR/portability-scan.stderr" 2>&1; then
             printf 'FAIL portability leak=%s\n' "$pattern" >&2
             sed -n '1,120p' "$TMP_DIR/portability-scan.stderr" >&2 || true
             exit 1
+        else
+            local scan_rc=$?
+            if [ "$scan_rc" -ne 1 ]; then
+                printf 'FAIL portability scan failed pattern=%s exit=%s\n' "$pattern" "$scan_rc" >&2
+                sed -n '1,120p' "$TMP_DIR/portability-scan.stderr" >&2 || true
+                exit "$scan_rc"
+            fi
         fi
     done
 

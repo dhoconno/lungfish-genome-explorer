@@ -143,6 +143,15 @@ rewrite_embedded_builder_paths() {
         "$path" \
         "/usr/local/etc/" \
         "/usr/local/cfg/"
+
+    # Vendored Mach-O tools can carry upstream CI builder paths that are not
+    # derived from this checkout (for example conda's /Users/runner roots).
+    # The replacement is exactly the same byte length, preserving every
+    # following string offset while removing the machine-specific home prefix.
+    rewrite_embedded_path_prefix \
+        "$path" \
+        "/Users/" \
+        "/build/"
 }
 
 sanitize_file() {

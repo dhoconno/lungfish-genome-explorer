@@ -1,11 +1,17 @@
-# Handoff: cutting the release that ships dependency set 2026.2
+# Historical handoff: dependency set 2026.2 release preparation
+
+Status: completed by the CalVer preview release train. `v2026.8.1` was the
+first CalVer tag, but its downloadable artifact was withdrawn after a
+portability defect was found in the bundled micromamba binary. The corrected
+replacement is `v2026.8.2`; see `docs/release-notes/2026.8.2.md`. Use the
+release skill and current remote ledger for every later version rather than
+the pre-release instructions below.
 
 Merged to main on 2026-08-19 at f99b2bf6 (tag `deps-plan-c-complete`). Main was
 fast-forwarded from `claude/lge-dependency-upgrade-plan-b6b53b`, 115 commits.
 
-This branch did NOT bump the app version. Main still reads the already released
-legacy version `0.5.0-beta29`. The first CalVer release should be `2026.8.1`,
-subject to the release skill's final remote collision check.
+At the time of this handoff the branch had not bumped the app version and main
+still read `0.5.0-beta29`. That historical instruction has now been completed.
 
 ## Version bump sites (all must move together)
 
