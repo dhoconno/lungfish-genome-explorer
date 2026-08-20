@@ -200,8 +200,8 @@ class Tier1FailurePropagationTests(unittest.TestCase):
         The production script runs tier functions on the left side of `||`,
         where Bash disables `errexit` for the function body. Execute an exact
         temporary copy with all expensive commands stubbed: the venv's Python
-        fails immediately, and the fake `bash` records whether the suite gate
-        was nevertheless launched.
+        accepts package installation but fails the import preflight, and the
+        fake `bash` records whether the suite gate was nevertheless launched.
         """
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
