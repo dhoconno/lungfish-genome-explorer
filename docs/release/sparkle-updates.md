@@ -24,8 +24,38 @@ the app bundle's `SUFeedURL` points at the preview feed for subsequent updates.
 New versions use `YYYY.M.PATCH`. Capture the release machine's local date once,
 then increment the highest patch for that year/month found across remote Git
 tags and GitHub releases; a new month starts at `1`. Month and patch components
-have no leading zeroes. A future stable channel should use a separate appcast;
-the repository does not currently configure one.
+have no leading zeroes.
+
+## Channels
+
+Both channels share the single `YYYY.M.PATCH` version line: every build, preview
+or stable, takes the next patch number, so `2026.8.7` names exactly one build no
+matter which channel carries it, Sparkle's version comparison stays trivially
+correct for a user who switches channels, and no suffix grammar exists to parse.
+Stable versions are therefore not consecutive (a user may see `2026.8.2` then
+`2026.8.9`); that is expected. The channel lives in exactly two places, never in
+the version string:
+
+- The Sparkle feed the app polls, baked in at build time by
+  `build-notarized-dmg.sh --channel`:
+  - `--channel preview` (default): `appcast-beta.xml` at the `sparkle-beta`
+    release, published as a GitHub prerelease.
+  - `--channel stable`: `appcast-stable.xml` at the `sparkle-stable` release,
+    published as a full GitHub release.
+- The GitHub release's prerelease flag, which is also what routes CI: a full
+  release (or promoting a prerelease to full) fires the `released` event and
+  runs the heavy validation board; prereleases run nothing beyond the push
+  gate their commit already passed.
+
+Because the feed URL is baked into the bundle, a stable release is built as
+stable from its tagged commit rather than by re-labelling a preview DMG. A
+preview user who wants a promoted build simply receives the equivalent stable
+version through their own feed when it is also published there, or installs the
+stable DMG. If an in-app channel toggle is ever wanted, Sparkle 2's
+`<sparkle:channel>` element and `allowedChannels` delegate support a single-feed
+model where promotion republishes the same signed item without the channel tag;
+adopt that only alongside the settings UI and a migration plan for existing
+preview-feed installs.
 
 ## One-Time Setup
 

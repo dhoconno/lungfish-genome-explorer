@@ -46,6 +46,11 @@ Optional:
                       Also upload the generated appcast to a legacy Sparkle feed release
   --sparkle-bridge-appcast-filename NAME
                       Legacy bridge appcast filename (default: appcast-alpha.xml)
+  --channel preview|stable
+                      Release channel (default: preview). preview publishes a GitHub
+                      prerelease feeding appcast-beta.xml at sparkle-beta; stable
+                      publishes a full release feeding appcast-stable.xml at
+                      sparkle-stable, which triggers CI's heavy validation board
   --prune-prereleases
                       After successful remote publishing, delete old prerelease GitHub Release records while preserving git tags
   --prune-prereleases-keep COUNT
@@ -77,6 +82,9 @@ SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-}"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_ED_KEY_FILE="${SPARKLE_ED_KEY_FILE:-}"
 SPARKLE_APPCAST_DIR=""
+CHANNEL="preview"
+SPARKLE_APPCAST_FILENAME_EXPLICIT=0
+SPARKLE_PUBLISH_RELEASE_EXPLICIT=0
 SPARKLE_APPCAST_FILENAME="appcast-beta.xml"
 SPARKLE_BRIDGE_PUBLISH_RELEASE=""
 SPARKLE_BRIDGE_APPCAST_FILENAME="appcast-alpha.xml"
@@ -154,8 +162,17 @@ while [ "$#" -gt 0 ]; do
             SPARKLE_APPCAST_DIR="$2"
             shift 2
             ;;
+        --channel)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --channel" >&2
+                exit 64
+            fi
+            CHANNEL="$2"
+            shift 2
+            ;;
         --sparkle-appcast-filename)
             SPARKLE_APPCAST_FILENAME="$2"
+            SPARKLE_APPCAST_FILENAME_EXPLICIT=1
             shift 2
             ;;
         --sparkle-download-url-prefix)
@@ -164,6 +181,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --sparkle-publish-release)
             SPARKLE_PUBLISH_RELEASE="$2"
+            SPARKLE_PUBLISH_RELEASE_EXPLICIT=1
             shift 2
             ;;
         --sparkle-bridge-publish-release)
@@ -259,6 +277,30 @@ fi
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
+# The channel decides which Sparkle feed the built app polls and whether the
+# GitHub release is a prerelease. preview (the default, today's behavior) feeds
+# appcast-beta.xml at sparkle-beta and publishes a prerelease; stable feeds
+# appcast-stable.xml at sparkle-stable and publishes a full release, which is
+# what triggers CI's heavy board via the 'released' event. Explicit
+# --sparkle-appcast-filename / --sparkle-publish-release still win.
+case "$CHANNEL" in
+    preview)
+        : # the declared defaults are the preview channel
+        ;;
+    stable)
+        if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
+            SPARKLE_APPCAST_FILENAME="appcast-stable.xml"
+        fi
+        if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
+            SPARKLE_PUBLISH_RELEASE="sparkle-stable"
+        fi
+        ;;
+    *)
+        echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
+        exit 64
+        ;;
+esac
+
 SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
@@ -474,9 +516,15 @@ publish_github_release_dmg() {
         release create "$GITHUB_RELEASE_TAG"
         "$DMG_PATH"
         --title "$GITHUB_RELEASE_TAG"
-        --prerelease
         --target "$target_commit"
     )
+    if [ "$CHANNEL" = "preview" ]; then
+        create_args+=(--prerelease)
+    else
+        # A full release fires the 'released' event, which runs CI's heavy
+        # board (build smoke + toolset conformance) on this tag.
+        create_args+=(--latest)
+    fi
     create_args+=(--notes-file "$notes_source")
     gh "${create_args[@]}"
 }
