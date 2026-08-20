@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Testing
+import XCTest
 import Foundation
 import CoreServices
 @testable import LungfishApp
@@ -11,8 +11,11 @@ import CoreServices
 ///
 /// These tests verify that the FSEvents-based watcher correctly detects
 /// filesystem changes including file creation, deletion, and modification.
-@Suite("FileSystemWatcher Tests", .serialized)
-struct FileSystemWatcherTests {
+/// XCTest keeps the OS-backed cases in the serial XCTest phase; Swift Testing
+/// runs suites concurrently and can starve FSEvents callbacks scheduled on the
+/// main dispatch queue during the complete package run.
+@MainActor
+final class FileSystemWatcherTests: XCTestCase {
 
     /// Creates a temporary directory for testing
     private func createTempDirectory() throws -> URL {
@@ -75,9 +78,7 @@ struct FileSystemWatcherTests {
         try await Task.sleep(for: .milliseconds(500))
     }
 
-    @Test("Failed FSEvents start leaves watcher inactive and releases stream")
-    @MainActor
-    func failedStreamStartCleansUp() throws {
+    func testFailedStreamStartCleansUp() throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -104,15 +105,13 @@ struct FileSystemWatcherTests {
 
         watcher.startWatching(directory: tempDir)
 
-        #expect(watcher.isWatching == false)
-        #expect(stopCount == 0)
-        #expect(invalidationCount == 1)
-        #expect(releaseCount == 1)
+        XCTAssertFalse(watcher.isWatching)
+        XCTAssertEqual(stopCount, 0)
+        XCTAssertEqual(invalidationCount, 1)
+        XCTAssertEqual(releaseCount, 1)
     }
 
-    @Test("Watcher detects new file creation")
-    @MainActor
-    func watcherDetectsFileCreation() async throws {
+    func testWatcherDetectsFileCreation() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -123,7 +122,7 @@ struct FileSystemWatcherTests {
         }
 
         watcher.startWatching(directory: tempDir)
-        #expect(watcher.isWatching == true)
+        XCTAssertTrue(watcher.isWatching)
         try await settleWatcherRegistration()
 
         // Create a file
@@ -132,15 +131,13 @@ struct FileSystemWatcherTests {
 
         let receivedCallback = try await waitUntil { callbackInvoked }
 
-        #expect(receivedCallback, "Callback should be invoked when file is created")
+        XCTAssertTrue(receivedCallback, "Callback should be invoked when file is created")
 
         watcher.stopWatching()
-        #expect(watcher.isWatching == false)
+        XCTAssertFalse(watcher.isWatching)
     }
 
-    @Test("Watcher detects file deletion")
-    @MainActor
-    func watcherDetectsFileDeletion() async throws {
+    func testWatcherDetectsFileDeletion() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -161,14 +158,12 @@ struct FileSystemWatcherTests {
 
         let receivedCallback = try await waitUntil { callbackCount >= 1 }
 
-        #expect(receivedCallback, "Callback should be invoked when file is deleted")
+        XCTAssertTrue(receivedCallback, "Callback should be invoked when file is deleted")
 
         watcher.stopWatching()
     }
 
-    @Test("Watcher detects file rename/move")
-    @MainActor
-    func watcherDetectsFileRename() async throws {
+    func testWatcherDetectsFileRename() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -190,14 +185,12 @@ struct FileSystemWatcherTests {
 
         let receivedCallback = try await waitUntil { callbackCount >= 1 }
 
-        #expect(receivedCallback, "Callback should be invoked when file is renamed")
+        XCTAssertTrue(receivedCallback, "Callback should be invoked when file is renamed")
 
         watcher.stopWatching()
     }
 
-    @Test("Watcher handles nested directory changes")
-    @MainActor
-    func watcherHandlesNestedChanges() async throws {
+    func testWatcherHandlesNestedChanges() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -219,14 +212,12 @@ struct FileSystemWatcherTests {
 
         let receivedCallback = try await waitUntil { callbackInvoked }
 
-        #expect(receivedCallback, "Callback should be invoked for changes in nested directories")
+        XCTAssertTrue(receivedCallback, "Callback should be invoked for changes in nested directories")
 
         watcher.stopWatching()
     }
 
-    @Test("Watcher properly cleans up on stop")
-    @MainActor
-    func watcherCleansUpOnStop() async throws {
+    func testWatcherCleansUpOnStop() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -236,10 +227,10 @@ struct FileSystemWatcherTests {
         }
 
         watcher.startWatching(directory: tempDir)
-        #expect(watcher.isWatching == true)
+        XCTAssertTrue(watcher.isWatching)
 
         watcher.stopWatching()
-        #expect(watcher.isWatching == false)
+        XCTAssertFalse(watcher.isWatching)
 
         // Create a file after stopping
         let testFile = tempDir.appendingPathComponent("test.txt")
@@ -247,12 +238,10 @@ struct FileSystemWatcherTests {
 
         let remainedSilent = try await remainsTrue { callbackCount == 0 }
 
-        #expect(remainedSilent, "Callback should not be invoked after stopWatching()")
+        XCTAssertTrue(remainedSilent, "Callback should not be invoked after stopWatching()")
     }
 
-    @Test("Watcher reports when its root directory is moved")
-    @MainActor
-    func watcherReportsMovedRoot() async throws {
+    func testWatcherReportsMovedRoot() async throws {
         let tempDir = try createTempDirectory()
         let movedDir = tempDir.deletingLastPathComponent()
             .appendingPathComponent(tempDir.lastPathComponent + "-moved")
@@ -272,12 +261,10 @@ struct FileSystemWatcherTests {
         try FileManager.default.moveItem(at: tempDir, to: movedDir)
         let receivedRootChange = try await waitUntil { rootChanged }
 
-        #expect(receivedRootChange, "Moving the watched project root must invoke onRootChanged")
+        XCTAssertTrue(receivedRootChange, "Moving the watched project root must invoke onRootChanged")
     }
 
-    @Test("Watcher filters hidden files from visible changes")
-    @MainActor
-    func watcherFiltersHiddenFiles() async throws {
+    func testWatcherFiltersHiddenFiles() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -316,15 +303,13 @@ struct FileSystemWatcherTests {
         watcher2.stopWatching()
 
         // Visible file changes MUST trigger callback
-        #expect(receivedVisibleCallback, "Callback MUST be invoked for visible files")
+        XCTAssertTrue(receivedVisibleCallback, "Callback MUST be invoked for visible files")
 
         // Hidden-only changes should ideally not trigger, but FSEvents behavior varies
         // The important thing is that we filter them in handleFilesystemChange
     }
 
-    @Test("Watcher debounces rapid changes")
-    @MainActor
-    func watcherDebouncesRapidChanges() async throws {
+    func testWatcherDebouncesRapidChanges() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -349,15 +334,13 @@ struct FileSystemWatcherTests {
 
         // Due to debouncing, we should get fewer callbacks than file operations
         // Ideally just 1 callback after all the rapid changes
-        #expect(receivedCallback, "Should get at least one callback")
-        #expect(remainedDebounced, "Debouncing should coalesce rapid changes (got \(callbackCount) callbacks)")
+        XCTAssertTrue(receivedCallback, "Should get at least one callback")
+        XCTAssertTrue(remainedDebounced, "Debouncing should coalesce rapid changes (got \(callbackCount) callbacks)")
 
         watcher.stopWatching()
     }
 
-    @Test("Can restart watcher on different directory")
-    @MainActor
-    func watcherCanRestartOnDifferentDirectory() async throws {
+    func testWatcherCanRestartOnDifferentDirectory() async throws {
         let tempDir1 = try createTempDirectory()
         let tempDir2 = try createTempDirectory()
         defer {
@@ -372,11 +355,11 @@ struct FileSystemWatcherTests {
 
         // Start watching first directory
         watcher.startWatching(directory: tempDir1)
-        #expect(watcher.isWatching == true)
+        XCTAssertTrue(watcher.isWatching)
 
         // Switch to second directory (should auto-stop first)
         watcher.startWatching(directory: tempDir2)
-        #expect(watcher.isWatching == true)
+        XCTAssertTrue(watcher.isWatching)
         try await settleWatcherRegistration()
 
         // Create file in first directory (should NOT trigger)
@@ -396,8 +379,8 @@ struct FileSystemWatcherTests {
             }
             : false
 
-        #expect(secondDirectoryChanged, "Should get a callback from the second directory")
-        #expect(
+        XCTAssertTrue(secondDirectoryChanged, "Should get a callback from the second directory")
+        XCTAssertTrue(
             firstDirectoryRemainedSilent,
             "The stopped first directory must not produce callbacks"
         )
@@ -407,24 +390,21 @@ struct FileSystemWatcherTests {
 
     // MARK: - Sidecar Filter Tests
 
-    @Test("isSidecarPath identifies lungfish-meta.json files")
-    func sidecarFilterIdentifiesMetaJSON() {
+    func testSidecarFilterIdentifiesMetaJSON() {
         let metaURL = URL(fileURLWithPath: "/project/Downloads/SRR123.fastq.gz.lungfish-meta.json")
-        #expect(FileSystemWatcher.isSidecarPath(metaURL) == true)
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(metaURL))
     }
 
-    @Test("isSidecarPath identifies universal search database files")
-    func sidecarFilterIdentifiesSearchDB() {
+    func testSidecarFilterIdentifiesSearchDB() {
         let dbURL = URL(fileURLWithPath: "/project/.universal-search.db")
         let walURL = URL(fileURLWithPath: "/project/.universal-search.db-wal")
         let shmURL = URL(fileURLWithPath: "/project/.universal-search.db-shm")
-        #expect(FileSystemWatcher.isSidecarPath(dbURL) == true)
-        #expect(FileSystemWatcher.isSidecarPath(walURL) == true)
-        #expect(FileSystemWatcher.isSidecarPath(shmURL) == true)
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(dbURL))
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(walURL))
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(shmURL))
     }
 
-    @Test("Universal search artifacts are excluded from their own filesystem updates")
-    func universalSearchArtifactsAreInternal() {
+    func testUniversalSearchArtifactsAreInternal() {
         let projectURL = URL(fileURLWithPath: "/project")
         let artifactNames = [
             ".universal-search.db",
@@ -436,23 +416,21 @@ struct FileSystemWatcherTests {
         ]
 
         for name in artifactNames {
-            #expect(
+            XCTAssertTrue(
                 FileSystemWatcher.isUniversalSearchInternalPath(
                     projectURL.appendingPathComponent(name)
                 )
             )
         }
 
-        #expect(
+        XCTAssertFalse(
             FileSystemWatcher.isUniversalSearchInternalPath(
                 projectURL.appendingPathComponent("sample.fastq.lungfish-meta.json")
-            ) == false
+            )
         )
     }
 
-    @Test("Writing the search index and provenance does not notify its own watcher")
-    @MainActor
-    func searchIndexWritesDoNotFeedBackIntoWatcher() async throws {
+    func testSearchIndexWritesDoNotFeedBackIntoWatcher() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
@@ -470,43 +448,39 @@ struct FileSystemWatcherTests {
         let remainedSilent = try await remainsTrue { callbackCount == 0 }
 
         watcher.stopWatching()
-        #expect(
+        XCTAssertTrue(
             remainedSilent,
             "Search-index output must not trigger another search update; received \(receivedPaths)"
         )
     }
 
-    @Test("isSidecarPath identifies metadata.csv")
-    func sidecarFilterIdentifiesMetadataCSV() {
+    func testSidecarFilterIdentifiesMetadataCSV() {
         let csvURL = URL(fileURLWithPath: "/project/Downloads/SRR123.lungfishfastq/metadata.csv")
-        #expect(FileSystemWatcher.isSidecarPath(csvURL) == true)
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(csvURL))
     }
 
-    @Test("isSidecarPath identifies JSON inside bundles")
-    func sidecarFilterIdentifiesJSONInBundles() {
+    func testSidecarFilterIdentifiesJSONInBundles() {
         let manifestURL = URL(fileURLWithPath: "/project/Downloads/SRR123.lungfishfastq/derived.manifest.json")
         let readManifestURL = URL(fileURLWithPath: "/project/Downloads/SRR123.lungfishfastq/read-manifest.json")
-        #expect(FileSystemWatcher.isSidecarPath(manifestURL) == true)
-        #expect(FileSystemWatcher.isSidecarPath(readManifestURL) == true)
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(manifestURL))
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(readManifestURL))
 
         // .lungfishref bundles too
         let refJSON = URL(fileURLWithPath: "/project/Reference Sequences/hg38.lungfishref/manifest.json")
-        #expect(FileSystemWatcher.isSidecarPath(refJSON) == true)
+        XCTAssertTrue(FileSystemWatcher.isSidecarPath(refJSON))
     }
 
-    @Test("isSidecarPath allows non-sidecar files through")
-    func sidecarFilterAllowsNormalFiles() {
+    func testSidecarFilterAllowsNormalFiles() {
         let fastqURL = URL(fileURLWithPath: "/project/Downloads/SRR123.fastq.gz")
         let bamURL = URL(fileURLWithPath: "/project/Alignments/sample.bam")
         let bundleURL = URL(fileURLWithPath: "/project/Downloads/SRR123.lungfishfastq")
-        #expect(FileSystemWatcher.isSidecarPath(fastqURL) == false)
-        #expect(FileSystemWatcher.isSidecarPath(bamURL) == false)
-        #expect(FileSystemWatcher.isSidecarPath(bundleURL) == false)
+        XCTAssertFalse(FileSystemWatcher.isSidecarPath(fastqURL))
+        XCTAssertFalse(FileSystemWatcher.isSidecarPath(bamURL))
+        XCTAssertFalse(FileSystemWatcher.isSidecarPath(bundleURL))
     }
 
-    @Test("isSidecarPath allows top-level JSON files outside bundles")
-    func sidecarFilterAllowsTopLevelJSON() {
+    func testSidecarFilterAllowsTopLevelJSON() {
         let resultJSON = URL(fileURLWithPath: "/project/Analyses/classification-2026-04/classification-result.json")
-        #expect(FileSystemWatcher.isSidecarPath(resultJSON) == false)
+        XCTAssertFalse(FileSystemWatcher.isSidecarPath(resultJSON))
     }
 }
