@@ -28,11 +28,14 @@ struct FileSystemWatcherTests {
     }
 
     /// FSEvents delivery is asynchronous and is deliberately coalesced by the
-    /// watcher. Polling this condition avoids treating an arbitrary sleep as
-    /// proof that the callback queue has been serviced.
+    /// watcher. Its three-second batching latency is not a hard delivery bound
+    /// when the full suite is also scheduling MainActor work. Polling with a
+    /// generous deadline avoids treating an arbitrary sleep as proof that the
+    /// callback queue has been serviced while still returning as soon as the
+    /// expected event arrives.
     @MainActor
     private func waitUntil(
-        timeout: TimeInterval = 10,
+        timeout: TimeInterval = 20,
         condition: @escaping @MainActor () -> Bool
     ) async throws -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
