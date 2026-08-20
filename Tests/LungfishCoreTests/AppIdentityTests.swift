@@ -24,4 +24,44 @@ struct AppIdentityTests {
         #expect(identity.releaseChannel == .stable)
         #expect(identity.previewCaveat == nil)
     }
+
+    @Test("Preview channel with a missing Preview name falls back to Stable")
+    func missingPreviewNameFallsBackToStable() {
+        let identity = LungfishAppIdentity.from(infoDictionary: [
+            "CFBundleName": "Lungfish Preview",
+            "LungfishReleaseChannel": "preview",
+        ])
+
+        #expect(identity == stableIdentity)
+    }
+
+    @Test("Preview channel with a non-String Preview name falls back to Stable")
+    func nonStringPreviewNameFallsBackToStable() {
+        let identity = LungfishAppIdentity.from(infoDictionary: [
+            "CFBundleDisplayName": 42,
+            "CFBundleName": "Lungfish Preview",
+            "LungfishReleaseChannel": "preview",
+        ])
+
+        #expect(identity == stableIdentity)
+    }
+
+    @Test("Preview channel with a wrong Preview identity value falls back to Stable")
+    func wrongPreviewIdentityFallsBackToStable() {
+        let identity = LungfishAppIdentity.from(infoDictionary: [
+            "CFBundleDisplayName": "Lungfish Genome Explorer Preview",
+            "CFBundleName": "Lungfish Beta",
+            "LungfishReleaseChannel": "preview",
+        ])
+
+        #expect(identity == stableIdentity)
+    }
+
+    private var stableIdentity: LungfishAppIdentity {
+        .init(
+            fullName: "Lungfish Genome Explorer",
+            shortName: "Lungfish",
+            releaseChannel: .stable
+        )
+    }
 }

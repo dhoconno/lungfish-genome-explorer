@@ -18,12 +18,16 @@ public struct LungfishAppIdentity: Equatable, Sendable {
     public static var current: Self { from(infoDictionary: Bundle.main.infoDictionary) }
 
     public static func from(infoDictionary: [String: Any]?) -> Self {
-        guard infoDictionary?["LungfishReleaseChannel"] as? String == LungfishReleaseChannel.preview.rawValue else {
+        guard
+            infoDictionary?["LungfishReleaseChannel"] as? String == LungfishReleaseChannel.preview.rawValue,
+            infoDictionary?["CFBundleDisplayName"] as? String == "Lungfish Genome Explorer Preview",
+            infoDictionary?["CFBundleName"] as? String == "Lungfish Preview"
+        else {
             return .init(fullName: "Lungfish Genome Explorer", shortName: "Lungfish", releaseChannel: .stable)
         }
         return .init(
-            fullName: infoDictionary?["CFBundleDisplayName"] as? String ?? "Lungfish Genome Explorer Preview",
-            shortName: infoDictionary?["CFBundleName"] as? String ?? "Lungfish Preview",
+            fullName: "Lungfish Genome Explorer Preview",
+            shortName: "Lungfish Preview",
             releaseChannel: .preview
         )
     }
