@@ -235,11 +235,15 @@ fi
 # these defaults before deriving the versioned tag and validating its notes.
 case "$CHANNEL" in
     preview)
+        APP_DISPLAY_NAME="Lungfish Genome Explorer Preview"
+        APP_SHORT_NAME="Lungfish Preview"
         if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
             SPARKLE_PUBLISH_RELEASE="sparkle-beta"
         fi
         ;;
     stable)
+        APP_DISPLAY_NAME="Lungfish Genome Explorer"
+        APP_SHORT_NAME="Lungfish"
         if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
             SPARKLE_APPCAST_FILENAME="appcast-stable.xml"
         fi
@@ -499,13 +503,26 @@ configure_sparkle_info_plist() {
     /usr/bin/plutil -replace SUFeedURL -string "$SPARKLE_FEED_URL" "$info_plist"
     /usr/bin/plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$info_plist"
     /usr/bin/plutil -replace SUVerifyUpdateBeforeExtraction -bool YES "$info_plist"
+    /usr/bin/plutil -replace CFBundleDisplayName -string "$APP_DISPLAY_NAME" "$info_plist"
+    /usr/bin/plutil -replace CFBundleName -string "$APP_SHORT_NAME" "$info_plist"
+    /usr/bin/plutil -replace LungfishReleaseChannel -string "$CHANNEL" "$info_plist"
 
     local actual_feed
     local actual_public_key
+    local actual_display_name
+    local actual_short_name
+    local actual_channel
     actual_feed=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$info_plist")
     actual_public_key=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$info_plist")
-    if [ "$actual_feed" != "$SPARKLE_FEED_URL" ] || [ "$actual_public_key" != "$SPARKLE_PUBLIC_ED_KEY" ]; then
-        echo "failed to configure Sparkle Info.plist keys" >&2
+    actual_display_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$info_plist")
+    actual_short_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$info_plist")
+    actual_channel=$(/usr/libexec/PlistBuddy -c "Print :LungfishReleaseChannel" "$info_plist")
+    if [ "$actual_feed" != "$SPARKLE_FEED_URL" ] \
+        || [ "$actual_public_key" != "$SPARKLE_PUBLIC_ED_KEY" ] \
+        || [ "$actual_display_name" != "$APP_DISPLAY_NAME" ] \
+        || [ "$actual_short_name" != "$APP_SHORT_NAME" ] \
+        || [ "$actual_channel" != "$CHANNEL" ]; then
+        echo "failed to configure Sparkle or bundle identity Info.plist keys" >&2
         exit 72
     fi
 }

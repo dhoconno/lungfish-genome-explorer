@@ -22,9 +22,11 @@
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>
-    <string>$(PRODUCT_NAME)</string>
+    <string>Lungfish</string>
     <key>CFBundleDisplayName</key>
     <string>Lungfish Genome Explorer</string>
+    <key>LungfishReleaseChannel</key>
+    <string>stable</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundlePackageType</key>

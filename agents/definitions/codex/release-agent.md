@@ -143,6 +143,19 @@ from committed metadata and final reports.
      heavy board manually.
 
 6. Run the committed notarized DMG release pipeline.
+   - The channel has a three-part identity: baked Sparkle feed, versioned
+     GitHub release prerelease state, and signed bundle metadata. Preview must
+     stamp `CFBundleDisplayName=Lungfish Genome Explorer Preview`,
+     `CFBundleName=Lungfish Preview`, and `LungfishReleaseChannel=preview`;
+     Stable must stamp `CFBundleDisplayName=Lungfish Genome Explorer`,
+     `CFBundleName=Lungfish`, and `LungfishReleaseChannel=stable`.
+   - Preview remains publicly downloadable as a GitHub prerelease. Its notes
+     and About window must carry this exact caveat: “Preview builds are under
+     rapid iterative development. Features may be incomplete, change quickly,
+     or require additional feedback.” Stable omits the caveat.
+   - Both channels retain the literal `Lungfish.app` wrapper and bundle
+     identifier. A manual Preview or Stable DMG install replaces the existing
+     app and changes its baked feed; channels do not run side by side.
    - Use the local release machine's Developer ID Application identity and
      notarytool Keychain profile. Verify the profile before building:
 
@@ -211,6 +224,11 @@ from committed metadata and final reports.
      /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/Release/Lungfish.app/Contents/Info.plist
      build/Release/Lungfish.app/Contents/MacOS/lungfish-cli --version
      ```
+
+   - Independently inspect `CFBundleDisplayName`, `CFBundleName`, and
+     `LungfishReleaseChannel` in the archived app, copied release app, and
+     mounted DMG app. All three values must match the selected channel before
+     declaring the release.
 
    - Verify signatures and notarization:
 

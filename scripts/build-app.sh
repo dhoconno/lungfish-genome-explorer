@@ -237,6 +237,11 @@ cp "$SHARED_INFO_PLIST" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace CFBundleShortVersionString -string "$VERSION" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace LSMinimumSystemVersion -string "$MINIMUM_SYSTEM_VERSION" "$CONTENTS_DIR/Info.plist"
+if [ "$CONFIGURATION" = "debug" ]; then
+    /usr/bin/plutil -replace LungfishReleaseChannel -string "development" "$CONTENTS_DIR/Info.plist"
+else
+    /usr/bin/plutil -replace LungfishReleaseChannel -string "stable" "$CONTENTS_DIR/Info.plist"
+fi
 
 # The debug/local bundle does not ship Sparkle auto-update (no signing key here);
 # remove the feed/key so SparkleUpdaterBridge stays disabled.

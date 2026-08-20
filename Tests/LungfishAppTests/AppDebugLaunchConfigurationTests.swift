@@ -44,6 +44,7 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         XCTAssertTrue(script.contains("plutil -replace CFBundleIdentifier -string \"$BUNDLE_ID\""))
         XCTAssertTrue(script.contains("plutil -replace CFBundleName -string \"$BUNDLE_NAME\""))
         XCTAssertTrue(script.contains("plutil -replace CFBundleDisplayName -string \"$BUNDLE_DISPLAY_NAME\""))
+        XCTAssertTrue(script.contains("plutil -replace LungfishReleaseChannel -string \"development\""))
     }
 
     func testBuildAppRequiresBundledCLIExecutable() throws {

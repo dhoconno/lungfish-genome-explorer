@@ -10,8 +10,9 @@ Sparkle feed instead:
 The compatibility-named `sparkle-beta` GitHub release is the mutable preview
 feed container. Each real app version gets a canonical CalVer tag such as
 `v2026.8.1`, with the notarized DMG attached there. Version strings never carry
-alpha, beta, preview, or stable suffixes; channel status belongs to the feed and
-GitHub release state. The appcast points at those versioned DMG assets.
+alpha, beta, preview, or stable suffixes; channel status belongs to the feed,
+GitHub release state, and signed bundle metadata. The appcast points at those
+versioned DMG assets.
 
 Legacy alpha builds before `0.5.0-beta1` still read:
 
@@ -33,7 +34,7 @@ or stable, takes the next patch number, so `2026.8.7` names exactly one build no
 matter which channel carries it, Sparkle's version comparison stays trivially
 correct for a user who switches channels, and no suffix grammar exists to parse.
 Stable versions are therefore not consecutive (a user may see `2026.8.2` then
-`2026.8.9`); that is expected. The channel lives in exactly two places, never in
+`2026.8.9`); that is expected. The channel has a three-part identity, never in
 the version string:
 
 - The Sparkle feed the app polls, baked in at build time by
@@ -46,11 +47,22 @@ the version string:
   release (or promoting a prerelease to full) fires the `released` event and
   runs the heavy validation board; prereleases run nothing beyond the push
   gate their commit already passed.
+- The signed bundle metadata, stamped before Developer ID signing:
+  - Preview: `CFBundleDisplayName=Lungfish Genome Explorer Preview`,
+    `CFBundleName=Lungfish Preview`, and `LungfishReleaseChannel=preview`.
+  - Stable: `CFBundleDisplayName=Lungfish Genome Explorer`,
+    `CFBundleName=Lungfish`, and `LungfishReleaseChannel=stable`.
 
 Because the feed URL is baked into the bundle, a stable release is built as
 stable from its tagged commit rather than by re-labelling a preview DMG. A
-preview installation remains on the preview feed; switching to stable currently
-requires installing a stable DMG. If an in-app channel toggle is ever wanted, Sparkle 2's
+preview installation remains on the preview feed; switching to stable requires
+installing a stable DMG, and opting into Preview requires installing a Preview
+DMG. Both DMGs contain the same `Lungfish.app` wrapper and bundle identifier, so
+installing either channel replaces the other rather than creating side-by-side
+apps. Preview is publicly available as a GitHub prerelease and carries this
+visible caveat: “Preview builds are under rapid iterative development. Features
+may be incomplete, change quickly, or require additional feedback.” If an
+in-app channel toggle is ever wanted, Sparkle 2's
 `<sparkle:channel>` element and `allowedChannels` delegate support a single-feed
 model where promotion republishes the same signed item without the channel tag;
 adopt that only alongside the settings UI and a migration plan for existing
@@ -113,6 +125,12 @@ For stable, use `--channel stable` and omit the preview bridge and pruning
 flags. The channel chooses `sparkle-stable/appcast-stable.xml` and makes the
 versioned GitHub release full rather than prerelease. Explicit appcast flags
 remain available for audited recovery or migration and override these defaults.
+
+Before signing, the builder reads back and requires the selected
+`CFBundleDisplayName`, `CFBundleName`, and `LungfishReleaseChannel` values. In
+post-build verification, independently inspect those three keys in the archived
+app, the copied release app, and the mounted DMG app; do not infer channel from
+the app wrapper or DMG filename.
 
 The script sets `CFBundleVersion` from `git rev-list --count HEAD` unless
 `LUNGFISH_BUILD_NUMBER` is set. Every shipped update must have a greater

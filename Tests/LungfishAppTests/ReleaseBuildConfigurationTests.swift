@@ -48,6 +48,24 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseScript.contains("appcast-alpha.xml"))
     }
 
+    @Test("Shared and local release builds use the Stable bundle identity")
+    func sharedAndLocalReleaseBuildsUseStableBundleIdentity() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        let infoPlist = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish-Info.plist"),
+            encoding: .utf8
+        )
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(infoPlist.contains("<key>CFBundleName</key>\n    <string>Lungfish</string>"))
+        #expect(infoPlist.contains("<key>CFBundleDisplayName</key>\n    <string>Lungfish Genome Explorer</string>"))
+        #expect(infoPlist.contains("<key>LungfishReleaseChannel</key>\n    <string>stable</string>"))
+        #expect(buildScript.contains("plutil -replace LungfishReleaseChannel -string \"stable\""))
+    }
+
     @Test("Xcode Swift language mode stays on Swift 6 while SwiftPM pins the 6.2 toolchain")
     func xcodeSwiftLanguageModeStaysOnSwift6() throws {
         let repositoryRoot = Self.repositoryRoot()

@@ -225,6 +225,28 @@ class SparkleReleasePackagingTests(unittest.TestCase):
 
         self.assertLess(configure_index, sign_index)
 
+    def test_release_script_stamps_channel_specific_bundle_identity_before_signing_and_dmg_staging(self):
+        for expected in (
+            'APP_DISPLAY_NAME="Lungfish Genome Explorer Preview"',
+            'APP_SHORT_NAME="Lungfish Preview"',
+            'APP_DISPLAY_NAME="Lungfish Genome Explorer"',
+            'APP_SHORT_NAME="Lungfish"',
+            'plutil -replace CFBundleDisplayName',
+            'plutil -replace CFBundleName',
+            'plutil -replace LungfishReleaseChannel',
+        ):
+            self.assertIn(expected, self.release_script)
+
+        configure_index = self._line_index('configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"')
+        outer_sign_index = self._line_index("# Outer app signing seals the bundle.")
+        dmg_staging_index = self._line_index('"${DMG_STAGING_DIR}/Lungfish.app"')
+        self.assertLess(configure_index, outer_sign_index)
+        self.assertLess(configure_index, dmg_staging_index)
+
+        self.assertIn('APP_PATH="${ARCHIVE_PATH}/Products/Applications/Lungfish.app"', self.release_script)
+        self.assertIn('RELEASE_APP_PATH="${RELEASE_DIR}/Lungfish.app"', self.release_script)
+        self.assertIn('"${DMG_STAGING_DIR}/Lungfish.app"', self.release_script)
+
     def test_release_script_creates_github_release_tags_at_current_commit(self):
         self.assertIn("target_commit=\"$(git rev-parse HEAD)\"", self.release_script)
         self.assertIn('--target "$target_commit"', self.release_script)

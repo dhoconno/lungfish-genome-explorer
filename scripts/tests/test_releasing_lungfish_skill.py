@@ -64,6 +64,21 @@ fi
         self.assertIn("appcast-beta.xml", skill)
         self.assertIn("appcast-stable.xml", skill)
 
+    def test_skill_requires_visible_channel_identity_caveat_and_independent_bundle_checks(self):
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+        for marker in (
+            "Lungfish Genome Explorer Preview",
+            "Lungfish Preview",
+            "Lungfish Genome Explorer",
+            "LungfishReleaseChannel",
+            "Preview builds are under rapid iterative development. Features may be incomplete, change quickly, or require additional feedback.",
+            "Lungfish.app",
+            "CFBundleDisplayName",
+            "CFBundleName",
+        ):
+            self.assertIn(marker, skill)
+
     def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
 
