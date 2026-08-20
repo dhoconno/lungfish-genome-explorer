@@ -134,22 +134,26 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             try await runner.run(request: request, workflowDirectory: workflowDirectory)
         }
 
-        // Wait for the stub process to actually start and record its PID.
+        // The stub's `printf > file` write is non-atomic. The file can exist
+        // before the PID is fully flushed, so wait for parseable contents,
+        // not just for the directory entry to appear.
         let deadline = Date().addingTimeInterval(30)
-        while !FileManager.default.fileExists(atPath: pidFile.path), Date() < deadline {
-            try await Task.sleep(nanoseconds: 20_000_000)
+        var pid: Int32?
+        while pid == nil, Date() < deadline {
+            if FileManager.default.fileExists(atPath: pidFile.path),
+               let pidString = try? String(contentsOf: pidFile, encoding: .utf8) {
+                pid = Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if pid == nil {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
         }
-        guard FileManager.default.fileExists(atPath: pidFile.path) else {
+        guard let pid else {
             task.cancel()
             _ = try? await task.value
-            XCTFail("stub nextflow process never wrote its PID file within the deadline")
+            XCTFail("stub nextflow process never wrote a valid PID file within the deadline")
             return
         }
-        let pidString = try String(contentsOf: pidFile, encoding: .utf8)
-        let pid = try XCTUnwrap(
-            Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
-            "pid file contents were not a valid PID: \(pidString)"
-        )
         XCTAssertTrue(ProcessTreeTerminator.processExists(pid: pid), "stub nextflow process should have started")
 
         task.cancel()

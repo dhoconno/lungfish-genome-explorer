@@ -2,8 +2,8 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// These tests hit real NCBI/ENA APIs and may be slow or flaky.
-// Skip in CI by filtering: swift test --skip SRASearchIntegrationTests
+// The CSV fixture always runs locally. Live NCBI/ENA checks are opt-in with
+// LUNGFISH_RUN_LIVE_SRA_TESTS=1 because public services can be rate limited.
 
 import XCTest
 @testable import LungfishCore
@@ -22,8 +22,11 @@ final class SRASearchIntegrationTests: XCTestCase {
     // MARK: - Single Accession via ENA
 
     func testSingleAccessionViaENA() async throws {
+        try Self.requireLiveSRATestsEnabled()
         // DRR028938: 631 reads, paired-end, Illumina HiSeq 2500
-        let records = try await enaService.searchReads(term: "DRR028938", limit: 10)
+        let records = try await liveSRARequest(source: "ENA") {
+            try await self.enaService.searchReads(term: "DRR028938", limit: 10)
+        }
         XCTAssertFalse(records.isEmpty, "Should find DRR028938 in ENA")
 
         let record = try XCTUnwrap(records.first)
@@ -37,13 +40,16 @@ final class SRASearchIntegrationTests: XCTestCase {
     // MARK: - Batch Lookup
 
     func testBatchThreeAccessions() async throws {
+        try Self.requireLiveSRATestsEnabled()
         let accessions = ["DRR028938", "DRR051810", "DRR052292"]
 
-        let records = try await enaService.searchReadsBatch(
-            accessions: accessions,
-            concurrency: 3,
-            progress: { _, _ in }
-        )
+        let records = try await liveSRARequest(source: "ENA") {
+            try await self.enaService.searchReadsBatch(
+                accessions: accessions,
+                concurrency: 3,
+                progress: { _, _ in }
+            )
+        }
 
         XCTAssertGreaterThanOrEqual(records.count, 2, "Should resolve at least 2 of 3 accessions")
     }
@@ -51,6 +57,7 @@ final class SRASearchIntegrationTests: XCTestCase {
     // MARK: - NCBI SRA ESearch
 
     func testSRAESearchByOrganism() async throws {
+        try Self.requireLiveSRATestsEnabled()
         // Brief delay to avoid NCBI rate limiting when tests run back-to-back
         try await Task.sleep(nanoseconds: 500_000_000)
         let result = try await liveSRAESearch(term: "SARS-CoV-2[Organism]", retmax: 5)
@@ -59,6 +66,7 @@ final class SRASearchIntegrationTests: XCTestCase {
     }
 
     func testSRAESearchByBioProject() async throws {
+        try Self.requireLiveSRATestsEnabled()
         // PRJNA989177 is CDC Traveler-Based Genomic Surveillance
         let result = try await liveSRAESearch(term: "PRJNA989177[BioProject]", retmax: 5)
         XCTAssertGreaterThan(result.totalCount, 100, "Should find many entries in PRJNA989177")
@@ -68,21 +76,14 @@ final class SRASearchIntegrationTests: XCTestCase {
     // MARK: - Two-Step: ESearch → EFetch → Run Accessions
 
     func testESearchToEFetchRunAccessions() async throws {
+        try Self.requireLiveSRATestsEnabled()
         // Search for a specific small BioProject
         let esearchResult = try await liveSRAESearch(term: "PRJDB3502[BioProject]", retmax: 10)
 
-        let runAccessions: [String]
-        do {
-            runAccessions = try await ncbiService.sraEFetchRunAccessions(uids: Array(esearchResult.ids.prefix(5)))
-        } catch {
-            if isTransientNCBISRAError(error) {
-                throw XCTSkip("NCBI SRA EFetch backend is temporarily unavailable for PRJDB3502: \(error)")
-            }
-            throw error
+        let runAccessions = try await liveSRARequest(source: "NCBI") {
+            try await self.ncbiService.sraEFetchRunAccessions(uids: Array(esearchResult.ids.prefix(5)))
         }
-        guard !runAccessions.isEmpty else {
-            throw XCTSkip("NCBI SRA EFetch returned no run accessions for a stable BioProject; treating as transient live API unavailability.")
-        }
+        XCTAssertFalse(runAccessions.isEmpty, "NCBI SRA EFetch should return run accessions for PRJDB3502")
 
         // Run accessions should match SRA pattern
         for acc in runAccessions {
@@ -109,28 +110,61 @@ final class SRASearchIntegrationTests: XCTestCase {
     }
 
     private func liveSRAESearch(term: String, retmax: Int) async throws -> NCBIService.ESearchSearchResult {
+        try await liveSRARequest(source: "NCBI") {
+            try await self.ncbiService.sraESearch(term: term, retmax: retmax)
+        }
+    }
+
+    private static let liveSRATestsEnvironmentKey = "LUNGFISH_RUN_LIVE_SRA_TESTS"
+
+    private static func requireLiveSRATestsEnabled() throws {
+        let rawValue = ProcessInfo.processInfo.environment[liveSRATestsEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let enabledValues = ["1", "true", "yes", "on"]
+        guard let rawValue, enabledValues.contains(rawValue) else {
+            throw XCTSkip(
+                "Live SRA integration tests are disabled. Set \(liveSRATestsEnvironmentKey)=1 to run."
+            )
+        }
+    }
+
+    private func liveSRARequest<T>(
+        source: String,
+        operation: () async throws -> T
+    ) async throws -> T {
         do {
-            let result = try await ncbiService.sraESearch(term: term, retmax: retmax)
-            guard !result.ids.isEmpty else {
-                throw XCTSkip("NCBI SRA ESearch returned zero IDs for \(term); treating as transient live API unavailability.")
-            }
-            return result
+            return try await operation()
         } catch {
-            if isTransientNCBISRAError(error) {
-                throw XCTSkip("NCBI SRA ESearch backend is temporarily unavailable for \(term): \(error)")
+            if Self.isTransientLiveSRAError(error) {
+                throw XCTSkip("\(source) SRA service is temporarily unavailable: \(error)")
             }
             throw error
         }
     }
 
-    private func isTransientNCBISRAError(_ error: Error) -> Bool {
-        if case DatabaseServiceError.invalidQuery(let reason) = error {
-            return reason.localizedCaseInsensitiveContains("Bad request")
+    private static func isTransientLiveSRAError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .cannotFindHost, .cannotConnectToHost,
+                    .networkConnectionLost, .dnsLookupFailed,
+                    .notConnectedToInternet, .internationalRoamingOff,
+                    .callIsActive, .dataNotAllowed, .cannotLoadFromNetwork:
+                return true
+            default:
+                return false
+            }
         }
-        guard case DatabaseServiceError.serverError(let message) = error else {
+        guard let databaseError = error as? DatabaseServiceError else {
             return false
         }
-        return message.localizedCaseInsensitiveContains("Search Backend failed")
-            || message.localizedCaseInsensitiveContains("address table is empty")
+        switch databaseError {
+        case .networkError, .rateLimitExceeded, .serverError, .timeout:
+            return true
+        case .invalidResponse(let statusCode):
+            return statusCode == 429 || (500...599).contains(statusCode)
+        default:
+            return false
+        }
     }
 }

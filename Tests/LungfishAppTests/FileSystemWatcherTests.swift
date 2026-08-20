@@ -26,6 +26,32 @@ struct FileSystemWatcherTests {
         try? FileManager.default.removeItem(at: url)
     }
 
+    /// FSEvents delivery is asynchronous and is deliberately coalesced by the
+    /// watcher. Polling this condition avoids treating an arbitrary sleep as
+    /// proof that the callback queue has been serviced.
+    @MainActor
+    private func waitUntil(
+        timeout: TimeInterval = 10,
+        condition: @escaping @MainActor () -> Bool
+    ) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return condition()
+    }
+
+    /// Give fseventsd a scheduling turn after a new stream starts. This models
+    /// the production case (an already-open project) rather than racing file
+    /// creation against stream registration.
+    @MainActor
+    private func settleWatcherRegistration() async throws {
+        try await Task.sleep(for: .milliseconds(500))
+    }
+
     @Test("Watcher detects new file creation")
     @MainActor
     func watcherDetectsFileCreation() async throws {
@@ -258,6 +284,7 @@ struct FileSystemWatcherTests {
         }
 
         watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration()
 
         // Create multiple files in rapid succession
         for i in 0..<5 {
@@ -265,12 +292,11 @@ struct FileSystemWatcherTests {
             try "Content \(i)".write(to: testFile, atomically: true, encoding: .utf8)
         }
 
-        // Wait for debounced callback
-        try await Task.sleep(for: .seconds(5))
+        let receivedCallback = try await waitUntil { callbackCount >= 1 }
 
         // Due to debouncing, we should get fewer callbacks than file operations
         // Ideally just 1 callback after all the rapid changes
-        #expect(callbackCount >= 1, "Should get at least one callback")
+        #expect(receivedCallback, "Should get at least one callback")
         #expect(callbackCount <= 2, "Debouncing should coalesce rapid changes (got \(callbackCount) callbacks)")
 
         watcher.stopWatching()
@@ -286,9 +312,9 @@ struct FileSystemWatcherTests {
             removeTempDirectory(tempDir2)
         }
 
-        var callbackCount = 0
-        let watcher = FileSystemWatcher { _ in
-            callbackCount += 1
+        var changedPaths: [URL] = []
+        let watcher = FileSystemWatcher { changes in
+            changedPaths.append(contentsOf: changes.all.map(\.standardizedFileURL))
         }
 
         // Start watching first directory
@@ -298,6 +324,7 @@ struct FileSystemWatcherTests {
         // Switch to second directory (should auto-stop first)
         watcher.startWatching(directory: tempDir2)
         #expect(watcher.isWatching == true)
+        try await settleWatcherRegistration()
 
         // Create file in first directory (should NOT trigger)
         let file1 = tempDir1.appendingPathComponent("test1.txt")
@@ -307,11 +334,15 @@ struct FileSystemWatcherTests {
         let file2 = tempDir2.appendingPathComponent("test2.txt")
         try "Content 2".write(to: file2, atomically: true, encoding: .utf8)
 
-        // Wait for callback
-        try await Task.sleep(for: .seconds(5))
+        let secondDirectoryChanged = try await waitUntil {
+            changedPaths.contains { $0.path.hasPrefix(tempDir2.standardizedFileURL.path + "/") }
+        }
 
-        // Should only get callback from second directory
-        #expect(callbackCount >= 1, "Should get callback from second directory")
+        #expect(secondDirectoryChanged, "Should get a callback from the second directory")
+        #expect(
+            !changedPaths.contains { $0.path.hasPrefix(tempDir1.standardizedFileURL.path + "/") },
+            "The stopped first directory must not produce callbacks"
+        )
 
         watcher.stopWatching()
     }
