@@ -183,6 +183,8 @@ final class AppShellAccessibilityTests: XCTestCase {
         let aboutText = credits.string
 
         let manifest = ManagedToolLock.bundled
+        XCTAssertEqual(manifest.resolvedDependencySet, "2026.2")
+        XCTAssertEqual(manifest.dependencySetDate, "2026-08-18")
         let dependencySetLine = "Dependency set: \(manifest.resolvedDependencySet) (\(manifest.dependencySetDate ?? "unknown"))"
         XCTAssertTrue(aboutText.contains(dependencySetLine), aboutText)
 

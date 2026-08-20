@@ -3,7 +3,8 @@
 Status: completed by the CalVer preview release train. `v2026.8.1` was the
 first CalVer tag, but its downloadable artifact was withdrawn after a
 portability defect was found in the bundled micromamba binary. The corrected
-replacement is `v2026.8.2`; see `docs/release-notes/2026.8.2.md`. Use the
+replacement is `v2026.8.3`; see `docs/release-notes/2026.8.3.md`. The
+intermediate `v2026.8.2` preparation tag was not published. Use the
 release skill and current remote ledger for every later version rather than
 the pre-release instructions below.
 

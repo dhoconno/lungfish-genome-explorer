@@ -88,6 +88,23 @@ class ReleaseSmokeTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(marker, result.stderr)
 
+    def test_smoke_test_allows_private_tmp_root_runtime_constant(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            runtime_constant = app_path / "Contents" / "Resources" / "runtime-root.txt"
+            runtime_constant.write_text("/private/tmp\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PASS portability", result.stdout)
+
     def test_smoke_test_scans_apps_inside_gitignored_build_directory(self):
         build_root = self.root / "build"
         build_root.mkdir(exist_ok=True)

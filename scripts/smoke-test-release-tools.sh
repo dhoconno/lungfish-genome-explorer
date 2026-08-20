@@ -260,7 +260,7 @@ run_portability_scan() {
     local leak_patterns=(
         "/Users/"
         "/Users/dho"
-        "/private/tmp"
+        "/private/tmp/"
         "/var/folders"
         "/tmp/lungfish"
         "DerivedData"
