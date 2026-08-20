@@ -4,14 +4,17 @@ on:
   push:
     branches:
       - main
-    # A release tag runs the whole board: the release script pushes v<version>
-    # before gh release create, so every release build gets the full suite,
-    # build smoke, and toolset conformance on a clean clone with the pinned
-    # toolchain, with no manual dispatch. Ordinary pushes run only the fast gate.
-    tags:
-      - "v*"
   pull_request:
   workflow_dispatch:
+  # 'released' fires only for FULL releases, never for prereleases, and also
+  # when an existing prerelease is promoted to a full release. That is the
+  # channel split: preview builds (GitHub prereleases feeding the Sparkle
+  # preview appcast) iterate on the three minute push gate alone, while
+  # anything promoted to all users gets the heavy board, exactly at promotion
+  # time. Tags cannot carry the channel because the release scripts pin the tag
+  # format to v<version> with no suffix.
+  release:
+    types: [released]
 
 concurrency:
   # Keyed by event so a push never cancels a long dispatch validation: pushes
@@ -90,7 +93,7 @@ jobs:
     name: Build and smoke tests
     runs-on: macos-26
     timeout-minutes: 90
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
 
     steps:
       - name: Check out repository
@@ -261,7 +264,7 @@ jobs:
     name: Toolset conformance
     runs-on: macos-26
     timeout-minutes: 120
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
 
     steps:
       - name: Check out repository
