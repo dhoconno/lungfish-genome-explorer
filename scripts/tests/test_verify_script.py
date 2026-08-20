@@ -6,9 +6,14 @@ databases. Everything past the dry-run exit is covered by actually running a
 sweep, not by unit tests.
 """
 
+import os
 import pathlib
 import re
+import shlex
+import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -186,6 +191,85 @@ class FilterSyncTests(unittest.TestCase):
         for pack in packs.group(1).split():
             with self.subTest(pack=pack):
                 self.assertIn(f"conda install --pack {pack}", workflow)
+
+
+class Tier1FailurePropagationTests(unittest.TestCase):
+    def test_failed_parity_python_provisioning_does_not_launch_the_suite_gate(self):
+        """A failed oracle setup must not be masked by the gate's final status.
+
+        The production script runs tier functions on the left side of `||`,
+        where Bash disables `errexit` for the function body. Execute an exact
+        temporary copy with all expensive commands stubbed: the venv's Python
+        fails immediately, and the fake `bash` records whether the suite gate
+        was nevertheless launched.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            repo = root / "repo"
+            verify = repo / "scripts" / "deps" / "verify.sh"
+            verify.parent.mkdir(parents=True)
+            shutil.copy2(VERIFY, verify)
+            verify.chmod(0o755)
+
+            manifest = repo / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"dependencySet":"test"}\n', encoding="utf-8")
+
+            command_bin = root / "bin"
+            command_bin.mkdir()
+            gate_marker = root / "suite-gate-ran"
+
+            def write_command(name, body):
+                command = command_bin / name
+                command.write_text("#!/bin/bash\nset -eu\n" + body, encoding="utf-8")
+                command.chmod(0o755)
+
+            write_command("swift", "exit 0\n")
+            cli = repo / ".build" / "debug" / "lungfish-cli"
+            cli.parent.mkdir(parents=True)
+            cli.write_text(
+                "#!/bin/bash\n"
+                "if [[ \"$*\" == *\"--plan --json\"* ]]; then\n"
+                "  printf '%s\\n' '{\"installEnvironments\":[],\"reinstallEnvironments\":[],\"removeEnvironments\":[],\"databaseUpdates\":[],\"bootstrapUpdate\":null}'\n"
+                "fi\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            cli.chmod(0o755)
+            write_command("bash", f"touch {shlex.quote(str(gate_marker))}\nexit 99\n")
+            write_command(
+                "python3",
+                "if [[ \"${1:-}\" == \"-m\" && \"${2:-}\" == \"venv\" ]]; then\n"
+                "  target=\"$3\"\n"
+                "  mkdir -p \"${target}/bin\"\n"
+                "  printf '%s\\n' '#!/bin/sh' 'exit 42' > \"${target}/bin/python\"\n"
+                "  chmod +x \"${target}/bin/python\"\n"
+                "  exit 0\n"
+                "fi\n"
+                f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+            )
+
+            environment = os.environ.copy()
+            home = root / "home"
+            home.mkdir()
+            environment["HOME"] = str(home)
+            environment["PATH"] = f"{command_bin}{os.pathsep}{environment['PATH']}"
+            result = subprocess.run(
+                ["/bin/bash", str(verify), "--tier", "1", "--root", str(root / "storage")],
+                cwd=str(repo),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=20,
+                env=environment,
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(
+                gate_marker.exists(),
+                "full-suite-gate ran after parity Python provisioning failed",
+            )
 
 
 class PlanGateTests(unittest.TestCase):

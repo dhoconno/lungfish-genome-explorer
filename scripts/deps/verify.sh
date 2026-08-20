@@ -425,17 +425,17 @@ provision_parity_python() {
     # This mirrors the CI conformance setup while preventing a developer's
     # Homebrew Python packages from making a local sweep pass accidentally.
     echo "==> Provisioning isolated Python dependencies for iVar parity"
-    python3 -m venv "${parity_python_root}"
-    "${parity_python_root}/bin/python" -m pip install --upgrade pip
-    "${parity_python_root}/bin/python" -m pip install numpy biopython scipy pandas
-    "${parity_python_root}/bin/python" -c 'import numpy, Bio, scipy, pandas; print("parity deps OK")'
+    python3 -m venv "${parity_python_root}" || return $?
+    "${parity_python_root}/bin/python" -m pip install --upgrade pip || return $?
+    "${parity_python_root}/bin/python" -m pip install numpy biopython scipy pandas || return $?
+    "${parity_python_root}/bin/python" -c 'import numpy, Bio, scipy, pandas; print("parity deps OK")' || return $?
 }
 
 run_tier1() {
     echo "==> Tier 1: conformance suites (no skips allowed)"
-    provision_parity_python
+    provision_parity_python || return $?
     PATH="${parity_python_root}/bin:${PATH}" \
-        bash scripts/full-suite-gate.sh --require-tools --filter "${filter:-${default_tier1_filter}}"
+        bash scripts/full-suite-gate.sh --require-tools --filter "${filter:-${default_tier1_filter}}" || return $?
 }
 
 run_tier2() {
