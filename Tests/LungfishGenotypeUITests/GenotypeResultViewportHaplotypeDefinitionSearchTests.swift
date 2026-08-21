@@ -1382,14 +1382,14 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let fieldEditor = window.firstResponder
         XCTAssertNotNil(fieldEditor)
         controller.testingTypeQuickSearchDebounced("debounced-not-present")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        let expectedDebouncedMessage = "No samples or alleles match “debounced-not-present”. Press Escape to clear the search."
+        waitUntilQuickSearchSettles(controller, timeout: 10.0) {
+            controller.testingQuickSearchEmptyMessage == expectedDebouncedMessage
+        }
         XCTAssertTrue(window.firstResponder === fieldEditor)
         XCTAssertTrue(controller.testingQuickSearchIsFocused)
         XCTAssertEqual(controller.testingQuickSearchText, "debounced-not-present")
-        XCTAssertEqual(
-            controller.testingQuickSearchEmptyMessage,
-            "No samples or alleles match “debounced-not-present”. Press Escape to clear the search."
-        )
+        XCTAssertEqual(controller.testingQuickSearchEmptyMessage, expectedDebouncedMessage)
     }
 
 
@@ -2781,4 +2781,25 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         )
     }
 
+}
+
+/// Polls a debounce-dependent condition instead of sleeping a fixed wall-clock
+/// interval, so this stays reliable under full-suite serial/parallel load
+/// where the run loop may be delayed in delivering the debounce timer.
+@MainActor
+private func waitUntilQuickSearchSettles(
+    _ controller: GenotypeResultViewController,
+    timeout: TimeInterval = 10.0,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @escaping @MainActor () -> Bool
+) {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() {
+            return
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+    }
+    XCTAssertTrue(condition(), file: file, line: line)
 }
