@@ -65,3 +65,23 @@ are the full suite and cold builds. Keeping the inner loop name-scoped and the f
 to a background/pre-push gate, while working in a warm checkout, recovers the iteration
 time. The durable structural win (smaller per-feature modules and test targets, which
 scope the *build* per surface) is tracked separately under the modularization effort.
+
+## Tier update (2026-08-21)
+
+The gate now has named tiers (`scripts/full-suite-gate.sh --tier <name>`); see the
+script header for definitions. Measured on this machine at commit e87fd86c:
+
+- `--tier unit` (parallel per-class, implied automatically): **379-459 s** wall-clock
+  for ~12K tests across four consecutive runs. This is the pre-push hook default.
+- `--tier smoke`: seconds of test time once the build is warm.
+- `--tier integration` / `--tier conformance`: serial; see the dependency-sweep doc
+  for conformance timing (30-60 min with provisioning).
+- `--tier full`: the entire suite, serial - the stable-release gate.
+
+Notes: serial runs of large `--skip`/`--filter` selections are impossible (SwiftPM
+expands the selection past ARG_MAX), so the unit tier always runs `--parallel`.
+Load-sensitive classes that fail only under parallel are either quarantined into the
+serial integration tier (`PARALLEL_HAZARD_SUITES` in the gate) or, for the
+nondeterministic tail, rerun serially once by the gate's flake-retry pass - a PASS
+that needed the retry names the retried classes in its verdict line. Parallel runs
+also write per-test timing to `.build/gate-logs/*.xunit*.xml`.
