@@ -101,21 +101,11 @@ final class AssemblyConformanceTests: XCTestCase {
         let out = tmp.appendingPathComponent("out")
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        // MEGAHIT 1.2.9's arm64 core crashes reliably above two threads on
-        // Apple Silicon (see AssemblyRunRequest.effectiveThreadCount, which
-        // caps the app's own MEGAHIT invocations the same way); confirmed
-        // locally that `-t 4` segfaults (exit -11) on this machine while
-        // `-t 2` completes.
-        let res = try ProcessRunner.run(
-            megahit,
-            ["-1", r1.path, "-2", r2.path, "-t", "2", "-o", out.path],
-            timeout: 1800
-        )
-        XCTAssertEqual(res.status, 0, res.stderr.suffix(2000).description)
-
-        let contigs = out.appendingPathComponent("final.contigs.fa")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: contigs.path))
-
+        // Exercise the same command builder used by the shipped pipeline.
+        // In particular, Apple Silicon execution is capped at two threads
+        // and uses MEGAHIT's non-accelerated core. A hand-written invocation
+        // without `--no-hw-accel` can select megahit_core_popcnt and abort
+        // under CI even though Lungfish never runs that command.
         let request = AssemblyRunRequest(
             tool: .megahit,
             readType: .illuminaShortReads,
@@ -125,10 +115,30 @@ final class AssemblyConformanceTests: XCTestCase {
             pairedEnd: true,
             threads: 4
         )
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+        XCTAssertEqual(command.executable, "megahit")
+        XCTAssertEqual(command.environment, "megahit")
+        #if os(macOS) && arch(arm64)
+        XCTAssertTrue(command.arguments.contains("--no-hw-accel"))
+        let threadIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--num-cpu-threads"))
+        XCTAssertEqual(command.arguments[threadIndex + 1], "2")
+        #endif
+
+        let res = try ProcessRunner.run(
+            megahit,
+            command.arguments,
+            cwd: command.workingDirectory,
+            timeout: 1800
+        )
+        XCTAssertEqual(res.status, 0, res.stderr.suffix(2000).description)
+
+        let contigs = out.appendingPathComponent("final.contigs.fa")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: contigs.path))
+
         let result = try AssemblyOutputNormalizer.normalize(
             request: request,
             primaryOutputDirectory: out,
-            commandLine: "megahit",
+            commandLine: command.shellCommand,
             wallTimeSeconds: 0
         )
         XCTAssertEqual(result.contigsPath, contigs)
