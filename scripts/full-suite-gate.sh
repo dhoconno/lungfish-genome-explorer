@@ -85,7 +85,8 @@ LOG="$LOG_DIR/gate-${STAMP}-${SHA}.log"
 # smoke        provenance + core-model spot checks (mirrors the CI smoke regex)
 # unit         everything EXCEPT the integration and conformance suites (the
 #              skip regex is composed from INTEGRATION_FILTER + CONFORMANCE_FILTER,
-#              so the three tiers partition the suite by construction)
+#              so unit excludes the other tiers by construction; integration and
+#              conformance may overlap for tool-gated integration suites)
 # integration  LungfishIntegrationTests + CLI process-fork suites + storage suites
 # conformance  real-tool suites (combine with --require-tools to forbid skips;
 #              matches the CI toolset-conformance job's filter byte-for-byte)
@@ -261,7 +262,7 @@ if [ "$BG" -eq 1 ]; then
     run_gate &
     GATE_PID=$!
     echo "Full-suite gate running in background (pid $GATE_PID). Watch: tail -f $LOG" >&2
-    echo "Result will be printed to the gate log when complete." >&2
+    echo "The PASS/FAIL verdict goes to this shell's stdout when complete; the log holds the swift test output." >&2
     exit 0
 else
     if [ "$QUIET" -eq 1 ]; then
