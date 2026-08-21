@@ -220,6 +220,11 @@ run_gate() {
             retry_filter="^($(printf '%s\n' "$failing_classes" | sed 's/\./\\./' | paste -sd '|' -))(/|$)"
             local retry_log="$LOG_DIR/gate-${STAMP}-${SHA}.retry.log"
             echo "Run had $class_count failing class(es); isolated serial retry: $retry_filter" >&2
+            # Let the machine settle before re-measuring: big runs leave fseventsd
+            # digesting .build churn at ~100% CPU for a while, which is exactly the
+            # load that makes timing-bounded tests fail. Retrying at peak churn
+            # re-fails genuine load flakes and mislabels them deterministic.
+            sleep 30
             swift test --skip-update --filter "$retry_filter" > "$retry_log" 2>&1
             local retry_status=$?
             local retry_fail
