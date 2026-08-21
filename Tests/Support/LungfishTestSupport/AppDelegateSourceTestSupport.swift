@@ -11,11 +11,12 @@
 import Foundation
 
 /// Directory holding AppDelegate.swift and its AppDelegate+*.swift extensions.
-func appDelegateSourceDirectory() -> URL {
-    // #filePath = .../Tests/LungfishAppTests/AppDelegateSourceTestSupport.swift
-    // repo root = three levels up.
+public func appDelegateSourceDirectory() -> URL {
+    // #filePath = .../Tests/Support/LungfishTestSupport/AppDelegateSourceTestSupport.swift
+    // repo root = four levels up.
     let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // LungfishAppTests
+        .deletingLastPathComponent() // LungfishTestSupport
+        .deletingLastPathComponent() // Support
         .deletingLastPathComponent() // Tests
         .deletingLastPathComponent() // repo root
     return root.appendingPathComponent("Sources/LungfishApp/App", isDirectory: true)
@@ -24,7 +25,7 @@ func appDelegateSourceDirectory() -> URL {
 /// Returns the concatenated source of AppDelegate.swift plus every AppDelegate+*.swift
 /// in the App directory, joined with newlines. Use this in place of reading the single
 /// AppDelegate.swift file when asserting on AppDelegate implementation patterns.
-func combinedAppDelegateSource() -> String {
+public func combinedAppDelegateSource() -> String {
     let dir = appDelegateSourceDirectory()
     let fm = FileManager.default
     var urls: [URL] = [dir.appendingPathComponent("AppDelegate.swift")]

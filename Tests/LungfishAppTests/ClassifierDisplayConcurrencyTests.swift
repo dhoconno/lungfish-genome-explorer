@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 
 final class ClassifierDisplayConcurrencyTests: XCTestCase {
     func testNaoMgsDisplayDoesNotRewriteBundleDuringViewing() throws {

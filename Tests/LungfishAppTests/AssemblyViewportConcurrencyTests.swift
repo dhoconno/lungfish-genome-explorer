@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishTestSupport
 
 @MainActor
 final class AssemblyViewportConcurrencyTests: XCTestCase {

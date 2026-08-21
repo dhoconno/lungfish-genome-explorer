@@ -1727,3 +1727,17 @@ private final class LockedTestBoolean: @unchecked Sendable {
         lock.withLock { storedValue = value }
     }
 }
+
+// Duplicated from Tests/LungfishAppTests/AssemblyViewportTestSupport.swift (task 11
+// AppKit-view test split): that file also defines App-only assembly-result fixtures
+// still used by LungfishAppTests, so it was not promoted to LungfishTestSupport.
+// This type is small (<20 lines) and self-contained, so it is duplicated here rather
+// than dragging the whole file's App-only dependencies into LungfishAppViewTests.
+@MainActor
+private final class RecordingPasteboard: PasteboardWriting {
+    private(set) var lastString: String?
+
+    func setString(_ string: String) {
+        lastString = string
+    }
+}

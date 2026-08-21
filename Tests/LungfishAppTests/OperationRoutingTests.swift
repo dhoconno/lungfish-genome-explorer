@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class OperationRoutingTests: XCTestCase {

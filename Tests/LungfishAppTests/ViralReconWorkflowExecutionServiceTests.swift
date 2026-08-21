@@ -2,6 +2,7 @@ import LungfishKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class ViralReconWorkflowExecutionServiceTests: XCTestCase {

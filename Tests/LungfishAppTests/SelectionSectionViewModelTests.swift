@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class SelectionSectionViewModelTests: XCTestCase {

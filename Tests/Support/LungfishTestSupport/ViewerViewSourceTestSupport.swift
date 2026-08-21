@@ -13,10 +13,11 @@ import Foundation
 
 /// Directory holding the Viewer source files.
 private func viewerSourceDirectory() -> URL {
-    // #filePath = .../Tests/LungfishAppTests/ViewerViewSourceTestSupport.swift
-    // repo root = three levels up.
+    // #filePath = .../Tests/Support/LungfishTestSupport/ViewerViewSourceTestSupport.swift
+    // repo root = four levels up.
     let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // LungfishAppTests
+        .deletingLastPathComponent() // LungfishTestSupport
+        .deletingLastPathComponent() // Support
         .deletingLastPathComponent() // Tests
         .deletingLastPathComponent() // repo root
     return root.appendingPathComponent("Sources/LungfishApp/Views/Viewer", isDirectory: true)
@@ -53,7 +54,7 @@ private func combinedViewerSource(coreFileName: String, extensionPrefix: String)
 /// AnnotationTableDrawerView+*.swift extension in the Viewer directory. Use this in
 /// place of reading the single AnnotationTableDrawerView.swift file when asserting on
 /// implementation patterns that may live in an extension file after the split.
-func combinedAnnotationTableDrawerSource() -> String {
+public func combinedAnnotationTableDrawerSource() -> String {
     combinedViewerSource(
         coreFileName: "AnnotationTableDrawerView.swift",
         extensionPrefix: "AnnotationTableDrawerView+"
@@ -64,7 +65,7 @@ func combinedAnnotationTableDrawerSource() -> String {
 /// SequenceViewerView+*.swift extension in the Viewer directory. Use this in place of
 /// reading the single SequenceViewerView.swift file when asserting on implementation
 /// patterns that may live in an extension file after the split.
-func combinedSequenceViewerSource() -> String {
+public func combinedSequenceViewerSource() -> String {
     combinedViewerSource(
         coreFileName: "SequenceViewerView.swift",
         extensionPrefix: "SequenceViewerView+"

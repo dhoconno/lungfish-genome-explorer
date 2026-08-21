@@ -397,6 +397,11 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "LungfishAppViewTests",
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport"],
+            path: "Tests/LungfishAppViewTests"
+        ),
+        .testTarget(
             name: "LungfishAppWorkflowTests",
             dependencies: ["LungfishApp", "LungfishWorkflow"],
             path: "Tests/LungfishAppWorkflowTests"

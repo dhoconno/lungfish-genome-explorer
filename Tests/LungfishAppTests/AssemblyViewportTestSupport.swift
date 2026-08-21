@@ -6,6 +6,10 @@ import LungfishWorkflow
 import XCTest
 import LungfishKit
 
+// Duplicated (not shared) into Tests/LungfishAppViewTests/MappingResultViewControllerTests.swift
+// as a private type after the task 11 AppKit-view test split: this file also defines
+// App-only assembly-result fixtures used by stayers here, so it was not promoted to
+// LungfishTestSupport, and this type alone is small enough (<20 lines) to duplicate.
 @MainActor
 final class RecordingPasteboard: PasteboardWriting {
     private(set) var lastString: String?

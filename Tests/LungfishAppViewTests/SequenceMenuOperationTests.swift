@@ -5,6 +5,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishApp
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class SequenceMenuOperationTests: XCTestCase {

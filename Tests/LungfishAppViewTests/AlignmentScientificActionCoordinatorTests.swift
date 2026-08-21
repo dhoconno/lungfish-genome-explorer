@@ -497,7 +497,7 @@ import XCTest
     func testViewerRoutesUseSharedFinalPublicationCoordinatorWithoutMappingResult() throws {
         let source = try String(
             contentsOfFile: #filePath.replacingOccurrences(
-                of: "Tests/LungfishAppTests/AlignmentScientificActionCoordinatorTests.swift",
+                of: "Tests/LungfishAppViewTests/AlignmentScientificActionCoordinatorTests.swift",
                 with: "Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift"
             ),
             encoding: .utf8

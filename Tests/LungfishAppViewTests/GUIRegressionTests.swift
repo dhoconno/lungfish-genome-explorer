@@ -20,6 +20,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 final class GUIRegressionTests: XCTestCase {
 
@@ -1138,7 +1139,7 @@ final class RepositoryHygieneTests: XCTestCase {
         XCTAssertTrue(try gitCheckIgnore("unreviewed-local-output.tmp"))
         XCTAssertFalse(try gitCheckIgnore("README.md"))
         XCTAssertFalse(try gitCheckIgnore("Sources/LungfishCore/Bundles/BundleViewState.swift"))
-        XCTAssertFalse(try gitCheckIgnore("Tests/LungfishAppTests/GUIRegressionTests.swift"))
+        XCTAssertFalse(try gitCheckIgnore("Tests/LungfishAppViewTests/GUIRegressionTests.swift"))
     }
 
     private func gitCheckIgnore(_ path: String) throws -> Bool {

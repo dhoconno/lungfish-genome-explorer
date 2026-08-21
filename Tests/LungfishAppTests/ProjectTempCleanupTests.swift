@@ -7,6 +7,7 @@ import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class ProjectTempCleanupTests: XCTestCase {
 

@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class MappingViewportRoutingTests: XCTestCase {

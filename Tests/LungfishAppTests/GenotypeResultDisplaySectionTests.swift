@@ -6,6 +6,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import SwiftUI
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeResultDisplaySectionTests: XCTestCase {

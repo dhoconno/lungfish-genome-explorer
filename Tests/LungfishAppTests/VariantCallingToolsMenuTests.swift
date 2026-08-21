@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class VariantCallingToolsMenuTests: XCTestCase {
     private var tempDir: URL!

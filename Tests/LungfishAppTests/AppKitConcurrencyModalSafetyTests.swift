@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 
 final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     func testProductionSourcesDoNotCallRunModal() throws {

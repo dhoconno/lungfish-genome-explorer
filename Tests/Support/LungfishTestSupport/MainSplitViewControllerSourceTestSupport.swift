@@ -14,11 +14,12 @@
 import Foundation
 
 /// Directory holding MainSplitViewController.swift and its split extensions.
-func mainSplitViewControllerSourceDirectory() -> URL {
-    // #filePath = .../Tests/LungfishAppTests/MainSplitViewControllerSourceTestSupport.swift
-    // repo root = three levels up.
+public func mainSplitViewControllerSourceDirectory() -> URL {
+    // #filePath = .../Tests/Support/LungfishTestSupport/MainSplitViewControllerSourceTestSupport.swift
+    // repo root = four levels up.
     let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // LungfishAppTests
+        .deletingLastPathComponent() // LungfishTestSupport
+        .deletingLastPathComponent() // Support
         .deletingLastPathComponent() // Tests
         .deletingLastPathComponent() // repo root
     return root.appendingPathComponent(
@@ -43,7 +44,7 @@ private let mainSplitViewControllerOrderedSourceFiles: [String] = [
     "MainSplitViewController+GenomicsDisplay.swift",
 ]
 
-func mainSplitViewControllerSplitExtensionSourceFiles() -> [String] {
+public func mainSplitViewControllerSplitExtensionSourceFiles() -> [String] {
     mainSplitViewControllerOrderedSourceFiles.filter { $0.contains("+") }
 }
 
@@ -51,7 +52,7 @@ func mainSplitViewControllerSplitExtensionSourceFiles() -> [String] {
 /// MainSplitViewController+*.swift split file, joined with newlines in original
 /// source order. Use this in place of reading the single MainSplitViewController.swift
 /// file when asserting on MainSplitViewController implementation patterns.
-func combinedMainSplitViewControllerSource() -> String {
+public func combinedMainSplitViewControllerSource() -> String {
     let dir = mainSplitViewControllerSourceDirectory()
     var pieces: [String] = []
     for name in mainSplitViewControllerOrderedSourceFiles {
