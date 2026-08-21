@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 struct OpsCommand: AsyncParsableCommand {
@@ -83,8 +84,5 @@ private func formatDuration(_ seconds: TimeInterval) -> String {
 
 private func formatBytes(_ bytes: UInt64?) -> String {
     guard let bytes else { return "unknown" }
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .memory
-    formatter.allowedUnits = [.useMB, .useGB]
-    return formatter.string(fromByteCount: Int64(bytes))
+    return LungfishFormatters.formatBytes(bytes)
 }

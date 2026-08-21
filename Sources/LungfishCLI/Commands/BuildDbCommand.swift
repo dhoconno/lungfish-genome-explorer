@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import SQLite3
@@ -473,7 +474,7 @@ extension BuildDbCommand {
             }
 
             if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
+                print("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
             }
         }
 
@@ -524,12 +525,6 @@ extension BuildDbCommand {
                 total += Int64(size)
             }
             return total
-        }
-
-        private func formatBytes(_ bytes: Int64) -> String {
-            let formatter = ByteCountFormatter()
-            formatter.countStyle = .file
-            return formatter.string(fromByteCount: bytes)
         }
     }
 }
@@ -1614,7 +1609,7 @@ extension BuildDbCommand {
             }
 
             if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
+                print("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
             }
         }
 
@@ -1634,12 +1629,6 @@ extension BuildDbCommand {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return Int64(size)
-        }
-
-        private func formatBytes(_ bytes: Int64) -> String {
-            let formatter = ByteCountFormatter()
-            formatter.countStyle = .file
-            return formatter.string(fromByteCount: bytes)
         }
 
         // MARK: - Column Index Builder
@@ -2050,7 +2039,7 @@ extension BuildDbCommand {
             }
 
             if !globalOptions.quiet {
-                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
+                print("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
             }
         }
 
@@ -2085,12 +2074,6 @@ extension BuildDbCommand {
                     )
                 }
             }
-        }
-
-        private func formatBytes(_ bytes: Int64) -> String {
-            let formatter = ByteCountFormatter()
-            formatter.countStyle = .file
-            return formatter.string(fromByteCount: bytes)
         }
     }
 }
