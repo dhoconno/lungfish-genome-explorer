@@ -116,7 +116,7 @@ import XCTest
         let coordinator = AlignmentScientificActionCoordinator(
             validator: { _ in },
             consensusFetcher: { _, _ in
-                try await Task.sleep(nanoseconds: 10_000_000_000)
+                try await Task.sleep(nanoseconds: 2_000_000_000)
                 return .init(sequence: "A", referenceLength: 1, allLowDepth: false)
             }
         )
@@ -480,7 +480,7 @@ import XCTest
         let coordinator = AlignmentScientificActionCoordinator(
             validator: { _ in },
             regionStager: { _ in
-                try await Task.sleep(for: .seconds(5))
+                try await Task.sleep(for: .seconds(2))
                 throw CancellationError()
             }
         )

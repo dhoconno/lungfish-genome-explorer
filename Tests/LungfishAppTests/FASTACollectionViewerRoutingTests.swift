@@ -127,7 +127,7 @@ final class FASTACollectionViewerRoutingTests: XCTestCase {
         viewer.fastaBlastVerificationRunner = { _, _ in
             starts += 1
             do {
-                try await Task.sleep(for: .seconds(10))
+                try await Task.sleep(for: .seconds(2))
             } catch {
                 cancellations += 1
                 throw error

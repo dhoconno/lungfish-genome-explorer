@@ -233,7 +233,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let secondService = PluginPackStatusService(
             condaManager: manager,
             databaseInstalledCheck: { _ in
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .milliseconds(50))
                 return false
             },
             cacheLifetime: 60
@@ -680,7 +680,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let secondService = PluginPackStatusService(
             condaManager: manager,
             databaseInstalledCheck: { _ in
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .milliseconds(50))
                 return false
             },
             cacheLifetime: 60

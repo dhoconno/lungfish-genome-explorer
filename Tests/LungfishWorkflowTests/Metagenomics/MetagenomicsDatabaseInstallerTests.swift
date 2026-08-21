@@ -713,7 +713,7 @@ private final class FixtureToolRunner: MetagenomicsDatabaseToolRunning, @uncheck
         calls.append(.init(name: name, arguments: arguments, environment: environment))
         let fixture = try #require(fixture)
         if suspendFirstRun, calls.count == 1 {
-            do { try await Task.sleep(for: .seconds(60)) }
+            do { try await Task.sleep(for: .seconds(5)) }
             catch is CancellationError { observedCancellation = true; throw CancellationError() }
         }
         if name == "bracken-build" { try Fixture.writeKrakenPayload(to: workingDirectory, mutation: fixture.mutation) }

@@ -1197,7 +1197,7 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
             scan: { _, _ in
                 scanEvents.record(false)
                 return try await withTaskCancellationHandler {
-                    try await Task.sleep(for: .seconds(30))
+                    try await Task.sleep(for: .seconds(5))
                     return ProjectStorageScanResult(
                         projectIdentity: identity,
                         entries: []
@@ -2109,7 +2109,7 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
             operations: .init(
                 scan: { _, _ in
                     scanStarts.record(true)
-                    try await Task.sleep(for: .seconds(30))
+                    try await Task.sleep(for: .seconds(5))
                     return .init(
                         projectIdentity: identity,
                         entries: [failed]

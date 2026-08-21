@@ -822,7 +822,7 @@ private actor FakeSavontProcessRunner: SavontProcessRunning {
             try inspectInput(arguments: arguments, expected: expectedInput)
             return try successfulResult(arguments: arguments, workingDirectory: workingDirectory, fasta: fasta)
         case .waitForCancellation:
-            try await Task.sleep(for: .seconds(60))
+            try await Task.sleep(for: .seconds(5))
             throw TestFailure.injected
         }
     }
