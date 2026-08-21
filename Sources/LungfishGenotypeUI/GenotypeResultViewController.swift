@@ -9147,6 +9147,17 @@ public final class GenotypeResultViewController: NSViewController {
     private func presentManualHaplotypeDraftDecision(
         for transition: GenotypeManualHaplotypeDraftCoordinator.Transition
     ) async -> GenotypeManualHaplotypeDraftDecision {
+        // A real NSAlert here deadlocks `swift test`: nothing pumps the run
+        // loop's sheet-modal session, and no on-screen window exists to
+        // present it against. Callers already route through an installed
+        // `manualHaplotypeDraftDecisionProvider` first (this method is only
+        // reached when none is installed), so under XCTest we resolve to
+        // `.cancel` without presenting UI. Runtime app behavior is unchanged.
+        let isRunningUnderXCTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+        if isRunningUnderXCTest {
+            return .cancel
+        }
         guard let window = view.window ?? NSApp.keyWindow else {
             return .cancel
         }

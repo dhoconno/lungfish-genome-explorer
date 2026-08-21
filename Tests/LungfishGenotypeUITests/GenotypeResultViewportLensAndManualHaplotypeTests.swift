@@ -4015,4 +4015,64 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
         XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
     }
 
+
+    func testManualHaplotypeTransitionWithNoDecisionProviderResolvesAsCancelWithoutPresentingAlert()
+        async throws
+    {
+        // Regression for the swift-test deadlock: a dirty draft + a
+        // transition + NO installed decision provider used to fall through
+        // to a real blocking NSAlert (`presentManualHaplotypeDraftDecision`)
+        // which froze the whole suite under `swift test`. This proves the
+        // under-XCTest guard resolves the transition (as .cancel) instead of
+        // presenting UI, without ever calling
+        // testingSetManualHaplotypeDraftDecisionProvider.
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeNoProviderTransitions-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let calls = [
+            makeCall(
+                sample: "AnimalA",
+                genotype: "01_Mafa_A1_001_01",
+                reads: 42
+            ),
+            makeCall(
+                sample: "AnimalB",
+                genotype: "01_Mafa_A1_001_01",
+                reads: 21
+            ),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        let originalSelection =
+            controller.testingCurrentSelectionMatrixTargets
+
+        // No testingSetManualHaplotypeDraftDecisionProvider call here: this
+        // exercises the real presentManualHaplotypeDraftDecision fallback.
+        controller.testingSelectMatrixColumn(sample: "AnimalB")
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        // A .cancel resolution vetoes the transition, exactly like the
+        // explicit-provider .cancel case above.
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalSelection
+        )
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+    }
+
 }
