@@ -13,10 +13,19 @@
 #   scripts/full-suite-gate.sh --require-tools     # LUNGFISH_REQUIRE_TOOLS=1; also fail on any
 #                                                   # skipped test within the conformance suites
 #   scripts/full-suite-gate.sh --filter <regex>    # pass --filter <regex> through to swift test
+#   scripts/full-suite-gate.sh --tier <name>       # run a named tier: smoke|unit|integration|
+#                                                   # conformance|full (see Tiers below)
+#   scripts/full-suite-gate.sh --parallel           # pass --parallel through to swift test
+#                                                   # (rejected for integration/full: the
+#                                                   # ProjectStorage suites must stay serial)
 #
-# Exit code: 0 if the full suite passed, non-zero otherwise. Skipped tests do not fail
+# Every run also writes an xUnit XML report next to the gate log
+# (.build/gate-logs/gate-<stamp>-<sha>.xunit.xml) so per-test timing accumulates.
+#
+# Exit code: 0 if the selected suite passed, non-zero otherwise. Skipped tests do not fail
 # the gate, unless --require-tools is given (see above). Designed to be used as a git
-# pre-push hook (see scripts/install-git-hooks.sh).
+# pre-push hook (see scripts/install-git-hooks.sh), which runs --tier unit; --tier full
+# remains the stable-release gate.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,17 +36,26 @@ BG=0
 QUIET=0
 REQUIRE_TOOLS=0
 FILTER=""
+TIER=""
+SKIP=""
+PARALLEL=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --bg) BG=1; shift ;;
         --quiet) QUIET=1; shift ;;
         --require-tools) REQUIRE_TOOLS=1; shift ;;
+        --parallel) PARALLEL=1; shift ;;
         --filter)
             # Without this guard a bare `--filter` shifts past the end of the
             # argument list and leaves FILTER empty, which silently means "run
             # the entire suite" -- a multi-hour run the caller did not ask for.
             [ $# -ge 2 ] || { echo "--filter requires a value" >&2; exit 64; }
             FILTER="$2"
+            shift 2
+            ;;
+        --tier)
+            [ $# -ge 2 ] || { echo "--tier requires a value" >&2; exit 64; }
+            TIER="$2"
             shift 2
             ;;
         *)
@@ -52,6 +70,57 @@ mkdir -p "$LOG_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 LOG="$LOG_DIR/gate-${STAMP}-${SHA}.log"
+
+# --- Green bar (canonical definition) ---------------------------------------
+# A run is GREEN iff this gate exits 0: zero XCTest failures, zero swift-testing
+# failures, and (under --require-tools) zero skips in the conformance suites.
+# There are no standing known-environmental failures: the formerly-failing
+# environmental tests (GenotypeRealBundleSmokeTests, ZhangArtifactCanaryTests,
+# VCFRobustnessTests) now skip cleanly when their env vars/fixtures are absent.
+
+# --- Tiers ------------------------------------------------------------------
+# smoke        provenance + core-model spot checks (mirrors the CI smoke regex)
+# unit         everything EXCEPT the integration and conformance suites (the
+#              skip regex is composed from INTEGRATION_FILTER + CONFORMANCE_FILTER,
+#              so the three tiers partition the suite by construction)
+# integration  LungfishIntegrationTests + CLI process-fork suites + storage suites
+# conformance  real-tool suites (combine with --require-tools to forbid skips;
+#              matches the CI toolset-conformance job's filter byte-for-byte)
+# full         the entire suite (default when no --tier/--filter is given)
+#
+# scripts/tests/test_full_suite_gate_tiers.py pins these regexes against the
+# CI workflow's copies; change them together.
+SMOKE_FILTER='^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
+CONFORMANCE_FILTER='Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests'
+STORAGE_SUITES='ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|ProjectStorageCleanupPreparationLargeTreeTests|ProjectStorageCleanupProvenanceTests|ProjectStoragePublishedCleanupOutcomeReaderTests|ProjectStorageAutomaticCleanupServiceTests|ProjectStoragePerformanceTests|ProjectTempCleanupTests'
+CLI_E2E_SUITES='CLIExitCodeProcessTests|ToolsCommandTests|DbCommandUpdateTargetTests|ImportFastqE2ETests|CLIBAMFilteringIntegrationTests|MarkdupCommandTests'
+INTEGRATION_FILTER="^LungfishIntegrationTests\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}"
+
+if [ -n "$TIER" ] && [ -n "$FILTER" ]; then
+    echo "--tier and --filter are mutually exclusive" >&2
+    exit 64
+fi
+case "$TIER" in
+    "") ;;
+    smoke)        FILTER="$SMOKE_FILTER" ;;
+    unit)         SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}" ;;
+    integration)  FILTER="$INTEGRATION_FILTER" ;;
+    conformance)  FILTER="$CONFORMANCE_FILTER" ;;
+    full) ;;
+    *)
+        echo "unknown tier: $TIER (smoke|unit|integration|conformance|full)" >&2
+        exit 64
+        ;;
+esac
+# The ProjectStorage suites are serialized by design (CI runs them --no-parallel),
+# so any selection that includes them (integration, full, or a bare unfiltered run)
+# must not run parallel.
+if [ "$PARALLEL" -eq 1 ]; then
+    if [ "$TIER" = "integration" ] || [ "$TIER" = "full" ] || { [ -z "$TIER" ] && [ -z "$FILTER" ]; }; then
+        echo "--parallel is not allowed for selections containing the ProjectStorage suites (integration/full/unfiltered)" >&2
+        exit 64
+    fi
+fi
 
 # Conformance-suite allowlist: test-case lines matching this regex are subject to the
 # --require-tools "no skips allowed" check. Keep in sync with the conformance suites
@@ -77,14 +146,19 @@ run_gate() {
     {
         echo "Full-suite gate starting at $(date) for $SHA"
         echo "Log: $LOG"
+        [ -n "$TIER" ] && echo "Tier: $TIER"
         [ "$REQUIRE_TOOLS" -eq 1 ] && echo "Mode: --require-tools (LUNGFISH_REQUIRE_TOOLS=1)"
+        [ "$PARALLEL" -eq 1 ] && echo "Mode: --parallel"
         [ -n "$FILTER" ] && echo "Filter: $FILTER"
+        [ -n "$SKIP" ] && echo "Skip: $SKIP"
     } >&2
 
     # Single swift invocation (SwiftPM serializes on .build/.lock). --skip-update
     # keeps it offline (avoids the testSRASearch NCBI flake's dependency on the network).
-    local swift_args=(test --skip-update)
+    local swift_args=(test --skip-update --xunit-output "$LOG_DIR/gate-${STAMP}-${SHA}.xunit.xml")
     [ -n "$FILTER" ] && swift_args+=(--filter "$FILTER")
+    [ -n "$SKIP" ] && swift_args+=(--skip "$SKIP")
+    [ "$PARALLEL" -eq 1 ] && swift_args+=(--parallel)
 
     if [ "$REQUIRE_TOOLS" -eq 1 ]; then
         LUNGFISH_REQUIRE_TOOLS=1 swift "${swift_args[@]}" > "$LOG" 2>&1

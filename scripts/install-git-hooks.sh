@@ -1,9 +1,11 @@
 #!/bin/bash
 # install-git-hooks.sh - Install opt-in local git hooks for the developer iteration loop.
 #
-# Installs a pre-push hook that runs the full-suite gate (scripts/full-suite-gate.sh)
-# before pushing, so the regression gate runs locally on this fast Apple-Silicon Mac
-# instead of on slow/usage-limited hosted CI. Run once per clone.
+# Installs a pre-push hook that runs the unit tier of the full-suite gate
+# (scripts/full-suite-gate.sh --tier unit) before pushing, so the regression gate
+# runs locally on this fast Apple-Silicon Mac instead of on slow/usage-limited
+# hosted CI. Run once per clone. The full tier (everything, serial) remains the
+# stable-release gate; run it explicitly with scripts/full-suite-gate.sh --tier full.
 #
 #   scripts/install-git-hooks.sh            # install
 #   scripts/install-git-hooks.sh --uninstall
@@ -32,14 +34,14 @@ cat > "$HOOK" << 'HOOK_EOF'
 # Lungfish pre-push hook: run the full-suite gate locally before pushing.
 # Bypass intentionally with: git push --no-verify
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-echo "pre-push: running full-suite gate (use --no-verify to skip)..."
-if "$REPO_ROOT/scripts/full-suite-gate.sh"; then
+echo "pre-push: running unit-tier gate (use --no-verify to skip)..."
+if "$REPO_ROOT/scripts/full-suite-gate.sh" --tier unit; then
     exit 0
 else
-    echo "pre-push: full-suite gate FAILED — push aborted. Fix tests or use --no-verify." >&2
+    echo "pre-push: unit-tier gate FAILED — push aborted. Fix tests or use --no-verify." >&2
     exit 1
 fi
 HOOK_EOF
 chmod +x "$HOOK"
 echo "Installed pre-push hook at $HOOK"
-echo "It runs scripts/full-suite-gate.sh before each push (bypass with: git push --no-verify)."
+echo "It runs scripts/full-suite-gate.sh --tier unit before each push (bypass with: git push --no-verify)."
