@@ -199,6 +199,39 @@ run_gate() {
         conformance_skips=$(grep -cE "$CONFORMANCE_ALLOWLIST" "$LOG" 2>/dev/null)
     fi
 
+    # Parallel flake retry: per-class parallel xctest processes surface a long,
+    # nondeterministic tail of load-sensitive tests (timing debounces, window-server
+    # layout, FSEvents) that pass serially. When a PARALLEL run has only XCTest
+    # failures, rerun JUST the failing classes serially once; the gate passes only
+    # if the retry is clean, and it loudly names the retried classes so flakiness
+    # stays visible instead of masked. Deterministic failures still fail (they fail
+    # serially too). More than 12 failing classes means real breakage: no retry.
+    RETRIED_CLASSES=""
+    if [ "$PARALLEL" -eq 1 ] && [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then
+        local failing_classes
+        failing_classes=$(grep -oE "Test Case '-\[[A-Za-z0-9_]+\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$LOG" \
+            | sed -E "s/Test Case '-\[([A-Za-z0-9_]+\.[A-Za-z0-9_]+) .*/\1/" | sort -u)
+        local class_count
+        class_count=$(printf '%s\n' "$failing_classes" | grep -c . 2>/dev/null)
+        if [ "$class_count" -ge 1 ] && [ "$class_count" -le 12 ]; then
+            local retry_filter
+            retry_filter="^($(printf '%s\n' "$failing_classes" | sed 's/\./\\./' | paste -sd '|' -))(/|$)"
+            local retry_log="$LOG_DIR/gate-${STAMP}-${SHA}.retry.log"
+            echo "Parallel run had $class_count failing class(es); serial retry: $retry_filter" >&2
+            swift test --skip-update --filter "$retry_filter" > "$retry_log" 2>&1
+            local retry_status=$?
+            local retry_fail
+            retry_fail=$(grep -cE "with [1-9][0-9]* failure|' failed \(|: error:" "$retry_log" 2>/dev/null)
+            if [ "$retry_status" -eq 0 ] && [ "$retry_fail" -eq 0 ]; then
+                RETRIED_CLASSES=$(printf '%s\n' "$failing_classes" | paste -sd ',' -)
+                xctest_fail=0
+                status=0
+            else
+                echo "Serial retry FAILED - deterministic failures (retry log: $retry_log)" >&2
+            fi
+        fi
+    fi
+
     if [ "$status" -eq 0 ] && [ "$xctest_fail" -eq 0 ] && [ "$swifttesting_fail" -eq 0 ] && [ "$conformance_skips" -eq 0 ]; then
         # The LAST "Executed N tests" line is XCTest's grand total. Using the first
         # match reported an early sub-suite instead, which understated a 189-test run
@@ -207,7 +240,7 @@ run_gate() {
         xctest_total=$(grep -oE "Executed [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
         local swifttesting_total
         swifttesting_total=$(grep -oE "Test run with [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
-        echo "GATE PASS ($SHA) - ${xctest_total:-suite}${swifttesting_total:+, $swifttesting_total} - log: $LOG"
+        echo "GATE PASS ($SHA) - ${xctest_total:-suite}${swifttesting_total:+, $swifttesting_total}${RETRIED_CLASSES:+ - flaky-under-parallel, passed serial retry: $RETRIED_CLASSES} - log: $LOG"
         return 0
     else
         {

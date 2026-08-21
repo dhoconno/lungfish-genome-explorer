@@ -111,6 +111,26 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "ARG_MAX in serial mode (posix_spawn: Argument list too long)",
         )
 
+    def test_parallel_runs_retry_failing_classes_serially(self):
+        gate = _gate_text()
+        self.assertIn(
+            'if [ "$PARALLEL" -eq 1 ] && [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then',
+            gate,
+            "parallel runs must retry XCTest failures serially (and never retry "
+            "swift-testing failures)",
+        )
+        self.assertIn(
+            "flaky-under-parallel, passed serial retry",
+            gate,
+            "a pass that needed the serial retry must loudly name the retried "
+            "classes instead of masking the flakiness",
+        )
+        self.assertIn(
+            '[ "$class_count" -le 12 ]',
+            gate,
+            "more than 12 failing classes means real breakage and must not retry",
+        )
+
     def test_parallel_is_rejected_for_storage_bearing_selections(self):
         self.assertIn(
             "--parallel is not allowed for selections containing the ProjectStorage suites",
