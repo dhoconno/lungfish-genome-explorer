@@ -8,13 +8,17 @@ import XCTest
 @testable import LungfishCLI
 
 final class CLIExitCodeProcessTests: XCTestCase {
-    private var cliBinaryURL: URL? {
-        let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+    /// Resolved once per test run rather than per call: resolution can shell
+    /// out to `swift build --show-bin-path` when the fast-path candidates
+    /// (env override, build-products directory) don't exist, which is
+    /// expensive to repeat across every test in this class.
+    private static let cliBinaryURL: URL? = {
+        let buildProductsDirectory = Bundle(for: CLIExitCodeProcessTests.self).bundleURL.deletingLastPathComponent()
         return CLITestBinaryResolver.cliBinaryURL(
             repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
             buildProductsDirectory: buildProductsDirectory
         )
-    }
+    }()
 
     func testConvertMissingInputExitsWithInputError() throws {
         let tempDir = FileManager.default.temporaryDirectory
@@ -516,7 +520,7 @@ final class CLIExitCodeProcessTests: XCTestCase {
 
     private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let binary = try XCTUnwrap(
-            cliBinaryURL,
+            Self.cliBinaryURL,
             "CLI binary not built at expected path - run `swift build --product lungfish-cli` before these process tests"
         )
 

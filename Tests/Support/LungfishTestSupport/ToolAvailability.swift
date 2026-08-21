@@ -118,6 +118,15 @@ public enum ProcessRunner {
         let stdoutDone = DispatchSemaphore(value: 0)
         let stderrDone = DispatchSemaphore(value: 0)
 
+        // Signaled from `process.terminationHandler` the moment the process
+        // exits, so the wait below is event-driven rather than a busy-poll.
+        // The handler must be set before `run()` to avoid a race against an
+        // already-exited process.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exited.signal()
+        }
+
         try process.run()
 
         stdoutQueue.async {
@@ -130,9 +139,7 @@ public enum ProcessRunner {
         }
 
         let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
+        _ = exited.wait(timeout: .now() + max(0, deadline.timeIntervalSinceNow))
         if process.isRunning {
             process.terminate()
             throw ToolAvailabilityError.required("timeout running \(executable.lastPathComponent)")
