@@ -1,12 +1,13 @@
-# Stable source preparation: Lungfish 2026.8.4
+# Stable release recovery: Lungfish 2026.8.5
 
-The first Stable CalVer source candidate is `2026.8.4`, computed from the live
-August 2026 tag and GitHub release ledger on 2026-08-20. It is prepared from
-the current channel-aware source as a fresh Stable build of the tested
-`v2026.8.3` Preview baseline; it must not reuse or relabel the Preview DMG.
-Before tagging or publishing, recompute the candidate and require both the
-remote tag and GitHub release collision checks to remain empty. Complete
-aggregate notes are in `docs/release-notes/2026.8.4.md`.
+`v2026.8.4` was published as the first Stable CalVer release, but its
+automatic Toolset conformance job exposed a test-only MEGAHIT invocation that
+bypassed the shipped command builder. The correction is committed on `main`
+and passes the focused conformance test. Because the 2026.8.4 tag and public
+release are immutable, recovery continues as collision-free Stable version
+`2026.8.5`; it must receive a fresh Stable build, signature, notarization,
+DMG, and Sparkle item. Complete notes are in
+`docs/release-notes/2026.8.5.md`.
 
 ## Historical handoff: dependency set 2026.2 release preparation
 
