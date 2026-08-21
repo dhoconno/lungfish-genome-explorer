@@ -2077,14 +2077,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         NSPasteboard.general.setString(accession, forType: .string)
     }
 
-    @objc private func contextViewAccessionOnNCBI(_ sender: NSMenuItem) {
+    @objc func contextViewAccessionOnNCBI(_ sender: NSMenuItem) {
         guard let accession = sender.representedObject as? String else { return }
         if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
             if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
         }
     }
 
-    @objc private func contextSearchPubMed(_ sender: NSMenuItem) {
+    @objc func contextSearchPubMed(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
         if let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)") {
