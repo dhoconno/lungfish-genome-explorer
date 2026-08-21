@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
 import LungfishIO
 

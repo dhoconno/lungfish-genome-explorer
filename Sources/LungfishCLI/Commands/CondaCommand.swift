@@ -443,7 +443,7 @@ extension CondaCommand {
                 print(formatter.header("Environments (\(envs.count))"))
                 for env in envs {
                     let size = try? FileManager.default.allocatedSizeOfDirectory(at: env.path)
-                    let sizeStr = size.map { formatBytes($0) } ?? "?"
+                    let sizeStr = size.map { LungfishFormatters.formatBytes($0) } ?? "?"
                     print("  \(env.name)  \(env.packageCount) pkgs  \(sizeStr)")
                 }
             }
@@ -650,15 +650,6 @@ extension CondaCommand {
             throw CLIExitCode.dependency.exitCode
         }
     }
-}
-
-// MARK: - Formatting Helpers
-
-private func formatBytes(_ bytes: Int64) -> String {
-    if bytes >= 1_000_000_000 { return String(format: "%.1f GB", Double(bytes) / 1_000_000_000) }
-    if bytes >= 1_000_000 { return String(format: "%.1f MB", Double(bytes) / 1_000_000) }
-    if bytes >= 1_000 { return String(format: "%.1f KB", Double(bytes) / 1_000) }
-    return "\(bytes) B"
 }
 
 // MARK: - FileManager Extension

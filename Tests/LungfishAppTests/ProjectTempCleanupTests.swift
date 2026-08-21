@@ -199,7 +199,7 @@ final class ProjectTempCleanupTests: XCTestCase {
         )?.lowerBound
         let clearEnd = clearStart.flatMap {
             source.range(
-                of: "\n    /// Formats a byte count",
+                of: "\n    @objc func manageProjectStorage",
                 range: $0..<source.endIndex
             )?.lowerBound
         }
@@ -278,46 +278,6 @@ final class ProjectTempCleanupTests: XCTestCase {
                 projectURL
             )
         )
-    }
-
-    // MARK: - formatBytes
-
-    @MainActor
-    func testFormatBytesKB() {
-        // 512 bytes -> "512 bytes" (ByteCountFormatter shows bytes under 1 KB)
-        let result = AppDelegate.formatBytes(512)
-        XCTAssertTrue(result.contains("bytes"), "Expected bytes, got: \(result)")
-    }
-
-    @MainActor
-    func testFormatBytesAboveKBThreshold() {
-        let twoKB: UInt64 = 2_048
-        let result = AppDelegate.formatBytes(twoKB)
-        XCTAssertTrue(result.contains("KB"), "Expected KB, got: \(result)")
-    }
-
-    @MainActor
-    func testFormatBytesMB() {
-        // 5 MB
-        let fiveMB: UInt64 = 5 * 1024 * 1024
-        let result = AppDelegate.formatBytes(fiveMB)
-        XCTAssertTrue(result.contains("MB"), "Expected MB, got: \(result)")
-        XCTAssertTrue(result.hasPrefix("5"), "Expected ~5 MB, got: \(result)")
-    }
-
-    @MainActor
-    func testFormatBytesGB() {
-        // 2 GB
-        let twoGB: UInt64 = 2 * 1024 * 1024 * 1024
-        let result = AppDelegate.formatBytes(twoGB)
-        XCTAssertTrue(result.contains("GB"), "Expected GB, got: \(result)")
-        XCTAssertTrue(result.hasPrefix("2"), "Expected ~2 GB, got: \(result)")
-    }
-
-    @MainActor
-    func testFormatBytesZero() {
-        let result = AppDelegate.formatBytes(0)
-        XCTAssertTrue(result.contains("KB"), "Zero bytes should format as KB: \(result)")
     }
 
     private func makeOwnedTemp(prefix: String) throws -> URL {

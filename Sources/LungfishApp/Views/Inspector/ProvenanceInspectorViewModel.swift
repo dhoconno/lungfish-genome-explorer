@@ -734,7 +734,7 @@ final class ProvenanceInspectorViewModel {
                     displayPath: descriptor.path.middleTruncatedPath(),
                     checksumSHA256: descriptor.checksumSHA256,
                     fileSize: descriptor.fileSize,
-                    fileSizeLabel: descriptor.fileSize.map(Self.formatBytes) ?? "Size not recorded",
+                    fileSizeLabel: descriptor.fileSize.map(LungfishFormatters.formatBytes) ?? "Size not recorded",
                     format: descriptor.format?.rawValue,
                     originPath: descriptor.originPath,
                     sourceProvenancePath: descriptor.sourceProvenancePath
@@ -952,9 +952,6 @@ final class ProvenanceInspectorViewModel {
         return parts.joined(separator: " | ")
     }
 
-    static func formatBytes(_ bytes: UInt64) -> String {
-        LungfishFormatters.formatBytes(bytes)
-    }
 }
 
 private struct ProvenanceFASTQBundlePresentation {
@@ -968,17 +965,13 @@ private struct ProvenanceFASTQBundlePresentation {
         var fileSizeLabel: String {
             let chunkLabel = "\(chunkDescriptorCount) FASTQ \(chunkDescriptorCount == 1 ? "chunk" : "chunks")"
             guard let totalBytes else { return chunkLabel }
-            return "\(chunkLabel) | \(Self.formatBytes(totalBytes))"
+            return "\(chunkLabel) | \(LungfishFormatters.formatBytes(totalBytes))"
         }
 
         var pathListLabel: String {
             let chunkLabel = "\(chunkDescriptorCount) FASTQ \(chunkDescriptorCount == 1 ? "chunk" : "chunks")"
             guard let totalBytes else { return "\(bundleName) - \(chunkLabel)" }
-            return "\(bundleName) - \(chunkLabel) (\(Self.formatBytes(totalBytes)))"
-        }
-
-        private static func formatBytes(_ bytes: UInt64) -> String {
-            LungfishFormatters.formatBytes(bytes)
+            return "\(bundleName) - \(chunkLabel) (\(LungfishFormatters.formatBytes(totalBytes)))"
         }
     }
 

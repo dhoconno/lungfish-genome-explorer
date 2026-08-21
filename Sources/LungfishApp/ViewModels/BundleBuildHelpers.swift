@@ -195,11 +195,6 @@ enum BundleBuildHelpers {
         }
     }
 
-    /// Formats a byte count as a human-readable string.
-    static func formatBytes(_ bytes: Int64) -> String {
-        LungfishFormatters.formatBytes(bytes)
-    }
-
     // MARK: - Assembly Report Parsing
 
     /// A single row from an NCBI assembly report file.

@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+@testable import LungfishCore
 import XCTest
-@testable import LungfishKit
 
 /// Unit tests for the shared byte/count/duration formatting helpers
 /// consolidated in `LungfishFormatters` (repo audit findings F44/F45/F46).
@@ -42,6 +42,18 @@ final class LungfishFormattersTests: XCTestCase {
         let fiveMB: UInt64 = 5 * 1024 * 1024
         let result = LungfishFormatters.formatBytes(fiveMB)
         XCTAssertTrue(result.contains("MB"), "Expected MB, got: \(result)")
+    }
+
+    /// Regression test for the F44-F46 consolidation (task 7): the CLI's
+    /// former private `formatBytes` in `CondaCommand` used a fixed `%.1f`
+    /// decimal (e.g. "2.1 GB" for 2_147_483_647 bytes). The canonical
+    /// `ByteCountFormatter`-backed implementation uses adaptive
+    /// significant-digit precision and renders the same input as "2.15 GB".
+    /// This pins the canonical (now sole) behavior so the difference is not
+    /// silently reintroduced.
+    func testFormatBytesAdaptivePrecisionNearGBBoundary() {
+        let result = LungfishFormatters.formatBytes(Int64(2_147_483_647))
+        XCTAssertEqual(result, "2.15 GB", "Expected adaptive-precision GB rendering, got: \(result)")
     }
 
     // MARK: - formatGroupedCount

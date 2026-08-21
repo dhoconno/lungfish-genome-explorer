@@ -1461,14 +1461,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    /// Formats a byte count for display.
-    ///
-    /// Delegates to ``LungfishFormatters/formatBytes(_:)-`` (F44) so file sizes
-    /// render consistently with the rest of the app.
-    static func formatBytes(_ bytes: UInt64) -> String {
-        LungfishFormatters.formatBytes(bytes)
-    }
-
     @objc private func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
 

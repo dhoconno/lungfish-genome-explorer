@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
@@ -597,9 +598,9 @@ public final class FASTQImportConfigSheet: NSViewController {
         if pairs.count == 1 {
             let pair = pairs[0]
             if let r2 = pair.r2 {
-                summaryLabel.stringValue = "R1: \(pair.r1.lastPathComponent)\nR2: \(r2.lastPathComponent)\nTotal size: \(formatBytes(pair.totalSizeBytes))"
+                summaryLabel.stringValue = "R1: \(pair.r1.lastPathComponent)\nR2: \(r2.lastPathComponent)\nTotal size: \(LungfishFormatters.formatBytes(pair.totalSizeBytes))"
             } else {
-                summaryLabel.stringValue = "\(pair.r1.lastPathComponent)\nSize: \(formatBytes(pair.totalSizeBytes))"
+                summaryLabel.stringValue = "\(pair.r1.lastPathComponent)\nSize: \(LungfishFormatters.formatBytes(pair.totalSizeBytes))"
             }
         } else {
             let pairedCount = pairs.filter(\.isPaired).count
@@ -608,7 +609,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             if pairedCount > 0 { lines.append("  \(pairedCount) paired-end") }
             if singleCount > 0 { lines.append("  \(singleCount) single-end") }
             let totalSize = pairs.reduce(Int64(0)) { $0 + $1.totalSizeBytes }
-            lines.append("Total size: \(formatBytes(totalSize))")
+            lines.append("Total size: \(LungfishFormatters.formatBytes(totalSize))")
             summaryLabel.stringValue = lines.joined(separator: "\n")
         }
     }
@@ -978,12 +979,6 @@ public final class FASTQImportConfigSheet: NSViewController {
         } else {
             window.close()
         }
-    }
-
-    // MARK: - Formatting
-
-    private func formatBytes(_ bytes: Int64) -> String {
-        LungfishFormatters.formatBytes(bytes)
     }
 
     // MARK: - Presentation

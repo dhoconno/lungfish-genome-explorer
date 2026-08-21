@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import LungfishCore
 import LungfishKit
 import SwiftUI
 import AppKit
@@ -249,7 +250,7 @@ struct NvdImportSheet: View {
                     }
                     previewRow(label: "BLAST hits", value: formatNumber(hits))
                     if let bamSize = totalBAMSize, bamSize > 0 {
-                        previewRow(label: "Total BAM size", value: formatBytes(bamSize))
+                        previewRow(label: "Total BAM size", value: LungfishFormatters.formatBytes(bamSize))
                     }
                 }
             } else {
@@ -366,10 +367,6 @@ struct NvdImportSheet: View {
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 
-    /// Formats a byte count as human-readable string.
-    private func formatBytes(_ bytes: Int64) -> String {
-        LungfishFormatters.formatBytes(bytes)
-    }
 }
 
 // MARK: - NVD Directory Scan

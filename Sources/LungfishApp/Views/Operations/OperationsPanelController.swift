@@ -4,6 +4,7 @@
 
 import AppKit
 import Combine
+import LungfishCore
 import LungfishKit
 
 /// A normal app window that displays all running, completed, and failed

@@ -4,6 +4,7 @@
 
 import Foundation
 import SwiftUI
+import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 
@@ -1237,15 +1238,6 @@ private struct DatabaseRow: View {
 }
 
 // MARK: - Helpers
-
-/// Formats a byte count into a human-readable string.
-///
-/// Delegates to ``LungfishFormatters/formatBytes(_:)-`` (F44), which is
-/// itself a plain free function safe to call from `@Sendable` view body
-/// closures without `@MainActor` isolation issues.
-private func formatBytes(_ bytes: Int64) -> String {
-    LungfishFormatters.formatBytes(bytes)
-}
 
 /// Formats a megabyte estimate into a human-readable string.
 private func formatPackSize(_ megabytes: Int) -> String {

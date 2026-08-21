@@ -107,13 +107,13 @@ public final class GenomeDownloadViewModel: @unchecked Sendable {
             logger.info("downloadAndBuild: Getting FASTA file info for \(accession, privacy: .public)")
 
             let fastaFileInfo = try await ncbiService.getGenomeFileInfo(for: assembly)
-            let fastaSizeStr = fastaFileInfo.estimatedSize.map { BundleBuildHelpers.formatBytes($0) } ?? "unknown size"
+            let fastaSizeStr = fastaFileInfo.estimatedSize.map { LungfishFormatters.formatBytes($0) } ?? "unknown size"
             logger.info("downloadAndBuild: FASTA file found: \(fastaFileInfo.filename, privacy: .public) (\(fastaSizeStr, privacy: .public))")
 
             progressHandler?(0.03, "Checking for GFF3 annotations...")
             let gffFileInfo = try await ncbiService.getAnnotationFileInfo(for: assembly)
             if let gffInfo = gffFileInfo {
-                let gffSizeStr = gffInfo.estimatedSize.map { BundleBuildHelpers.formatBytes($0) } ?? "unknown size"
+                let gffSizeStr = gffInfo.estimatedSize.map { LungfishFormatters.formatBytes($0) } ?? "unknown size"
                 logger.info("downloadAndBuild: GFF3 file found: \(gffInfo.filename, privacy: .public) (\(gffSizeStr, privacy: .public))")
             } else {
                 logger.info("downloadAndBuild: No GFF3 annotations available for \(accession, privacy: .public)")
@@ -137,8 +137,8 @@ public final class GenomeDownloadViewModel: @unchecked Sendable {
                     fraction = 0.5
                 }
                 let overallProgress = 0.05 + (fraction * 0.40)
-                let downloadedStr = BundleBuildHelpers.formatBytes(bytesDownloaded)
-                let totalStr = total.map { BundleBuildHelpers.formatBytes($0) } ?? "?"
+                let downloadedStr = LungfishFormatters.formatBytes(bytesDownloaded)
+                let totalStr = total.map { LungfishFormatters.formatBytes($0) } ?? "?"
                 progressHandler?(overallProgress, "Downloading FASTA: \(downloadedStr) / \(totalStr)")
             }
             logger.info("downloadAndBuild: FASTA download complete")
@@ -164,8 +164,8 @@ public final class GenomeDownloadViewModel: @unchecked Sendable {
                             fraction = 0.5
                         }
                         let overallProgress = 0.45 + (fraction * 0.10)
-                        let downloadedStr = BundleBuildHelpers.formatBytes(bytesDownloaded)
-                        let totalStr = total.map { BundleBuildHelpers.formatBytes($0) } ?? "?"
+                        let downloadedStr = LungfishFormatters.formatBytes(bytesDownloaded)
+                        let totalStr = total.map { LungfishFormatters.formatBytes($0) } ?? "?"
                         progressHandler?(overallProgress, "Downloading GFF3: \(downloadedStr) / \(totalStr)")
                     }
                     gffDestination = gffDest
@@ -190,8 +190,8 @@ public final class GenomeDownloadViewModel: @unchecked Sendable {
                     fraction = min(Double(bytesDownloaded) / 500_000_000, 0.95)
                 }
                 let overallProgress = 0.02 + (fraction * 0.50)
-                let downloadedStr = BundleBuildHelpers.formatBytes(bytesDownloaded)
-                let totalStr = expectedTotal.map { BundleBuildHelpers.formatBytes($0) } ?? "?"
+                let downloadedStr = LungfishFormatters.formatBytes(bytesDownloaded)
+                let totalStr = expectedTotal.map { LungfishFormatters.formatBytes($0) } ?? "?"
                 progressHandler?(overallProgress, "Downloading: \(downloadedStr) / \(totalStr)")
             }
 
