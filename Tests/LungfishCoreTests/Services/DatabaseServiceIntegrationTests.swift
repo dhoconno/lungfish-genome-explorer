@@ -50,7 +50,15 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
         let service = NCBIService()
 
         // Fetch HIV-1 reference genome (well-known, stable accession)
-        let record = try await service.fetch(accession: "NC_001802")
+        let record: DatabaseRecord
+        do {
+            record = try await service.fetch(accession: "NC_001802")
+        } catch {
+            if let reason = Self.transientLiveNCBISkipReason(for: error) {
+                throw XCTSkip(reason)
+            }
+            throw error
+        }
 
         XCTAssertEqual(record.source, .ncbi)
         XCTAssertFalse(record.accession.isEmpty)
@@ -105,7 +113,15 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
 
         // Search for a well-known sequence
         let query = SearchQuery(term: "coronavirus", limit: 5)
-        let results = try await service.search(query)
+        let results: SearchResults
+        do {
+            results = try await service.search(query)
+        } catch {
+            if let reason = Self.transientLiveNCBISkipReason(for: error) {
+                throw XCTSkip(reason)
+            }
+            throw error
+        }
 
         print("ENA found \(results.records.count) results:")
         for record in results.records.prefix(3) {
@@ -122,7 +138,15 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
         let service = ENAService()
 
         // Fetch a known ENA sequence
-        let fasta = try await service.fetchFASTA(accession: "MN908947")
+        let fasta: String
+        do {
+            fasta = try await service.fetchFASTA(accession: "MN908947")
+        } catch {
+            if let reason = Self.transientLiveNCBISkipReason(for: error) {
+                throw XCTSkip(reason)
+            }
+            throw error
+        }
 
         XCTAssertTrue(fasta.hasPrefix(">"), "Should be valid FASTA")
         XCTAssertGreaterThan(fasta.count, 100)
@@ -184,7 +208,15 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
         let service = NCBIService()
 
         // Fetch HIV-1 reference genome as raw GenBank
-        let result = try await service.fetchRawGenBank(accession: "NC_001802")
+        let result: (content: String, accession: String)
+        do {
+            result = try await service.fetchRawGenBank(accession: "NC_001802")
+        } catch {
+            if let reason = Self.transientLiveNCBISkipReason(for: error) {
+                throw XCTSkip(reason)
+            }
+            throw error
+        }
 
         // Verify raw content is preserved with all sections
         XCTAssertTrue(result.content.contains("LOCUS"), "Should contain LOCUS line")
@@ -216,7 +248,15 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
         let service = NCBIService()
 
         // Fetch a small well-known sequence
-        let result = try await service.fetchRawGenBank(accession: "NC_001802")
+        let result: (content: String, accession: String)
+        do {
+            result = try await service.fetchRawGenBank(accession: "NC_001802")
+        } catch {
+            if let reason = Self.transientLiveNCBISkipReason(for: error) {
+                throw XCTSkip(reason)
+            }
+            throw error
+        }
 
         // Save to temporary file
         let tempDir = FileManager.default.temporaryDirectory
@@ -252,7 +292,15 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
         let service = NCBIService()
 
         // Fetch a small sequence
-        let record = try await service.fetch(accession: "NC_001802")
+        let record: DatabaseRecord
+        do {
+            record = try await service.fetch(accession: "NC_001802")
+        } catch {
+            if let reason = Self.transientLiveNCBISkipReason(for: error) {
+                throw XCTSkip(reason)
+            }
+            throw error
+        }
 
         // Save to temporary file
         let tempDir = FileManager.default.temporaryDirectory

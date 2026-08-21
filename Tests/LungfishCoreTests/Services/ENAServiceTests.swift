@@ -208,6 +208,37 @@ final class ENAServiceTests: XCTestCase {
         XCTAssertTrue(progressEvents.allSatisfy { $0.1 == 2 })
     }
 
+    func testSearchReadsBatchResolvesAllAccessionsHappyPath() async throws {
+        for accession in ["DRR028938", "DRR051810", "DRR052292"] {
+            let response: [[String: Any]] = [
+                [
+                    "run_accession": accession,
+                    "library_layout": "PAIRED",
+                    "instrument_platform": "ILLUMINA"
+                ]
+            ]
+            await mockClient.register(pattern: "accession=\(accession)", response: .json(response))
+        }
+
+        let records = try await service.searchReadsBatch(
+            accessions: ["DRR028938", "DRR051810", "DRR052292"],
+            concurrency: 2,
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(records.count, 3)
+        let resolvedAccessions = Set(records.map(\.runAccession))
+        XCTAssertEqual(resolvedAccessions, Set(["DRR028938", "DRR051810", "DRR052292"]))
+    }
+
+    func testSearchReadsBatchEmptyAccessionsReturnsEmptyArrayWithoutRequests() async throws {
+        let records = try await service.searchReadsBatch(accessions: [], concurrency: 5, progress: { _, _ in })
+
+        XCTAssertTrue(records.isEmpty)
+        let requests = await mockClient.requests
+        XCTAssertTrue(requests.isEmpty)
+    }
+
     func testENADateFormattersUsePOSIXLocale() throws {
         let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile
@@ -280,6 +311,165 @@ final class ENAServiceTests: XCTestCase {
             } else {
                 XCTFail("Expected serverError, got \(error)")
             }
+        }
+    }
+
+    func testFetchFASTAMalformedEncodingThrowsParseError() async throws {
+        // Invalid UTF-8 byte sequence cannot be decoded to a String.
+        let invalidUTF8 = Data([0xFF, 0xFE, 0xFD])
+        await mockClient.register(pattern: "/fasta/", response: MockHTTPClient.MockResponse(data: invalidUTF8, statusCode: 200))
+
+        do {
+            _ = try await service.fetchFASTA(accession: "AB123456")
+            XCTFail("Expected parseError to be thrown")
+        } catch let error as DatabaseServiceError {
+            if case .parseError = error {
+                // Expected
+            } else {
+                XCTFail("Expected parseError, got \(error)")
+            }
+        }
+    }
+
+    // MARK: - Search Error Handling Tests
+
+    func testSearchHTTPErrorThrows() async throws {
+        await mockClient.register(pattern: "portal/api", response: .error(statusCode: 500, message: "Internal Server Error"))
+
+        do {
+            _ = try await service.search(SearchQuery(term: "test", limit: 10))
+            XCTFail("Expected server error to be thrown")
+        } catch let error as DatabaseServiceError {
+            if case .serverError = error {
+                // Expected
+            } else {
+                XCTFail("Expected serverError, got \(error)")
+            }
+        }
+    }
+
+    func testSearchMalformedPayloadThrowsDecodingError() async throws {
+        await mockClient.register(pattern: "portal/api", response: .text("{not valid json"))
+
+        do {
+            _ = try await service.search(SearchQuery(term: "test", limit: 10))
+            XCTFail("Expected malformed JSON to throw a decoding error")
+        } catch is DecodingError {
+            // Expected: search() decodes directly with JSONDecoder and does not
+            // wrap decode failures in DatabaseServiceError.
+        } catch {
+            XCTFail("Expected DecodingError, got \(error)")
+        }
+    }
+
+    // MARK: - SearchReads Tests
+
+    func testSearchReadsReturnsRecords() async throws {
+        let response: [[String: Any]] = [
+            [
+                "run_accession": "DRR028938",
+                "experiment_accession": "DRX026029",
+                "sample_accession": "SAMD00027374",
+                "study_accession": "PRJDB3502",
+                "experiment_title": "Illumina HiSeq 2500 paired end sequencing",
+                "library_layout": "PAIRED",
+                "library_source": "GENOMIC",
+                "library_strategy": "WGS",
+                "instrument_platform": "ILLUMINA",
+                "base_count": "189300000",
+                "read_count": "631000",
+                "fastq_ftp": "ftp.sra.ebi.ac.uk/vol1/fastq/DRR028/DRR028938/DRR028938_1.fastq.gz;ftp.sra.ebi.ac.uk/vol1/fastq/DRR028/DRR028938/DRR028938_2.fastq.gz",
+                "fastq_bytes": "1234567;2345678",
+                "fastq_md5": "abc123;def456",
+                "first_public": "2015-06-01"
+            ]
+        ]
+        await mockClient.register(pattern: "portal/api/filereport", response: .json(response))
+
+        let records = try await service.searchReads(term: "DRR028938", limit: 10)
+
+        XCTAssertEqual(records.count, 1)
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record.runAccession, "DRR028938")
+        XCTAssertEqual(record.libraryLayout, "PAIRED")
+        XCTAssertTrue(record.isPaired)
+        XCTAssertEqual(record.instrumentPlatform, "ILLUMINA")
+        XCTAssertEqual(record.readCount, 631000)
+        XCTAssertEqual(record.baseCount, 189300000)
+        XCTAssertNotNil(record.fastqFTP)
+        XCTAssertEqual(record.fastqHTTPURLs.count, 2)
+        XCTAssertEqual(
+            record.fastqHTTPURLs.first?.absoluteString,
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/DRR028/DRR028938/DRR028938_1.fastq.gz"
+        )
+        XCTAssertEqual(record.totalFileSizeBytes, 1234567 + 2345678)
+    }
+
+    func testSearchReadsBuildsCorrectURL() async throws {
+        await mockClient.register(pattern: "portal/api/filereport", response: .json([[String: Any]]()))
+
+        _ = try await service.searchReads(term: "DRR028938", limit: 25, offset: 10)
+
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let url = try XCTUnwrap(requests.first?.url?.absoluteString)
+        XCTAssertTrue(url.contains("result=read_run"))
+        XCTAssertTrue(url.contains("limit=25"))
+        XCTAssertTrue(url.contains("offset=10"))
+        XCTAssertTrue(url.contains("accession=DRR028938"))
+    }
+
+    func testSearchReadsEmptyDataReturnsEmptyArray() async throws {
+        await mockClient.register(
+            pattern: "portal/api/filereport",
+            response: MockHTTPClient.MockResponse(data: Data(), statusCode: 200)
+        )
+
+        let records = try await service.searchReads(term: "NONEXISTENT", limit: 10)
+
+        XCTAssertTrue(records.isEmpty)
+    }
+
+    func testSearchReadsNoResultsTextReturnsEmptyArray() async throws {
+        await mockClient.register(pattern: "portal/api/filereport", response: .text("No results found for query"))
+
+        let records = try await service.searchReads(term: "NONEXISTENT", limit: 10)
+
+        XCTAssertTrue(records.isEmpty)
+    }
+
+    func testSearchReadsHTTPErrorThrows() async throws {
+        await mockClient.register(pattern: "portal/api/filereport", response: .error(statusCode: 500, message: "Internal Server Error"))
+
+        do {
+            _ = try await service.searchReads(term: "DRR028938", limit: 10)
+            XCTFail("Expected server error to be thrown")
+        } catch let error as DatabaseServiceError {
+            if case .serverError = error {
+                // Expected
+            } else {
+                XCTFail("Expected serverError, got \(error)")
+            }
+        }
+    }
+
+    func testSearchReadsMalformedPayloadThrowsParseError() async throws {
+        await mockClient.register(
+            pattern: "portal/api/filereport",
+            response: .text("{ this is not valid json and has no known status markers ]")
+        )
+
+        do {
+            _ = try await service.searchReads(term: "DRR028938", limit: 10)
+            XCTFail("Expected malformed payload to throw")
+        } catch let error as DatabaseServiceError {
+            if case .parseError = error {
+                // Expected
+            } else {
+                XCTFail("Expected parseError, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected DatabaseServiceError.parseError, got \(error)")
         }
     }
 
