@@ -18,6 +18,18 @@ REQUIRED_FILES = (
     "SKILLS.md",
     "scripts/tests/test_sparkle_release_packaging.py",
     "scripts/tests/test_release_smoke.py",
+    "scripts/full-suite-gate.sh",
+    "scripts/testing/run-macos-xcui.sh",
+    "scripts/tests/test_full_suite_gate_tiers.py",
+)
+
+REQUIRED_GATE_MARKERS = (
+    "--tier",
+    "smoke)",
+    "unit)",
+    "integration)",
+    "conformance)",
+    "full)",
 )
 
 REQUIRED_FLAGS = (
@@ -40,6 +52,11 @@ REQUIRED_SKILL_MARKERS = (
     "--channel preview",
     "--channel stable",
     "Included preview releases",
+    "--tier unit",
+    "--tier integration",
+    "--tier full",
+    "--tier conformance --require-tools",
+    "run-macos-xcui.sh",
 )
 
 SECRET_PATTERNS = (
@@ -84,6 +101,15 @@ def main() -> int:
         for flag in REQUIRED_FLAGS:
             if flag not in script_text:
                 errors.append(f"Release script no longer exposes required flag: {flag}")
+
+    gate_script = repo_root / "scripts/full-suite-gate.sh"
+    if gate_script.is_file():
+        gate_text = gate_script.read_text(errors="replace")
+        for marker in REQUIRED_GATE_MARKERS:
+            if marker not in gate_text:
+                errors.append(
+                    f"full-suite-gate.sh no longer exposes required tier marker: {marker}"
+                )
 
     skill_file = skill_root / "SKILL.md"
     if not skill_file.is_file():
