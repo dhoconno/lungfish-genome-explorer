@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import os.log
@@ -24,12 +25,12 @@ public final class VCFDatasetViewController: NSViewController,
     // MARK: - Properties
 
     private var summary: VCFSummary?
-    private var allVariants: [VCFVariant] = []
+    private var allVariants: [LungfishIO.VCFVariant] = []
     /// Precomputed lowercased search keys, parallel to `allVariants` by index.
     /// Built once in `configure` so the text filter never rebuilds a string per
     /// variant on every apply (hot path on 50k+ variant files).
     private var searchKeys: [String] = []
-    private var displayedVariants: [VCFVariant] = []
+    private var displayedVariants: [LungfishIO.VCFVariant] = []
     private var filterText: String = ""
     private var typeFilter: String? = nil
 
@@ -70,7 +71,7 @@ public final class VCFDatasetViewController: NSViewController,
     // MARK: - Public API
 
     /// Configure the dashboard with a VCF summary and variant list.
-    public func configure(summary: VCFSummary, variants: [VCFVariant]) {
+    public func configure(summary: VCFSummary, variants: [LungfishIO.VCFVariant]) {
         self.summary = summary
         self.allVariants = variants
         self.searchKeys = Self.buildSearchKeys(variants)
@@ -275,7 +276,7 @@ public final class VCFDatasetViewController: NSViewController,
     /// Builds the lowercased search key for a single variant. Matches the exact
     /// fields/joining/casing the text filter compares against, so precomputing the
     /// keys is behavior-preserving.
-    private static func buildSearchKeys(_ variants: [VCFVariant]) -> [String] {
+    private static func buildSearchKeys(_ variants: [LungfishIO.VCFVariant]) -> [String] {
         variants.map { variant in
             "\(variant.chromosome) \(variant.position) \(variant.ref) \(variant.alt.joined(separator: ","))".lowercased()
         }
@@ -283,7 +284,7 @@ public final class VCFDatasetViewController: NSViewController,
 
     private func applyFilter() {
         let trimmed = filterText.trimmingCharacters(in: .whitespaces).lowercased()
-        var result: [VCFVariant] = []
+        var result: [LungfishIO.VCFVariant] = []
         result.reserveCapacity(allVariants.count)
         for index in allVariants.indices {
             let variant = allVariants[index]
@@ -307,7 +308,7 @@ public final class VCFDatasetViewController: NSViewController,
         #endif
     }
 
-    private func classifyVariantType(_ variant: VCFVariant) -> String {
+    private func classifyVariantType(_ variant: LungfishIO.VCFVariant) -> String {
         let ref = variant.ref
         let alts = variant.alt
         guard !alts.isEmpty, alts.contains(where: { !$0.isEmpty && $0 != "." }) else {
@@ -391,7 +392,7 @@ public final class VCFDatasetViewController: NSViewController,
         return sortAscending ? lhs < rhs : lhs > rhs
     }
 
-    private func variantTieBreaksBefore(_ lhs: VCFVariant, _ rhs: VCFVariant) -> Bool {
+    private func variantTieBreaksBefore(_ lhs: LungfishIO.VCFVariant, _ rhs: LungfishIO.VCFVariant) -> Bool {
         let left = [lhs.chromosome, "\(lhs.position)", lhs.ref, lhs.alt.first ?? "", lhs.id]
             .joined(separator: "\u{1F}")
         let right = [rhs.chromosome, "\(rhs.position)", rhs.ref, rhs.alt.first ?? "", rhs.id]
@@ -446,7 +447,7 @@ public final class VCFDatasetViewController: NSViewController,
         tableView.reloadData()
     }
 
-    var testDisplayedVariants: [VCFVariant] { displayedVariants }
+    var testDisplayedVariants: [LungfishIO.VCFVariant] { displayedVariants }
 
     var displayedVariantCountForTesting: Int { displayedVariants.count }
 

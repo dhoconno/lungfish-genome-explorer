@@ -182,13 +182,6 @@ extension DbCommand {
     }
 }
 
-private func formatDatabaseBytes(_ bytes: Int64) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    formatter.allowedUnits = [.useMB, .useGB]
-    return formatter.string(fromByteCount: bytes)
-}
-
 // MARK: - db info
 
 extension DbCommand {
@@ -232,8 +225,8 @@ extension DbCommand {
                 ("Last updated", lastUpdated),
                 ("Available update", availableUpdate),
                 ("Location", path),
-                ("Disk size", formatDatabaseBytes(size)),
-                ("Recommended RAM", formatDatabaseBytes(db.recommendedRAM)),
+                ("Disk size", LungfishFormatters.formatBytes(size)),
+                ("Recommended RAM", LungfishFormatters.formatBytes(db.recommendedRAM)),
                 ("Description", db.description),
             ]))
         }

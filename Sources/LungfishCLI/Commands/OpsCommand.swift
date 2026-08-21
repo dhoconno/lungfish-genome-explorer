@@ -40,7 +40,7 @@ extension OpsCommand {
                 ("Project", projectURL.path),
                 ("Provenance sidecars", "\(report.sidecarCount)"),
                 ("Completed runs", "\(report.completedRunCount)"),
-                ("Total wall time", formatDuration(report.totalWallTimeSeconds)),
+                ("Total wall time", LungfishFormatters.formatDuration(report.totalWallTimeSeconds)),
                 ("Peak RAM", formatBytes(report.peakMemoryBytes)),
             ]))
 
@@ -57,29 +57,14 @@ extension OpsCommand {
                     [
                         summary.name,
                         "\(summary.completedRunCount)",
-                        formatDuration(summary.totalWallTimeSeconds),
-                        formatDuration(summary.averageWallTimeSeconds),
+                        LungfishFormatters.formatDuration(summary.totalWallTimeSeconds),
+                        LungfishFormatters.formatDuration(summary.averageWallTimeSeconds),
                         formatBytes(summary.peakMemoryBytes),
                     ]
                 }
             ))
         }
     }
-}
-
-private func formatDuration(_ seconds: TimeInterval) -> String {
-    let totalSeconds = Int(seconds.rounded())
-    if totalSeconds < 60 {
-        return "\(totalSeconds)s"
-    }
-    let minutes = totalSeconds / 60
-    let secondsRemainder = totalSeconds % 60
-    if minutes < 60 {
-        return secondsRemainder == 0 ? "\(minutes)m" : "\(minutes)m \(secondsRemainder)s"
-    }
-    let hours = minutes / 60
-    let minutesRemainder = minutes % 60
-    return minutesRemainder == 0 ? "\(hours)h" : "\(hours)h \(minutesRemainder)m"
 }
 
 private func formatBytes(_ bytes: UInt64?) -> String {
