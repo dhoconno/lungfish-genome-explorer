@@ -61,6 +61,9 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // BAMVariantCallingToolPanes is a pure SwiftUI View; no ViewInspector/snapshot
+        // harness exists in this repo to observe rendered label text at runtime.
         XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
         XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
     }
@@ -75,6 +78,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("import LungfishKit"))
         XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantAlignmentTrack)"))
         XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamVariantOutputTrack)"))
@@ -98,6 +102,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("import LungfishKit"))
         XCTAssertTrue(source.contains(#"Picker("Alignment Track""#))
         XCTAssertTrue(source.contains(#"TextField("Output Track Name""#))
@@ -378,6 +383,12 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ReadStyleSection is a pure SwiftUI View; the underlying
+        // `hasVariantCallableAlignmentTracks` flag is already covered behaviorally by
+        // testReadStyleSectionTracksVariantCallingEligibility above, but whether the
+        // SwiftUI `.disabled()` modifier actually consumes that flag in the rendered
+        // body has no observable runtime seam without a rendering/inspection harness.
         XCTAssertTrue(source.contains(".disabled(!viewModel.hasVariantCallableAlignmentTracks)"))
     }
 
@@ -549,6 +560,9 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ReadStyleSection is a pure SwiftUI View; no rendering/inspection harness exists
+        // in this repo to observe which action button triggers onCallVariantsRequested.
         XCTAssertTrue(source.contains("onCallVariantsRequested"))
         XCTAssertTrue(source.contains("Call Variants"))
     }
@@ -556,6 +570,16 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     func testInspectorControllerSourceWiresCallVariantsWorkflow() throws {
         let source = combinedInspectorViewControllerSource()
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // onCallVariantsRequested is a real closure property on ReadStyleSectionViewModel
+        // (a genuine injected-closure seam), wired up inside
+        // InspectorViewController.updateAlignmentSection(from:). Exercising it end-to-end
+        // means constructing a full ReferenceBundle fixture, calling
+        // updateAlignmentSection, invoking the closure, and observing that
+        // runCallVariantsWorkflow() presents a real NSWindow-backed dialog
+        // (presentVariantCallingDialog reads view.window/NSApp.keyWindow and can spawn an
+        // NSAlert) -- exercising that safely and deterministically in a unit test is out
+        // of scope for this task; no test in this file currently sets up that wiring.
         XCTAssertTrue(source.contains("onCallVariantsRequested"))
         XCTAssertTrue(source.contains("runCallVariantsWorkflow()"))
         XCTAssertTrue(source.contains("operationType: .variantCalling"))

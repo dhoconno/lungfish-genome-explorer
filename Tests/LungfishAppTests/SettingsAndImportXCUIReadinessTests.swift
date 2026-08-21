@@ -93,6 +93,10 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // StorageSettingsTab is a pure SwiftUI View; no ViewInspector/snapshot harness
+        // exists in this repo to observe modal-chooser wiring or accessibility
+        // identifiers assigned inside its body at runtime.
         XCTAssertTrue(source.contains("beginSheetModal(for: window"))
         XCTAssertTrue(source.contains("SettingsAccessibilityID.storageForm"))
         XCTAssertTrue(source.contains("SettingsAccessibilityID.storageChangeLocationButton"))
@@ -107,6 +111,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // AIServicesSettingsTab is a pure SwiftUI View; no rendering/inspection harness
+        // exists in this repo to observe identifiers/guards at runtime.
         XCTAssertTrue(source.contains("SettingsAccessibilityID.aiSearchToggle"))
         XCTAssertTrue(source.contains("SettingsAccessibilityID.aiPreferredProviderPicker"))
         XCTAssertTrue(source.contains("SettingsAccessibilityID.aiAnthropicKeyField"))
@@ -126,6 +133,7 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         let nextSectionStart = try XCTUnwrap(source.range(of: "Section(\"Google Gemini\")", range: openAISectionStart.upperBound..<source.endIndex))
         let openAISection = source[openAISectionStart.lowerBound..<nextSectionStart.lowerBound]
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("Section(\"Azure AI\")"))
         XCTAssertTrue(source.contains("Use Azure AI-hosted endpoint"))
         XCTAssertFalse(openAISection.contains("openAIHostedEndpointEnabled"))
@@ -157,6 +165,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // AppearanceSettingsTab is a pure SwiftUI View; no rendering/inspection harness
+        // exists in this repo to observe body content/bindings at runtime.
         XCTAssertTrue(source.contains("Section(\"Content Text Size\")"))
         XCTAssertTrue(source.contains("Text(\"System\")"))
         XCTAssertTrue(source.contains("ContentTextSizePreference.supportedPercentages"))
@@ -236,16 +247,35 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
     }
 
     func testAppDelegateFinderOpenPathUsesPreflightAndProjectRouting() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
-        )
+        // Behavioral replacement for a prior source-text assertion (tranche 1,
+        // 2026-08-21): exercises the real Finder-open preflight guard and
+        // project-routing path through AppDelegate.openDocument(at:), rather
+        // than checking for the presence of the guard/routing source lines.
+        let delegate = AppDelegate()
 
-        XCTAssertTrue(source.contains("private func canQueueDocumentOpen(at url: URL) -> DocumentType?"))
-        XCTAssertTrue(source.contains("sender.reply(toOpenOrPrint: allQueued ? .success : .failure)"))
-        XCTAssertTrue(source.contains("if type == .lungfishProject"))
-        XCTAssertTrue(source.contains("let controller = ensureMainWindowForDocumentOpen()"))
+        // Preflight guard: a nonexistent path must be refused before any
+        // window is created (no mainWindowController should be set).
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SettingsAndImportXCUIReadinessTests-missing-\(UUID().uuidString).lungfish")
+        XCTAssertFalse(delegate.openDocument(at: missingURL))
+        XCTAssertNil(delegate.mainWindowController)
+
+        // Project routing: a real .lungfish project must be queued
+        // successfully and routed through project-open, ending up as the
+        // delegate's main window controller.
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppDelegateFinderOpen-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let projectURL = temp.appendingPathComponent("Finder.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: projectURL, name: "Finder")
+
+        XCTAssertTrue(delegate.openDocument(at: projectURL))
+        let controller = try XCTUnwrap(delegate.mainWindowController)
+        XCTAssertEqual(
+            controller.projectSession.projectURL?.standardizedFileURL,
+            projectURL.standardizedFileURL
+        )
     }
 
     func testAppDelegateRespondsToVariantCallingMenuSelector() {

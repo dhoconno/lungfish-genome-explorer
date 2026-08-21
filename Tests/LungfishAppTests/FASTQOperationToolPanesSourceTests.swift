@@ -9,6 +9,10 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testOrientReadsReferenceInputUsesProjectReferencePicker() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // FASTQOperationToolPanes.body is a pure SwiftUI switch-on-tool View; no
+        // ViewInspector/snapshot harness exists in this repo to observe which
+        // sub-view/picker actually rendered for a given selectedToolID.
         XCTAssertTrue(source.contains("usesProjectReferencePicker(for: kind)"))
         XCTAssertTrue(source.contains("state.selectedToolID == .orientReads"))
         XCTAssertTrue(source.contains("ReferenceSequencePickerView("))
@@ -18,6 +22,9 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testFASTQOperationToolPanesUseSharedScientificHelpCatalog() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Same SwiftUI-body limitation as above: `.lungfishHelp(...)` view-modifier wiring
+        // is not observable at runtime without a rendering/inspection harness.
         XCTAssertTrue(source.contains("import LungfishKit"))
         XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqOverview)"))
         XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.fastqInputs)"))
@@ -29,6 +36,7 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testFASTQOperationTextFieldsAcceptFieldLevelHelpItems() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("help: LungfishHelpContent.HelpItem"))
         XCTAssertTrue(source.contains("TextField(\"\", text: text)"))
         XCTAssertTrue(source.contains(".lungfishHelpIfPresent(help)"))
@@ -55,6 +63,7 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
             "fastqDemultiplexDistance",
         ]
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         for item in requiredHelpItems {
             XCTAssertTrue(source.contains("LungfishHelpContent.\(item)"), "\(item) is not wired into FASTQ operation panes")
         }
@@ -63,6 +72,11 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testMAFFTPaneRendersCombineLockedMultiBundleRunModePicker() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // mafftMultiBundleRunPolicy is a static let on `private struct
+        // FASTQOperationPrimarySettingsSection` -- Swift's `private` is file-scoped, so
+        // this is unreachable even via @testable import without widening its access,
+        // which is a production change out of scope for this task.
         XCTAssertTrue(source.contains("mafftMultiBundleRunPolicy = MultiBundleRunPolicy("))
         XCTAssertTrue(source.contains("allowedModes: [.combined]"))
         XCTAssertTrue(source.contains("defaultMode: .combined"))
@@ -73,6 +87,9 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testSavontAndPbaaPanesRenderPerBundleLockedMultiBundleRunModePicker() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Same file-private static-let issue as MAFFT above (private struct
+        // FASTQOperationPrimarySettingsSection).
         XCTAssertTrue(source.contains("clusteringMultiBundleRunPolicy = MultiBundleRunPolicy("))
         XCTAssertTrue(source.contains("allowedModes: [.perBundle]"))
         XCTAssertTrue(source.contains("lockReason: \"Runs once per bundle\""))
@@ -88,6 +105,8 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         // over-promise separate runs the execution path doesn't perform.
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Same file-private static-let issue as MAFFT/Savont above.
         XCTAssertTrue(source.contains("ontGenotypingMultiBundleRunPolicy = MultiBundleRunPolicy("))
         XCTAssertTrue(source.contains("allowedModes: [.combined],\n        defaultMode: .combined,\n        lockReason: \"Selections run as one genotyping batch producing a merged report. Run bundles individually for separate per-sample reports.\""))
         XCTAssertTrue(source.contains("policy: Self.ontGenotypingMultiBundleRunPolicy,\n                    selection: $ontGenotypingMultiBundleRunMode"))
@@ -97,6 +116,8 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testSavontPaneExposesCuratedPrimaryAndAdvancedControlsWithoutRawArguments() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // SwiftUI-body switch content; no rendering/inspection harness available.
         XCTAssertTrue(source.contains("case .savont:"))
         XCTAssertTrue(source.contains("\\.savontSingleInputOutputName"))
         XCTAssertTrue(source.contains("\\.savontThreads"))
@@ -126,6 +147,9 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
             "operationRun",
         ]
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // FASTQImportConfigSheet is a pure SwiftUI View; help-modifier wiring is not
+        // runtime-observable without a rendering/inspection harness.
         XCTAssertTrue(source.contains("import LungfishKit"))
         for item in requiredHelpItems {
             XCTAssertTrue(source.contains("LungfishHelpContent.\(item)"), "\(item) is not wired into FASTQ import sheet")
@@ -139,6 +163,7 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("import LungfishKit"))
         XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationToolSidebar)"))
         XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.operationReadiness)"))

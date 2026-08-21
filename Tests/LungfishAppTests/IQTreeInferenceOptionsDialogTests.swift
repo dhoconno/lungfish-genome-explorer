@@ -12,6 +12,11 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // IQTreeInferenceDialog is a pure SwiftUI View; no ViewInspector/snapshot harness
+        // exists in this repo to observe rendered label text at runtime. Its state
+        // object (IQTreeInferenceDialogState) IS behaviorally tested below in
+        // testIQTreeInferenceDialogStateProducesOptionsForRunner.
         XCTAssertTrue(source.contains("Sequence Type"))
         XCTAssertTrue(source.contains("Branch Support"))
         XCTAssertTrue(source.contains("Ultrafast Bootstrap"))
@@ -28,6 +33,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("iqtree-options-scope"))
         XCTAssertTrue(source.contains("iqtree-options-executable-path"))
         XCTAssertTrue(source.contains("IQ-TREE Executable"))
@@ -37,6 +43,12 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         let sourceURL = repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // runIQTreeInferenceViaCLI is a private method on ViewerViewController with no
+        // testing-prefixed wrapper (unlike AppDelegate's testing* convention), and the
+        // routing decision only manifests by presenting a real NSPanel sheet
+        // (IQTreeInferenceDialogPresenter.present calls window.beginSheet), which has no
+        // safe, deterministic runtime seam to assert against without adding one.
         XCTAssertTrue(source.contains("IQTreeInferenceDialogPresenter.present"))
         XCTAssertFalse(source.contains("IQTreeInferenceOptionsDialog.present"))
         XCTAssertTrue(source.contains("runIQTreeInferenceViaCLI"))
@@ -48,6 +60,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("DatasetOperationsDialog"))
         XCTAssertTrue(source.contains("Phylogenetic Tree Operations"))
         XCTAssertTrue(source.contains("Build Tree with IQ-TREE"))
@@ -64,6 +77,12 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // IQTreeInferenceDialogPresenter.present(from:) constructs a real NSPanel with an
+        // observable contentSize, but calling it requires a real NSWindow that can host
+        // an actual beginSheet(_:) presentation -- there is no existing safe/deterministic
+        // pattern for this in the suite (window ordering / NSApp state), so exercising it
+        // is out of scope for this task.
         XCTAssertTrue(source.contains("NSPanel"))
         XCTAssertTrue(source.contains("setContentSize(NSSize(width: 980, height: 700))"))
         XCTAssertTrue(source.contains("window.beginSheet(panel)"))

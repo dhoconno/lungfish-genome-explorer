@@ -166,6 +166,10 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             )
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // GenotypeResultDisplaySection is a pure SwiftUI View; no ViewInspector/snapshot
+        // harness exists in this repo to observe rendered text/labels/accessibility
+        // identifiers at runtime.
         XCTAssertTrue(source.contains("Text(\"Search and Support Filters\")"))
         XCTAssertTrue(source.contains("Text(\"Selected Rows and Columns\")"))
         XCTAssertTrue(source.contains(
@@ -305,6 +309,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("Text(\"Content Text Size\")"))
         XCTAssertTrue(source.contains("\"genotype-view-content-text-size-decrease\""))
         XCTAssertTrue(source.contains("\"genotype-view-content-text-size-value\""))
@@ -529,6 +534,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             in: bodySource
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(guardedSource.contains("viewControls"))
         XCTAssertTrue(guardedSource.contains("layoutControls"))
         XCTAssertTrue(source.contains("Label(lens.displayName, systemImage: lens.inspectorSystemImage)"))
@@ -571,6 +577,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertFalse(source.contains("Hide Low Support"))
         XCTAssertFalse(source.contains("Minimum Reads"))
         XCTAssertFalse(source.contains("Slider("))
@@ -589,6 +596,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var matrixFilterControls"))
         let thresholdSource = String(source[start.lowerBound..<end.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(thresholdSource.contains("Run and Calling Thresholds"))
         XCTAssertFalse(thresholdSource.contains("TextField("))
         XCTAssertFalse(thresholdSource.contains("Stepper("))
@@ -605,6 +613,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
         let controls = String(source[start.lowerBound..<end.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(
             controls.contains(
                 "viewModel.matrixMinimumReadsDraft.configuration.label"
@@ -638,6 +647,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         XCTAssertTrue(source.contains("setViewportLens"))
         XCTAssertTrue(source.contains("GenotypeResultViewportLens.allCases"))
     }
@@ -1362,6 +1372,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let appearance = try XCTUnwrap(source.range(of: "private var appearanceControls"))
         XCTAssertLessThan(review.lowerBound, comments.lowerBound)
         XCTAssertLessThan(comments.lowerBound, appearance.lowerBound)
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // GenotypeMatrixAnnotationSection is a pure SwiftUI View; no rendering/inspection
+        // harness exists in this repo to observe rendered structure/identifiers at runtime.
         XCTAssertTrue(source.contains("DisclosureGroup(\"Appearance\""))
         XCTAssertTrue(source.contains("genotype-annotation-review-false-positive-button"))
         XCTAssertTrue(source.contains("genotype-annotation-review-false-negative-button"))

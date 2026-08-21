@@ -2320,6 +2320,14 @@ final class MappingViewportRoutingTests: XCTestCase {
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
         let source = try loadSource(at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift")
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // GenotypeAIHaplotypingExecutionService.commandPreview(...) and failureDetail(...)
+        // are private with no testing-prefixed wrapper. The built argv IS logged through
+        // operationCenter.log(...) -- a real, already-tested seam elsewhere in this
+        // suite -- but reaching that log line requires running the full AI haplotyping
+        // path (a real or mocked AIHaplotypingRunner + provider + network credentials),
+        // which is a materially larger integration than a unit test should take on here;
+        // no such fixture exists in this suite today.
         XCTAssertTrue(source.contains("CLICommandIdentity.executableName"))
         XCTAssertTrue(source.contains("mode.commandLineArgument"))
         XCTAssertTrue(source.contains("AIHaplotypingExecutionDefaults.maxObservationsPerChunk"))

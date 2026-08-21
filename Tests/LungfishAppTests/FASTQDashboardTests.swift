@@ -458,6 +458,9 @@ final class FASTQDashboardTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Dead-code absence check (legacy accordion-state symbols no longer exist);
+        // there is no runtime instance of removed code to test against by definition.
         XCTAssertFalse(source.contains("legacyOperationSections"))
         XCTAssertFalse(source.contains("FASTQOperationSidebarExpansion"))
         XCTAssertFalse(source.contains("expandedCategories"))
@@ -477,6 +480,13 @@ final class FASTQDashboardTests: XCTestCase {
         let controllerSource = try String(contentsOf: controllerSourceURL, encoding: .utf8)
         let panelFactorySource = try String(contentsOf: panelFactorySourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // contaminantReferenceBrowseClicked opens a real NSOpenPanel via
+        // ViewerFilePanelFactory.fastqContaminantReferencePanel() and beginSheetModal(for:)
+        // -- there is no safe/deterministic way to drive an actual file picker in a unit
+        // test. The outcome of selecting a contaminant reference IS tested behaviorally
+        // below via controller.testingSelectContaminantFilter(mode:referenceURL:), which
+        // exercises the same downstream state this browse button ultimately sets.
         XCTAssertFalse(controllerSource.contains("not yet implemented"))
         XCTAssertTrue(controllerSource.contains("contaminantReferenceBrowseClicked"))
         XCTAssertTrue(controllerSource.contains("fastqContaminantReferencePanel"))
@@ -525,6 +535,13 @@ final class FASTQDashboardTests: XCTestCase {
         let launchBody = launchSuffix.prefix(500)
 
         XCTAssertFalse(launchBody.localizedCaseInsensitiveContains("drawer"))
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // launchFASTQOperationCategory is a private method; its effects (selectedOperation
+        // reset, onLaunchFASTQOperationCategory firing) ARE covered behaviorally by
+        // testFASTQDatasetSidebarLaunchesOperationCategories above via the real sidebar
+        // table view selection path, but the specific absence of a
+        // "updateParameterBar()" call inside the method body has no observable runtime
+        // seam without invasive private-state inspection.
         XCTAssertFalse(launchBody.contains("updateParameterBar()"))
         XCTAssertTrue(launchBody.contains("selectedOperation = nil"))
         XCTAssertTrue(launchBody.contains("onLaunchFASTQOperationCategory?(category)"))
@@ -539,6 +556,13 @@ final class FASTQDashboardTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // onLaunchFASTQOperationTool is a real closure property (same shape as
+        // onLaunchFASTQOperationCategory, which IS exercised behaviorally above), but
+        // reaching launchFASTQOperationTool(.kraken2) requires driving `selectedOperation`
+        // and runOperationClicked through the real operation-picker UI flow; no
+        // testing-prefixed wrapper exists for that selection (only
+        // testingSelectContaminantFilter exists), and adding one is out of scope here.
         XCTAssertTrue(source.contains("onLaunchFASTQOperationTool"))
         XCTAssertTrue(source.contains("launchFASTQOperationTool(.kraken2)"))
         XCTAssertTrue(source.contains("launchFASTQOperationTool(.esViritu)"))
@@ -557,6 +581,9 @@ final class FASTQDashboardTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Same routing-through-private-selection limitation as the classifier-tools
+        // test above.
         XCTAssertTrue(source.contains("launchFASTQOperationCategory(.mapping)"))
         XCTAssertTrue(source.contains("launchFASTQOperationCategory(.assembly)"))
         XCTAssertFalse(source.contains("launchFASTQOperationTool(.minimap2)"))
@@ -574,6 +601,9 @@ final class FASTQDashboardTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Dead-code / non-goal absence check (these workflows are intentionally not
+        // wired into this dialog); no runtime instance to test against.
         XCTAssertFalse(source.contains("naoMgsImport"))
         XCTAssertFalse(source.contains("NAO-MGS Surveillance"))
         XCTAssertFalse(source.contains("#selector(AppDelegate.launchNaoMgsImport"))

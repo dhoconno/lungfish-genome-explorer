@@ -86,6 +86,12 @@ final class GUIRegressionTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // onLaunchFASTQOperationCategory IS exercised behaviorally in
+        // FASTQDashboardTests.testFASTQDatasetSidebarLaunchesOperationCategories, but this
+        // assertion is about structural/dead-code properties (category-only launcher
+        // shape, absence of the legacy OperationKind enum) with no runtime seam of their
+        // own.
         XCTAssertTrue(source.contains("FASTQOperationCategoryID"))
         XCTAssertTrue(source.contains("onLaunchFASTQOperationCategory"))
         XCTAssertFalse(source.contains("private enum OperationKind"))
@@ -124,22 +130,74 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertFalse(mainSplitSource.contains("recipePopup.selectItem(withTitle: ONTDirectoryImportRecipe.sampleSplit.displayName)"))
     }
 
+    @MainActor
     func testFASTQImportSheetSupportsBarcodeGatedRecipes() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift"),
-            encoding: .utf8
-        )
+        // Behavioral replacement for a prior source-text assertion (tranche 1,
+        // 2026-08-21). FASTQImportConfigSheet is a real NSViewController with a
+        // public init and recipe/barcode state that fully round-trips through
+        // onImport, so this exercises the gating through the actual view
+        // hierarchy and captured configuration rather than string-matching the
+        // implementation. The recipe-name / help-text portions of the prior
+        // assertion are already covered by
+        // FASTQImportConfigurationTests.ontDemuxRecipeImportCapturesUserFolderOverride
+        // and .ontBarcodeRecipeSheetExposesCompactFormatHelp.
+        let inputURL = URL(fileURLWithPath: "/data/Run42/fastq_pass", isDirectory: true)
 
-        XCTAssertTrue(source.contains("Apply processing recipe after import"))
-        XCTAssertTrue(source.contains("Split by Fluidigm sample barcodes"))
-        XCTAssertTrue(source.contains("Demultiplex full-length MHC ONT amplicons with PacBio barcodes"))
-        XCTAssertTrue(source.contains("recipeCheckbox.state = .off"))
-        XCTAssertTrue(source.contains("requiresBarcodeDefinition"))
-        XCTAssertTrue(source.contains("Choose Barcode Sheet"))
-        XCTAssertTrue(source.contains("barcodeDefinitionRow.isHidden = !requiresBarcodeDefinition"))
-        XCTAssertTrue(source.contains("importButton.isEnabled = selectedBarcodeDefinitionURL != nil"))
-        XCTAssertTrue(source.contains("resolvedPlaceholders[\"barcodeDefinition\"] = barcodeDefinitionURL.path"))
+        // No barcode candidates supplied: Import must stay blocked until one
+        // is chosen (selectedBarcodeDefinitionURL stays nil).
+        var blockedCapturedConfig: FASTQImportConfiguration?
+        let blockedSheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: inputURL, r2: nil)],
+            detectedPlatform: .oxfordNanopore,
+            recipeOptions: [.ontPacBioBarcodeDemux],
+            onImport: { blockedCapturedConfig = $0 }
+        )
+        blockedSheet.loadViewIfNeeded()
+
+        let recipeCheckbox = try XCTUnwrap(blockedSheet.view.firstButton(titled: "Apply processing recipe after import"))
+        XCTAssertEqual(recipeCheckbox.state, .off, "Recipe application should be off by default")
+
+        let blockedImportButton = try XCTUnwrap(blockedSheet.view.firstButton(titled: "Import"))
+        XCTAssertTrue(blockedImportButton.isEnabled, "Import should be enabled before a barcode-gated recipe is selected")
+
+        recipeCheckbox.performClick(nil)
+        blockedSheet.view.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(
+            blockedImportButton.isEnabled,
+            "Import should be disabled once a barcode-gated recipe is selected but no barcode sheet is available"
+        )
+        blockedImportButton.performClick(nil)
+        XCTAssertNil(blockedCapturedConfig, "Import must not proceed while the barcode-gated recipe has no barcode selection")
+
+        // A barcode candidate supplied at init is auto-selected, re-enabling
+        // Import and resolving into the captured configuration's placeholder.
+        let barcodeURL = URL(fileURLWithPath: "/data/Run42/barcodes.csv")
+        var resolvedCapturedConfig: FASTQImportConfiguration?
+        let resolvedSheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: inputURL, r2: nil)],
+            detectedPlatform: .oxfordNanopore,
+            recipeOptions: [.ontPacBioBarcodeDemux],
+            barcodeDefinitionCandidates: [barcodeURL],
+            onImport: { resolvedCapturedConfig = $0 }
+        )
+        resolvedSheet.loadViewIfNeeded()
+
+        let resolvedRecipeCheckbox = try XCTUnwrap(
+            resolvedSheet.view.firstButton(titled: "Apply processing recipe after import")
+        )
+        resolvedRecipeCheckbox.performClick(nil)
+        resolvedSheet.view.layoutSubtreeIfNeeded()
+
+        let resolvedImportButton = try XCTUnwrap(resolvedSheet.view.firstButton(titled: "Import"))
+        XCTAssertTrue(
+            resolvedImportButton.isEnabled,
+            "Import should re-enable once a barcode candidate is available and auto-selected"
+        )
+        resolvedImportButton.performClick(nil)
+
+        XCTAssertEqual(resolvedCapturedConfig?.recipeName, FASTQImportSheetRecipeOption.ontPacBioBarcodeDemux.id)
+        XCTAssertEqual(resolvedCapturedConfig?.resolvedPlaceholders["barcodeDefinition"], barcodeURL.path)
     }
 
     func testONTDirectoryRoutingExcludesExistingFASTQBundles() throws {
@@ -620,6 +678,10 @@ final class UnifiedWizardTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // FASTQDatasetViewController's action-copy strings passed into the unified
+        // classifier SwiftUI wizard have no ViewInspector/snapshot harness to observe
+        // rendered text at runtime.
         XCTAssertTrue(source.contains("Run Kraken2/Bracken taxonomic classification and abundance profiling on this dataset."))
         XCTAssertTrue(source.contains("Run EsViritu viral detection with genome coverage analysis on this dataset."))
         XCTAssertTrue(source.contains("Run TaxTriage end-to-end clinical metagenomics triage with confidence scoring."))
@@ -635,6 +697,9 @@ final class UnifiedWizardTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // TaxTriageWizardSheet is a pure SwiftUI View; no rendering/inspection harness
+        // exists in this repo to observe rendered title text at runtime.
         XCTAssertTrue(source.contains("let title = \"TaxTriage\""))
         XCTAssertTrue(source.contains("WizardSheet("))
         XCTAssertTrue(source.contains("title: standalonePresentation.title"))

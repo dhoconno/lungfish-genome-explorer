@@ -9,6 +9,10 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // PluginManagerView is a pure SwiftUI View struct with no ViewInspector/snapshot
+        // harness in this repo, so its rendered body (colors, glyphs, conditionals) has
+        // no observable runtime seam short of adding one, which is out of scope here.
         XCTAssertTrue(source.contains("Color.lungfishCanvasBackground"))
         XCTAssertTrue(source.contains("Color.lungfishCardBackground"))
         XCTAssertTrue(source.contains("Color.lungfishCreamsicleFallback"))
@@ -118,6 +122,10 @@ final class WindowAppearanceTests: XCTestCase {
                     continue
                 }
                 let source = try String(contentsOf: url, encoding: .utf8)
+                // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+                // This is a deliberate whole-tree style-guide scan (forbidden system-red
+                // patterns anywhere in UI sources); the assertion's subject is the source
+                // text itself, not a SUT's runtime behavior, so no seam applies.
                 for pattern in forbiddenPatterns where source.contains(pattern) {
                     violations.append("\(relativePath): \(pattern)")
                 }
@@ -133,6 +141,9 @@ final class WindowAppearanceTests: XCTestCase {
     func testInspectorUsesTextTabsInsteadOfIconOnlySegmentLabels() throws {
         let source = combinedInspectorViewControllerSource()
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // InspectorViewController's SwiftUI-hosted tab body has no ViewInspector/snapshot
+        // harness in this repo, so label text vs icon-only rendering isn't observable.
         XCTAssertTrue(source.contains("label: \\.displayLabel"))
         XCTAssertFalse(source.contains("Image(systemName: tab.iconName)"))
     }
@@ -297,6 +308,9 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ImportCenterView is a pure SwiftUI View struct; no rendering/inspection harness
+        // exists in this repo to observe body content (colors, subviews, glyphs) at runtime.
         XCTAssertTrue(source.contains("Color.lungfishCanvasBackground"))
         XCTAssertTrue(source.contains("Color.lungfishCardBackground"))
         XCTAssertTrue(source.contains("Color.lungfishStroke"))
@@ -338,6 +352,9 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // UnifiedMetagenomicsWizard is a pure SwiftUI View struct; body layout/naming has
+        // no runtime-observable seam in this repo (no ViewInspector/snapshot harness).
         XCTAssertTrue(source.contains("HStack(spacing: 0)"))
         XCTAssertTrue(source.contains("runnerSidebar"))
         XCTAssertTrue(source.contains("runnerDetail"))
@@ -403,6 +420,11 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ClassificationWizardSheet is a pure SwiftUI View struct; `embeddedInOperationsDialog`
+        // is a real init parameter (see AssemblyWizardSheet below for the same shape), but
+        // whether the body actually renders a ScrollView/standaloneBody for a given value
+        // has no observable runtime seam without a SwiftUI rendering/inspection harness.
         XCTAssertTrue(source.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(source.contains("standaloneBody"))
         XCTAssertTrue(source.contains("ScrollView {"))
@@ -414,6 +436,10 @@ final class WindowAppearanceTests: XCTestCase {
         let sourceRoot = repositoryRoot().appendingPathComponent("Sources/LungfishApp")
         let offenders = try swiftSourceFiles(under: sourceRoot).filter { url in
             let source = try String(contentsOf: url, encoding: .utf8)
+            // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+            // Deliberate whole-tree scan for a deprecated AppKit API name; the assertion's
+            // subject is source text by design (there is no runtime instance of every
+            // control in every file to introspect), so no seam applies.
             return source.contains(".texturedRounded")
         }.map { url in
             url.path.replacingOccurrences(of: repositoryRoot().path + "/", with: "")
@@ -524,6 +550,9 @@ final class WindowAppearanceTests: XCTestCase {
         let sourceRoot = root.appendingPathComponent("Sources")
         let references = try swiftSourceFiles(under: sourceRoot).filter { url in
             let source = try String(contentsOf: url, encoding: .utf8)
+            // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+            // Deliberate dead-code check: confirms no source file still references a type
+            // that was deleted. There is no runtime instance to test against by definition.
             return source.contains("MapReadsWizardSheet")
         }.map { url in
             url.path.replacingOccurrences(of: root.path + "/", with: "")
@@ -539,6 +568,11 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // embeddedInOperationsDialog/embeddedRunTrigger/onRunnerAvailabilityChange are real
+        // init parameters on AssemblyWizardSheet (a pure SwiftUI View struct), but the
+        // conditional body rendering and .onChange wiring they drive have no observable
+        // runtime seam without a SwiftUI rendering/inspection harness this repo lacks.
         XCTAssertTrue(source.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(source.contains("embeddedRunTrigger"))
         XCTAssertTrue(source.contains("onRunnerAvailabilityChange"))
@@ -562,6 +596,9 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // DatasetOperationsDialog is a pure SwiftUI View struct; no rendering/inspection
+        // harness exists in this repo to observe body layout/colors at runtime.
         XCTAssertTrue(source.contains("HStack(spacing: 0)"))
         XCTAssertTrue(source.contains("toolSidebar"))
         XCTAssertTrue(source.contains("detailPane"))
