@@ -90,9 +90,10 @@ class FullSuiteGateTierTests(unittest.TestCase):
     def test_unit_tier_skip_is_composed_from_integration_and_conformance(self):
         gate = _gate_text()
         self.assertIn(
-            'INTEGRATION_FILTER="^LungfishIntegrationTests\\\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}"',
+            'INTEGRATION_FILTER="^LungfishIntegrationTests\\\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}"',
             gate,
-            "INTEGRATION_FILTER must be composed from the CLI + storage variables",
+            "INTEGRATION_FILTER must be composed from the CLI + storage + "
+            "parallel-hazard variables",
         )
         self.assertIn(
             'SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}"',
