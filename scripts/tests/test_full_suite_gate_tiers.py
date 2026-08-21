@@ -114,13 +114,13 @@ class FullSuiteGateTierTests(unittest.TestCase):
     def test_parallel_runs_retry_failing_classes_serially(self):
         gate = _gate_text()
         self.assertIn(
-            'if [ "$PARALLEL" -eq 1 ] && [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then',
+            'if [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then',
             gate,
-            "parallel runs must retry XCTest failures serially (and never retry "
-            "swift-testing failures)",
+            "runs with only XCTest failures must retry the failing classes in "
+            "isolation (and never retry swift-testing failures)",
         )
         self.assertIn(
-            "flaky-under-parallel, passed serial retry",
+            "flaky under load, passed isolated serial retry",
             gate,
             "a pass that needed the serial retry must loudly name the retried "
             "classes instead of masking the flakiness",

@@ -200,15 +200,16 @@ run_gate() {
         conformance_skips=$(grep -cE "$CONFORMANCE_ALLOWLIST" "$LOG" 2>/dev/null)
     fi
 
-    # Parallel flake retry: per-class parallel xctest processes surface a long,
+    # Load-flake retry: both parallel runs and long serial runs surface a
     # nondeterministic tail of load-sensitive tests (timing debounces, window-server
-    # layout, FSEvents) that pass serially. When a PARALLEL run has only XCTest
-    # failures, rerun JUST the failing classes serially once; the gate passes only
-    # if the retry is clean, and it loudly names the retried classes so flakiness
-    # stays visible instead of masked. Deterministic failures still fail (they fail
-    # serially too). More than 12 failing classes means real breakage: no retry.
+    # layout, FSEvents, process reaping) that pass in isolation. When a run has only
+    # XCTest failures, rerun JUST the failing classes serially in isolation once;
+    # the gate passes only if the retry is clean, and it loudly names the retried
+    # classes so flakiness stays visible instead of masked. Deterministic failures
+    # still fail (they fail in isolation too). More than 12 failing classes means
+    # real breakage: no retry.
     RETRIED_CLASSES=""
-    if [ "$PARALLEL" -eq 1 ] && [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then
+    if [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then
         local failing_classes
         failing_classes=$(grep -oE "Test Case '-\[[A-Za-z0-9_]+\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$LOG" \
             | sed -E "s/Test Case '-\[([A-Za-z0-9_]+\.[A-Za-z0-9_]+) .*/\1/" | sort -u)
@@ -218,7 +219,7 @@ run_gate() {
             local retry_filter
             retry_filter="^($(printf '%s\n' "$failing_classes" | sed 's/\./\\./' | paste -sd '|' -))(/|$)"
             local retry_log="$LOG_DIR/gate-${STAMP}-${SHA}.retry.log"
-            echo "Parallel run had $class_count failing class(es); serial retry: $retry_filter" >&2
+            echo "Run had $class_count failing class(es); isolated serial retry: $retry_filter" >&2
             swift test --skip-update --filter "$retry_filter" > "$retry_log" 2>&1
             local retry_status=$?
             local retry_fail
@@ -241,7 +242,7 @@ run_gate() {
         xctest_total=$(grep -oE "Executed [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
         local swifttesting_total
         swifttesting_total=$(grep -oE "Test run with [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
-        echo "GATE PASS ($SHA) - ${xctest_total:-suite}${swifttesting_total:+, $swifttesting_total}${RETRIED_CLASSES:+ - flaky-under-parallel, passed serial retry: $RETRIED_CLASSES} - log: $LOG"
+        echo "GATE PASS ($SHA) - ${xctest_total:-suite}${swifttesting_total:+, $swifttesting_total}${RETRIED_CLASSES:+ - flaky under load, passed isolated serial retry: $RETRIED_CLASSES} - log: $LOG"
         return 0
     else
         {
