@@ -312,6 +312,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Called when the user selects a taxon and wants to view it on NCBI.
     public var onViewOnNCBI: ((NaoMgsTaxonSummary) -> Void)?
 
+    /// Fired when the user chooses an NCBI/PubMed lookup action. Defaults to
+    /// opening the URL in the browser; the App may override to log or intercept.
+    public var onOpenURLRequested: ((URL) -> Void)?
+
     /// Invoked when the user requests read extraction. The App host wires this to
     /// presentClassifierExtractionDialog; kept as a callback so this VC has no
     /// dependency on the App-internal extraction/operation pipeline.
@@ -2370,7 +2374,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             logger.warning("Could not build NCBI URL for accession: \(accession, privacy: .public)")
             return
         }
-        NSWorkspace.shared.open(url)
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
     }
 
     /// Opens GenBank for an accession button click (extracts accession from button title).
@@ -2385,27 +2389,27 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
         guard let accession, !accession.isEmpty else { return }
         if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
-            NSWorkspace.shared.open(url)
+            if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
         }
     }
 
     @objc private func contextViewOnNCBI(_ sender: NSMenuItem) {
         guard let taxId = sender.representedObject as? Int else { return }
         let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/?term=txid\(taxId)[Organism:exp]")!
-        NSWorkspace.shared.open(url)
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
     }
 
     @objc private func contextViewTaxonomyOnNCBI(_ sender: NSMenuItem) {
         guard let taxId = sender.representedObject as? Int else { return }
         let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/taxonomy/\(taxId)/")!
-        NSWorkspace.shared.open(url)
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
     }
 
     @objc private func contextSearchPubMed(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
         let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)")!
-        NSWorkspace.shared.open(url)
+        if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
     }
 
     @objc private func contextExtractFASTQ(_ sender: Any?) {

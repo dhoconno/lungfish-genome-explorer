@@ -296,6 +296,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// dependency on the App-internal extraction/operation pipeline.
     public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
 
+    /// Fired when the user chooses an NCBI/PubMed lookup action. Defaults to
+    /// opening the URL in the browser; the App may override to log or intercept.
+    public var onOpenURLRequested: ((URL) -> Void)?
+
     // MARK: - UI Components
 
     private let summaryBar = NvdSummaryBar()
@@ -2076,7 +2080,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     @objc private func contextViewAccessionOnNCBI(_ sender: NSMenuItem) {
         guard let accession = sender.representedObject as? String else { return }
         if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
-            NSWorkspace.shared.open(url)
+            if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
         }
     }
 
@@ -2084,7 +2088,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard let name = sender.representedObject as? String else { return }
         let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
         if let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)") {
-            NSWorkspace.shared.open(url)
+            if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
         }
     }
 

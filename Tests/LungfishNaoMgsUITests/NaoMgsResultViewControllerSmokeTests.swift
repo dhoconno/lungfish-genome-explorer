@@ -1178,6 +1178,8 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
     @MainActor func testViewAccessionOnNCBIDoesNotCrashForMalformedAccession() {
         let vc = NaoMgsResultViewController()
         vc.loadViewIfNeeded()
+        var opened: [URL] = []
+        vc.onOpenURLRequested = { opened.append($0) }
 
         let item = NSMenuItem(title: "View on NCBI", action: nil, keyEquivalent: "")
         item.representedObject = "bad accession with spaces"
@@ -1185,6 +1187,26 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         // Previously this force-unwrapped URL(string:), which crashes for
         // accessions containing characters invalid in a URL.
         vc.contextViewAccessionOnNCBI(item)
+
+        // Foundation percent-encodes the spaces, so assert containment rather
+        // than exact equality.
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertTrue(opened[0].absoluteString.contains("ncbi.nlm.nih.gov/nuccore"))
+    }
+
+    @MainActor func testViewAccessionOnNCBIOpensExactURLForWellFormedAccession() {
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        var opened: [URL] = []
+        vc.onOpenURLRequested = { opened.append($0) }
+
+        let item = NSMenuItem(title: "View on NCBI", action: nil, keyEquivalent: "")
+        item.representedObject = "NC_045512.2"
+
+        vc.contextViewAccessionOnNCBI(item)
+
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertEqual(opened[0].absoluteString, "https://www.ncbi.nlm.nih.gov/nuccore/NC_045512.2")
     }
 
     private static func makeCachedRow(sample: String = "sample-1", taxId: Int = 1234) -> NaoMgsTaxonSummaryRow {
