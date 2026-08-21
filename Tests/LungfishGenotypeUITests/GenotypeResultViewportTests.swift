@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
+import LungfishTestSupport
 
 private enum WorkbookSnapshotEncodingTestError: Error {
     case injected
@@ -25117,47 +25118,22 @@ final class GenotypeResultViewportTests: XCTestCase {
         manifest: ONTGenotypeResultBundleManifest? = nil,
         reviewableRowCatalog: GenotypeReviewableRowCatalog? = nil
     ) -> ONTGenotypeResultBundleData {
-        let resolvedManifest = manifest ?? ONTGenotypeResultBundleManifest(
-            kind: kind,
-            workflowKind: GenotypeResultWorkflowKind(rawValue: kind),
-            workflowMode: haplotypeAnalysis == nil && haplotypeDefinitionSetID == nil
-                ? .genotypeOnly
-                : .haplotyped,
-            outputName: "example",
-            analysisName: "Example",
-            primaryWorkbookPath: "example.xlsx",
-            longSummaryCSVPath: "example.retained-demux-genotypes.csv",
-            sampleSummaryCSVPath: "example.retained-demux-samples.csv",
-            statsJSONPath: "example.retained-demux-stats.json",
-            provenancePath: "retained-demux-genotyping-provenance.json",
-            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-            mhcCandidateArtifacts: mhcCandidateArtifacts
-        )
-        return ONTGenotypeResultBundleData(
+        GenotypeTestFixtures.makeResult(
             bundleURL: bundleURL,
-            manifest: resolvedManifest,
-            artifacts: ONTGenotypeResultArtifacts(
-                workbookURL: URL(fileURLWithPath: "/tmp/example.xlsx"),
-                longSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-genotypes.csv"),
-                sampleSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-samples.csv"),
-                statsJSONURL: URL(fileURLWithPath: "/tmp/example.retained-demux-stats.json"),
-                provenanceURL: URL(fileURLWithPath: "/tmp/retained-demux-genotyping-provenance.json")
-            ),
-            stats: stats,
-            calls: calls,
             samples: samples,
+            calls: calls,
+            kind: kind,
             haplotypeAnalysis: haplotypeAnalysis,
-            mhcCandidates: nil,
-            mhcUnnameableClusters: nil,
-            mhcCandidateSequencesByStableClusterID: [:],
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            mhcCandidateArtifacts: mhcCandidateArtifacts,
             mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
             mhcAlignmentArtifactURLs: mhcAlignmentArtifactURLs,
-            mhcReferenceVisualizations: mhcReferenceVisualizations,
-            integrityWarnings: [],
+            stats: stats,
             referenceMetadata: referenceMetadata,
-            provisionalExon2SequencesByGenotype:
-                provisionalExon2SequencesByGenotype,
+            mhcReferenceVisualizations: mhcReferenceVisualizations,
+            provisionalExon2SequencesByGenotype: provisionalExon2SequencesByGenotype,
             provisionalExon2ArtifactURLs: provisionalExon2ArtifactURLs,
+            manifest: manifest,
             reviewableRowCatalog: reviewableRowCatalog
         )
     }
@@ -25652,18 +25628,7 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
-        ONTGenotypeCall(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
+        GenotypeTestFixtures.makeCall(sample: sample, genotype: genotype, reads: reads)
     }
 
     private func makeWeakSupportAnalysis(

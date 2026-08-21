@@ -2,6 +2,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class GenotypeExportLabKeySubcommandTests: XCTestCase {
@@ -47,10 +48,8 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
     // MARK: - End-to-end export
 
     func testExportWritesAllFiveFilesWithExpectedHeaders() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("labkey-export-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "labkey-export")
+        defer { TestTempDirectory.cleanup(root) }
 
         let bundleURL = try makeFixtureBundle(in: root)
         let outputDir = root.appendingPathComponent("labkey", isDirectory: true)
@@ -171,9 +170,8 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
     }
 
     func testLabKeyExportUsesSidecarActiveCustomHaplotypeDefinition() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("labkey-active-definition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "labkey-active-definition")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -185,7 +183,7 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
         sidecar.settings.activeHaplotypeDefinitionSetID = definition.id
         let result = inMemoryResult(
             bundleURL: bundleURL,
-            calls: [makeCall(sample: "AnimalA", genotype: "12_M9_B_001_01", reads: 150)],
+            calls: [GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "12_M9_B_001_01", reads: 150)],
             haplotypeAnalysis: persistedAnalysis(haplotypeName: "OldB")
         )
         let outputDir = projectRoot.appendingPathComponent("labkey", isDirectory: true)
@@ -208,10 +206,8 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
     }
 
     func testExportCommandWritesProvenanceForLabKeyOutputs() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("labkey-export-provenance-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "labkey-export-provenance")
+        defer { TestTempDirectory.cleanup(root) }
 
         let bundleURL = try makeFixtureBundle(in: root)
         let outputDir = root.appendingPathComponent("labkey", isDirectory: true)
@@ -481,18 +477,4 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
         )
     }
 
-    private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
-        ONTGenotypeCall(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
-    }
 }

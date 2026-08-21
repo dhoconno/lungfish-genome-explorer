@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import SQLite3
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -1305,8 +1306,7 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         }
 
         init() throws {
-            root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("review-catalog-\(UUID().uuidString)", isDirectory: true)
+            root = try TestTempDirectory.make(prefix: "review-catalog")
             outputDirectory = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
             try FileManager.default.createDirectory(
                 at: outputDirectory,
@@ -1361,7 +1361,7 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         }
 
         func remove() {
-            try? FileManager.default.removeItem(at: root)
+            TestTempDirectory.cleanup(root)
         }
     }
 }
@@ -1442,8 +1442,7 @@ private struct AnnotatedReferenceFixture {
     let databaseURL: URL
 
     init() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("review-reference-\(UUID().uuidString)", isDirectory: true)
+        root = try TestTempDirectory.make(prefix: "review-reference")
         bundleURL = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
         fastaURL = bundleURL.appendingPathComponent("genome/reference.fa")
         manifestURL = bundleURL.appendingPathComponent("manifest.json")
@@ -1496,7 +1495,7 @@ private struct AnnotatedReferenceFixture {
     }
 
     func remove() {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(root)
     }
 
     private static func createDatabase(at url: URL, allele: String) throws {

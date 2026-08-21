@@ -3,6 +3,7 @@ import CryptoKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class GenotypeSubcommandsTests: XCTestCase {
@@ -189,10 +190,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingPromptPreviewBuildsFromCSVWithoutProviderCredentials() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingPromptPreview-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingPromptPreview")
+        defer { TestTempDirectory.cleanup(root) }
         let inputURL = root.appendingPathComponent("mcm-calls.csv")
         try """
         sample,genotype,passedAlignments,passedUniqueReads,sampleUniqueRetainedReads
@@ -227,10 +226,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingPromptPreviewUsesMCMSpecialistPromptWithoutKnowledgePackForPresetDefinition() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingPromptPreviewMCMSpecialist-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingPromptPreviewMCMSpecialist")
+        defer { TestTempDirectory.cleanup(root) }
         let inputURL = root.appendingPathComponent("mcm-calls.csv")
         try """
         sample,genotype,passedAlignments,passedUniqueReads,sampleUniqueRetainedReads
@@ -263,10 +260,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingPromptPreviewCanCompactKnowledgePackForSmokeRuns() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingPromptPreviewCompact-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingPromptPreviewCompact")
+        defer { TestTempDirectory.cleanup(root) }
         let inputURL = root.appendingPathComponent("mcm-calls.csv")
         try """
         sample,genotype,passedAlignments,passedUniqueReads,sampleUniqueRetainedReads
@@ -307,10 +302,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingPromptPreviewWritesProvenanceSidecarForOutputFile() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingPromptPreviewOutput-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingPromptPreviewOutput")
+        defer { TestTempDirectory.cleanup(root) }
         let inputURL = root.appendingPathComponent("mamu-calls.tsv")
         let outputURL = root.appendingPathComponent("prompt-preview.json")
         try """
@@ -358,9 +351,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingDebugOutputWritesJSONAndProvenanceSidecar() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingDebugOutput-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingDebugOutput")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let outputURL = root.appendingPathComponent("debug", isDirectory: true)
             .appendingPathComponent("barcode05-chunk-62.json")
@@ -438,9 +430,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingAzureOptionsAreRecordedInDebugProvenance() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingDebugOutputAzure-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingDebugOutputAzure")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let outputURL = root.appendingPathComponent("debug", isDirectory: true)
             .appendingPathComponent("barcode05-chunk-62.json")
@@ -503,9 +494,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testAIHaplotypingAzureV1DefaultOmitsAPIVersionFlagInDebugProvenance() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIHaplotypingDebugOutputAzureV1-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "AIHaplotypingDebugOutputAzureV1")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let outputURL = root.appendingPathComponent("debug", isDirectory: true)
             .appendingPathComponent("barcode05-chunk-62.json")
@@ -595,9 +585,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testApplyAnnotationsWritesAnnotationSidecarProvenance() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeApplyAnnotationsProvenance-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeApplyAnnotationsProvenance")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -774,9 +763,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testApplyAnnotationsAdvancesV1SidecarSchemaForReviewPatch() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeApplyAnnotationsSchemaUpgrade-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeApplyAnnotationsSchemaUpgrade")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -835,12 +823,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testApplyAnnotationsRejectsFutureSchemaBeforeDiskOrProvenanceWrite() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeApplyAnnotationsFutureSchema-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeApplyAnnotationsFutureSchema")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "test.lungfishgenotype",
             isDirectory: true
@@ -920,12 +904,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
             GenotypeAnnotationSidecarRevision
         ) -> GenotypeAnnotationSidecar.SchemaMutationError)?
     ) async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeApplyAnnotationsConcurrent-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeApplyAnnotationsConcurrent")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "test.lungfishgenotype",
             isDirectory: true
@@ -1044,9 +1024,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testApplyAnnotationsReportsReviewAndCurrentCommentCounts() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeApplyAnnotationsReviewCounts-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeApplyAnnotationsReviewCounts")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -1089,10 +1068,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testReplayMatrixAnnotationCommandReconstructsFinalBytesAndWritesProvenance() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixAnnotationReplay-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixAnnotationReplay")
+        defer { TestTempDirectory.cleanup(root) }
 
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1",
@@ -1257,10 +1234,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testReplayMatrixAnnotationCommandRejectsTamperedPayloadChecksumWithoutOutput() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixAnnotationTamper-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixAnnotationTamper")
+        defer { TestTempDirectory.cleanup(root) }
 
         let provenanceURL = root.appendingPathComponent("annotations.json.lungfish-provenance.json")
         let outputURL = root.appendingPathComponent("reconstructed-annotations.json")
@@ -1322,10 +1297,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testReplayMatrixAnnotationRejectsUnsignedSignatureArtifactOutputCollision() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixAnnotationUnsignedCollision-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixAnnotationUnsignedCollision")
+        defer { TestTempDirectory.cleanup(root) }
 
         let sourceProvenanceURL = root.appendingPathComponent("source.lungfish-provenance.json")
         try writeReplayProvenanceFixture(to: sourceProvenanceURL)
@@ -1362,10 +1335,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testReplayMatrixAnnotationRejectsOutputCollisionWithSignedSourceArtifact() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixAnnotationSignedCollision-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixAnnotationSignedCollision")
+        defer { TestTempDirectory.cleanup(root) }
 
         let sourceProvenanceURL = root.appendingPathComponent("source.lungfish-provenance.json")
         try writeReplayProvenanceFixture(
@@ -1408,13 +1379,10 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
     func testReplayMatrixAnnotationChecksEveryWritableProvenanceArtifactWithoutForce() async throws {
         for artifactKind in ["signature", "public-key"] {
-            let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent(
-                    "GenotypeMatrixAnnotationArtifactAvailability-\(artifactKind)-\(UUID().uuidString)",
-                    isDirectory: true
-                )
-            defer { try? FileManager.default.removeItem(at: root) }
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let root = try TestTempDirectory.make(
+                prefix: "GenotypeMatrixAnnotationArtifactAvailability-\(artifactKind)"
+            )
+            defer { TestTempDirectory.cleanup(root) }
 
             let sourceProvenanceURL = root.appendingPathComponent("source.lungfish-provenance.json")
             try writeReplayProvenanceFixture(to: sourceProvenanceURL)
@@ -1663,9 +1631,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testPivotWorkbookUsesSidecarActiveCustomHaplotypeDefinition() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pivot-active-definition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "pivot-active-definition")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -1774,9 +1741,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     func testPlainXlsxMatrixUsesSidecarActiveCustomHaplotypeDefinition() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("xlsx-active-definition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "xlsx-active-definition")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -1811,7 +1777,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
     }
 
     private func activeDefinitionResult(bundleURL: URL) -> ONTGenotypeResultBundleData {
-        let calls = [makeCall(sample: "AnimalA", genotype: "12_M9_B_001_01", reads: 150)]
+        let calls = [GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "12_M9_B_001_01", reads: 150)]
         return ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
@@ -1888,20 +1854,6 @@ final class GenotypeSubcommandsTests: XCTestCase {
         )
     }
 
-    private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
-        ONTGenotypeCall(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
-    }
 }
 
 private extension GenotypeSubcommandsTests {

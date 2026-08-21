@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishGenotypeUI
 import LungfishIO
+import LungfishTestSupport
 
 /// F21: `GenotypeComparisonMatrixView`'s free-text filter field must debounce
 /// user keystrokes before recomputing (filter, sort, rebuild visible-row
@@ -103,63 +104,17 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
     }
 
     private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
-        ONTGenotypeCall(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
+        GenotypeTestFixtures.makeCall(sample: sample, genotype: genotype, reads: reads)
     }
 
     private func makeResult(
         bundleURL: URL = URL(fileURLWithPath: "/tmp/debounce-example.lungfishgenotype"),
         calls: [ONTGenotypeCall]
     ) -> ONTGenotypeResultBundleData {
-        let manifest = ONTGenotypeResultBundleManifest(
-            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
-            workflowKind: .miSeqAmpliconMHCGenotype,
-            workflowMode: .genotypeOnly,
-            outputName: "example",
-            analysisName: "Example",
-            primaryWorkbookPath: "example.xlsx",
-            longSummaryCSVPath: "example.retained-demux-genotypes.csv",
-            sampleSummaryCSVPath: "example.retained-demux-samples.csv",
-            statsJSONPath: "example.retained-demux-stats.json",
-            provenancePath: "retained-demux-genotyping-provenance.json",
-            haplotypeDefinitionSetID: nil,
-            mhcCandidateArtifacts: nil
-        )
-        return ONTGenotypeResultBundleData(
+        GenotypeTestFixtures.makeResult(
             bundleURL: bundleURL,
-            manifest: manifest,
-            artifacts: ONTGenotypeResultArtifacts(
-                workbookURL: URL(fileURLWithPath: "/tmp/example.xlsx"),
-                longSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-genotypes.csv"),
-                sampleSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-samples.csv"),
-                statsJSONURL: URL(fileURLWithPath: "/tmp/example.retained-demux-stats.json"),
-                provenanceURL: URL(fileURLWithPath: "/tmp/retained-demux-genotyping-provenance.json")
-            ),
-            stats: ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 60),
             calls: calls,
-            samples: [],
-            haplotypeAnalysis: nil,
-            mhcCandidates: nil,
-            mhcUnnameableClusters: nil,
-            mhcCandidateSequencesByStableClusterID: [:],
-            mhcCandidateGenBankArtifactURLs: .empty,
-            mhcAlignmentArtifactURLs: .empty,
-            mhcReferenceVisualizations: nil,
-            integrityWarnings: [],
-            referenceMetadata: nil,
-            provisionalExon2SequencesByGenotype: [:],
-            provisionalExon2ArtifactURLs: .empty,
-            reviewableRowCatalog: nil
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue
         )
     }
 }

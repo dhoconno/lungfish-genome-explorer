@@ -2,6 +2,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 import SwiftUI
 import XCTest
 @testable import LungfishGenotypeUI
@@ -1444,18 +1445,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         genotype: String,
         reads: Int
     ) -> ONTGenotypeCall {
-        ONTGenotypeCall(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
+        GenotypeTestFixtures.makeCall(sample: sample, genotype: genotype, reads: reads)
     }
 
     private func makeSemanticMatrixResult(

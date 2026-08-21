@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import LungfishCore
+import LungfishTestSupport
 import XCTest
 @testable import LungfishIO
 
@@ -2976,17 +2977,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         genotype: String,
         uniqueReads: Int
     ) -> ONTGenotypeCall {
-        ONTGenotypeCall(
+        GenotypeTestFixtures.makeCall(
             sample: sample,
             genotype: genotype,
-            passedAlignments: uniqueReads,
-            passedUniqueReads: uniqueReads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: 100,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
+            reads: uniqueReads,
+            retainedReads: 100
         )
     }
 

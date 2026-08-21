@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishGenotypeUI
 import LungfishIO
+import LungfishTestSupport
 
 final class GenotypeMatrixBaseProjectionTests: XCTestCase {
     func testBaseProjectionPreservesOccurrenceSupportAndZeroVersusMissingRetainedDenominators() {
@@ -552,17 +553,11 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
         reads: Int,
         retainedReads: Int?
     ) -> ONTGenotypeCall {
-        ONTGenotypeCall(
+        GenotypeTestFixtures.makeCall(
             sample: sample,
             genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: retainedReads,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
+            reads: reads,
+            retainedReads: retainedReads
         )
     }
 

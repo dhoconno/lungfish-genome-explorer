@@ -134,7 +134,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishCoreTests",
-            dependencies: ["LungfishCore"],
+            dependencies: ["LungfishCore", "LungfishTestSupport"],
             path: "Tests/LungfishCoreTests"
         ),
 
@@ -204,7 +204,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishKitTests",
-            dependencies: ["LungfishKit", "LungfishCore"],
+            dependencies: ["LungfishKit", "LungfishCore", "LungfishTestSupport"],
             path: "Tests/LungfishKitTests"
         ),
 
@@ -340,7 +340,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishGenotypeUITests",
-            dependencies: ["LungfishGenotypeUI", "LungfishKit"],
+            dependencies: ["LungfishGenotypeUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishGenotypeUITests"
         ),
 

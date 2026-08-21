@@ -1,21 +1,11 @@
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishIO
 
 final class GenotypeObservedLociIndexTests: XCTestCase {
     private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
-        ONTGenotypeCall(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
+        GenotypeTestFixtures.makeCall(sample: sample, genotype: genotype, reads: reads)
     }
 
     private func makeBundle(calls: [ONTGenotypeCall],

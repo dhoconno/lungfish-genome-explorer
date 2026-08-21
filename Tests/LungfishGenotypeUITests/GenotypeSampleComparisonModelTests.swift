@@ -1,5 +1,6 @@
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishGenotypeUI
 
 @MainActor
@@ -1274,18 +1275,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         genotype: String,
         reads: Int
     ) -> ONTGenotypeCall {
-        .init(
-            sample: sample,
-            genotype: genotype,
-            passedAlignments: reads,
-            passedUniqueReads: reads,
-            sampleTotalReads: nil,
-            sampleUniqueRetainedReads: nil,
-            sampleUniqueRetainedPercent: nil,
-            overallInputReads: nil,
-            overallUniqueRetainedReads: nil,
-            overallUniqueRetainedPercent: nil
-        )
+        GenotypeTestFixtures.makeCall(sample: sample, genotype: genotype, reads: reads)
     }
 
     private func makeResult(

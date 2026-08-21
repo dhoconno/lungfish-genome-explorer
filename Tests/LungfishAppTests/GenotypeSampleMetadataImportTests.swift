@@ -5,13 +5,13 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeSampleMetadataImportTests: XCTestCase {
     func testImportRejectsCanonicalAndAliasRowsWithoutPublishingArtifacts() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SampleMetadataAliasCollision-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleMetadataAliasCollision")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
@@ -44,10 +44,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testImportRekeysExplicitAliasAndRecordsIdentityMapping() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SampleMetadataAliasImport-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "SampleMetadataAliasImport")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
@@ -76,9 +74,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testImportRecordsExplicitFinalAlignmentIdentityInputsAndTrackScopedReadGroups() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MappingMetadataIdentityInputs-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MappingMetadataIdentityInputs")
+        defer { TestTempDirectory.cleanup(root) }
         let resultURL = root.appendingPathComponent("mapping-result", isDirectory: true)
         let viewerBundleURL = resultURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
         let alignmentsURL = viewerBundleURL.appendingPathComponent("alignments", isDirectory: true)
@@ -160,9 +157,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testImportRejectsSymlinkEscapingFinalResultIdentityInputs() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MetadataIdentitySymlinkEscape-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MetadataIdentitySymlinkEscape")
+        defer { TestTempDirectory.cleanup(root) }
         let resultURL = root.appendingPathComponent("result", isDirectory: true)
         let identityDirectory = resultURL.appendingPathComponent("viewer/alignments", isDirectory: true)
         try FileManager.default.createDirectory(at: identityDirectory, withIntermediateDirectories: true)
@@ -193,10 +189,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testImportPersistsGenotypeMetadataAndProvenanceWithFinalBundlePayload() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeSampleMetadataImportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("genotype-result.json"))
@@ -245,9 +239,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorEditRefreshesJournalProvenanceAndAppendsTimedStep() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SampleMetadataEditProvenance-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleMetadataEditProvenance")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
@@ -293,9 +286,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorEditRollsBackJournalAndStoreWhenProvenanceWriteFails() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SampleMetadataEditRollback-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleMetadataEditRollback")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
@@ -329,9 +321,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testFailedEditPreservesNewerConcurrentJournalAndProvenance() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SampleMetadataConcurrentEdit-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleMetadataConcurrentEdit")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
@@ -373,10 +364,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testImportRollsBackMetadataWhenProvenanceLayoutFails() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeSampleMetadataImportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("genotype-result.json"))
@@ -419,10 +408,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testImportPersistsTwelveSMetadataAndProvenanceWithResultPayload() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeSampleMetadataImportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("run.lungfish12s", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let manifest = TwelveSAmpliconResultBundleManifest(
@@ -479,10 +466,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorMetadataImportUsesGenotypeContextAndRefreshesViewportCallback() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeSampleMetadataImportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("genotype-result.json"))
@@ -529,9 +514,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorDocumentListsEditableWorkbookAndOriginalWorkbookWhenDistinct() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeWorkbookArtifactRows-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeWorkbookArtifactRows")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let originalWorkbookURL = bundleURL.appendingPathComponent("barcode05-mhc.xlsx")
@@ -586,9 +570,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorDocumentListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeCandidateGenBankArtifactRows-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeCandidateGenBankArtifactRows")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         let candidateFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.fasta")
         let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
@@ -625,9 +608,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorDocumentListsValidatedMHCAlignmentArtifactsWhenDeclared() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMHCAlignmentArtifactRows-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMHCAlignmentArtifactRows")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         let genotypingBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam")
         let genotypingBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam.bai")
@@ -712,9 +694,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeWorkbookUpdateState-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeWorkbookUpdateState")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let originalWorkbookURL = bundleURL.appendingPathComponent("barcode05-mhc.xlsx")
@@ -780,9 +761,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
     }
 
     func testAnnotationSidecarUpdateUsesLoadedResultWithoutReloadingBundle() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeAnnotationSidecarCachedResult-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeAnnotationSidecarCachedResult")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let currentWorkbookURL = bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx")
