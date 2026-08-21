@@ -44,6 +44,9 @@ final class WindowAppearanceTests: XCTestCase {
         }
 
         let offlineCommandSection = String(source[commandIconRange.lowerBound..<cardIdentifierRange.lowerBound])
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // PluginManagerView is a pure SwiftUI View struct; no ViewInspector/snapshot
+        // harness exists in this repo to observe rendered padding at runtime.
         XCTAssertTrue(
             offlineCommandSection.contains(".padding(.vertical, 10)"),
             "Offline command rows should have symmetric vertical padding so text is not crowded against the divider."
@@ -56,6 +59,12 @@ final class WindowAppearanceTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/LungfishKit/LungfishColors.swift"),
             encoding: .utf8
         )
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // These check that specific palette symbols exist in LungfishColors.swift by
+        // name; the symbols themselves (lungfishDanger, lungfishDangerFill,
+        // applyLungfishDestructiveStyle) are real runtime values, but "does this Swift
+        // declaration exist under this exact name" has no separate runtime seam from
+        // reading the source.
         XCTAssertTrue(colorsSource.contains("static let lungfishDanger"))
         XCTAssertTrue(colorsSource.contains("static let lungfishDangerFill"))
         XCTAssertTrue(colorsSource.contains("applyLungfishDestructiveStyle"))
@@ -156,6 +165,10 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // InspectorViewController's Read Style / Analysis section bodies are pure SwiftUI;
+        // no ViewInspector/snapshot harness exists in this repo to observe which SwiftUI
+        // subview/segmented-control text actually rendered for a given viewModel state.
         XCTAssertTrue(controllerSource.contains("InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)"))
         XCTAssertTrue(controllerSource.contains("AlignmentViewSection(viewModel: viewModel.readStyleSectionViewModel)"))
         XCTAssertTrue(controllerSource.contains("AnalysisSection(viewModel: viewModel.readStyleSectionViewModel)"))
@@ -181,6 +194,9 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Same pure-SwiftUI-body limitation as above (InspectorViewController's tab/
+        // subsection controls plus ReadStyleSection/MappingDocumentSection layout code).
         XCTAssertTrue(controllerSource.contains("InspectorTabGrid"))
         XCTAssertFalse(controllerSource.contains("Picker(\"Inspector\""))
         XCTAssertTrue(controllerSource.contains("InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)"))
@@ -203,6 +219,8 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Same pure-SwiftUI-body limitation as above.
         XCTAssertFalse(controllerSource.contains(".minimumScaleFactor("))
         XCTAssertFalse(readStyleSource.contains(".minimumScaleFactor("))
         XCTAssertFalse(mappingSource.contains(".minimumScaleFactor("))
@@ -218,6 +236,10 @@ final class WindowAppearanceTests: XCTestCase {
             from: "private struct InspectorReadStyleSection",
             to: "private struct InspectorSubsectionGrid"
         )
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // InspectorReadStyleSection / MappingViewSettingsSection are pure SwiftUI body
+        // slices; no rendering/inspection harness exists in this repo to observe which
+        // conditional branch or picker style actually renders for a given contentMode.
         XCTAssertTrue(readStyleSection.contains("if viewModel.contentMode == .mapping"))
         XCTAssertTrue(readStyleSection.contains("MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)"))
 
@@ -238,6 +260,11 @@ final class WindowAppearanceTests: XCTestCase {
             to: "@MainActor\n    private static func applyVariantCallingEvent"
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // launchVariantCallingOperation is a private method on InspectorViewController with
+        // no testing-prefixed wrapper; reaching it end-to-end requires driving the full
+        // variant-calling dialog + a real bundle mutation + the embedded mapping viewer's
+        // reload path, which has no existing safe/deterministic test fixture in this suite.
         XCTAssertTrue(variantCallingLaunch.contains("shouldReloadMappingViewer"))
         XCTAssertTrue(variantCallingLaunch.contains("reloadMappingViewerBundleIfDisplayed()"))
         XCTAssertTrue(variantCallingLaunch.contains("displayBundle(at: bundleURL)"))
@@ -260,6 +287,13 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // PluginManagerView is a pure SwiftUI View, so these accessibility-identifier
+        // assignments have no rendering/inspection harness to observe at runtime.
+        // PluginManagerWindowController's window/toolbar identifiers are real AppKit
+        // state, but the controller's only initializer is `private init()` reached via
+        // the `show()` singleton, so a test would create/leak a real visible app window
+        // through the shared singleton -- no safe, isolated construction path exists.
         XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.root"))
         XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.tab(.installed)"))
         XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.installedBrowsePacksButton"))
@@ -271,6 +305,16 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(pluginManagerWindowSource.contains("PluginManagerAccessibilityID.toolbarSegmentedControl"))
         XCTAssertTrue(pluginManagerWindowSource.contains("window.setAccessibilityIdentifier(PluginManagerAccessibilityID.window)"))
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // AIAssistantViewController IS a real, internally-constructible NSViewController
+        // (init(service:) + loadView() sets these identifiers on real NSButton/NSView
+        // instances), which is a genuine seam this task did not exploit -- converting it
+        // would mean instantiating AIAssistantViewController(service:) with a real/stubbed
+        // AIAssistantService, calling loadView(), and walking the view hierarchy for each
+        // accessibility identifier below (the same technique already used elsewhere in
+        // this tranche, e.g. GUIRegressionTests' firstSubview(withAccessibilityIdentifier:)
+        // helper). Left as a named follow-up rather than converted in this fix round to
+        // avoid scope creep beyond the two findings requested; kept and tagged here.
         XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.window"))
         XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.root"))
         XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.inputField"))
@@ -294,6 +338,13 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // PluginManagerWindowController's only initializer is `private init()` reached
+        // via the `show()` singleton (see testPluginManagerAndAIAssistantExpose... above);
+        // ImportCenterWindowController is similarly a singleton-style window controller.
+        // Neither has a safe, isolated construction path for a unit test to inspect the
+        // real NSToolbar without creating/leaking a visible app window through the shared
+        // singleton.
         XCTAssertTrue(pluginSource.contains("toolbar.displayMode = .iconOnly"))
         XCTAssertFalse(pluginSource.contains("setImage("))
         XCTAssertFalse(pluginSource.contains("NSSearchToolbarItem"))
@@ -337,6 +388,10 @@ final class WindowAppearanceTests: XCTestCase {
                 .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
             encoding: .utf8
         )
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ClassificationWizardSheet / EsVirituWizardSheet / TaxTriageWizardSheet are pure
+        // SwiftUI View structs; no rendering/inspection harness exists in this repo to
+        // observe header glyphs/colors at runtime.
         XCTAssertFalse(classificationSource.contains("Image(systemName: \"k.circle\")"))
         XCTAssertFalse(esvirituSource.contains("Image(systemName: \"e.circle\")"))
         XCTAssertFalse(taxtriageSource.contains("Image(systemName: \"t.circle\")"))
@@ -387,6 +442,12 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ClassificationWizardSheet / EsVirituWizardSheet / TaxTriageWizardSheet /
+        // DialogSheets.WizardSheet are pure SwiftUI View structs; `embeddedInOperationsDialog`
+        // is a real init parameter (see AssemblyWizardSheet below for the same shape), but
+        // the standalone-vs-embedded body branch, button titles, and frame sizing have no
+        // observable runtime seam without a SwiftUI rendering/inspection harness.
         XCTAssertTrue(classificationSource.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(esvirituSource.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(taxtriageSource.contains("embeddedInOperationsDialog"))
@@ -529,6 +590,16 @@ final class WindowAppearanceTests: XCTestCase {
                 )
             }
             let slice = try sourceSlice(source, from: alertCase.startToken, to: alertCase.endToken)
+            // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+            // NSButton.applyLungfishDestructiveStyle() sets real observable properties
+            // (hasDestructiveAction, contentTintColor, bezelColor), so in principle a
+            // constructed NSAlert's first button could be asserted on directly. But
+            // reaching each of these 9 call sites requires triggering a real deletion
+            // confirmation flow (beginSheetModal) across SidebarViewController,
+            // InspectorViewController, and AnnotationTableDrawerView with the right
+            // preconditions (selection state, loaded documents, etc.) for each -- a
+            // materially larger fixture effort than this task's scope for a single
+            // grouped assertion loop.
             XCTAssertTrue(
                 slice.contains("applyLungfishDestructiveStyle()"),
                 "Missing Lungfish destructive styling for \(alertCase.label)"

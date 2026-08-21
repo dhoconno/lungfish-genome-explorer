@@ -105,6 +105,12 @@ final class GUIRegressionTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ONTImportOperationCoordinator.importDirectory(...) and MainSplitViewController's
+        // ONT import routing are real (non-SwiftUI) methods, but reaching them end-to-end
+        // requires a fully set-up project + window + presented FASTQImportConfigSheet
+        // flow (importFASTQFromURLs on AppDelegate has the same shape below) -- no
+        // existing safe/isolated fixture for that in this suite.
         XCTAssertTrue(mainSplitSource.contains("ONTImportOperationCoordinator(operationCenter: .shared)"))
         XCTAssertTrue(mainSplitSource.contains("coordinator.importDirectory("))
         XCTAssertTrue(coordinatorSource.contains("OperationCenter.buildCLICommand("))
@@ -204,6 +210,12 @@ final class GUIRegressionTests: XCTestCase {
         let mainSplitSource = combinedMainSplitViewControllerSource()
         let appDelegateSource = combinedAppDelegateSource()
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // MainSplitViewController's ONT directory routing and
+        // AppDelegate.importFASTQFromURLs(_:) are real (non-SwiftUI) methods, but both
+        // require a fully set-up project + open window to reach the FASTQBundle-vs-raw-
+        // directory branch this test checks -- no existing safe/isolated fixture for
+        // that in this suite.
         XCTAssertTrue(
             mainSplitSource.contains("FASTQBundle.isBundleURL(url)"),
             "Existing .lungfishfastq bundles must bypass raw ONT directory detection so atomic bundle copies do not re-import preview.fastq"

@@ -212,6 +212,15 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let mainSplitSource = combinedMainSplitViewControllerSource()
         let inspectorSource = combinedInspectorViewControllerSource()
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // The end-to-end *effect* of this MainSplitViewController wiring (capability
+        // flowing from GenotypeResultViewController into
+        // genotypeResultDisplaySectionViewModel.matrixVisibilityCapability, and commands
+        // routing back) IS already exercised behaviorally in
+        // MappingViewportRoutingTests.testGenotypeMatrixVisibilityBridgePublishesInitialCapabilityAndRoutesViewCommand.
+        // This assertion instead targets the specific closure-assignment source lines
+        // themselves (e.g. that cleanup nils the closure via source inspection rather
+        // than by re-running the same bridge test), which has no separate runtime seam.
         XCTAssertTrue(mainSplitSource.contains(
             "controller.onMatrixVisibilityCapabilityChanged = { [weak self, weak controller] capability in"
         ))
@@ -513,6 +522,10 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var thresholdGuidance"))
         let layoutSource = String(source[start.lowerBound..<end.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // GenotypeResultDisplaySection is a pure SwiftUI View; no ViewInspector/snapshot
+        // harness exists in this repo to observe rendered layout-control labels/picker
+        // style at runtime.
         XCTAssertTrue(layoutSource.contains("Label(\"Detail | List\""))
         XCTAssertTrue(layoutSource.contains("Label(\"List | Detail\""))
         XCTAssertTrue(layoutSource.contains("Label(\"List Over Detail\""))
@@ -698,6 +711,10 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let selectionEnd = try XCTUnwrap(selectionSource[selectionStart.lowerBound...].range(of: "private func genotypeHighlightControls"))
         let selectedItemSource = String(selectionSource[selectionStart.lowerBound..<selectionEnd.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // GenotypeResultDisplaySection is a pure SwiftUI View; no ViewInspector/snapshot
+        // harness exists in this repo to observe which view "owns" the highlight-color
+        // controls at runtime, or their rendered labels.
         XCTAssertTrue(displaySource.contains("private var highlightControls"))
         XCTAssertTrue(displaySource.contains("ContinuousColorWell("))
         XCTAssertTrue(displaySource.contains("Clear Fill"))

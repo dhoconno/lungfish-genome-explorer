@@ -152,6 +152,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // SettingsView / AdvancedSettingsTab are pure SwiftUI Views; no rendering/
+        // inspection harness exists in this repo to observe body wiring at runtime.
         XCTAssertTrue(settingsSource.contains("AdvancedSettingsTab()"))
         XCTAssertTrue(settingsSource.contains("SettingsAccessibilityID.panel(.advanced)"))
         XCTAssertTrue(advancedSource.contains("SettingsAccessibilityID.experimentalFeaturesToggle"))
@@ -212,6 +215,15 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // GeneralSettingsTab / InspectorView are pure SwiftUI Views (no rendering harness).
+        // InspectorViewController's resolvedAnalystIdentity() is private with no
+        // testing-prefixed wrapper. GenotypeResultViewController.annotationAuthorProvider
+        // IS a real `public var` closure property -- a genuine seam this task did not
+        // exploit (a test could construct the controller, override the provider, trigger
+        // an annotation-authoring action, and assert the injected author was used instead
+        // of NSUserName()) -- left as a named follow-up rather than converted in this fix
+        // round to avoid scope creep beyond the two findings requested.
         XCTAssertTrue(generalSettingsSource.contains("SettingsAccessibilityID.analystIdentityField"))
         XCTAssertTrue(generalSettingsSource.contains("settings.analystIdentityOverride"))
         XCTAssertTrue(inspectorSource.contains("InspectorAccessibilityID.analystIdentityLabel"))
@@ -236,6 +248,12 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
             encoding: .utf8
         )
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // ImportCenterView is a pure SwiftUI View (no rendering harness).
+        // ImportCenterWindowController's only initializer is `private init()` reached via
+        // the `show()` singleton (same pattern as PluginManagerWindowController elsewhere
+        // in this tranche), so a test would create/leak a real visible app window through
+        // the shared singleton -- no safe, isolated construction path exists.
         XCTAssertTrue(viewSource.contains("ImportCenterAccessibilityID.root"))
         XCTAssertTrue(viewSource.contains("ImportCenterAccessibilityID.sidebar"))
         XCTAssertTrue(viewSource.contains("ImportCenterAccessibilityID.cardList"))

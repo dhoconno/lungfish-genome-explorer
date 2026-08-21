@@ -557,12 +557,25 @@ final class FASTQDashboardTests: XCTestCase {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // onLaunchFASTQOperationTool is a real closure property (same shape as
-        // onLaunchFASTQOperationCategory, which IS exercised behaviorally above), but
-        // reaching launchFASTQOperationTool(.kraken2) requires driving `selectedOperation`
-        // and runOperationClicked through the real operation-picker UI flow; no
-        // testing-prefixed wrapper exists for that selection (only
-        // testingSelectContaminantFilter exists), and adding one is out of scope here.
+        // Fix round 1 (2026-08-21) reachability re-check per code review: runOperationClicked
+        // is `@objc private`, so it IS invocable from a test via
+        // controller.perform(#selector(...)) without any new production code -- that part
+        // of the review's finding is correct. What remains genuinely unreachable is
+        // driving `selectedOperation` into the .classifyReads/.detectViruses/
+        // .comprehensiveTriage states runOperationClicked branches on: `selectedOperation`
+        // is `private var selectedOperation: OperationKind?` where `OperationKind` is a
+        // `private typealias` for a `private enum LegacyOperationKind` -- the enum type
+        // itself is unexported from this file, so no test-file code can even name
+        // `.classifyReads` as a value to assign. The existing #if DEBUG test-only
+        // extension (testingSelectContaminantFilter, same file) proves the *pattern* of a
+        // testing accessor works, but it exists today only for `.contaminantFilter` via a
+        // *public* FASTQContaminantFilterMode parameter it translates internally -- an
+        // exactly analogous accessor for the tool-selection operations named below is
+        // exactly what would need to be added, i.e. a new production seam, which is out
+        // of scope for this fix round (see report for detail). onLaunchFASTQOperationTool
+        // itself is a real closure property (same shape as onLaunchFASTQOperationCategory,
+        // exercised behaviorally above via the real sidebar table selection path, which
+        // only reaches category launchers, not individual tools).
         XCTAssertTrue(source.contains("onLaunchFASTQOperationTool"))
         XCTAssertTrue(source.contains("launchFASTQOperationTool(.kraken2)"))
         XCTAssertTrue(source.contains("launchFASTQOperationTool(.esViritu)"))
@@ -582,8 +595,14 @@ final class FASTQDashboardTests: XCTestCase {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // Same routing-through-private-selection limitation as the classifier-tools
-        // test above.
+        // Same private-typed-selectedOperation limitation as
+        // testFASTQDatasetViewControllerRoutesClassifierToolsThroughModernDialogCallback
+        // above: runOperationClicked is @objc-perform-reachable, but reaching the
+        // .assembleReads/.mapReads branches requires assigning `selectedOperation` to
+        // cases of a `private typealias` for a `private enum`, which is unexported
+        // outside this source file -- a new testing-prefixed accessor (the same shape as
+        // the existing testingSelectContaminantFilter) would be needed, which is a new
+        // production seam out of scope for this fix round.
         XCTAssertTrue(source.contains("launchFASTQOperationCategory(.mapping)"))
         XCTAssertTrue(source.contains("launchFASTQOperationCategory(.assembly)"))
         XCTAssertFalse(source.contains("launchFASTQOperationTool(.minimap2)"))

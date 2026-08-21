@@ -574,6 +574,17 @@ final class MappingViewportRoutingTests: XCTestCase {
         let clearRange = try XCTUnwrap(routeSource.range(of: "self.inspectorController.clearSelection()"))
         let manifestRange = try XCTUnwrap(routeSource.range(of: "let manifest = try BundleManifest.load(from: url)"))
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // displayReferenceBundleViewportFromSidebar(at:) is a real, directly-callable
+        // method already exercised behaviorally many times elsewhere in this file (e.g.
+        // testDirectReferenceBAMRouteInstallsOneContextAndPublishesGenericImportsToListAndReopen),
+        // and the effects named here (wireDirectReferenceViewportInspectorUpdates,
+        // updateReferenceBundleTrackSections, notifyEmbeddedReferenceBundleLoadedIfAvailable)
+        // are all covered by those tests' downstream assertions on inspectorController /
+        // viewport state. What is NOT independently observable at runtime is the specific
+        // internal *ordering* this test checks (clearSelection() called strictly before
+        // BundleManifest.load(from:)) -- there is no timing/ordering seam for that without
+        // adding instrumentation to the production method.
         XCTAssertLessThan(clearRange.lowerBound, manifestRange.lowerBound)
         XCTAssertTrue(routeSource.contains("wireDirectReferenceViewportInspectorUpdates()"))
         XCTAssertTrue(routeSource.contains("updateReferenceBundleTrackSections("))
@@ -586,6 +597,17 @@ final class MappingViewportRoutingTests: XCTestCase {
         let routeEnd = try XCTUnwrap(appDelegateSource.range(of: "case .lungfishMultipleSequenceAlignmentBundle:"))
         let routeSource = String(appDelegateSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // AppDelegate.openDocument(at:) IS a real, testable seam this tranche already
+        // converted a test through (see SettingsAndImportXCUIReadinessTests.
+        // testAppDelegateFinderOpenPathUsesPreflightAndProjectRouting), but the
+        // .lungfishReferenceBundle branch specifically dispatches into an un-awaitable
+        // `Task { ... }` before calling displayReferenceBundleFromExternalOpen(at:), so
+        // asserting on the routed outcome requires polling viewerController state after
+        // a real reference-bundle fixture is opened -- a larger lift than this task's
+        // scope; displayReferenceBundleFromExternalOpen(at:) itself is a real method,
+        // already covered similarly by testReferenceBundlesRouteThroughHarmonizedReferenceViewport
+        // (via the sidebar entry point) elsewhere in this file.
         XCTAssertTrue(routeSource.contains("displayReferenceBundleFromExternalOpen(at: url)"))
         XCTAssertFalse(routeSource.contains("BundleManifest.load(from: url)"))
         XCTAssertFalse(routeSource.contains("ViewerDisplayRouteFactory.directReferenceBundle"))
@@ -2352,6 +2374,13 @@ final class MappingViewportRoutingTests: XCTestCase {
         let serviceSource = try loadSource(
             at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift"
         )
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // This is a deliberate concurrency-hygiene scan: confirms MainActor-isolated
+        // genotype-bundle consumers call the async loader (loadResultAsync) rather than
+        // the synchronous one (loadResult), which would block the main actor. There is
+        // no runtime-observable difference between the two call sites other than which
+        // symbol name was written, so this is a source check by design, not a behavior
+        // check with an achievable seam.
         XCTAssertTrue(serviceSource.contains("try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)"))
         XCTAssertFalse(serviceSource.contains("ONTGenotypeResultBundle.loadResult(from: bundle)"))
 
@@ -2417,6 +2446,19 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let routeSource = String(appDelegateSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // displayMHCReferenceBundleFromExternalOpen(at:)'s *effects*
+        // (updateMHCReferenceBundleDocument, displayMHCReferenceBundle) ARE already
+        // covered behaviorally by testExternalOpenMHCReferenceBundlePopulatesInspectorAndProvenanceTarget
+        // just above, which calls the same method directly and asserts on
+        // documentSectionViewModel.mhcReferenceBundleDocument /
+        // provenanceSectionViewModel.currentItem / viewerController.mhcReferenceBundleViewController.
+        // What that behavioral test does NOT cover is the AppDelegate dispatch itself --
+        // that the .lungfishMHCReferenceBundle document-open case routes to this method
+        // rather than an inline manifest load -- which is a different SUT (AppDelegate,
+        // not MainSplitViewController) and is dispatched inside an un-awaitable
+        // `Task { ... }` (see testExternalOpenReferenceBundleUsesValidatedDisplayPathAndInspectorTarget
+        // above for the same AppDelegate-dispatch limitation).
         XCTAssertTrue(routeSource.contains("displayMHCReferenceBundleFromExternalOpen(at: url)"))
         XCTAssertFalse(routeSource.contains("MHCAmpliconReferenceBundle.loadManifest(from: url)"))
 
@@ -2455,6 +2497,9 @@ final class MappingViewportRoutingTests: XCTestCase {
     }
 
     func testReferenceBundleSidebarRouteHasNoDeadForceReloadParameter() throws {
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // Dead-code absence check (a removed dead parameter name); no runtime instance
+        // to test against by definition.
         let mainWindowSource = combinedMainSplitViewControllerSource()
 
         XCTAssertFalse(mainWindowSource.contains("forceReload"))
@@ -2470,6 +2515,14 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let routeSource = String(mainWindowSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // displayMappingAnalysisFromSidebar(at:) is a real, directly-callable method
+        // already exercised behaviorally elsewhere in this file (e.g.
+        // testSidebarMappingRoutePassesViewerManifestAndBuildsInitialSampleRows), but that
+        // test observes the resulting viewport/manifest state, not which specific
+        // internal factory/display call (ViewerDisplayRouteFactory.mappingResult vs. the
+        // legacy displayMappingResult(...)) produced it -- that specific routing-call
+        // distinction has no separate runtime seam.
         XCTAssertTrue(routeSource.contains("ViewerDisplayRouteFactory.mappingResult("))
         XCTAssertTrue(routeSource.contains("resultDirectoryURL: url"))
         XCTAssertTrue(routeSource.contains("provenance: provenance"))
@@ -2623,6 +2676,13 @@ final class MappingViewportRoutingTests: XCTestCase {
     }
 
     func testBundleBackNavigationButtonUsesStableAccessibilityIdentifier() throws {
+        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
+        // button.setAccessibilityIdentifier("viewer-back-navigation-button") is set on a
+        // real NSButton inside ViewerViewController (directly instantiable elsewhere in
+        // this file, e.g. `let vc = ViewerViewController()`), so this could in principle
+        // be converted to walk the view hierarchy for the identifier -- a genuine seam
+        // this task did not exploit. Left as a named follow-up rather than converted in
+        // this fix round to avoid scope creep beyond the two findings requested.
         let viewerSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
 
         XCTAssertTrue(viewerSource.contains("viewer-back-navigation-button"))
