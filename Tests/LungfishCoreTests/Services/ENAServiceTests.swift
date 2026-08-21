@@ -348,17 +348,31 @@ final class ENAServiceTests: XCTestCase {
         }
     }
 
-    func testSearchMalformedPayloadThrowsDecodingError() async throws {
+    func testSearchMalformedPayloadThrows() async throws {
         await mockClient.register(pattern: "portal/api", response: .text("{not valid json"))
 
         do {
             _ = try await service.search(SearchQuery(term: "test", limit: 10))
-            XCTFail("Expected malformed JSON to throw a decoding error")
+            XCTFail("Expected malformed JSON to throw an error")
         } catch is DecodingError {
-            // Expected: search() decodes directly with JSONDecoder and does not
-            // wrap decode failures in DatabaseServiceError.
+            // Currently expected: search() decodes directly with JSONDecoder
+            // and does not wrap decode failures in DatabaseServiceError, unlike
+            // searchReads()'s explicit parseError wrapping (see
+            // testSearchReadsMalformedPayloadThrowsParseError). This is a
+            // known asymmetry in ENAService (see task-6-report.md). The
+            // assertion here is loosened to accept either error so that
+            // whoever fixes the asymmetry by wrapping search()'s decode
+            // failures in DatabaseServiceError.parseError does not have to
+            // touch this test.
+        } catch let error as DatabaseServiceError {
+            if case .parseError = error {
+                // Also acceptable: the asymmetry has been fixed and search()
+                // now wraps decode failures like searchReads() does.
+            } else {
+                XCTFail("Expected DecodingError or DatabaseServiceError.parseError, got \(error)")
+            }
         } catch {
-            XCTFail("Expected DecodingError, got \(error)")
+            XCTFail("Expected DecodingError or DatabaseServiceError.parseError, got \(error)")
         }
     }
 
