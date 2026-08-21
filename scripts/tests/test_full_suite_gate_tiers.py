@@ -100,6 +100,16 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "unit tier must skip exactly the integration + conformance selections",
         )
 
+    def test_unit_tier_implies_parallel(self):
+        gate = _gate_text()
+        unit_arm = gate.split("unit)", 1)[1].split(";;", 1)[0]
+        self.assertIn(
+            "PARALLEL=1",
+            unit_arm,
+            "the unit tier must force --parallel: its --skip selection exceeds "
+            "ARG_MAX in serial mode (posix_spawn: Argument list too long)",
+        )
+
     def test_parallel_is_rejected_for_storage_bearing_selections(self):
         self.assertIn(
             "--parallel is not allowed for selections containing the ProjectStorage suites",

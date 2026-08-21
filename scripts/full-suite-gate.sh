@@ -17,7 +17,10 @@
 #                                                   # conformance|full (see Tiers below)
 #   scripts/full-suite-gate.sh --parallel           # pass --parallel through to swift test
 #                                                   # (rejected for integration/full: the
-#                                                   # ProjectStorage suites must stay serial)
+#                                                   # ProjectStorage suites must stay serial;
+#                                                   # implied automatically by --tier unit,
+#                                                   # whose large --skip selection exceeds
+#                                                   # ARG_MAX in serial mode)
 #
 # Every run also writes an xUnit XML report next to the gate log
 # (.build/gate-logs/gate-<stamp>-<sha>.xunit.xml) so per-test timing accumulates.
@@ -103,7 +106,17 @@ fi
 case "$TIER" in
     "") ;;
     smoke)        FILTER="$SMOKE_FILTER" ;;
-    unit)         SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}" ;;
+    unit)
+        SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}"
+        # The unit tier ALWAYS runs --parallel. This is not only the speed goal:
+        # in serial mode SwiftPM expands a --skip/--filter selection into one
+        # giant comma-separated -XCTest argument, and at this suite's scale
+        # (~12k selected tests) that exceeds ARG_MAX and xctest dies with
+        # "posix_spawn error: Argument list too long". Parallel mode spawns one
+        # xctest per class with small per-process argument lists, so it is the
+        # only mode in which a large skip-based selection can run at all.
+        PARALLEL=1
+        ;;
     integration)  FILTER="$INTEGRATION_FILTER" ;;
     conformance)  FILTER="$CONFORMANCE_FILTER" ;;
     full) ;;
