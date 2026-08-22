@@ -2405,7 +2405,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         if let handler = onOpenURLRequested { handler(url) } else { NSWorkspace.shared.open(url) }
     }
 
-    @objc private func contextSearchPubMed(_ sender: NSMenuItem) {
+    @objc func contextSearchPubMed(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
         let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)")!

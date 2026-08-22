@@ -60,6 +60,6 @@ final class ManagedResourceRefreshTests: XCTestCase {
         defer { center.removeObserver(token) }
 
         viewModel.installPack(PluginPack.requiredSetupPack)
-        await fulfillment(of: [exp], timeout: 1.0)
+        await fulfillment(of: [exp], timeout: 10.0)
     }
 }

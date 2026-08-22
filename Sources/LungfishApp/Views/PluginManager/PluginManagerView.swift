@@ -977,7 +977,7 @@ struct DatabasesTabView: View {
 
             Spacer()
 
-            Text("Total: \(formatDatabaseBytes(viewModel.totalDatabaseStorageBytes)) used")
+            Text("Total: \(LungfishFormatters.formatBytes(viewModel.totalDatabaseStorageBytes)) used")
                 .font(.caption)
                 .foregroundStyle(Color.lungfishSecondaryText)
         }
@@ -1051,7 +1051,7 @@ private struct DatabaseRow: View {
 
                     HStack(spacing: 8) {
                         // Download size
-                        Text(formatDatabaseBytes(database.sizeBytes))
+                        Text(LungfishFormatters.formatBytes(database.sizeBytes))
                             .font(.caption)
                             .foregroundStyle(Color.lungfishSecondaryText)
 
@@ -1247,20 +1247,6 @@ private func formatPackSize(_ megabytes: Int) -> String {
     } else {
         return "~\(megabytes) MB"
     }
-}
-
-/// Formats a byte count for database sizes (download size, disk usage).
-private func formatDatabaseBytes(_ bytes: Int64) -> String {
-    let gb = Double(bytes) / 1_073_741_824
-    if gb >= 1.0 {
-        return String(format: "%.0f GB", gb)
-    }
-    let mb = Double(bytes) / 1_048_576
-    if mb >= 1.0 {
-        return String(format: "%.0f MB", mb)
-    }
-    let kb = Double(bytes) / 1_024
-    return String(format: "%.0f KB", kb)
 }
 
 /// Formats a RAM requirement in bytes as a human-readable string with
