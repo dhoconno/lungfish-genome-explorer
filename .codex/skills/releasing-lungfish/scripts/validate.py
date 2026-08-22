@@ -56,7 +56,7 @@ REQUIRED_SKILL_MARKERS = (
     "--tier integration",
     "--tier full",
     "--tier conformance --require-tools",
-    "run-macos-xcui.sh",
+    "run-macos-xcui.sh",  # named as an attended diagnostic, not a gate
 )
 
 SECRET_PATTERNS = (

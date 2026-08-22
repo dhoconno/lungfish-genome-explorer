@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# ATTENDED DIAGNOSTIC, not a release gate: macOS ties the UI-automation (TCC)
+# permission to the freshly built XCUITests-Runner binary, so any rebuild can
+# re-prompt; unattended runs then fail with "Timed out while enabling
+# automation mode". Run this with an operator at the keyboard. Note also that
+# 22 of the 34 robots predate the 2026-07-07 workflow-enablement menu redesign
+# and need repair (see the test-suite review report follow-ups).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
