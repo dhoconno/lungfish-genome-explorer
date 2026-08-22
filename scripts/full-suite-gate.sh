@@ -191,7 +191,11 @@ run_gate() {
     # Both harnesses must report no failures. XCTest prints "with N failures";
     # swift-testing prints "Test run with N tests ... (passed|failed)".
     local xctest_fail
-    xctest_fail=$(grep -cE "with [1-9][0-9]* failure|' failed \(|: error:" "$LOG" 2>/dev/null)
+    # ": error:" catches compiler/tooling failures, but macOS emits benign
+    # "CoreData: error: Failed to create NSXPCConnection" noise when the login
+    # session is locked/idle (observed failing an otherwise fully-green run);
+    # exclude that noise before counting.
+    xctest_fail=$(grep -E "with [1-9][0-9]* failure|' failed \(|: error:" "$LOG" 2>/dev/null | grep -cv "CoreData: error: Failed to create NSXPCConnection")
     local swifttesting_fail
     swifttesting_fail=$(grep -cE "✘ Test run|✘ Suite|recorded an issue" "$LOG" 2>/dev/null)
 
