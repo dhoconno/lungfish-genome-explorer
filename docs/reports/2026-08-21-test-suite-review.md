@@ -115,3 +115,37 @@ Preview releases run smoke + unit + integration (~30–50 min, mostly parallel).
 ### Expected outcome
 
 Without deleting a single behavioral assertion: preview-relevant runs drop from hours to tens of minutes (parallelism + tiering), the full serial gate remains available for stable releases, and Phase 2 removes ~55–65K LOC of duplicated test code over time. Every number here should be re-validated against the xunit timing data Phase 0 starts collecting.
+
+---
+
+# Addendum: campaign results (2026-08-21, same day)
+
+All 14 action-plan items were executed the same day on this branch (~30 commits), each task implemented, independently reviewed, and fix-looped to a clean verdict; a final whole-branch review (most capable model) found no must-fix items.
+
+## What shipped
+
+**Phase 0 — mechanical wins.** The browser-opening test is gone: `NaoMgsResultViewController` and `NvdResultViewController` gained the TwelveS-style `onOpenURLRequested` seam (all 7 call sites), and the tests now assert captured URLs. `ProcessRunner` waits on `terminationHandler` instead of a 50 ms busy-poll; the CLI binary resolves once per class; the worst sleep ceilings (60s/30s/10s) are bounded, with two sites deliberately reverted after review showed the reduction weakened a negative-assertion guard.
+
+**Phase 1 — the tier system.** `scripts/full-suite-gate.sh --tier smoke|unit|integration|conformance|full`, pinned against the CI workflow by `scripts/tests/test_full_suite_gate_tiers.py` (466 script tests green). The pre-push hook runs the unit tier. The release skill is channel-aware: preview = unit + integration; stable = full + conformance `--require-tools` + the XCUI pass, enforced by the skill validator. The gate's green-bar definition is now canonical in the script; the old "9 known-environmental failures" rule is retired.
+
+**Phase 2 — structural consolidation.** Shared `TestTempDirectory` + `GenotypeTestFixtures` in `LungfishTestSupport` (wired to the targets that lacked it); the 25,955-line `GenotypeResultViewportTests` split into 9 classes (475 tests preserved exactly); AppKit-view tests extracted into `LungfishAppViewTests` (4,157 = 3,694 + 463, exact parity); the formatter consolidation finished for real (canonical `LungfishFormatters` in LungfishCore, 12 private copies deleted across App+CLI, duplicate tests dropped); ENAService got full mocked coverage and the 6 unwrapped live NCBI tests got transient-skip wrappers.
+
+**Production fixes surfaced by the campaign.** The genotype "Save Haplotype Assignment Changes?" NSAlert — which once froze the entire suite — now resolves `.cancel` under XCTest when no test provider is installed (runtime app behavior unchanged). The `lungfish ops stats` Peak RAM readout no longer floors sub-MB values to "0 MB".
+
+## Measured results
+
+| Run | Wall clock |
+|---|---|
+| `--tier unit` (~12K tests, parallel per-class) | **379–459 s** across four runs |
+| `--tier smoke` (warm build) | seconds |
+| `--tier full` (serial, warm) | **~29–34 min** |
+
+Two discoveries reshaped the design. First, serial `swift test` cannot run a large `--skip`/`--filter` selection at all — SwiftPM expands the selection into a single `-XCTest` argument that exceeds ARG_MAX — so the unit tier *requires* `--parallel` (per-class processes). Second, parallel execution exposed 17 suites with cross-process shared state (UserDefaults, FSEvents, window-server layout, shared fixtures); they are quarantined into the serial integration tier, and the nondeterministic remainder is handled by the gate's isolated-retry pass, which names retried classes in the PASS line.
+
+## The honest asterisk: machine-state findings
+
+Serial full runs on this machine currently fail 1–2 *different* timing-bounded tests per pass. Every instance was investigated: each passes in isolation minutes later, a commit-range bisection refuted a code regression, and the cause is machine load — `fseventsd` pegged at ~100 % CPU for hours digesting the day's `.build` churn (load average peaked above 33; uptime 31 days). This same mechanism explains the historical `FileSystemWatcherTests` "known-environmental" flakiness. The gate now settles 30 s before its isolated retry, but a machine in this state can fail even retries. **The branch's final serial green bar should be run on a quiet machine** — one command: `bash scripts/full-suite-gate.sh --tier full`. A reboot would not hurt.
+
+## Deferred with rulings (no must-fixes; full detail in the SDD ledger)
+
+`ENAService.search()` still throws raw `DecodingError` (asymmetric with `searchReads`; the test now tolerates both, fix at leisure). `PluginManagerView.formatDatabaseBytes` is one residual formatter copy. 325 source-text assertions are kept and tagged `source-text: no runtime seam` — real retirement is blocked on a **user decision**: adopt a SwiftUI inspection harness (e.g. ViewInspector) or add production seams. The genotype temp-dir long tail and six intentionally-local fixture builders are documented in the task reports.
