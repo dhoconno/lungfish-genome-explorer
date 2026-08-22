@@ -536,6 +536,19 @@ private struct PacksTabView: View {
     }
 }
 
+/// Test-only seam: renders the file-private `PacksTabView` (and, transitively,
+/// `PackCard`) directly, so ViewInspector-based tests can exercise the Packs tab
+/// body without driving it through `PluginManagerViewModel.selectedTab`'s real
+/// `didSet` (which kicks off a live conda status refresh `Task`). Not referenced
+/// by any production call site.
+struct PacksTabViewHarness: View {
+    @Bindable var viewModel: PluginManagerViewModel
+
+    var body: some View {
+        PacksTabView(viewModel: viewModel)
+    }
+}
+
 // MARK: - Pack Card
 
 enum PackCardPrimaryAction: Equatable {
