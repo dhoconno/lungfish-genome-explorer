@@ -2,9 +2,19 @@
 # ATTENDED DIAGNOSTIC, not a release gate: macOS ties the UI-automation (TCC)
 # permission to the freshly built XCUITests-Runner binary, so any rebuild can
 # re-prompt; unattended runs then fail with "Timed out while enabling
-# automation mode". Run this with an operator at the keyboard. Note also that
-# 22 of the 34 robots predate the 2026-07-07 workflow-enablement menu redesign
-# and need repair (see the test-suite review report follow-ups).
+# automation mode". Run this with an operator at the keyboard.
+#
+# If a run hangs or times out while xcodebuild is "enabling automation mode",
+# a macOS permission prompt is waiting for you (or a prior grant was dropped
+# after a rebuild, since the TCC grant is tied to the specific signed binary).
+# Bring the prompt to the foreground and approve it, or re-grant manually in
+# System Settings > Privacy & Security > Automation (and, if needed,
+# Accessibility) for the LungfishXCUITests-Runner / Lungfish app, then re-run
+# this script.
+#
+# Most of the 34 XCUI robots predate the 2026-07-07 workflow-enablement menu
+# redesign (commit 69bf2e72) and needed repair; see build/xcui-triage-report.md
+# for the full per-test disposition (repair/delete/defer + rationale).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -14,9 +24,47 @@ DESTINATION="${LUNGFISH_XCUI_DESTINATION:-platform=macOS}"
 DERIVED_DATA_PATH="${LUNGFISH_XCUI_DERIVED_DATA_PATH:-$ROOT_DIR/.build/xcode-xcui}"
 UI_TEST_TARGET="${LUNGFISH_XCUI_TARGET_NAME:-LungfishXCUITests}"
 
+# --smoke: run only the diagnostic tier's core -- the boot/reachability robots
+# that were green in the 2026-08-22 triage (build/xcui-final2.log) and do not
+# depend on the Tools-menu redesign follow-up work. Keep this list in sync
+# with build/xcui-triage-report.md's disposition table; it is meant to answer
+# "is the app fundamentally launchable and automatable right now?" quickly,
+# not to replace the full 34-test run.
+SMOKE_TEST_IDENTIFIERS=(
+  "LungfishXCUITests/BundleBrowserXCUITests/testOpeningReferenceBundleShowsBrowserAndPreservesSelection"
+  "LungfishXCUITests/DatabaseSearchXCUITests/testDeterministicSearchChangesPrimaryActionToDownloadSelectedAfterSelection"
+  "LungfishXCUITests/DatabaseSearchXCUITests/testOpeningNCBISearchThroughToolsMenuShowsUnifiedSearchDialog"
+  "LungfishXCUITests/DatabaseSearchXCUITests/testOpeningPathoplexusRequiresConsentBeforeSearchActionsAreEnabled"
+  "LungfishXCUITests/DatabaseSearchXCUITests/testSwitchingDestinationsPreservesEnteredQueryText"
+  "LungfishXCUITests/MainWindowNavigationXCUITests/testOperationsPanelFailedOperationOpensPrefilledGitHubIssueWithoutNetwork"
+  "LungfishXCUITests/MainWindowNavigationXCUITests/testToolbarAndAnalysesGroupAreReachableByPointerAndKeyboard"
+  "LungfishXCUITests/PrimerTrimXCUITests/testInspectorExposesPrimerTrimButtonAndOpensDialog"
+  "LungfishXCUITests/PrimerTrimXCUITests/testRunButtonProducesNewAlignmentTrack"
+  "LungfishXCUITests/ProjectLifecycleXCUITests/testUITestProjectPathLaunchOpensProjectWithoutWelcome"
+  "LungfishXCUITests/ProjectLifecycleXCUITests/testWelcomeCreateProjectLogsRequestAndCreatesInjectedProject"
+  "LungfishXCUITests/ProjectLifecycleXCUITests/testWelcomeOpenProjectLogsRequestAndOpensInjectedProject"
+)
+
+SMOKE_MODE=0
+POSITIONAL_ARGS=()
+for arg in "$@"; do
+  if [ "$arg" = "--smoke" ]; then
+    SMOKE_MODE=1
+  else
+    POSITIONAL_ARGS+=("$arg")
+  fi
+done
+
 ONLY_TESTING_ARGS=()
-if [ "$#" -gt 0 ]; then
-  for identifier in "$@"; do
+if [ "$SMOKE_MODE" = "1" ]; then
+  if [ "${#POSITIONAL_ARGS[@]}" -gt 0 ]; then
+    echo "warning: --smoke ignores explicit test identifiers; running the smoke tier only" >&2
+  fi
+  for identifier in "${SMOKE_TEST_IDENTIFIERS[@]}"; do
+    ONLY_TESTING_ARGS+=("-only-testing:$identifier")
+  done
+elif [ "${#POSITIONAL_ARGS[@]}" -gt 0 ]; then
+  for identifier in "${POSITIONAL_ARGS[@]}"; do
     ONLY_TESTING_ARGS+=("-only-testing:$identifier")
   done
 fi

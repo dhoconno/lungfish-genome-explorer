@@ -48,6 +48,17 @@ struct MappingRobot {
         }
     }
 
+    /// Opens the shared Mapping operations dialog from the Tools menu.
+    ///
+    /// Since the 2026-07-07 Tools-menu redesign (commit 69bf2e72), the "Mapping"
+    /// submenu no longer has a single "Mapping…" launcher item: it lists each
+    /// mapping tool individually (built from `FASTQOperationDialogState.toolIDs`),
+    /// because none of minimap2/BWA-MEM2/Bowtie2/BBMap/Viral Recon carry the
+    /// `.workflowOperations` capability that would route them through the
+    /// workflow-enablement gate instead. Clicking any one of those items opens
+    /// the same shared `fastq-operations-mapping` dialog with that tool
+    /// preselected, so we open via the first tool ("minimap2…") and let
+    /// `chooseMapper` reselect the desired tool afterward.
     func openMappingDialog(
         file: StaticString = #filePath,
         line: UInt = #line
@@ -62,7 +73,7 @@ struct MappingRobot {
         XCTAssertTrue(mappingCategoryMenu.waitForExistence(timeout: 5), file: file, line: line)
         mappingCategoryMenu.click()
 
-        let mappingMenuItem = app.menuItems["Mapping…"]
+        let mappingMenuItem = app.menuItems["minimap2…"]
         XCTAssertTrue(mappingMenuItem.waitForExistence(timeout: 5), file: file, line: line)
         mappingMenuItem.click()
 

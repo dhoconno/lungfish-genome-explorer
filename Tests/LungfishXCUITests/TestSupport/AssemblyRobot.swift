@@ -70,6 +70,17 @@ struct AssemblyRobot {
         }
     }
 
+    /// Opens the shared Assembly operations dialog from the Tools menu.
+    ///
+    /// Since the 2026-07-07 Tools-menu redesign (commit 69bf2e72), the "Assembly"
+    /// submenu no longer has a single "Assembly…" launcher item: it lists each
+    /// assembler individually (built from `FASTQOperationDialogState.toolIDs`),
+    /// because none of SPAdes/MEGAHIT/SKESA/Flye/Hifiasm carry the
+    /// `.workflowOperations` capability that would route them through the
+    /// workflow-enablement gate instead. Clicking any one of those items opens
+    /// the same shared `fastq-operations-assembly` dialog with that tool
+    /// preselected, so we open via the first tool ("SPAdes…") and let
+    /// `chooseAssembler` reselect the desired tool afterward.
     func openAssemblyDialog(
         file: StaticString = #filePath,
         line: UInt = #line
@@ -84,7 +95,7 @@ struct AssemblyRobot {
         XCTAssertTrue(assemblyCategoryMenu.waitForExistence(timeout: 5), file: file, line: line)
         assemblyCategoryMenu.click()
 
-        let assemblyMenuItem = app.menuItems["Assembly…"]
+        let assemblyMenuItem = app.menuItems["SPAdes…"]
         XCTAssertTrue(assemblyMenuItem.waitForExistence(timeout: 5), file: file, line: line)
         assemblyMenuItem.click()
 
