@@ -111,6 +111,10 @@ let package = Package(
         // App-only updater framework. Keep this out of LungfishApp so lungfish-cli
         // does not inherit the graphical updater dependency.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+        // Test-only SwiftUI inspection harness (F3: replaces source-text greps of
+        // production .swift files with behavioral view assertions). Only test
+        // targets depend on this product; no non-test target imports ViewInspector.
+        .package(url: "https://github.com/nalexn/ViewInspector", from: "0.10.0"),
     ],
     targets: [
         .target(
@@ -390,7 +394,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport"],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

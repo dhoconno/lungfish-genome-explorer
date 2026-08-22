@@ -1,4 +1,5 @@
 import XCTest
+import ViewInspector
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
 import AppKit
@@ -312,22 +313,37 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     }
 
     func testContentTextSizeInspectorUsesStableAccessibleControls() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        XCTAssertTrue(source.contains("Text(\"Content Text Size\")"))
-        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-decrease\""))
-        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-value\""))
-        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-increase\""))
-        XCTAssertTrue(source.contains("\"genotype-view-content-text-size-default\""))
-        XCTAssertTrue(source.contains(".accessibilityLabel(\"Decrease content text size\")"))
-        XCTAssertTrue(source.contains(".accessibilityLabel(\"Increase content text size\")"))
-        XCTAssertTrue(source.contains(".accessibilityLabel(\"Use system content text size\")"))
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true)
+        let view = GenotypeResultDisplaySection(viewModel: viewModel)
+        let inspected = try view.inspect()
+
+        // Converted from source-text grep to behavioral assertions: each control
+        // actually renders with the stable accessibility identifier/label pair that
+        // downstream XCUI relies on, not merely present somewhere in source text.
+        let sizeHeading = try inspected.find(text: "Content Text Size")
+        _ = sizeHeading
+
+        let decreaseButton = try inspected.find(viewWithAccessibilityIdentifier: "genotype-view-content-text-size-decrease")
+        XCTAssertEqual(try decreaseButton.accessibilityLabel().string(), "Decrease content text size")
+
+        let valueText = try inspected.find(viewWithAccessibilityIdentifier: "genotype-view-content-text-size-value")
+        XCTAssertEqual(try valueText.accessibilityLabel().string(), "Content text size")
+
+        let increaseButton = try inspected.find(viewWithAccessibilityIdentifier: "genotype-view-content-text-size-increase")
+        XCTAssertEqual(try increaseButton.accessibilityLabel().string(), "Increase content text size")
+
+        let defaultButton = try inspected.find(viewWithAccessibilityIdentifier: "genotype-view-content-text-size-default")
+        XCTAssertEqual(try defaultButton.accessibilityLabel().string(), "Use system content text size")
     }
 
     func testDisplayViewModelEmitsLayoutAndThresholdChanges() {
@@ -513,24 +529,34 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     }
 
     func testLayoutControlUsesSharedTwoPaneRadioGroupStyle() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "private var layoutControls"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var thresholdGuidance"))
-        let layoutSource = String(source[start.lowerBound..<end.lowerBound])
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true)
+        let view = GenotypeResultDisplaySection(viewModel: viewModel)
+        let inspected = try view.inspect()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // GenotypeResultDisplaySection is a pure SwiftUI View; no ViewInspector/snapshot
-        // harness exists in this repo to observe rendered layout-control labels/picker
-        // style at runtime.
-        XCTAssertTrue(layoutSource.contains("Label(\"Detail | List\""))
-        XCTAssertTrue(layoutSource.contains("Label(\"List | Detail\""))
-        XCTAssertTrue(layoutSource.contains("Label(\"List Over Detail\""))
-        XCTAssertTrue(layoutSource.contains(".pickerStyle(.radioGroup)"))
+        // Converted from source-text grep to a behavioral assertion: the rendered
+        // Layout picker's selection is genuinely bound to `viewModel.setLayout`, and
+        // it offers exactly the three documented panel layouts, each labeled as
+        // expected. (ViewInspector does not expose picker *style* tokens like
+        // `.radioGroup` for inspection -- that half of the original assertion was
+        // presentational, not behavioral, so it has no runtime-observable
+        // equivalent and is dropped rather than converted.)
+        let picker = try inspected.find(ViewType.Picker.self, where: { picker in
+            (try? picker.labelView().text().string()) == "Layout"
+        })
+
+        let expectedLabels: [GenotypeResultPanelLayout: String] = [
+            .listTrailing: "Detail | List",
+            .listLeading: "List | Detail",
+            .listTop: "List Over Detail",
+        ]
+        for layout in expectedLabels.keys {
+            try picker.select(value: layout)
+            XCTAssertEqual(viewModel.displayState.layout, layout)
+        }
+
+        let labelTexts = Set(picker.findAll(ViewType.Label.self).compactMap { try? $0.title().text().string() })
+        XCTAssertEqual(labelTexts, Set(expectedLabels.values))
     }
 
     func testViewportAndLayoutControlsAreGuardedForGenotypeOnlyResults() throws {
@@ -584,36 +610,43 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     }
 
     func testGenotypeDisplaySectionDoesNotExposeLiveReadThresholdControls() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true)
+        let view = GenotypeResultDisplaySection(viewModel: viewModel)
+        let inspected = try view.inspect()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        XCTAssertFalse(source.contains("Hide Low Support"))
-        XCTAssertFalse(source.contains("Minimum Reads"))
-        XCTAssertFalse(source.contains("Slider("))
-        XCTAssertTrue(source.contains("Genotype calls and haplotype thresholds are fixed"))
-        XCTAssertTrue(source.contains("Re-run the original genotyping workflow"))
+        // Converted from source-text grep to behavioral assertions on the actual
+        // rendered tree: no live Slider control exists anywhere in the rendered
+        // section, no "Hide Low Support"/"Minimum Reads" text renders, and the
+        // fixed-thresholds guidance copy does render.
+        XCTAssertTrue(inspected.findAll(ViewType.Slider.self).isEmpty)
+
+        let renderedText = inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        XCTAssertFalse(renderedText.contains(where: { $0.contains("Hide Low Support") }))
+        XCTAssertFalse(renderedText.contains(where: { $0.contains("Minimum Reads") }))
+        XCTAssertTrue(renderedText.contains(where: { $0.contains("Genotype calls and haplotype thresholds are fixed") }))
+        XCTAssertTrue(renderedText.contains(where: { $0.contains("Re-run the original genotyping workflow") }))
     }
 
     func testGenotypeDisplaySectionKeepsThresholdGuidanceSeparateFromColorControls() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let start = try XCTUnwrap(source.range(of: "private var thresholdGuidance"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var matrixFilterControls"))
-        let thresholdSource = String(source[start.lowerBound..<end.lowerBound])
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true)
+        let view = GenotypeResultDisplaySection(viewModel: viewModel)
+        let inspected = try view.inspect()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        XCTAssertTrue(thresholdSource.contains("Run and Calling Thresholds"))
-        XCTAssertFalse(thresholdSource.contains("TextField("))
-        XCTAssertFalse(thresholdSource.contains("Stepper("))
+        // Converted from a source-range extraction (text between the
+        // `thresholdGuidance` and `matrixFilterControls` property declarations) to a
+        // behavioral assertion on the actual rendered group: the VStack that renders
+        // the "Run and Calling Thresholds" heading has no TextField/Stepper
+        // descendants of its own -- those controls live in sibling groups instead.
+        let thresholdGroup = try inspected.find(ViewType.VStack.self, where: { group in
+            // Match on the group's own direct first child being the heading (rather
+            // than `findAll`, which matches transitively and would also match the
+            // outer DisclosureGroup content VStack that contains everything).
+            (try? group.text(0).string()) == "Run and Calling Thresholds"
+        })
+        XCTAssertTrue(thresholdGroup.findAll(ViewType.TextField.self).isEmpty)
+        XCTAssertTrue(thresholdGroup.findAll(ViewType.Stepper.self).isEmpty)
     }
 
     func testMatrixThresholdControlsUseEditableFieldsHiddenLabelSteppersAndOffGuidance() throws {
@@ -654,16 +687,25 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     }
 
     func testGenotypeViewSectionExposesHaplotypeViewportControl() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true)
+        let view = GenotypeResultDisplaySection(viewModel: viewModel)
+        let inspected = try view.inspect()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        XCTAssertTrue(source.contains("setViewportLens"))
-        XCTAssertTrue(source.contains("GenotypeResultViewportLens.allCases"))
+        // Converted from source-text grep to a behavioral assertion: the rendered
+        // Viewport picker's selection is genuinely bound to
+        // `viewModel.setViewportLens`, and it offers exactly the full
+        // `GenotypeResultViewportLens.allCases` set of options -- proven by actually
+        // selecting each lens through ViewInspector and observing the view model's
+        // display state update, not by finding the symbol name in source text.
+        let picker = try inspected.find(ViewType.Picker.self, where: { picker in
+            (try? picker.labelView().text().string()) == "Viewport"
+        })
+
+        for lens in GenotypeResultViewportLens.allCases {
+            try picker.select(value: lens)
+            XCTAssertEqual(viewModel.displayState.viewportLens, lens)
+        }
     }
 
     func testGenotypeSummaryModesAreOnlyOutlineAndMatrix() {
