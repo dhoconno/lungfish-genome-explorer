@@ -2677,16 +2677,19 @@ final class MappingViewportRoutingTests: XCTestCase {
     }
 
     func testBundleBackNavigationButtonUsesStableAccessibilityIdentifier() throws {
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // button.setAccessibilityIdentifier("viewer-back-navigation-button") is set on a
-        // real NSButton inside ViewerViewController (directly instantiable elsewhere in
-        // this file, e.g. `let vc = ViewerViewController()`), so this could in principle
-        // be converted to walk the view hierarchy for the identifier -- a genuine seam
-        // this task did not exploit. Left as a named follow-up rather than converted in
-        // this fix round to avoid scope creep beyond the two findings requested.
-        let viewerSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
+        // Converted from source-text grep to a behavioral assertion: showing the real
+        // back-navigation button on a real ViewerViewController produces a real NSButton
+        // carrying the stable accessibility identifier, read back through the existing
+        // #if DEBUG test accessor (testBundleBackNavigationAccessibilityIdentifier).
+        let vc = ViewerViewController()
+        _ = vc.view
 
-        XCTAssertTrue(viewerSource.contains("viewer-back-navigation-button"))
+        vc.showBundleBackNavigationButton(title: "Back") {}
+
+        XCTAssertEqual(
+            vc.testBundleBackNavigationAccessibilityIdentifier,
+            "viewer-back-navigation-button"
+        )
     }
 
     private func makeNativeHaplotypedResult() -> ONTGenotypeResultBundleData {

@@ -140,18 +140,12 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         let view = BAMPrimerTrimToolPanes(state: state, onBrowseScheme: {})
         let inspected = try view.inspect()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // PrimerSchemePickerView (Sources/LungfishApp/Views/BAM/PrimerSchemePickerView.swift:10)
-        // is a plain custom View with no inspection conformance, so ViewInspector's tree
-        // walk can't reach the `.lungfishHelp(LungfishHelpContent.bamPrimerScheme)`
-        // modifier applied to it in overviewSection. Revisit if an inspection seam
-        // (e.g. Inspectable conformance) is added to that view.
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/BAM/BAMPrimerTrimToolPanes.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(source.contains(".lungfishHelp(LungfishHelpContent.bamPrimerScheme)"))
+        // Converted from source-text grep to a behavioral assertion: PrimerSchemePickerView
+        // is a plain custom View in the same module, so ViewInspector's find() can reach
+        // it directly by type and read the `.lungfishHelp(...)` modifier's actual `.help()`
+        // text applied around it in overviewSection.
+        let schemePicker = try inspected.find(ViewType.View<PrimerSchemePickerView>.self)
+        XCTAssertEqual(try schemePicker.help().string(), LungfishHelpContent.bamPrimerScheme.summary)
 
         // Converted from source-text grep to behavioral assertions on the actual
         // rendered controls and their bound LungfishHelpContent catalog entries.
