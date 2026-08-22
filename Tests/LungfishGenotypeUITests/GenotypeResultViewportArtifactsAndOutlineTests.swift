@@ -399,6 +399,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
     func testArtifactsLensMHCAlignmentLabelsFitWithoutClipping() throws {
         let bundleURL = try TestTempDirectory.make(prefix: "GenotypeMHCAlignmentArtifactLabelLayout")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
             genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
             genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),

@@ -344,7 +344,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
     func testLoadsManifestAttestedReviewableRowCatalogIntoBundleData() throws {
         let fixture = try makeReviewableRowCatalogBundle()
-        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        defer { TestTempDirectory.cleanup(fixture.bundleURL) }
 
         let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
 
@@ -354,7 +354,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     func testReviewableRowCatalogArtifactRejectsTraversalSymlinkSizeAndChecksum() throws {
         for corruption in ReviewableCatalogCorruption.allCases {
             let fixture = try makeReviewableRowCatalogBundle(corruption: corruption)
-            defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+            defer { TestTempDirectory.cleanup(fixture.bundleURL) }
 
             XCTAssertThrowsError(
                 try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL),
