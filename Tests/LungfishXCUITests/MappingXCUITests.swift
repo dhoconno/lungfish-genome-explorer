@@ -148,8 +148,20 @@ final class MappingXCUITests: XCTestCase {
             try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent())
         }
 
+        // Deliberately select only test_1.fastq.gz (no extendingSelection).
+        // makeMappingInspectorNavigationProject copies the raw sarscov2 FASTQ
+        // fixtures straight into the project root as two loose files rather
+        // than one pre-paired .lungfishfastq bundle. Per
+        // MappingWizardSheet.bundleCount's doc comment, the sidebar
+        // selection -> resolveFASTQOperationInputURL pipeline treats each
+        // selected item as its own bundle and deliberately never
+        // pattern-matches _R1/_R2/_1/_2 across separate bundles to re-pair
+        // them, so selecting both loose files here would produce a 2-bundle
+        // "per-bundle" batch plan (sidebar row "minimap2-batch-...") instead
+        // of the single mapping document with Source Reference
+        // Bundle/Reference FASTA inspector links this test exercises.
         robot.launch(opening: projectURL, backendMode: "deterministic")
-        robot.selectSidebarItem(named: "test_1.fastq.gz", extendingSelection: true)
+        robot.selectSidebarItem(named: "test_1.fastq.gz")
         robot.openMappingDialog()
         robot.chooseMapper("minimap2")
         robot.clickPrimaryAction()
@@ -157,6 +169,13 @@ final class MappingXCUITests: XCTestCase {
         robot.waitForAnalysisRow(prefix: "minimap2-", timeout: 30)
         robot.waitForResultViewport()
 
+        // Selecting one loose file for a mapping run auto-ingests it into a
+        // .lungfishfastq bundle before the run (resolveFASTQOperationInputURL,
+        // see the comment above), so the mapping provenance's recorded
+        // inputFASTQPaths -- and therefore the inspector's "Run Inputs"
+        // source-data link label, which is just that path's
+        // lastPathComponent (MappingDocumentStateBuilder) -- points at that
+        // bundle: "test_1.lungfishfastq".
         robot.clickInspectorSourceLink("test_1.lungfishfastq")
         robot.waitForSelectedSidebarItem(containing: "test_1")
 
