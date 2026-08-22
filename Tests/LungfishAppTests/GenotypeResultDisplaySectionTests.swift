@@ -330,8 +330,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         // Converted from source-text grep to behavioral assertions: each control
         // actually renders with the stable accessibility identifier/label pair that
         // downstream XCUI relies on, not merely present somewhere in source text.
-        let sizeHeading = try inspected.find(text: "Content Text Size")
-        _ = sizeHeading
+        // The throw IS the assertion: find(text:) fails the test if the heading
+        // isn't actually rendered, so no captured/inspected result is needed.
+        _ = try inspected.find(text: "Content Text Size")
 
         let decreaseButton = try inspected.find(viewWithAccessibilityIdentifier: "genotype-view-content-text-size-decrease")
         XCTAssertEqual(try decreaseButton.accessibilityLabel().string(), "Decrease content text size")
