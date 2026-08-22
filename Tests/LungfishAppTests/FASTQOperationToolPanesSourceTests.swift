@@ -5,6 +5,7 @@ import ViewInspector
 @testable import LungfishIO
 @testable import LungfishKit
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 private final class AllDisabledFASTQWorkflowLibrary: WorkflowLibraryEnabling {
@@ -29,22 +30,9 @@ private struct NoOpSavontRuntimeStatusProvider: PluginPackStatusProviding {
     ) async throws {}
 }
 
-private extension InspectableView where View == ViewType.ClassifiedView {
-    /// `labeledTextField`/`labeledCompactTextField` in FASTQOperationToolPanes.swift
-    /// wrap their `Text(title)` label and `TextField("", text:)` control in an
-    /// `HStack` (not the `VStack` the shared `lungfishSoleTextFieldGroup` helper
-    /// in ViewInspectorSupport.swift assumes), so this is a local HStack-flavored
-    /// equivalent: finds the sole TextField whose sibling label Text equals
-    /// `text`, then returns *that* HStack (not an ancestor also containing it).
-    func lungfishSoleTextFieldHStack(placeholderOrLabel text: String) throws -> InspectableView<ViewType.HStack> {
-        try find(ViewType.HStack.self, where: { group in
-            let fields = group.findAll(ViewType.TextField.self)
-            guard fields.count == 1 else { return false }
-            let texts = group.findAll(ViewType.Text.self)
-            return texts.contains { (try? $0.string()) == text }
-        })
-    }
-}
+// lungfishSoleTextFieldHStack(placeholderOrLabel:) is defined in
+// Tests/LungfishAppTests/ViewInspectorSupport.swift (promoted there alongside
+// the VStack-flavored lungfishSoleTextFieldGroup).
 
 /// Batch 3 (2026-08-22) conversion of FASTQOperationToolPanes.swift source-text
 /// grep assertions to behavioral ViewInspector assertions against the actual
@@ -126,6 +114,17 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
 
         let readinessText = try inspected.find(text: state.readinessText)
         XCTAssertEqual(try readinessText.help().string(), LungfishHelpContent.operationReadiness.summary)
+
+        // fastqInputs coverage: FASTQOperationInputsSection's
+        // `Label(state.datasetLabel, systemImage: "doc.text")` always renders
+        // (regardless of which auxiliary input rows a tool needs) and carries
+        // `.lungfishHelp(LungfishHelpContent.fastqInputs)`. Found by ViewType.Label
+        // directly (not by descending into its icon content, which is an
+        // unclassified-image blocker for ViewInspector, per the batch-3 report).
+        let inputsLabel = try inspected.find(ViewType.Label.self, where: { label in
+            (try? label.title().text().string()) == state.datasetLabel
+        })
+        XCTAssertEqual(try inputsLabel.help().string(), LungfishHelpContent.fastqInputs.summary)
     }
 
     @MainActor
@@ -429,9 +428,17 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     func testFASTQImportSheetUsesSpecificHelpInventory() throws {
         // FASTQImportConfigSheet is a real NSViewController (AppKit, not
         // SwiftUI) constructed directly, matching the GUIRegressionTests
-        // pattern (testFASTQImportSheetSupportsBarcodeGatedRecipes). Every
-        // control named in the original help inventory renders as a real
-        // AppKit control in the actual view hierarchy.
+        // pattern (testFASTQImportSheetSupportsBarcodeGatedRecipes).
+        //
+        // Fix wave (2026-08-22): restores the full 9-item help inventory via
+        // toolTip readback -- NSControl.applyLungfishHelp(_:) (LungfishHelpContent.swift)
+        // sets `toolTip = item.summary`, so finding a real control whose toolTip
+        // equals a specific item's summary proves that exact help item is wired
+        // to a real rendered control, not merely that some control with a
+        // plausible label exists. The sheet's controls (platformPopup,
+        // recipeCheckbox, etc.) are all `private`, so they are located by
+        // toolTip content via `firstControl(withToolTip:)` (LungfishTestSupport)
+        // rather than by name.
         let inputURL = URL(fileURLWithPath: "/data/Run1/sample.fastq", isDirectory: false)
         let sheet = FASTQImportConfigSheet(
             pairs: [FASTQFilePair(r1: inputURL, r2: nil)],
@@ -442,10 +449,51 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         sheet.loadViewIfNeeded()
         sheet.view.layoutSubtreeIfNeeded()
 
-        XCTAssertNotNil(sheet.view.firstButtonMatching(title: "Import"))
-        XCTAssertNotNil(sheet.view.firstButtonMatching(title: "Apply processing recipe after import"))
-        XCTAssertTrue(sheet.view.containsLabelText("Platform"))
-        XCTAssertTrue(sheet.view.containsLabelText("Pairing"))
+        // One-to-one items: platform/pairing/quality-binning/clumpify/
+        // compression popups each have a unique summary.
+        XCTAssertNotNil(
+            sheet.view.firstControl(withToolTip: LungfishHelpContent.fastqImportPlatform.summary),
+            "platformPopup should carry fastqImportPlatform's help"
+        )
+        XCTAssertNotNil(
+            sheet.view.firstControl(withToolTip: LungfishHelpContent.fastqImportPairing.summary),
+            "pairingPopup should carry fastqImportPairing's help"
+        )
+        XCTAssertNotNil(
+            sheet.view.firstControl(withToolTip: LungfishHelpContent.fastqImportQualityBinning.summary),
+            "binningPopup should carry fastqImportQualityBinning's help"
+        )
+        XCTAssertNotNil(
+            sheet.view.firstControl(withToolTip: LungfishHelpContent.fastqImportClumpify.summary),
+            "clumpifyCheckbox/clumpingToolPopup should carry fastqImportClumpify's help"
+        )
+        XCTAssertNotNil(
+            sheet.view.firstControl(withToolTip: LungfishHelpContent.fastqImportCompression.summary),
+            "compressionPopup should carry fastqImportCompression's help"
+        )
+
+        // recipeCheckbox and recipePopup both wire fastqImportRecipe: prove the
+        // checkbox specifically (identifiable by its title), then prove the
+        // item's help text is applied to at least one control overall.
+        let recipeCheckbox = try XCTUnwrap(
+            sheet.view.firstButtonMatching(title: "Apply processing recipe after import")
+        )
+        XCTAssertEqual(recipeCheckbox.toolTip, LungfishHelpContent.fastqImportRecipe.summary)
+
+        // barcodeDefinitionHelpButton/barcodeDefinitionPopup/chooseBarcodeDefinitionButton
+        // all wire fastqImportBarcodeSheet: prove chooseBarcodeDefinitionButton
+        // specifically (identifiable by its title), then prove the item's help
+        // text is applied to at least one control overall.
+        let chooseBarcodeButton = try XCTUnwrap(sheet.view.firstButtonMatching(title: "Choose..."))
+        XCTAssertEqual(chooseBarcodeButton.toolTip, LungfishHelpContent.fastqImportBarcodeSheet.summary)
+
+        XCTAssertNotNil(
+            sheet.view.firstControl(withToolTip: LungfishHelpContent.fastqImportDemuxFolder.summary),
+            "demultiplexFolderField should carry fastqImportDemuxFolder's help"
+        )
+
+        let importButton = try XCTUnwrap(sheet.view.firstButtonMatching(title: "Import"))
+        XCTAssertEqual(importButton.toolTip, LungfishHelpContent.operationRun.summary)
     }
 
     @MainActor
@@ -489,23 +537,6 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
     }
 }
 
-private extension NSView {
-    func firstButtonMatching(title: String) -> NSButton? {
-        if let button = self as? NSButton, button.title == title {
-            return button
-        }
-        for subview in subviews {
-            if let match = subview.firstButtonMatching(title: title) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    func containsLabelText(_ text: String) -> Bool {
-        if let textField = self as? NSTextField, textField.stringValue.contains(text) {
-            return true
-        }
-        return subviews.contains { $0.containsLabelText(text) }
-    }
-}
+// firstButtonMatching(title:)/containsLabelText(_:) are defined in the shared
+// LungfishTestSupport module
+// (Tests/Support/LungfishTestSupport/NSViewSearchSupport.swift).

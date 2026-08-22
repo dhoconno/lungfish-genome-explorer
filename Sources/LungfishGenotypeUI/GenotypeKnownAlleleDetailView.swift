@@ -660,7 +660,7 @@ final class GenotypeKnownAlleleDetailView: NSView {
         identifier: String
     ) {
         button.setButtonType(.toggle)
-        button.bezelStyle = .texturedRounded
+        button.bezelStyle = .rounded
         button.controlSize = .small
         button.target = self
         button.action = #selector(modeButtonPressed(_:))

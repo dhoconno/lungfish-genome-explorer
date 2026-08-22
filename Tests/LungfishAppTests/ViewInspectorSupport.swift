@@ -34,3 +34,23 @@ public extension InspectableView where View == ViewType.VStack {
         })
     }
 }
+
+public extension InspectableView where View == ViewType.ClassifiedView {
+    /// HStack-flavored counterpart to `lungfishSoleTextFieldGroup` above.
+    ///
+    /// `labeledTextField`/`labeledCompactTextField` in FASTQOperationToolPanes.swift
+    /// wrap their `Text(title)` label and `TextField("", text:)` control in an
+    /// `HStack` (not a `VStack`), and give the `TextField` itself an empty
+    /// placeholder/label (`TextField("", text:)`) -- so the label text lives on
+    /// a sibling `Text`, not the field's own label. This finds the sole TextField
+    /// whose containing HStack also has a sibling `Text` equal to `text`, then
+    /// returns *that* HStack (not an ancestor also containing it transitively).
+    func lungfishSoleTextFieldHStack(placeholderOrLabel text: String) throws -> InspectableView<ViewType.HStack> {
+        try find(ViewType.HStack.self, where: { group in
+            let fields = group.findAll(ViewType.TextField.self)
+            guard fields.count == 1 else { return false }
+            let texts = group.findAll(ViewType.Text.self)
+            return texts.contains { (try? $0.string()) == text }
+        })
+    }
+}

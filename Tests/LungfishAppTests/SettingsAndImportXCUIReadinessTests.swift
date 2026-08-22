@@ -163,6 +163,11 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         let original = settings.openAIHostedEndpointEnabled
         defer { settings.openAIHostedEndpointEnabled = original }
 
+        // Behavioral replacement for the "own provider-agnostic section" half of
+        // the original grep: `Section("Azure AI")` actually renders as its own
+        // section header in the real view tree.
+        _ = try inspected.find(text: "Azure AI")
+
         let toggle = try inspected.find(ViewType.Toggle.self, where: { toggle in
             (try? toggle.labelView().text().string()) == "Use Azure AI-hosted endpoint"
         })

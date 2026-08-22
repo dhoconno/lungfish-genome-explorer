@@ -645,8 +645,23 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         // Converted from a source-range extraction to behavioral assertions on the
         // actual rendered controls: both threshold fields render as real, editable
         // TextFields (not static "Min reads: N" labels) with their stable
-        // accessibility identifiers, a hidden-label Stepper renders alongside each,
-        // and the "%"/"0 = Off." guidance text renders too.
+        // accessibility identifiers, and the "%"/"0 = Off." guidance text renders
+        // too. The hidden-label stepper alongside each field is NOT a SwiftUI
+        // `Stepper` -- it is `GenotypeNumericFilterStepper`, a `private`
+        // `NSViewRepresentable` wrapping a real `NSStepper` (see
+        // GenotypeResultDisplaySection.swift). `find(ViewType.Stepper.self)` cannot
+        // match it (wrong ViewType -- it isn't a SwiftUI Stepper at all), and its
+        // type being file-`private` means no test-file code can even name
+        // `GenotypeNumericFilterStepper` to search for it via
+        // `find(ViewType.View<T>.self)`, the pattern used for other custom views in
+        // this suite (batch 2's `PrimerSchemePickerView`, which is merely
+        // `internal`). ViewInspector has no generic `ViewType` for an arbitrary
+        // `NSViewRepresentable`. The stepper's effect IS exercised behaviorally
+        // below via `viewModel.setMatrixMinimumReadsFromStepper`/
+        // `setMatrixMinimumPercentFromStepper` (the same callback the real
+        // `NSStepper`'s `onChange` invokes), which is the closest verifiable
+        // proxy for its behavior without introducing a new `ViewHosting`-based
+        // real-AppKit-hierarchy test pattern (no precedent for that in this repo).
         let readsField = try inspected.find(ViewType.TextField.self, where: { tf in
             (try? tf.labelView().text().string()) == "Min reads"
         })

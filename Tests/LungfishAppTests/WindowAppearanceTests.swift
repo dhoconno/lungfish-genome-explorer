@@ -4,6 +4,7 @@ import ViewInspector
 @testable import LungfishWorkflow
 import AppKit
 import SwiftUI
+import LungfishTestSupport
 
 @MainActor
 final class WindowAppearanceTests: XCTestCase {
@@ -129,21 +130,7 @@ final class WindowAppearanceTests: XCTestCase {
         // so semantic-danger styling is policed wherever UI code now lives (not just
         // Sources/LungfishApp). Leaf module dirs are discovered dynamically so new
         // leaves are covered automatically.
-        let sourcesDir = root.appendingPathComponent("Sources")
-        var scanRoots: [URL] = [
-            sourcesDir.appendingPathComponent("LungfishApp"),
-            sourcesDir.appendingPathComponent("LungfishKit"),
-        ]
-        if let entries = try? FileManager.default.contentsOfDirectory(
-            at: sourcesDir,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            for entry in entries where entry.lastPathComponent.hasPrefix("Lungfish")
-                && entry.lastPathComponent.hasSuffix("UI") {
-                scanRoots.append(entry)
-            }
-        }
+        let scanRoots = appKitAndLeafModuleScanRoots(under: root)
         let allowedDataColorFiles: Set<String> = [
             "Sources/LungfishApp/Views/Settings/AppearanceSettingsTab.swift",
             "Sources/LungfishApp/Views/Viewer/AnnotationPopoverView.swift",
@@ -605,20 +592,56 @@ final class WindowAppearanceTests: XCTestCase {
     }
 
     func testAppKitControlsAvoidDeprecatedTexturedRoundedStyle() throws {
-        let sourceRoot = repositoryRoot().appendingPathComponent("Sources/LungfishApp")
-        let offenders = try swiftSourceFiles(under: sourceRoot).filter { url in
-            let source = try String(contentsOf: url, encoding: .utf8)
-            // source-audit: intentional repo-wide lint
-            // Deliberate whole-tree scan for a deprecated AppKit API name; the
-            // assertion's subject is source text by design (there is no runtime
-            // instance of every control in every file to introspect), so no
-            // ViewInspector/runtime seam applies.
-            return source.contains(".texturedRounded")
-        }.map { url in
-            url.path.replacingOccurrences(of: repositoryRoot().path + "/", with: "")
-        }.sorted()
+        let root = repositoryRoot()
 
-        XCTAssertEqual(offenders, [])
+        // Scan the app target plus the shared kernel and every feature leaf
+        // module -- same dynamic root list as
+        // testSemanticDangerUIUsesLungfishPaletteInsteadOfSystemRed above -- so
+        // this is a genuine whole-tree lint scan (matching its
+        // `source-audit: intentional repo-wide lint` tag literally) rather than
+        // one that silently stopped at Sources/LungfishApp once the kernel/leaf
+        // module split moved UI code out of that single directory.
+        let scanRoots = appKitAndLeafModuleScanRoots(under: root)
+
+        var offenders: [String] = []
+        for scanRoot in scanRoots {
+            let matches = try swiftSourceFiles(under: scanRoot).filter { url in
+                let source = try String(contentsOf: url, encoding: .utf8)
+                // source-audit: intentional repo-wide lint
+                // Deliberate whole-tree scan for a deprecated AppKit API name; the
+                // assertion's subject is source text by design (there is no runtime
+                // instance of every control in every file to introspect), so no
+                // ViewInspector/runtime seam applies.
+                return source.contains(".texturedRounded")
+            }.map { url in
+                url.path.replacingOccurrences(of: root.path + "/", with: "")
+            }
+            offenders.append(contentsOf: matches)
+        }
+
+        XCTAssertEqual(offenders.sorted(), [])
+    }
+
+    /// Shared dynamic scan-root list used by both whole-tree UI lint scans in
+    /// this file: the app target, the shared kernel, and every feature leaf
+    /// module (discovered dynamically so new leaves are covered automatically).
+    private func appKitAndLeafModuleScanRoots(under root: URL) -> [URL] {
+        let sourcesDir = root.appendingPathComponent("Sources")
+        var scanRoots: [URL] = [
+            sourcesDir.appendingPathComponent("LungfishApp"),
+            sourcesDir.appendingPathComponent("LungfishKit"),
+        ]
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: sourcesDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for entry in entries where entry.lastPathComponent.hasPrefix("Lungfish")
+                && entry.lastPathComponent.hasSuffix("UI") {
+                scanRoots.append(entry)
+            }
+        }
+        return scanRoots
     }
 
     func testDestructiveAlertFirstButtonsUseLungfishDestructiveStyle() throws {
@@ -870,19 +893,5 @@ final class WindowAppearanceTests: XCTestCase {
     }
 }
 
-/// Local copy of the small NSView-tree search helper already used in
-/// Tests/LungfishAppViewTests/GUIRegressionTests.swift, for the one AppKit
-/// (AIAssistantViewController) assertion in this file.
-private extension NSView {
-    func firstSubview(withAccessibilityIdentifier identifier: String) -> NSView? {
-        if accessibilityIdentifier() == identifier {
-            return self
-        }
-        for subview in subviews {
-            if let match = subview.firstSubview(withAccessibilityIdentifier: identifier) {
-                return match
-            }
-        }
-        return nil
-    }
-}
+// firstSubview(withAccessibilityIdentifier:) is defined in the shared
+// LungfishTestSupport module (Tests/Support/LungfishTestSupport/NSViewSearchSupport.swift).

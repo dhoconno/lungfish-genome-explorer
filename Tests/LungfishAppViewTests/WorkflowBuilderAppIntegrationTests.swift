@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class WorkflowBuilderAppIntegrationTests: XCTestCase {
@@ -722,28 +723,6 @@ private final class WorkflowCanvasDelegateSpy: WorkflowCanvasViewDelegate {
     }
 }
 
-private extension NSView {
-    func firstSubview<T: NSView>(of type: T.Type) -> T? {
-        if let view = self as? T {
-            return view
-        }
-        for subview in subviews {
-            if let match = subview.firstSubview(of: type) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    func firstSubview(withAccessibilityIdentifier identifier: String) -> NSView? {
-        if accessibilityIdentifier() == identifier {
-            return self
-        }
-        for subview in subviews {
-            if let match = subview.firstSubview(withAccessibilityIdentifier: identifier) {
-                return match
-            }
-        }
-        return nil
-    }
-}
+// firstSubview(of:)/firstSubview(withAccessibilityIdentifier:) are defined in
+// the shared LungfishTestSupport module
+// (Tests/Support/LungfishTestSupport/NSViewSearchSupport.swift).

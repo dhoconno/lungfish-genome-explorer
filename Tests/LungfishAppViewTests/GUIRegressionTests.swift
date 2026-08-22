@@ -161,10 +161,10 @@ final class GUIRegressionTests: XCTestCase {
         )
         blockedSheet.loadViewIfNeeded()
 
-        let recipeCheckbox = try XCTUnwrap(blockedSheet.view.firstButton(titled: "Apply processing recipe after import"))
+        let recipeCheckbox = try XCTUnwrap(blockedSheet.view.firstButtonMatching(title: "Apply processing recipe after import"))
         XCTAssertEqual(recipeCheckbox.state, .off, "Recipe application should be off by default")
 
-        let blockedImportButton = try XCTUnwrap(blockedSheet.view.firstButton(titled: "Import"))
+        let blockedImportButton = try XCTUnwrap(blockedSheet.view.firstButtonMatching(title: "Import"))
         XCTAssertTrue(blockedImportButton.isEnabled, "Import should be enabled before a barcode-gated recipe is selected")
 
         recipeCheckbox.performClick(nil)
@@ -191,12 +191,12 @@ final class GUIRegressionTests: XCTestCase {
         resolvedSheet.loadViewIfNeeded()
 
         let resolvedRecipeCheckbox = try XCTUnwrap(
-            resolvedSheet.view.firstButton(titled: "Apply processing recipe after import")
+            resolvedSheet.view.firstButtonMatching(title: "Apply processing recipe after import")
         )
         resolvedRecipeCheckbox.performClick(nil)
         resolvedSheet.view.layoutSubtreeIfNeeded()
 
-        let resolvedImportButton = try XCTUnwrap(resolvedSheet.view.firstButton(titled: "Import"))
+        let resolvedImportButton = try XCTUnwrap(resolvedSheet.view.firstButtonMatching(title: "Import"))
         XCTAssertTrue(
             resolvedImportButton.isEnabled,
             "Import should re-enable once a barcode candidate is available and auto-selected"
@@ -872,7 +872,7 @@ final class OperationsPanelTests: XCTestCase {
             tableView.tableColumns.firstIndex { $0.identifier.rawValue == "action" }
         )
         let actionCell = try XCTUnwrap(tableView.view(atColumn: actionColumn, row: 0, makeIfNecessary: true))
-        let cancelButton = try XCTUnwrap(actionCell.firstButton(titled: "Cancel"))
+        let cancelButton = try XCTUnwrap(actionCell.firstButtonMatching(title: "Cancel"))
         XCTAssertTrue(cancelButton.isHidden)
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .running)
     }
@@ -1080,56 +1080,9 @@ final class OperationsPanelTests: XCTestCase {
     }
 }
 
-private extension NSView {
-    func firstSubview<T: NSView>(of type: T.Type) -> T? {
-        if let match = self as? T {
-            return match
-        }
-        for subview in subviews {
-            if let match = subview.firstSubview(of: type) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    func firstSubview(withAccessibilityIdentifier identifier: String) -> NSView? {
-        if accessibilityIdentifier() == identifier {
-            return self
-        }
-        for subview in subviews {
-            if let match = subview.firstSubview(withAccessibilityIdentifier: identifier) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    func containsText(_ text: String) -> Bool {
-        if let textField = self as? NSTextField, textField.stringValue.contains(text) {
-            return true
-        }
-        if let textView = self as? NSTextView, textView.string.contains(text) {
-            return true
-        }
-        if let button = self as? NSButton, button.title.contains(text) {
-            return true
-        }
-        return subviews.contains { $0.containsText(text) }
-    }
-
-    func firstButton(titled title: String) -> NSButton? {
-        if let button = self as? NSButton, button.title == title {
-            return button
-        }
-        for subview in subviews {
-            if let match = subview.firstButton(titled: title) {
-                return match
-            }
-        }
-        return nil
-    }
-}
+// firstSubview(of:)/firstSubview(withAccessibilityIdentifier:)/containsText(_:)/
+// firstButtonMatching(title:) are defined in the shared LungfishTestSupport
+// module (Tests/Support/LungfishTestSupport/NSViewSearchSupport.swift).
 
 // MARK: - Repository Hygiene Tests
 
