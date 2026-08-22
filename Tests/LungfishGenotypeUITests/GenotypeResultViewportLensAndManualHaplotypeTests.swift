@@ -389,12 +389,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeCreatorRequiresSharedEligibilityAndShowsDisabledReason() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeEligibility-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualHaplotypeEligibility")
+        defer { TestTempDirectory.cleanup(root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let malformed = try JSONDecoder().decode(
             ONTGenotypeResultBundleManifest.self,
@@ -544,12 +540,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testHaplotypedResultWithManualAssignmentsPreservesFullCreatorBehavior() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "HaplotypedManualAssignments-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "HaplotypedManualAssignments")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -617,12 +609,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testGenotypeOnlySampleShowsOrphanLegacyAssignmentsReadOnly() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "OrphanManualAssignments-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "OrphanManualAssignments")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -683,12 +671,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeSampleRendererIsSharedByONTAndMiSeqAndKeepsRowsAndCellsUnchanged() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SharedManualHaplotypeRenderer-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SharedManualHaplotypeRenderer")
+        defer { TestTempDirectory.cleanup(root) }
         let kinds: [GenotypeResultWorkflowKind] = [
             .fullLengthONTMHCGenotype,
             .miSeqAmpliconMHCGenotype,
@@ -866,12 +850,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeSaveHeaderParityForExplicitONTAndMiSeqGenotypeOnlyResults()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeAssaySaveParity-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualHaplotypeAssaySaveParity")
+        defer { TestTempDirectory.cleanup(root) }
         let kinds: [GenotypeResultWorkflowKind] = [
             .fullLengthONTMHCGenotype,
             .miSeqAmpliconMHCGenotype,
@@ -974,12 +954,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeEditorLoadsTrustedGenerationLinkedAnnotations()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "LinkedManualHaplotypeEditor-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "LinkedManualHaplotypeEditor")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let annotationRoot = bundleURL
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("genotype-annotations", isDirectory: true)
@@ -1056,12 +1032,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testHaplotypedMiSeqExcludesManualHaplotypeEditorAndContextCommand()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "HaplotypedMiSeqManualEditor-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "HaplotypedMiSeqManualEditor")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -2232,12 +2204,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeBandDisclosurePersistsPerWindowAndBundleAcrossControllerRecreation() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeDisclosure-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualHaplotypeDisclosure")
+        defer { TestTempDirectory.cleanup(root) }
         let firstBundle = root.appendingPathComponent(
             "first.lungfishgenotype",
             isDirectory: true
@@ -2336,12 +2304,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testNewBundleStartsCollapsedAndExpansionRemainsWindowBundlePresentationState()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypePresentation-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualHaplotypePresentation")
+        defer { TestTempDirectory.cleanup(root) }
         let firstBundle = root.appendingPathComponent(
             "first.lungfishgenotype",
             isDirectory: true
@@ -2975,12 +2939,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             } ?? true
         )
 
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeContext-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeContext")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3059,12 +3019,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeContextActionFocusesVisibleMHCATextField()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeFocus-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualHaplotypeFocus")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3142,12 +3098,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeSaveMarksWorkbookDirtyOnceWithoutProjectionRebuild() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeSaveProjection-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeSaveProjection")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3265,12 +3217,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeClearImmediatelyRestoresHeaderDashWithoutMatrixReload()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeClear-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeClear")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3379,12 +3327,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeCancelVetoesSelectionSearchVisibilityLensAndReload() async throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeCancelTransitions-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeCancelTransitions")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3458,11 +3402,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypePromptCoalescesMixedMutationsToLatestConfiguration()
         async throws
     {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "ManualHaplotypeCoalescing-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualHaplotypeCoalescing")
+        defer { TestTempDirectory.cleanup(root) }
         let originalBundle = root.appendingPathComponent(
             "original.lungfishgenotype",
             isDirectory: true
@@ -3545,12 +3486,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testPendingLensIntentIsSupersededByRequestForCurrentLens()
         async throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeLatestLens-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeLatestLens")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3599,15 +3536,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testDeferredMatrixClickReResolvesMissingRowAfterProjectionChanges()
         async throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "ManualHaplotypeStaleRow-\(UUID().uuidString).lungfishgenotype",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
-        try FileManager.default.createDirectory(
-            at: bundleURL,
-            withIntermediateDirectories: true
-        )
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeStaleRow")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         let firstGenotype = "01_Mafa_A1_001_01"
@@ -3663,12 +3593,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testDeferredNativeSelectionWithNoSurvivingRowsIsExactNoOp()
         async throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeStaleNative-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeStaleNative")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3725,12 +3651,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testDeferredNativeRowSelectionDropsPreferredSampleWhenItsColumnIsHidden()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeHiddenNativeSample-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeHiddenNativeSample")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3781,12 +3703,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeCancelRestoresNativeTableSelectionAndScroll() async throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeNativeSelection-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeNativeSelection")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3863,12 +3781,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeCancelRestoresNativeSearchFieldTextAndCaret() async throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeNativeSearch-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeNativeSearch")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3943,12 +3857,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeCancelRestoresPreAppKitAutoScrollSelectionSnapshot()
         async throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypePreAutoScroll-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypePreAutoScroll")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -4026,12 +3936,8 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
         // under-XCTest guard resolves the transition (as .cancel) instead of
         // presenting UI, without ever calling
         // testingSetManualHaplotypeDraftDecisionProvider.
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualHaplotypeNoProviderTransitions-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeNoProviderTransitions")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true

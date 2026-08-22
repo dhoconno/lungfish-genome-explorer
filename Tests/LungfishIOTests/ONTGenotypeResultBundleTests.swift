@@ -408,10 +408,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testUnknownWorkflowKindRemainsLoadableAndRoundTripsLosslessly() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("unknown-workflow-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let bundleURL = try TestTempDirectory.make(prefix: "unknown-workflow")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let workbookURL = bundleURL.appendingPathComponent("unknown.xlsx")
         try Data("workbook".utf8).write(to: workbookURL)
         let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "unknown")
@@ -627,12 +625,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testAnnotationSidecarWriteRejectsSymlinkInsteadOfReplacingOrFollowingIt() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("annotation-sidecar-symlink-\(UUID().uuidString)", isDirectory: true)
+        let root = try TestTempDirectory.make(prefix: "annotation-sidecar-symlink")
+        defer { TestTempDirectory.cleanup(root) }
         let bundle = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         let outside = root.appendingPathComponent("outside.json")
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
         try Data("outside-must-not-change".utf8).write(to: outside)
         try FileManager.default.createSymbolicLink(
             at: bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename),
@@ -646,12 +643,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testAnnotationSidecarWriteRejectsSymlinkBundleRoot() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("annotation-bundle-symlink-\(UUID().uuidString)", isDirectory: true)
+        let root = try TestTempDirectory.make(prefix: "annotation-bundle-symlink")
+        defer { TestTempDirectory.cleanup(root) }
         let realBundle = root.appendingPathComponent("real.lungfishgenotype", isDirectory: true)
         let linkedBundle = root.appendingPathComponent("linked.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: realBundle, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createSymbolicLink(at: linkedBundle, withDestinationURL: realBundle)
         let sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-20T00:00:00Z")
 
@@ -667,12 +663,11 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testAnnotationSidecarLoadRejectsSymlinkInsteadOfReadingOutsideBundle() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("annotation-load-symlink-\(UUID().uuidString)", isDirectory: true)
+        let root = try TestTempDirectory.make(prefix: "annotation-load-symlink")
+        defer { TestTempDirectory.cleanup(root) }
         let bundle = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         let outside = root.appendingPathComponent("outside.json")
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
         try GenotypeAnnotationSidecar.empty(generatedAt: "outside").encoded().write(to: outside)
         try FileManager.default.createSymbolicLink(
             at: bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename),
@@ -2040,9 +2035,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testLoadManifestRejectsDeclaredMHCBAMPairWithoutIndex() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("invalid.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let data = Data(
@@ -2084,9 +2078,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testManifestRoundTripsAndLoadsEmbeddedGenBankReferenceMetadata() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("annotated.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let workbookURL = bundleURL.appendingPathComponent("annotated.xlsx")
@@ -2165,9 +2158,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testWritesAndLoadsPrimaryWorkbookManifest() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode08-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let workbookURL = bundleURL.appendingPathComponent("barcode08-mhc_vs_Illumina-31262.xlsx")
@@ -2193,9 +2185,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testLoadsCurrentWorkbookWhenManifestHasEditableWorkbookPath() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("cohort.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -2238,9 +2229,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testCurrentWorkbookURLFallsBackToPrimaryWorkbookForOldBundles() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("legacy.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -2274,9 +2264,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testLoadsNativeResultSummariesFromBundleArtifacts() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode08-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -2345,9 +2334,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testLoadResultIgnoresRepeatedCSVHeaderRowsInSampleSummary() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode08-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -2723,9 +2711,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testLoadsRetainedDemuxCSVsWithQuotedAliasesAndBlankOptionalFields() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -2784,9 +2771,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
     }
 
     func testLoadsOptionalHaplotypeAnalysisArtifactFromManifest() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTGenotypeResultBundleTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ONTGenotypeResultBundleTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode08-mhc.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -2903,12 +2889,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         bundleURL: URL,
         catalog: GenotypeReviewableRowCatalog
     ) {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "reviewable-row-catalog-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let bundleURL = try TestTempDirectory.make(prefix: "reviewable-row-catalog")
         let workbookURL = bundleURL.appendingPathComponent("catalog.xlsx")
         let callURL = bundleURL.appendingPathComponent("calls.csv")
         let sampleURL = bundleURL.appendingPathComponent("samples.csv")
@@ -3092,8 +3073,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             corruptBAMChecksum: Bool = false,
             bulkRecordCount: Int? = nil
         ) throws {
-            rootURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("scientific-artifacts-\(UUID().uuidString)", isDirectory: true)
+            rootURL = try TestTempDirectory.make(prefix: "scientific-artifacts")
             bundleURL = rootURL.appendingPathComponent("miseq.lungfishgenotype", isDirectory: true)
             try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -3214,7 +3194,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         }
 
         func remove() {
-            try? FileManager.default.removeItem(at: rootURL)
+            TestTempDirectory.cleanup(rootURL)
         }
 
         private static func sha256(_ data: Data) -> String {
@@ -3297,8 +3277,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             unnameableSelectedClosestMismatch: Bool = false
         ) throws {
             self.candidateID = candidateID
-            rootURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("ONTGenotypeCandidateFixture-\(UUID().uuidString)", isDirectory: true)
+            rootURL = try TestTempDirectory.make(prefix: "ONTGenotypeCandidateFixture")
             bundleURL = rootURL.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
             try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -3628,7 +3607,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         }
 
         func remove() {
-            try? FileManager.default.removeItem(at: rootURL)
+            TestTempDirectory.cleanup(rootURL)
         }
 
         func replaceCandidateJSON(_ data: Data) throws {

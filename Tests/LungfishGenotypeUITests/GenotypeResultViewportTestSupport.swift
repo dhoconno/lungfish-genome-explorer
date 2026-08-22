@@ -176,12 +176,8 @@ class GenotypeResultViewportTestCase: XCTestCase {
             GenotypeComparisonMatrixView
         ) -> Void
     ) throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonProjection-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonProjection")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -451,11 +447,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
         controller: GenotypeResultViewController,
         analysis: GenotypeHaplotypeAnalysis
     ) {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeSampleDetailStaleOverride-\(UUID().uuidString)",
-                isDirectory: true
-            )
+        let root = try TestTempDirectory.make(prefix: "GenotypeSampleDetailStaleOverride")
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -811,10 +803,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
 
     func makeSynchronizedMiSeqFixture()
         throws -> SynchronizedMiSeqFixture {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "GenotypeMiSeqSynchronizedEdits-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let root = try TestTempDirectory.make(prefix: "GenotypeMiSeqSynchronizedEdits")
         let bundleURL = root.appendingPathComponent(
             "fixture.lungfishgenotype",
             isDirectory: true
@@ -1258,8 +1247,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
         root: URL,
         result: ONTGenotypeResultBundleData
     ) {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSequenceDetail-\(UUID().uuidString)", isDirectory: true)
+        let root = try TestTempDirectory.make(prefix: "GenotypeSequenceDetail")
         let bundleURL = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
         let candidateURL = bundleURL.appendingPathComponent(
             "artifacts/candidates/candidate_alleles.gb"

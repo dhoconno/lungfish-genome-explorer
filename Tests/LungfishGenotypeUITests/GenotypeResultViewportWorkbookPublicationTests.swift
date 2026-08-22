@@ -13,9 +13,8 @@ import LungfishTestSupport
 @MainActor
 final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewportTestCase {
     func testWorkbookPublicationLockDefersStyleReviewAndCommentInSubmissionOrder() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixAnnotationLockRetry-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixAnnotationLockRetry")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SUPPORTED"
@@ -97,9 +96,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testConfigureWaitsForDeferredMutationAndThenAppliesNewBundleContext() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixDeferredConfigure-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixDeferredConfigure")
+        defer { TestTempDirectory.cleanup(root) }
         let firstBundle = root.appendingPathComponent("first.lungfishgenotype", isDirectory: true)
         let secondBundle = root.appendingPathComponent("second.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: firstBundle, withIntermediateDirectories: true)
@@ -151,12 +149,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     func testDeferredConfigurationCancelPreservesDraftOpenedBeforeAnnotationRetryDrains()
         async throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "MatrixDeferredConfigureDraft-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixDeferredConfigureDraft")
+        defer { TestTempDirectory.cleanup(root) }
         let firstBundle = root.appendingPathComponent(
             "first.lungfishgenotype",
             isDirectory: true
@@ -238,9 +232,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     func testDeferredFailureOverlayRestoresUnderlyingWorkbookStatus() throws {
         struct WorkbookFailure: Error {}
 
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixDeferredStatusOverlay-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixDeferredStatusOverlay")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
@@ -282,9 +275,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testCurrentWorkbookUIRequestRetainsFullSemanticSnapshotForAnnotationOnlyUpdate() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CurrentWorkbookUISnapshot-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CurrentWorkbookUISnapshot")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let analysis = makeWeakSupportAnalysis(
@@ -415,9 +407,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testUnsafeWorkbookPublicationLockSurfacesWithoutDeferredRetry() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixAnnotationUnsafeLock-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixAnnotationUnsafeLock")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SUPPORTED"
@@ -455,9 +446,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testFailedSidecarPublicationSchedulesNoWorkbookUpdate() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixWorkbookPublicationFailure-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixWorkbookPublicationFailure")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
@@ -479,9 +469,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testStalePublicationReloadsAndPublishesExactConcurrentAnnotationUnionOnly() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixStaleExactUnion-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixStaleExactUnion")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_FIRST"
@@ -558,9 +547,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testStalePublicationReappliesActiveSearchAfterReloadingConcurrentComment() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixStaleSearchComment-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixStaleSearchComment")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_INTERNAL"
@@ -608,9 +596,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testStaleAnnotationFailureReconcilesCandidateDisplayOnlySidecarChangeIntoMatrix() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixStaleCandidateDisplay-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixStaleCandidateDisplay")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let controller = GenotypeResultViewController()
@@ -662,9 +649,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testSemanticPublicationReloadsMultipleIsolatedCellsWithoutCartesianExpansion() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixExactPartialReload-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixExactPartialReload")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_FIRST"
@@ -704,9 +690,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     func testWorkbookUpdateFailurePreservesPublishedSidecarAndExposesRetryWarning() throws {
         struct WorkbookFailure: Error {}
 
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixWorkbookRetry-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixWorkbookRetry")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
@@ -733,9 +718,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     func testWorkbookFailureAfterRemovingFinalAnnotationLeavesEnabledRetryThatInvokesUpdate() throws {
         struct WorkbookFailure: Error {}
 
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixWorkbookFinalRemovalRetry-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixWorkbookFinalRemovalRetry")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
@@ -773,9 +757,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testMatrixEditsCaptureCurrentAuthorProviderAfterSingleConfigure() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeEditAuthorProvider-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeEditAuthorProvider")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         var author = "First analyst"

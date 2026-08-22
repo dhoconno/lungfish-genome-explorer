@@ -81,9 +81,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testClearMatrixStyleWithAllRowsAndColumnsClearsIntersectingCellStyles() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixClearAllStyles-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixClearAllStyles")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_SHARED"
@@ -164,9 +163,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixRowSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixRowThresholdStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixRowThresholdStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SHARED"
@@ -220,9 +218,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixColumnSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixColumnThresholdStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixColumnThresholdStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_SHARED"
@@ -267,9 +264,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixThresholdedRowFillRemovesExistingBroadRowFill() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixRowBroadThresholdStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixRowBroadThresholdStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SHARED"
@@ -313,9 +309,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixThresholdedColumnFillRemovesExistingBroadColumnFillIncludingEmptyCells() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixColumnBroadThresholdStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixColumnBroadThresholdStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_SHARED"
@@ -405,9 +400,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixAnnotationStyleRedrawsOnlyAffectedSelection() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixReloadScope-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixReloadScope")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_SHARED"
@@ -447,9 +441,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixAnnotationWorkbookRefreshPreservesViewportState() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixWorkbookRefreshState-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixWorkbookRefreshState")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SHARED"
@@ -524,12 +517,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testCurrentWorkbookFallbackReloadCancelPreservesDraftOpenedWhileLoadIsInFlight()
         async throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "CurrentWorkbookReloadDraftCancel-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "CurrentWorkbookReloadDraftCancel")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -595,12 +584,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testCurrentWorkbookFallbackReloadDiscardAppliesLoadedEligibilityChangeWithoutReloading()
         async throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "CurrentWorkbookReloadEligibility-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "CurrentWorkbookReloadEligibility")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -706,12 +691,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testQueuedConfigurationImmediatelyInvalidatesInFlightWorkbookReload()
         async throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "QueuedConfigureInvalidatesReload-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "QueuedConfigureInvalidatesReload")
+        defer { TestTempDirectory.cleanup(root) }
         let firstBundleURL = root.appendingPathComponent(
             "first.lungfishgenotype",
             isDirectory: true
@@ -830,9 +811,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixColumnSelectionCanApplyStyleToMultipleColumns() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixColumnStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixColumnStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let controller = GenotypeResultViewController()
@@ -965,9 +945,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixAnnotationStyleRequestPersistsAndRenders() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixApplyStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixApplyStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_001_01"
@@ -998,9 +977,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixAnnotationDarkFillRendersFullDepthWithWhiteText() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixDarkFillStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixDarkFillStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_001_01"
@@ -1028,9 +1006,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixAnnotationStyleRequestAppliesToMultipleSelectedCells() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixApplyMultiStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixApplyMultiStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_001_01"
@@ -1086,9 +1063,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixRowSelectionCanApplyTextColorAcrossEntireRow() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixRowTextStyle-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixRowTextStyle")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SHARED"
@@ -1127,9 +1103,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixCommentsPersistAndAppearInSelectionDetails() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMatrixComment-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMatrixComment")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_001_01"
@@ -1394,12 +1369,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testRapidThresholdPipelineWithSearchAndManualVisibilityMeetsBudgetsWithoutMutation() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeCompleteViewPipeline-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeCompleteViewPipeline")
+        defer { TestTempDirectory.cleanup(root) }
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("provenance", isDirectory: true),
             withIntermediateDirectories: true
@@ -1547,9 +1518,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             equivalentSampleSubstring: String,
             alleleQuery: String
         ) throws {
-            let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("GenotypeSearchStress-\(UUID().uuidString)", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: root) }
+            let root = try TestTempDirectory.make(prefix: "GenotypeSearchStress")
+            defer { TestTempDirectory.cleanup(root) }
             let bundleURL = root.appendingPathComponent(
                 "stress.lungfishgenotype",
                 isDirectory: true
@@ -2136,9 +2106,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testCallOverridePreservesUnresolvedReviewStatusAndOutlineValue() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
@@ -2483,11 +2452,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqRestoresLegacyPreferencePerBundleWithoutLeakage()
         throws
     {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "HaplotypedMiSeqPresentationBundles-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "HaplotypedMiSeqPresentationBundles")
+        defer { TestTempDirectory.cleanup(root) }
         let firstURL = root.appendingPathComponent(
             "first.lungfishgenotype",
             isDirectory: true
@@ -2590,12 +2556,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqAICompletionReplacesActiveLegacyAuditWithCalls()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "HaplotypedMiSeqAIIngress-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "HaplotypedMiSeqAIIngress")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -2640,11 +2602,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqCallEvidenceAndReviewKeyboardCommandsStayInCalls()
         throws
     {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "HaplotypedMiSeqReviewIngress-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "HaplotypedMiSeqReviewIngress")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "result.lungfishgenotype",
             isDirectory: true
@@ -2701,11 +2660,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqReconfigurationClearsReviewShortcutAuthority()
         throws
     {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "HaplotypedMiSeqReviewAuthority-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "HaplotypedMiSeqReviewAuthority")
+        defer { TestTempDirectory.cleanup(root) }
         let firstURL = root.appendingPathComponent(
             "first.lungfishgenotype",
             isDirectory: true
@@ -2892,11 +2848,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         // Regression test for AS14: the toolbar "Actions" menu's AI
         // Discovery/Refinement items must be disabled on a read-only
         // bundle, matching the inline audit-section buttons.
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeResultActionsMenuReadOnly-\(UUID().uuidString)",
-                isDirectory: true
-            )
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultActionsMenuReadOnly")
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o755)], ofItemAtPath: root.path)
             try? FileManager.default.removeItem(at: root)
@@ -2938,12 +2890,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqPreservesPerSlotStatusAndReviewEligibility() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeResultPerSlotProjection-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultPerSlotProjection")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3036,12 +2984,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqDetailUsesOnlyProjectionAuthoritativeOverride() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeResultAuthoritativeOverride-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultAuthoritativeOverride")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3128,9 +3072,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testInspectorOverrideAppliesExplicitSelectedHaplotypeSlot() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultExplicitOverride-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultExplicitOverride")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try installCallOverrideManifest(in: bundleURL)
@@ -3181,9 +3124,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testInspectorOverrideCanApplyBothHaplotypeSlotsInOneBatch() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultBatchOverride-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultBatchOverride")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try installCallOverrideManifest(in: bundleURL)
@@ -3297,12 +3239,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testInspectorTwoSlotValidationFailurePublishesNothingAndDoesNotNotify() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeResultBatchValidation-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultBatchValidation")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3391,7 +3329,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
     func testSampleDetailSaveAfterAnalysisRevisionUsesActiveBaselineAndIdentity() throws {
         let fixture = try makeStaleSampleDetailOverrideFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let row = try XCTUnwrap(
             fixture.controller.testingSampleDetailRows(sample: "DW472")
                 .first { $0.locus == "MHC-DP" && $0.slot == .h1 }
@@ -3431,7 +3369,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
     func testSampleDetailClearAfterAnalysisRevisionAuditsActiveBaseline() throws {
         let fixture = try makeStaleSampleDetailOverrideFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let row = try XCTUnwrap(
             fixture.controller.testingSampleDetailRows(sample: "DW472")
                 .first { $0.locus == "MHC-DP" && $0.slot == .h1 }
@@ -3465,9 +3403,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testQuestionMarkOverrideRemainsUnresolvedInEvidenceAndOutline() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultUnknownOverride-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultUnknownOverride")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try installCallOverrideManifest(in: bundleURL)
@@ -3513,11 +3450,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testRefinedManualCurationParityForONTAndMiSeqGenotypeOnlyResults()
         throws
     {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "RefinedManualCurationParity-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "RefinedManualCurationParity")
+        defer { TestTempDirectory.cleanup(root) }
 
         for kind in [
             GenotypeResultWorkflowKind.fullLengthONTMHCGenotype,
@@ -3698,12 +3632,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testMiSeqProvisionalExonTwoEvidenceAndComparisonSurviveSaveAndRefresh()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "MiSeqProvisionalManualParity-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "MiSeqProvisionalManualParity")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -3836,11 +3766,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testCompareSourceMayBeHiddenInBothEligibleGenotypeOnlyAssays()
         throws
     {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "HiddenComparisonParity-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "HiddenComparisonParity")
+        defer { TestTempDirectory.cleanup(root) }
         for kind in [
             GenotypeResultWorkflowKind.fullLengthONTMHCGenotype,
             .miSeqAmpliconMHCGenotype,
@@ -3925,7 +3852,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -3963,7 +3890,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4057,7 +3984,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4170,7 +4097,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         async throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4204,7 +4131,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
     func testHaplotypedMiSeqEditsStaySynchronized() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let bundleURL = fixture.bundleURL
         let result = fixture.result
         let controller = GenotypeResultViewController()
@@ -4580,7 +4507,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqIncludedLociStaySynchronizedAcrossCallsBandAndWorkbook()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4614,7 +4541,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqOverrideReappliesSmartCohortAndQuickSearchToMatrix()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4681,7 +4608,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
     func testHaplotypedMiSeqBandSelectionCarriesH2IntoCallEvidence() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4709,7 +4636,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
     func testHaplotypedMiSeqNoOpPublishesNothing() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4770,7 +4697,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqMetadataOnlyMutationInvalidatesReturnedKey()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4823,7 +4750,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
     func testHaplotypedMiSeqMissingStorePresentsOneError() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -4854,7 +4781,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws {
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            defer { TestTempDirectory.cleanup(fixture.root) }
             let controller = GenotypeResultViewController()
             _ = controller.view
             controller.configure(result: fixture.result)
@@ -4887,7 +4814,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            defer { TestTempDirectory.cleanup(fixture.root) }
             let controller = GenotypeResultViewController()
             _ = controller.view
             controller.configure(result: fixture.result)
@@ -4922,7 +4849,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            defer { TestTempDirectory.cleanup(fixture.root) }
             let controller = GenotypeResultViewController()
             _ = controller.view
             controller.configure(result: fixture.result)
@@ -4945,7 +4872,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            defer { TestTempDirectory.cleanup(fixture.root) }
             let controller = GenotypeResultViewController()
             _ = controller.view
             controller.configure(result: fixture.result)
@@ -4989,7 +4916,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws {
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            defer { TestTempDirectory.cleanup(fixture.root) }
             let controller = GenotypeResultViewController()
             _ = controller.view
             controller.configure(result: fixture.result)
@@ -5025,7 +4952,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            defer { TestTempDirectory.cleanup(fixture.root) }
             let controller = GenotypeResultViewController()
             _ = controller.view
             controller.configure(result: fixture.result)
@@ -5080,7 +5007,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqPublicationFaultPreservesSynchronizedState()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -5182,7 +5109,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqReadOnlyEditPreservesSynchronizedState()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)

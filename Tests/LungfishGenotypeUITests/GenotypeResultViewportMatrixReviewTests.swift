@@ -410,9 +410,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixContextMenuPreservesInsideSelectionAndSelectsOutsideWithoutRebuildingIndexes() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixContextSelection-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixContextSelection")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = "01_Mafa_A1_FIRST"
@@ -959,9 +958,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixAnnotationContextCommandContinuesToUseCurrentSelection() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixCurrentAnnotationSelection-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixCurrentAnnotationSelection")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
@@ -1184,9 +1182,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixMenuAndKeyboardCommandsShareCachedCapabilityAndDisabledReasons() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixMenuKeyboardState-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixMenuKeyboardState")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_MISSING"
@@ -1239,9 +1236,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixRowAndHeaderMenusOfferScopedCommentsAndSupportSelectionHelper() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixScopedContextMenus-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixScopedContextMenus")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SCOPED"
@@ -1371,9 +1367,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixMenuReviewMutationUsesTargetedReloadAndSelectionKeepsEvidenceIndex() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixMenuTargetedReload-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixMenuTargetedReload")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_TARGETED"
@@ -1400,9 +1395,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixRowCommentMenuMutationUsesTargetedReloadAcrossPinnedAndSampleTables() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixRowCommentTargetedReload-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixRowCommentTargetedReload")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_ROW_TARGETED"
@@ -1472,9 +1466,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixReviewCapabilityUsesRawEvidenceIndependentOfFiltersAndDisplayThresholds() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixRawEvidenceFilters-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixRawEvidenceFilters")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SUPPORTED"
@@ -1510,9 +1503,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixReviewCapabilityTreatsAbsentExactRecordAsFalseNegativeEligible() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixAbsentEvidence-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixAbsentEvidence")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_EXPECTED"
@@ -1537,9 +1529,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testMatrixReviewCapabilityUsesFullStableCandidateIdentityAndRejectsMixedSelection() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixCandidateEvidenceIdentity-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixCandidateEvidenceIdentity")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let supported = GenotypeAnnotationSidecar.MatrixTarget.cell(
@@ -1613,9 +1604,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testInspectorCapabilityCarriesApplicableCachedScopedCommentsForSelectedCell() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixInspectorScopedComments-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixInspectorScopedComments")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SUPPORTED"
@@ -1657,9 +1647,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testReviewRequestIsRevalidatedAgainstCurrentRawEvidenceBeforeStorePublication() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixReviewRevalidation-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixReviewRevalidation")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SUPPORTED"
@@ -1705,9 +1694,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testSemanticCommentRequestsUpsertReplaceAndRemoveExactTargets() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixCommentIntents-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixCommentIntents")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
@@ -1758,9 +1746,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testSuccessfulMatrixAnnotationBurstMarksDirtyWithoutLegacyAutoPublication() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MatrixWorkbookCoalesce-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "MatrixWorkbookCoalesce")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SUPPORTED"

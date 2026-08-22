@@ -166,7 +166,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
     func testFullLengthMHCCandidateRowUsesExactCandidateArtifactNotClosestReference() throws {
         let fixture = try makeSequenceDetailCandidateResult()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -188,7 +188,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
     func testFullLengthMHCCandidateCatalogKeepsValidRecordWhenAnotherChecksumIsInvalid() throws {
         let fixture = try makeSequenceDetailCandidateResult(includeInvalidCandidate: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -246,7 +246,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             alleleName: "Mafa-A1*001:01"
         )
         let candidateFixture = try makeSequenceDetailCandidateResult()
-        defer { try? FileManager.default.removeItem(at: candidateFixture.root) }
+        defer { TestTempDirectory.cleanup(candidateFixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(
@@ -302,7 +302,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
     func testFullLengthMHCMixedRowsUseViewportOrderPersistFormatAndKeepOneSequenceHierarchy() throws {
         let fixture = try makeSequenceDetailCandidateResult(includeKnown: true)
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: fixture.result)
@@ -991,9 +991,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testCandidateCellKeepsInspectorEvidenceWhileRowMountsSequenceDetail() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateGraphicalSelection-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateGraphicalSelection")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let provisionalName = "Collision_nov"
@@ -1420,9 +1419,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testUnsupportedKnownCellRefreshDoesNotResurrectPreviousCandidateDetail() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("UnsupportedKnownCellRefresh-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "UnsupportedKnownCellRefresh")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let knownID = "01_Mafa_A1_Known"
@@ -1510,9 +1508,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testCandidateVisibilityPersistsBeforeRedrawWithoutMutatingCurrentWorkbook() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateDisplayPersistence-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateDisplayPersistence")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let workbookURL = bundleURL.appendingPathComponent("current.xlsx")
@@ -1556,9 +1553,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testCandidateTintRequiresExplicitWorkbookRefreshButVisibilityDoesNot() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateTintWorkbookRefresh-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateTintWorkbookRefresh")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let workbookURL = bundleURL.appendingPathComponent("current.xlsx")
@@ -1623,9 +1619,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testCandidateSettingsConflictRestoresLatestSidecarAndShowsNonfatalWarning() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateDisplayConflict-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateDisplayConflict")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let result = makeCandidateResult(
@@ -1657,9 +1652,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testRapidCandidateControlEditsCoalesceWithoutLosingTheLatestSettings() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateDisplayCoalescing-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateDisplayCoalescing")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let result = makeCandidateResult(
@@ -1693,9 +1687,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testCandidateSelectionPersistsByStableIDAcrossTintReloadAndClearsWhenHidden() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateSelectionReload-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateSelectionReload")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let result = makeCandidateResult(
@@ -1982,9 +1975,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
 
     func testCandidateCellDetailsIncludeLegacyAndExactRowCommentsWithoutCollisionLeakage() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CandidateInheritedComments-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "CandidateInheritedComments")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "Mafa-A1*018:01:01:01_5nt_nov"

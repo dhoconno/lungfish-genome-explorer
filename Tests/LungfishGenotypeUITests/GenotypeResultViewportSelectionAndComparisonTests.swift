@@ -139,9 +139,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testSelectedMultipleColumnsShowCompactSummaryForEachSample() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMultiSampleSelection-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMultiSampleSelection")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let call = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
@@ -181,12 +180,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     func testSelectedMultipleColumnsShowBoundedCanonicalManualHaplotypeSummariesWithoutEditor()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "GenotypeMultiSampleHaplotypeSummary-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeMultiSampleHaplotypeSummary")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -293,9 +288,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testSelectedCellIncludesApplicableRowColumnAndCellComments() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSelectionComments-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeSelectionComments")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let call = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
@@ -321,9 +315,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testKnownRowAndSupportedCellShowApplicableCommentsWithoutStaleViewsOrEvidence() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KnownAlleleComments-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "KnownAlleleComments")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let firstID = "NHP01222"
@@ -510,9 +503,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         }
         settings.contentTextSizePreference = .custom(200)
         settings.save()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LateGeneratedTypography-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "LateGeneratedTypography")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_LATE_TYPOGRAPHY"
@@ -909,9 +901,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testControllerExportSnapshotIncludesSavedFilterContext() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeExportContext-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeExportContext")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let controller = GenotypeResultViewController()
@@ -1200,9 +1191,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testMatrixSearchMatchesImportedSampleMetadata() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
@@ -1308,9 +1298,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testUnifiedMatrixFilterMatchesMetadataFieldQueries() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
@@ -1387,9 +1376,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testUnifiedSampleFilterMatchesImportedMetadataFieldsInOutline() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
@@ -1447,9 +1435,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testSaveCurrentFilterPersistsMetadataSmartCohortWithAudit() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let controller = GenotypeResultViewController()
@@ -1473,10 +1460,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testSavedTextFilterRoundTripsAsMatrixRowFilter() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SavedTextFilter-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "SavedTextFilter")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [
@@ -1498,9 +1483,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testScopedSaveCurrentFilterOnlyMutatesMatchingWindow() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleA = root.appendingPathComponent("a.lungfishgenotype", isDirectory: true)
         let bundleB = root.appendingPathComponent("b.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleA, withIntermediateDirectories: true)
@@ -1711,9 +1695,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testManualHaplotypeSlotRestoresFullOpacity() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultWeakSupport-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeResultWeakSupport")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-23T00:00:00Z")
@@ -1962,9 +1945,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testHaplotypeMatrixUsesSavedTextFilterWhenQuickSearchIsCleared() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSavedMatrixFilter-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeSavedMatrixFilter")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let controller = GenotypeResultViewController()
@@ -2042,9 +2024,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testHaplotypeDefinitionMatrixUsesSharedSearchIndexAndRefreshesRenderedRowsLive() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeHaplotypeSharedSearch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeHaplotypeSharedSearch")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         let metadataURL = bundleURL
             .appendingPathComponent("metadata", isDirectory: true)
@@ -2180,9 +2161,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testSavingActiveHaplotypeDefinitionRefreshesLiveCalls() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeActiveDefinition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeActiveDefinition")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -2256,9 +2236,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testGenotypeOnlyResultUsesRawMatrixEvenWithResolvedDefinition() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeOnlyRawMatrixDefinition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeOnlyRawMatrixDefinition")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -2431,9 +2410,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeSummaryPreference-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeSummaryPreference")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -2484,9 +2462,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testUsingCustomHaplotypeDefinitionPersistsActiveDefinitionAndRefreshesCalls() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeUseDefinition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeUseDefinition")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -2650,9 +2627,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testConfigureRendersHaplotypeCallFromRecordedAnalysisInOutline() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [
@@ -2760,9 +2736,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testApplicableHaplotypedMiSeqWorkbookIgnoresManualAssignments() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-06-22T00:00:00Z")
@@ -2838,16 +2813,10 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             GenotypeResultWorkflowKind.fullLengthONTMHCGenotype,
             .miSeqAmpliconMHCGenotype,
         ] {
-            let bundleURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(
-                    "GenotypeOnlyManualWorkbook-\(kind.rawValue)-\(UUID().uuidString).lungfishgenotype",
-                    isDirectory: true
-                )
-            defer { try? FileManager.default.removeItem(at: bundleURL) }
-            try FileManager.default.createDirectory(
-                at: bundleURL,
-                withIntermediateDirectories: true
+            let bundleURL = try TestTempDirectory.make(
+                prefix: "GenotypeOnlyManualWorkbook-\(kind.rawValue)"
             )
+            defer { TestTempDirectory.cleanup(bundleURL) }
 
             var sidecar = GenotypeAnnotationSidecar.empty(
                 generatedAt: "2026-07-27T00:00:00Z"
@@ -2965,10 +2934,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testConfigureUsesPersistedHaplotypeAnalysisWhenSavedDropoutThresholdsExist() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: false)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
         sidecar.settings.dropoutAbsolute = 50
         sidecar.settings.dropoutSampleFraction = nil
@@ -3025,9 +2992,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testConfigureUsesPersistedHaplotypeAnalysisWithoutSavedSidecar() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [
@@ -3078,9 +3044,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testConfigureKeepsPersistedDeterministicHaplotypesWhenDefinitionIsAvailable() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -3137,9 +3102,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testConfigureRecomputesWhenSavedSidecarSelectsDifferentDefinition() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -3200,9 +3164,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testCallEvidenceCarriesUnsupportedDefinitionHaplotypesForOverrideMenus() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -3275,9 +3238,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testReviewEvidenceReportsDiagnosticAllelesOmittedByRunThresholds() throws {
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let projectRoot = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
             .appendingPathComponent("Analyses", isDirectory: true)
             .appendingPathComponent("ONT genotyping results", isDirectory: true)
@@ -3341,9 +3303,8 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testDW472bLikeMHCBReviewEvidenceReflectsRecordedHaplotypeCall() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
+        defer { TestTempDirectory.cleanup(bundleURL) }
 
         let controller = GenotypeResultViewController()
         _ = controller.view

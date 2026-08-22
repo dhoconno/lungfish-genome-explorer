@@ -13,9 +13,8 @@ import LungfishTestSupport
 @MainActor
 final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewportTestCase {
     func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeCandidateGenBankLens")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let candidateFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.fasta")
         let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
@@ -73,10 +72,9 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testArtifactsLensListsValidatedMHCAlignmentArtifactsWhenDeclared() {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMHCAlignmentArtifactLens-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+    func testArtifactsLensListsValidatedMHCAlignmentArtifactsWhenDeclared() throws {
+        let root = try TestTempDirectory.make(prefix: "GenotypeMHCAlignmentArtifactLens")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         let genotypingBAMURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam")
         let genotypingBAIURL = bundleURL.appendingPathComponent("artifacts/alignments/genotyping.bam.bai")
@@ -112,9 +110,9 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testArtifactsLensListsOnlyGenotypingEvidenceForNonFullLengthResult() {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeNonMHCAlignmentArtifactLens-\(UUID().uuidString)", isDirectory: true)
+    func testArtifactsLensListsOnlyGenotypingEvidenceForNonFullLengthResult() throws {
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeNonMHCAlignmentArtifactLens")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
             genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
             genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),
@@ -155,9 +153,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 .init(sample: "AnimalA", passedAlignments: 12, passedUniqueReads: 11),
             ]
         )
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MiSeqProvisional-\(UUID().uuidString).lungfishgenotype")
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "MiSeqProvisional")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -401,8 +398,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testArtifactsLensMHCAlignmentLabelsFitWithoutClipping() throws {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeMHCAlignmentArtifactLabelLayout-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = try TestTempDirectory.make(prefix: "GenotypeMHCAlignmentArtifactLabelLayout")
         let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
             genotypingBAM: bundleURL.appendingPathComponent("genotyping.bam"),
             genotypingBAI: bundleURL.appendingPathComponent("genotyping.bam.bai"),
@@ -859,9 +855,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testConfirmingReviewCallMarksLocusResolvedAndAdvancesQueue() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeReviewConfirm-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeReviewConfirm")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let analysis = GenotypeHaplotypeAnalysis(
@@ -903,9 +898,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testConfirmingReviewCallAdvancesWithinSameSampleBeforeNextSample() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeReviewConfirmMultiLocus-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeReviewConfirmMultiLocus")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let analysis = GenotypeHaplotypeAnalysis(
@@ -951,9 +945,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testReviewLensUsesNeedsReviewCohortIncludingLowSupportSamples() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeReviewNeedsReview-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeReviewNeedsReview")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let lowCalls = [
@@ -1009,9 +1002,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testTransitionToGenotypeOnlyClearsSmartCohortAndSkipsHaplotypeWork() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GenotypeCapabilityTransition-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "GenotypeCapabilityTransition")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let call = makeCall(
@@ -1085,12 +1077,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             return bytes
         }
 
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "genotype-only-nonseeding-viewport-\(UUID().uuidString).lungfishgenotype",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "genotype-only-nonseeding-viewport")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL.appendingPathComponent("custom", isDirectory: true),
             withIntermediateDirectories: true
@@ -2176,12 +2164,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testEvidenceRetainsProvisionalExonTwoAndAnnotationPresentation()
         throws
     {
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "EvidencePresentation-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let bundleURL = try TestTempDirectory.make(prefix: "EvidencePresentation")
+        defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -2358,12 +2342,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleWorkbenchFillsDetailPaneAcrossLayoutsAndViewportWidths()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SelectedSampleWorkbenchGeometry-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SelectedSampleWorkbenchGeometry")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -2463,12 +2443,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleEvidenceIsNotVerticallyCompressedInDetailScrollPane()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SelectedSampleEvidenceGeometry-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SelectedSampleEvidenceGeometry")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -2558,12 +2534,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SelectedSampleWorkbenchIdentity-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SelectedSampleWorkbenchIdentity")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -2734,12 +2706,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleWorkbenchHeaderKeepsEveryMetricReadableAtNarrowWidths()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SelectedSampleHeaderNarrow-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SelectedSampleHeaderNarrow")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -2834,12 +2802,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         settings.contentTextSizePreference = .custom(100)
         settings.save()
 
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SelectedSampleWorkbenchTypography-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SelectedSampleWorkbenchTypography")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -2932,12 +2896,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testSelectedSampleWorkbenchIsTornDownForOtherSelectionSurfaces() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SelectedSampleWorkbenchTeardown-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SelectedSampleWorkbenchTeardown")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -2974,12 +2934,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testDirectHaplotypedResultReplacementPhysicallyRemovesManualWorkbenchAndRejectsStaleSave()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualWorkbenchDirectReplacement-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualWorkbenchDirectReplacement")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3030,12 +2986,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testAIHaplotypingCompletionPhysicallyRemovesManualWorkbenchAndRejectsStaleSave()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "ManualWorkbenchAICompletion-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "ManualWorkbenchAICompletion")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3104,12 +3056,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleComparisonRefreshesProjectionWithoutRemountingModels()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonRefresh-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonRefresh")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3180,12 +3128,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleComparisonTracksMatrixSortWithoutRemountingModels()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonSort-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonSort")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3239,12 +3183,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleComparisonTracksSupportThresholdWithoutRemountingModels()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonThreshold-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonThreshold")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3298,12 +3238,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedSampleComparisonTracksManualRowAndSampleVisibilityWithoutRemountingModels()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonVisibility-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonVisibility")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3472,12 +3408,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testAnnotationOnlyReviewAndCommentRefreshDirtyComparisonInPlace()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonAnnotation-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonAnnotation")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
@@ -3550,12 +3482,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testMountedCompareBrowseAndStageHasNoPersistenceOrProjectionSideEffects()
         throws
     {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "SampleComparisonNoPersistence-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "SampleComparisonNoPersistence")
+        defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
             "example.lungfishgenotype",
             isDirectory: true
