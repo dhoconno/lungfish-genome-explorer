@@ -2929,5 +2929,66 @@ extension FASTQDatasetViewController {
 
         return (buildOperationRequest(), runButton.isEnabled)
     }
+
+    /// Testing enum mirroring `LegacyOperationKind`'s classifier/generic-category
+    /// cases so test code outside this file can name a selection without
+    /// exporting `LegacyOperationKind` itself. Added for batch 3 (2026-08-22) to
+    /// drive `runOperationClicked()`'s tool/category dispatch branches
+    /// behaviorally instead of via source-text string matching.
+    enum TestingLaunchableOperation {
+        case classifyReads
+        case detectViruses
+        case comprehensiveTriage
+        case assembleReads
+        case mapReads
+    }
+
+    private func legacyKind(for operation: TestingLaunchableOperation) -> LegacyOperationKind {
+        switch operation {
+        case .classifyReads: return .classifyReads
+        case .detectViruses: return .detectViruses
+        case .comprehensiveTriage: return .comprehensiveTriage
+        case .assembleReads: return .assembleReads
+        case .mapReads: return .mapReads
+        }
+    }
+
+    /// Sets `selectedOperation` to the given tool/category-launching case and
+    /// invokes the real `runOperationClicked()` action, returning whichever
+    /// launch callback fired. Both `onLaunchFASTQOperationTool` and
+    /// `onLaunchFASTQOperationCategory` are captured so a single accessor
+    /// covers both dispatch shapes.
+    @discardableResult
+    func testingSelectAndRunLaunchableOperation(
+        _ operation: TestingLaunchableOperation
+    ) -> (launchedTool: FASTQOperationToolID?, launchedCategory: FASTQOperationCategoryID?) {
+        _ = view
+        selectedOperation = legacyKind(for: operation)
+
+        var launchedTool: FASTQOperationToolID?
+        var launchedCategory: FASTQOperationCategoryID?
+        onLaunchFASTQOperationTool = { launchedTool = $0 }
+        onLaunchFASTQOperationCategory = { launchedCategory = $0 }
+
+        runOperationClicked(self)
+
+        return (launchedTool, launchedCategory)
+    }
+
+    /// Sets `selectedOperation` to the given tool/category-launching case and
+    /// re-renders the parameter bar (without invoking `runOperationClicked`),
+    /// returning the actual rendered copy text. Added for batch 3 (2026-08-22)
+    /// so the classifier/assembly/mapping action-description strings can be
+    /// proven to render for real instead of via source-text grep.
+    func testingParameterBarText(
+        for operation: TestingLaunchableOperation
+    ) -> String? {
+        _ = view
+        selectedOperation = legacyKind(for: operation)
+        updateParameterBar()
+        return parameterBar.arrangedSubviews
+            .compactMap { ($0 as? NSTextField)?.stringValue }
+            .first
+    }
 }
 #endif

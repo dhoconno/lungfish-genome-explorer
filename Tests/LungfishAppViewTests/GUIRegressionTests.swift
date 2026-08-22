@@ -683,41 +683,51 @@ final class UnifiedWizardTests: XCTestCase {
         XCTAssertEqual(typeMap[.clinicalTriage], "Detect Pathogens (TaxTriage)")
     }
 
-    /// Verifies the FASTQ dataset controller source has the unified classifier labels.
+    /// Verifies the FASTQ dataset controller renders the unified classifier labels.
+    ///
+    /// Batch 3 (2026-08-22) conversion: uses the new #if DEBUG
+    /// `testingParameterBarText(for:)` accessor (same file/pattern as the
+    /// existing `testingSelectContaminantFilter`) to set `selectedOperation`
+    /// and re-render the real parameter bar, then reads the actual rendered
+    /// NSTextField copy instead of grepping the view controller's source.
+    @MainActor
     func testFASTQDatasetViewControllerUsesUnifiedClassifierCopy() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift"),
-            encoding: .utf8
-        )
+        let controller = FASTQDatasetViewController()
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // FASTQDatasetViewController's action-copy strings passed into the unified
-        // classifier SwiftUI wizard have no ViewInspector/snapshot harness to observe
-        // rendered text at runtime.
-        XCTAssertTrue(source.contains("Run Kraken2/Bracken taxonomic classification and abundance profiling on this dataset."))
-        XCTAssertTrue(source.contains("Run EsViritu viral detection with genome coverage analysis on this dataset."))
-        XCTAssertTrue(source.contains("Run TaxTriage end-to-end clinical metagenomics triage with confidence scoring."))
-        XCTAssertTrue(source.contains("Run TaxTriage"))
-        XCTAssertFalse(source.contains("Clinical Triage (TaxTriage)"))
+        XCTAssertEqual(
+            controller.testingParameterBarText(for: .classifyReads),
+            "Run Kraken2/Bracken taxonomic classification and abundance profiling on this dataset."
+        )
+        XCTAssertEqual(
+            controller.testingParameterBarText(for: .detectViruses),
+            "Run EsViritu viral detection with genome coverage analysis on this dataset."
+        )
+        let triageText = try XCTUnwrap(controller.testingParameterBarText(for: .comprehensiveTriage))
+        XCTAssertEqual(triageText, "Run TaxTriage end-to-end clinical metagenomics triage with confidence scoring.")
+        XCTAssertTrue(triageText.contains("Run TaxTriage"))
+        XCTAssertNotEqual(triageText, "Clinical Triage (TaxTriage)")
     }
 
     /// Verifies the TaxTriage sheet title and subtitle use the normalized copy.
+    ///
+    /// Batch 3 (2026-08-22) conversion: constructs the real
+    /// `TaxTriageStandalonePresentation` (the presentation model
+    /// `TaxTriageWizardSheet.body` actually feeds into `WizardSheet(title:
+    /// standalonePresentation.title, ...)`) and reads its real `.title`/
+    /// `.subtitle` properties, instead of grepping the view's source text.
     func testTaxTriageWizardSheetUsesNormalizedTitleCopy() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
-            encoding: .utf8
+        let presentation = TaxTriageStandalonePresentation(
+            initialFileCount: 1,
+            inputDisplayName: "sample.fastq",
+            sampleCount: 1,
+            canRun: true,
+            validationMessage: nil
         )
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // TaxTriageWizardSheet is a pure SwiftUI View; no rendering/inspection harness
-        // exists in this repo to observe rendered title text at runtime.
-        XCTAssertTrue(source.contains("let title = \"TaxTriage\""))
-        XCTAssertTrue(source.contains("WizardSheet("))
-        XCTAssertTrue(source.contains("title: standalonePresentation.title"))
-        XCTAssertFalse(source.contains("TaxTriage Metagenomic Triage"))
-        XCTAssertFalse(source.contains("Comprehensive taxonomic classification pipeline"))
+        XCTAssertEqual(presentation.title, "TaxTriage")
+        XCTAssertEqual(presentation.subtitle, "End-to-end pathogen detection for metagenomic samples")
+        XCTAssertNotEqual(presentation.title, "TaxTriage Metagenomic Triage")
+        XCTAssertNotEqual(presentation.subtitle, "Comprehensive taxonomic classification pipeline")
     }
 
     /// Verifies analysis types have non-empty descriptions and runtime estimates.

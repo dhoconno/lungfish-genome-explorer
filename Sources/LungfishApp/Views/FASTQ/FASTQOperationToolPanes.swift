@@ -263,6 +263,20 @@ private struct FASTQOperationInputsSection: View {
     }
 }
 
+/// Test-only wrapper exposing the file-private `FASTQOperationPrimarySettingsSection`
+/// directly, matching the `PacksTabViewHarness` pattern established in batch 1
+/// (`PluginManagerView.swift`). Added for batch 3 (2026-08-22) so ViewInspector
+/// tests can drive the per-tool multi-bundle run-mode pickers (MAFFT/pbaa/
+/// savont/ONT genotyping) without needing to widen `FASTQOperationPrimarySettingsSection`
+/// itself to `internal`. Not referenced by any production call site.
+struct FASTQOperationPrimarySettingsSectionHarness: View {
+    @Bindable var state: FASTQOperationDialogState
+
+    var body: some View {
+        FASTQOperationPrimarySettingsSection(state: state)
+    }
+}
+
 private struct FASTQOperationPrimarySettingsSection: View {
     @Bindable var state: FASTQOperationDialogState
     @State private var mafftMultiBundleRunMode: MultiBundleRunMode = .combined
@@ -743,6 +757,17 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 }
             }
         )
+    }
+}
+
+/// Test-only wrapper exposing the file-private `FASTQOperationAdvancedSettingsSection`
+/// directly. Same rationale/pattern as `FASTQOperationPrimarySettingsSectionHarness`
+/// above (batch 3, 2026-08-22). Not referenced by any production call site.
+struct FASTQOperationAdvancedSettingsSectionHarness: View {
+    @Bindable var state: FASTQOperationDialogState
+
+    var body: some View {
+        FASTQOperationAdvancedSettingsSection(state: state)
     }
 }
 

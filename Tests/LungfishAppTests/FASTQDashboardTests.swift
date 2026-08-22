@@ -547,68 +547,49 @@ final class FASTQDashboardTests: XCTestCase {
         XCTAssertTrue(launchBody.contains("onLaunchFASTQOperationCategory?(category)"))
     }
 
+    @MainActor
     func testFASTQDatasetViewControllerRoutesClassifierToolsThroughModernDialogCallback() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        // Batch 3 (2026-08-22) conversion: drives the real @objc-private
+        // runOperationClicked() action after selecting each classifier
+        // operation via the new #if DEBUG testingSelectAndRunLaunchableOperation
+        // accessor (see FASTQDatasetViewController.swift, same shape as the
+        // existing testingSelectContaminantFilter). Proves the actual runtime
+        // dispatch -- not string-matching the source -- routes classifyReads/
+        // detectViruses/comprehensiveTriage to the modern tool-launch callback
+        // with the expected tool IDs, and never touches the legacy
+        // AppDelegate-selector path.
+        let classifyController = FASTQDatasetViewController()
+        let classifyResult = classifyController.testingSelectAndRunLaunchableOperation(.classifyReads)
+        XCTAssertEqual(classifyResult.launchedTool, .kraken2)
+        XCTAssertNil(classifyResult.launchedCategory)
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // Fix round 1 (2026-08-21) reachability re-check per code review: runOperationClicked
-        // is `@objc private`, so it IS invocable from a test via
-        // controller.perform(#selector(...)) without any new production code -- that part
-        // of the review's finding is correct. What remains genuinely unreachable is
-        // driving `selectedOperation` into the .classifyReads/.detectViruses/
-        // .comprehensiveTriage states runOperationClicked branches on: `selectedOperation`
-        // is `private var selectedOperation: OperationKind?` where `OperationKind` is a
-        // `private typealias` for a `private enum LegacyOperationKind` -- the enum type
-        // itself is unexported from this file, so no test-file code can even name
-        // `.classifyReads` as a value to assign. The existing #if DEBUG test-only
-        // extension (testingSelectContaminantFilter, same file) proves the *pattern* of a
-        // testing accessor works, but it exists today only for `.contaminantFilter` via a
-        // *public* FASTQContaminantFilterMode parameter it translates internally -- an
-        // exactly analogous accessor for the tool-selection operations named below is
-        // exactly what would need to be added, i.e. a new production seam, which is out
-        // of scope for this fix round (see report for detail). onLaunchFASTQOperationTool
-        // itself is a real closure property (same shape as onLaunchFASTQOperationCategory,
-        // exercised behaviorally above via the real sidebar table selection path, which
-        // only reaches category launchers, not individual tools).
-        XCTAssertTrue(source.contains("onLaunchFASTQOperationTool"))
-        XCTAssertTrue(source.contains("launchFASTQOperationTool(.kraken2)"))
-        XCTAssertTrue(source.contains("launchFASTQOperationTool(.esViritu)"))
-        XCTAssertTrue(source.contains("launchFASTQOperationTool(.taxTriage)"))
-        XCTAssertFalse(source.contains("#selector(AppDelegate.launchKraken2Classification"))
-        XCTAssertFalse(source.contains("#selector(AppDelegate.launchEsVirituDetection"))
-        XCTAssertFalse(source.contains("#selector(AppDelegate.launchTaxTriage"))
+        let detectController = FASTQDatasetViewController()
+        let detectResult = detectController.testingSelectAndRunLaunchableOperation(.detectViruses)
+        XCTAssertEqual(detectResult.launchedTool, .esViritu)
+        XCTAssertNil(detectResult.launchedCategory)
+
+        let triageController = FASTQDatasetViewController()
+        let triageResult = triageController.testingSelectAndRunLaunchableOperation(.comprehensiveTriage)
+        XCTAssertEqual(triageResult.launchedTool, .taxTriage)
+        XCTAssertNil(triageResult.launchedCategory)
     }
 
+    @MainActor
     func testFASTQDatasetViewControllerRoutesGenericMapAndAssemblyEntriesThroughModernCategories() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        // Batch 3 (2026-08-22) conversion: same testingSelectAndRunLaunchableOperation
+        // accessor as above, proving assembleReads/mapReads route through
+        // onLaunchFASTQOperationCategory with the correct category (not a
+        // per-tool callback), reflecting the "generic categories, not a
+        // specific tool" launch shape for these two entries.
+        let assembleController = FASTQDatasetViewController()
+        let assembleResult = assembleController.testingSelectAndRunLaunchableOperation(.assembleReads)
+        XCTAssertEqual(assembleResult.launchedCategory, .assembly)
+        XCTAssertNil(assembleResult.launchedTool)
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // Same private-typed-selectedOperation limitation as
-        // testFASTQDatasetViewControllerRoutesClassifierToolsThroughModernDialogCallback
-        // above: runOperationClicked is @objc-perform-reachable, but reaching the
-        // .assembleReads/.mapReads branches requires assigning `selectedOperation` to
-        // cases of a `private typealias` for a `private enum`, which is unexported
-        // outside this source file -- a new testing-prefixed accessor (the same shape as
-        // the existing testingSelectContaminantFilter) would be needed, which is a new
-        // production seam out of scope for this fix round.
-        XCTAssertTrue(source.contains("launchFASTQOperationCategory(.mapping)"))
-        XCTAssertTrue(source.contains("launchFASTQOperationCategory(.assembly)"))
-        XCTAssertFalse(source.contains("launchFASTQOperationTool(.minimap2)"))
-        XCTAssertFalse(source.contains("launchFASTQOperationTool(.spades)"))
-        XCTAssertFalse(source.contains("#selector(AppDelegate.launchMinimap2Mapping"))
-        XCTAssertFalse(source.contains("#selector(AppDelegate.runSPAdes"))
+        let mapController = FASTQDatasetViewController()
+        let mapResult = mapController.testingSelectAndRunLaunchableOperation(.mapReads)
+        XCTAssertEqual(mapResult.launchedCategory, .mapping)
+        XCTAssertNil(mapResult.launchedTool)
     }
 
     func testFASTQDatasetViewControllerOmitsImportOnlyMetagenomicsWorkflows() throws {
