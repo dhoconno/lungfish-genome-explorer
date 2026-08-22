@@ -354,25 +354,17 @@ final class ENAServiceTests: XCTestCase {
         do {
             _ = try await service.search(SearchQuery(term: "test", limit: 10))
             XCTFail("Expected malformed JSON to throw an error")
-        } catch is DecodingError {
-            // Currently expected: search() decodes directly with JSONDecoder
-            // and does not wrap decode failures in DatabaseServiceError, unlike
-            // searchReads()'s explicit parseError wrapping (see
-            // testSearchReadsMalformedPayloadThrowsParseError). This is a
-            // known asymmetry in ENAService (see task-6-report.md). The
-            // assertion here is loosened to accept either error so that
-            // whoever fixes the asymmetry by wrapping search()'s decode
-            // failures in DatabaseServiceError.parseError does not have to
-            // touch this test.
         } catch let error as DatabaseServiceError {
             if case .parseError = error {
-                // Also acceptable: the asymmetry has been fixed and search()
-                // now wraps decode failures like searchReads() does.
+                // Expected: search() wraps decode failures in
+                // DatabaseServiceError.parseError, matching searchReads()'s
+                // and searchReadsByStudy()'s wrapping (see
+                // testSearchReadsMalformedPayloadThrowsParseError).
             } else {
-                XCTFail("Expected DecodingError or DatabaseServiceError.parseError, got \(error)")
+                XCTFail("Expected DatabaseServiceError.parseError, got \(error)")
             }
         } catch {
-            XCTFail("Expected DecodingError or DatabaseServiceError.parseError, got \(error)")
+            XCTFail("Expected DatabaseServiceError.parseError, got \(error)")
         }
     }
 

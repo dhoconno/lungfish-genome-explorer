@@ -91,7 +91,12 @@ public actor ENAService: DatabaseService {
 
         let data = try await makeRequest(url: components.url!)
 
-        let records = try JSONDecoder().decode([ENASearchRecord].self, from: data)
+        let records: [ENASearchRecord]
+        do {
+            records = try JSONDecoder().decode([ENASearchRecord].self, from: data)
+        } catch {
+            throw DatabaseServiceError.parseError(message: "Failed to parse search data: \(error.localizedDescription)")
+        }
 
         let searchResults = records.map { record in
             SearchResultRecord(
