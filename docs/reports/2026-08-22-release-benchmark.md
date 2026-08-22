@@ -62,3 +62,10 @@ missing `## Dependency versions` section); (2) `MARKETING_VERSION` in
 3. macOS TCC automation grants bind to the specific `XCUITests-Runner` binary;
    every rebuild may re-prompt. This is inherent, and the reason XCUI cannot
    gate unattended releases.
+
+## Postscript (same morning)
+
+The XCUI diagnostic tier was subsequently repaired end to end and certified
+fully green attended: 33 tests, 0 failures, 12.0 min (19 menu-model repairs,
+one deprecated-feature test removed, CLI-path injection into the xctestrun,
+one selection-scope fix). It remains an attended diagnostic, not a gate.
