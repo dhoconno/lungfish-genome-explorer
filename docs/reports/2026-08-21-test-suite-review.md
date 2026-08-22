@@ -149,3 +149,7 @@ Serial full runs on this machine currently fail 1–2 *different* timing-bounded
 ## Deferred with rulings (no must-fixes; full detail in the SDD ledger)
 
 `ENAService.search()` still throws raw `DecodingError` (asymmetric with `searchReads`; the test now tolerates both, fix at leisure). `PluginManagerView.formatDatabaseBytes` is one residual formatter copy. 325 source-text assertions are kept and tagged `source-text: no runtime seam` — real retirement is blocked on a **user decision**: adopt a SwiftUI inspection harness (e.g. ViewInspector) or add production seams. The genotype temp-dir long tail and six intentionally-local fixture builders are documented in the task reports.
+
+## Follow-up phase (same day, user-directed)
+
+All deferred items were subsequently executed and reviewed: `ENAService.search()` now wraps decode failures in `parseError` like its siblings; the last two formatter copies are gone (repo-wide zero); `contextSearchPubMed` matches its sibling's access level with a capture test; the `ManagedResourceRefreshTests` expectation timeout is load-tolerant; **ViewInspector 0.10.3 is adopted** (test-only, wired into LungfishAppTests) with a first tranche of 8 source-text assertions converted to real view-hierarchy assertions and a reusable helper — remaining tagged blocks: 81, each now carrying a specific blocker note; and the temp-dir long tail (all 175 remaining sites) is migrated onto `TestTempDirectory`, closing one latent leak found in review.
