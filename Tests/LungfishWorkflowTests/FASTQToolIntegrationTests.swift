@@ -346,6 +346,36 @@ final class FASTQToolIntegrationTests: XCTestCase {
     /// bbduk's entropy filter must drop tandem-repeat reads while keeping
     /// normal-complexity reads. This is the property the whole operation exists
     /// for, and the one fastp's complexity metric cannot deliver.
+    /// Regression guard for the NativeToolRunner BBTools space shim: bbduk.sh
+    /// word-splits paths containing spaces (its wrapper rebuilds the java
+    /// command line), so the runner symlinks such paths before launch. Running
+    /// a real bbduk from a directory WITH a space in its name proves the shim
+    /// stays wired for inputs and outputs alike.
+    func testBBDukEntropyFilterSurvivesPathsWithSpaces() async throws {
+        let spacedDir = tempDir.appendingPathComponent("space dir input")
+        try FileManager.default.createDirectory(at: spacedDir, withIntermediateDirectories: true)
+        let input = spacedDir.appendingPathComponent("reads with space.fastq")
+        let lowComplexity = String(repeating: "ATC", count: 50)
+        var fastq = ""
+        for index in 0..<5 {
+            fastq += "@repeat\(index)\n\(lowComplexity)\n+\n\(String(repeating: "I", count: lowComplexity.count))\n"
+        }
+        fastq += "@normal\nAGCTTAGCTAGGATCCAGTCAAGGTTACCAGTGGATCAAGTCCGGATAAG\n+\n\(String(repeating: "I", count: 50))\n"
+        try fastq.write(to: input, atomically: true, encoding: .utf8)
+        let output = spacedDir.appendingPathComponent("filtered with space.fastq")
+
+        let result = try await runner.run(.bbduk, arguments: [
+            "in=\(input.path)",
+            "out=\(output.path)",
+            "entropy=0.6", "entropywindow=50", "entropyk=5", "ow=t",
+        ])
+
+        XCTAssertTrue(result.isSuccess, "bbduk must succeed from a space-containing directory: \(result.stderr.suffix(400))")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "output must land at the space-containing path")
+        let survivors = try countFastqRecords(at: output)
+        XCTAssertEqual(survivors, 1, "the 5 ATC-repeat reads are removed and the normal read kept")
+    }
+
     func testBBDukEntropyFilterRemovesTandemRepeatReads() async throws {
         let env = try await bbToolsEnv(for: .bbduk)
 
