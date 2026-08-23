@@ -55,6 +55,23 @@ extension ViewerViewController {
             }
             return split.makeClassifierAlignmentEvidenceViewport()
         }
+        // EsViritu aligns against the managed database's pangenome FASTA, which
+        // lives outside the result directory. Only the App knows how to find it,
+        // so the leaf receives it through this callback; without it the viewport
+        // reports "reference: not provided" for every detection.
+        let referenceResolver = EsVirituReferenceResolver()
+        controller.onResolveReferenceCandidate = { sampleID, contig, length in
+            let resolution = referenceResolver.resolve(
+                resultURL: resultURL,
+                sampleID: sampleID,
+                contig: contig,
+                length: length
+            )
+            if let reason = resolution.reason {
+                esVirituLogger.info("EsViritu reference resolution: \(reason, privacy: .public)")
+            }
+            return resolution.candidate
+        }
         addChild(controller)
 
         annotationDrawerView?.isHidden = true

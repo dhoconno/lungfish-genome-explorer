@@ -410,6 +410,17 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     public var classifierAlignmentViewerFactory: @MainActor () -> any ClassifierAlignmentViewerProviding = {
         UnavailableClassifierAlignmentViewer()
     }
+
+    /// Resolves the reference FASTA record backing an EsViritu detection.
+    ///
+    /// EsViritu aligns against the pangenome FASTA of a managed EsViritu database,
+    /// which lives outside the result directory and whose location only
+    /// `LungfishApp` knows how to resolve. The leaf therefore asks through this
+    /// callback, supplied at composition time, rather than reaching for the
+    /// database itself. A `nil` callback, or a `nil` return, leaves the evidence
+    /// request without a reference so the viewport honestly reports one is absent.
+    public var onResolveReferenceCandidate: ((_ sampleID: String, _ contig: String, _ length: Int) -> ClassifierAlignmentReferenceCandidate?)?
+
     private var alignmentEvidenceViewer: (any ClassifierAlignmentViewerProviding)?
 
     /// The assembly accession currently displayed in the mini BAM viewer.
@@ -450,7 +461,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 index: .init(url: indexURL, kind: kind),
                 sample: .init(canonicalID: sampleID),
                 contig: .init(name: contig, expectedLength: length),
-                referenceCandidate: nil,
+                referenceCandidate: onResolveReferenceCandidate?(sampleID, contig, length),
                 presentation: .init(workflowLabel: "EsViritu", resultLabel: resultURL.lastPathComponent, sampleLabel: sampleID, contigLabel: contig)
             )
             viewer.display(request)
