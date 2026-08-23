@@ -1526,9 +1526,13 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         let progressEvents = progressRecorder.events()
         XCTAssertEqual(progressEvents.count, 2)
+        // The first event names the operation and its sample instead of the
+        // old generic "Launching lungfish-cli..." placeholder.
         XCTAssertEqual(progressEvents[0].0, 0.01, accuracy: 0.0001)
-        XCTAssertEqual(progressEvents[0].1, "Launching lungfish-cli...")
-        XCTAssertEqual(progressEvents[1].0, 0.46, accuracy: 0.0001)
+        XCTAssertEqual(progressEvents[0].1, "Length Filter: input")
+        // The CLI's own 0...1 progress is rescaled into this plan's slice of
+        // the tool phase (0.01...0.50), so 0.46 maps to 0.01 + 0.46 * 0.49.
+        XCTAssertEqual(progressEvents[1].0, 0.01 + 0.46 * 0.49, accuracy: 0.0001)
         XCTAssertEqual(progressEvents[1].1, "Processed 1/2 chunks")
     }
 
@@ -1544,8 +1548,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let progressRecorder = ProgressRecorder()
         let runner = SpyCommandRunner { _, outputDirectory in
             let events = progressRecorder.events()
+            // The detail must have moved off "Preparing" before the subprocess
+            // blocks. It now names the operation phase rather than the old
+            // generic "Launching lungfish-cli..." placeholder.
             XCTAssertTrue(
-                events.contains { $0.0 > 0 && $0.1 == "Launching lungfish-cli..." },
+                events.contains { $0.0 > 0 && !$0.1.isEmpty && $0.1 != "Preparing..." },
                 "Large FASTQ operations must leave Preparing before the subprocess waits."
             )
             let outputTarget = outputDirectory.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
@@ -4477,6 +4484,400 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(secondRequest.inputURLs, [sampleB])
         XCTAssertFalse(secondRequest.pairedEnd)
     }
+
+    // MARK: - Compressed output naming (gzip inputs)
+
+    /// Builds a per-input derivative plan for one input URL and returns the
+    /// planned output filename.
+    private func plannedOutputFilename(
+        for derivative: FASTQDerivativeRequest,
+        resolvedInput: URL
+    ) -> String? {
+        let planner = FASTQOperationPlanner()
+        let originalRequest = FASTQOperationLaunchRequest.derivative(
+            request: derivative,
+            inputURLs: [URL(fileURLWithPath: "/tmp/source.\(FASTQBundle.directoryExtension)", isDirectory: true)],
+            outputMode: .perInput
+        )
+        let resolvedRequest = FASTQOperationLaunchRequest.derivative(
+            request: derivative,
+            inputURLs: [resolvedInput],
+            outputMode: .perInput
+        )
+        let plans = planner.makeExecutionPlans(
+            originalRequest: originalRequest,
+            resolvedRequest: resolvedRequest,
+            baseOutputDirectory: URL(fileURLWithPath: "/tmp/planner-gz", isDirectory: true)
+        )
+        return plans.first?.outputTarget.lastPathComponent
+    }
+
+    func testPlannerNamesOutputCompressedWhenResolvedInputIsGzipped() throws {
+        XCTAssertEqual(
+            plannedOutputFilename(
+                for: .lowComplexityFilter(entropy: 0.5, window: 50, kmer: 5),
+                resolvedInput: URL(fileURLWithPath: "/tmp/materialized/sample.fastq.gz")
+            ),
+            "lowComplexityFilter.fastq.gz"
+        )
+    }
+
+    func testPlannerKeepsUncompressedOutputNameForUncompressedInput() throws {
+        XCTAssertEqual(
+            plannedOutputFilename(
+                for: .lowComplexityFilter(entropy: 0.5, window: 50, kmer: 5),
+                resolvedInput: URL(fileURLWithPath: "/tmp/materialized/sample.fastq")
+            ),
+            "lowComplexityFilter.fastq"
+        )
+    }
+
+    func testPlannerCompressesOutputForEveryNativelyCompressingOperation() throws {
+        let gzInput = URL(fileURLWithPath: "/tmp/materialized/sample.fastq.gz")
+        let compressing: [FASTQDerivativeRequest] = [
+            .lowComplexityFilter(entropy: 0.5, window: 50, kmer: 5),
+            .subsampleProportion(0.5),
+            .subsampleCount(1000),
+            .lengthFilter(min: 20, max: 500),
+            .deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40),
+            .qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight, extraArguments: []),
+            .errorCorrection(kmerSize: 31),
+        ]
+        for request in compressing {
+            XCTAssertEqual(
+                plannedOutputFilename(for: request, resolvedInput: gzInput),
+                "\(request.operationKindString).fastq.gz",
+                "Expected a gzip output name for \(request.operationKindString)"
+            )
+        }
+    }
+
+    /// Operations whose output is written by a gzip-incapable Swift writer, or
+    /// whose downstream consumers read raw bytes, must NEVER gain a `.gz` name
+    /// even when the input is gzipped -- see
+    /// `FASTQDerivativeRequest.producesNativelyCompressedOutput`.
+    func testPlannerNeverCompressesOutputForWriterBackedOperations() throws {
+        let gzInput = URL(fileURLWithPath: "/tmp/materialized/sample.fastq.gz")
+        XCTAssertEqual(
+            plannedOutputFilename(for: .reverseComplement, resolvedInput: gzInput),
+            "reverseComplement.fastq"
+        )
+        XCTAssertEqual(
+            plannedOutputFilename(for: .pairedEndMerge(strictness: .normal, minOverlap: 12), resolvedInput: gzInput),
+            "pairedEndMerge.fastq"
+        )
+        XCTAssertEqual(
+            plannedOutputFilename(for: .interleaveReformat(direction: .deinterleave), resolvedInput: gzInput),
+            "interleaveReformat.fastq"
+        )
+    }
+
+    func testPlannerKeepsFASTAOutputNameForTranslateWithGzipInput() throws {
+        XCTAssertEqual(
+            plannedOutputFilename(
+                for: .translate(frameOffset: 0),
+                resolvedInput: URL(fileURLWithPath: "/tmp/materialized/sample.fastq.gz")
+            ),
+            "translate.fasta"
+        )
+    }
+
+    func testSanitizedStemStripsGzipExtension() throws {
+        XCTAssertEqual(
+            FASTQOperationPlanner.sanitizedStem(for: URL(fileURLWithPath: "/tmp/sample-a.fastq.gz")),
+            "sample-a"
+        )
+        XCTAssertEqual(
+            FASTQOperationPlanner.sanitizedStem(for: URL(fileURLWithPath: "/tmp/sample-a.fastq")),
+            "sample-a"
+        )
+    }
+
+    // MARK: - Live phase progress
+
+    /// The Operations panel used to hold a stale "Launching lungfish-cli..."
+    /// for the entire run. Every phase must now report: the per-sample tool
+    /// phase, the start of the import, and the per-sample statistics pass.
+    func testExecuteReportsEachPhaseThroughProgressHandler() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQPhaseProgress")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputA = tempDir.appendingPathComponent("alpha.fastq")
+        let inputB = tempDir.appendingPathComponent("beta.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputA, readCount: 4, readLength: 12)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputB, readCount: 4, readLength: 12)
+
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .lengthFilter(min: 1, max: 1000),
+            inputURLs: [inputA, inputB],
+            outputMode: .perInput
+        )
+
+        // Writes the planned output so `discoverOutputs` finds it.
+        let runner = SpyCommandRunner { invocation, _ in
+            if let outputIndex = invocation.arguments.firstIndex(of: "-o"),
+               outputIndex + 1 < invocation.arguments.count {
+                let outputURL = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
+                try? FileManager.default.createDirectory(
+                    at: outputURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? FASTQOperationTestHelper.writeSyntheticFASTQ(
+                    to: outputURL, readCount: 2, readLength: 12
+                )
+            }
+            return FASTQCLIExecutionResult(outputURLs: [])
+        }
+
+        let recorder = ProgressRecorder()
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: PhaseReportingSpyImporter()
+        )
+        _ = try await service.execute(
+            request: request,
+            workingDirectory: tempDir,
+            progress: { fraction, message in recorder.append(fraction, message) }
+        )
+
+        let messages = recorder.events().map(\.1)
+
+        // Per-sample tool phase, naming both the operation and which of N.
+        XCTAssertTrue(
+            messages.contains { $0.contains("sample 1 of 2") && $0.contains("alpha") },
+            "Expected a per-sample tool phase message for sample 1. Got: \(messages)"
+        )
+        XCTAssertTrue(
+            messages.contains { $0.contains("sample 2 of 2") && $0.contains("beta") },
+            "Expected a per-sample tool phase message for sample 2. Got: \(messages)"
+        )
+
+        // Import phase.
+        let importingIndex = try XCTUnwrap(
+            messages.firstIndex { $0.hasPrefix("Importing outputs") },
+            "Expected an \"Importing outputs\" phase message. Got: \(messages)"
+        )
+        let secondSampleIndex = try XCTUnwrap(
+            messages.firstIndex { $0.contains("sample 2 of 2") }
+        )
+        XCTAssertLessThan(
+            secondSampleIndex, importingIndex,
+            "The tool phase must be reported before the import phase begins."
+        )
+
+        // The stale placeholder must be gone.
+        XCTAssertFalse(
+            messages.contains { $0.contains("Launching lungfish-cli") },
+            "The stale placeholder detail must no longer be emitted. Got: \(messages)"
+        )
+
+        // Progress must advance monotonically across phases.
+        let fractions = recorder.events().map(\.0)
+        XCTAssertEqual(
+            fractions, fractions.sorted(),
+            "Progress must never move backwards across phases. Got: \(fractions)"
+        )
+    }
+
+    /// The per-sample statistics message comes from the bundle writer, which
+    /// is the phase that dominated the ~30 minute post-op import.
+    func testBundleWriterReportsStatisticsPhaseForEachSample() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQStatsProgress")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeStatisticsWriterFixture(named: "gamma", in: tempDir)
+
+        let recorder = ProgressRecorder()
+        let writer = AppFASTQOutputBundleWriter(
+            ingestor: SpyFASTQOutputIngestor(),
+            statisticsCalculator: AppFASTQOutputBundleWriter.swiftReaderStatisticsCalculator
+        )
+        _ = try await writer.importFASTQOutput(
+            sourceURL: fixture.stagedFASTQ,
+            bundleURL: fixture.destinationBundle,
+            originalRequest: fixture.request,
+            sourceInputURL: fixture.sourceBundleURL,
+            progress: { fraction, message in recorder.append(fraction, message) }
+        )
+
+        let messages = recorder.events().map(\.1)
+        XCTAssertTrue(
+            messages.contains { $0.hasPrefix("Computing statistics for gamma") },
+            "Expected a per-sample statistics phase message. Got: \(messages)"
+        )
+    }
+
+    // MARK: - seqkit-backed statistics
+
+    /// The importer must route statistics through the injected calculator
+    /// (production: `FASTQStatisticsService`) rather than always doing a full
+    /// pure-Swift parse.
+    func testBundleWriterUsesInjectedStatisticsCalculator() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQStatsSeam")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeStatisticsWriterFixture(named: "delta", in: tempDir)
+
+        let calculatorCalls = ProgressRecorder()
+        let writer = AppFASTQOutputBundleWriter(
+            ingestor: SpyFASTQOutputIngestor(),
+            statisticsCalculator: { url in
+                calculatorCalls.append(0, url.lastPathComponent)
+                return try await AppFASTQOutputBundleWriter
+                    .swiftReaderStatisticsCalculator(url)
+            }
+        )
+        _ = try await writer.importFASTQOutput(
+            sourceURL: fixture.stagedFASTQ,
+            bundleURL: fixture.destinationBundle,
+            originalRequest: fixture.request,
+            sourceInputURL: fixture.sourceBundleURL
+        )
+
+        XCTAssertEqual(
+            calculatorCalls.events().map(\.1),
+            [fixture.stagedFASTQ.lastPathComponent],
+            "The injected statistics calculator must be the one that runs."
+        )
+    }
+
+    /// Builds the source bundle + staged output + synthetic provenance that
+    /// `AppFASTQOutputBundleWriter.importFASTQOutput` requires.
+    private func makeStatisticsWriterFixture(
+        named name: String,
+        in tempDir: URL
+    ) throws -> (
+        sourceBundleURL: URL,
+        stagedFASTQ: URL,
+        destinationBundle: URL,
+        request: FASTQOperationLaunchRequest
+    ) {
+        let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: name, in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: sourceBundle.fastqURL, readCount: 8, readLength: 20
+        )
+
+        let stagingDir = tempDir.appendingPathComponent("staging-\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        let stagedFASTQ = stagingDir.appendingPathComponent("\(name).fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: stagedFASTQ, readCount: 4, readLength: 20
+        )
+        try writeSyntheticProvenance(
+            to: stagingDir,
+            name: "FASTQ length filter",
+            toolName: "seqkit",
+            toolVersion: "2.8.0",
+            command: [
+                "seqkit", "seq", "-m", "1", "-M", "1000",
+                sourceBundle.fastqURL.path, "-o", stagedFASTQ.path,
+            ],
+            inputURL: sourceBundle.fastqURL,
+            outputURL: stagedFASTQ,
+            parameters: [
+                "minLength": .integer(1),
+                "maxLength": .integer(1000),
+            ]
+        )
+
+        return (
+            sourceBundle.bundleURL,
+            stagedFASTQ,
+            tempDir.appendingPathComponent(
+                "\(name)-lengthFilter.\(FASTQBundle.directoryExtension)", isDirectory: true
+            ),
+            .derivative(
+                request: .lengthFilter(min: 1, max: 1000),
+                inputURLs: [sourceBundle.bundleURL],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    /// The seqkit-backed path and the pure-Swift reader must agree on the
+    /// exact aggregate metrics cached in `computedStatistics`. Skipped when
+    /// seqkit is not installed.
+    func testSeqkitStatisticsMatchSwiftReaderOnSmallFixture() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQStatsParity")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fastqURL = tempDir.appendingPathComponent("parity.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: fastqURL, readCount: 250, readLength: 80
+        )
+
+        guard (try? await NativeToolRunner.shared.findTool(.seqkit)) != nil else {
+            throw XCTSkip("seqkit is not available in this environment")
+        }
+
+        let seqkitStats = try await FASTQStatisticsService.computeSampled(for: fastqURL)
+        let swiftStats = try await AppFASTQOutputBundleWriter
+            .swiftReaderStatisticsCalculator(fastqURL)
+
+        // Exact aggregates come from `seqkit stats` over the whole file and
+        // must match the Swift reader precisely.
+        XCTAssertEqual(seqkitStats.readCount, swiftStats.readCount)
+        XCTAssertEqual(seqkitStats.baseCount, swiftStats.baseCount)
+        XCTAssertEqual(seqkitStats.minReadLength, swiftStats.minReadLength)
+        XCTAssertEqual(seqkitStats.maxReadLength, swiftStats.maxReadLength)
+        XCTAssertEqual(seqkitStats.meanReadLength, swiftStats.meanReadLength, accuracy: 0.01)
+        XCTAssertEqual(seqkitStats.gcContent, swiftStats.gcContent, accuracy: 0.01)
+
+        // The whole fixture fits inside the sample window, so the
+        // distributions are exact here too.
+        XCTAssertEqual(seqkitStats.readLengthHistogram, swiftStats.readLengthHistogram)
+        XCTAssertEqual(seqkitStats.medianReadLength, swiftStats.medianReadLength)
+    }
+
+    /// With seqkit unavailable the service must still return statistics via
+    /// the pure-Swift reader rather than throwing.
+    func testSampledStatisticsFallsBackToSwiftReaderWhenSeqkitMissing() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQStatsFallback")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fastqURL = tempDir.appendingPathComponent("fallback.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: fastqURL, readCount: 30, readLength: 40
+        )
+
+        // An empty tools directory makes seqkit unresolvable.
+        let emptyToolsDirectory = tempDir.appendingPathComponent("no-tools", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: emptyToolsDirectory, withIntermediateDirectories: true
+        )
+        let isolatedRunner = NativeToolRunner(toolsDirectory: emptyToolsDirectory)
+
+        let stats = try await FASTQStatisticsService.computeSampled(
+            for: fastqURL, runner: isolatedRunner
+        )
+        XCTAssertEqual(stats.readCount, 30)
+        XCTAssertEqual(stats.baseCount, 30 * 40)
+    }
+}
+
+/// Records the phases it is asked to import so progress ordering can be
+/// asserted, while still emitting the real per-sample import messages.
+private struct PhaseReportingSpyImporter: FASTQOperationDirectImporting {
+    func importOutputs(
+        at outputURLs: [URL],
+        forResolvedRequest request: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest,
+        outputDirectory: URL,
+        progress: FASTQOperationImportProgressHandler?
+    ) async throws -> [URL] {
+        _ = request
+        _ = outputDirectory
+        progress?(0.5, "Importing outputs\u{2026}")
+        for (index, outputURL) in outputURLs.enumerated() {
+            let name = originalRequest.inputURLs[safe: index]
+                .map(FASTQOperationPlanner.sanitizedStem(for:))
+                ?? FASTQOperationPlanner.sanitizedStem(for: outputURL)
+            let fraction = 0.5 + (Double(index) / Double(outputURLs.count)) * 0.5
+            progress?(fraction, "Importing \(name) (\(index + 1) of \(outputURLs.count))\u{2026}")
+            progress?(fraction, "Computing statistics for \(name)\u{2026}")
+        }
+        return outputURLs
+    }
 }
 
 private struct SavontImportFixture {
@@ -5044,11 +5445,13 @@ private final class SpyDirectImporter: @unchecked Sendable, FASTQOperationDirect
         at outputURLs: [URL],
         forResolvedRequest request: FASTQOperationLaunchRequest,
         originalRequest: FASTQOperationLaunchRequest,
-        outputDirectory: URL
+        outputDirectory: URL,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> [URL] {
         _ = request
         _ = originalRequest
         _ = outputDirectory
+        _ = progress
         calls.append(outputURLs)
         return resultURLs.isEmpty ? outputURLs : resultURLs
     }
@@ -5130,8 +5533,10 @@ private final class SpyFASTQOutputBundleWriter: @unchecked Sendable, FASTQOutput
         sourceURL: URL,
         bundleURL: URL,
         originalRequest: FASTQOperationLaunchRequest,
-        sourceInputURL: URL?
+        sourceInputURL: URL?,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> URL {
+        _ = progress
         calls.append(Call(
             sourceURL: sourceURL,
             bundleURL: bundleURL,

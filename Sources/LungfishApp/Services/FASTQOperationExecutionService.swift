@@ -112,13 +112,37 @@ protocol FASTQOperationCommandRunning: Sendable {
     ) async throws -> FASTQCLIExecutionResult
 }
 
+/// Reports a named phase of the post-execution import so the Operations
+/// panel can show live progress instead of a stale "Launching lungfish-cli...".
+/// `fraction` is the overall operation progress in `0...1`.
+typealias FASTQOperationImportProgressHandler = @Sendable (Double, String) -> Void
+
 protocol FASTQOperationDirectImporting: Sendable {
     func importOutputs(
         at outputURLs: [URL],
         forResolvedRequest request: FASTQOperationLaunchRequest,
         originalRequest: FASTQOperationLaunchRequest,
-        outputDirectory: URL
+        outputDirectory: URL,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> [URL]
+}
+
+extension FASTQOperationDirectImporting {
+    /// Convenience overload for callers that do not report progress.
+    func importOutputs(
+        at outputURLs: [URL],
+        forResolvedRequest request: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest,
+        outputDirectory: URL
+    ) async throws -> [URL] {
+        try await importOutputs(
+            at: outputURLs,
+            forResolvedRequest: request,
+            originalRequest: originalRequest,
+            outputDirectory: outputDirectory,
+            progress: nil
+        )
+    }
 }
 
 protocol FASTQOperationSavontRollbackRemoving: Sendable {
@@ -169,8 +193,27 @@ protocol FASTQOutputBundleWriting: Sendable {
         sourceURL: URL,
         bundleURL: URL,
         originalRequest: FASTQOperationLaunchRequest,
-        sourceInputURL: URL?
+        sourceInputURL: URL?,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> URL
+}
+
+extension FASTQOutputBundleWriting {
+    /// Convenience overload for callers that do not report progress.
+    func importFASTQOutput(
+        sourceURL: URL,
+        bundleURL: URL,
+        originalRequest: FASTQOperationLaunchRequest,
+        sourceInputURL: URL?
+    ) async throws -> URL {
+        try await importFASTQOutput(
+            sourceURL: sourceURL,
+            bundleURL: bundleURL,
+            originalRequest: originalRequest,
+            sourceInputURL: sourceInputURL,
+            progress: nil
+        )
+    }
 }
 
 enum FASTQOperationExecutionError: Error, LocalizedError {
@@ -293,7 +336,12 @@ struct FASTQOperationExecutionService {
             var invocations: [CLIInvocation] = []
             var outputURLs: [URL] = []
 
-            for executionPlan in executionPlans {
+            // The tool phase occupies the front half of the progress bar
+            // (0...0.5); the import phase that follows takes 0.5...1.0.
+            let totalPlans = executionPlans.count
+            let operationPhaseLabel = request.operationDisplayTitle
+
+            for (planIndex, executionPlan) in executionPlans.enumerated() {
                 let cliCreatesFreshOutputDirectory = planner.cliCreatesFreshOutputDirectory(for: executionPlan)
                 let executionDirectory = cliCreatesFreshOutputDirectory
                     ? executionPlan.outputTarget.deletingLastPathComponent()
@@ -311,11 +359,36 @@ struct FASTQOperationExecutionService {
                     outputTargetPath: executionPlan.outputTarget.path
                 )
                 invocations.append(invocation)
-                progress(0.01, "Launching lungfish-cli...")
+
+                // Name the sample and its position in the batch so the
+                // Operations panel shows which of N is running, instead of
+                // holding a stale "Launching lungfish-cli..." for the whole run.
+                let planSampleName = executionPlan.resolvedRequest.inputURLs.first
+                    .map(FASTQOperationPlanner.sanitizedStem(for:))
+                let toolPhaseFraction = 0.01
+                    + (Double(planIndex) / Double(totalPlans)) * 0.49
+                let toolPhaseMessage: String
+                if totalPlans > 1, let planSampleName {
+                    toolPhaseMessage = "\(operationPhaseLabel): sample \(planIndex + 1) of \(totalPlans) — \(planSampleName)"
+                } else if let planSampleName {
+                    toolPhaseMessage = "\(operationPhaseLabel): \(planSampleName)"
+                } else {
+                    toolPhaseMessage = "\(operationPhaseLabel): running\u{2026}"
+                }
+                progress(toolPhaseFraction, toolPhaseMessage)
+
                 let result = try await commandRunner.run(
                     invocation: invocation,
                     outputDirectory: executionDirectory,
-                    progress: progress
+                    // Rescale the CLI's own 0...1 progress into this plan's
+                    // slice of the tool phase so a multi-sample batch advances
+                    // monotonically instead of restarting the bar per sample.
+                    progress: { fraction, message in
+                        let scaled = 0.01
+                            + ((Double(planIndex) + max(0, min(1, fraction)))
+                                / Double(totalPlans)) * 0.49
+                        progress(scaled, message)
+                    }
                 )
                 if case .savont = executionPlan.resolvedRequest {
                     // Savont publishes one FASTA at the exact path reserved by this plan. The
@@ -370,7 +443,10 @@ struct FASTQOperationExecutionService {
                     at: outputURLs,
                     forResolvedRequest: resolvedRequest,
                     originalRequest: request,
-                    outputDirectory: outputDirectory
+                    outputDirectory: outputDirectory,
+                    progress: { fraction, message in
+                        progress(fraction, message)
+                    }
                 )
                 stagingCleanup.cleanup(
                     directories: [materializationDirectory, outputDirectory].compactMap { $0 },

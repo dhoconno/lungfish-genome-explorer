@@ -327,7 +327,15 @@ public actor MaterializationPipeline {
 
     /// Computes FASTQ statistics from a materialized file using a streaming collector.
     private static func computeStatistics(for url: URL) async throws -> FASTQDatasetStatistics? {
-        guard url.pathExtension.lowercased() == "fastq" || url.pathExtension.lowercased() == "fq" else {
+        // Strip a trailing `.gz` before checking the format extension so a
+        // compressed `reads.fastq.gz` is still recognized as FASTQ.
+        // `FASTQReader` decompresses transparently.
+        var formatURL = url
+        if formatURL.pathExtension.lowercased() == "gz" {
+            formatURL = formatURL.deletingPathExtension()
+        }
+        let ext = formatURL.pathExtension.lowercased()
+        guard ext == "fastq" || ext == "fq" else {
             return nil // Only compute for FASTQ files, not FASTA
         }
         let reader = FASTQReader(validateSequence: false)

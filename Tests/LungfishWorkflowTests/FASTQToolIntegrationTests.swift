@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishTestSupport
+@testable import LungfishIO
 @testable import LungfishWorkflow
 
 /// Integration tests for FASTQ processing operations using real bioinformatics tools.
@@ -434,6 +435,90 @@ final class FASTQToolIntegrationTests: XCTestCase {
         }
         let keptNormal = (0..<5).filter { survivors.contains("@normal_\($0)") }.count
         XCTAssertEqual(keptNormal, 5, "All normal-complexity reads should be retained at entropy 0.6")
+    }
+
+    /// End-to-end proof for the compressed-output naming change: bbduk must
+    /// gzip natively when the `out=` path ends in `.gz`, and the reads it
+    /// produces must be identical to the uncompressed run. The planner only
+    /// names an output `.fastq.gz` because of this behavior, so if bbduk ever
+    /// stopped honoring the extension this test catches it -- otherwise
+    /// `discoverOutputs` would silently find nothing.
+    func testBBDukEntropyFilterCompressesOutputWhenOutputPathEndsInGz() async throws {
+        let env = try await bbToolsEnv(for: .bbduk)
+
+        let inputURL = tempDir.appendingPathComponent("entropy_gz_input.fastq")
+        let plainOutputURL = tempDir.appendingPathComponent("entropy_plain.fastq")
+        let gzOutputURL = tempDir.appendingPathComponent("entropy_compressed.fastq.gz")
+
+        let repeatSequence = String(repeating: "ATC", count: 50)
+        let normalSequence =
+            "GCTAGCTTAGCCATGGACTTCAGGATCCGTAACGGTTACCAGTTCAGGCATCGGATTACCGGTAAGCTT"
+            + "CCAGGATCGTTACGGATCCAGTTACGGATCAGGTTCAGCCATGGATTACGGCATCGGTTACCAGGATCC"
+            + "GTTACGGATCA"
+
+        var lines: [String] = []
+        for index in 0..<3 {
+            lines += [
+                "@repeat_\(index)", repeatSequence, "+",
+                String(repeating: "I", count: repeatSequence.count),
+            ]
+        }
+        for index in 0..<3 {
+            lines += [
+                "@normal_\(index)", normalSequence, "+",
+                String(repeating: "I", count: normalSequence.count),
+            ]
+        }
+        try lines.joined(separator: "\n").appending("\n")
+            .write(to: inputURL, atomically: true, encoding: .utf8)
+
+        func runEntropyFilter(outputPath: String) async throws {
+            let result = try await runner.run(.bbduk, arguments: [
+                "in=\(inputURL.path)",
+                "out=\(outputPath)",
+                "entropy=0.6", "entropywindow=50", "entropyk=5", "ow=t",
+            ], environment: env, timeout: 120)
+            XCTAssertTrue(
+                result.isSuccess,
+                "bbduk entropy filter should succeed for \(outputPath): \(result.stderr)"
+            )
+        }
+
+        try await runEntropyFilter(outputPath: plainOutputURL.path)
+        try await runEntropyFilter(outputPath: gzOutputURL.path)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: gzOutputURL.path))
+
+        // The compressed output must be real gzip, identified by its magic
+        // bytes -- not plain text wearing a `.gz` name.
+        let gzHeader = try FileHandle(forReadingFrom: gzOutputURL).readData(ofLength: 2)
+        XCTAssertEqual(
+            [UInt8](gzHeader), [0x1F, 0x8B],
+            "bbduk must emit real gzip when out= ends in .gz"
+        )
+
+        // Decompressed reads must match the uncompressed run exactly.
+        let reader = FASTQReader(validateSequence: false)
+        var gzIDs: [String] = []
+        for try await record in reader.records(from: gzOutputURL) {
+            gzIDs.append(record.id)
+        }
+        var plainIDs: [String] = []
+        for try await record in reader.records(from: plainOutputURL) {
+            plainIDs.append(record.id)
+        }
+
+        XCTAssertEqual(
+            gzIDs, plainIDs,
+            "Compressed and uncompressed entropy-filter runs must keep the same reads"
+        )
+        XCTAssertFalse(gzIDs.isEmpty, "Expected the normal-complexity reads to survive")
+        for index in 0..<3 {
+            XCTAssertFalse(
+                gzIDs.contains { $0.hasPrefix("repeat_\(index)") },
+                "Tandem-repeat reads must still be filtered on the compressed path"
+            )
+        }
     }
 
     func testCutadaptPrimerRemoval() async throws {

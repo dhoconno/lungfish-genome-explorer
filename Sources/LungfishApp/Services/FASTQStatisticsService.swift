@@ -121,6 +121,149 @@ public enum FASTQStatisticsService {
         )
     }
 
+    /// Number of reads sampled for the distribution histograms when computing
+    /// sampled statistics. Aggregate metrics stay exact (they come from
+    /// `seqkit stats` over the whole file); only the shape of the
+    /// distributions is estimated from this prefix.
+    public static let distributionSampleReadCount = 100_000
+
+    /// Computes statistics for one FASTQ file without a full Swift-side parse.
+    ///
+    /// Exact aggregate metrics (read/base counts, min/avg/max length, Q20/Q30,
+    /// mean quality, GC) come from `seqkit stats -a -T` over the whole file.
+    /// The length/quality distributions come from only the first
+    /// `distributionSampleReadCount` reads, extracted with `seqkit head`.
+    /// That combination is orders of magnitude faster than parsing every
+    /// record in Swift, which takes minutes per multi-GB file.
+    ///
+    /// Falls back to the pure-Swift `FASTQReader.computeStatistics` whenever
+    /// seqkit cannot be resolved or either seqkit step fails, so callers keep
+    /// working on machines without the managed toolchain.
+    ///
+    /// - Returns: statistics in the same `FASTQDatasetStatistics` shape the
+    ///   Swift reader produces, so cached-metadata consumers are unaffected.
+    public static func computeSampled(
+        for fastqURL: URL,
+        runner: NativeToolRunner = .shared,
+        progress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> FASTQDatasetStatistics {
+        do {
+            let summary = try await fetchSeqkitSummary(for: [fastqURL], runner: runner)
+            let sampled = try await collectSampledDistributions(
+                from: fastqURL,
+                runner: runner,
+                progress: progress
+            )
+            return FASTQDatasetStatistics(
+                readCount: summary.numSeqs,
+                baseCount: summary.sumLen,
+                meanReadLength: summary.avgLen,
+                minReadLength: summary.minLen,
+                maxReadLength: summary.maxLen,
+                medianReadLength: medianLength(
+                    histogram: sampled.readLengthHistogram,
+                    readCount: sampled.sampledReadCount
+                ),
+                n50ReadLength: n50Length(histogram: sampled.readLengthHistogram),
+                meanQuality: summary.averageQuality,
+                q20Percentage: summary.q20Percentage,
+                q30Percentage: summary.q30Percentage,
+                gcContent: summary.gcPercentage / 100.0,
+                readLengthHistogram: sampled.readLengthHistogram,
+                qualityScoreHistogram: sampled.qualityScoreHistogram,
+                perPositionQuality: sampled.perPositionQuality
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // seqkit unavailable or failed -- fall back to the exact, slower
+            // pure-Swift parse rather than surfacing an error.
+            let reader = FASTQReader(validateSequence: false)
+            return try await reader.computeStatistics(
+                from: fastqURL,
+                sampleLimit: 0,
+                progress: progress
+            ).statistics
+        }
+    }
+
+    private struct SampledDistributions: Sendable {
+        let readLengthHistogram: [Int: Int]
+        let qualityScoreHistogram: [UInt8: Int]
+        let perPositionQuality: [PositionQualitySummary]
+        let sampledReadCount: Int
+    }
+
+    /// Extracts the first `distributionSampleReadCount` reads with `seqkit
+    /// head` and runs the shared collector over just that prefix.
+    private static func collectSampledDistributions(
+        from fastqURL: URL,
+        runner: NativeToolRunner,
+        progress: (@Sendable (Int) -> Void)?
+    ) async throws -> SampledDistributions {
+        let seqkitURL = try await runner.findTool(.seqkit)
+        // Written beside the source so the sample lands on the same volume,
+        // and always cleaned up.
+        let sampleURL = fastqURL.deletingLastPathComponent()
+            .appendingPathComponent(".lungfish-stats-sample-\(UUID().uuidString).fq.gz")
+        defer { try? FileManager.default.removeItem(at: sampleURL) }
+
+        let headResult = try await runner.runProcess(
+            executableURL: seqkitURL,
+            arguments: [
+                "head", "-n", String(distributionSampleReadCount),
+                "-o", sampleURL.path, fastqURL.path,
+            ],
+            timeout: 300
+        )
+        guard headResult.isSuccess else {
+            throw FASTQStatisticsServiceError.seqkitFailed(headResult.stderr)
+        }
+
+        let collector = FASTQStatisticsCollector()
+        let reader = FASTQReader(validateSequence: false)
+        var sampledReadCount = 0
+        for try await record in reader.records(from: sampleURL) {
+            collector.process(record)
+            sampledReadCount += 1
+            if sampledReadCount % 10_000 == 0 {
+                progress?(sampledReadCount)
+                try Task.checkCancellation()
+            }
+        }
+        progress?(sampledReadCount)
+        let finalized = collector.finalize()
+        return SampledDistributions(
+            readLengthHistogram: finalized.readLengthHistogram,
+            qualityScoreHistogram: finalized.qualityScoreHistogram,
+            perPositionQuality: finalized.perPositionQuality,
+            sampledReadCount: sampledReadCount
+        )
+    }
+
+    private static func medianLength(histogram: [Int: Int], readCount: Int) -> Int {
+        guard readCount > 0 else { return 0 }
+        let target = (readCount + 1) / 2
+        var cumulative = 0
+        for (length, count) in histogram.sorted(by: { $0.key < $1.key }) {
+            cumulative += count
+            if cumulative >= target { return length }
+        }
+        return histogram.keys.max() ?? 0
+    }
+
+    private static func n50Length(histogram: [Int: Int]) -> Int {
+        let totalBases = histogram.reduce(Int64(0)) { $0 + Int64($1.key * $1.value) }
+        guard totalBases > 0 else { return 0 }
+        let target = Double(totalBases) / 2.0
+        var cumulative = 0.0
+        for (length, count) in histogram.sorted(by: { $0.key > $1.key }) {
+            cumulative += Double(length * count)
+            if cumulative >= target { return length }
+        }
+        return histogram.keys.max() ?? 0
+    }
+
     private static func fetchSeqkitSummary(
         for fastqURLs: [URL],
         runner: NativeToolRunner

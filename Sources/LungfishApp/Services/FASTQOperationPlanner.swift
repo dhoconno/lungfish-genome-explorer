@@ -115,7 +115,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
                 outputTarget = parentDirectory
             case .fastqFile:
                 let requestedTarget = parentDirectory.appendingPathComponent(
-                    defaultFASTQOutputFilename(for: pair.original)
+                    defaultFASTQOutputFilename(for: pair.original, resolvedRequest: pair.resolved)
                 )
                 outputTarget = isSavontRequest(pair.original)
                     ? collisionSafeOutputURL(
@@ -447,13 +447,33 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         return baseOutputDirectory.appendingPathComponent(stem, isDirectory: true)
     }
 
-    private func defaultFASTQOutputFilename(for request: FASTQOperationLaunchRequest) -> String {
+    /// Whether a resolved execution input is gzip-compressed.
+    private static func isGzipCompressed(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "gz"
+    }
+
+    /// - Parameter resolvedRequest: the request whose input URLs are the actual
+    ///   files handed to the CLI. Gzip-ness is read from THIS request, not the
+    ///   original: the original's inputs may be `.lungfishfastq` bundle
+    ///   directories that were materialized to a different compression before
+    ///   execution.
+    private func defaultFASTQOutputFilename(
+        for request: FASTQOperationLaunchRequest,
+        resolvedRequest: FASTQOperationLaunchRequest
+    ) -> String {
         switch request {
         case .derivative(let derivativeRequest, _, _):
             if case .translate = derivativeRequest {
                 return "\(derivativeRequest.operationKindString).fasta"
             }
-            return "\(derivativeRequest.operationKindString).fastq"
+            // A compressed input earns a compressed output only when the tool
+            // that writes it gzips natively -- see
+            // `producesNativelyCompressedOutput` for why this is an allowlist.
+            let compressed = derivativeRequest.producesNativelyCompressedOutput
+                && resolvedRequest.inputURLs.first.map(Self.isGzipCompressed) == true
+            return compressed
+                ? "\(derivativeRequest.operationKindString).fastq.gz"
+                : "\(derivativeRequest.operationKindString).fastq"
         case .savont(let savontRequest):
             let baseName = FASTQSavontClusteringRequest.safeSingleInputOutputName(
                 savontRequest.singleInputOutputName,
@@ -621,7 +641,14 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
     }
 
     static func sanitizedStem(for url: URL) -> String {
-        let stem = url.deletingPathExtension().lastPathComponent
+        // Strip a trailing `.gz` first so a compressed `sample.fastq.gz`
+        // yields `sample`, not `sample.fastq`. Bundle names and per-input
+        // output subdirectories are built from this stem.
+        var base = url
+        if base.pathExtension.lowercased() == "gz" {
+            base = base.deletingPathExtension()
+        }
+        let stem = base.deletingPathExtension().lastPathComponent
         return stem.isEmpty ? "output" : stem
     }
 
@@ -1167,6 +1194,54 @@ extension FASTQDerivativeRequest {
             return "deacon-ribo-\(retention.rawValue)"
         default:
             return operationKindString
+        }
+    }
+
+    /// Whether this operation's single FASTQ output is written by a tool that
+    /// gzips transparently when the output path ends in `.gz`, AND whose own
+    /// downstream consumers can read that compressed file.
+    ///
+    /// Only operations on this allowlist may be given a `.fastq.gz` output
+    /// name (see `FASTQOperationPlanner.defaultFASTQOutputFilename`). The
+    /// allowlist is deliberately conservative rather than a blanket rule,
+    /// because `FASTQOperationPlanner.discoverOutputs` locates a `.fastqFile`
+    /// output by an EXACT `fileExists` check on the planned path: if the
+    /// planned name and the file the tool actually writes disagree by a `.gz`,
+    /// the run silently reports no outputs instead of failing loudly.
+    ///
+    /// Deliberately EXCLUDED, and why each must stay excluded:
+    ///
+    /// - `.reverseComplement`, `.translate` -- written by `FASTQWriter`, which
+    ///   opens a raw `FileHandle` and has no compression layer (there is no
+    ///   gzip writer anywhere in `LungfishIO`). A `.gz` name here would yield
+    ///   plain text under a `.gz` filename, i.e. a corrupt file, with no error.
+    /// - `.pairedEndMerge`, `.pairedEndRepair` -- their bbmerge/repair.sh
+    ///   outputs are measured by `FASTQDerivativeService.countFASTQReads`,
+    ///   which counts raw `0x0A` bytes and divides by 4. On gzip bytes that
+    ///   count is meaningless, so every output would be judged empty, deleted,
+    ///   and the run would then fail its `totalReadCount > 0` guard.
+    /// - `.interleaveReformat` -- the deinterleave transform step is a raw
+    ///   `FileManager.copyItem`, and its CLI invocation derives `--out1`/
+    ///   `--out2` by string-appending `.R1.fastq` to the output target.
+    /// - `.orient` -- vsearch writes plain FASTQ regardless of the output
+    ///   extension, and the materialization step uses `FASTQWriter`.
+    /// - `.humanReadScrub` -- the in-process path writes uncompressed and has
+    ///   no pigz step (unlike the CLI subcommand), so the two paths would
+    ///   disagree.
+    /// - `.demultiplex`, `.ribosomalRNAFilter` -- directory outputs, so they
+    ///   never reach single-file output naming at all.
+    var producesNativelyCompressedOutput: Bool {
+        switch self {
+        case .subsampleProportion, .subsampleCount, .lengthFilter,
+             .searchText, .searchMotif, .deduplicate,
+             .fastpTrim, .qualityTrim, .adapterTrim, .fixedTrim,
+             .contaminantFilter, .lowComplexityFilter,
+             .primerRemoval, .sequencePresenceFilter, .errorCorrection:
+            return true
+        case .pairedEndMerge, .pairedEndRepair, .interleaveReformat,
+             .reverseComplement, .translate, .demultiplex, .orient,
+             .humanReadScrub, .ribosomalRNAFilter:
+            return false
         }
     }
 }

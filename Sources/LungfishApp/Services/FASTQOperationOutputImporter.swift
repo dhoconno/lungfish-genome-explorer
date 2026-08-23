@@ -8,11 +8,13 @@ struct IdentityFASTQOperationImporter: FASTQOperationDirectImporting {
         at outputURLs: [URL],
         forResolvedRequest request: FASTQOperationLaunchRequest,
         originalRequest: FASTQOperationLaunchRequest,
-        outputDirectory: URL
+        outputDirectory: URL,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> [URL] {
         _ = request
         _ = originalRequest
         _ = outputDirectory
+        _ = progress
         return outputURLs
     }
 }
@@ -44,15 +46,38 @@ struct AppFASTQOutputIngestor: FASTQOutputIngesting {
 struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
     let ingestor: any FASTQOutputIngesting
 
-    init(ingestor: any FASTQOutputIngesting = AppFASTQOutputIngestor()) {
+    /// Computes the statistics cached in the bundle sidecar. Injectable so
+    /// tests can assert which implementation runs and compare the seqkit path
+    /// against the pure-Swift reader.
+    let statisticsCalculator: @Sendable (URL) async throws -> FASTQDatasetStatistics
+
+    /// The production calculator: seqkit-backed, with a pure-Swift fallback.
+    static let seqkitStatisticsCalculator: @Sendable (URL) async throws -> FASTQDatasetStatistics = { url in
+        try await FASTQStatisticsService.computeSampled(for: url)
+    }
+
+    /// The pure-Swift full-parse calculator, kept for equivalence testing.
+    static let swiftReaderStatisticsCalculator: @Sendable (URL) async throws -> FASTQDatasetStatistics = { url in
+        try await FASTQReader(validateSequence: false)
+            .computeStatistics(from: url, sampleLimit: 0)
+            .statistics
+    }
+
+    init(
+        ingestor: any FASTQOutputIngesting = AppFASTQOutputIngestor(),
+        statisticsCalculator: @escaping @Sendable (URL) async throws -> FASTQDatasetStatistics
+            = AppFASTQOutputBundleWriter.seqkitStatisticsCalculator
+    ) {
         self.ingestor = ingestor
+        self.statisticsCalculator = statisticsCalculator
     }
 
     func importFASTQOutput(
         sourceURL: URL,
         bundleURL: URL,
         originalRequest: FASTQOperationLaunchRequest,
-        sourceInputURL: URL?
+        sourceInputURL: URL?,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> URL {
         let fileManager = FileManager.default
         let finalBundleURL = bundleURL.standardizedFileURL
@@ -70,6 +95,8 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             try fileManager.createDirectory(at: stagingBundleURL, withIntermediateDirectories: true)
 
             let pairingMode = pairingMode(for: sourceInputURL)
+            let statisticsName = FASTQOperationPlanner.sanitizedStem(for: sourceURL)
+            progress?(0, "Computing statistics for \(statisticsName)\u{2026}")
             let stats = try await computeStatistics(from: sourceURL)
 
             let result = try await ingestor.ingest(
@@ -157,9 +184,17 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             )
     }
 
+    /// Computes the statistics cached into the bundle sidecar
+    /// (`computedStatistics`).
+    ///
+    /// Uses `FASTQStatisticsService.computeSampled`, which gets exact
+    /// aggregate metrics from `seqkit stats` and estimates the distributions
+    /// from a `seqkit head` sample. The previous pure-Swift full parse took
+    /// minutes per multi-GB output, which is what made a 9-sample batch spend
+    /// ~30 minutes in the post-op import. `computeSampled` falls back to that
+    /// same Swift reader when seqkit is unavailable.
     private func computeStatistics(from sourceURL: URL) async throws -> FASTQDatasetStatistics {
-        let reader = FASTQReader(validateSequence: false)
-        return try await reader.computeStatistics(from: sourceURL, sampleLimit: 0).0
+        try await statisticsCalculator(sourceURL)
     }
 
     private func pairingMode(for sourceInputURL: URL?) -> IngestionMetadata.PairingMode {
@@ -356,7 +391,8 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         at outputURLs: [URL],
         forResolvedRequest request: FASTQOperationLaunchRequest,
         originalRequest: FASTQOperationLaunchRequest,
-        outputDirectory: URL
+        outputDirectory: URL,
+        progress: FASTQOperationImportProgressHandler?
     ) async throws -> [URL] {
         switch originalRequest {
         case .refreshQCSummary(let inputURLs):
@@ -393,7 +429,11 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             )
 
         case .derivative:
-            return try await importSequenceOutputs(outputURLs, originalRequest: originalRequest)
+            return try await importSequenceOutputs(
+                outputURLs,
+                originalRequest: originalRequest,
+                progress: progress
+            )
 
         case .pbaa:
             return outputURLs
@@ -903,9 +943,16 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
     private func importSequenceOutputs(
         _ outputURLs: [URL],
-        originalRequest: FASTQOperationLaunchRequest
+        originalRequest: FASTQOperationLaunchRequest,
+        progress: FASTQOperationImportProgressHandler? = nil
     ) async throws -> [URL] {
         guard !outputURLs.isEmpty else { return [] }
+
+        // The import phase occupies the back half of the progress bar: the
+        // per-sample tool phase reports up to ~0.5, so sample k of n maps onto
+        // 0.5...1.0 here.
+        let totalOutputs = outputURLs.count
+        progress?(0.5, "Importing outputs\u{2026}")
 
         var importedBundleURLs: [URL] = []
         for (index, outputURL) in outputURLs.enumerated() {
@@ -936,11 +983,24 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
             let bundleURL = uniqueBundleURL(named: bundleBaseName)
             let sourceInputURL = sourceInputURL(forOutputAt: index, request: originalRequest)
+            // Progress within the import phase advances one slot per sample;
+            // the writer's own sub-phase messages (e.g. statistics) are
+            // reported at that sample's slot rather than re-scaled.
+            let sampleFraction = min(1.0, 0.5 + (Double(index) / Double(totalOutputs)) * 0.5)
+            let sampleName = sourceInputURL.map(FASTQOperationPlanner.sanitizedStem(for:))
+                ?? FASTQOperationPlanner.sanitizedStem(for: outputURL)
+            progress?(
+                sampleFraction,
+                "Importing \(sampleName) (\(index + 1) of \(totalOutputs))\u{2026}"
+            )
             let importedURL = try await fastqBundleWriter.importFASTQOutput(
                 sourceURL: outputURL,
                 bundleURL: bundleURL,
                 originalRequest: originalRequest,
-                sourceInputURL: sourceInputURL
+                sourceInputURL: sourceInputURL,
+                progress: { _, message in
+                    progress?(sampleFraction, message)
+                }
             )
             importedBundleURLs.append(importedURL)
         }
