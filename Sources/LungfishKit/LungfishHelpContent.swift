@@ -198,6 +198,30 @@ public enum LungfishHelpContent {
         provenanceRelevant: true
     )
 
+    public static let fastqEntropyThreshold = HelpItem(
+        id: "workflow.fastq.field.entropyThreshold",
+        summary: "Discard reads whose sequence entropy falls below this value.",
+        detail: "Low-complexity reads such as homopolymers and tandem repeats inflate apparent mapping depth. 0.6 is the benchmarked default; the threshold is written with command provenance.",
+        audience: .benchScientist,
+        provenanceRelevant: true
+    )
+
+    public static let fastqEntropyWindow = HelpItem(
+        id: "workflow.fastq.field.entropyWindow",
+        summary: "Sliding window in bases over which entropy is measured.",
+        detail: "Smaller windows detect short repeat stretches; the default is 50 bases. The window is written with command provenance.",
+        audience: .analyst,
+        provenanceRelevant: true
+    )
+
+    public static let fastqEntropyKmer = HelpItem(
+        id: "workflow.fastq.field.entropyKmer",
+        summary: "K-mer length used to estimate entropy inside each window.",
+        detail: "The default of 5 resolves trinucleotide repeats such as ATCATC. The k-mer length is written with command provenance.",
+        audience: .analyst,
+        provenanceRelevant: true
+    )
+
     public static let fastqRiboRetention = HelpItem(
         id: "workflow.fastq.field.riboRetention",
         summary: "Choose whether to keep non-rRNA reads or rRNA matches.",
@@ -875,6 +899,9 @@ public enum LungfishHelpContent {
         fastqMinLength,
         fastqMaxLength,
         fastqContaminantMode,
+        fastqEntropyThreshold,
+        fastqEntropyWindow,
+        fastqEntropyKmer,
         fastqRiboRetention,
         fastqDeduplicatePreset,
         fastqDeduplicateSubstitutions,

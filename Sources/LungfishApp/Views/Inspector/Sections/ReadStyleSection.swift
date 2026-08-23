@@ -26,6 +26,11 @@ public final class ReadStyleSectionViewModel {
     /// Whether to enforce `maxReadRows`; off means all rows are retained.
     public var limitReadRows: Bool = false
 
+    /// Maximum individual reads drawn per fetch window before the viewport
+    /// samples. Distinct from `maxReadRows`, which caps *rows*: at extreme depth
+    /// the read count is the cost driver long before the row count is.
+    public var visibleReadBudget: Double = Double(ReadViewportPolicy.defaultVisibleReadBudget)
+
     /// Whether to render read rows in compact vertical mode.
     public var verticallyCompressContig: Bool = true
 
@@ -1912,6 +1917,19 @@ public struct ReadStyleSection: View {
                         viewModel.onSettingsChanged?()
                     }
                     .help("Off keeps all mapped reads in the active view and enables stable vertical scrolling.")
+
+                HStack {
+                    Text("Read display budget")
+                    Spacer()
+                    Text("\(Int(viewModel.visibleReadBudget).formatted())")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.visibleReadBudget, in: 5_000...500_000, step: 5_000)
+                    .onChange(of: viewModel.visibleReadBudget) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("Windows with more reads than this show a uniform sample and say so. Depth, coverage and consensus always use every read.")
 
                 Toggle("Use compact row height", isOn: $viewModel.verticallyCompressContig)
                     .onChange(of: viewModel.verticallyCompressContig) { _, _ in

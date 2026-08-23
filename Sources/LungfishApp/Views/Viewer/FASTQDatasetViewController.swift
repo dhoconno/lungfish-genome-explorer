@@ -2560,6 +2560,9 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Fixed trim (5': \(from5Prime), 3': \(from3Prime))"
         case .contaminantFilter(let mode, _, let kmerSize, let hammingDistance):
             return "Contaminant filter (\(mode.rawValue), k=\(kmerSize), hdist=\(hammingDistance))"
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            let entropyText = String(format: "%.2f", entropy)
+            return "Low-complexity filter (entropy \(entropyText), window \(window), k=\(kmer))"
         case .pairedEndMerge(let strictness, let minOverlap):
             return "PE merge (\(strictness.rawValue), min overlap: \(minOverlap))"
         case .pairedEndRepair:

@@ -64,6 +64,8 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
 
     // BBTools operations
     case contaminantFilter
+    /// bbduk entropy filter: discards low-complexity reads (homopolymers, tandem repeats).
+    case lowComplexityFilter
     case pairedEndMerge
     case pairedEndRepair
     case primerRemoval
@@ -92,6 +94,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
         switch self {
         case .subsampleProportion, .subsampleCount, .lengthFilter,
              .searchText, .searchMotif, .contaminantFilter,
+             .lowComplexityFilter,
              .sequencePresenceFilter:
             return true
         case .deduplicate:
@@ -130,7 +133,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
         switch self {
         case .subsampleProportion, .subsampleCount, .lengthFilter,
              .searchText, .searchMotif, .deduplicate, .adapterTrim,
-             .fixedTrim, .contaminantFilter, .primerRemoval,
+             .fixedTrim, .contaminantFilter, .lowComplexityFilter, .primerRemoval,
              .reverseComplement, .translate,
              .demultiplex, .orient, .sequencePresenceFilter,
              .ribosomalRNAFilter,

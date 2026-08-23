@@ -99,6 +99,71 @@ extension FASTQDerivativeService {
         return BBToolResult(toolCommand: "bbduk.sh \(args.joined(separator: " "))")
     }
 
+    /// Result of a bbduk entropy-filter run: the command plus the parsed
+    /// read/base summary lines, when bbduk printed them.
+    struct BBDukEntropyResult {
+        let toolCommand: String
+        let summary: BBDukEntropySummary?
+    }
+
+    /// Runs bbduk.sh with the entropy filter to discard low-complexity reads.
+    ///
+    /// Unlike the contaminant filter this uses no reference: bbduk computes
+    /// Shannon entropy over a sliding window and drops reads whose entropy
+    /// falls below the threshold. That catches homopolymers *and* tandem
+    /// repeats (ATCATC...), which per-read complexity metrics miss.
+    func runBBDukEntropyFilter(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        entropy: Double,
+        window: Int,
+        kmer: Int,
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws -> BBDukEntropyResult {
+        guard FASTQEntropyFilterDefaults.isValidEntropy(entropy) else {
+            throw FASTQDerivativeError.invalidOperation(
+                "Entropy threshold must be between \(FASTQEntropyFilterDefaults.minimumEntropy) and \(FASTQEntropyFilterDefaults.maximumEntropy)"
+            )
+        }
+        guard window > 0 else {
+            throw FASTQDerivativeError.invalidOperation("Entropy window must be > 0")
+        }
+        guard kmer > 0 else {
+            throw FASTQDerivativeError.invalidOperation("Entropy k-mer must be > 0")
+        }
+
+        let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
+        var args = [
+            "in=\(sourceFASTQ.path)",
+            "out=\(outputFASTQ.path)",
+            "-Xmx\(heapGB)g",
+            "entropy=\(FASTQDerivativeRequest.entropyArgument(entropy))",
+            "entropywindow=\(window)",
+            "entropyk=\(kmer)",
+            "ow=t",
+        ]
+        if isInterleaved {
+            args.append("interleaved=t")
+        }
+
+        let env = await bbToolsEnvironment()
+        let result = try await runNativeTool(
+            .bbduk,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
+        guard result.isSuccess else {
+            throw FASTQDerivativeError.invalidOperation("bbduk entropy filter failed: \(result.stderr)")
+        }
+        return BBDukEntropyResult(
+            toolCommand: "bbduk.sh \(args.joined(separator: " "))",
+            summary: BBDukEntropySummary(stderr: result.stderr)
+        )
+    }
+
     /// Runs bbmerge.sh to merge overlapping paired-end reads.
     ///
     /// Requires interleaved input. bbmerge emits merged reads plus a single

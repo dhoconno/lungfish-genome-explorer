@@ -89,7 +89,7 @@ public enum OperationContract {
                 acceptedFormats: [.fastq, .fasta],
                 requiredPairing: nil
             )
-        case .contaminantFilter:
+        case .contaminantFilter, .lowComplexityFilter:
             return OperationInput(
                 acceptedFormats: [.fastq, .fasta],
                 requiredPairing: nil

@@ -343,6 +343,69 @@ final class FASTQToolIntegrationTests: XCTestCase {
         XCTAssertEqual(count, 22, "All reads should pass contaminant filter")
     }
 
+    /// bbduk's entropy filter must drop tandem-repeat reads while keeping
+    /// normal-complexity reads. This is the property the whole operation exists
+    /// for, and the one fastp's complexity metric cannot deliver.
+    func testBBDukEntropyFilterRemovesTandemRepeatReads() async throws {
+        let env = try await bbToolsEnv(for: .bbduk)
+
+        let mixedInputURL = tempDir.appendingPathComponent("entropy_input.fastq")
+        let outputURL = tempDir.appendingPathComponent("entropy_filtered.fastq")
+
+        // 5 ATCx50 microsatellite reads and 5 normal-complexity reads, 150 bp each.
+        let repeatSequence = String(repeating: "ATC", count: 50)
+        let normalSequences = [
+            "GCTAGCTTAGCCATGGACTTCAGGATCCGTAACGGTTACCAGTTCAGGCATCGGATTACCGGTAAGCTTCCAGGATCGTTACGGATCCAGTTACGGATCAGGTTCAGCCATGGATTACGGCATCGGTTACCAGGATCCGTTACGGATCA",
+            "TTACGGCATCCAGTTACGGATCAGGCATGGTTACCAGGATCCGTAACGGTTACCAGTTCAGGCATCGGATTACCGGTAAGCTTCCAGGATCGTTACGGATCCAGTTACGGATCAGGTTCAGCCATGGATTACGGCATCGGTTACCAGGA",
+            "AGCTTCCAGGATCGTTACGGATCCAGTTACGGATCAGGTTCAGCCATGGATTACGGCATCGGTTACCAGGATCCGTTACGGATCAGCTAGCTTAGCCATGGACTTCAGGATCCGTAACGGTTACCAGTTCAGGCATCGGATTACCGGTA",
+            "CATCGGATTACCGGTAAGCTTCCAGGATCGTTACGGATCCAGTTACGGATCAGGTTCAGCCATGGATTACGGCATCGGTTACCAGGATCCGTTACGGATCAGCTAGCTTAGCCATGGACTTCAGGATCCGTAACGGTTACCAGTTCAGG",
+            "GGATCCGTAACGGTTACCAGTTCAGGCATCGGATTACCGGTAAGCTTCCAGGATCGTTACGGATCCAGTTACGGATCAGGTTCAGCCATGGATTACGGCATCGGTTACCAGGATCCGTTACGGATCAGCTAGCTTAGCCATGGACTTCA",
+        ]
+
+        var lines: [String] = []
+        for index in 0..<5 {
+            lines += [
+                "@repeat_\(index)",
+                repeatSequence,
+                "+",
+                String(repeating: "I", count: repeatSequence.count),
+            ]
+        }
+        for (index, sequence) in normalSequences.enumerated() {
+            lines += [
+                "@normal_\(index)",
+                sequence,
+                "+",
+                String(repeating: "I", count: sequence.count),
+            ]
+        }
+        try lines.joined(separator: "\n")
+            .appending("\n")
+            .write(to: mixedInputURL, atomically: true, encoding: .utf8)
+
+        let result = try await runner.run(.bbduk, arguments: [
+            "in=\(mixedInputURL.path)",
+            "out=\(outputURL.path)",
+            "entropy=0.6",
+            "entropywindow=50",
+            "entropyk=5",
+            "ow=t",
+        ], environment: env, timeout: 120)
+
+        XCTAssertTrue(result.isSuccess, "bbduk entropy filter should succeed: \(result.stderr)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let survivors = try String(contentsOf: outputURL, encoding: .utf8)
+        for index in 0..<5 {
+            XCTAssertFalse(
+                survivors.contains("@repeat_\(index)"),
+                "ATCx50 read repeat_\(index) should be discarded at entropy 0.6"
+            )
+        }
+        let keptNormal = (0..<5).filter { survivors.contains("@normal_\($0)") }.count
+        XCTAssertEqual(keptNormal, 5, "All normal-complexity reads should be retained at entropy 0.6")
+    }
+
     func testCutadaptPrimerRemoval() async throws {
         let outputURL = tempDir.appendingPathComponent("primer_trimmed.fastq")
 

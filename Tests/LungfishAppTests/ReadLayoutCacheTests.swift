@@ -49,6 +49,28 @@ final class ReadLayoutCacheTests: XCTestCase {
         SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 600))
     }
 
+    /// Packing now runs off the main thread, so a test that wants to inspect the
+    /// resulting layout drains the queued pack synchronously first. The cache
+    /// contract these tests protect is unchanged; only its timing is.
+    @discardableResult
+    private func prepareAndDrain(
+        _ view: SequenceViewerView,
+        region: GenomicRegion,
+        frame: ReferenceFrame
+    ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int, maxRows: Int?) {
+        var result = view.prepareDetachedReadLayout(region: region, frame: frame)
+        view.testDrainPendingPack(
+            reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
+            frame: ReadPackFrame(frame),
+            maxRows: result.maxRows,
+            prioritizedRegion: region.start..<region.end
+        )
+        if result.packed.isEmpty {
+            result = view.prepareDetachedReadLayout(region: region, frame: frame)
+        }
+        return result
+    }
+
     // MARK: - 1. Pack once, not per frame
 
     func testRepeatedLayoutPreparationWithUnchangedInputsDoesNotRepack() {
@@ -57,16 +79,17 @@ final class ReadLayoutCacheTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 900, end: 2_000)
         let frame = makeFrame()
 
-        _ = view.prepareDetachedReadLayout(region: region, frame: frame)
-        let afterFirst = view.packInvocationCount
+        prepareAndDrain(view, region: region, frame: frame)
+        let afterFirst = view.backgroundPackInvocationCount
         XCTAssertEqual(afterFirst, 1, "First preparation must pack exactly once")
+        XCTAssertEqual(view.packInvocationCount, 0, "Packing must never run on the main thread")
 
         for _ in 0..<10 {
             _ = view.prepareDetachedReadLayout(region: region, frame: frame)
         }
 
         XCTAssertEqual(
-            view.packInvocationCount, afterFirst,
+            view.backgroundPackInvocationCount, afterFirst,
             "Repeat draws with identical inputs must reuse the cached layout"
         )
     }
@@ -77,13 +100,13 @@ final class ReadLayoutCacheTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 900, end: 2_000)
         let frame = makeFrame()
 
-        _ = view.prepareDetachedReadLayout(region: region, frame: frame)
-        let afterFirst = view.packInvocationCount
+        prepareAndDrain(view, region: region, frame: frame)
+        let afterFirst = view.backgroundPackInvocationCount
 
         view.testSetCachedAlignedReads(stackedReads(count: 25))
         _ = view.prepareDetachedReadLayout(region: region, frame: frame)
 
-        XCTAssertEqual(view.packInvocationCount, afterFirst + 1, "A new read set must repack")
+        XCTAssertEqual(view.backgroundPackInvocationCount, afterFirst + 1, "A new read set must repack")
     }
 
     func testChangingScaleRepacks() {
@@ -91,14 +114,14 @@ final class ReadLayoutCacheTests: XCTestCase {
         view.testSetCachedAlignedReads(stackedReads(count: 20))
         let region = GenomicRegion(chromosome: "chr1", start: 900, end: 2_000)
 
-        _ = view.prepareDetachedReadLayout(region: region, frame: makeFrame(start: 0, end: 10_000))
-        let afterFirst = view.packInvocationCount
+        prepareAndDrain(view, region: region, frame: makeFrame(start: 0, end: 10_000))
+        let afterFirst = view.backgroundPackInvocationCount
 
         // Zooming changes bp-per-pixel, which genuinely changes row assignment
         // (minReadPixels culling + the 2px inter-read gap are pixel-space).
         _ = view.prepareDetachedReadLayout(region: region, frame: makeFrame(start: 0, end: 2_000))
 
-        XCTAssertEqual(view.packInvocationCount, afterFirst + 1, "A scale change must repack")
+        XCTAssertEqual(view.backgroundPackInvocationCount, afterFirst + 1, "A scale change must repack")
     }
 
     func testChangingMaxRowsRepacks() {
@@ -116,13 +139,13 @@ final class ReadLayoutCacheTests: XCTestCase {
 
         view.limitReadRowsSetting = true
         view.maxReadRowsSetting = 10
-        _ = view.prepareDetachedReadLayout(region: region, frame: frame)
-        let afterFirst = view.packInvocationCount
+        prepareAndDrain(view, region: region, frame: frame)
+        let afterFirst = view.backgroundPackInvocationCount
 
         view.maxReadRowsSetting = 20
         _ = view.prepareDetachedReadLayout(region: region, frame: frame)
 
-        XCTAssertEqual(view.packInvocationCount, afterFirst + 1, "A max-rows change must repack")
+        XCTAssertEqual(view.backgroundPackInvocationCount, afterFirst + 1, "A max-rows change must repack")
     }
 
     func testPanningWithUnlimitedRowsReusesLayout() {
@@ -134,11 +157,12 @@ final class ReadLayoutCacheTests: XCTestCase {
         defer { view.limitReadRowsSetting = originalLimit }
         view.limitReadRowsSetting = false
 
-        _ = view.prepareDetachedReadLayout(
+        prepareAndDrain(
+            view,
             region: GenomicRegion(chromosome: "chr1", start: 900, end: 2_000),
             frame: frame
         )
-        let afterFirst = view.packInvocationCount
+        let afterFirst = view.backgroundPackInvocationCount
 
         // With no row cap every read is placed, so the prioritized region cannot
         // change the outcome and panning must not repack.
@@ -148,7 +172,7 @@ final class ReadLayoutCacheTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            view.packInvocationCount, afterFirst,
+            view.backgroundPackInvocationCount, afterFirst,
             "With unlimited rows the prioritized region does not affect packing, so panning must reuse the layout"
         )
     }
@@ -160,7 +184,7 @@ final class ReadLayoutCacheTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 900, end: 2_000)
         let frame = makeFrame()
 
-        let (cached, cachedOverflow, maxRows) = view.prepareDetachedReadLayout(region: region, frame: frame)
+        let (cached, cachedOverflow, maxRows) = prepareAndDrain(view, region: region, frame: frame)
         // Draw again to exercise the cache-hit path.
         let (reused, reusedOverflow, _) = view.prepareDetachedReadLayout(region: region, frame: frame)
 

@@ -370,6 +370,9 @@ public enum NotificationUserInfoKey {
     /// Key for maximum read rows to render (Int).
     public static let maxReadRows = "maxReadRows"
 
+    /// Maximum individual reads drawn per fetch window before sampling kicks in.
+    public static let visibleReadBudget = "visibleReadBudget"
+
     /// Key for minimum MAPQ filter (Int).
     public static let minMapQ = "minMapQ"
 

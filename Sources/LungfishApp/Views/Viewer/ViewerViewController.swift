@@ -1111,6 +1111,9 @@ public class ViewerViewController: NSViewController {
         if let limitRows = userInfo[NotificationUserInfoKey.limitReadRows] as? Bool {
             viewerView.limitReadRowsSetting = limitRows
         }
+        if let budget = userInfo[NotificationUserInfoKey.visibleReadBudget] as? Int {
+            viewerView.visibleReadBudgetSetting = max(1, budget)
+        }
         if let compressed = userInfo[NotificationUserInfoKey.verticalCompressContig] as? Bool {
             viewerView.verticallyCompressContigSetting = compressed
         }

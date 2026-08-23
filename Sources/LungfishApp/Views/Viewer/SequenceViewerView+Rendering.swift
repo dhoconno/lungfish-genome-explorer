@@ -480,7 +480,16 @@ extension SequenceViewerView {
                         }
                     }
 
-                    _ = packedReadLayout(key: key) {
+                    // While a pack for this exact key is already running, skip the
+                    // whole block: filtering the read set is itself O(reads), and
+                    // `draw(_:)` runs on every frame of the wait.
+                    if willRepack, inFlightPackKey != key {
+                        // Packing is `O(reads log rows)` and at extreme depth that
+                        // is far too much work for `draw(_:)`. Hand it to a
+                        // background task and paint the loading badge over the
+                        // coverage tier until the layout arrives; the draw path
+                        // only ever consumes an already-packed layout.
+                        //
                         // Filter reads to viewport +/- safety padding while ensuring reads that
                         // overlap the visible window are never dropped.
                         // The cached read region can be much wider than the viewport (especially
@@ -492,22 +501,33 @@ extension SequenceViewerView {
                                 && read.alignmentEnd > packStart
                                 && read.position < packEnd
                         }
-                        return ReadTrackRenderer.packReads(
-                            readsForPacking,
-                            frame: frame,
+                        requestBackgroundPack(
+                            key: key,
+                            reads: readsForPacking,
+                            frame: ReadPackFrame(frame),
                             maxRows: maxRowsLimit,
                             sortMode: .position,
+                            sortPosition: nil,
                             prioritizedRegion: visibleRegion.start..<visibleRegion.end
                         )
-                    }
-
-                    if willRepack {
                         cachedPackScale = scale
                         cachedPackDataGeneration = readFetchGeneration
                         cachedPackMaxRows = maxRowsCacheKey
                         cachedPackViewportStart = visibleRegion.start
                         cachedPackViewportEnd = visibleRegion.end
                     }
+
+                    // Only a layout packed for *this* key may be drawn. While a
+                    // background pack is in flight the read rows stay empty and
+                    // the badge explains why; the coverage strip above is
+                    // already painted and remains usable.
+                    let layoutIsCurrent = (cachedPackKey == key && cachedPackedReadLayout != nil)
+
+                    if !layoutIsCurrent {
+                        readContentHeight = 0
+                    } else {
+                    // The read-drawing body below keeps its original indentation
+                    // so this change stays reviewable as a wrap, not a rewrite.
                     let rowCount = (cachedPackedReads.map(\.row).max() ?? -1) + 1
                     let contentHeight = ReadTrackRenderer.totalHeight(
                         rowCount: rowCount,
@@ -604,18 +624,14 @@ extension SequenceViewerView {
                             )
                         }
                     }
+                    }
                 } else {
                     cachedPackedReads = []
                     readContentHeight = 0
                 }
 
-                if isFetchingReads {
-                    let elapsed = readFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
-                    if elapsed > 0.15 {
-                        let message = cachedAlignedReads.isEmpty ? "Loading mapped reads..." : "Updating mapped reads..."
-                        drawTrackLoadingBadge(context: context, message: message, yOffset: rowsY + 2)
-                    }
-                }
+                drawReadLoadingBadge(context: context, yOffset: rowsY + 2)
+                drawReadBudgetBanner(context: context, yOffset: rowsY + 2)
             }
         }
 
@@ -721,6 +737,13 @@ extension SequenceViewerView {
         guard !cachedAlignedReads.isEmpty else { return }
 
         let (packed, overflow, maxRows) = prepareDetachedReadLayout(region: region, frame: frame)
+        guard !packed.isEmpty else {
+            // The layout is still being packed in the background; the coverage
+            // strip above stays on screen while the badge explains the wait.
+            drawReadLoadingBadge(context: context, yOffset: rowsY + 2)
+            drawReadBudgetBanner(context: context, yOffset: rowsY + 2)
+            return
+        }
         let rowCount = (packed.map(\.row).max() ?? -1) + 1
         let contentHeight = ReadTrackRenderer.totalHeight(rowCount: rowCount, tier: tier, verticalCompress: verticallyCompressContigSetting)
         let rect = CGRect(x: 0, y: rowsY, width: bounds.width, height: contentHeight)
@@ -772,16 +795,25 @@ extension SequenceViewerView {
             filterWindow: nil
         )
 
-        let (packed, overflow) = packedReadLayout(key: key) {
-            ReadTrackRenderer.packReads(
-                cachedAlignedReads.filter { $0.chromosome == region.chromosome },
-                frame: frame,
+        // Same rule as the bundle path: a new layout is packed on a background
+        // task, never inline in the draw. The detached transport cap already
+        // bounds this at 250k reads, which is still far too many to pack on the
+        // main thread.
+        if cachedPackKey != key || cachedPackedReadLayout == nil {
+            // Skip the O(reads) filter on every frame of an in-flight pack.
+            guard inFlightPackKey != key else { return ([], 0, maxRows) }
+            requestBackgroundPack(
+                key: key,
+                reads: cachedAlignedReads.filter { $0.chromosome == region.chromosome },
+                frame: ReadPackFrame(frame),
                 maxRows: maxRows,
                 sortMode: .position,
+                sortPosition: nil,
                 prioritizedRegion: region.start..<region.end
             )
+            return ([], 0, maxRows)
         }
-        return (packed, overflow, maxRows)
+        return (cachedPackedReads, cachedPackOverflow, maxRows)
     }
 
     /// Fetches annotations asynchronously for the visible region from SQLite annotation databases.

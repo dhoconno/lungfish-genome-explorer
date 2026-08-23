@@ -415,6 +415,41 @@ private struct FASTQOperationPrimarySettingsSection: View {
                         .foregroundStyle(.secondary)
                 }
 
+            case .removeLowComplexityReads:
+                // Entropy is the main control; window and k-mer are advanced.
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Entropy Threshold")
+                        Spacer()
+                        Text(String(format: "%.2f", state.removeLowComplexityEntropy))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(
+                        value: $state.removeLowComplexityEntropy,
+                        in: FASTQEntropyFilterDefaults.minimumEntropy...FASTQEntropyFilterDefaults.maximumEntropy,
+                        step: FASTQEntropyFilterDefaults.entropyStep
+                    )
+                }
+                .lungfishHelp(LungfishHelpContent.fastqEntropyThreshold)
+                Text("Higher thresholds remove more low-complexity reads. 0.6 removes about 4% of reads and about 89% of tandem-repeat reads on the benchmark dataset.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DisclosureGroup("Advanced") {
+                    HStack(spacing: 12) {
+                        labeledCompactTextField(
+                            "Window",
+                            text: Self.intBinding(state, \.removeLowComplexityWindow),
+                            help: LungfishHelpContent.fastqEntropyWindow
+                        )
+                        labeledCompactTextField(
+                            "K-mer",
+                            text: Self.intBinding(state, \.removeLowComplexityKmer),
+                            help: LungfishHelpContent.fastqEntropyKmer
+                        )
+                    }
+                }
+
             case .removeRibosomalRNA:
                 Picker("Retain Reads", selection: $state.riboDetectorRetention) {
                     ForEach(FASTQRiboDetectorRetention.allCases, id: \.self) { retention in
@@ -797,6 +832,9 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                     .foregroundStyle(.secondary)
             case .removeContaminants:
                 Text("Custom contaminant mode expects the reference FASTA in the Inputs section.")
+                    .foregroundStyle(.secondary)
+            case .removeLowComplexityReads:
+                Text("bbduk scores each read's Shannon entropy over a sliding window and discards reads below the threshold.")
                     .foregroundStyle(.secondary)
             case .removeRibosomalRNA:
                 Text("Deacon uses the managed BBMap ribokmers index with sensitive minimizer thresholds.")

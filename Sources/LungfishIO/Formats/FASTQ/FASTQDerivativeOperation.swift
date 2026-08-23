@@ -46,6 +46,14 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
     public var contaminantKmerSize: Int?
     public var contaminantHammingDistance: Int?
 
+    // Low-complexity (entropy) filter parameters
+    /// Shannon entropy threshold below which a read is discarded (0.3-0.9, default 0.6).
+    public var entropyThreshold: Double?
+    /// Sliding window size in bases used to compute entropy (default 50).
+    public var entropyWindow: Int?
+    /// K-mer length used for entropy estimation (default 5).
+    public var entropyKmer: Int?
+
     // PE merge parameters
     public var mergeStrictness: FASTQMergeStrictness?
     public var mergeMinOverlap: Int?
@@ -174,6 +182,9 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         contaminantReferenceFasta: String? = nil,
         contaminantKmerSize: Int? = nil,
         contaminantHammingDistance: Int? = nil,
+        entropyThreshold: Double? = nil,
+        entropyWindow: Int? = nil,
+        entropyKmer: Int? = nil,
         mergeStrictness: FASTQMergeStrictness? = nil,
         mergeMinOverlap: Int? = nil,
         mergeCountDuplicates: Bool? = nil,
@@ -250,6 +261,9 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         self.contaminantReferenceFasta = contaminantReferenceFasta
         self.contaminantKmerSize = contaminantKmerSize
         self.contaminantHammingDistance = contaminantHammingDistance
+        self.entropyThreshold = entropyThreshold
+        self.entropyWindow = entropyWindow
+        self.entropyKmer = entropyKmer
         self.mergeStrictness = mergeStrictness
         self.mergeMinOverlap = mergeMinOverlap
         self.mergeCountDuplicates = mergeCountDuplicates
@@ -342,6 +356,9 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         case .contaminantFilter:
             let mode = contaminantFilterMode ?? .phix
             return "contaminant-\(mode.rawValue)"
+        case .lowComplexityFilter:
+            let entropy = entropyThreshold ?? FASTQEntropyFilterDefaults.entropy
+            return String(format: "entropy-%.2f", entropy)
         case .pairedEndMerge:
             let s = mergeStrictness ?? .normal
             return "merge-\(s.rawValue)"
@@ -451,6 +468,12 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
                 let ref = contaminantReferenceFasta ?? "custom"
                 return "Contaminant filter (\(ref))"
             }
+        case .lowComplexityFilter:
+            let entropy = entropyThreshold ?? FASTQEntropyFilterDefaults.entropy
+            let window = entropyWindow ?? FASTQEntropyFilterDefaults.window
+            let k = entropyKmer ?? FASTQEntropyFilterDefaults.kmer
+            let entropyText = String(format: "%.2f", entropy)
+            return "Low-complexity filter (entropy \(entropyText), window \(window), k=\(k))"
         case .pairedEndMerge:
             let s = mergeStrictness ?? .normal
             let o = mergeMinOverlap ?? 12
@@ -592,6 +615,13 @@ extension FASTQDerivativeOperation {
                 let ref = contaminantReferenceFasta ?? "custom reference"
                 return "Contaminant sequences were filtered\(tool) against \(ref)."
             }
+
+        case .lowComplexityFilter:
+            let entropy = entropyThreshold ?? FASTQEntropyFilterDefaults.entropy
+            let window = entropyWindow ?? FASTQEntropyFilterDefaults.window
+            let k = entropyKmer ?? FASTQEntropyFilterDefaults.kmer
+            let entropyText = String(format: "%.2f", entropy)
+            return "Low-complexity reads were removed\(tool) by Shannon entropy (threshold \(entropyText), window \(window) bp, k-mer \(k))."
 
         case .pairedEndMerge:
             let s = mergeStrictness ?? .normal

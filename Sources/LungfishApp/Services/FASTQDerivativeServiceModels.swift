@@ -32,6 +32,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
 
     // BBTools operations
     case contaminantFilter(mode: FASTQContaminantFilterMode, referenceFasta: String?, kmerSize: Int, hammingDistance: Int)
+    /// bbduk entropy filter that discards low-complexity reads (homopolymers, tandem repeats).
+    case lowComplexityFilter(entropy: Double, window: Int, kmer: Int)
     case pairedEndMerge(strictness: FASTQMergeStrictness, minOverlap: Int)
     case pairedEndRepair
     case primerRemoval(configuration: FASTQPrimerTrimConfiguration)
@@ -94,6 +96,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .adapterTrim: return "Adapter Trim"
         case .fixedTrim: return "Fixed Trim"
         case .contaminantFilter: return "Contaminant Filter"
+        case .lowComplexityFilter: return "Low-Complexity Filter"
         case .pairedEndMerge: return "Paired-End Merge"
         case .pairedEndRepair: return "Paired-End Repair"
         case .primerRemoval: return "PCR Primer Trimming"
@@ -116,6 +119,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return true
         case .subsampleProportion, .subsampleCount, .lengthFilter,
              .searchText, .searchMotif, .deduplicate, .contaminantFilter,
+             .lowComplexityFilter,
              .sequencePresenceFilter, .ribosomalRNAFilter:
             return false
         case .pairedEndMerge, .pairedEndRepair,
@@ -192,6 +196,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .adapterTrim: return "adapterTrim"
         case .fixedTrim: return "fixedTrim"
         case .contaminantFilter: return "contaminantFilter"
+        case .lowComplexityFilter: return "lowComplexityFilter"
         case .pairedEndMerge: return "pairedEndMerge"
         case .pairedEndRepair: return "pairedEndRepair"
         case .primerRemoval: return "primerRemoval"
@@ -251,6 +256,12 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return ["from5Prime": "\(from5)", "from3Prime": "\(from3)"]
         case .contaminantFilter(let mode, _, let kmerSize, let hammingDistance):
             return ["mode": "\(mode)", "kmerSize": "\(kmerSize)", "hammingDistance": "\(hammingDistance)"]
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            return [
+                "entropy": String(format: "%.2f", entropy),
+                "entropyWindow": "\(window)",
+                "entropyKmer": "\(kmer)",
+            ]
         case .pairedEndMerge(let strictness, let minOverlap):
             return [
                 "strictness": "\(strictness)",
@@ -481,6 +492,15 @@ extension FASTQDerivativeRequest {
             }
             return buildLungfishCommand(subcommand: "fastq contaminant-filter", args: args)
 
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            return buildLungfishCommand(subcommand: "fastq entropy-filter", args: [
+                inputPath,
+                "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
+                "--window", String(window),
+                "--kmer", String(kmer),
+                "-o", outputPath,
+            ])
+
         case .pairedEndMerge(let strictness, let minOverlap):
             var args = [inputPath, "-o", outputPath, "--min-overlap", String(minOverlap)]
             if strictness == .strict { args.append("--strict") }
@@ -632,6 +652,12 @@ extension FASTQDerivativeRequest {
                 "--kmer-size", String(kmerSize),
                 "--hamming-distance", String(hammingDistance),
             ] + optionalFlag("--reference-fasta", referenceFasta)
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            return [
+                "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
+                "--window", String(window),
+                "--kmer", String(kmer),
+            ]
         case .pairedEndMerge(let strictness, let minOverlap):
             return [
                 "--strictness", strictness.rawValue,
@@ -763,6 +789,12 @@ extension FASTQDerivativeRequest {
                 "referenceFasta": optionalString(referenceFasta),
                 "kmerSize": .integer(kmerSize),
                 "hammingDistance": .integer(hammingDistance),
+            ]
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            return [
+                "entropy": .number(entropy),
+                "entropyWindow": .integer(window),
+                "entropyKmer": .integer(kmer),
             ]
         case .pairedEndMerge(let strictness, let minOverlap):
             return [
@@ -903,6 +935,12 @@ extension FASTQDerivativeRequest {
             ]
         case .contaminantFilter:
             return ["kmerSize": .integer(31), "hammingDistance": .integer(1), "referenceFasta": .null]
+        case .lowComplexityFilter:
+            return [
+                "entropy": .number(FASTQEntropyFilterDefaults.entropy),
+                "entropyWindow": .integer(FASTQEntropyFilterDefaults.window),
+                "entropyKmer": .integer(FASTQEntropyFilterDefaults.kmer),
+            ]
         case .errorCorrection:
             return ["kmerSize": .integer(50)]
         case .interleaveReformat:
@@ -916,6 +954,22 @@ extension FASTQDerivativeRequest {
              .ribosomalRNAFilter:
             return [:]
         }
+    }
+
+    /// Formats an entropy threshold for the command line.
+    ///
+    /// The entropy control steps by 0.05, so two decimals are always enough;
+    /// trailing zeros are trimmed so the recorded command reads `--entropy 0.6`
+    /// rather than `--entropy 0.60`.
+    static func entropyArgument(_ value: Double) -> String {
+        var text = String(format: "%.2f", value)
+        while text.hasSuffix("0") && !text.hasSuffix(".0") {
+            text.removeLast()
+        }
+        if text.hasSuffix(".0") {
+            text.removeLast(2)
+        }
+        return text
     }
 
     private func optionalString(_ value: String?) -> ParameterValue {

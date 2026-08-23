@@ -81,6 +81,12 @@ final class FASTQOperationDialogState {
     var removeContaminantsMode: FASTQContaminantFilterMode
     var removeContaminantsKmerSize: Int
     var removeContaminantsHammingDistance: Int
+    /// Shannon entropy threshold for the low-complexity filter (0.3-0.9, step 0.05).
+    var removeLowComplexityEntropy: Double
+    /// Advanced: sliding window size in bases.
+    var removeLowComplexityWindow: Int
+    /// Advanced: k-mer length used for entropy estimation.
+    var removeLowComplexityKmer: Int
     var riboDetectorRetention: FASTQRiboDetectorRetention
 
     var removeDuplicatesPreset: FASTQDeduplicatePreset
@@ -229,6 +235,9 @@ final class FASTQOperationDialogState {
         self.removeContaminantsMode = .phix
         self.removeContaminantsKmerSize = 31
         self.removeContaminantsHammingDistance = 1
+        self.removeLowComplexityEntropy = FASTQEntropyFilterDefaults.entropy
+        self.removeLowComplexityWindow = FASTQEntropyFilterDefaults.window
+        self.removeLowComplexityKmer = FASTQEntropyFilterDefaults.kmer
         self.riboDetectorRetention = .nonRRNA
         self.removeDuplicatesPreset = .exactPCR
         self.removeDuplicatesSubstitutions = 0
@@ -589,6 +598,17 @@ final class FASTQOperationDialogState {
                     referenceFasta: removeContaminantsMode == .custom ? auxiliaryInputURL(for: .contaminantReference)?.path : nil,
                     kmerSize: removeContaminantsKmerSize,
                     hammingDistance: removeContaminantsHammingDistance
+                ),
+                inputURLs: selectedInputURLs,
+                outputMode: outputMode
+            )
+
+        case .removeLowComplexityReads:
+            return .derivative(
+                request: .lowComplexityFilter(
+                    entropy: removeLowComplexityEntropy,
+                    window: removeLowComplexityWindow,
+                    kmer: removeLowComplexityKmer
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -1143,6 +1163,8 @@ final class FASTQOperationDialogState {
             return "Run Deacon against the managed ribokmers database and retain selected rRNA read classes."
         case .removeContaminants:
             return "Filter reads that match a contaminant reference."
+        case .removeLowComplexityReads:
+            return "Discard low-complexity reads below the entropy threshold."
         case .removeDuplicates:
             return "Collapse duplicate reads from the selected datasets."
         case .mergeOverlappingPairs:
@@ -1232,7 +1254,7 @@ final class FASTQOperationDialogState {
         case .trimmingFiltering:
             return [.fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
         case .decontamination:
-            return [.removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeDuplicates]
+            return [.removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates]
         case .readProcessing:
             return [.mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors]
         case .searchSubsetting:
@@ -1319,6 +1341,18 @@ final class FASTQOperationDialogState {
             return nil
 
         case .removeContaminants:
+            return nil
+
+        case .removeLowComplexityReads:
+            if !FASTQEntropyFilterDefaults.isValidEntropy(removeLowComplexityEntropy) {
+                return "Entropy threshold must be between 0.3 and 0.9."
+            }
+            if removeLowComplexityWindow <= 0 {
+                return "Entropy window must be greater than zero."
+            }
+            if removeLowComplexityKmer <= 0 {
+                return "Entropy k-mer length must be greater than zero."
+            }
             return nil
 
         case .removeRibosomalRNA:
@@ -1871,6 +1905,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case removeHumanReads
     case removeRibosomalRNA
     case removeContaminants
+    case removeLowComplexityReads
     case removeDuplicates
     case mergeOverlappingPairs
     case repairPairedEndFiles
@@ -1915,6 +1950,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .removeHumanReads: return "Remove Human Reads"
         case .removeRibosomalRNA: return "Remove ribosomal RNA sequences"
         case .removeContaminants: return "Remove Contaminants"
+        case .removeLowComplexityReads: return "Low-Complexity Filter"
         case .removeDuplicates: return "Remove Duplicates"
         case .mergeOverlappingPairs: return "Merge Overlapping Pairs"
         case .repairPairedEndFiles: return "Repair Paired-End Files"
@@ -1961,6 +1997,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .removeHumanReads: return "Remove reads against a human database."
         case .removeRibosomalRNA: return "Run Deacon against the managed ribokmers database and retain non-rRNA, rRNA, or both read classes."
         case .removeContaminants: return "Remove spike-ins or other contaminant sequences."
+        case .removeLowComplexityReads: return "Remove homopolymer and tandem-repeat reads by sequence entropy."
         case .removeDuplicates: return "Collapse duplicate reads."
         case .mergeOverlappingPairs: return "Merge overlapping paired-end reads."
         case .repairPairedEndFiles: return "Restore proper pairing for FASTQ mates."
@@ -2001,7 +2038,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .demultiplexing
         case .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
             return .trimmingFiltering
-        case .removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeDuplicates:
+        case .removeHumanReads, .removeRibosomalRNA, .removeContaminants,
+             .removeLowComplexityReads, .removeDuplicates:
             return .decontamination
         case .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors:
             return .readProcessing
@@ -2029,7 +2067,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .demultiplexBarcodes, .ontFluidigmSampleSplit:
             return [.fastqDataset, .barcodeDefinition]
         case .fastpTrim, .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
-             .removeRibosomalRNA, .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
+             .removeRibosomalRNA, .removeLowComplexityReads,
+             .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
              .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .mafft, .viralRecon,
              .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -2144,7 +2183,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .demultiplexBarcodes, .adapterRemoval, .primerTrimming,
              .trimFixedBases, .filterByReadLength, .removeHumanReads,
-             .removeRibosomalRNA, .removeContaminants, .removeDuplicates, .reverseComplement, .translate, .orientReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads,
+             .removeDuplicates, .reverseComplement, .translate, .orientReads,
              .subsampleByProportion, .subsampleByCount, .extractReadsByID,
              .extractReadsByMotif, .selectReadsBySequence, .mafft, .minimap2,
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,

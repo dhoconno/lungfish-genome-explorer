@@ -21,12 +21,14 @@ struct FastqCommand: AsyncParsableCommand {
             bbtools). All tools are embedded — no external installations required.
 
             Operations include subsetting, quality/adapter trimming, contaminant
-            filtering, error correction, primer removal, and paired-end utilities.
+            and low-complexity filtering, error correction, primer removal, and
+            paired-end utilities.
 
             Examples:
               lungfish fastq subsample --proportion 0.1 reads.fastq -o subset.fastq
               lungfish fastq quality-trim --threshold 20 reads.fastq -o trimmed.fastq
               lungfish fastq contaminant-filter --mode phix reads.fastq -o clean.fastq
+              lungfish fastq entropy-filter --entropy 0.6 reads.fastq -o complex.fastq
               lungfish fastq error-correct reads.fastq -o corrected.fastq
             """,
         subcommands: [
@@ -37,6 +39,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqAdapterTrimSubcommand.self,
             FastqFixedTrimSubcommand.self,
             FastqContaminantFilterSubcommand.self,
+            FastqEntropyFilterSubcommand.self,
             FastqPrimerRemovalSubcommand.self,
             FastqErrorCorrectSubcommand.self,
             FastqMergeSubcommand.self,
@@ -1507,6 +1510,184 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
+    }
+}
+
+// MARK: - Low-Complexity (Entropy) Filter
+
+struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "entropy-filter",
+        abstract: "Remove low-complexity reads using the bbduk entropy filter",
+        discussion: """
+            Discards reads whose Shannon entropy falls below a threshold. This
+            catches homopolymer runs and tandem repeats (for example ATCATCATC…)
+            that per-read complexity metrics miss, and that otherwise inflate
+            apparent mapping depth.
+
+            Defaults are entropy 0.6, window 50, k-mer 5.
+            """
+    )
+
+    @Argument(help: "Input FASTQ file")
+    var input: String
+
+    @Option(name: .customLong("entropy"), help: "Entropy threshold, 0.3-0.9 (default: 0.6)")
+    var entropy: Double = FASTQEntropyFilterDefaults.entropy
+
+    @Option(name: .customLong("window"), help: "Entropy sliding window in bases (default: 50)")
+    var window: Int = FASTQEntropyFilterDefaults.window
+
+    @Option(name: .customLong("kmer"), help: "K-mer length for entropy estimation (default: 5)")
+    var kmer: Int = FASTQEntropyFilterDefaults.kmer
+
+    @Option(name: .customLong("threads"), help: "bbduk thread count (default: 4)")
+    var threads: Int = 4
+
+    @OptionGroup var output: OutputOptions
+
+    /// Validates the entropy parameters. Factored out so tests can exercise the
+    /// bounds without running bbduk.
+    static func validate(entropy: Double, window: Int, kmer: Int) throws {
+        guard FASTQEntropyFilterDefaults.isValidEntropy(entropy) else {
+            throw ValidationError(
+                "--entropy must be between \(FASTQEntropyFilterDefaults.minimumEntropy) and \(FASTQEntropyFilterDefaults.maximumEntropy)"
+            )
+        }
+        guard window > 0 else { throw ValidationError("--window must be > 0") }
+        guard kmer > 0 else { throw ValidationError("--kmer must be > 0") }
+    }
+
+    /// Builds the bbduk argument vector. No reference is involved: entropy
+    /// filtering is purely sequence-composition based.
+    static func bbdukArguments(
+        inputURL: URL,
+        outputPath: String,
+        entropy: Double,
+        window: Int,
+        kmer: Int,
+        threads: Int,
+        heapGB: Int
+    ) -> [String] {
+        [
+            "in=\(inputURL.path)",
+            "out=\(outputPath)",
+            "-Xmx\(heapGB)g",
+            "entropy=\(entropyArgument(entropy))",
+            "entropywindow=\(window)",
+            "entropyk=\(kmer)",
+            "threads=\(threads)",
+            "ow=t",
+        ]
+    }
+
+    /// Formats the entropy threshold without trailing zeros so the recorded
+    /// command matches what the GUI shows.
+    static func entropyArgument(_ value: Double) -> String {
+        var text = String(format: "%.2f", value)
+        while text.hasSuffix("0") && !text.hasSuffix(".0") {
+            text.removeLast()
+        }
+        if text.hasSuffix(".0") {
+            text.removeLast(2)
+        }
+        return text
+    }
+
+    func run() async throws {
+        let inputURL = try validateInput(input)
+        try output.validateOutput()
+        try Self.validate(entropy: entropy, window: window, kmer: kmer)
+        guard threads > 0 else { throw ValidationError("--threads must be > 0") }
+
+        let runner = NativeToolRunner.shared
+        let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
+        let args = Self.bbdukArguments(
+            inputURL: inputURL,
+            outputPath: output.output,
+            entropy: entropy,
+            window: window,
+            kmer: kmer,
+            threads: threads,
+            heapGB: heapGB
+        )
+
+        let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
+        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        guard result.isSuccess else {
+            throw CLIError.conversionFailed(reason: "bbduk entropy filter failed: \(result.stderr)")
+        }
+
+        let summary = BBDukEntropySummary(stderr: result.stderr)
+
+        var cliArguments = [
+            "entropy-filter", inputURL.path,
+            "--entropy", Self.entropyArgument(entropy),
+        ]
+        if window != FASTQEntropyFilterDefaults.window {
+            cliArguments += ["--window", String(window)]
+        }
+        if kmer != FASTQEntropyFilterDefaults.kmer {
+            cliArguments += ["--kmer", String(kmer)]
+        }
+        if threads != 4 {
+            cliArguments += ["--threads", String(threads)]
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+
+        let outputURL = URL(fileURLWithPath: output.output)
+        var parameters: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "output": .file(outputURL),
+            "entropy": .number(entropy),
+            "entropyWindow": .integer(window),
+            "entropyKmer": .integer(kmer),
+            "threads": .integer(threads),
+            "force": .boolean(output.force),
+            "compress": .boolean(output.compress),
+        ]
+        if let summary {
+            parameters["inputReads"] = .integer(summary.inputReads)
+            parameters["discardedReads"] = .integer(summary.discardedReads)
+            parameters["outputReads"] = .integer(summary.outputReads)
+        }
+
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq entropy-filter",
+            nativeTool: .bbduk,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: parameters,
+            defaults: [
+                "entropy": .number(FASTQEntropyFilterDefaults.entropy),
+                "entropyWindow": .integer(FASTQEntropyFilterDefaults.window),
+                "entropyKmer": .integer(FASTQEntropyFilterDefaults.kmer),
+                "threads": .integer(4),
+                "force": .boolean(false),
+                "compress": .boolean(false),
+            ],
+            inputRecords: [
+                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
+            ],
+            startedAt: startedAt
+        )
+
+        if let summary {
+            FileHandle.standardError.write(Data("\(summary.displaySummary)\n".utf8))
+        }
+        FileHandle.standardError.write(
+            Data("Low-complexity filtered reads written to \(output.output)\n".utf8)
+        )
     }
 }
 

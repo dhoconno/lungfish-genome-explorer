@@ -360,6 +360,8 @@ features:
       - "Tools > FASTQ/FASTA Operations > Decontamination"
       - "CLI: lungfish fastq scrub-human"
       - "CLI: lungfish fastq deacon-ribo"
+      - "CLI: lungfish fastq contaminant-filter"
+      - "CLI: lungfish fastq entropy-filter"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -367,9 +369,13 @@ features:
       - Sources/LungfishCLI/Commands/FastqScrubHumanSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqDeaconRiboSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqRiboDetectorSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqCommand.swift
+      - Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift
     notes: >-
-      Removes human reads, ribosomal RNA with Deacon and BBMap ribokmers, and
-      contaminant reads with bbduk.
+      Removes human reads, ribosomal RNA with Deacon and BBMap ribokmers,
+      contaminant reads with bbduk, and low-complexity reads (homopolymers and
+      tandem repeats) with the bbduk entropy filter at a default threshold of
+      0.6, window 50, k-mer 5.
   fastq.read-processing:
     title: Read processing operations
     entry_points:

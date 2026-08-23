@@ -512,6 +512,76 @@ final class FASTQOperationRoundTripTests: XCTestCase {
             "contaminantFilter(phix) should retain >40 of 50 synthetic reads (no real PhiX contamination)")
     }
 
+    /// End-to-end entropy filter: a mix of ATC-microsatellite reads and normal
+    /// reads must come back with the tandem-repeat reads gone and the normal
+    /// reads kept. Tool-gated like the other bbduk round trips.
+    func testLowComplexityFilterRemovesTandemRepeatReadsAndKeepsNormalReads() async throws {
+        try await requireManagedTool(.bbduk)
+
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "LowComplexityFilter")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+
+        // 10 pure ATC x 50 microsatellite reads (150 bp) plus 20 normal reads of
+        // the same length. fastp's complexity metric cannot see the first group;
+        // bbduk's entropy window can.
+        let repeatSequence = String(repeating: "ATC", count: 50)
+        var records: [(id: String, sequence: String)] = (0..<10).map {
+            (id: "repeat_\($0)", sequence: repeatSequence)
+        }
+        records += (0..<20).map { index in
+            (id: "normal_\(index)", sequence: Self.pseudoRandomDNA(length: 150, seed: UInt64(index) &+ 7))
+        }
+        try FASTQOperationTestHelper.writeFASTQ(records: records, to: root.fastqURL)
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .lowComplexityFilter(entropy: 0.6, window: 50, kmer: 5),
+            progress: nil
+        )
+
+        try await FASTQOperationTestHelper.assertPreviewValid(bundleURL: derivedURL)
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "subset")
+        try FASTQOperationTestHelper.assertSubsetIDsValid(bundleURL: derivedURL)
+
+        let materializer = FASTQCLIMaterializer(runner: NativeToolRunner.shared)
+        let outDir = tempDir.appendingPathComponent("out-entropy-filter", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        let matURL = try await materializer.materialize(
+            bundleURL: derivedURL, tempDirectory: outDir, progress: nil
+        )
+        let survivors = try await FASTQOperationTestHelper.loadFASTQRecords(from: matURL)
+        let survivorIDs = Set(survivors.map(\.identifier))
+
+        for index in 0..<10 {
+            XCTAssertFalse(
+                survivorIDs.contains("repeat_\(index)"),
+                "ATCx50 microsatellite read repeat_\(index) should be discarded at entropy 0.6"
+            )
+        }
+        let keptNormalReads = (0..<20).filter { survivorIDs.contains("normal_\($0)") }.count
+        XCTAssertGreaterThanOrEqual(
+            keptNormalReads, 18,
+            "entropy 0.6 should keep essentially all normal-complexity reads (kept \(keptNormalReads) of 20)"
+        )
+    }
+
+    /// Deterministic four-base sequence generator so the "normal" reads in the
+    /// entropy round trip are reproducible across runs.
+    private static func pseudoRandomDNA(length: Int, seed: UInt64) -> String {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var state = seed &+ 0x9e3779b97f4a7c15
+        var chars: [Character] = []
+        chars.reserveCapacity(length)
+        for offset in 0..<length {
+            state = state &* 2862933555777941757 &+ 3037000493 &+ UInt64(offset)
+            chars.append(bases[Int((state >> 33) & 0x03)])
+        }
+        return String(chars)
+    }
+
     func testSequencePresenceFilterRoundTrip() async throws {
         try await requireManagedTool(.bbduk)
 

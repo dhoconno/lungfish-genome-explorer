@@ -696,6 +696,97 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    func testLowComplexityFilterRoutesToEntropyFilterWithBenchmarkedDefaults() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.removeLowComplexityReads)
+
+        // Entropy filtering needs no auxiliary reference, so it is runnable at once.
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset])
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.removeLowComplexityEntropy, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(state.removeLowComplexityWindow, 50)
+        XCTAssertEqual(state.removeLowComplexityKmer, 5)
+
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .lowComplexityFilter(entropy: 0.6, window: 50, kmer: 5),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        let launchRequest = try XCTUnwrap(state.pendingLaunchRequest)
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: launchRequest)
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "entropy-filter",
+                "/tmp/sample.lungfishfastq",
+                "--entropy",
+                "0.6",
+                "--window",
+                "50",
+                "--kmer",
+                "5",
+                "-o",
+                "<derived>",
+            ]
+        )
+    }
+
+    func testLowComplexityFilterCarriesAdvancedWindowAndKmerIntoRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.removeLowComplexityReads)
+        state.removeLowComplexityEntropy = 0.75
+        state.removeLowComplexityWindow = 40
+        state.removeLowComplexityKmer = 4
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .lowComplexityFilter(entropy: 0.75, window: 40, kmer: 4),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testLowComplexityFilterRejectsEntropyOutsideSupportedRange() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.removeLowComplexityReads)
+        state.removeLowComplexityEntropy = 0.1
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "Entropy threshold must be between 0.3 and 0.9.")
+    }
+
+    func testLowComplexityFilterAppearsInDecontaminationCategory() {
+        XCTAssertTrue(
+            FASTQOperationDialogState.toolIDs(for: .decontamination)
+                .contains(.removeLowComplexityReads)
+        )
+        XCTAssertEqual(FASTQOperationToolID.removeLowComplexityReads.categoryID, .decontamination)
+    }
+
     func testRibosomalRNAFilterDefaultsToDeaconRiboDepletion() throws {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(

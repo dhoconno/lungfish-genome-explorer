@@ -340,6 +340,30 @@ extension FASTQDerivativeService {
                 toolCommand: result.toolCommand
             )
 
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            let result = try await runBBDukEntropyFilter(
+                sourceFASTQ: sourceFASTQ,
+                outputFASTQ: outputFASTQ,
+                entropy: entropy,
+                window: window,
+                kmer: kmer,
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
+            )
+            // Surface the parsed bbduk read/base counts in the operation log so
+            // the expanded row shows how much was removed, not just that it ran.
+            if let summary = result.summary {
+                progress?(summary.displaySummary)
+            }
+            return FASTQDerivativeOperation(
+                kind: .lowComplexityFilter,
+                entropyThreshold: entropy,
+                entropyWindow: window,
+                entropyKmer: kmer,
+                toolUsed: "bbduk",
+                toolCommand: result.toolCommand
+            )
+
         case .pairedEndMerge, .pairedEndRepair:
             throw FASTQDerivativeError.invalidOperation(
                 "Mixed-output operations must be handled via createMixedOutputDerivative"

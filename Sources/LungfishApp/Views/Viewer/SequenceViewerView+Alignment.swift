@@ -684,7 +684,15 @@ extension SequenceViewerView {
         let mapQFilter = minMapQSetting
         let excludeFlags = excludeFlagsSetting
         let readGroupFilter = selectedReadGroupsSetting
-        let maxReadsPerTrack: Int = limitReadRowsSetting ? 250_000 : Int.max
+        resetLoadAllOverrideIfWindowChanged(to: expandedRegion)
+        // Fetch `budget + 1` so overflow is detectable without a second query.
+        // The old `Int.max` here is exactly what let a ~100 bp window at
+        // ~600,000x depth pull every read in the pile into the process.
+        let readBudget = effectiveReadBudget
+        let maxReadsPerTrack = ReadViewportPolicy.fetchLimit(forBudget: readBudget)
+        let loadedAll = loadAllReadsRequested
+        let estimatedTotal = estimatedReadCount(in: expandedRegion)
+        readLoadPhase = .fetching(readsSoFar: nil)
 
         sequenceViewerLogger.info("fetchReadsAsync: gen=\(tokenGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), tier: \(String(describing: tier)), minMAPQ: \(mapQFilter), maxReads/track: \(maxReadsPerTrack), flags: 0x\(String(excludeFlags, radix: 16)))")
 
@@ -722,20 +730,34 @@ extension SequenceViewerView {
                 }
             }
 
-            let count = allReads.count
+            // Apply the display budget on the fetch thread: sampling 600k reads
+            // down to the budget must not cost the main actor anything, and the
+            // MD-tag parse below then only runs over the reads kept.
+            let budgeted = SequenceViewerView.applyReadBudget(
+                reads: allReads,
+                budget: readBudget,
+                exactTotal: nil,
+                estimatedTotal: estimatedTotal,
+                loadedAll: loadedAll
+            )
+            let displayReads = budgeted.reads
+            let budgetState = budgeted.state
+            let count = displayReads.count
             // Parse every read's MD tag here, on the fetch thread, so the draw
             // path never re-parses it per frame.
-            let mismatchCache = ReadMismatchCache.build(for: allReads)
+            let mismatchCache = ReadMismatchCache.build(for: displayReads)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let viewer = self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
                     viewer.pendingReadMismatchCache = mismatchCache
-                    guard viewer.commitReadFetch(token, reads: allReads, region: expandedRegion) else {
+                    guard viewer.commitReadFetch(token, reads: displayReads, region: expandedRegion) else {
                         viewer.pendingReadMismatchCache = nil
                         sequenceViewerLogger.info("fetchReadsAsync: Discarding stale result gen=\(tokenGeneration)")
                         return
                     }
+                    viewer.setReadBudgetState(budgetState)
+                    viewer.readLoadPhase = nil
                     sequenceViewerLogger.info("fetchReadsAsync: Cached \(count) reads")
                     viewer.setNeedsDisplay(viewer.bounds)
                 }

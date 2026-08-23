@@ -5,11 +5,11 @@ audience: analyst
 prereqs: [03-reads/01-importing-fastq]
 estimated_reading_min: 8
 task: Remove human, rRNA, contaminant, and duplicate reads from a FASTQ bundle.
-tags: [reads, decontamination, human, rrna, deacon, bbduk]
+tags: [reads, decontamination, human, rrna, low-complexity, entropy, deacon, bbduk]
 tools: [deacon, bbduk]
 entry_points:
   - "Tools > FASTQ/FASTA Operations > Decontamination… (then pick the operation)"
-  - "CLI: lungfish fastq scrub-human, deacon-ribo, contaminant-filter, deduplicate"
+  - "CLI: lungfish fastq scrub-human, deacon-ribo, contaminant-filter, entropy-filter, deduplicate"
 shots: []
 planned_shots:
   - id: human-scrub-dialog
@@ -28,15 +28,16 @@ This chapter covers removing unwanted reads (host, rRNA, contaminants, duplicate
 
 Clinical and environmental samples almost always carry reads that did not come from the organism you care about. A nasopharyngeal swab is mostly human. A wastewater concentrate carries bacterial rRNA, plant chloroplast, and laboratory vector sequence. An RNA-seq library targeted at messenger RNA still ends up dominated by ribosomal RNA if depletion was incomplete. Decontamination is the step that filters these reads out of a FASTQ bundle before downstream analysis runs.
 
-Lungfish exposes four operations. Choose `Tools > FASTQ/FASTA Operations > Decontamination…` and pick the operation from the list inside the dialog. Each writes a new FASTQ bundle with the targeted reads removed and leaves the original untouched. The tool behind each operation differs, and so do the controls you will see, so read the table before you open the dialog.
+Lungfish exposes five operations. Choose `Tools > FASTQ/FASTA Operations > Decontamination…` and pick the operation from the list inside the dialog. Each writes a new FASTQ bundle with the targeted reads removed and leaves the original untouched. The tool behind each operation differs, and so do the controls you will see, so read the table before you open the dialog.
 
-**Remove Human Reads** runs Deacon (a minimizer-based host-depletion tool) against the managed `deacon-panhuman` index and is the right default for clinical viral samples. **Remove Ribosomal RNA** runs Deacon with BBMap ribokmers against the managed `deacon-ribokmers` index. **Remove Contaminants** runs bbduk, a k-mer matcher, against either the bundled PhiX spike-in or a reference FASTA you supply. **Remove Duplicates** runs clumpify to collapse PCR and optical duplicate reads.
+**Remove Human Reads** runs Deacon (a minimizer-based host-depletion tool) against the managed `deacon-panhuman` index and is the right default for clinical viral samples. **Remove Ribosomal RNA** runs Deacon with BBMap ribokmers against the managed `deacon-ribokmers` index. **Remove Contaminants** runs bbduk, a k-mer matcher, against either the bundled PhiX spike-in or a reference FASTA you supply. **Low-Complexity Filter** runs bbduk's entropy filter to drop repetitive reads that match no particular reference. **Remove Duplicates** runs clumpify to collapse PCR and optical duplicate reads.
 
 | Operation | When to use | Tool | Database or reference |
 |---|---|---|---|
 | Remove Human Reads | Clinical or human-derived samples | Deacon | Managed `deacon-panhuman` index |
 | Remove Ribosomal RNA | Total-RNA libraries with carryover rRNA | Deacon + BBMap ribokmers | Managed `deacon-ribokmers` index |
 | Remove Contaminants | PhiX spike-in, or a custom host or vector | bbduk | Bundled PhiX, or a FASTA you supply |
+| Low-Complexity Filter | Homopolymer runs and tandem repeats | bbduk entropy filter | None (sequence-based) |
 | Remove Duplicates | Library prep left PCR or optical duplicates | clumpify | None (sequence-based) |
 
 The output bundle is a regular FASTQ bundle. It works as input to every downstream operation, including mapping, classification, and assembly. The Operations Panel records the removal rate and read counts in its log, so you have a numerical handle on how aggressive the scrub was.
@@ -55,11 +56,29 @@ Third, **how do you weigh sensitivity against specificity?** These tools match s
 
 To decide in one line: for clinical viral surveillance against a chosen reference, run Remove Human Reads before mapping; for RNA-seq with visible rRNA carryover, run Remove Ribosomal RNA; for everything else, decide explicitly and record the decision in your project notes.
 
+## Removing low-complexity reads
+
+A low-complexity read is one whose sequence carries almost no information: a homopolymer run such as `AAAAAAAA…`, a dinucleotide stutter such as `ATATATAT…`, or a longer tandem repeat such as `ATCATCATC…`. These arise from real repetitive genomic elements, from polymerase slippage during amplification, and from sequencing artifacts. They are not tied to any one contaminating organism, so a reference-based filter will not catch them.
+
+Tandem repeats matter because they inflate mapping depth. A microsatellite read can align to any microsatellite locus in the reference, and aligners will place it somewhere. Thousands of near-identical repeat reads therefore pile onto a handful of repetitive loci and produce coverage spikes that look like amplification or copy-number signal but are pure artifact. Variant callers then report high-confidence calls inside those spikes. Removing the reads before mapping prevents the whole cascade.
+
+Lungfish measures Shannon entropy over a sliding window rather than scoring whole-read complexity. Whole-read metrics such as fastp's cannot detect tandem repeats: a read of `ATCATC…` uses three of the four bases in even proportion and scores as perfectly ordinary. A windowed entropy calculation over short k-mers sees that the same few k-mers repeat and scores the read as low-complexity.
+
+Three controls shape the filter. Entropy is the main one and the only control most users need to touch.
+
+- `Entropy Threshold` is the cutoff below which a read is discarded, from 0.3 to 0.9 in steps of 0.05, default 0.6.
+- `Window` is the sliding window size in bases, default 50, exposed under Advanced.
+- `K-mer` is the k-mer length used to estimate entropy, default 5, exposed under Advanced.
+
+The default of 0.6 comes from a benchmark readset seeded with ATC microsatellite reads. A threshold of 0.5 removed 1.8 percent of all reads and 79 percent of the microsatellite reads. A threshold of 0.6 removed 4.1 percent and 89 percent. A threshold of 0.7 removed 5.7 percent and 94 percent. Raise the threshold when repeat reads still dominate your coverage plot after filtering, and lower it when the overall removal rate looks too aggressive for the sample.
+
+The command-line equivalent is `lungfish fastq entropy-filter <reads> -o <out> --entropy 0.6`, with `--window` and `--kmer` available for the advanced parameters.
+
 ## Procedure
 
 ### Install the database
 
-Remove Human Reads and Remove Ribosomal RNA each need a managed database before they will run. These are not a single Plugin Manager "pack": they are two separate managed databases, `deacon-panhuman` (the human host-depletion index) and `deacon-ribokmers` (the rRNA index), installed through Lungfish's tool-and-database management. Install the one your operation needs and expect a sizable download on first install. The mechanics are covered in `F07 Managing tools and databases` and apply identically here. Remove Contaminants and Remove Duplicates need no managed database: Remove Contaminants screens the bundled PhiX or a FASTA you point it at, and Remove Duplicates works from the read sequences alone.
+Remove Human Reads and Remove Ribosomal RNA each need a managed database before they will run. These are not a single Plugin Manager "pack": they are two separate managed databases, `deacon-panhuman` (the human host-depletion index) and `deacon-ribokmers` (the rRNA index), installed through Lungfish's tool-and-database management. Install the one your operation needs and expect a sizable download on first install. The mechanics are covered in `F07 Managing tools and databases` and apply identically here. The other three operations need no managed database: Remove Contaminants screens the bundled PhiX or a FASTA you point it at, and Low-Complexity Filter and Remove Duplicates both work from the read sequences alone.
 
 ### Run the operation
 
@@ -68,11 +87,13 @@ Remove Human Reads and Remove Ribosomal RNA each need a managed database before 
 3. <!-- planned: human-scrub-dialog --> Confirm the input bundle. The managed `deacon-panhuman` database is selected for you. The pane has no extra controls for this operation.
 4. Click **Run**.
 
-The other three operations follow the same open-the-dialog, pick-the-operation flow but show different controls. Read whichever line below matches the operation you need.
+The other four operations follow the same open-the-dialog, pick-the-operation flow but show different controls. Read whichever line below matches the operation you need.
 
 **Remove Ribosomal RNA** shows one segmented `Retain Reads` control (keep non-rRNA, keep rRNA, or keep both; the default keeps non-rRNA), and no RiboDetector toggle.
 
 **Remove Contaminants** shows a `Contaminant Mode` picker (PhiX or Custom Reference), a `K-mer` field, and a `Hamming Distance` field. In Custom Reference mode you also select the contaminant FASTA in the Inputs section.
+
+**Low-Complexity Filter** shows an `Entropy Threshold` slider, with `Window` and `K-mer` fields under an Advanced disclosure. It needs no reference or database.
 
 **Remove Duplicates** shows a `Preset` picker, with substitution and optical-duplicate fields exposed under the custom preset.
 
@@ -88,7 +109,7 @@ When the operation finishes, expand its row in the Operations Panel. The log rep
 
 The provenance sidecar on the output bundle carries the same fields plus input and output FASTQ checksums, so a co-author can confirm later which tool, database, and parameters produced the cleaned reads.
 
-Every operation has a command-line equivalent: Remove Human Reads is `lungfish fastq scrub-human <reads> -o <out> --database-id deacon-panhuman`; Remove Ribosomal RNA is `lungfish fastq deacon-ribo <reads> -o <outdir>` (with `--retain norrna|rrna|both`); Remove Contaminants is `lungfish fastq contaminant-filter <reads> -o <out> --mode phix|custom`; Remove Duplicates is `lungfish fastq deduplicate <reads> -o <out>`.
+Every operation has a command-line equivalent: Remove Human Reads is `lungfish fastq scrub-human <reads> -o <out> --database-id deacon-panhuman`; Remove Ribosomal RNA is `lungfish fastq deacon-ribo <reads> -o <outdir>` (with `--retain norrna|rrna|both`); Remove Contaminants is `lungfish fastq contaminant-filter <reads> -o <out> --mode phix|custom`; Low-Complexity Filter is `lungfish fastq entropy-filter <reads> -o <out> --entropy 0.6`; Remove Duplicates is `lungfish fastq deduplicate <reads> -o <out>`.
 
 ## Worked example: human-scrubbing a clinical SARS-CoV-2 sample
 

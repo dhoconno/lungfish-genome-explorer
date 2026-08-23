@@ -196,6 +196,54 @@ public class SequenceViewerView: NSView {
     /// never runs on the main actor for fetched batches.
     var pendingReadMismatchCache: ReadMismatchCache?
 
+    /// Packed layout computed off the main thread by a read fetch or background
+    /// pack, consumed by `commitReadFetch`/`commitPackedLayout` in the same
+    /// handoff as `pendingReadMismatchCache`. The draw path never packs, so a
+    /// fresh read set arrives already laid out.
+    var pendingPackedLayout: (key: ReadPackCacheKey, packed: [(row: Int, read: AlignedRead)], overflow: Int)?
+
+    /// How much of the current fetch window is actually on screen. Drives the
+    /// sampling banner; `.none` while nothing is sampled.
+    var readBudgetState: ReadBudgetState { readBudgetStateStorage }
+
+    /// Backing store for `readBudgetState`, written only via
+    /// `setReadBudgetState(_:)` so the redraw is never forgotten.
+    var readBudgetStateStorage: ReadBudgetState = .none
+
+    /// Read budget for one fetch window. Overridable from the Inspector's read
+    /// display settings; defaults to `ReadViewportPolicy.defaultVisibleReadBudget`.
+    var visibleReadBudgetSetting: Int = ReadViewportPolicy.defaultVisibleReadBudget
+
+    /// Set by the banner's "Load all" action: suppresses the budget for the
+    /// *current* window only, and is cleared whenever the window changes.
+    var loadAllReadsRequested: Bool = false
+
+    /// Region the "Load all" override was granted for, so moving to a different
+    /// window drops back to the budget instead of inheriting the escape hatch.
+    var loadAllReadsRegion: GenomicRegion?
+
+    /// Screen rect of the banner's "Load all" hit target, recorded during draw
+    /// so `mouseDown` can test against it. `.null` when no banner is drawn.
+    var loadAllButtonRect: CGRect = .null
+
+    /// Phase of the in-flight read load, shown in the loading badge.
+    var readLoadPhase: ReadLoadPhase?
+
+    /// Background pack task for a fresh read set, cancelled when zoom, sort, or
+    /// the row limit changes while it is in flight.
+    var backgroundPackTask: Task<Void, Never>?
+
+    /// Generation gate for background packs, mirroring the fetch gate: a pack
+    /// whose generation is stale on completion never installs its layout.
+    var packRequestGeneration: Int { packRequestGenerationStorage }
+
+    /// Backing store for `packRequestGeneration`.
+    var packRequestGenerationStorage: Int = 0
+
+    /// Key of the pack currently in flight, so the draw path does not queue the
+    /// same pack again on every frame while it runs.
+    var inFlightPackKey: ReadPackCacheKey?
+
     /// The region for which we have cached read data
     var cachedReadRegion: GenomicRegion?
 
@@ -457,9 +505,14 @@ public class SequenceViewerView: NSView {
     /// also advances for in-flight fetches that never commit.
     private(set) var cachedReadSetGeneration: Int = 0
 
-    /// Number of times the read layout was actually packed. Test seam for
-    /// asserting that repeat draws with unchanged inputs reuse the cache.
+    /// Number of times the read layout was packed **on the main thread**. Test
+    /// seam for asserting that `draw(_:)` never packs a fresh read set; a
+    /// background pack deliberately leaves this alone.
     private(set) var packInvocationCount: Int = 0
+
+    /// Number of background packs started. Test seam for the cache contract:
+    /// unchanged inputs must not queue another pack, changed inputs must.
+    var backgroundPackInvocationCount: Int = 0
 
     /// Invalidates the packed-layout cache so the next draw repacks.
     func invalidatePackedReadLayoutCache() {
@@ -487,6 +540,22 @@ public class SequenceViewerView: NSView {
         cachedPackOverflow = result.overflow
         cachedPackKey = key
         return result
+    }
+
+    /// Installs an already-computed layout without running the packer.
+    ///
+    /// This is the only way a layout enters the cache from a background pack,
+    /// and it deliberately does **not** bump `packInvocationCount`: that counter
+    /// exists to catch packing on the main thread, so a background result must
+    /// leave it alone for the off-main test to mean anything.
+    func installPackedLayout(
+        key: ReadPackCacheKey,
+        packed: [(row: Int, read: AlignedRead)],
+        overflow: Int
+    ) {
+        cachedPackedReads = packed
+        cachedPackOverflow = overflow
+        cachedPackKey = key
     }
 
     /// Cached packed layout overflow count (from last pack operation)
@@ -1514,6 +1583,7 @@ public class SequenceViewerView: NSView {
     var testCachedReadMismatchCache: ReadMismatchCache? { cachedReadMismatchCache }
     var testCachedPackedReadLayout: PackedReadLayout? { cachedPackedReadLayout }
     var testPackInvocationCount: Int { packInvocationCount }
+    var testCachedReadSetGeneration: Int { cachedReadSetGeneration }
     var testHoveredRead: AlignedRead? { hoveredRead }
     var testSelectedReadIDs: Set<UUID> { selectedReadIDs }
     var testIsHoverTooltipHidden: Bool { hoverTooltip.isHidden }

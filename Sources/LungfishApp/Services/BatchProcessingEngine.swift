@@ -641,6 +641,12 @@ public actor BatchProcessingEngine {
                 kmerSize: step.contaminantKmerSize ?? 31,
                 hammingDistance: step.contaminantHammingDistance ?? 1
             )
+        case .lowComplexityFilter:
+            return .lowComplexityFilter(
+                entropy: step.entropyThreshold ?? FASTQEntropyFilterDefaults.entropy,
+                window: step.entropyWindow ?? FASTQEntropyFilterDefaults.window,
+                kmer: step.entropyKmer ?? FASTQEntropyFilterDefaults.kmer
+            )
         case .pairedEndMerge:
             return .pairedEndMerge(
                 strictness: step.mergeStrictness ?? .normal,

@@ -374,7 +374,15 @@ extension SequenceViewerView {
             } else {
                 super.keyDown(with: event)
             }
-        case 53: // Escape - clear selection
+        case 53: // Escape - cancel an in-flight read load, else clear selection
+            // An extreme-depth window can spend a long time fetching and
+            // packing; Escape is the way out of it without losing the coverage
+            // tier. Selection clearing only happens when nothing is loading, so
+            // the key keeps its familiar meaning the rest of the time.
+            if isFetchingReads || backgroundPackTask != nil {
+                cancelReadLoad()
+                return
+            }
             clearSelection()
             // Also clear annotation selection
             if selectedAnnotation != nil {
@@ -434,6 +442,10 @@ extension SequenceViewerView {
         guard let frame = viewController?.referenceFrame else { return }
 
         let location = convert(event.locationInWindow, from: nil)
+
+        // The read-budget banner's "Load all" target sits over the read track,
+        // so it must be tested before any read hit-testing claims the click.
+        if handleLoadAllClick(at: location) { return }
 
         // Check gutter edge drag FIRST — double-click resets to auto-size
         if isNearGutterEdge(at: location) {

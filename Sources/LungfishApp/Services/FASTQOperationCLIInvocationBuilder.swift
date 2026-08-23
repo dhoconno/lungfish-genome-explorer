@@ -346,6 +346,14 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 arguments.insert(contentsOf: ["--ref", referenceFasta], at: 4)
             }
             return arguments
+        case .lowComplexityFilter(let entropy, let window, let kmer):
+            return [
+                "entropy-filter", inputURL.path,
+                "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
+                "--window", "\(window)",
+                "--kmer", "\(kmer)",
+                "-o", outputTarget,
+            ]
         case .pairedEndMerge(let strictness, let minOverlap):
             var arguments = ["merge", inputURL.path, "--min-overlap", "\(minOverlap)", "-o", outputTarget]
             if strictness == .strict { arguments.append("--strict") }

@@ -91,6 +91,7 @@ final class OperationPreviewView: NSView {
         case adapterTrim
         case fixedTrim
         case contaminantFilter
+        case lowComplexityFilter
         case deduplicate
         case errorCorrection
         case interleaveReformat
@@ -312,6 +313,8 @@ final class OperationPreviewView: NSView {
             drawInterleavePreview(ctx: ctx, rect: rect)
         case .contaminantFilter:
             drawContaminantFilterPreview(ctx: ctx, rect: rect)
+        case .lowComplexityFilter:
+            drawLowComplexityFilterPreview(ctx: ctx, rect: rect)
         case .pairedEndMerge:
             drawPairedEndMergePreview(ctx: ctx, rect: rect)
         case .pairedEndRepair:
@@ -1105,6 +1108,67 @@ final class OperationPreviewView: NSView {
             drawBadge(ctx: ctx, x: readRect.maxX + 8, y: y + 3,
                       text: read.isContaminant ? "FAIL" : "PASS",
                       color: read.isContaminant ? FASTQPalette.trimmed : FASTQPalette.kept)
+
+            y += readHeight + readSpacing
+        }
+    }
+
+    // MARK: - Low-Complexity Filter Preview
+
+    private func drawLowComplexityFilterPreview(ctx: CGContext, rect: CGRect) {
+        let reads: [(label: String, isLowComplexity: Bool)] = [
+            ("Normal read", false),
+            ("ATCATCATCATC…", true),
+            ("Normal read", false),
+            ("AAAAAAAAAAAA…", true),
+            ("Normal read", false),
+            ("Normal read", false),
+        ]
+
+        var y = rect.minY + 24
+        let readWidth = rect.width - 80
+
+        let summaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: FASTQPalette.summaryText,
+        ]
+        let passing = reads.filter { !$0.isLowComplexity }.count
+        let summary = NSAttributedString(
+            string: "Low-Complexity Filter: \(passing) of \(reads.count) reads pass",
+            attributes: summaryAttrs
+        )
+        summary.draw(at: CGPoint(x: rect.midX - summary.size().width / 2, y: rect.minY))
+
+        for read in reads {
+            guard y + readHeight <= rect.maxY else { return }
+
+            let readRect = CGRect(x: rect.minX, y: y, width: readWidth, height: readHeight)
+            let readPath = CGPath(
+                roundedRect: readRect,
+                cornerWidth: readCornerRadius,
+                cornerHeight: readCornerRadius,
+                transform: nil
+            )
+
+            let color: NSColor = read.isLowComplexity
+                ? FASTQPalette.trimmed.withAlphaComponent(0.3)
+                : FASTQPalette.readFill.withAlphaComponent(0.5)
+            ctx.addPath(readPath)
+            ctx.setFillColor(color.cgColor)
+            ctx.fillPath()
+
+            if read.isLowComplexity {
+                let repeatAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
+                    .foregroundColor: FASTQPalette.trimmed,
+                ]
+                NSAttributedString(string: read.label, attributes: repeatAttrs)
+                    .draw(at: CGPoint(x: readRect.minX + 4, y: readRect.minY + 4))
+            }
+
+            drawBadge(ctx: ctx, x: readRect.maxX + 8, y: y + 3,
+                      text: read.isLowComplexity ? "FAIL" : "PASS",
+                      color: read.isLowComplexity ? FASTQPalette.trimmed : FASTQPalette.kept)
 
             y += readHeight + readSpacing
         }

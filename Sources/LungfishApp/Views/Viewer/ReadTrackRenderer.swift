@@ -52,7 +52,7 @@ public enum ReadTrackRenderer {
     static let maxReadRows: Int = 75
 
     /// Minimum pixels per read to render individually.
-    static let minReadPixels: CGFloat = 2
+    nonisolated static let minReadPixels: CGFloat = 2
 
     /// Zoom tier thresholds.
     static let coverageThresholdBpPerPx: Double = ReadViewportPolicy.coverageThresholdBpPerPx
@@ -634,6 +634,55 @@ public enum ReadTrackRenderer {
         sortPosition: Int? = nil,
         prioritizedRegion: Range<Int>? = nil
     ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int) {
+        packReads(
+            reads,
+            frame: ReadPackFrame(frame),
+            maxRows: maxRows,
+            sortMode: sortMode,
+            sortPosition: sortPosition,
+            prioritizedRegion: prioritizedRegion,
+            shouldCancel: nil
+        )
+    }
+
+    /// Cancellable variant of `packReads`.
+    ///
+    /// `shouldCancel` is consulted periodically inside the assignment loop so a
+    /// pack running on a background task for an extreme-depth window can be
+    /// abandoned when the user zooms, sorts, or changes the row limit. It
+    /// returns `nil` when the pack was cancelled; the non-throwing overload
+    /// above never cancels and never returns nil.
+    public nonisolated static func packReads(
+        _ reads: [AlignedRead],
+        frame: ReadPackFrame,
+        maxRows: Int?,
+        sortMode: ReadSortMode,
+        sortPosition: Int?,
+        prioritizedRegion: Range<Int>?,
+        shouldCancel: (() -> Bool)?
+    ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int) {
+        let ordered = orderReadsForPacking(
+            reads,
+            sortMode: sortMode,
+            sortPosition: sortPosition,
+            prioritizedRegion: prioritizedRegion
+        )
+        return assignRows(
+            ordered: ordered,
+            frame: frame,
+            maxRows: maxRows,
+            shouldCancel: shouldCancel
+        )
+    }
+
+    /// The sort + prioritization half of packing, split out so tests can feed
+    /// the exact same ordering to the linear-scan oracle.
+    nonisolated static func orderReadsForPacking(
+        _ reads: [AlignedRead],
+        sortMode: ReadSortMode,
+        sortPosition: Int?,
+        prioritizedRegion: Range<Int>?
+    ) -> [AlignedRead] {
         let sorted: [AlignedRead]
         switch sortMode {
         case .position:
@@ -687,63 +736,58 @@ public enum ReadTrackRenderer {
                 sorted = reads.sorted { $0.position < $1.position }
             }
         }
-        let ordered: [AlignedRead]
-        if let prioritizedRegion {
-            var visible: [AlignedRead] = []
-            var nearby: [AlignedRead] = []
-            visible.reserveCapacity(sorted.count / 2)
-            nearby.reserveCapacity(sorted.count / 2)
-            for read in sorted {
-                if read.alignmentEnd > prioritizedRegion.lowerBound && read.position < prioritizedRegion.upperBound {
-                    visible.append(read)
-                } else {
-                    nearby.append(read)
-                }
+        guard let prioritizedRegion else { return sorted }
+        var visible: [AlignedRead] = []
+        var nearby: [AlignedRead] = []
+        visible.reserveCapacity(sorted.count / 2)
+        nearby.reserveCapacity(sorted.count / 2)
+        for read in sorted {
+            if read.alignmentEnd > prioritizedRegion.lowerBound && read.position < prioritizedRegion.upperBound {
+                visible.append(read)
+            } else {
+                nearby.append(read)
             }
-            ordered = visible + nearby
-        } else {
-            ordered = sorted
         }
+        return visible + nearby
+    }
 
+    /// First-fit row assignment over an already-ordered read list.
+    ///
+    /// Row choice is delegated to `ReadRowAllocator`, whose segment tree answers
+    /// "lowest-index row whose end pixel is at most `startPx - gap`" in
+    /// `O(log rows)`. The placement rule is byte-for-byte the one the previous
+    /// linear scan implemented; only the search cost changed, from
+    /// `O(reads x rows)` to `O(reads log rows)`.
+    nonisolated static func assignRows(
+        ordered: [AlignedRead],
+        frame: ReadPackFrame,
+        maxRows: Int?,
+        shouldCancel: (() -> Bool)? = nil
+    ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int) {
         let rowCap = maxRows.flatMap { $0 > 0 ? $0 : nil }
-        var rowEndPixels = rowCap.map { [CGFloat](repeating: -1, count: $0) } ?? []
+        var allocator = ReadRowAllocator(
+            rowCap: rowCap,
+            expectedRows: max(16, min(4_096, ordered.count / 8 + 1))
+        )
         var packed: [(Int, AlignedRead)] = []
+        packed.reserveCapacity(ordered.count)
         var overflow = 0
 
-        for read in ordered {
+        for (index, read) in ordered.enumerated() {
+            // Cancellation is checked in coarse batches so the closure call does
+            // not itself become the hot path at 600k reads.
+            if let shouldCancel, index & 0x3FFF == 0, shouldCancel() {
+                return ([], 0)
+            }
             let startPx = frame.genomicToPixel(Double(read.position))
             let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
             guard endPx - startPx >= minReadPixels else { continue }
 
-            // Find first available row
-            var placed = false
-            if let rowCap {
-                for row in 0..<rowCap {
-                    if startPx >= rowEndPixels[row] + 2 { // 2px gap
-                        packed.append((row, read))
-                        rowEndPixels[row] = endPx
-                        placed = true
-                        break
-                    }
-                }
-                if !placed {
-                    overflow += 1
-                }
-            } else {
-                for row in rowEndPixels.indices {
-                    if startPx >= rowEndPixels[row] + 2 {
-                        packed.append((row, read))
-                        rowEndPixels[row] = endPx
-                        placed = true
-                        break
-                    }
-                }
-                if !placed {
-                    // Unlimited rows mode: allocate a new row when no existing row fits.
-                    let newRow = rowEndPixels.count
-                    rowEndPixels.append(endPx)
-                    packed.append((newRow, read))
-                }
+            switch allocator.place(startPx: startPx, endPx: endPx, gap: 2) {
+            case .placed(let row):
+                packed.append((row, read))
+            case .overflow:
+                overflow += 1
             }
         }
 
@@ -2308,7 +2352,7 @@ public enum ReadTrackRenderer {
 
     /// Returns a sort key for the base at a reference position in a read.
     /// Used for base-at-position sorting to investigate variants.
-    private static func baseAtRefPos(_ read: AlignedRead, pos: Int) -> UInt8 {
+    private nonisolated static func baseAtRefPos(_ read: AlignedRead, pos: Int) -> UInt8 {
         guard pos >= read.position, pos < read.alignmentEnd else { return 255 }
         let seqBytes = Array(read.sequence.utf8)
         var byteIndex = 0

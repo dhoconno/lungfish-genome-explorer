@@ -1249,7 +1249,7 @@ final class FastqCommandTests: XCTestCase {
     /// Verifies that FastqCommand has all 43 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 43, "FastqCommand should have 43 subcommands")
+        XCTAssertEqual(subcommands.count, 44, "FastqCommand should have 44 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
@@ -1257,7 +1257,7 @@ final class FastqCommandTests: XCTestCase {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         let expected = [
             "subsample", "length-filter", "trim", "quality-trim", "adapter-trim", "fixed-trim",
-            "contaminant-filter", "primer-remove", "error-correct",
+            "contaminant-filter", "entropy-filter", "primer-remove", "error-correct",
             "merge", "repair", "deinterleave", "interleave", "deduplicate",
             "demultiplex", "ont-fluidigm-samples", "ont-pacbio-barcode-demux", "scout", "import-ont", "materialize", "qc-summary",
             "pbaa-cluster", "savont-cluster", "full-length-ont-mhc-genotype", "genotype", "genotype-cohort", "update-current-workbook", "ont-genotype", "ont-barcode-genotype", "search-text", "search-motif", "orient", "scrub-human",
@@ -1468,6 +1468,61 @@ final class FastqCommandTests: XCTestCase {
 
         XCTAssertTrue(args.contains("ref=\(phixReference.path)"))
         XCTAssertFalse(args.contains("ref=phix174_ill.ref.fa.gz"))
+    }
+
+    // MARK: - Low-Complexity (Entropy) Filter Argument Parsing
+
+    /// Verifies that entropy-filter parses entropy, window, and kmer options.
+    func testEntropyFilterParsesOptions() throws {
+        let cmd = try FastqEntropyFilterSubcommand.parse([
+            "input.fq", "--entropy", "0.7", "--window", "40", "--kmer", "4",
+            "--threads", "8", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.entropy, 0.7, accuracy: 0.0001)
+        XCTAssertEqual(cmd.window, 40)
+        XCTAssertEqual(cmd.kmer, 4)
+        XCTAssertEqual(cmd.threads, 8)
+    }
+
+    /// Verifies the benchmarked defaults: entropy 0.6, window 50, k 5.
+    func testEntropyFilterDefaults() throws {
+        let cmd = try FastqEntropyFilterSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.entropy, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(cmd.window, 50)
+        XCTAssertEqual(cmd.kmer, 5)
+    }
+
+    /// The bbduk invocation must carry entropy/entropywindow/entropyk and a heap cap.
+    func testEntropyFilterBBDukArguments() throws {
+        let args = FastqEntropyFilterSubcommand.bbdukArguments(
+            inputURL: URL(fileURLWithPath: "/tmp/input.fq"),
+            outputPath: "/tmp/out.fq",
+            entropy: 0.6,
+            window: 50,
+            kmer: 5,
+            threads: 4,
+            heapGB: 4
+        )
+        XCTAssertTrue(args.contains("in=/tmp/input.fq"))
+        XCTAssertTrue(args.contains("out=/tmp/out.fq"))
+        XCTAssertTrue(args.contains("entropy=0.6"))
+        XCTAssertTrue(args.contains("entropywindow=50"))
+        XCTAssertTrue(args.contains("entropyk=5"))
+        XCTAssertTrue(args.contains("threads=4"))
+        XCTAssertTrue(args.contains("-Xmx4g"))
+        // Entropy filtering never uses a contaminant reference.
+        XCTAssertFalse(args.contains { $0.hasPrefix("ref=") })
+    }
+
+    func testEntropyFilterRejectsOutOfRangeEntropy() {
+        XCTAssertThrowsError(try FastqEntropyFilterSubcommand.validate(entropy: 0.1, window: 50, kmer: 5))
+        XCTAssertThrowsError(try FastqEntropyFilterSubcommand.validate(entropy: 1.5, window: 50, kmer: 5))
+        XCTAssertThrowsError(try FastqEntropyFilterSubcommand.validate(entropy: 0.6, window: 0, kmer: 5))
+        XCTAssertThrowsError(try FastqEntropyFilterSubcommand.validate(entropy: 0.6, window: 50, kmer: 0))
+        XCTAssertNoThrow(try FastqEntropyFilterSubcommand.validate(entropy: 0.3, window: 50, kmer: 5))
+        XCTAssertNoThrow(try FastqEntropyFilterSubcommand.validate(entropy: 0.9, window: 50, kmer: 5))
     }
 
     // MARK: - Deacon rRNA Argument Parsing
