@@ -111,3 +111,63 @@ final class GzipLineSourceBackpressureTests: XCTestCase {
         }
     }
 }
+
+extension GzipLineSourceBackpressureTests {
+    /// Teardown must never hang on a child that ignores SIGTERM (regression:
+    /// the 2026-08-23 unit gate hung 54 minutes in `finishProcess`'s
+    /// unbounded `waitUntilExit`).
+    func testWaitBoundedKillsAChildThatIgnoresSIGTERM() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "trap '' TERM; sleep 1000"]
+        try? process.run()
+        // Give the shell a moment to install the trap.
+        usleep(300_000)
+        process.terminate()
+        let started = Date()
+        GzipLineSource.waitBounded(process, timeout: 1.0)
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertFalse(process.isRunning)
+        XCTAssertLessThan(elapsed, 5.0, "bounded wait must escalate to SIGKILL, not hang")
+    }
+
+    /// Abandoning a lines() iterator mid-file (consumer breaks early) must
+    /// tear the gzip child down promptly instead of leaking or hanging.
+    func testAbandoningTheStreamMidFileTearsDownPromptly() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gzip-abandon-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let plain = dir.appendingPathComponent("big.txt")
+        // Big enough that gzip cannot fit the whole output in the pipe buffer.
+        let line = String(repeating: "ACGT", count: 250)
+        try Array(repeating: line, count: 60_000).joined(separator: "\n")
+            .write(to: plain, atomically: true, encoding: .utf8)
+        let gz = Process()
+        gz.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gz.arguments = [plain.path]
+        try gz.run(); gz.waitUntilExit()
+        let gzURL = dir.appendingPathComponent("big.txt.gz")
+
+        let started = Date()
+        do {
+            let stream = try GzipInputStream(url: gzURL)
+            var count = 0
+            for try await _ in stream.lines() {
+                count += 1
+                if count >= 10 { break }
+            }
+            XCTAssertEqual(count, 10)
+        }
+        // The abandoned source's child must be gone well before the bounded
+        // timeout: SIGPIPE from the closed pipe or SIGTERM finishes it.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 8.0)
+        let lingering = try? Process.run(
+            URL(fileURLWithPath: "/usr/bin/pgrep"),
+            arguments: ["-f", "gzip -dc \(gzURL.path)"]
+        )
+        lingering?.waitUntilExit()
+        XCTAssertNotEqual(lingering?.terminationStatus, 0, "no gzip child may outlive its abandoned line source")
+    }
+}
