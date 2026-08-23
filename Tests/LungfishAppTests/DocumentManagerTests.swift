@@ -68,6 +68,32 @@ final class DocumentManagerTests: XCTestCase {
 
     // MARK: - 1. DocumentType Detection Tests
 
+    /// A FASTQ "document" is a bounded sequence-list view: reading must stop at
+    /// the record cap so opening a large FASTQ cannot grow with the file.
+    func testLoadFASTQStopsAtTheDocumentRecordCap() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fastq-doc-cap-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("big.fastq")
+        let cap = DocumentManager.maxFASTQDocumentRecords
+        var text = ""
+        for i in 0..<(cap + 250) {
+            text += "@r\(i)\nACGT\n+\nIIII\n"
+        }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+
+        let document = try await DocumentManager.shared.loadDocument(at: url)
+        XCTAssertEqual(document.sequences.count, cap)
+        XCTAssertTrue(document.isTruncated)
+
+        let small = dir.appendingPathComponent("small.fastq")
+        try "@a\nACGT\n+\nIIII\n".write(to: small, atomically: true, encoding: .utf8)
+        let smallDocument = try await DocumentManager.shared.loadDocument(at: small)
+        XCTAssertEqual(smallDocument.sequences.count, 1)
+        XCTAssertFalse(smallDocument.isTruncated)
+    }
+
     func testDetectFasta() {
         let extensions = ["fa", "fasta", "fna", "fas"]
         for ext in extensions {

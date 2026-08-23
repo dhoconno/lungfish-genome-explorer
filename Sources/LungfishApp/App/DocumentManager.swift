@@ -81,6 +81,10 @@ public final class LoadedDocument: Identifiable {
     /// the indexed genome files.
     public var bundleManifest: BundleManifest?
 
+    /// True when a FASTQ document held more than ``DocumentManager/maxFASTQDocumentRecords``
+    /// records and only the first records were loaded.
+    public var isTruncated = false
+
     public init(url: URL, type: DocumentType) {
         self.url = url
         self.name = url.lastPathComponent
@@ -581,12 +585,26 @@ public final class DocumentManager {
         logger.info("loadFASTA: Assigned sequences to document")
     }
 
+    /// Upper bound on FASTQ records materialised as in-memory `Sequence` objects
+    /// by ``loadFASTQ(into:)``.
+    ///
+    /// A FASTQ "document" is the lightweight sequence-list view; real datasets
+    /// are shown through the streaming FASTQ dashboard (seqkit summary plus a
+    /// 100k-read sample). Each loaded record costs roughly ten times its
+    /// on-disk size (String bases plus a per-base quality array), so loading a
+    /// whole multi-gigabyte FASTQ here drove the app to 92 GB resident and the
+    /// machine out of memory on 2026-08-22 if it were uncapped. Reading stops at
+    /// the cap and ``LoadedDocument/isTruncated`` is set.
+    public static let maxFASTQDocumentRecords = 10_000
+
     private func loadFASTQ(into document: LoadedDocument) async throws {
         logger.info("loadFASTQ: Creating FASTQReader for \(document.url.path, privacy: .public)")
 
         let reader = FASTQReader()
         var sequences: [Sequence] = []
         var count = 0
+        var skipped = 0
+        let limit = Self.maxFASTQDocumentRecords
 
         logger.info("loadFASTQ: Starting to read records...")
 
@@ -610,14 +628,19 @@ public final class DocumentManager {
                 logger.debug("loadFASTQ: Read \(count) records so far...")
             }
 
-            // Limit for memory
-            if count >= 10000 {
-                logger.info("loadFASTQ: Reached 10000 record limit")
+            // Limit for memory: stop reading (the pull-based reader decompresses
+            // nothing further) and flag the document as a partial view.
+            if count >= limit {
+                skipped = 1
+                logger.info("loadFASTQ: Reached the \(limit)-record document cap; remaining records are not loaded")
                 break
             }
         }
 
         logger.info("loadFASTQ: Read \(sequences.count) sequences total with quality scores preserved")
+        if skipped > 0 {
+            document.isTruncated = true
+        }
         document.sequences = sequences
     }
 
