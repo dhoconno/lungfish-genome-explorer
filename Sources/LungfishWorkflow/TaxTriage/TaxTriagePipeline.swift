@@ -623,11 +623,21 @@ public actor TaxTriagePipeline {
     /// Set to `1` to keep the Nextflow launch scratch (including `work/`) after a run.
     static let keepWorkEnvironmentKey = "LUNGFISH_TAXTRIAGE_KEEP_WORK"
 
-    nonisolated func makeLocalLaunchScratch(contextURL: URL) throws -> LaunchScratch {
+    nonisolated func makeLocalLaunchScratch(
+        contextURL: URL,
+        volumeSupportsLocks: Bool? = nil
+    ) throws -> LaunchScratch {
+        // The scratch stays on the PROJECT volume whenever it supports the
+        // file locks Nextflow's cache needs: external project SSDs are
+        // usually far larger than the boot volume, so multi-GB work trees
+        // belong there. Only a lock-incapable volume (exFAT via FSKit, some
+        // network mounts) forces local storage.
+        let lockCapable = volumeSupportsLocks
+            ?? VolumeFileLockProbe.volumeSupportsFileLocks(at: contextURL)
         let root = try ProjectTempDirectory.create(
             prefix: "taxtriage-run-",
             contextURL: contextURL,
-            policy: .systemOnly
+            policy: lockCapable ? .preferProjectContext : .systemOnly
         )
         let workDirectory = root.appendingPathComponent("work", isDirectory: true)
         try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)

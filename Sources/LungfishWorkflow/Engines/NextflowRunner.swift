@@ -168,12 +168,14 @@ public actor NextflowRunner: WorkflowRunner {
         // Nextflow needs POSIX file locks for its `.nextflow/` cache DB and for
         // the work tree. Projects on exFAT/FAT/SMB volumes do not provide them,
         // and Nextflow aborts with "Nextflow needs to be executed in a shared
-        // file system that supports file locks". Launch from local scratch and
-        // keep the work tree there; results still publish to `outputDirectory`.
+        // file system that supports file locks". Launch from a scratch that
+        // stays on the project volume when it supports locks (external SSDs
+        // usually dwarf the boot volume) and falls back to local storage only
+        // when it does not; results still publish to `outputDirectory`.
         let scratchRoot = try ProjectTempDirectory.create(
             prefix: "nextflow-run-",
             contextURL: workDir,
-            policy: .systemOnly
+            policy: VolumeFileLockProbe.volumeSupportsFileLocks(at: workDir) ? .preferProjectContext : .systemOnly
         )
         let nextflowWorkDirectory = scratchRoot.appendingPathComponent("work", isDirectory: true)
         try FileManager.default.createDirectory(

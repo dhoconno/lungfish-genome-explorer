@@ -34,7 +34,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let resultDirectory = try makeTempDirectory(prefix: "taxtriage-result")
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: false)
         defer { pipeline.cleanUpLaunchScratch(scratch) }
 
         XCTAssertFalse(
@@ -58,7 +58,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let resultDirectory = try makeTempDirectory(prefix: "taxtriage-result")
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: scratch.launchDirectory.path))
 
         pipeline.cleanUpLaunchScratch(scratch)
@@ -122,7 +122,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let resultDirectory = try makeTempDirectory(prefix: "taxtriage-result")
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: false)
         defer { pipeline.cleanUpLaunchScratch(scratch) }
 
         let sample = TaxTriageSample(
@@ -247,5 +247,41 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         )
 
         XCTAssertEqual(diagnostics, "boom")
+    }
+}
+
+extension TaxTriageLockCapableLaunchTests {
+    /// A lock-capable project volume keeps the multi-GB Nextflow scratch on
+    /// that volume (in the project's `.tmp`), not on the often-small boot
+    /// volume; only lock-incapable volumes relocate to local storage.
+    func testLockCapableVolumeKeepsScratchOnTheProjectVolume() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory
+            .appendingPathComponent("locks-\(UUID().uuidString).lungfish", isDirectory: true)
+        let resultDirectory = projectRoot
+            .appendingPathComponent("Analyses/taxtriage-batch/sample", isDirectory: true)
+        try fm.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let pipeline = TaxTriagePipeline()
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: true)
+        defer { pipeline.cleanUpLaunchScratch(scratch) }
+
+        XCTAssertTrue(
+            scratch.launchDirectory.standardizedFileURL.path.hasPrefix(
+                projectRoot.standardizedFileURL.appendingPathComponent(".tmp").path
+            ),
+            "lock-capable volumes host the scratch inside the project's .tmp: \(scratch.launchDirectory.path)"
+        )
+        XCTAssertFalse(
+            scratch.launchDirectory.standardizedFileURL.path.hasPrefix(resultDirectory.standardizedFileURL.path),
+            "the scratch never lives inside the result directory"
+        )
+    }
+
+    /// The default placement consults a real lock probe; APFS supports locks.
+    func testLockProbeReportsLocksSupportedOnTheLocalVolume() {
+        XCTAssertTrue(VolumeFileLockProbe.volumeSupportsFileLocks(at: FileManager.default.temporaryDirectory))
+        XCTAssertTrue(VolumeFileLockProbe.probe(in: FileManager.default.temporaryDirectory))
     }
 }
