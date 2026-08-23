@@ -155,6 +155,74 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
     }
 
+    /// One synthetic read served by a fake samtools; returns after the fetch
+    /// has landed so callers can pack and draw deterministically.
+    @MainActor
+    private func makeViewerWithOneFetchedRead() async throws -> (ViewerViewController, SequenceViewerView.DetachedAlignmentSource, GenomicRegion) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("detached-hittest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("samtools")
+        try """
+        #!/bin/sh
+        for argument in "$@"; do
+          if [ "$argument" = "-c" ]; then printf '1\\n'; exit 0; fi
+        done
+        printf 'selected\\t0\\tchr1\\t11\\t60\\t4M\\t*\\t0\\t0\\tACTG\\t????\\n'
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let bam = directory.appendingPathComponent("evidence.bam")
+        let source = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: bam,
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: bam.path, indexPath: "\(bam.path).bai", samtoolsPath: script.path),
+            referenceSequence: nil
+        )
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        viewer.displayDetachedAlignment(source)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+        viewer.viewerView.fetchDetachedReads(source: source, region: region)
+        for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 1 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return (viewer, source, region)
+    }
+
+    /// Read clicks in the detached (classifier evidence) viewer must hit-test:
+    /// the draw path forgot to store `readContentHeight`, so `readAtPoint`
+    /// computed a zero-height clickable area and every click fell through to
+    /// 1 bp sequence selection (reported against EsViritu on 2026-08-23).
+    func testDetachedReadHitTestFindsAReadAfterDrawing() async throws {
+        let (viewer, source, region) = try await makeViewerWithOneFetchedRead()
+        let frame = try XCTUnwrap(viewer.referenceFrame)
+        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
+        _ = source
+
+        // Render into an offscreen context so the draw path publishes its
+        // layout geometry (lastRenderedReadY, readContentHeight, tier).
+        let view = try XCTUnwrap(viewer.viewerView)
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 800, pixelsHigh: 600,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        let ctx = NSGraphicsContext(bitmapImageRep: rep)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        view.draw(view.bounds)
+        NSGraphicsContext.restoreGraphicsState()
+
+        XCTAssertGreaterThan(view.testReadContentHeight, 0, "the detached draw must publish the read content height")
+        let read = try XCTUnwrap(view.testCachedPackedReads.first?.1)
+        let midX = CGFloat((frame.genomicToPixel(Double(read.position)) + frame.genomicToPixel(Double(read.alignmentEnd))) / 2)
+        let y = view.testLastRenderedReadY + 2
+        XCTAssertEqual(view.testReadAtPoint(NSPoint(x: midX, y: y))?.id, read.id,
+                       "a click on the drawn read must hit-test to that read")
+    }
+
     /// Async packing means `prepareDetachedReadLayout` only queues a background
     /// pack; drain it so assertions see the resulting layout (same seam
     /// `ReadLayoutCacheTests` uses).

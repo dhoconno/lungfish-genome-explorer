@@ -727,6 +727,7 @@ extension SequenceViewerView {
         let rowsY = coverageRect.maxY + coverageToConsensusGap
         lastRenderedReadY = rowsY
         guard tier != .coverage else {
+            readContentHeight = 0
             drawReadZoomHint(context: context, yOffset: rowsY + 2, scale: scale)
             return
         }
@@ -734,18 +735,28 @@ extension SequenceViewerView {
             && (cachedReadRegion?.start ?? Int.max) <= region.start
             && (cachedReadRegion?.end ?? Int.min) >= region.end
         if !readsCovered && !isFetchingReads { fetchDetachedReads(source: source, region: region) }
-        guard !cachedAlignedReads.isEmpty else { return }
+        guard !cachedAlignedReads.isEmpty else {
+            readContentHeight = 0
+            return
+        }
 
         let (packed, overflow, maxRows) = prepareDetachedReadLayout(region: region, frame: frame)
         guard !packed.isEmpty else {
             // The layout is still being packed in the background; the coverage
             // strip above stays on screen while the badge explains the wait.
+            readContentHeight = 0
             drawReadLoadingBadge(context: context, yOffset: rowsY + 2)
             drawReadBudgetBanner(context: context, yOffset: rowsY + 2)
             return
         }
         let rowCount = (packed.map(\.row).max() ?? -1) + 1
         let contentHeight = ReadTrackRenderer.totalHeight(rowCount: rowCount, tier: tier, verticalCompress: verticallyCompressContigSetting)
+        // Read hit-testing (`readAtPoint`) sizes its clickable area from
+        // `readContentHeight`. The bundle-backed path has always stored it, but
+        // this detached path never did, so the height stayed 0 and every read
+        // click in classifier evidence viewers fell through to plain sequence
+        // selection (never caught: tests selected reads programmatically).
+        readContentHeight = contentHeight
         let rect = CGRect(x: 0, y: rowsY, width: bounds.width, height: contentHeight)
         let settings = ReadTrackRenderer.DisplaySettings(
             showMismatches: showMismatchesSetting,

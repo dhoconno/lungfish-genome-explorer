@@ -1645,6 +1645,14 @@ public class SequenceViewerView: NSView {
         cachedAlignedReads = reads
     }
 
+    var testReadContentHeight: CGFloat { readContentHeight }
+
+    var testLastRenderedReadY: CGFloat { lastRenderedReadY }
+
+    func testReadAtPoint(_ point: NSPoint) -> AlignedRead? {
+        readAtPoint(point)
+    }
+
     func testSetCachedPackedReads(_ rows: [(Int, AlignedRead)]) {
         cachedPackedReads = rows
     }
