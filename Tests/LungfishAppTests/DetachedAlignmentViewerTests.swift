@@ -73,7 +73,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         let frame = try XCTUnwrap(viewer.referenceFrame)
-        _ = viewer.viewerView.prepareDetachedReadLayout(region: region, frame: frame)
+        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
         let initiallyPacked = viewer.viewerView.testCachedPackedReads
         guard initiallyPacked.count == 2 else { return XCTFail("Detached fetch did not reach the renderer") }
         let selectedSecondID = initiallyPacked[1].1.id
@@ -85,7 +85,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 2 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        _ = viewer.viewerView.prepareDetachedReadLayout(region: region, frame: frame)
+        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
 
         let reparsedPacked = viewer.viewerView.testCachedPackedReads
         guard reparsedPacked.count == 2 else { return XCTFail("Detached refetch did not reach the renderer") }
@@ -137,7 +137,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 1 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        _ = viewer.viewerView.prepareDetachedReadLayout(region: region, frame: frame)
+        preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
         let selected = try XCTUnwrap(viewer.viewerView.testCachedPackedReads.first?.1)
         viewer.viewerView.testSetSelectedReadIDs([selected.id])
         NotificationCenter.default.post(name: .readSelected, object: viewer.viewerView, userInfo: [NotificationUserInfoKey.alignedRead: selected])
@@ -153,6 +153,24 @@ final class DetachedAlignmentViewerTests: XCTestCase {
 
         XCTAssertTrue(viewer.viewerView.testSelectedReadIDs.isEmpty)
         XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
+    }
+
+    /// Async packing means `prepareDetachedReadLayout` only queues a background
+    /// pack; drain it so assertions see the resulting layout (same seam
+    /// `ReadLayoutCacheTests` uses).
+    @MainActor
+    private func preparePackedLayoutSynchronously(
+        _ view: SequenceViewerView,
+        region: GenomicRegion,
+        frame: ReferenceFrame
+    ) {
+        let result = view.prepareDetachedReadLayout(region: region, frame: frame)
+        view.testDrainPendingPack(
+            reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
+            frame: ReadPackFrame(frame),
+            maxRows: result.maxRows,
+            prioritizedRegion: region.start..<region.end
+        )
     }
 
     func testSourceReplacementDoesNotRestorePendingSelectionWithMatchingReadIdentity() throws {
