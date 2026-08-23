@@ -69,6 +69,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    /// Whether the currently displayed content's backing file no longer exists.
+    ///
+    /// Used to distinguish a real deletion (blank the viewport, and drop any
+    /// overlay belonging to that item) from transient selection churn during a
+    /// filesystem refresh.
+    var displayedContentWasRemovedFromDisk: Bool {
+        guard let path = activeContentSelectionIdentity?.standardizedURLPath else { return false }
+        return !FileManager.default.fileExists(atPath: path)
+    }
+
     func contentSelectionIdentity(for item: SidebarItem) -> ContentSelectionIdentity {
         ContentSelectionIdentity(
             url: item.url,
@@ -95,6 +105,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     func beginDisplayRequest(
         identity: ContentSelectionIdentity
     ) -> AsyncRequestToken<ContentSelectionIdentity> {
+        // Any change of displayed content invalidates transient overlays that
+        // belonged to the previously displayed result.
+        if activeContentSelectionIdentity != identity {
+            clearTransientViewportState()
+        }
         genotypeResultLoadTask?.cancel()
         genotypeResultLoadTask = nil
         activeContentSelectionIdentity = identity
@@ -102,6 +117,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
     func invalidateDisplayRequest() {
+        clearTransientViewportState()
         genotypeResultLoadTask?.cancel()
         genotypeResultLoadTask = nil
         activeContentSelectionIdentity = nil
@@ -182,7 +198,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 if let item {
                     self.displayContent(for: item)
                 } else {
-                    if self.hasActiveSidebarChildViewport && !userInitiatedInSidebar {
+                    // A programmatic clear caused by the displayed item being
+                    // deleted must still blank the viewport; only transient
+                    // selection churn is ignored.
+                    if self.hasActiveSidebarChildViewport
+                        && !userInitiatedInSidebar
+                        && !self.displayedContentWasRemovedFromDisk {
                         mainSplitLogger.debug("sidebarDidSelectItem: Ignoring non-user selection clear while active child VC is displayed")
                         return
                     }

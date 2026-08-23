@@ -41,14 +41,43 @@ public enum TaxTriagePipelineError: Error, LocalizedError, Sendable {
         case .samplesheetGenerationFailed(let error):
             return "Failed to generate samplesheet: \(error.localizedDescription)"
         case .pipelineFailed(let code, let stderr, _):
-            let stderrSnippet = String(stderr.suffix(500))
-            return "TaxTriage pipeline failed with exit code \(code): \(stderrSnippet)"
+            let snippet = String(stderr.suffix(600))
+            if snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "TaxTriage pipeline failed with exit code \(code) (no diagnostic output was captured)"
+            }
+            return "TaxTriage pipeline failed with exit code \(code): \(snippet)"
         case .cancelled:
             return "TaxTriage pipeline was cancelled"
         case .prerequisiteFailed(let tool, let reason):
             return "\(tool) prerequisite check failed: \(reason)"
         }
     }
+}
+
+/// Builds the human-facing diagnostic text for a failed tool invocation.
+///
+/// Nextflow writes its most actionable failures (for example
+/// `Can't open cache DB ... Nextflow needs to be executed in a shared file
+/// system that supports file locks`) to **stdout**, not stderr. Surfacing only
+/// stderr produced empty error messages such as
+/// `TaxTriage pipeline failed with exit code 1: `, so fall back to the tail of
+/// stdout whenever stderr is empty or blank.
+///
+/// - Parameters:
+///   - stderr: Captured standard error.
+///   - stdout: Captured standard output.
+///   - limit: Maximum number of characters retained from the chosen stream.
+/// - Returns: The trimmed tail of stderr, or of stdout when stderr is blank.
+func taxTriageFailureDiagnostics(
+    stderr: String,
+    stdout: String,
+    limit: Int = 600
+) -> String {
+    let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    let source = trimmedStderr.isEmpty
+        ? stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        : trimmedStderr
+    return String(source.suffix(limit))
 }
 
 private extension Array where Element == URL {
@@ -334,17 +363,28 @@ public actor TaxTriagePipeline {
             }
         }
 
+        // Nextflow requires POSIX file locks for its `.nextflow/` cache DB and
+        // for the work tree. exFAT/FAT/SMB volumes (common for external drives
+        // holding sequencing projects) do not provide them, so Nextflow aborts
+        // with "Nextflow needs to be executed in a shared file system that
+        // supports file locks". Always launch from local scratch and keep the
+        // work tree there; published results still land in the project.
+        let scratch = try makeLocalLaunchScratch(contextURL: effectiveConfig.outputDirectory)
+        defer { cleanUpLaunchScratch(scratch) }
+
         let arguments = buildNextflowLaunchArguments(
             config: effectiveConfig,
             runtimeConfigURL: runtimeConfigURL,
             pipelineLaunchTarget: pipelineProjectSource.launchTarget,
-            pipelineRevision: pipelineProjectSource.revision
+            pipelineRevision: pipelineProjectSource.revision,
+            workDirectory: scratch.workDirectory
         )
         let reproducibleArguments = buildNextflowLaunchArguments(
             config: effectiveConfig,
             runtimeConfigURL: runtimeConfigURL,
             pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
-            pipelineRevision: effectiveConfig.revision
+            pipelineRevision: effectiveConfig.revision,
+            workDirectory: scratch.workDirectory
         )
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
         let reproducibleMicromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + reproducibleArguments
@@ -358,8 +398,9 @@ public actor TaxTriagePipeline {
             launcherPath: micromambaPath.path,
             launcherArguments: micromambaArgs,
             reproducibleLauncherArguments: reproducibleMicromambaArgs,
-            workingDirectory: effectiveConfig.outputDirectory,
+            workingDirectory: scratch.launchDirectory,
             environment: environment,
+            nextflowWorkDirectory: scratch.workDirectory,
             workflowRepository: TaxTriageConfig.pipelineRepository,
             workflowRevision: effectiveConfig.revision,
             workflowGithubReleaseVersion: TaxTriageConfig.githubReleaseVersion(for: effectiveConfig.revision),
@@ -381,7 +422,7 @@ public actor TaxTriagePipeline {
             handle = try await processManager.spawn(
                 executable: micromambaPath,
                 arguments: micromambaArgs,
-                workingDirectory: effectiveConfig.outputDirectory,
+                workingDirectory: scratch.launchDirectory,
                 environment: environment
             )
         } catch {
@@ -460,7 +501,13 @@ public actor TaxTriagePipeline {
         try? combinedLog.write(to: logFile, atomically: true, encoding: .utf8)
 
         if exitCode != 0 {
-            let stderrText = stderrLines.joined(separator: "\n")
+            // Nextflow reports lock/cache-DB failures on stdout, so fall back to
+            // the stdout tail when stderr is empty; otherwise the surfaced error
+            // is just "failed with exit code 1: ".
+            let stderrText = taxTriageFailureDiagnostics(
+                stderr: stderrLines.joined(separator: "\n"),
+                stdout: stdoutLines.joined(separator: "\n")
+            )
             await recordTaxTriageProvenanceStep(
                 runID: runID,
                 config: profileAdjustedConfig,
@@ -558,6 +605,52 @@ public actor TaxTriagePipeline {
         logger.info("TaxTriage pipeline complete: \(sampleCount, privacy: .public) sample(s), \(runtimeStr, privacy: .public)s")
 
         return result
+    }
+
+    // MARK: - Local launch scratch
+
+    /// A local, lock-capable scratch area used as the Nextflow launch
+    /// directory (host of `.nextflow/` cache + history) and work tree.
+    struct LaunchScratch: Sendable {
+        /// Process working directory for the Nextflow launcher.
+        let launchDirectory: URL
+        /// Value passed to `nextflow -w`.
+        let workDirectory: URL
+        /// Root to delete once the run finishes; `nil` when kept for debugging.
+        let cleanupRoot: URL?
+    }
+
+    /// Set to `1` to keep the Nextflow launch scratch (including `work/`) after a run.
+    static let keepWorkEnvironmentKey = "LUNGFISH_TAXTRIAGE_KEEP_WORK"
+
+    nonisolated func makeLocalLaunchScratch(contextURL: URL) throws -> LaunchScratch {
+        let root = try ProjectTempDirectory.create(
+            prefix: "taxtriage-run-",
+            contextURL: contextURL,
+            policy: .systemOnly
+        )
+        let workDirectory = root.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        let keepWork = ProcessInfo.processInfo.environment[Self.keepWorkEnvironmentKey] == "1"
+        if keepWork {
+            logger.info("Keeping TaxTriage launch scratch at \(root.path, privacy: .public)")
+        }
+        return LaunchScratch(
+            launchDirectory: root,
+            workDirectory: workDirectory,
+            cleanupRoot: keepWork ? nil : root
+        )
+    }
+
+    nonisolated func cleanUpLaunchScratch(_ scratch: LaunchScratch) {
+        guard let cleanupRoot = scratch.cleanupRoot else { return }
+        do {
+            try FileManager.default.removeItem(at: cleanupRoot)
+        } catch {
+            logger.warning(
+                "Failed to clean TaxTriage launch scratch \(cleanupRoot.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     nonisolated func prepareExecutionConfig(for config: TaxTriageConfig) throws -> PreparedExecutionConfig {
@@ -1043,7 +1136,8 @@ public actor TaxTriagePipeline {
     nonisolated func buildNextflowArguments(
         config: TaxTriageConfig,
         pipelineLaunchTarget: String,
-        pipelineRevision: String?
+        pipelineRevision: String?,
+        workDirectory: URL? = nil
     ) -> [String] {
         var args: [String] = ["run"]
 
@@ -1065,6 +1159,16 @@ public actor TaxTriagePipeline {
         // Trace file for progress tracking
         let traceFile = config.outputDirectory.appendingPathComponent("trace.txt")
         args += ["-with-trace", traceFile.path]
+
+        // Nextflow work directory.
+        //
+        // The work tree needs POSIX file locks, which exFAT/FAT/SMB volumes do
+        // not provide. Keeping it on a local scratch volume avoids
+        // "Nextflow needs to be executed in a shared file system that supports
+        // file locks" failures for projects that live on external drives.
+        if let workDirectory {
+            args += ["-w", workDirectory.path]
+        }
 
         // Database
         if let dbPath = config.kraken2DatabasePath {
@@ -1110,12 +1214,14 @@ public actor TaxTriagePipeline {
         config: TaxTriageConfig,
         runtimeConfigURL: URL,
         pipelineLaunchTarget: String,
-        pipelineRevision: String?
+        pipelineRevision: String?,
+        workDirectory: URL? = nil
     ) -> [String] {
         ["-c", runtimeConfigURL.path] + buildNextflowArguments(
             config: config,
             pipelineLaunchTarget: pipelineLaunchTarget,
-            pipelineRevision: pipelineRevision
+            pipelineRevision: pipelineRevision,
+            workDirectory: workDirectory
         )
     }
 
@@ -1443,6 +1549,7 @@ public actor TaxTriagePipeline {
         reproducibleLauncherArguments: [String]? = nil,
         workingDirectory: URL,
         environment: [String: String],
+        nextflowWorkDirectory: URL? = nil,
         workflowRepository: String = TaxTriageConfig.pipelineRepository,
         workflowRevision: String,
         workflowGithubReleaseVersion: String?,
@@ -1467,6 +1574,7 @@ public actor TaxTriagePipeline {
             "requested_output_directory: \(requestedConfig.outputDirectory.path)",
             "effective_output_directory: \(effectiveConfig.outputDirectory.path)",
             "working_directory: \(workingDirectory.path)",
+            "nextflow_work_directory: \(nextflowWorkDirectory?.path ?? "")",
             "nextflow_command: \(shellCommand(executablePath: "nextflow", arguments: nextflowArguments))",
         ])
         if let reproducibleNextflowArguments {

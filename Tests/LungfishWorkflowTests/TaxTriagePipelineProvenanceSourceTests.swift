@@ -97,6 +97,82 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
     }
 }
 
+extension TaxTriagePipelineProvenanceSourceTests {
+
+    /// Nextflow needs POSIX file locks for `.nextflow/cache` and its work tree.
+    /// exFAT project volumes do not provide them, so the launch must happen from
+    /// local scratch while `--outdir` still points at the project result dir.
+    func testTaxTriageLaunchesFromLocalScratchWhilePublishingToResultDirectory() async throws {
+        let fixture = try FakeTaxTriageRuntimeFixture()
+        defer { fixture.cleanup() }
+
+        let recordURL = fixture.root.appendingPathComponent("launch-record.txt")
+        setenv("LUNGFISH_TAXTRIAGE_FAKE_LAUNCH_RECORD", recordURL.path, 1)
+        defer { unsetenv("LUNGFISH_TAXTRIAGE_FAKE_LAUNCH_RECORD") }
+
+        let fastqURL = fixture.root.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+        let outputURL = fixture.root.appendingPathComponent("taxtriage-output", isDirectory: true)
+        let config = TaxTriageConfig(
+            samples: [TaxTriageSample(sampleId: "S1", fastq1: fastqURL, platform: .illumina)],
+            outputDirectory: outputURL,
+            profile: "conda",
+            revision: "fixture-revision"
+        )
+        let pipeline = TaxTriagePipeline(
+            condaManager: fixture.condaManager,
+            homeDirectoryProvider: { fixture.home }
+        )
+
+        let result = try await pipeline.run(config: config)
+        XCTAssertEqual(result.exitCode, 0)
+
+        let record = try String(contentsOf: recordURL, encoding: .utf8)
+        let fields = Dictionary(
+            uniqueKeysWithValues: record
+                .split(separator: "\n")
+                .compactMap { line -> (String, String)? in
+                    guard let separator = line.firstIndex(of: "=") else { return nil }
+                    return (String(line[line.startIndex..<separator]), String(line[line.index(after: separator)...]))
+                }
+        )
+
+        let launchPWD = try XCTUnwrap(fields["pwd"])
+        let workDir = try XCTUnwrap(fields["workdir"])
+        let outdir = try XCTUnwrap(fields["outdir"])
+        let outputPath = outputURL.standardizedFileURL.path
+
+        XCTAssertFalse(
+            URL(fileURLWithPath: launchPWD).standardizedFileURL.path.hasPrefix(outputPath),
+            "Nextflow must not be launched from the project result directory (pwd=\(launchPWD))"
+        )
+        XCTAssertFalse(workDir.isEmpty, "-w must be passed so the work tree is lock-capable")
+        XCTAssertFalse(
+            URL(fileURLWithPath: workDir).standardizedFileURL.path.hasPrefix(outputPath),
+            "The Nextflow work tree must not live in the project result directory"
+        )
+        XCTAssertEqual(
+            URL(fileURLWithPath: outdir).standardizedFileURL.path,
+            outputPath,
+            "Published results must still land in the caller's result directory"
+        )
+
+        // Scratch is cleaned up after a successful run.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: URL(fileURLWithPath: workDir).path),
+            "The scratch work tree must be removed once the run finishes"
+        )
+
+        // The recorded launch metadata reflects the real directories.
+        let metadata = try String(
+            contentsOf: outputURL.appendingPathComponent("taxtriage-launch-command.txt"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(metadata.contains("nextflow_work_directory: \(workDir)"))
+        XCTAssertFalse(metadata.contains("working_directory: \(outputPath)\n"))
+    }
+}
+
 private struct FakeTaxTriageRuntimeFixture {
     let root: URL
     let home: URL
@@ -183,6 +259,7 @@ private struct FakeTaxTriageRuntimeFixture {
     fi
     outdir=""
     trace=""
+    workdir=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --outdir)
@@ -193,9 +270,17 @@ private struct FakeTaxTriageRuntimeFixture {
           shift
           trace="$1"
           ;;
+        -w)
+          shift
+          workdir="$1"
+          ;;
       esac
       shift
     done
+    if [ -n "${LUNGFISH_TAXTRIAGE_FAKE_LAUNCH_RECORD:-}" ]; then
+      printf 'pwd=%s\\nworkdir=%s\\noutdir=%s\\n' "$PWD" "$workdir" "$outdir" \\
+        > "$LUNGFISH_TAXTRIAGE_FAKE_LAUNCH_RECORD"
+    fi
     if [ -z "$outdir" ]; then
       echo "missing --outdir" >&2
       exit 64

@@ -2562,7 +2562,32 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertEqual(invocation.arguments.first, "run")
         XCTAssertTrue(invocation.arguments.contains("nf-core/viralrecon"))
-        XCTAssertEqual(invocation.workingDirectory.path, bundleURL.appendingPathComponent("outputs", isDirectory: true).path)
+        // Nextflow needs POSIX file locks for `.nextflow/` cache + history and for
+        // its work tree; project volumes are frequently exFAT/SMB, which do not
+        // provide them. The launch must therefore happen from local scratch, with
+        // an explicit local -work-dir, while results still publish to --results-dir.
+        XCTAssertFalse(
+            invocation.workingDirectory.standardizedFileURL.path
+                .hasPrefix(bundleURL.standardizedFileURL.path),
+            "Nextflow must not be launched from inside the project run bundle"
+        )
+        let workDirectoryIndex = try XCTUnwrap(
+            invocation.arguments.firstIndex(of: "-work-dir"),
+            "An explicit local -work-dir must be passed when the caller did not pin one"
+        )
+        let workDirectoryPath = invocation.arguments[workDirectoryIndex + 1]
+        XCTAssertTrue(
+            workDirectoryPath.hasPrefix(invocation.workingDirectory.standardizedFileURL.path),
+            "The work tree must live under the local launch scratch"
+        )
+        XCTAssertFalse(
+            workDirectoryPath.hasPrefix(resultsURL.standardizedFileURL.path),
+            "The work tree must not live in the project results directory"
+        )
+        XCTAssertTrue(
+            invocation.arguments.contains("--outdir"),
+            "Published results must still target the caller's results directory"
+        )
 
         let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
         XCTAssertEqual(manifest.workflowName, "viralrecon")

@@ -2966,6 +2966,12 @@ public class ViewerViewController: NSViewController {
         hideAssemblyView()
         hideMappingView()
         hideAlignmentTreeBundleViews()
+        // Bundle-hosted child viewports: without these a debounced selection
+        // change (or the displayed bundle being deleted) left the previous
+        // bundle rendered in the viewport instead of clearing it.
+        hideTwelveSAmpliconResultView()
+        hideGenotypeResultView()
+        hideMHCReferenceBundleView()
 
         // Clear bundle display state (chromosome navigator, data provider)
         clearBundleDisplay()

@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 extension NFCoreExecutor: ExpressibleByArgument {}
@@ -617,9 +618,26 @@ struct RunSubcommand: AsyncParsableCommand {
             ),
             to: runBundleURL
         )
+        // Nextflow needs POSIX file locks for `.nextflow/` cache + history and
+        // for its work tree. Project volumes are frequently exFAT/SMB, which do
+        // not provide them ("Nextflow needs to be executed in a shared file
+        // system that supports file locks"). Launch from local scratch and, when
+        // the caller did not pin --work-dir, keep the work tree there too.
+        let launchScratch = try ProjectTempDirectory.create(
+            prefix: "nfcore-run-",
+            contextURL: runBundleURL,
+            policy: .systemOnly
+        )
+        defer { try? FileManager.default.removeItem(at: launchScratch) }
+        let scratchWorkDirectory = launchScratch.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratchWorkDirectory, withIntermediateDirectories: true)
+        var launchArguments = request.nextflowArguments
+        if request.workDirectory == nil {
+            launchArguments += ["-work-dir", scratchWorkDirectory.path]
+        }
         let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(
-            arguments: request.nextflowArguments,
-            workingDirectory: runBundleURL.appendingPathComponent("outputs", isDirectory: true)
+            arguments: launchArguments,
+            workingDirectory: launchScratch
         )
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
         let processCompletedAt = Date()

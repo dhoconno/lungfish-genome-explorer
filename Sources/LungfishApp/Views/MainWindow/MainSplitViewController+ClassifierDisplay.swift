@@ -577,6 +577,7 @@ extension MainSplitViewController {
 
         let contentView = viewerController.view
         contentView.addSubview(placeholder)
+        registerTransientViewportOverlay(placeholder)
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -685,6 +686,7 @@ extension MainSplitViewController {
                             if placeholder.superview == nil {
                                 let contentView = self.viewerController.view
                                 contentView.addSubview(placeholder)
+                                self.registerTransientViewportOverlay(placeholder)
                                 placeholder.translatesAutoresizingMaskIntoConstraints = false
                                 NSLayoutConstraint.activate([
                                     placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),

@@ -1132,7 +1132,12 @@ public class SidebarViewController: NSViewController {
             // During filesystem churn, nested rows can briefly disappear/rebuild between
             // scans. Avoid emitting a synthetic "selection cleared" event from refreshes;
             // explicit user deselection still flows through outlineViewSelectionDidChange.
-            if !selectedURLSet.isEmpty && restoredItems.isEmpty {
+            //
+            // A row that vanished because the file was DELETED is a different case:
+            // preserving the viewport there leaves the removed item rendered (and any
+            // overlay belonging to it on screen), so propagate the clear.
+            if !selectedURLSet.isEmpty && restoredItems.isEmpty
+                && !Self.allSelectionURLsRemovedFromDisk(selectedURLSet) {
                 sidebarLogger.debug("reloadFromFilesystem: Selection temporarily unavailable after refresh, preserving active content")
             } else {
                 handleSelectionChange(restoredItems, source: "reloadFromFilesystem")
@@ -1147,6 +1152,15 @@ public class SidebarViewController: NSViewController {
         let itemCount = rootItems.reduce(0) { $0 + countItems(in: $1) }
         sidebarLogger.info("reloadFromFilesystem: Sidebar updated with \(itemCount) items")
         scheduleUniversalSearchRebuild()
+    }
+
+    /// Whether every previously-selected URL has disappeared from disk.
+    ///
+    /// Distinguishes a real deletion (clear the viewport) from transient
+    /// filesystem churn where the row is rebuilt moments later (keep it).
+    static func allSelectionURLsRemovedFromDisk(_ urls: Set<URL>) -> Bool {
+        guard !urls.isEmpty else { return false }
+        return urls.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func captureScrollAnchor() -> SidebarScrollAnchor? {

@@ -515,6 +515,41 @@ public class MainSplitViewController: NSSplitViewController {
     var activeContentSelectionIdentity: ContentSelectionIdentity?
     var displayRequestGate = AsyncRequestGate<ContentSelectionIdentity>()
 
+    /// Transient overlays layered directly on the viewport (not owned by
+    /// ``ViewerViewController``'s `hide…View()` family).
+    ///
+    /// These belong to exactly one displayed result. They must be torn down on
+    /// **any** change of displayed content — a different sidebar selection, a
+    /// cleared selection, or the displayed item disappearing from disk —
+    /// otherwise a stale "Database build failed" error stays on screen over an
+    /// unrelated analysis. Registered here so ``clearTransientViewportState()``
+    /// is the single chokepoint that removes them.
+    private var transientViewportOverlays: [NSView] = []
+
+    /// Registers a transient viewport overlay for automatic teardown.
+    func registerTransientViewportOverlay(_ overlay: NSView) {
+        transientViewportOverlays.removeAll { $0 === overlay || $0.superview == nil }
+        transientViewportOverlays.append(overlay)
+    }
+
+    /// Removes every transient viewport overlay.
+    ///
+    /// Called at the top of every display/clear transition
+    /// (``beginDisplayRequest(identity:)`` and ``invalidateDisplayRequest()``),
+    /// so no caller has to remember to clean up per-site.
+    func clearTransientViewportState() {
+        guard !transientViewportOverlays.isEmpty else { return }
+        for overlay in transientViewportOverlays {
+            overlay.removeFromSuperview()
+        }
+        transientViewportOverlays.removeAll()
+    }
+
+    /// Test seam: number of transient overlays still attached to the viewport.
+    var attachedTransientViewportOverlayCount: Int {
+        transientViewportOverlays.filter { $0.superview != nil }.count
+    }
+
     // MARK: - FASTQ Loading State
 
     /// Background task for FASTQ statistics/sample loading.

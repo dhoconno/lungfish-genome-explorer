@@ -7,6 +7,7 @@
 import Foundation
 import os.log
 import LungfishCore
+import LungfishIO
 
 // MARK: - NextflowRunner
 
@@ -164,6 +165,28 @@ public actor NextflowRunner: WorkflowRunner {
             workDirectory: workDir
         )
 
+        // Nextflow needs POSIX file locks for its `.nextflow/` cache DB and for
+        // the work tree. Projects on exFAT/FAT/SMB volumes do not provide them,
+        // and Nextflow aborts with "Nextflow needs to be executed in a shared
+        // file system that supports file locks". Launch from local scratch and
+        // keep the work tree there; results still publish to `outputDirectory`.
+        let scratchRoot = try ProjectTempDirectory.create(
+            prefix: "nextflow-run-",
+            contextURL: workDir,
+            policy: .systemOnly
+        )
+        let nextflowWorkDirectory = scratchRoot.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: nextflowWorkDirectory,
+            withIntermediateDirectories: true
+        )
+        let keepScratch = ProcessInfo.processInfo.environment[Self.keepWorkEnvironmentKey] == "1"
+        defer {
+            if !keepScratch {
+                try? FileManager.default.removeItem(at: scratchRoot)
+            }
+        }
+
         // Register execution for tracking
         let (executionId, stateMachine) = await baseRunner.registerExecution(workflowId: workflow.id)
 
@@ -189,9 +212,9 @@ public actor NextflowRunner: WorkflowRunner {
         let paramArgs = parameters.toNextflowArguments()
         arguments.append(contentsOf: paramArgs)
 
-        // Add work directory
+        // Add work directory (local scratch — see the lock note above)
         arguments.append("-work-dir")
-        arguments.append(workDir.appendingPathComponent("work").path)
+        arguments.append(nextflowWorkDirectory.path)
 
         // Add output directory
         arguments.append("--outdir")
@@ -231,7 +254,7 @@ public actor NextflowRunner: WorkflowRunner {
             handle = try await baseRunner.processManager.spawn(
                 executable: execPath,
                 arguments: arguments,
-                workingDirectory: workDir,
+                workingDirectory: scratchRoot,
                 environment: environment
             )
         } catch {
@@ -288,10 +311,12 @@ public actor NextflowRunner: WorkflowRunner {
             try await stateMachine.markCompleted()
             Self.logger.info("Nextflow execution completed successfully")
         } else {
+            // Nextflow reports lock/cache-DB failures on stdout, so fall back to
+            // the stdout tail when stderr is blank.
             let error = WorkflowError.executionFailed(
                 workflowName: workflow.name,
                 exitCode: exitCode,
-                stderr: stderr,
+                stderr: Self.failureDiagnostics(stderr: stderr, stdout: stdout),
                 logFile: logFile
             )
             try await stateMachine.markFailed(error: error)
@@ -322,7 +347,7 @@ public actor NextflowRunner: WorkflowRunner {
             throw WorkflowError.executionFailed(
                 workflowName: workflow.name,
                 exitCode: exitCode,
-                stderr: stderr,
+                stderr: Self.failureDiagnostics(stderr: stderr, stdout: stdout),
                 logFile: logFile
             )
         }
@@ -336,6 +361,20 @@ public actor NextflowRunner: WorkflowRunner {
     }
 
     // MARK: - Private Methods
+
+    /// Set to `1` to keep the Nextflow launch scratch (including `work/`) after a run.
+    static let keepWorkEnvironmentKey = "LUNGFISH_NEXTFLOW_KEEP_WORK"
+
+    /// Chooses the diagnostic stream for a failed Nextflow run.
+    ///
+    /// Nextflow prints its most actionable errors (for example the file-lock
+    /// cache-DB abort) to stdout, so an empty stderr must not produce an empty
+    /// failure message.
+    static func failureDiagnostics(stderr: String, stdout: String, limit: Int = 600) -> String {
+        let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedStderr.isEmpty else { return trimmedStderr }
+        return String(stdout.trimmingCharacters(in: .whitespacesAndNewlines).suffix(limit))
+    }
 
     /// Parses the version string from Nextflow output.
     private func parseVersion(from output: String) -> String? {
