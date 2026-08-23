@@ -34,7 +34,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let resultDirectory = try makeTempDirectory(prefix: "taxtriage-result")
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: false)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeQualifiesForScratch: false)
         defer { pipeline.cleanUpLaunchScratch(scratch) }
 
         XCTAssertFalse(
@@ -58,7 +58,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let resultDirectory = try makeTempDirectory(prefix: "taxtriage-result")
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: false)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeQualifiesForScratch: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: scratch.launchDirectory.path))
 
         pipeline.cleanUpLaunchScratch(scratch)
@@ -122,7 +122,7 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         let resultDirectory = try makeTempDirectory(prefix: "taxtriage-result")
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: false)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeQualifiesForScratch: false)
         defer { pipeline.cleanUpLaunchScratch(scratch) }
 
         let sample = TaxTriageSample(
@@ -264,7 +264,7 @@ extension TaxTriageLockCapableLaunchTests {
         defer { try? fm.removeItem(at: projectRoot) }
 
         let pipeline = TaxTriagePipeline()
-        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeSupportsLocks: true)
+        let scratch = try pipeline.makeLocalLaunchScratch(contextURL: resultDirectory, volumeQualifiesForScratch: true)
         defer { pipeline.cleanUpLaunchScratch(scratch) }
 
         XCTAssertTrue(
@@ -279,9 +279,43 @@ extension TaxTriageLockCapableLaunchTests {
         )
     }
 
-    /// The default placement consults a real lock probe; APFS supports locks.
+    /// The default placement consults real probes; APFS supports locks and
+    /// native xattrs, so the local volume qualifies.
     func testLockProbeReportsLocksSupportedOnTheLocalVolume() {
-        XCTAssertTrue(VolumeFileLockProbe.volumeSupportsFileLocks(at: FileManager.default.temporaryDirectory))
-        XCTAssertTrue(VolumeFileLockProbe.probe(in: FileManager.default.temporaryDirectory))
+        XCTAssertTrue(NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: FileManager.default.temporaryDirectory))
+        XCTAssertTrue(NextflowScratchVolumeProbe.probeFileLocks(in: FileManager.default.temporaryDirectory))
+        XCTAssertTrue(NextflowScratchVolumeProbe.probeNativeExtendedAttributes(in: FileManager.default.temporaryDirectory))
+    }
+
+    /// A volume that materializes AppleDouble sidecars for xattrs (exFAT via
+    /// FSKit) is disqualified: stray `._` files crash Nextflow's LevelDB
+    /// cache with NumberFormatException. Simulated by pre-planting the
+    /// sidecar the probe looks for.
+    func testAppleDoubleSidecarDisqualifiesTheVolume() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xattr-probe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let name = ".lungfish-xattrprobe-simulated"
+        FileManager.default.createFile(
+            atPath: directory.appendingPathComponent("._\(name)").path,
+            contents: Data()
+        )
+        XCTAssertFalse(NextflowScratchVolumeProbe.probeNativeExtendedAttributes(in: directory, probeName: name))
+    }
+
+    /// Real-volume conformance check, gated on an environment variable that
+    /// points at a directory on a volume known to shim xattrs into
+    /// AppleDouble sidecars (e.g. exFAT via FSKit). Skipped otherwise.
+    func testRealSidecarVolumeIsDisqualified() throws {
+        guard let dir = ProcessInfo.processInfo.environment["LUNGFISH_REAL_SIDECAR_VOLUME_DIR"] else {
+            throw XCTSkip("Set LUNGFISH_REAL_SIDECAR_VOLUME_DIR to a directory on an exFAT/FSKit volume")
+        }
+        let url = URL(fileURLWithPath: dir, isDirectory: true)
+        XCTAssertFalse(
+            NextflowScratchVolumeProbe.probeNativeExtendedAttributes(in: url),
+            "expected AppleDouble sidecars on \(dir)"
+        )
+        XCTAssertFalse(NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: url))
     }
 }

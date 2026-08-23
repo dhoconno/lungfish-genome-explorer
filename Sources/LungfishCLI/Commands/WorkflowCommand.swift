@@ -618,17 +618,16 @@ struct RunSubcommand: AsyncParsableCommand {
             ),
             to: runBundleURL
         )
-        // Nextflow needs POSIX file locks for `.nextflow/` cache + history and
-        // for its work tree. Project volumes are frequently exFAT/SMB, which do
-        // not provide them ("Nextflow needs to be executed in a shared file
-        // system that supports file locks"). The scratch stays on the bundle's
-        // volume when it supports locks (external SSDs usually dwarf the boot
+        // Nextflow's `.nextflow/` cache + history need POSIX file locks and
+        // a volume free of AppleDouble `._` xattr sidecars (see
+        // NextflowScratchVolumeProbe). The scratch stays on the bundle's
+        // volume when it qualifies (external SSDs usually dwarf the boot
         // volume) and moves to local storage only when it does not; when the
         // caller did not pin --work-dir, the work tree follows the scratch.
         let launchScratch = try ProjectTempDirectory.create(
             prefix: "nfcore-run-",
             contextURL: runBundleURL,
-            policy: VolumeFileLockProbe.volumeSupportsFileLocks(at: runBundleURL) ? .preferProjectContext : .systemOnly
+            policy: NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: runBundleURL) ? .preferProjectContext : .systemOnly
         )
         defer { try? FileManager.default.removeItem(at: launchScratch) }
         let scratchWorkDirectory = launchScratch.appendingPathComponent("work", isDirectory: true)

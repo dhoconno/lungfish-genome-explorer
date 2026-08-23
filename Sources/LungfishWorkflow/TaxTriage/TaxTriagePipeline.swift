@@ -363,12 +363,13 @@ public actor TaxTriagePipeline {
             }
         }
 
-        // Nextflow requires POSIX file locks for its `.nextflow/` cache DB and
-        // for the work tree. exFAT/FAT/SMB volumes (common for external drives
-        // holding sequencing projects) do not provide them, so Nextflow aborts
-        // with "Nextflow needs to be executed in a shared file system that
-        // supports file locks". Always launch from local scratch and keep the
-        // work tree there; published results still land in the project.
+        // Nextflow's `.nextflow/` cache DB needs POSIX file locks AND a
+        // volume free of AppleDouble `._` sidecars (exFAT via FSKit shims
+        // xattrs into sidecars that crash the LevelDB cache; Nextflow
+        // misreports both as "needs a shared file system that supports file
+        // locks"). The launch scratch stays on the project volume when it
+        // qualifies and moves to local storage only when it does not;
+        // published results still land in the project.
         let scratch = try makeLocalLaunchScratch(contextURL: effectiveConfig.outputDirectory)
         defer { cleanUpLaunchScratch(scratch) }
 
@@ -625,19 +626,20 @@ public actor TaxTriagePipeline {
 
     nonisolated func makeLocalLaunchScratch(
         contextURL: URL,
-        volumeSupportsLocks: Bool? = nil
+        volumeQualifiesForScratch: Bool? = nil
     ) throws -> LaunchScratch {
-        // The scratch stays on the PROJECT volume whenever it supports the
-        // file locks Nextflow's cache needs: external project SSDs are
-        // usually far larger than the boot volume, so multi-GB work trees
-        // belong there. Only a lock-incapable volume (exFAT via FSKit, some
-        // network mounts) forces local storage.
-        let lockCapable = volumeSupportsLocks
-            ?? VolumeFileLockProbe.volumeSupportsFileLocks(at: contextURL)
+        // The scratch stays on the PROJECT volume whenever it can host
+        // Nextflow's cache: external project SSDs are usually far larger
+        // than the boot volume, so multi-GB work trees belong there. Only a
+        // disqualified volume (no fcntl locks, or AppleDouble xattr sidecars
+        // that crash the LevelDB cache — exFAT via FSKit, some network
+        // mounts) forces local storage. See NextflowScratchVolumeProbe.
+        let scratchCapable = volumeQualifiesForScratch
+            ?? NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: contextURL)
         let root = try ProjectTempDirectory.create(
             prefix: "taxtriage-run-",
             contextURL: contextURL,
-            policy: lockCapable ? .preferProjectContext : .systemOnly
+            policy: scratchCapable ? .preferProjectContext : .systemOnly
         )
         let workDirectory = root.appendingPathComponent("work", isDirectory: true)
         try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
