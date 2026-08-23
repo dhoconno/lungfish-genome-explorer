@@ -35,6 +35,8 @@ A debug test build is NOT a release and must never be signed, notarized, tagged,
 4. Launch it with `open build/Debug/Lungfish.app` for the user, or run `build/Debug/Lungfish.app/Contents/MacOS/Lungfish` from a shell when `LUNGFISH_*` environment overrides are needed (environment variables only reach the app from a direct shell launch). Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
 5. Report the commit hash, the branch, the absolute `.app` path, and the unit-tier PASS line. Say plainly that the build is unsigned and for local testing only.
 
+6. A SwiftPM debug bundle is NOT self-contained: the generated `Bundle.module` accessors resolve each module's resource bundle either at the `.app` root or at the absolute `.build/arm64-apple-macosx/debug/<name>.bundle` path of the checkout that compiled it, never under `Contents/Resources`. The app therefore crashes at first use of a bundled resource (`NSBundle.module` assertion, seen 2026-08-23 as a `lungfishTeal` palette crash) if that `.build` directory is deleted or the app is copied away from a checkout whose `.build` is gone. Build debug apps from the primary checkout when they must outlive a worktree, never delete a worktree or its `.build` while a debug app built from it is installed or running, and rebuild `/Applications/Lungfish Debug.app` from the primary checkout after removing a worktree.
+
 Do not reuse `build/Release/` or `build-notarized-dmg.sh` for a debug build, and do not delete `build/Debug/Lungfish.app` when cleaning up a release run unless the user asks.
 
 ## Load Current Authority
