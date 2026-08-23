@@ -1167,8 +1167,7 @@ public enum FASTQIngestionService {
     ) async throws -> (url: URL, stepResults: [RecipeStepResult]) {
         let runner = NativeToolRunner.shared
         let threadCount = max(1, ProcessInfo.processInfo.activeProcessorCount)
-        let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
-        let heapGB = max(4, min(31, physicalMemoryGB * 60 / 100))
+        let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
 
         var currentR1 = r1
         var currentR2 = r2

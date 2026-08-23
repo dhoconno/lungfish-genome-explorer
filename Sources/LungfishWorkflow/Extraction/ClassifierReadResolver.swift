@@ -69,6 +69,30 @@ public actor ClassifierReadResolver {
     ///
     /// - Parameter resultPath: A file or directory URL inside a Lungfish project.
     /// - Returns: The project root directory, or `resultPath`'s parent on fallback.
+    /// Top-level project folder that holds read extractions.
+    public static let extractionsFolderName = "Extractions"
+
+    /// Directory that classifier extraction bundles are written into.
+    ///
+    /// Extractions are derived data, not sequence imports, so they live in
+    /// their own top-level `<project>/Extractions/` folder (the same folder
+    /// the viewer's region extraction uses) rather than alongside imported
+    /// samples in `Imports/`. The folder is created if needed.
+    ///
+    /// An explicit caller-chosen directory that is already named `Extractions`
+    /// (or that lives outside a project) is honoured as-is rather than nested.
+    public static func bundleDestinationDirectory(projectRoot: URL) throws -> URL {
+        let fm = FileManager.default
+        let standardized = projectRoot.standardizedFileURL
+        if standardized.lastPathComponent == extractionsFolderName {
+            try fm.createDirectory(at: standardized, withIntermediateDirectories: true)
+            return standardized
+        }
+        let extractions = standardized.appendingPathComponent(extractionsFolderName, isDirectory: true)
+        try fm.createDirectory(at: extractions, withIntermediateDirectories: true)
+        return extractions
+    }
+
     public static func resolveProjectRoot(from resultPath: URL) -> URL {
         let fm = FileManager.default
         var isDirectory: ObjCBool = false
@@ -600,6 +624,10 @@ public actor ClassifierReadResolver {
 
         var allProducedURLs: [URL] = []
         var provenanceSourceURLs = existingUniqueURLs([resultPath])
+        // Samples whose sidecar or source FASTQ could not be resolved. These
+        // used to be dropped silently, so the user saw a "success" that
+        // omitted whole samples.
+        var skippedSamples: [String] = []
 
         for (jobIndex, job) in sampleJobs.enumerated() {
             try Task.checkCancellation()
@@ -618,6 +646,7 @@ public actor ClassifierReadResolver {
                 logger.warning(
                     "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private(mask: .hash))"
                 )
+                skippedSamples.append(sampleLabel)
                 continue
             }
             provenanceSourceURLs.append(job.sampleResultPath)
@@ -631,6 +660,7 @@ public actor ClassifierReadResolver {
                 logger.warning(
                     "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)) — source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"
                 )
+                skippedSamples.append(sampleLabel)
                 continue
             }
             provenanceSourceURLs.append(contentsOf: sourceFASTQs)
@@ -673,6 +703,9 @@ public actor ClassifierReadResolver {
         }
 
         guard !allProducedURLs.isEmpty else {
+            if !skippedSamples.isEmpty {
+                throw ClassifierExtractionError.allSamplesSkipped(skippedSamples)
+            }
             throw ClassifierExtractionError.zeroReadsExtracted
         }
         try Task.checkCancellation()
@@ -699,7 +732,7 @@ public actor ClassifierReadResolver {
         }
 
         progress?(0.9, "Routing to destination…")
-        return try await routeToDestination(
+        let outcome = try await routeToDestination(
             finalFile: finalFile,
             readCount: readCount,
             destination: destination,
@@ -708,6 +741,13 @@ public actor ClassifierReadResolver {
             extractionStartedAt: startedAt,
             progress: progress
         )
+        if !skippedSamples.isEmpty {
+            progress?(
+                1.0,
+                "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) with unresolvable source data: \(skippedSamples.joined(separator: ", "))"
+            )
+        }
+        return outcome
     }
 
     /// Resolves the Kraken2 source FASTQ(s) for extraction.
@@ -722,6 +762,19 @@ public actor ClassifierReadResolver {
     private func resolveKraken2SourceFASTQs(
         classResult: ClassificationResult
     ) throws -> [URL] {
+        try Self.resolveKraken2SourceFASTQs(classResult: classResult)
+    }
+
+    /// Shared implementation of Kraken2 source FASTQ resolution.
+    ///
+    /// Exposed as a static so non-extraction callers (notably the BLAST
+    /// verification handlers in the viewer, which previously used
+    /// `config.inputFiles.first` raw) resolve the same source file. Using
+    /// `inputFiles` directly breaks whenever the classification ran against a
+    /// materialized temp FASTQ that has since been deleted.
+    public static func resolveKraken2SourceFASTQs(
+        classResult: ClassificationResult
+    ) throws -> [URL] {
         let fm = FileManager.default
         let config = classResult.config
 
@@ -729,8 +782,7 @@ public actor ClassifierReadResolver {
         if let originals = config.originalInputFiles,
            let first = originals.first,
            fm.fileExists(atPath: first.path) {
-            if FASTQBundle.isBundleURL(first),
-               let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: first) {
+            if let resolved = resolveBundlePayloadIfNeeded(first) {
                 return [resolved]
             }
             return originals
@@ -741,16 +793,41 @@ public actor ClassifierReadResolver {
         let derivativesDir = config.outputDirectory.deletingLastPathComponent()
         let bundleDir = derivativesDir.deletingLastPathComponent()
         if FASTQBundle.isBundleURL(bundleDir),
-           let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir) {
+           let resolved = FASTQBundle.resolvePrimarySequenceURL(for: bundleDir) {
             return [resolved]
         }
 
         // 3. Fall back to config.inputFiles if they exist.
         if let first = config.inputFiles.first, fm.fileExists(atPath: first.path) {
+            if let resolved = resolveBundlePayloadIfNeeded(first) {
+                return [resolved]
+            }
             return config.inputFiles
         }
 
         throw ClassifierExtractionError.kraken2SourceMissing
+    }
+
+    /// When `url` names a `.lungfishfastq` bundle directory, resolves it to the
+    /// payload file inside. Returns `nil` when `url` is not a bundle (callers
+    /// then use the URL as-is).
+    private static func resolveBundlePayloadIfNeeded(_ url: URL) -> URL? {
+        guard FASTQBundle.isBundleURL(url) else { return nil }
+        return FASTQBundle.resolvePrimarySequenceURL(for: url)
+    }
+
+    /// Resolves the single primary source FASTQ (or FASTA) for a Kraken2
+    /// classification result.
+    ///
+    /// Convenience wrapper for callers that need exactly one file, such as
+    /// BLAST verification read extraction.
+    public static func resolveKraken2PrimarySource(
+        classResult: ClassificationResult
+    ) throws -> URL {
+        guard let first = try resolveKraken2SourceFASTQs(classResult: classResult).first else {
+            throw ClassifierExtractionError.kraken2SourceMissing
+        }
+        return first
     }
 
     // MARK: - File helpers
@@ -973,7 +1050,7 @@ public actor ClassifierReadResolver {
                 sourceName: displayName,
                 selectionDescription: "extract",
                 metadata: bundleMetadata,
-                in: projectRoot
+                in: try Self.bundleDestinationDirectory(projectRoot: projectRoot)
             )
             progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")
             return .bundle(bundleURL, readCount: readCount)
@@ -1116,6 +1193,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
     /// Zero reads were extracted despite a non-empty pre-flight estimate.
     case zeroReadsExtracted
 
+    /// Every selected sample was skipped because its classification sidecar or
+    /// source FASTQ could not be resolved.
+    case allSamplesSkipped([String])
+
     /// The underlying extraction was cancelled.
     case cancelled
 
@@ -1145,6 +1226,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "Cannot combine single-sample and batch-sample selections in one extraction."
         case .zeroReadsExtracted:
             return "The selection produced zero reads. Try adjusting the flag filter or selecting different rows."
+        case .allSamplesSkipped(let samples):
+            return "No reads could be extracted: \(samples.count) sample(s) were skipped because their classification output or source FASTQ could not be located (\(samples.joined(separator: ", ")))."
         case .cancelled:
             return "Extraction was cancelled"
         }

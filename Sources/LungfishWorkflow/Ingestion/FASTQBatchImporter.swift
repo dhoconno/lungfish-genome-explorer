@@ -2160,8 +2160,7 @@ public enum FASTQBatchImporter {
                 let outR1 = workspace.appendingPathComponent("step_\(stepIndex)_R1.fastq")
                 let outR2 = workspace.appendingPathComponent("step_\(stepIndex)_R2.fastq")
                 let env = await bbToolsEnvironment()
-                let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
-                let heapGB = max(4, min(31, physicalMemoryGB * 60 / 100))
+                let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
 
                 switch step.kind {
                 case .deduplicate:

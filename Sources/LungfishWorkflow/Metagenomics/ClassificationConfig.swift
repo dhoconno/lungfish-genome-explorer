@@ -314,6 +314,36 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         outputDirectory.appendingPathComponent("classification.bracken")
     }
 
+    /// The output path for the Bracken re-estimated Kraken-style report.
+    ///
+    /// Bracken always writes this report. Without an explicit `-w` it auto-names
+    /// it `<report>_bracken_<rank>.kreport` beside the input kreport, which left
+    /// the file undeclared in provenance; passing `-w` puts it at a modelled path.
+    public var brackenReportURL: URL {
+        outputDirectory.appendingPathComponent("classification.bracken.kreport")
+    }
+
+    /// The paths Bracken auto-names when `-w` is absent.
+    ///
+    /// Bracken labels the file with the rank word (`..._bracken_species.kreport`)
+    /// in current releases and with the bare level code in older ones. Runs
+    /// recorded before the explicit `-w` was passed still have their report at
+    /// one of these paths, so readers fall back to them.
+    public func legacyBrackenReportURLs(levelCode: String) -> [URL] {
+        let stem = reportURL.deletingPathExtension().lastPathComponent
+        let rankWords = [
+            "D": "domain", "K": "kingdom", "P": "phylum", "C": "class",
+            "O": "order", "F": "family", "G": "genus", "S": "species",
+        ]
+        var labels = [levelCode]
+        if let word = rankWords[levelCode.uppercased()] {
+            labels.insert(word, at: 0)
+        }
+        return labels.map {
+            outputDirectory.appendingPathComponent("\(stem)_bracken_\($0).kreport")
+        }
+    }
+
     /// Provenance file format recorded for input files.
     public var provenanceInputFileFormat: FileFormat {
         switch inputFormat {

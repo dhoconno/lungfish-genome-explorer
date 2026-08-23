@@ -390,6 +390,67 @@ final class FileSystemWatcherTests: XCTestCase {
 
     // MARK: - Sidecar Filter Tests
 
+    // MARK: - Stream policy (2026-08-22 fseventsd OOM)
+
+    func testNativeVolumesGetPerFileEventsAndForeignVolumesDoNot() {
+        XCTAssertEqual(FileSystemWatcher.StreamPolicy.policy(forVolumeTypeName: "apfs"), .nativeVolume)
+        XCTAssertEqual(FileSystemWatcher.StreamPolicy.policy(forVolumeTypeName: "HFS"), .nativeVolume)
+        XCTAssertEqual(FileSystemWatcher.StreamPolicy.policy(forVolumeTypeName: "exfat"), .foreignVolume)
+        XCTAssertEqual(FileSystemWatcher.StreamPolicy.policy(forVolumeTypeName: "smbfs"), .foreignVolume)
+        XCTAssertEqual(FileSystemWatcher.StreamPolicy.policy(forVolumeTypeName: nil), .foreignVolume)
+        XCTAssertFalse(FileSystemWatcher.StreamPolicy.foreignVolume.perFileEvents)
+        XCTAssertGreaterThan(FileSystemWatcher.StreamPolicy.foreignVolume.latency, FileSystemWatcher.StreamPolicy.nativeVolume.latency)
+    }
+
+    @MainActor
+    func testWatcherOnThisVolumeReportsItsPolicy() throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+        let watcher = FileSystemWatcher(onChange: { _ in })
+        watcher.startWatching(directory: tempDir)
+        defer { watcher.stopWatching() }
+        let expected = FileSystemWatcher.StreamPolicy.policy(
+            forVolumeTypeName: FileSystemWatcher.volumeTypeName(of: tempDir)
+        )
+        XCTAssertEqual(watcher.streamPolicy, expected)
+    }
+
+    func testBurstOfChangesCoalescesIntoOneFullReload() {
+        let root = "/proj.lungfish"
+        let paths = (0..<600).map { "\(root)/Analyses/run/sample\($0)/classification.kraken" }
+        let delivery = FileSystemWatcher.classify(
+            paths: paths,
+            flags: Array(repeating: 0, count: paths.count),
+            watchedRootPath: root,
+            policy: .foreignVolume
+        )
+        XCTAssertEqual(delivery, .fullReload(reason: "burst of 600 changes"))
+
+        let small = FileSystemWatcher.classify(
+            paths: Array(paths.prefix(3)),
+            flags: [0, 0, 0],
+            watchedRootPath: root,
+            policy: .foreignVolume
+        )
+        guard case .paths(let changed) = small else { return XCTFail("expected per-path delivery, got \(small)") }
+        XCTAssertEqual(changed.all.count, 3)
+    }
+
+    func testClassifyHonoursRootChangedAndMustScanFlags() {
+        XCTAssertEqual(
+            FileSystemWatcher.classify(paths: ["/p"], flags: [kFSEventStreamEventFlagRootChanged], watchedRootPath: "/p", policy: .nativeVolume),
+            .rootChanged
+        )
+        XCTAssertEqual(
+            FileSystemWatcher.classify(paths: ["/p/x"], flags: [kFSEventStreamEventFlagMustScanSubDirs], watchedRootPath: "/p", policy: .nativeVolume),
+            .fullReload(reason: "MustScanSubDirs flag")
+        )
+        XCTAssertEqual(
+            FileSystemWatcher.classify(paths: ["/p"], flags: [0], watchedRootPath: "/p", policy: .nativeVolume),
+            .none
+        )
+    }
+
     func testSidecarFilterIdentifiesMetaJSON() {
         let metaURL = URL(fileURLWithPath: "/project/Downloads/SRR123.fastq.gz.lungfish-meta.json")
         XCTAssertTrue(FileSystemWatcher.isSidecarPath(metaURL))

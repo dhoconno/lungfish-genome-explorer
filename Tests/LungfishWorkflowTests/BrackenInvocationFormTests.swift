@@ -159,13 +159,19 @@ final class BrackenInvocationFormTests: XCTestCase {
             distributionURL: URL(fileURLWithPath: "/db/database150mers.kmer_distrib"),
             reportURL: URL(fileURLWithPath: "/out/r.kreport"),
             outputURL: URL(fileURLWithPath: "/out/r.bracken"),
+            reportOutputURL: URL(fileURLWithPath: "/out/r.bracken.kreport"),
             readLength: 150,
             levelCode: "S",
             threshold: 10
         )
         XCTAssertEqual(
             args,
-            ["-d", "/db", "-i", "/out/r.kreport", "-o", "/out/r.bracken", "-r", "150", "-l", "S", "-t", "10"]
+            ["-d", "/db", "-i", "/out/r.kreport", "-o", "/out/r.bracken",
+             "-w", "/out/r.bracken.kreport", "-r", "150", "-l", "S", "-t", "10"]
+        )
+        XCTAssertTrue(
+            args.contains("-w"),
+            "Without -w Bracken auto-names the report and nothing can declare it."
         )
     }
 
@@ -176,6 +182,7 @@ final class BrackenInvocationFormTests: XCTestCase {
             distributionURL: URL(fileURLWithPath: "/db/database150mers.kmer_distrib"),
             reportURL: URL(fileURLWithPath: "/out/r.kreport"),
             outputURL: URL(fileURLWithPath: "/out/r.bracken"),
+            reportOutputURL: URL(fileURLWithPath: "/out/r.bracken.kreport"),
             readLength: 150,
             levelCode: "S",
             threshold: 10
@@ -183,7 +190,12 @@ final class BrackenInvocationFormTests: XCTestCase {
         XCTAssertEqual(
             args,
             ["-i", "/out/r.kreport", "-k", "/db/database150mers.kmer_distrib",
-             "-o", "/out/r.bracken", "-l", "S", "-t", "10"]
+             "-o", "/out/r.bracken", "-w", "/out/r.bracken.kreport", "-l", "S", "-t", "10"]
+        )
+        XCTAssertEqual(
+            args[args.firstIndex(of: "-w")! + 1],
+            "/out/r.bracken.kreport",
+            "Both dialects write the re-estimated report to the modelled path."
         )
         XCTAssertFalse(args.contains("-d"), "the passthrough wrapper has no -d and errors when given one")
         XCTAssertFalse(args.contains("-r"), "read length is already baked into the -k distribution file")
@@ -240,6 +252,7 @@ final class BrackenInvocationFormTests: XCTestCase {
             distributionURL: URL(fileURLWithPath: "/db/database150mers.kmer_distrib"),
             reportURL: URL(fileURLWithPath: "/out/r.kreport"),
             outputURL: URL(fileURLWithPath: "/out/r.bracken"),
+            reportOutputURL: URL(fileURLWithPath: "/out/r.bracken.kreport"),
             readLength: 150,
             levelCode: "G",
             threshold: 10

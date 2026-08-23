@@ -21,3 +21,12 @@ normal push Fast gate; do not manually dispatch CI as part of release. A full
 stable GitHub release triggers Build/smoke and Toolset conformance through the
 `released` event, and both must pass before the stable release is complete. See
 `docs/release/dependency-sweep.md` for the full semiannual sweep checklist.
+
+## Debug Test Builds
+
+A build handed to the user for local testing is produced with
+`bash scripts/build-app.sh --debug` after the unit tier passes, yielding
+`build/Debug/Lungfish.app` (bundle id `com.lungfish.browser.debug`, shown as
+"Lungfish Debug"). It is unsigned, not notarized, never tagged or uploaded, and
+built from the feature branch. The full rules live in the shared
+`.codex/skills/releasing-lungfish/SKILL.md` under "Debug Test Builds".

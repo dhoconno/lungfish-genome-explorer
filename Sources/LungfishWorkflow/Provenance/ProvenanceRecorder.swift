@@ -206,17 +206,27 @@ public actor ProvenanceRecorder {
     /// - Parameters:
     ///   - runID: The run to save
     ///   - directory: The output directory to write the sidecar into
+    ///   - dropMissingRunLevelFiles: When true, the run-level `files` and
+    ///     `outputs` roll-ups drop paths that no longer exist on disk. Steps keep
+    ///     their historically true records. Pipelines that delete an intermediate
+    ///     they declared (for example the Kraken2 raw output, which is gzipped
+    ///     and then removed) opt in so the envelope never advertises a file the
+    ///     reader cannot open.
     public func save(
         runID: UUID,
         to directory: URL,
         bundleLayoutRoot: URL? = nil,
-        options: ProvenanceOptions? = nil
+        options: ProvenanceOptions? = nil,
+        dropMissingRunLevelFiles: Bool = false
     ) throws {
         guard let run = runs[runID] else {
             throw ProvenanceError.runNotFound(runID)
         }
         let canonical = run.canonicalEnvelope()
-        let envelope = options.map { canonical.replacingOptions($0) } ?? canonical
+        var envelope = options.map { canonical.replacingOptions($0) } ?? canonical
+        if dropMissingRunLevelFiles {
+            envelope = envelope.droppingMissingRunLevelFiles()
+        }
         let writer = ProvenanceWriter(signingProvider: signingProvider)
         let url: URL
         if let bundleLayoutRoot {
@@ -719,5 +729,47 @@ public enum ProvenanceError: Error, LocalizedError, Sendable {
         case .exportFailed(let reason):
             return "Provenance export failed: \(reason)"
         }
+    }
+}
+
+public extension ProvenanceEnvelope {
+    /// Removes run-level `files`/`outputs` entries whose path is gone, and clears
+    /// the top-level `output` pointer when it names a deleted file.
+    public func droppingMissingRunLevelFiles() -> ProvenanceEnvelope {
+        let fm = FileManager.default
+        let survives: (ProvenanceFileDescriptor) -> Bool = { fm.fileExists(atPath: $0.path) }
+        let keptFiles = files.filter(survives)
+        let keptOutputs = outputs.filter(survives)
+        let keptOutput = output.flatMap { survives($0) ? $0 : keptOutputs.last }
+        guard keptFiles.count != files.count
+            || keptOutputs.count != outputs.count
+            || keptOutput?.path != output?.path else {
+            return self
+        }
+        return ProvenanceEnvelope(
+            schemaVersion: schemaVersion,
+            id: id,
+            createdAt: createdAt,
+            workflowName: workflowName,
+            workflowVersion: workflowVersion,
+            toolName: toolName,
+            toolVersion: toolVersion,
+            githubReleaseVersion: githubReleaseVersion,
+            tool: tool,
+            argv: argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            options: options,
+            runtimeIdentity: runtimeIdentity,
+            files: keptFiles,
+            output: keptOutput,
+            outputs: keptOutputs,
+            steps: steps,
+            wallTimeSeconds: wallTimeSeconds,
+            exitStatus: exitStatus,
+            stderr: stderr,
+            signatures: signatures,
+            legacyWorkflowRun: legacyRun
+        )
     }
 }

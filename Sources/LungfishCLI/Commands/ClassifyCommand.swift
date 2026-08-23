@@ -1071,11 +1071,13 @@ struct ClassifyCommand: AsyncParsableCommand {
             startedAt: startedAt,
             endedAt: endedAt
         )
+        // The pipeline gzips and deletes the raw `classification.kraken`, so the
+        // wrapper envelope must not re-advertise it at run level either.
         let envelope = preservingPipelineOnlySteps(
             in: synthesizedEnvelope,
             from: pipelineEnvelope,
             result: result
-        )
+        ).droppingMissingRunLevelFiles()
         return try writer.write(envelope, to: config.outputDirectory)
     }
 

@@ -268,6 +268,10 @@ public enum BrackenInvocation {
     ///   - distributionURL: The resolved kmer distribution (`-k`, wrapper dialect).
     ///   - reportURL: The Kraken2 report to profile (`-i`).
     ///   - outputURL: The Bracken output to write (`-o`).
+    ///   - reportOutputURL: The re-estimated Kraken-style report to write (`-w`).
+    ///     Bracken always writes this file; passing `-w` keeps it at a modelled,
+    ///     declarable path instead of the auto-named
+    ///     `<report>_bracken_<rank>.kreport` beside the input.
     ///   - readLength: The read length (`-r`, database dialect only; the wrapper
     ///     has no `-r` because the choice is already baked into `-k`).
     ///   - levelCode: The taxonomic level code (`-l`).
@@ -278,6 +282,7 @@ public enum BrackenInvocation {
         distributionURL: URL,
         reportURL: URL,
         outputURL: URL,
+        reportOutputURL: URL,
         readLength: Int,
         levelCode: String,
         threshold: Int
@@ -288,6 +293,7 @@ public enum BrackenInvocation {
                 "-d", databasePath.path,
                 "-i", reportURL.path,
                 "-o", outputURL.path,
+                "-w", reportOutputURL.path,
                 "-r", String(readLength),
                 "-l", levelCode,
                 "-t", String(threshold),
@@ -297,6 +303,7 @@ public enum BrackenInvocation {
                 "-i", reportURL.path,
                 "-k", distributionURL.path,
                 "-o", outputURL.path,
+                "-w", reportOutputURL.path,
                 "-l", levelCode,
                 "-t", String(threshold),
             ]

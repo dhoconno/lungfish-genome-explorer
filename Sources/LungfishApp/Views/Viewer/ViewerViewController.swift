@@ -3562,11 +3562,16 @@ public class ViewerViewController: NSViewController {
         let chromLength = Int(firstChrom.length)
         logger.info("displayReferenceBundle: First chromosome '\(firstChrom.name, privacy: .public)' length=\(chromLength)")
 
-        // Create reference frame for the chromosome
+        // Create reference frame for the chromosome. Bundles that carry read
+        // alignments open at full width so every mapped read is in view; plain
+        // reference bundles keep the zoomed-in 10 kb opening window.
         referenceFrame = ReferenceFrame(
             chromosome: firstChrom.name,
             start: 0,
-            end: Double(min(chromLength, 10000)),  // Start zoomed to first 10kb
+            end: Double(Self.initialBundleWindowLength(
+                chromosomeLength: chromLength,
+                hasAlignmentTracks: !bundle.alignmentTrackIds.isEmpty
+            )),
             pixelWidth: effectiveWidth,
             sequenceLength: chromLength
         )

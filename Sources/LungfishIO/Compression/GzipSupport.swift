@@ -71,33 +71,57 @@ public final class GzipInputStream: Sendable {
 
     /// Returns an async sequence of lines from the decompressed file.
     ///
-    /// Streams from a gzip subprocess pipe in 1 MB chunks instead of loading
-    /// the entire decompressed output into RAM. Memory usage is O(chunk size)
-    /// regardless of file size.
+    /// Pull-based: each `next()` decompresses at most one more 1 MB chunk, so
+    /// memory stays O(chunk) no matter how slowly the consumer iterates. The
+    /// previous push-based implementation yielded into an unbounded
+    /// `AsyncThrowingStream` buffer from a producer task, so a fast gzip and a
+    /// slow consumer (per-read statistics) buffered the whole decompressed file
+    /// in memory: on 2026-08-22 that took the app to 20 GB and out of memory.
     ///
     /// Handles both Unix (`\n`) and Windows (`\r\n`) line endings.
     ///
     /// - Returns: AsyncThrowingStream of String lines
     public func lines() -> AsyncThrowingStream<String, Error> {
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    try self.forEachLine { line in
-                        if case .terminated = continuation.yield(line) {
-                            throw CancellationError()
-                        }
-                        try Task.checkCancellation()
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
+        let box = LineSourceBox(url: url)
+        return AsyncThrowingStream(unfolding: {
+            if Task.isCancelled {
+                box.close()
+                return nil
             }
-            continuation.onTermination = { @Sendable _ in
-                task.cancel()
+            do {
+                return try box.next()
+            } catch {
+                box.close()
+                throw error
             }
+        })
+    }
+
+    /// Serial holder for the lazily started line source (the unfolding closure
+    /// is `@Sendable`; the source is only ever touched by one iterator).
+    private final class LineSourceBox: @unchecked Sendable {
+        private let url: URL
+        private var source: GzipLineSource?
+        private var exhausted = false
+
+        init(url: URL) { self.url = url }
+
+        func next() throws -> String? {
+            if exhausted { return nil }
+            if source == nil {
+                source = try GzipLineSource(url: url)
+            }
+            let line = try source?.next()
+            if line == nil {
+                exhausted = true
+                close()
+            }
+            return line
+        }
+
+        func close() {
+            source?.close()
+            source = nil
         }
     }
 
@@ -307,7 +331,7 @@ public final class GzipInputStream: Sendable {
     /// Validates that a file has a valid gzip header (magic bytes).
     ///
     /// Reads only the first 2 bytes — does not load the file into RAM.
-    private static func validateGzipHeader(at url: URL) throws {
+    fileprivate static func validateGzipHeader(at url: URL) throws {
         guard let fh = FileHandle(forReadingAtPath: url.path) else {
             throw GzipError.fileNotFound(url)
         }
@@ -413,6 +437,132 @@ private struct PlainTextInputStream {
 
 // MARK: - URL Extension for Gzip Detection
 
+// MARK: - GzipLineSource
+
+/// Pull-based line reader over a `gzip -dc` pipe.
+///
+/// Reads one chunk per demand, keeps only the current partial line plus the
+/// lines of the chunk that have not been handed out yet, and owns the
+/// subprocess lifecycle. Not thread-safe: one consumer at a time.
+final class GzipLineSource {
+    private let url: URL
+    private let chunkSize: Int
+    private var process: Process?
+    private var stdoutHandle: FileHandle?
+    private var stderrHandle: FileHandle?
+    private var partial = Data()
+    private var pending: [String] = []
+    private var pendingIndex = 0
+    private var reachedEnd = false
+    private var closed = false
+
+    /// Number of chunks pulled from the pipe so far (test seam for backpressure).
+    private(set) var chunksRead = 0
+
+    init(url: URL, chunkSize: Int = 1_048_576) throws {
+        try GzipInputStream.validateGzipHeader(at: url)
+        self.url = url
+        self.chunkSize = chunkSize
+    }
+
+    deinit { close() }
+
+    /// The next decompressed line, or `nil` at end of file.
+    func next() throws -> String? {
+        if let line = dequeue() { return line }
+        if reachedEnd || closed { return nil }
+        try startIfNeeded()
+        guard let stdoutHandle else { return nil }
+
+        while true {
+            try Task.checkCancellation()
+            let chunk = stdoutHandle.readData(ofLength: chunkSize)
+            if chunk.isEmpty {
+                reachedEnd = true
+                try GzipInputStream.emitFinalLine(from: partial) { pending.append($0) }
+                partial.removeAll()
+                try finishProcess()
+                return dequeue()
+            }
+            chunksRead += 1
+            partial.append(chunk)
+            try GzipInputStream.emitCompleteLines(from: &partial) { pending.append($0) }
+            if let line = dequeue() { return line }
+        }
+    }
+
+    /// Stops the subprocess and releases the pipes. Safe to call repeatedly.
+    func close() {
+        guard !closed else { return }
+        closed = true
+        if let process {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+        try? stdoutHandle?.close()
+        try? stderrHandle?.close()
+        process = nil
+        stdoutHandle = nil
+        stderrHandle = nil
+        pending.removeAll()
+        partial.removeAll()
+    }
+
+    private func dequeue() -> String? {
+        guard pendingIndex < pending.count else {
+            if !pending.isEmpty {
+                pending.removeAll(keepingCapacity: true)
+                pendingIndex = 0
+            }
+            return nil
+        }
+        let line = pending[pendingIndex]
+        pendingIndex += 1
+        if pendingIndex == pending.count {
+            pending.removeAll(keepingCapacity: true)
+            pendingIndex = 0
+        }
+        return line
+    }
+
+    private func startIfNeeded() throws {
+        guard process == nil else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        self.process = process
+        self.stdoutHandle = stdoutPipe.fileHandleForReading
+        self.stderrHandle = stderrPipe.fileHandleForReading
+    }
+
+    private func finishProcess() throws {
+        guard let process else { return }
+        process.waitUntilExit()
+        defer {
+            try? stdoutHandle?.close()
+            try? stderrHandle?.close()
+            self.process = nil
+            stdoutHandle = nil
+            stderrHandle = nil
+        }
+        if process.terminationStatus != 0 {
+            let stderrData = stderrHandle?.readDataToEndOfFile() ?? Data()
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GzipError.decompressionFailed(
+                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
+            )
+        }
+    }
+}
+
 extension URL {
     /// File size in bytes, or 0 if the file doesn't exist or can't be read.
     public var fileSizeBytes: Int64 {
@@ -464,27 +614,13 @@ extension URL {
                 }
             }
         } else {
-            // Use standard URL.lines for uncompressed files
-            return AsyncThrowingStream { continuation in
-                let task = Task {
-                    do {
-                        for try await line in self.lines {
-                            if case .terminated = continuation.yield(line) {
-                                throw CancellationError()
-                            }
-                            try Task.checkCancellation()
-                        }
-                        continuation.finish()
-                    } catch is CancellationError {
-                        continuation.finish()
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
-                }
-                continuation.onTermination = { @Sendable _ in
-                    task.cancel()
-                }
-            }
+            // Use standard URL.lines for uncompressed files, pulled on demand so
+            // the reader never outruns the consumer.
+            let iterator = AsyncLineIteratorBox(self.lines.makeAsyncIterator())
+            return AsyncThrowingStream(unfolding: {
+                if Task.isCancelled { return nil }
+                return try await iterator.next()
+            })
         }
     }
 
@@ -519,4 +655,12 @@ extension URL {
             }
         }
     }
+}
+
+/// Serial holder for a Foundation `AsyncLineSequence` iterator inside a
+/// `@Sendable` unfolding closure (one consumer at a time).
+private final class AsyncLineIteratorBox: @unchecked Sendable {
+    private var iterator: AsyncLineSequence<URL.AsyncBytes>.AsyncIterator
+    init(_ iterator: AsyncLineSequence<URL.AsyncBytes>.AsyncIterator) { self.iterator = iterator }
+    func next() async throws -> String? { try await iterator.next() }
 }

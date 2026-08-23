@@ -240,10 +240,13 @@ public enum MetagenomicsBatchProvenanceWriter {
             ?? rolledUpEnvelopes.compactMap(\.wallTimeSeconds).reduce(0, +)
         let childExitStatus = rolledUpEnvelopes.compactMap(\.exitStatus).first(where: { $0 != 0 })
             ?? childSteps.compactMap(\.exitStatus).first(where: { $0 != 0 })
-        let hasDegradationOrFailure = (manifest.degradedCount ?? 0) > 0
-            || (manifest.failedCount ?? 0) > 0
-            || !additionalStderr.isEmpty
-        let exitStatus = childExitStatus ?? (hasDegradationOrFailure ? 1 : 0)
+        // Degradation alone is not a batch failure: NTC negative controls
+        // legitimately have no rows at the requested profiling rank, and their
+        // Kraken2 classification still completed. Only a genuinely failed
+        // sample (or a non-zero child exit) makes the batch non-zero;
+        // degradation is surfaced through `degradedCount` and stderr.
+        let hasFailure = (manifest.failedCount ?? 0) > 0 || !additionalStderr.isEmpty
+        let exitStatus = childExitStatus ?? (hasFailure ? 1 : 0)
         let batchRuntimeIdentity = ProvenanceRuntimeIdentity()
         let batchStep = ProvenanceStep(
             toolName: "Lungfish Classification Batch",

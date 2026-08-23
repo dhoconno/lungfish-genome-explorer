@@ -306,6 +306,34 @@ if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
     fi
 fi
 
+# The sanitizer rewrites embedded build paths inside the bundled Mach-O tools,
+# which invalidates their existing code signatures. `codesign --deep` does not
+# recurse into resource bundles, so every tool must be re-signed individually
+# BEFORE the outer app signature seals the resource hashes. A tool left with a
+# broken signature is SIGKILLed by macOS on launch; the app then copied that
+# dead micromamba over the user's working one (2026-08-22), so this also proves
+# the bundled micromamba actually runs before the bundle is declared built.
+if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
+    echo -e "${GREEN}Ad-hoc signing bundled workflow tools...${NC}"
+    while IFS= read -r -d '' tool; do
+        if /usr/bin/file -b "$tool" | grep -q '^Mach-O'; then
+            codesign --force --sign - "$tool" >/dev/null 2>&1
+            if ! codesign --verify --strict "$tool" >/dev/null 2>&1; then
+                echo "Error: bundled tool has an invalid signature after re-signing: $tool" >&2
+                exit 1
+            fi
+        fi
+    done < <(/usr/bin/find "$WORKFLOW_TOOLS_DIR" -type f -print0)
+    BUNDLED_MICROMAMBA="$WORKFLOW_TOOLS_DIR/micromamba"
+    if [ -f "$BUNDLED_MICROMAMBA" ]; then
+        if ! MICROMAMBA_VERSION_OUT="$("$BUNDLED_MICROMAMBA" --version 2>&1)"; then
+            echo "Error: bundled micromamba does not run (exit $?): $MICROMAMBA_VERSION_OUT" >&2
+            exit 1
+        fi
+        echo "Bundled micromamba runs: $MICROMAMBA_VERSION_OUT"
+    fi
+fi
+
 if [ -f "$MACOS_DIR/lungfish-cli" ]; then
     echo -e "${GREEN}Ad-hoc signing bundled CLI with CLI entitlements...${NC}"
     codesign --force --sign - --options runtime --entitlements "$CLI_ENTITLEMENTS" "$MACOS_DIR/lungfish-cli"

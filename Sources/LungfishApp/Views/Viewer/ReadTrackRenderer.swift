@@ -750,6 +750,85 @@ public enum ReadTrackRenderer {
         return (packed, overflow)
     }
 
+    // MARK: - Visible-read iteration
+
+    /// Iterates only the reads that can actually paint into `clipRect`,
+    /// invoking `body(read, y)` with the read's row-derived Y origin.
+    ///
+    /// Two paths, identical in output:
+    ///
+    /// * **Fast path** (`layout` supplied): the row range intersecting the clip
+    ///   is computed arithmetically, then within each row a binary search finds
+    ///   the first read that can reach `frame.start` and iteration stops at the
+    ///   first read starting past `frame.end`. Rows scrolled above the viewport
+    ///   and reads off either horizontal edge are never touched.
+    /// * **Fallback** (`layout == nil`): the original linear walk over
+    ///   `packedReads`, preserved so existing callers and tests that pass only
+    ///   the flat array keep working unchanged.
+    ///
+    /// The legacy `y + readHeight <= rect.maxY` guard is preserved in both
+    /// paths, so the set of drawn reads is identical to the pre-culling code.
+    static func forEachVisiblePackedRead(
+        packedReads: [(row: Int, read: AlignedRead)],
+        layout: PackedReadLayout?,
+        frame: ReferenceFrame,
+        rect: CGRect,
+        clipRect: CGRect?,
+        readHeight: CGFloat,
+        rowGap: CGFloat,
+        _ body: (_ read: AlignedRead, _ y: CGFloat) -> Void
+    ) {
+        let pitch = readHeight + rowGap
+
+        guard let layout, layout.rowCount > 0 else {
+            // Fallback: preserve the original iteration order and guards.
+            for (row, read) in packedReads {
+                let y = rect.minY + CGFloat(row) * pitch
+                guard y + readHeight <= rect.maxY else { continue }
+                if let clipRect, y > clipRect.maxY || y + readHeight < clipRect.minY { continue }
+                body(read, y)
+            }
+            return
+        }
+
+        // Without an explicit clip, the content rect itself bounds the work.
+        let clip = clipRect ?? rect
+        let rowRange = ReadTrackCulling.visibleRowRange(
+            rect: rect,
+            clip: clip,
+            rowCount: layout.rowCount,
+            rowHeight: readHeight,
+            rowGap: rowGap
+        )
+        guard !rowRange.isEmpty else { return }
+
+        // Horizontal window in genomic coordinates, widened by one base so a
+        // read touching the very edge of the viewport is never dropped.
+        let genomicStart = Int(frame.start.rounded(.down)) - 1
+        let genomicEnd = Int(frame.end.rounded(.up)) + 1
+
+        for row in rowRange {
+            let reads = layout.rows[row]
+            guard !reads.isEmpty else { continue }
+            let y = rect.minY + CGFloat(row) * pitch
+            guard y + readHeight <= rect.maxY else { continue }
+
+            let indexRange = ReadTrackCulling.visibleReadRange(
+                in: reads,
+                genomicStart: genomicStart,
+                genomicEnd: genomicEnd,
+                maxReadSpan: layout.maxReadSpan
+            )
+            for index in indexRange {
+                let read = reads[index]
+                // The binary search back-off admits reads that start before the
+                // window; drop the ones that end before it too.
+                guard read.alignmentEnd > genomicStart else { continue }
+                body(read, y)
+            }
+        }
+    }
+
     /// Draws packed reads as colored bars with strand indicators, mismatch highlights, and soft clips.
     ///
     /// - Parameters:
@@ -771,6 +850,9 @@ public enum ReadTrackRenderer {
         verticalCompress: Bool = false,
         maxRowsLimit: Int? = nil,
         maskedPositions: Set<Int> = [],
+        layout: PackedReadLayout? = nil,
+        clipRect: CGRect? = nil,
+        mismatchCache: ReadMismatchCache? = nil,
         context: CGContext,
         rect: CGRect
     ) {
@@ -805,14 +887,20 @@ public enum ReadTrackRenderer {
             return (fill, stroke)
         }
 
-        for (row, read) in packedReads {
+        forEachVisiblePackedRead(
+            packedReads: packedReads,
+            layout: layout,
+            frame: frame,
+            rect: rect,
+            clipRect: clipRect,
+            readHeight: readHeight,
+            rowGap: metrics.rowGap
+        ) { read, y in
             let startPx = frame.genomicToPixel(Double(read.position))
             let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
-            let y = rect.minY + CGFloat(row) * (readHeight + metrics.rowGap)
             let readWidth = endPx - startPx
 
-            guard y + readHeight <= rect.maxY else { continue }
-            guard readWidth >= minReadPixels else { continue }
+            guard readWidth >= minReadPixels else { return }
 
             let alpha = mapqAlpha(read.mapq)
             let colors = cachedColors(isReverse: read.isReverse, mapq: read.mapq)
@@ -855,11 +943,21 @@ public enum ReadTrackRenderer {
                 context.fill(readRect)
             }
 
-            // Draw mismatch tick marks using ASCII byte comparison (zero allocations)
-            // Mismatch ticks are always shown when reference sequence is available
-            if let refBytes {
+            // Draw mismatch tick marks. With a reference the comparison is a
+            // zero-allocation ASCII byte walk; without one (classifier evidence
+            // BAMs are loaded with no reference) the aligner's MD tag and CIGAR
+            // `X` operations still locate every mismatch, so differences stay
+            // visible at every zoom level that draws individual reads.
+            // MD parsing is the expensive part; when a reference is loaded the
+            // comparison is a cheap byte walk and no cache is consulted.
+            let mdMismatchPositions: Set<Int>? = refBytes == nil
+                ? (mismatchCache.map { $0.positions(for: read) }
+                    ?? read.mdTag.map { mismatchPositionsFromMDTag($0, readStart: read.position) })
+                : nil
+            if refBytes != nil || mdMismatchPositions != nil || read.cigar.contains(where: { $0.op == .seqMismatch }) {
                 drawMismatchTicks(
                     read: read, frame: frame, refBytes: refBytes, referenceStart: referenceStart,
+                    mdMismatchPositions: mdMismatchPositions,
                     maskedPositions: maskedPositions,
                     context: context, y: y, readHeight: readHeight
                 )
@@ -907,6 +1005,9 @@ public enum ReadTrackRenderer {
         verticalCompress: Bool = false,
         maxRowsLimit: Int? = nil,
         maskedPositions: Set<Int> = [],
+        layout: PackedReadLayout? = nil,
+        clipRect: CGRect? = nil,
+        mismatchCache: ReadMismatchCache? = nil,
         context: CGContext,
         rect: CGRect
     ) {
@@ -929,10 +1030,15 @@ public enum ReadTrackRenderer {
         let neutralStroke = NSColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 1.0).cgColor
         let useStrandColors = settings.showStrandColors
 
-        for (row, read) in packedReads {
-            let y = rect.minY + CGFloat(row) * (readHeight + metrics.rowGap)
-            guard y + readHeight <= rect.maxY else { continue }
-
+        forEachVisiblePackedRead(
+            packedReads: packedReads,
+            layout: layout,
+            frame: frame,
+            rect: rect,
+            clipRect: clipRect,
+            readHeight: readHeight,
+            rowGap: metrics.rowGap
+        ) { read, y in
             let alpha = mapqAlpha(read.mapq)
 
             // Draw soft-clip background extensions
@@ -968,6 +1074,8 @@ public enum ReadTrackRenderer {
                 referenceStart: referenceStart,
                 showMismatches: settings.showMismatches,
                 maskedPositions: maskedPositions,
+                cachedMDMismatchPositions: mismatchCache?.positions(for: read),
+                hasMismatchCache: mismatchCache != nil,
                 context: context,
                 y: y,
                 readHeight: readHeight,
@@ -1037,6 +1145,8 @@ public enum ReadTrackRenderer {
         referenceStart: Int,
         showMismatches: Bool = true,
         maskedPositions: Set<Int>,
+        cachedMDMismatchPositions: Set<Int>? = nil,
+        hasMismatchCache: Bool = false,
         context: CGContext,
         y: CGFloat,
         readHeight: CGFloat,
@@ -1065,7 +1175,11 @@ public enum ReadTrackRenderer {
         let matchColorN = baseN.copy(alpha: matchAlpha)!
         // Dot mode: use gray dots for matches (clear visual distinction)
         let matchDotAlpha = matchDotColor.copy(alpha: alpha)!
-        let mdMismatchPositions = read.mdTag.map { mismatchPositionsFromMDTag($0, readStart: read.position) }
+        // Precomputed by `ReadMismatchCache` when the read batch was stored;
+        // only fall back to parsing the MD tag when no cache was supplied.
+        let mdMismatchPositions = hasMismatchCache
+            ? cachedMDMismatchPositions
+            : read.mdTag.map { mismatchPositionsFromMDTag($0, readStart: read.position) }
 
         // Baseline offset: center glyph vertically using ascent/descent
         let ascent = CTFontGetAscent(font)
@@ -1428,8 +1542,9 @@ public enum ReadTrackRenderer {
     private static func drawMismatchTicks(
         read: AlignedRead,
         frame: ReferenceFrame,
-        refBytes: [UInt8],
+        refBytes: [UInt8]?,
         referenceStart: Int,
+        mdMismatchPositions: Set<Int>?,
         maskedPositions: Set<Int>,
         context: CGContext,
         y: CGFloat,
@@ -1445,6 +1560,40 @@ public enum ReadTrackRenderer {
         let colorN = baseN.copy(alpha: tickAlpha)!
 
         var lastMismatchPixel: Int = Int.min
+        forEachPackedMismatch(
+            read: read,
+            refBytes: refBytes,
+            referenceStart: referenceStart,
+            mdMismatchPositions: mdMismatchPositions,
+            maskedPositions: maskedPositions
+        ) { refPos, upperRead in
+            let x = frame.genomicToPixel(Double(refPos))
+            let px = Int(x)
+            if px != lastMismatchPixel {
+                lastMismatchPixel = px
+                let tickWidth = max(1.0, min(CGFloat(pixelsPerBase), 3.2))
+                let tickColor = colorForByte(upperRead, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
+                context.setFillColor(tickColor)
+                context.fill(CGRect(x: x, y: y, width: tickWidth, height: readHeight))
+            }
+        }
+    }
+
+    /// Walks a read's aligned bases and reports each mismatch as
+    /// `(referencePosition, uppercasedReadBase)`.
+    ///
+    /// Mismatch evidence, in priority order: an explicit CIGAR `X` operation;
+    /// a byte comparison against `refBytes` when a reference is loaded; or the
+    /// aligner's MD tag positions when no reference is available. `N` bases are
+    /// never reported and masked reference positions are skipped.
+    static func forEachPackedMismatch(
+        read: AlignedRead,
+        refBytes: [UInt8]?,
+        referenceStart: Int,
+        mdMismatchPositions: Set<Int>?,
+        maskedPositions: Set<Int>,
+        _ body: (_ refPos: Int, _ upperRead: UInt8) -> Void
+    ) {
         var seqIterator = read.sequence.utf8.makeIterator()
         var refPos = read.position
 
@@ -1461,30 +1610,29 @@ public enum ReadTrackRenderer {
                     }
 
                     let upperRead = readByte & 0xDF
-                    let refIdx = refPos - referenceStart
 
                     let isMismatch: Bool
                     if explicitMismatch {
                         isMismatch = true
-                    } else if refIdx >= 0, refIdx < refBytes.count {
-                        let upperRef = refBytes[refIdx]
-                        if upperRead == 0x4E || upperRef == 0x4E { refPos += 1; continue }
-                        isMismatch = !isEquivalentBase(upperRead, upperRef)
+                    } else if let refBytes {
+                        let refIdx = refPos - referenceStart
+                        if refIdx >= 0, refIdx < refBytes.count {
+                            let upperRef = refBytes[refIdx]
+                            if upperRead == 0x4E || upperRef == 0x4E { refPos += 1; continue }
+                            isMismatch = !isEquivalentBase(upperRead, upperRef)
+                        } else {
+                            refPos += 1
+                            continue
+                        }
+                    } else if let mdMismatchPositions {
+                        isMismatch = mdMismatchPositions.contains(refPos)
                     } else {
                         refPos += 1
                         continue
                     }
 
                     if isMismatch, upperRead != 0x4E {
-                        let x = frame.genomicToPixel(Double(refPos))
-                        let px = Int(x)
-                        if px != lastMismatchPixel {
-                            lastMismatchPixel = px
-                            let tickWidth = max(1.0, min(CGFloat(pixelsPerBase), 3.2))
-                            let tickColor = colorForByte(upperRead, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
-                            context.setFillColor(tickColor)
-                            context.fill(CGRect(x: x, y: y, width: tickWidth, height: readHeight))
-                        }
+                        body(refPos, upperRead)
                     }
 
                     refPos += 1
@@ -1536,6 +1684,12 @@ public enum ReadTrackRenderer {
     ///
     /// Returned positions are 0-based genomic coordinates.
     static func mismatchPositionsFromMDTag(_ mdTag: String, readStart: Int) -> Set<Int> {
+        mismatchPositionsFromMDTagNonisolated(mdTag, readStart: readStart)
+    }
+
+    /// Actor-free body of `mismatchPositionsFromMDTag`, so `ReadMismatchCache`
+    /// can precompute mismatch positions on the read-fetch background thread.
+    nonisolated static func mismatchPositionsFromMDTagNonisolated(_ mdTag: String, readStart: Int) -> Set<Int> {
         guard !mdTag.isEmpty else { return [] }
 
         var positions = Set<Int>()

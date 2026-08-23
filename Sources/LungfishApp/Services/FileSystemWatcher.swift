@@ -43,6 +43,51 @@ public final class FileSystemWatcher {
         )
     }
 
+    /// How the FSEvents stream is configured for the volume being watched.
+    ///
+    /// Per-file events (`kFSEventStreamCreateFlagFileEvents`) with a short
+    /// latency are right for a local APFS/HFS+ project. On every other volume
+    /// (exFAT/FAT via FSKit, SMB/NFS, ...) per-file events are expensive for
+    /// fseventsd and arrive in floods while a tool writes thousands of files:
+    /// on 2026-08-22 a Kraken2 batch plus a FASTQ import on an exFAT project
+    /// drove fseventsd to 28 GB resident and the machine out of memory. Those
+    /// volumes get directory-level events and a long latency instead.
+    public struct StreamPolicy: Equatable, Sendable {
+        public let perFileEvents: Bool
+        public let latency: CFTimeInterval
+        /// Above this many paths in one delivery the watcher reports a single
+        /// "scan everything" change instead of fanning out per path.
+        public let burstThreshold: Int
+
+        public static let nativeVolume = StreamPolicy(perFileEvents: true, latency: 3.0, burstThreshold: 2_000)
+        public static let foreignVolume = StreamPolicy(perFileEvents: false, latency: 10.0, burstThreshold: 500)
+
+        /// Volume type names FSEvents handles efficiently with per-file events.
+        static let nativeVolumeTypes: Set<String> = ["apfs", "hfs"]
+
+        /// Picks the policy for a volume type name as reported by
+        /// `URLResourceKey.volumeTypeNameKey` (nil means unknown: treat as foreign).
+        public static func policy(forVolumeTypeName name: String?) -> StreamPolicy {
+            guard let name else { return .foreignVolume }
+            return nativeVolumeTypes.contains(name.lowercased()) ? .nativeVolume : .foreignVolume
+        }
+
+        var createFlags: UInt32 {
+            var flags = kFSEventStreamCreateFlagUseCFTypes
+                | kFSEventStreamCreateFlagNoDefer
+                | kFSEventStreamCreateFlagWatchRoot
+            if perFileEvents {
+                flags |= kFSEventStreamCreateFlagFileEvents
+            }
+            return UInt32(flags)
+        }
+    }
+
+    /// Reads the volume type of `directory`; nil when it cannot be determined.
+    public nonisolated static func volumeTypeName(of directory: URL) -> String? {
+        try? directory.resourceValues(forKeys: [.volumeTypeNameKey]).volumeTypeName
+    }
+
     /// Paths delivered to the callback, split by sidecar classification.
     public struct ChangedPaths: Sendable {
         /// Paths that are NOT internal sidecars — these trigger sidebar subtree refreshes.
@@ -58,7 +103,14 @@ public final class FileSystemWatcher {
     private let streamLifecycle: StreamLifecycle
     private var watchedDirectory: URL?
     private nonisolated(unsafe) var eventStream: FSEventStreamRef?
-    private let latency: CFTimeInterval = 3.0
+    /// Policy chosen for the current watch; exposed for tests and diagnostics.
+    public private(set) var streamPolicy: StreamPolicy = .nativeVolume
+    /// Snapshots for the off-main callback.
+    private nonisolated(unsafe) var watchedRootPathSnapshot: String?
+    private nonisolated(unsafe) var callbackPolicySnapshot: StreamPolicy = .nativeVolume
+    /// Serial queue the FSEvents stream delivers on, so a flood of events is
+    /// classified off the main thread and only the coalesced result hops to it.
+    private static let callbackQueue = DispatchQueue(label: "com.lungfish.fsevents", qos: .utility)
 
     public var isWatching: Bool {
         eventStream != nil
@@ -109,7 +161,13 @@ public final class FileSystemWatcher {
 
         watchedDirectory = directory
         let path = directory.path
-        logger.info("startWatching: Starting FSEvents watch on '\(path, privacy: .public)'")
+        let volumeType = Self.volumeTypeName(of: directory)
+        streamPolicy = StreamPolicy.policy(forVolumeTypeName: volumeType)
+        watchedRootPathSnapshot = directory.standardizedFileURL.path
+        callbackPolicySnapshot = streamPolicy
+        logger.info(
+            "startWatching: Starting FSEvents watch on '\(path, privacy: .public)' (volume \(volumeType ?? "unknown", privacy: .public), perFileEvents=\(self.streamPolicy.perFileEvents, privacy: .public), latency=\(self.streamPolicy.latency, privacy: .public)s)"
+        )
 
         var context = FSEventStreamContext(
             version: 0,
@@ -127,20 +185,15 @@ public final class FileSystemWatcher {
             &context,
             pathsToWatch,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            latency,
-            UInt32(
-                kFSEventStreamCreateFlagFileEvents |
-                kFSEventStreamCreateFlagUseCFTypes |
-                kFSEventStreamCreateFlagNoDefer |
-                kFSEventStreamCreateFlagWatchRoot
-            )
+            streamPolicy.latency,
+            streamPolicy.createFlags
         ) else {
             logger.error("startWatching: FSEventStreamCreate returned nil — watcher will be inactive")
             startPollingFallback(directory: directory)
             return
         }
 
-        FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
+        FSEventStreamSetDispatchQueue(stream, Self.callbackQueue)
         guard streamLifecycle.start(stream) else {
             logger.error("startWatching: FSEventStreamStart failed — watcher will be inactive")
             streamLifecycle.invalidate(stream)
@@ -167,6 +220,7 @@ public final class FileSystemWatcher {
         streamLifecycle.release(stream)
         eventStream = nil
         watchedDirectory = nil
+        watchedRootPathSnapshot = nil
 
         logger.info("stopWatching: Watcher stopped and released")
     }
@@ -227,65 +281,108 @@ public final class FileSystemWatcher {
 
     private static let fsEventsCallback: FSEventStreamCallback = {
         (streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds) in
-
         guard let clientCallBackInfo else { return }
         let watcher = Unmanaged<FileSystemWatcher>.fromOpaque(clientCallBackInfo).takeUnretainedValue()
-
-        // startWatching schedules this stream on DispatchQueue.main before it
-        // starts, so handling the callback synchronously on MainActor avoids a
-        // redundant queue hop that can be starved under load.
-
+        // The stream is scheduled on a private serial queue: path filtering and
+        // burst coalescing happen here, off the main thread, and exactly one
+        // main-thread hop delivers the result. A hung main thread therefore
+        // never stops the stream from draining.
         guard let cfPaths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else { return }
         let flags = UnsafeBufferPointer(start: eventFlags, count: numEvents)
-
-        var allURLs: [URL] = []
-        var mustScanSubDirs = false
-
-        for i in 0..<numEvents {
-            let flag = Int(flags[i])
-
-            if flag & kFSEventStreamEventFlagRootChanged != 0 {
+        let watchedRootPath = watcher.watchedRootPathSnapshot
+        let policy = watcher.callbackPolicySnapshot
+        let delivery = FileSystemWatcher.classify(
+            paths: cfPaths,
+            flags: flags.map { Int($0) },
+            watchedRootPath: watchedRootPath,
+            policy: policy
+        )
+        switch delivery {
+        case .none:
+            return
+        case .rootChanged:
+            DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     logger.warning("FSEvents: Root directory changed — stopping watcher")
                     watcher.stopWatching()
                     watcher.onRootChanged?()
                 }
-                return
             }
+        case .fullReload(let reason):
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    logger.info("FSEvents: \(reason, privacy: .public) — delivering empty ChangedPaths to trigger full reload")
+                    watcher.onChange(ChangedPaths(nonSidecar: [], all: []))
+                }
+            }
+        case .paths(let changed):
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    watcher.onChange(changed)
+                }
+            }
+        }
+    }
 
+    /// What one FSEvents delivery turns into.
+    enum Delivery: Equatable {
+        case none
+        case rootChanged
+        case fullReload(reason: String)
+        case paths(ChangedPaths)
+
+        static func == (lhs: Delivery, rhs: Delivery) -> Bool {
+            switch (lhs, rhs) {
+            case (.none, .none), (.rootChanged, .rootChanged): return true
+            case (.fullReload(let a), .fullReload(let b)): return a == b
+            case (.paths(let a), .paths(let b)): return a.nonSidecar == b.nonSidecar && a.all == b.all
+            default: return false
+            }
+        }
+    }
+
+    /// Pure classification of one delivery; runs off the main thread.
+    nonisolated static func classify(
+        paths: [String],
+        flags: [Int],
+        watchedRootPath: String?,
+        policy: StreamPolicy
+    ) -> Delivery {
+        var allURLs: [URL] = []
+        var mustScanSubDirs = false
+        for (index, flag) in flags.enumerated() {
+            if flag & kFSEventStreamEventFlagRootChanged != 0 {
+                return .rootChanged
+            }
             if flag & kFSEventStreamEventFlagMustScanSubDirs != 0 {
                 mustScanSubDirs = true
             }
-
             if flag & kFSEventStreamEventFlagHistoryDone != 0 {
                 continue
             }
-
-            allURLs.append(URL(fileURLWithPath: cfPaths[i]))
-        }
-
-        MainActor.assumeIsolated {
-            if mustScanSubDirs {
-                logger.info("FSEvents: MustScanSubDirs flag — delivering empty ChangedPaths to trigger full reload")
-                watcher.onChange(ChangedPaths(nonSidecar: [], all: []))
-                return
+            if index < paths.count {
+                allURLs.append(URL(fileURLWithPath: paths[index]))
             }
-
-            let watchedRoot = watcher.watchedDirectory?.standardizedFileURL
-            let sourceURLs = allURLs.filter {
-                let canonical = $0.standardizedFileURL
-                return canonical != watchedRoot
-                    && !FileSystemWatcher.isUniversalSearchInternalPath(canonical)
-            }
-            guard !sourceURLs.isEmpty else { return }
-
-            let nonSidecar = sourceURLs.filter { !FileSystemWatcher.isSidecarPath($0) }
-
-            // Always deliver — the sidebar consumer decides what to do:
-            // - nonSidecar non-empty → incremental sidebar update + search index
-            // - nonSidecar empty (sidecar-only) → search index update only
-            watcher.onChange(ChangedPaths(nonSidecar: nonSidecar, all: sourceURLs))
         }
+        if mustScanSubDirs {
+            return .fullReload(reason: "MustScanSubDirs flag")
+        }
+        if allURLs.count > policy.burstThreshold {
+            // A tool writing thousands of files: one coalesced rescan is far
+            // cheaper than thousands of per-path sidebar updates.
+            return .fullReload(reason: "burst of \(allURLs.count) changes")
+        }
+        let sourceURLs = allURLs.filter {
+            let canonical = $0.standardizedFileURL
+            return canonical.path != watchedRootPath
+                && !FileSystemWatcher.isUniversalSearchInternalPath(canonical)
+        }
+        guard !sourceURLs.isEmpty else { return .none }
+        let nonSidecar = sourceURLs.filter { !FileSystemWatcher.isSidecarPath($0) }
+        // Always deliver — the sidebar consumer decides what to do:
+        // - nonSidecar non-empty → incremental sidebar update + search index
+        // - nonSidecar empty (sidecar-only) → search index update only
+        return .paths(ChangedPaths(nonSidecar: nonSidecar, all: sourceURLs))
     }
 
     // MARK: - Polling Fallback

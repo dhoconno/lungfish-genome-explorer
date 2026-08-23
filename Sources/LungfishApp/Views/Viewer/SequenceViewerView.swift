@@ -171,7 +171,30 @@ public class SequenceViewerView: NSView {
     // MARK: - Read Alignment State
 
     /// Cached aligned reads for the current visible region
-    var cachedAlignedReads: [AlignedRead] = []
+    var cachedAlignedReads: [AlignedRead] = [] {
+        didSet {
+            // Any new read set invalidates both the packed layout and the
+            // per-read mismatch cache. The generation bump is what the pack
+            // cache key keys on, so this is the only place read identity
+            // changes need to be tracked.
+            cachedReadSetGeneration += 1
+            cachedPackKey = nil
+            if cachedAlignedReads.isEmpty {
+                cachedReadMismatchCache = ReadMismatchCache()
+            } else if let pending = pendingReadMismatchCache {
+                // Precomputed on the fetch's background thread.
+                cachedReadMismatchCache = pending
+                pendingReadMismatchCache = nil
+            } else {
+                cachedReadMismatchCache = ReadMismatchCache.build(for: cachedAlignedReads)
+            }
+        }
+    }
+
+    /// Mismatch cache computed off the main thread by a read fetch, consumed by
+    /// the `cachedAlignedReads` `didSet` on commit so the expensive MD parse
+    /// never runs on the main actor for fetched batches.
+    var pendingReadMismatchCache: ReadMismatchCache?
 
     /// The region for which we have cached read data
     var cachedReadRegion: GenomicRegion?
@@ -389,6 +412,7 @@ public class SequenceViewerView: NSView {
     var cachedPackedReads: [(row: Int, read: AlignedRead)] = [] {
         didSet {
             cachedPackedReadsByRow = SequenceViewerView.bucketPackedReadsByRow(cachedPackedReads)
+            cachedPackedReadLayout = PackedReadLayout(packedReads: cachedPackedReads)
             if !preservedDetachedSelectionKeys.isEmpty,
                (!cachedPackedReads.isEmpty || !cachedAlignedReads.isEmpty) {
                 let identities = Self.detachedSelectionIdentities(for: cachedPackedReads.map(\.read))
@@ -414,6 +438,55 @@ public class SequenceViewerView: NSView {
             buckets[row, default: []].append(read)
         }
         return buckets
+    }
+
+    /// Row-bucketed view of `cachedPackedReads`, rebuilt alongside it so drawing
+    /// can cull to the visible row range and binary-search within a row.
+    private(set) var cachedPackedReadLayout: PackedReadLayout?
+
+    /// Identity of the layout currently in `cachedPackedReads`. When a draw's
+    /// recomputed key equals this, packing is skipped entirely.
+    var cachedPackKey: ReadPackCacheKey?
+
+    /// Per-read MD-tag mismatch positions, precomputed off the main thread when
+    /// a read batch is committed. Rebuilt only when `cachedAlignedReads` changes.
+    private(set) var cachedReadMismatchCache: ReadMismatchCache?
+
+    /// Bumped on every assignment to `cachedAlignedReads`, forming the data
+    /// half of `ReadPackCacheKey`. Distinct from `readFetchGeneration`, which
+    /// also advances for in-flight fetches that never commit.
+    private(set) var cachedReadSetGeneration: Int = 0
+
+    /// Number of times the read layout was actually packed. Test seam for
+    /// asserting that repeat draws with unchanged inputs reuse the cache.
+    private(set) var packInvocationCount: Int = 0
+
+    /// Invalidates the packed-layout cache so the next draw repacks.
+    func invalidatePackedReadLayoutCache() {
+        cachedPackKey = nil
+    }
+
+    /// Packs `reads` only when `key` differs from the cached layout's key,
+    /// otherwise returns the cached layout untouched.
+    ///
+    /// This is the single choke point for read packing: both the bundle-backed
+    /// and detached-evidence draw paths route through it, so neither can
+    /// re-sort and re-pack the full read set on every pan, hover, or selection
+    /// redraw.
+    @discardableResult
+    func packedReadLayout(
+        key: ReadPackCacheKey,
+        pack: () -> (packed: [(row: Int, read: AlignedRead)], overflow: Int)
+    ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int) {
+        if let cachedPackKey, cachedPackKey == key, cachedPackedReadLayout != nil {
+            return (cachedPackedReads, cachedPackOverflow)
+        }
+        let result = pack()
+        packInvocationCount += 1
+        cachedPackedReads = result.packed
+        cachedPackOverflow = result.overflow
+        cachedPackKey = key
+        return result
     }
 
     /// Cached packed layout overflow count (from last pack operation)
@@ -1438,6 +1511,9 @@ public class SequenceViewerView: NSView {
     var testCachedDepthPoints: [ReadTrackRenderer.CoveragePoint] { cachedDepthPoints }
     var testCachedConsensusSequence: String? { cachedConsensusSequence }
     var testCachedPackedReads: [(Int, AlignedRead)] { cachedPackedReads }
+    var testCachedReadMismatchCache: ReadMismatchCache? { cachedReadMismatchCache }
+    var testCachedPackedReadLayout: PackedReadLayout? { cachedPackedReadLayout }
+    var testPackInvocationCount: Int { packInvocationCount }
     var testHoveredRead: AlignedRead? { hoveredRead }
     var testSelectedReadIDs: Set<UUID> { selectedReadIDs }
     var testIsHoverTooltipHidden: Bool { hoverTooltip.isHidden }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
     case auto
@@ -80,9 +81,12 @@ public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
 
     public static func clumpifyHeapBytes(physicalMemoryBytes: Int64) -> Int64 {
         let gib: Int64 = 1_073_741_824
-        let physicalMemoryGB = max(0, physicalMemoryBytes / gib)
-        let heapGB = max(4, min(31, physicalMemoryGB * 60 / 100))
-        return heapGB * gib
+        let heapGB = ManagedJavaHeapPolicy.heapGB(
+            physicalMemoryBytes: UInt64(max(0, physicalMemoryBytes)),
+            availableMemoryBytes: nil,
+            minimumGB: 4
+        )
+        return Int64(heapGB) * gib
     }
 }
 

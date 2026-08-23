@@ -91,12 +91,14 @@ final class Kraken2BrackenConformanceTests: XCTestCase {
             availableFilenames: BrackenInvocation.availableDistributionFilenames(inDatabase: db)
         )
         let bout = tmp.appendingPathComponent("reads.bracken")
+        let breport = tmp.appendingPathComponent("reads.bracken.kreport")
         let brackenArgs = BrackenInvocation.arguments(
             dialect: dialect,
             databasePath: db,
             distributionURL: distribution.url,
             reportURL: kreport,
             outputURL: bout,
+            reportOutputURL: breport,
             readLength: 150,
             levelCode: "S",
             threshold: 10
@@ -115,6 +117,13 @@ final class Kraken2BrackenConformanceTests: XCTestCase {
                 "bracken exited \(bres.status) with an unexpected error: \(bres.stderr)"
             )
         }
+
+        // `-w` must be honoured by the installed CLI: without it Bracken
+        // auto-names the re-estimated report and nothing can declare the path.
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: breport.path),
+            "the installed Bracken must write its re-estimated report to the -w path"
+        )
 
         let brackenRows = try BrackenParser.parse(url: bout)
         // Matched on taxonomy id, for the reason given at `sarsCoV2TaxIDs`. Bracken
@@ -150,10 +159,12 @@ final class Kraken2BrackenConformanceTests: XCTestCase {
             distributionURL: URL(fileURLWithPath: "/db/database150mers.kmer_distrib"),
             reportURL: URL(fileURLWithPath: "/out/r.kreport"),
             outputURL: URL(fileURLWithPath: "/out/r.bracken"),
+            reportOutputURL: URL(fileURLWithPath: "/out/r.bracken.kreport"),
             readLength: 150,
             levelCode: "S",
             threshold: 10
         )
+        XCTAssertTrue(args.contains("-w"), "both dialects accept -w for the re-estimated report")
         switch dialect {
         case .database:
             XCTAssertTrue(args.contains("-d"))

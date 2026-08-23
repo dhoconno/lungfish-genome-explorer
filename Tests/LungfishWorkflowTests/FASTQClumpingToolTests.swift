@@ -38,8 +38,10 @@ final class FASTQClumpingToolTests: XCTestCase {
 
         XCTAssertEqual(resolution.requested, .auto)
         XCTAssertEqual(resolution.resolved, .bbtools)
-        XCTAssertEqual(resolution.clumpifyHeapBytes, 31 * Self.gib)
-        XCTAssertEqual(resolution.thresholdBytes, (31 * Self.gib) / 2)
+        // ManagedJavaHeapPolicy: 35 % of 64 GB = 22 GB, so a second managed
+        // tool (e.g. a 16 GB Kraken2 database) can be resident at the same time.
+        XCTAssertEqual(resolution.clumpifyHeapBytes, 22 * Self.gib)
+        XCTAssertEqual(resolution.thresholdBytes, (22 * Self.gib) / 2)
     }
 
     func testAutoChoosesTrimGaloreWhenEstimatedInputMayPressureBBToolsHeap() {

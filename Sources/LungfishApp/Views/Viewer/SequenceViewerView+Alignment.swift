@@ -60,11 +60,18 @@ extension SequenceViewerView {
                 notice = "Read evidence could not be fetched: \(error.localizedDescription)"
             }
             guard !Task.isCancelled else { return }
+            // Parse every read's MD tag here, on the fetch thread, so the draw
+            // path never re-parses it per frame.
+            let mismatchCache = ReadMismatchCache.build(for: reads)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
-                    guard self.commitReadFetch(token, reads: reads, region: expanded) else { return }
+                    self.pendingReadMismatchCache = mismatchCache
+                    guard self.commitReadFetch(token, reads: reads, region: expanded) else {
+                        self.pendingReadMismatchCache = nil
+                        return
+                    }
                     // A successful request supersedes any prior error or
                     // sampling notice for this source/region.
                     self.detachedEvidenceFetchMessage = notice
@@ -716,11 +723,16 @@ extension SequenceViewerView {
             }
 
             let count = allReads.count
+            // Parse every read's MD tag here, on the fetch thread, so the draw
+            // path never re-parses it per frame.
+            let mismatchCache = ReadMismatchCache.build(for: allReads)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let viewer = self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    viewer.pendingReadMismatchCache = mismatchCache
                     guard viewer.commitReadFetch(token, reads: allReads, region: expandedRegion) else {
+                        viewer.pendingReadMismatchCache = nil
                         sequenceViewerLogger.info("fetchReadsAsync: Discarding stale result gen=\(tokenGeneration)")
                         return
                     }

@@ -12,17 +12,19 @@ import LungfishKit
 ///
 /// Displays the taxonomy tree as an expandable table with columns for taxon name
 /// (with colored phylum dot), rank, direct reads, clade reads, and percentage.
-/// Supports sorting, per-column filtering, and selection synchronization with the
-/// sunburst chart.
+/// Supports sorting, free-text search, per-column filtering, and selection
+/// synchronization with the sunburst chart.
 ///
 /// ## Columns
 ///
 /// | Column | Content |
 /// |--------|---------|
+/// | Sample | Sample identifier for the row |
 /// | Taxon Name | Name with colored phylum indicator dot |
 /// | Rank | Taxonomic rank (Domain, Phylum, etc.) |
-/// | Reads | Direct read count |
-/// | Clade | Cumulative clade count |
+/// | Reads | Cumulative clade read count |
+/// | Direct | Reads assigned exactly to this taxon |
+/// | Bracken | Reads re-estimated by Bracken (hidden unless Bracken ran) |
 /// | % | Clade reads as percent of classified |
 ///
 /// ## Keyboard Shortcuts
@@ -58,6 +60,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         didSet {
             filteredNodeIDs = nil
             directMatchNodeIDs = []
+            updateBrackenColumnVisibility()
             reloadData()
         }
     }
@@ -110,6 +113,17 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     // MARK: - Search / Filter
 
+    /// Current free-text filter query. Empty string means no text filter.
+    ///
+    /// Composes with the per-column header filters: a node is a direct match
+    /// only when it satisfies both the query and every active column filter.
+    private var filterText: String = "" {
+        didSet {
+            guard filterText != oldValue else { return }
+            applyFilter()
+        }
+    }
+
     /// Set of node identities that match the current filter (or their ancestors).
     private var filteredNodeIDs: Set<ObjectIdentifier>?
 
@@ -151,6 +165,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         ColumnID.rank: false,
         ColumnID.reads: true,
         ColumnID.clade: true,
+        ColumnID.bracken: true,
         ColumnID.percent: true,
     ]
 
@@ -167,7 +182,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     private let scrollView = NSScrollView()
     internal let outlineView = TaxonomyOutlineView()
+    private let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
+
+    /// The Bracken column, retained so it can be shown or hidden depending on
+    /// whether the loaded tree carries Bracken re-estimated abundances.
+    private var brackenColumn: NSTableColumn?
 
     // MARK: - Column Identifiers
 
@@ -177,6 +197,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         static let rank = "rank"
         static let reads = "reads"
         static let clade = "clade"
+        static let bracken = "bracken"
         static let percent = "percent"
     }
 
@@ -201,6 +222,15 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     // MARK: - Setup
 
     private func setupHeader() {
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.placeholderString = "Filter taxa\u{2026}"
+        searchField.target = self
+        searchField.action = #selector(searchFieldChanged(_:))
+        searchField.sendsSearchStringImmediately = true
+        searchField.font = .systemFont(ofSize: 12)
+        searchField.setAccessibilityLabel("Filter taxa")
+        addSubview(searchField)
+
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         countLabel.textColor = .secondaryLabelColor
@@ -256,6 +286,17 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         cladeCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.clade, ascending: false)
         outlineView.addTableColumn(cladeCol)
 
+        // Bracken column -- re-estimated abundance, hidden unless Bracken ran.
+        let brackenCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.bracken))
+        brackenCol.title = "Bracken"
+        brackenCol.headerToolTip = "Reads re-estimated by Bracken for this taxon."
+        brackenCol.width = 85
+        brackenCol.minWidth = 55
+        brackenCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.bracken, ascending: false)
+        brackenCol.isHidden = true
+        outlineView.addTableColumn(brackenCol)
+        brackenColumn = brackenCol
+
         // Percent column
         let pctCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.percent))
         pctCol.title = "%"
@@ -281,7 +322,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
         // Install metadata column controller for dynamic sample metadata columns.
         metadataColumns.standardColumnNames = [
-            "Sample", "Taxon Name", "Rank", "Reads", "Direct", "%",
+            "Sample", "Taxon Name", "Rank", "Reads", "Direct", "Bracken", "%",
         ]
         metadataColumns.install(on: outlineView)
 
@@ -299,25 +340,43 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // priority) when the NSSplitView container starts at zero size during
         // initial layout. Once the container has real bounds the constraints
         // are always satisfiable.
-        let labelTop = countLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8)
+        let searchTop = searchField.topAnchor.constraint(equalTo: topAnchor, constant: 4)
+        let searchLeading = searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
+        let searchHeight = searchField.heightAnchor.constraint(equalToConstant: 24)
+        let labelGap = countLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8)
         let labelTrailing = countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         let scrollBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
 
-        for c in [labelTop, labelTrailing, scrollBottom] {
+        for c in [searchTop, searchLeading, searchHeight, labelGap, labelTrailing, scrollBottom] {
             c.priority = .defaultHigh
         }
 
         NSLayoutConstraint.activate([
-            labelTop,
+            searchTop,
+            searchLeading,
+            searchHeight,
+
+            // Count label to the right of the search field.
+            countLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            labelGap,
             labelTrailing,
-            countLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
 
             // Scroll view fills remaining space
-            scrollView.topAnchor.constraint(equalTo: countLabel.bottomAnchor, constant: 6),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 4),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollBottom,
         ])
+    }
+
+    // MARK: - Bracken Column Visibility
+
+    /// Shows the Bracken column only when the loaded tree carries at least one
+    /// Bracken re-estimated read count. Kraken2-only runs stay unchanged.
+    private func updateBrackenColumnVisibility() {
+        guard let brackenColumn else { return }
+        let hasBracken = tree?.allNodes().contains { $0.brackenReads != nil } ?? false
+        brackenColumn.isHidden = !hasBracken
     }
 
     // MARK: - Data Reload
@@ -352,28 +411,43 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     private func applyFilter() {
-        if !columnFilterSet.isActive {
+        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
+
+        if query.isEmpty && !columnFilterSet.isActive {
             filteredNodeIDs = nil
             directMatchNodeIDs = []
         } else {
             guard let tree else { return }
 
             var matches = Set<ObjectIdentifier>()
-            var ancestors = Set<ObjectIdentifier>()
+            var context = Set<ObjectIdentifier>()
 
             for node in tree.allNodes() {
-                if columnFilterSet.matches({ nodeMatchesColumnFilter($0, node: node) }) {
-                    matches.insert(ObjectIdentifier(node))
-                    var parent = node.parent
-                    while let p = parent {
-                        ancestors.insert(ObjectIdentifier(p))
-                        parent = p.parent
-                    }
+                // A node is a direct match only when it satisfies BOTH the
+                // free-text query and the active column filters.
+                let passesQuery = query.isEmpty || nodeMatchesFilter(node: node, query: query)
+                let passesColumns = !columnFilterSet.isActive
+                    || columnFilterSet.matches { nodeMatchesColumnFilter($0, node: node) }
+                guard passesQuery && passesColumns else { continue }
+
+                matches.insert(ObjectIdentifier(node))
+
+                // Include all ancestors so hierarchy context is preserved.
+                var parent = node.parent
+                while let p = parent {
+                    context.insert(ObjectIdentifier(p))
+                    parent = p.parent
+                }
+
+                // Include all descendants so a matched taxon shows its whole
+                // clade rather than a bare leaf row.
+                if !query.isEmpty {
+                    insertDescendants(of: node, into: &context)
                 }
             }
 
             directMatchNodeIDs = matches
-            filteredNodeIDs = matches.union(ancestors)
+            filteredNodeIDs = matches.union(context)
         }
 
         outlineView.reloadData()
@@ -395,6 +469,33 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         } else {
             onFilterChanged?(nil)
         }
+    }
+
+    /// Recursively collects every descendant identity of `node`.
+    private func insertDescendants(of node: TaxonNode, into set: inout Set<ObjectIdentifier>) {
+        for child in node.children {
+            set.insert(ObjectIdentifier(child))
+            insertDescendants(of: child, into: &set)
+        }
+    }
+
+    // MARK: - Search
+
+    @objc private func searchFieldChanged(_ sender: NSSearchField) {
+        filterText = sender.stringValue
+    }
+
+    /// Global filter predicate that matches any visible taxonomy column.
+    private func nodeMatchesFilter(node: TaxonNode, query: String) -> Bool {
+        let pct = String(format: "%.1f%%", node.fractionClade * 100.0).lowercased()
+        if sampleID(for: node).lowercased().contains(query) { return true }
+        if node.name.lowercased().contains(query) { return true }
+        if node.rank.displayName.lowercased().contains(query) { return true }
+        if "\(node.readsClade)".contains(query) { return true }
+        if "\(node.readsDirect)".contains(query) { return true }
+        if let bracken = node.brackenReads, "\(bracken)".contains(query) { return true }
+        if pct.contains(query) { return true }
+        return false
     }
 
     private func expandFilteredNodes(from node: TaxonNode) {
@@ -500,6 +601,10 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return filter.matchesNumeric(Double(node.readsClade))
         case ColumnID.clade:
             return filter.matchesNumeric(Double(node.readsDirect))
+        case ColumnID.bracken:
+            // Rows with no Bracken estimate never satisfy a Bracken filter.
+            guard let bracken = node.brackenReads else { return false }
+            return filter.matchesNumeric(Double(bracken))
         case ColumnID.percent:
             return filter.matchesNumeric(node.fractionClade * 100.0)
         default:
@@ -560,6 +665,20 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             children.sort { currentSortAscending
                 ? $0.readsDirect < $1.readsDirect
                 : $0.readsDirect > $1.readsDirect
+            }
+        case ColumnID.bracken:
+            // Rows without a Bracken estimate sort last in both directions.
+            children.sort { lhs, rhs in
+                switch (lhs.brackenReads, rhs.brackenReads) {
+                case let (l?, r?):
+                    return currentSortAscending ? l < r : l > r
+                case (nil, _?):
+                    return false
+                case (_?, nil):
+                    return true
+                case (nil, nil):
+                    return false
+                }
             }
         case ColumnID.percent:
             children.sort { currentSortAscending
@@ -988,6 +1107,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return makeNumberCell(value: node.readsClade)
         case ColumnID.clade:
             return makeNumberCell(value: node.readsDirect)
+        case ColumnID.bracken:
+            guard let bracken = node.brackenReads else {
+                return makeNumberCell(text: "")
+            }
+            return makeNumberCell(value: bracken)
         case ColumnID.percent:
             return makePercentCell(for: node)
         default:
@@ -1192,8 +1316,14 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.groupingSeparator = ","
-        let text = formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        return makeNumberCell(text: formatter.string(from: NSNumber(value: value)) ?? "\(value)")
+    }
 
+    /// Creates a right-aligned numeric cell from pre-formatted text.
+    ///
+    /// Pass an empty string for columns whose value is absent for a row (for
+    /// example the Bracken column on a taxon Bracken did not re-estimate).
+    private func makeNumberCell(text: String) -> NSView {
         let cellView = NSTableCellView()
         let textField = NSTextField(labelWithString: text)
         textField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
@@ -1321,6 +1451,26 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     func testingApplyColumnFilter(_ filter: ColumnFilter) {
         columnFilterSet.replaceFilters(for: filter.columnId, with: filter)
         reloadDataAndUpdateFilterIndicators()
+    }
+
+    /// Test-only: removes every active column filter.
+    func testingClearColumnFilters() {
+        columnFilterSet.removeAll()
+        reloadDataAndUpdateFilterIndicators()
+    }
+
+    /// Test-only: drives the free-text search field the way typing into it
+    /// does, so filter composition can be exercised without AppKit events.
+    func testingSetFilterText(_ text: String) {
+        searchField.stringValue = text
+        filterText = text
+    }
+
+    /// Test-only: applies a column sort without going through the header menu.
+    func testingSortByColumn(_ columnId: String, ascending: Bool) {
+        currentSortKey = columnId
+        currentSortAscending = ascending
+        outlineView.reloadData()
     }
 
     #endif

@@ -25,6 +25,18 @@ Every `docs/release-notes/<version>.md` starts with these audit fields:
 
 Preview notes describe the delta from the previous versioned release. Stable notes are aggregate notes: compare the latest full versioned GitHub release tag to `HEAD`, read every intervening committed versioned note, and reconcile both against the Git diff. Before the first stable release, use the explicitly recorded bootstrap aggregation baseline (currently `v0.5.0-beta29`), never the repository root. Include `## Included preview releases` listing the intervening preview versions. Aggregate and deduplicate user-visible workflows, correctness/stability, scientific provenance, storage/migrations, dependency and database pins, platform/toolchain compatibility, updater/release infrastructure, and known issues. Git tags, GitHub release state, and committed per-version notes are the ledger; do not create a second mutable channel/version registry.
 
+## Debug Test Builds
+
+A debug test build is NOT a release and must never be signed, notarized, tagged, uploaded, or attached to a GitHub release. Produce one whenever the user asks to "try", "test", or "smoke" a fix before release, and do it from the feature branch, not `main`.
+
+1. Run the unit tier first: `bash scripts/full-suite-gate.sh --tier unit` must print PASS (serialize it with any other `swift` invocation; SwiftPM holds one `.build/.lock` per checkout).
+2. Build the bundle with `bash scripts/build-app.sh --debug` (add `--skip-build` only when `.build/arm64-apple-macosx/debug/Lungfish` is already current for the exact commit under test). The script reads the version from `Lungfish.xcodeproj` so the debug bundle and the notarized build never diverge.
+3. The result is `build/Debug/Lungfish.app` with bundle id `com.lungfish.browser.debug`, `CFBundleName` `Lungfish Debug`, and display name `Lungfish Debug`. It registers as a separate app from the installed release copy, so Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the debug id explicitly.
+4. Launch it with `open build/Debug/Lungfish.app` for the user, or run `build/Debug/Lungfish.app/Contents/MacOS/Lungfish` from a shell when `LUNGFISH_*` environment overrides are needed (environment variables only reach the app from a direct shell launch). Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
+5. Report the commit hash, the branch, the absolute `.app` path, and the unit-tier PASS line. Say plainly that the build is unsigned and for local testing only.
+
+Do not reuse `build/Release/` or `build-notarized-dmg.sh` for a debug build, and do not delete `build/Debug/Lungfish.app` when cleaning up a release run unless the user asks.
+
 ## Load Current Authority
 
 Before acting, read all of:

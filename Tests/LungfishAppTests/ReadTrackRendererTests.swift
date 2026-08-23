@@ -853,6 +853,82 @@ final class ReadTrackRendererTests: XCTestCase {
         XCTAssertEqual(mismatches[1].1, "T")
     }
 
+    // MARK: - Packed-tier mismatch ticks without a reference sequence
+
+    /// Classifier evidence BAMs are shown with no reference loaded. Differences
+    /// must still be visible at every zoom level that draws individual reads,
+    /// so the packed tier falls back to the aligner's MD tag.
+    func testForEachPackedMismatchUsesMDTagWhenNoReferenceIsLoaded() {
+        var seq = Array(repeating: Character("A"), count: 100)
+        seq[10] = "T"
+        seq[31] = "G"
+        let read = AlignedRead(
+            name: "md_read", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(seq), qualities: Array(repeating: 30, count: 100),
+            mdTag: "10T20G68"
+        )
+        let md = ReadTrackRenderer.mismatchPositionsFromMDTag("10T20G68", readStart: 100)
+
+        var reported: [(Int, UInt8)] = []
+        ReadTrackRenderer.forEachPackedMismatch(
+            read: read, refBytes: nil, referenceStart: 0,
+            mdMismatchPositions: md, maskedPositions: []
+        ) { pos, base in reported.append((pos, base)) }
+
+        XCTAssertEqual(reported.map(\.0), [110, 131])
+        XCTAssertEqual(reported.map { Character(UnicodeScalar($0.1)) }, ["T", "G"])
+    }
+
+    func testForEachPackedMismatchReportsExplicitCIGARMismatchWithoutReferenceOrMD() {
+        var seq = Array(repeating: Character("A"), count: 100)
+        seq[10] = "C"
+        let read = AlignedRead(
+            name: "x_read", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60,
+            cigar: [
+                CIGAROperation(op: .seqMatch, length: 10),
+                CIGAROperation(op: .seqMismatch, length: 1),
+                CIGAROperation(op: .seqMatch, length: 89),
+            ],
+            sequence: String(seq), qualities: Array(repeating: 30, count: 100)
+        )
+        var reported: [Int] = []
+        ReadTrackRenderer.forEachPackedMismatch(
+            read: read, refBytes: nil, referenceStart: 0,
+            mdMismatchPositions: nil, maskedPositions: []
+        ) { pos, _ in reported.append(pos) }
+        XCTAssertEqual(reported, [110])
+    }
+
+    func testForEachPackedMismatchReportsNothingWithoutAnyEvidence() {
+        let read = makeRead(position: 100, cigarLength: 50)
+        var count = 0
+        ReadTrackRenderer.forEachPackedMismatch(
+            read: read, refBytes: nil, referenceStart: 0,
+            mdMismatchPositions: nil, maskedPositions: []
+        ) { _, _ in count += 1 }
+        XCTAssertEqual(count, 0, "no reference, no MD tag, no X ops: nothing can be called a mismatch")
+    }
+
+    func testForEachPackedMismatchPrefersReferenceBytesAndSkipsMaskedPositions() {
+        var seq = Array(repeating: Character("A"), count: 20)
+        seq[2] = "T"
+        seq[5] = "T"
+        let read = AlignedRead(
+            name: "ref_read", flag: 0, chromosome: "chr1", position: 0,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 20)],
+            sequence: String(seq), qualities: Array(repeating: 30, count: 20)
+        )
+        let refBytes = Array(String(repeating: "A", count: 20).utf8)
+        var reported: [Int] = []
+        ReadTrackRenderer.forEachPackedMismatch(
+            read: read, refBytes: refBytes, referenceStart: 0,
+            mdMismatchPositions: nil, maskedPositions: [5]
+        ) { pos, _ in reported.append(pos) }
+        XCTAssertEqual(reported, [2])
+    }
+
     func testMismatchPositionsFromMDTagParsesSubstitutionsAndDeletions() {
         // MD: 5A3^CC2T
         // start + 5 => mismatch at +5

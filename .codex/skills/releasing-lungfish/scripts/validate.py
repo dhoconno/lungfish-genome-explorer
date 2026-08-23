@@ -13,6 +13,7 @@ import sys
 REQUIRED_FILES = (
     "scripts/release/build-notarized-dmg.sh",
     "scripts/release/check-sparkle-build-number.py",
+    "scripts/build-app.sh",
     "docs/release/sparkle-updates.md",
     ".codex/agents/release-agent.md",
     "SKILLS.md",
@@ -57,6 +58,8 @@ REQUIRED_SKILL_MARKERS = (
     "--tier full",
     "--tier conformance --require-tools",
     "run-macos-xcui.sh",  # named as an attended diagnostic, not a gate
+    "build-app.sh --debug",  # debug test builds are unsigned and never released
+    "com.lungfish.browser.debug",
 )
 
 SECRET_PATTERNS = (

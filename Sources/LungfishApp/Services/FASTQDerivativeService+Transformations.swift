@@ -204,9 +204,7 @@ extension FASTQDerivativeService {
 
         case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
             let env = await bbToolsEnvironment()
-            // Allocate ~80% of physical memory to Java heap, capped at 31g
-            let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
-            let heapGB = max(1, min(31, physicalMemoryGB * 80 / 100))
+            let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
             var args = [
                 "in=\(sourceFASTQ.path)",
                 "out=\(outputFASTQ.path)",

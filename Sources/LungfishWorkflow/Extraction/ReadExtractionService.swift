@@ -796,7 +796,14 @@ public actor ReadExtractionService {
             selection: selectionDescription
         )
         let bundleDirName = "\(bundleName).\(FASTQBundle.directoryExtension)"
-        let bundleURL = outputDirectory.appendingPathComponent(bundleDirName)
+        let finalBundleURL = outputDirectory.appendingPathComponent(bundleDirName)
+
+        // Stage into a hidden sibling and rename atomically so a failure part
+        // way through never leaves a half-built bundle where the sidebar can
+        // see it.
+        let bundleURL = outputDirectory.appendingPathComponent(
+            ".\(bundleDirName).staging-\(UUID().uuidString)"
+        )
 
         do {
             try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -804,6 +811,12 @@ public actor ReadExtractionService {
             throw ExtractionError.bundleCreationFailed(
                 "Could not create bundle directory: \(error.localizedDescription)"
             )
+        }
+
+        // Any throw after this point discards the staging directory entirely.
+        var staged = true
+        defer {
+            if staged { try? fm.removeItem(at: bundleURL) }
         }
 
         // Move FASTQ files into the bundle
@@ -821,8 +834,29 @@ public actor ReadExtractionService {
             }
         }
 
+        // Promote the staged payload directory into place. Everything after
+        // this point writes sidecars at the FINAL path so recorded provenance
+        // paths match where the files actually live. Any later failure removes
+        // the promoted bundle so no partial bundle is left behind.
+        do {
+            if fm.fileExists(atPath: finalBundleURL.path) {
+                try fm.removeItem(at: finalBundleURL)
+            }
+            try fm.moveItem(at: bundleURL, to: finalBundleURL)
+            staged = false
+        } catch {
+            throw ExtractionError.bundleCreationFailed(
+                "Could not finalize bundle directory: \(error.localizedDescription)"
+            )
+        }
+
+        var promoted = true
+        defer {
+            if promoted { try? fm.removeItem(at: finalBundleURL) }
+        }
+
         // Write extraction-metadata.json (provenance)
-        let metadataURL = bundleURL.appendingPathComponent("extraction-metadata.json")
+        let metadataURL = finalBundleURL.appendingPathComponent("extraction-metadata.json")
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
@@ -837,8 +871,8 @@ public actor ReadExtractionService {
 
         do {
             try writeExtractionProvenance(
-                bundleURL: bundleURL,
-                payloadURLs: result.fastqURLs.map { bundleURL.appendingPathComponent($0.lastPathComponent) },
+                bundleURL: finalBundleURL,
+                payloadURLs: result.fastqURLs.map { finalBundleURL.appendingPathComponent($0.lastPathComponent) },
                 metadataURL: metadataURL,
                 metadata: metadata,
                 readCount: result.readCount
@@ -852,7 +886,7 @@ public actor ReadExtractionService {
         // Write PersistedFASTQMetadata for the primary FASTQ
         if let primaryFASTQ = result.fastqURLs.first {
             let movedPrimaryName = primaryFASTQ.lastPathComponent
-            let movedPrimaryURL = bundleURL.appendingPathComponent(movedPrimaryName)
+            let movedPrimaryURL = finalBundleURL.appendingPathComponent(movedPrimaryName)
 
             var persistedMeta = PersistedFASTQMetadata()
             persistedMeta.downloadSource = "read-extraction"
@@ -866,8 +900,42 @@ public actor ReadExtractionService {
             FASTQMetadataStore.save(persistedMeta, for: movedPrimaryURL)
         }
 
+        // A FASTA payload is not discoverable by FASTQBundle's physical-file
+        // scan, so record a derived manifest pointing at it. Without this the
+        // bundle appears in the sidebar but cannot be opened.
+        if let primary = result.fastqURLs.first,
+           SequenceFormat.from(url: primary) == .fasta {
+            let fastaFilename = primary.lastPathComponent
+            let manifest = FASTQDerivedBundleManifest(
+                name: bundleName,
+                parentBundleRelativePath: ".",
+                rootBundleRelativePath: ".",
+                rootFASTQFilename: fastaFilename,
+                payload: .fullFASTA(fastaFilename: fastaFilename),
+                lineage: [],
+                operation: FASTQDerivativeOperation(
+                    kind: .searchText,
+                    query: "classifier-read-extraction"
+                ),
+                cachedStatistics: FASTQDatasetStatistics.placeholder(
+                    readCount: result.readCount,
+                    baseCount: 0
+                ),
+                pairingMode: nil,
+                sequenceFormat: .fasta
+            )
+            do {
+                try FASTQBundle.saveDerivedManifest(manifest, in: finalBundleURL)
+            } catch {
+                throw ExtractionError.bundleCreationFailed(
+                    "Could not write derived bundle manifest: \(error.localizedDescription)"
+                )
+            }
+        }
+
+        promoted = false
         logger.info("Created extraction bundle: \(bundleDirName, privacy: .public)")
-        return bundleURL
+        return finalBundleURL
     }
 
     private func writeExtractionProvenance(

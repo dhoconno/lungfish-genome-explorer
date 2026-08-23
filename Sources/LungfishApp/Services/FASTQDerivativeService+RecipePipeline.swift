@@ -114,8 +114,7 @@ extension FASTQDerivativeService {
                 let opticalDist = step.deduplicateOpticalDistance ?? 2500
                 commandLine = "clumpify.sh dedupe=t subs=\(subs)\(optical ? " optical=t dupedist=\(opticalDist)" : "") interleaved=\(currentIsInterleaved)"
                 let env = await bbToolsEnvironment()
-                let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
-                let heapGB = max(1, min(31, physicalMemoryGB * 80 / 100))
+                let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
                 var args = [
                     "in=\(currentURL.path)",
                     "out=\(outputURL.path)",

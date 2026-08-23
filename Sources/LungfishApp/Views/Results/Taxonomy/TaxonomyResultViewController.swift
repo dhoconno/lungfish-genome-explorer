@@ -128,6 +128,9 @@ extension TaxonomyViewController: ResultViewportController {
         if let brackenURL = result.brackenURL {
             candidates.append(brackenURL)
         }
+        if let brackenReportURL = result.brackenReportURL {
+            candidates.append(brackenReportURL)
+        }
         for requiredURL in candidates {
             guard FileManager.default.fileExists(atPath: requiredURL.path) else {
                 throw TaxonomyExportError.noSourceInputs

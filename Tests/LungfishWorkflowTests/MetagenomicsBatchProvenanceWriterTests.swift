@@ -266,7 +266,11 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
             ],
             inputs: [degradedReport],
             outputs: [],
-            exitStatus: 2,
+            // Bracken degradation is a warning, not a failure: the Kraken2
+            // classification completed, and NTC negative controls legitimately
+            // have no rows at the requested rank. The evidence lives in the
+            // resolved options and stderr, not in a non-zero exit.
+            exitStatus: 0,
             wallTimeSeconds: 0.25,
             stderr: degradationMessage,
             dependsOn: [degradedKrakenStep.id]
@@ -300,7 +304,7 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
             outputs: [degradedKraken, degradedReport],
             steps: [degradedKrakenStep, degradedPreflightStep],
             wallTimeSeconds: 2.75,
-            exitStatus: 2,
+            exitStatus: 0,
             stderr: degradationMessage
         )
         try ProvenanceWriter(signingProvider: nil).write(degradedEnvelope, to: degradedDirectory)
@@ -384,7 +388,12 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         XCTAssertEqual(options["degradedCount"], .integer(1))
         XCTAssertEqual(options["failedCount"], .integer(0))
         XCTAssertEqual(options["resolvedProfileRanks"], .array([.string("G")]))
-        XCTAssertNotEqual(rootEnvelope.exitStatus, 0)
+        // Flipped from "must be non-zero": a batch where every sample classified
+        // successfully but some Bracken profiles degraded is a completed batch
+        // with warnings. NTC negative controls degrade by design, and marking a
+        // 55-sample run failed because 2 controls had no species rows made the
+        // batch envelope disagree with OperationCenter's completed-with-warning.
+        XCTAssertEqual(rootEnvelope.exitStatus, 0)
         XCTAssertTrue(rootEnvelope.stderr?.contains(degradationMessage) == true)
         XCTAssertEqual(try XCTUnwrap(rootEnvelope.wallTimeSeconds), 7.0, accuracy: 0.000_001)
     }

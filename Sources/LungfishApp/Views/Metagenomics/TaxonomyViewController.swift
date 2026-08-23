@@ -693,8 +693,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         // root), currentBatchSampleId identifies the sample.
         var bySample: [String: [Int]] = [:]
         for node in actionable {
-            let sampleId = findSampleAncestor(of: node) ?? currentBatchSampleId
-            guard let sid = sampleId else { continue }
+            guard let sid = owningSampleId(for: node) else { continue }
             bySample[sid, default: []].append(node.taxId)
         }
         guard !bySample.isEmpty else {
@@ -704,6 +703,20 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         return bySample.sorted(by: { $0.key < $1.key }).map { sid, taxIds in
             ClassifierRowSelector(sampleId: sid, accessions: [], taxIds: taxIds)
         }
+    }
+
+    /// Resolves the sample that owns `node` in the currently displayed tree.
+    ///
+    /// In the merged multi-sample tree each sample is a synthetic node
+    /// (`taxId < 0`), so the owning sample is found by walking up the outline
+    /// view hierarchy. In single-sample mode there is no synthetic layer, so
+    /// this falls back to ``currentBatchSampleId``.
+    ///
+    /// Callers that need per-sample sidecars (read extraction, BLAST
+    /// verification) must use this rather than ``currentBatchSampleId``, which
+    /// is only ever the FIRST selected sample.
+    public func owningSampleId(for node: TaxonNode) -> String? {
+        findSampleAncestor(of: node) ?? currentBatchSampleId
     }
 
     /// Walks up from `node` through the outline view's parent hierarchy to

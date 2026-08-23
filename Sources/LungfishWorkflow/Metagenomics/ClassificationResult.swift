@@ -98,6 +98,22 @@ public struct ClassificationResult: Sendable {
 
     // MARK: - Convenience
 
+    /// The Bracken re-estimated Kraken-style report on disk, if one exists.
+    ///
+    /// Current runs pass `-w` and write ``ClassificationConfig/brackenReportURL``.
+    /// Runs recorded before that still have Bracken's auto-named
+    /// `<report>_bracken_<rank>.kreport`, so that is accepted as a fallback.
+    public var brackenReportURL: URL? {
+        guard brackenURL != nil else { return nil }
+        let fm = FileManager.default
+        var candidates = [config.brackenReportURL]
+        if let rank = profileOutcome.resolution?.rank,
+           let levelCode = BrackenDatabaseCapabilities.levelCode(for: rank) {
+            candidates += config.legacyBrackenReportURLs(levelCode: levelCode)
+        }
+        return candidates.first { fm.fileExists(atPath: $0.path) }
+    }
+
     /// A human-readable summary of the classification result.
     public var summary: String {
         var lines: [String] = []

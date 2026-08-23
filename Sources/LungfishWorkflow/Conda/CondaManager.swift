@@ -24,6 +24,7 @@ public enum CondaError: Error, LocalizedError, Sendable {
     case networkError(String)
     case diskSpaceError(String)
     case timeout(tool: String, seconds: TimeInterval)
+    case micromambaUnusable(path: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -51,6 +52,8 @@ public enum CondaError: Error, LocalizedError, Sendable {
             return "Insufficient disk space: \(msg)"
         case .timeout(let tool, let seconds):
             return "Tool '\(tool)' timed out after \(Int(seconds)) seconds"
+        case .micromambaUnusable(let path, let reason):
+            return "Micromamba at \(path) is unusable: \(reason)"
         }
     }
 }
@@ -308,44 +311,117 @@ public actor CondaManager {
         }
 
         let binDir = rootPrefix.appendingPathComponent("bin")
-        let bundledVersion = try await resolveMicromambaVersion(
-            at: bundledMicromambaPath,
-            fallbackVersion: bundledMicromambaVersionProvider()
-        )
+        // Probe the bundled binary itself. When it cannot run (for example a
+        // build left it with an invalid code signature and macOS kills it on
+        // launch) the lock's version string must NOT be used to justify
+        // replacing a working installed copy with a dead one.
+        let bundledProbe: String?
+        do {
+            bundledProbe = try await runMicromambaVersion(at: bundledMicromambaPath)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            logger.error(
+                "Bundled micromamba at \(bundledMicromambaPath.path, privacy: .public) does not run: \(String(describing: error), privacy: .public)"
+            )
+            bundledProbe = nil
+        }
+        let bundledVersion = bundledProbe
+            ?? bundledMicromambaVersionProvider()
+            ?? ""
 
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
 
+        var previousInstall: URL?
         if FileManager.default.fileExists(atPath: micromambaPath.path) {
             do {
                 let installedVersion = try await resolveMicromambaVersion(at: micromambaPath)
-                if installedVersion == bundledVersion {
+                if Self.micromambaVersionsMatch(installedVersion, bundledVersion) {
                     try ensureMicromambaExecutable(at: micromambaPath)
                     logger.info("Micromamba already available at \(self.micromambaPath.path, privacy: .public)")
                     return micromambaPath
                 }
+                if bundledProbe == nil {
+                    // The installed copy works and the bundled one does not:
+                    // keep the machine in its working state.
+                    logger.error(
+                        "Keeping installed micromamba \(installedVersion, privacy: .public); bundled binary is unusable so it will not replace a working install"
+                    )
+                    try ensureMicromambaExecutable(at: micromambaPath)
+                    return micromambaPath
+                }
                 logger.info("Replacing micromamba \(installedVersion, privacy: .public) with bundled \(bundledVersion, privacy: .public)")
                 progress?(0.0, "Updating micromamba\u{2026}")
+                previousInstall = micromambaPath
             } catch {
+                if bundledProbe == nil {
+                    throw CondaError.micromambaUnusable(
+                        path: micromambaPath.path,
+                        reason: "neither the installed nor the bundled micromamba can run: \(error.localizedDescription)"
+                    )
+                }
                 logger.info("Replacing unreadable micromamba at \(self.micromambaPath.path, privacy: .public)")
                 progress?(0.0, "Updating micromamba\u{2026}")
             }
         } else {
+            guard bundledProbe != nil else {
+                throw CondaError.micromambaUnusable(
+                    path: bundledMicromambaPath.path,
+                    reason: "the bundled micromamba does not run and no installed copy exists"
+                )
+            }
             logger.info("Installing bundled micromamba...")
             progress?(0.0, "Installing micromamba\u{2026}")
         }
 
-        if FileManager.default.fileExists(atPath: micromambaPath.path) {
+        // Keep the previous working binary until the new copy has proven it runs.
+        let backupURL = micromambaPath.appendingPathExtension("previous")
+        try? FileManager.default.removeItem(at: backupURL)
+        if let previousInstall {
+            try FileManager.default.moveItem(at: previousInstall, to: backupURL)
+        } else if FileManager.default.fileExists(atPath: micromambaPath.path) {
             try FileManager.default.removeItem(at: micromambaPath)
         }
         try FileManager.default.copyItem(at: bundledMicromambaPath, to: micromambaPath)
 
         try ensureMicromambaExecutable(at: micromambaPath)
 
-        let version = try await runMicromamba(["--version"])
+        let version: String
+        do {
+            version = try await runMicromamba(["--version"])
+        } catch {
+            try? FileManager.default.removeItem(at: micromambaPath)
+            if FileManager.default.fileExists(atPath: backupURL.path) {
+                try? FileManager.default.moveItem(at: backupURL, to: micromambaPath)
+                logger.error("Freshly installed micromamba failed to run; restored the previous binary")
+            }
+            throw CondaError.micromambaUnusable(
+                path: micromambaPath.path,
+                reason: "the freshly installed micromamba failed to run: \(error.localizedDescription)"
+            )
+        }
+        try? FileManager.default.removeItem(at: backupURL)
         logger.info("Micromamba \(version.trimmingCharacters(in: .whitespacesAndNewlines), privacy: .public) installed successfully")
         progress?(1.0, "Micromamba ready")
 
         return micromambaPath
+    }
+
+    /// Whether two micromamba version strings denote the same release.
+    ///
+    /// The lock records the conda build string (`2.9.0-0`) while the binary
+    /// reports only the release (`2.9.0`); a build suffix alone is not a reason
+    /// to replace an installed binary.
+    static func micromambaVersionsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        func normalized(_ value: String) -> String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let dash = trimmed.firstIndex(of: "-") {
+                return String(trimmed[..<dash])
+            }
+            return trimmed
+        }
+        let left = normalized(lhs)
+        let right = normalized(rhs)
+        return !left.isEmpty && left == right
     }
 
     /// Resolves an already-installed micromamba under the conda root, for use
@@ -1332,6 +1408,42 @@ public actor CondaManager {
     /// `readabilityHandler` to avoid deadlocks when micromamba produces
     /// more than 64 KB of output (e.g. environment creation with many
     /// packages). The actor thread is never blocked.
+    /// Builds a failure message that always says what ran and how it died,
+    /// even when micromamba produced no output at all (a SIGKILLed binary with
+    /// an invalid code signature prints nothing, which used to surface as the
+    /// bare "Failed to install package: ").
+    static func micromambaFailureMessage(
+        executable: URL,
+        arguments: [String],
+        status: Int32,
+        reason: Process.TerminationReason,
+        stdout: String,
+        stderr: String
+    ) -> String {
+        let command = ([executable.path] + arguments).joined(separator: " ")
+        var parts: [String] = []
+        switch reason {
+        case .uncaughtSignal:
+            parts.append("micromamba was killed by signal \(status)")
+        default:
+            parts.append("micromamba exited with status \(status)")
+        }
+        parts.append("command: \(command)")
+        let output = stderr.isEmpty ? stdout : stderr
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            parts.append("no output was produced")
+        } else {
+            parts.append("output: \(trimmed.suffix(2000))")
+        }
+        if reason == .uncaughtSignal || status == 137 {
+            parts.append(
+                "hint: a signal-killed micromamba usually means the binary at \(executable.path) has an invalid code signature; run `codesign --verify` on it"
+            )
+        }
+        return parts.joined(separator: "; ")
+    }
+
     private func runMicromamba(_ arguments: [String]) async throws -> String {
         guard FileManager.default.fileExists(atPath: micromambaPath.path) else {
             throw CondaError.micromambaNotFound
@@ -1402,9 +1514,17 @@ public actor CondaManager {
                         let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
 
                         if terminatedProcess.terminationStatus != 0 {
-                            logger.error("micromamba failed (exit \(terminatedProcess.terminationStatus)): \(stderr, privacy: .public)")
+                            let message = Self.micromambaFailureMessage(
+                                executable: executablePath,
+                                arguments: arguments,
+                                status: terminatedProcess.terminationStatus,
+                                reason: terminatedProcess.terminationReason,
+                                stdout: stdout,
+                                stderr: stderr
+                            )
+                            logger.error("\(message, privacy: .public)")
                             continuation.resume(
-                                throwing: CondaError.packageInstallFailed(stderr.isEmpty ? stdout : stderr)
+                                throwing: CondaError.packageInstallFailed(message)
                             )
                         } else {
                             continuation.resume(returning: stdout)

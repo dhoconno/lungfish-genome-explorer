@@ -87,6 +87,108 @@ final class ReadExtractionServiceTests: XCTestCase {
         )
     }
 
+    // MARK: - FASTA payload bundles
+
+    func testCreateBundleWithFASTAPayloadResolvesViaPrimarySequenceURL() async throws {
+        // Regression: a FASTA-output classifier extraction produced a bundle with
+        // no derived manifest, so FASTQBundle.resolvePrimarySequenceURL could not
+        // find the payload and the sidebar could not open the bundle.
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("read-extract-fasta-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let fasta = root.appendingPathComponent("kraken2-concat.fasta")
+        try ">read1\nACGTACGT\n>read2\nTTTTGGGG\n".write(to: fasta, atomically: true, encoding: .utf8)
+
+        let service = ReadExtractionService()
+        let bundleURL = try await service.createBundle(
+            from: ExtractionResult(fastqURLs: [fasta], readCount: 2, pairedEnd: false),
+            sourceName: "fixture",
+            selectionDescription: "fasta-selection",
+            metadata: ExtractionMetadata(sourceDescription: "fixture", toolName: "test"),
+            in: root
+        )
+
+        let manifest = try XCTUnwrap(
+            FASTQBundle.loadDerivedManifest(in: bundleURL),
+            "FASTA-payload bundle must carry a derived manifest so it can be opened"
+        )
+        guard case .fullFASTA(let filename) = manifest.payload else {
+            XCTFail("Expected .fullFASTA payload, got \(manifest.payload)")
+            return
+        }
+        XCTAssertEqual(filename, "kraken2-concat.fasta")
+        XCTAssertEqual(manifest.sequenceFormat, .fasta)
+
+        let resolved = try XCTUnwrap(
+            FASTQBundle.resolvePrimarySequenceURL(for: bundleURL),
+            "FASTA-backed bundle must resolve a primary sequence URL"
+        )
+        XCTAssertEqual(resolved.lastPathComponent, "kraken2-concat.fasta")
+    }
+
+    func testCreateBundleWithFASTQPayloadDoesNotWriteADerivedManifest() async throws {
+        // FASTQ bundles must keep working exactly as before: payload at top
+        // level, resolved by resolvePrimaryFASTQURL, no derived manifest.
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("read-extract-fastq-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let fastq = root.appendingPathComponent("selected.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: fastq, atomically: true, encoding: .utf8)
+
+        let service = ReadExtractionService()
+        let bundleURL = try await service.createBundle(
+            from: ExtractionResult(fastqURLs: [fastq], readCount: 1, pairedEnd: false),
+            sourceName: "fixture",
+            selectionDescription: "fastq-selection",
+            metadata: ExtractionMetadata(sourceDescription: "fixture", toolName: "test"),
+            in: root
+        )
+
+        XCTAssertNil(
+            FASTQBundle.loadDerivedManifest(in: bundleURL),
+            "FASTQ payload bundles must remain manifest-free physical bundles"
+        )
+        XCTAssertEqual(
+            FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)?.lastPathComponent,
+            "selected.fastq"
+        )
+    }
+
+    func testCreateBundleLeavesNoPartialBundleWhenAPayloadIsMissing() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("read-extract-partial-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // Point at a payload that does not exist so the move step throws.
+        let missing = root.appendingPathComponent("does-not-exist.fastq")
+
+        let service = ReadExtractionService()
+        do {
+            _ = try await service.createBundle(
+                from: ExtractionResult(fastqURLs: [missing], readCount: 1, pairedEnd: false),
+                sourceName: "fixture",
+                selectionDescription: "doomed",
+                metadata: ExtractionMetadata(sourceDescription: "fixture", toolName: "test"),
+                in: root
+            )
+            XCTFail("Expected createBundle to throw when the payload is missing")
+        } catch {
+            // expected
+        }
+
+        let leftovers = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == FASTQBundle.directoryExtension }
+        XCTAssertTrue(
+            leftovers.isEmpty,
+            "A failed createBundle must not leave a partial bundle behind: \(leftovers.map(\.lastPathComponent))"
+        )
+    }
+
     // MARK: - ReadIDBAMExtractionConfig.flagFilter (pure, no I/O)
 
     private func makeBAMConfig(

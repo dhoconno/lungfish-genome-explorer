@@ -338,11 +338,11 @@ struct KrakenTaxonomyRegressionTests {
         #expect(cell?.textField?.stringValue == "Dallas")
     }
 
-    @Test("Kraken taxonomy table does not show a free-text search field")
-    func taxonomyTableHasNoSearchField() {
+    @Test("Kraken taxonomy table shows a free-text search field alongside column filters")
+    func taxonomyTableHasSearchField() {
         let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         let hasSearchField = table.subviews.contains { $0 is NSSearchField }
-        #expect(hasSearchField == false)
+        #expect(hasSearchField)
     }
 
     @Test("Kraken text column filters preserve ancestors of deep matches")

@@ -707,6 +707,104 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(newContents.contains("2.0.5-0"))
     }
 
+    // MARK: - Micromamba bootstrap must never replace a working binary with a dead one
+
+    /// Regression for 2026-08-22: a debug build shipped a micromamba whose code
+    /// signature had been invalidated, so macOS SIGKILLed it. `ensureMicromamba`
+    /// could not read its version, fell back to the lock string ("2.9.0-0"),
+    /// saw a "mismatch" against the installed "2.9.0", and copied the dead
+    /// binary over the user's working one. Every later micromamba call failed
+    /// with the bare "Failed to install package: ".
+    func testEnsureMicromambaKeepsWorkingInstalledBinaryWhenBundledCannotRun() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let rootPrefix = sandbox.appendingPathComponent("conda")
+        let deadBundled = try makeSignalKilledMicromamba(at: sandbox.appendingPathComponent("bundled-micromamba"))
+        let installedMicromamba = try makeFakeMicromamba(
+            at: rootPrefix.appendingPathComponent("bin/micromamba"),
+            version: "2.9.0"
+        )
+        let oldContents = try String(contentsOf: installedMicromamba, encoding: .utf8)
+
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { deadBundled },
+            bundledMicromambaVersionProvider: { "2.9.0-0" }
+        )
+
+        let installedPath = try await manager.ensureMicromamba()
+        let newContents = try String(contentsOf: installedPath, encoding: .utf8)
+
+        XCTAssertEqual(installedPath, installedMicromamba)
+        XCTAssertEqual(newContents, oldContents, "a working installed micromamba must not be replaced by a bundled one that cannot run")
+        let reportedVersion = try await readMicromambaVersion(at: installedPath)
+        XCTAssertEqual(reportedVersion, "2.9.0")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installedPath.appendingPathExtension("previous").path))
+    }
+
+    func testEnsureMicromambaThrowsWhenBundledCannotRunAndNothingIsInstalled() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let deadBundled = try makeSignalKilledMicromamba(at: sandbox.appendingPathComponent("bundled-micromamba"))
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { deadBundled },
+            bundledMicromambaVersionProvider: { "2.9.0-0" }
+        )
+
+        do {
+            _ = try await manager.ensureMicromamba()
+            XCTFail("expected micromambaUnusable")
+        } catch let error as CondaError {
+            guard case .micromambaUnusable(_, let reason) = error else {
+                return XCTFail("unexpected error \(error)")
+            }
+            XCTAssertTrue(reason.contains("does not run"), reason)
+        }
+        let installedPath = await manager.micromambaPath
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installedPath.path), "no dead binary may be left behind")
+    }
+
+    func testMicromambaVersionsMatchIgnoresCondaBuildSuffix() {
+        XCTAssertTrue(CondaManager.micromambaVersionsMatch("2.9.0", "2.9.0-0"))
+        XCTAssertTrue(CondaManager.micromambaVersionsMatch("2.9.0-0", "2.9.0\n"))
+        XCTAssertFalse(CondaManager.micromambaVersionsMatch("2.8.0", "2.9.0-0"))
+        XCTAssertFalse(CondaManager.micromambaVersionsMatch("", ""))
+    }
+
+    func testMicromambaFailureMessageNamesCommandSignalAndHintWhenThereIsNoOutput() {
+        let message = CondaManager.micromambaFailureMessage(
+            executable: URL(fileURLWithPath: "/root/bin/micromamba"),
+            arguments: ["env", "list"],
+            status: 9,
+            reason: .uncaughtSignal,
+            stdout: "",
+            stderr: ""
+        )
+        XCTAssertTrue(message.contains("killed by signal 9"), message)
+        XCTAssertTrue(message.contains("/root/bin/micromamba env list"), message)
+        XCTAssertTrue(message.contains("no output was produced"), message)
+        XCTAssertTrue(message.contains("code signature"), message)
+
+        let plain = CondaManager.micromambaFailureMessage(
+            executable: URL(fileURLWithPath: "/root/bin/micromamba"),
+            arguments: ["install", "-n", "bracken", "--yes", "x"],
+            status: 1,
+            reason: .exit,
+            stdout: "",
+            stderr: "error: package not found"
+        )
+        XCTAssertTrue(plain.contains("exited with status 1"), plain)
+        XCTAssertTrue(plain.contains("output: error: package not found"), plain)
+        XCTAssertFalse(plain.contains("code signature"), plain)
+        XCTAssertEqual(
+            CondaError.packageInstallFailed(plain).errorDescription,
+            "Failed to install package: \(plain)"
+        )
+    }
+
     // MARK: - Micromamba fallback to an already-installed binary
 
     /// The bundled micromamba lives inside the app bundle, so it is absent in
@@ -1193,6 +1291,19 @@ final class CondaManagerTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    /// A "micromamba" that dies by SIGKILL on every invocation, the way a
+    /// binary with an invalid code signature does on macOS.
+    private func makeSignalKilledMicromamba(at url: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let script = """
+        #!/bin/sh
+        kill -9 $$
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
     }
 
     @discardableResult

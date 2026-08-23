@@ -737,6 +737,167 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertGreaterThan(n, 0, "Expected non-zero reads with includeUnmappedMates=true")
     }
 
+    // MARK: - Shared Kraken2 source resolution
+
+    private func makeKraken2ClassResult(
+        in dir: URL,
+        inputFiles: [URL],
+        originalInputFiles: [URL]?,
+        outputDirectory: URL
+    ) throws -> ClassificationResult {
+        let kreport = dir.appendingPathComponent("classification.kreport")
+        try "100.00\t10\t0\tR\t1\troot\n".write(to: kreport, atomically: true, encoding: .utf8)
+        let kraken = dir.appendingPathComponent("classification.kraken")
+        try "C\tread1\t1\t150\t0:150\n".write(to: kraken, atomically: true, encoding: .utf8)
+
+        var config = ClassificationConfig(
+            inputFiles: inputFiles,
+            isPairedEnd: false,
+            databaseName: "Viral",
+            databasePath: dir,
+            confidence: 0.0,
+            minimumHitGroups: 2,
+            threads: 1,
+            memoryMapping: false,
+            quickMode: false,
+            outputDirectory: outputDirectory
+        )
+        config.originalInputFiles = originalInputFiles
+
+        return ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: kreport),
+            reportURL: kreport,
+            outputURL: kraken,
+            brackenURL: nil,
+            runtime: 1.0,
+            toolVersion: "2.1.3",
+            provenanceId: UUID()
+        )
+    }
+
+    func testResolveKraken2SourceResolvesBundleOriginalToItsPayload() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("k2src-bundle-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let bundle = root.appendingPathComponent("sample.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let payload = bundle.appendingPathComponent("sample.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+
+        // inputFiles points at a materialized temp that no longer exists.
+        let deletedTemp = root.appendingPathComponent("materialized-gone.fastq")
+
+        let result = try makeKraken2ClassResult(
+            in: root,
+            inputFiles: [deletedTemp],
+            originalInputFiles: [bundle],
+            outputDirectory: root
+        )
+
+        let resolved = try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
+        XCTAssertEqual(
+            resolved.standardizedFileURL,
+            payload.standardizedFileURL,
+            "A .lungfishfastq original must resolve to the payload file inside the bundle"
+        )
+    }
+
+    func testResolveKraken2SourcePrefersOriginalWhenInputFilesWereDeleted() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("k2src-original-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let original = root.appendingPathComponent("original.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: original, atomically: true, encoding: .utf8)
+        let deletedTemp = root.appendingPathComponent("materialized-gone.fastq")
+
+        let result = try makeKraken2ClassResult(
+            in: root,
+            inputFiles: [deletedTemp],
+            originalInputFiles: [original],
+            outputDirectory: root
+        )
+
+        XCTAssertEqual(
+            try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result).standardizedFileURL,
+            original.standardizedFileURL
+        )
+    }
+
+    func testResolveKraken2SourceFallsBackToPlainInputFile() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("k2src-plain-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let plain = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: plain, atomically: true, encoding: .utf8)
+
+        let result = try makeKraken2ClassResult(
+            in: root,
+            inputFiles: [plain],
+            originalInputFiles: nil,
+            outputDirectory: root
+        )
+
+        XCTAssertEqual(
+            try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result).standardizedFileURL,
+            plain.standardizedFileURL
+        )
+    }
+
+    func testResolveKraken2SourceThrowsWhenNothingIsResolvable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("k2src-none-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let result = try makeKraken2ClassResult(
+            in: root,
+            inputFiles: [root.appendingPathComponent("gone.fastq")],
+            originalInputFiles: nil,
+            outputDirectory: root
+        )
+
+        XCTAssertThrowsError(
+            try ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
+        )
+    }
+
+    // MARK: - Bundle destination directory
+
+    func testBundleDestinationDirectoryRoutesToExtractionsUnderProjectRoot() throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory
+            .appendingPathComponent("proj-imports-\(UUID().uuidString).lungfish")
+        try fm.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let dir = try ClassifierReadResolver.bundleDestinationDirectory(projectRoot: projectRoot)
+
+        XCTAssertEqual(dir.lastPathComponent, "Extractions")
+        XCTAssertEqual(dir.deletingLastPathComponent().standardizedFileURL, projectRoot.standardizedFileURL)
+        XCTAssertTrue(fm.fileExists(atPath: dir.path), "Extractions/ must be created if missing")
+    }
+
+    func testBundleDestinationDirectoryHonoursAnExplicitExtractionsSelection() throws {
+        // If the caller already pointed at an Extractions directory, don't nest
+        // a second Extractions inside it.
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory
+            .appendingPathComponent("proj-imports2-\(UUID().uuidString).lungfish")
+        let imports = projectRoot.appendingPathComponent("Extractions", isDirectory: true)
+        try fm.createDirectory(at: imports, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        let dir = try ClassifierReadResolver.bundleDestinationDirectory(projectRoot: imports)
+        XCTAssertEqual(dir.standardizedFileURL, imports.standardizedFileURL)
+    }
+
     // MARK: - Destination routing
 
     func testDestination_bundle_createsLungfishfastqUnderProjectRoot() async throws {
@@ -795,6 +956,11 @@ final class ClassifierReadResolverTests: XCTestCase {
                       "Bundle must land under the project root: \(bundleURL.path)")
         XCTAssertFalse(bundleURL.path.contains("/.lungfish/.tmp/"),
                       "Bundle must NOT land in .lungfish/.tmp/")
+        XCTAssertEqual(
+            bundleURL.deletingLastPathComponent().lastPathComponent,
+            "Extractions",
+            "Classifier extraction bundles must land in <project>/Extractions/ (derived data, kept apart from sequence imports), not at the project root"
+        )
         XCTAssertGreaterThan(n, 0)
 
         let decoder = JSONDecoder()

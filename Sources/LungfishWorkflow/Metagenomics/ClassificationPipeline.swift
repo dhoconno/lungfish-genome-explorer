@@ -850,10 +850,14 @@ public actor ClassificationPipeline {
 
         let sidecarURL = effectiveConfig.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename)
         try? fm.removeItem(at: sidecarURL)
+        let resolvedBrackenReport = profileOutcome.resolution
+            .flatMap { BrackenDatabaseCapabilities.levelCode(for: $0.rank) }
+            .flatMap { resolvedBrackenReportURL(config: effectiveConfig, levelCode: $0) }
         let sidecarInputRecords = classificationResultOutputRecords(
             reportURL: effectiveConfig.reportURL,
             outputURL: retainedOutputURL,
-            brackenURL: brackenOutputURL
+            brackenURL: brackenOutputURL,
+            brackenReportURL: resolvedBrackenReport
         )
         let sidecarSaveStart = Date()
         do {
@@ -910,14 +914,23 @@ public actor ClassificationPipeline {
         progress?(0.98, "Saving provenance...")
 
         // Phase 6: Complete provenance (0.95 -- 1.0)
-        let runStatus: RunStatus = profileOutcome.state == .degraded ? .failed : .completed
-        await provenanceRecorder.completeRun(runID, status: runStatus)
+        //
+        // A degraded Bracken profile on a sample whose Kraken2 classification
+        // succeeded is a completed run with a warning, not a failure: negative
+        // controls legitimately have no rows at the requested rank. The
+        // degradation is already recorded in the resolved options, the
+        // `profileState`, and the step stderr, which is what OperationCenter
+        // surfaces as completed-with-warning.
+        await provenanceRecorder.completeRun(runID, status: .completed)
 
         do {
+            // The raw `classification.kraken` is gzipped and then deleted, so the
+            // run-level roll-up must not keep advertising it.
             try await provenanceRecorder.save(
                 runID: runID,
                 to: effectiveConfig.outputDirectory,
-                options: provenanceOptions
+                options: provenanceOptions,
+                dropMissingRunLevelFiles: true
             )
         } catch {
             try? fm.removeItem(at: sidecarURL)
@@ -990,7 +1003,15 @@ public actor ClassificationPipeline {
             KrakenIndexDatabase.indexURL(for: config.outputURL),
             KrakenIndexDatabase.indexURL(for: compressedOutput),
             config.brackenURL,
+            config.brackenReportURL,
             config.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename),
+        ]
+        // Older runs left Bracken's auto-named report behind; a re-run at a
+        // different rank must not leave a stale one next to the new report.
+        + ["D", "K", "P", "C", "O", "F", "G", "S"].flatMap {
+            config.legacyBrackenReportURLs(levelCode: $0)
+        }
+        + [
             config.outputDirectory
                 .appendingPathComponent(".lungfish-provenance", isDirectory: true)
                 .appendingPathComponent("intermediates", isDirectory: true)
@@ -1028,12 +1049,65 @@ public actor ClassificationPipeline {
         let replayRecords: [FileRecord]
     }
 
-    private func durableReplayInputURLs(for config: ClassificationConfig) -> [URL] {
+    /// `ProjectTempDirectory` scratch directory name. Materialized virtual
+    /// bundles land in `<project>.lungfish/.tmp/<prefix><uuid>/` and are deleted
+    /// once the run finishes, so anything below it is transient even though it
+    /// sits inside the project tree.
+    private static let projectScratchDirectoryName = ".tmp"
+
+    /// An execution input is durable when replaying the run months later will
+    /// still find it: it is a regular file that either lives inside (or is) one
+    /// of the declared original inputs, or sits anywhere inside a `.lungfish`
+    /// project tree outside the project scratch directory. Only genuinely
+    /// transient inputs -- virtual subset/trim/demux bundles the app
+    /// materializes and deletes after the run -- need a provenance copy.
+    /// Copying durable imports duplicated every imported FASTQ in the project
+    /// (18.7 GB across one 55-sample batch), which is why this mirrors
+    /// `Minimap2Pipeline.isRunnableSequenceInput`.
+    private func isDurableClassificationInput(
+        _ url: URL,
+        originalInputs: [URL]
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+        let standardized = url.standardizedFileURL
+        for original in originalInputs {
+            let originalStandardized = original.standardizedFileURL
+            if standardized.path == originalStandardized.path {
+                return true
+            }
+            if standardized.path.hasPrefix(originalStandardized.path + "/") {
+                return true
+            }
+        }
+        // Walk up to the project root, rejecting anything staged under the
+        // project's scratch directory on the way.
+        var ancestor = standardized.deletingLastPathComponent()
+        while ancestor.path != "/" && !ancestor.path.isEmpty {
+            if ancestor.lastPathComponent == Self.projectScratchDirectoryName {
+                return false
+            }
+            if ancestor.pathExtension.lowercased() == "lungfish" {
+                return true
+            }
+            let parent = ancestor.deletingLastPathComponent()
+            if parent.path == ancestor.path { break }
+            ancestor = parent
+        }
+        return false
+    }
+
+    /// Execution inputs paired with the provenance copy they need, in input
+    /// order. Durable inputs map to `nil` and are referenced in place.
+    private func replayInputPlan(for config: ClassificationConfig) -> [(source: URL, copy: URL?)] {
         let originalInputs = config.originalInputFiles ?? []
         let originalPaths = originalInputs.map { $0.standardizedFileURL.path }
         let executionPaths = config.inputFiles.map { $0.standardizedFileURL.path }
         guard !originalInputs.isEmpty, originalPaths != executionPaths else {
-            return []
+            return config.inputFiles.map { ($0, nil) }
         }
 
         let replayDirectory = config.outputDirectory
@@ -1041,10 +1115,22 @@ public actor ClassificationPipeline {
             .appendingPathComponent("intermediates", isDirectory: true)
             .appendingPathComponent("classification-inputs", isDirectory: true)
         return config.inputFiles.enumerated().map { index, executionInput in
-            replayDirectory.appendingPathComponent(
-                "input-\(index + 1)-\(executionInput.lastPathComponent)"
+            guard !isDurableClassificationInput(executionInput, originalInputs: originalInputs) else {
+                return (executionInput, nil)
+            }
+            return (
+                executionInput,
+                replayDirectory.appendingPathComponent(
+                    "input-\(index + 1)-\(executionInput.lastPathComponent)"
+                )
             )
         }
+    }
+
+    /// The provenance copies this run will actually make -- empty when every
+    /// execution input is already durable.
+    private func durableReplayInputURLs(for config: ClassificationConfig) -> [URL] {
+        replayInputPlan(for: config).compactMap(\.copy)
     }
 
     private func durableReplayInputMaterialization(
@@ -1054,8 +1140,8 @@ public actor ClassificationPipeline {
         let lineageRecords = originalInputs.map {
             ProvenanceRecorder.fileOrDirectoryRecord(url: $0, role: .input)
         }
-        let replayInputURLs = durableReplayInputURLs(for: config)
-        guard !replayInputURLs.isEmpty else {
+        let plan = replayInputPlan(for: config)
+        guard plan.contains(where: { $0.copy != nil }) else {
             return DurableReplayInputMaterialization(
                 inputFiles: config.inputFiles,
                 lineageRecords: lineageRecords,
@@ -1063,13 +1149,21 @@ public actor ClassificationPipeline {
             )
         }
 
-        let replayDirectory = replayInputURLs[0].deletingLastPathComponent()
         let fm = FileManager.default
-        try fm.createDirectory(at: replayDirectory, withIntermediateDirectories: true)
+        for replayDirectory in Set(plan.compactMap { $0.copy?.deletingLastPathComponent().path }) {
+            try fm.createDirectory(
+                at: URL(fileURLWithPath: replayDirectory),
+                withIntermediateDirectories: true
+            )
+        }
 
         var durableInputs: [URL] = []
         var replayRecords: [FileRecord] = []
-        for (executionInput, replayInput) in zip(config.inputFiles, replayInputURLs) {
+        for (executionInput, replayInput) in plan {
+            guard let replayInput else {
+                durableInputs.append(executionInput)
+                continue
+            }
             if fm.fileExists(atPath: replayInput.path) {
                 try fm.removeItem(at: replayInput)
             }
@@ -1093,12 +1187,14 @@ public actor ClassificationPipeline {
     private func classificationReplayInputMaterializationCommand(
         config: ClassificationConfig
     ) -> [String] {
-        let copies = zip(config.inputFiles, durableReplayInputURLs(for: config))
-            .map { source, destination in
-                "/bin/cp \(shellEscape(source.path)) \(shellEscape(destination.path))"
+        let plan = replayInputPlan(for: config)
+        let copies = plan
+            .compactMap { source, destination -> String? in
+                guard let destination else { return nil }
+                return "/bin/cp \(shellEscape(source.path)) \(shellEscape(destination.path))"
             }
             .joined(separator: "\n")
-        let replayDirectory = durableReplayInputURLs(for: config).first?.deletingLastPathComponent()
+        let replayDirectory = plan.compactMap(\.copy).first?.deletingLastPathComponent()
         let mkdir = replayDirectory.map { "/bin/mkdir -p \(shellEscape($0.path))" } ?? ":"
         return ["/bin/sh", "-c", "set -e\n\(mkdir)\n\(copies)"]
     }
@@ -1480,6 +1576,7 @@ public actor ClassificationPipeline {
             distributionURL: distributionURL,
             reportURL: config.reportURL,
             outputURL: config.brackenURL,
+            reportOutputURL: config.brackenReportURL,
             readLength: resolution.readLength,
             levelCode: levelCode,
             threshold: resolution.threshold
@@ -1810,6 +1907,11 @@ public actor ClassificationPipeline {
             format: .text,
             role: .output
         )
+        // Bracken always writes a re-estimated Kraken-style report. Declare the
+        // explicit `-w` path when it exists, otherwise the legacy auto-named file
+        // that runs from before `-w` was passed still have on disk.
+        let reportRecords = resolvedBrackenReportURL(config: config, levelCode: levelCode)
+            .map { [ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .report)] } ?? []
         let stepID = await provenanceRecorder.recordStep(
             runID: runID,
             toolName: "bracken",
@@ -1818,7 +1920,7 @@ public actor ClassificationPipeline {
             resolvedOptions: resolvedOptions,
             runtimeIdentity: runtimeIdentity,
             inputs: brackenInputs,
-            outputs: [outputRecord],
+            outputs: [outputRecord] + reportRecords,
             exitCode: processResult.exitCode,
             wallTime: processWallTime,
             stderr: processResult.stderr,
@@ -2121,10 +2223,24 @@ public actor ClassificationPipeline {
         )
     }
 
+    /// The Bracken re-estimated report that actually exists on disk: the explicit
+    /// `-w` path this build writes, or the legacy auto-named file left by older
+    /// runs. `nil` when Bracken produced neither.
+    private func resolvedBrackenReportURL(
+        config: ClassificationConfig,
+        levelCode: String
+    ) -> URL? {
+        let fm = FileManager.default
+        let candidates = [config.brackenReportURL]
+            + config.legacyBrackenReportURLs(levelCode: levelCode)
+        return candidates.first { fm.fileExists(atPath: $0.path) }
+    }
+
     private func classificationResultOutputRecords(
         reportURL: URL,
         outputURL: URL,
-        brackenURL: URL?
+        brackenURL: URL?,
+        brackenReportURL: URL? = nil
     ) -> [FileRecord] {
         let fm = FileManager.default
         var records = [
@@ -2137,6 +2253,9 @@ public actor ClassificationPipeline {
         }
         if let brackenURL {
             records.append(ProvenanceRecorder.fileRecord(url: brackenURL, format: .text, role: .output))
+        }
+        if let brackenReportURL, fm.fileExists(atPath: brackenReportURL.path) {
+            records.append(ProvenanceRecorder.fileRecord(url: brackenReportURL, format: .text, role: .report))
         }
         return records
     }

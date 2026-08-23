@@ -621,8 +621,12 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             let persisted = try ClassificationResult.load(from: config.outputDirectory)
             XCTAssertEqual(persisted.profileOutcome.reason, expectedReason)
             let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
-            XCTAssertNotEqual(envelope.exitStatus, 0)
-            XCTAssertEqual(envelope.legacyRun?.status, .failed)
+            // Flipped for the degraded-is-not-failed rule: a sample whose
+            // Kraken2 classification succeeded completes even when Bracken
+            // degrades. NTC negative controls degrade by design. The evidence
+            // stays in the step exit codes, the resolved options, and stderr.
+            XCTAssertEqual(envelope.exitStatus, 0)
+            XCTAssertEqual(envelope.legacyRun?.status, .completed)
             let preflight = try XCTUnwrap(envelope.steps.first { $0.toolName == "Lungfish Bracken Preflight" })
             XCTAssertNotEqual(preflight.exitStatus, 0)
             XCTAssertTrue(preflight.inputs.contains { $0.path == config.reportURL.path })
@@ -683,7 +687,10 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
 
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
         XCTAssertEqual(provenance.name, "Metagenomics Profiling")
-        XCTAssertEqual(provenance.status, .failed)
+        // Flipped for the degraded-is-not-failed rule: the Kraken2
+        // classification completed, so the run does. The failing bracken step
+        // below is where the degradation evidence lives.
+        XCTAssertEqual(provenance.status, .completed)
         let brackenStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "bracken" })
 
         XCTAssertEqual(brackenStep.exitCode, 42)
@@ -740,7 +747,11 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputURL.path))
 
             let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
-            XCTAssertNotEqual(envelope.exitStatus, 0)
+            // Flipped for the degraded-is-not-failed rule: a sample whose
+            // Kraken2 classification succeeded completes even when Bracken
+            // degrades. NTC negative controls degrade by design. The evidence
+            // stays in the step exit codes, the resolved options, and stderr.
+            XCTAssertEqual(envelope.exitStatus, 0)
             let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
             XCTAssertEqual(brackenStep.exitStatus, 0, "The recorded process exit remains exact")
             XCTAssertEqual(brackenStep.outputs, [])
@@ -778,7 +789,10 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.reportURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputURL.path))
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
-        XCTAssertNotEqual(envelope.exitStatus, 0)
+        // Flipped for the degraded-is-not-failed rule: the Kraken2 result is
+        // retained and the run completes; the failed bracken step below still
+        // carries the launch failure.
+        XCTAssertEqual(envelope.exitStatus, 0)
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
         XCTAssertNotEqual(brackenStep.exitStatus, 0)
         XCTAssertTrue((brackenStep.stderr ?? "").localizedCaseInsensitiveContains("micromamba"))
@@ -869,6 +883,254 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             "A successful-looking classification sidecar must not survive if final provenance cannot be saved."
         )
     }
+
+    // MARK: - Durable input storage policy (Task 1)
+
+    /// The GUI passes the `.lungfishfastq` bundle directory as the original input
+    /// and the payload *inside* that bundle as the execution input. That payload is
+    /// already durable, so copying it into `classification-inputs/` duplicates every
+    /// imported FASTQ in the project (18.7 GB across a 55-sample batch).
+    func testDurableBundlePayloadInputIsReferencedInPlaceWithoutCopying() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let sourceBundle = fixture.root.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        let payload = sourceBundle.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+        config.inputFiles = [payload]
+        config.originalInputFiles = [sourceBundle]
+
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
+
+        let replayDirectory = config.outputDirectory
+            .appendingPathComponent(".lungfish-provenance", isDirectory: true)
+            .appendingPathComponent("intermediates", isDirectory: true)
+            .appendingPathComponent("classification-inputs", isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: replayDirectory.path),
+            "An already-durable bundle payload must never be copied into provenance intermediates."
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        XCTAssertFalse(
+            envelope.steps.contains { $0.toolName == "Lungfish Classification Replay Input Materialization" },
+            "No materialization step should be recorded when nothing is copied."
+        )
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        let replayArgv = try XCTUnwrap(krakenStep.durableReplayArgv)
+        XCTAssertTrue(replayArgv.contains(payload.path), "Replay must point at the in-place durable payload.")
+        XCTAssertFalse(replayArgv.contains { $0.contains("classification-inputs") })
+        XCTAssertTrue(
+            krakenStep.inputs.contains { $0.path == sourceBundle.path && $0.role == .input },
+            "The originating bundle lineage record must survive."
+        )
+    }
+
+    /// An execution input inside the project tree (`*.lungfish`) is durable even
+    /// when it is not under one of the declared original inputs.
+    func testInputInsideProjectTreeIsReferencedInPlace() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let project = fixture.root.appendingPathComponent("Study.lungfish", isDirectory: true)
+        let importsDirectory = project.appendingPathComponent("Imports", isDirectory: true)
+        try FileManager.default.createDirectory(at: importsDirectory, withIntermediateDirectories: true)
+        let payload = importsDirectory.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+        let unrelatedOriginal = fixture.root.appendingPathComponent("declared.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: unrelatedOriginal, withIntermediateDirectories: true)
+        config.inputFiles = [payload]
+        config.originalInputFiles = [unrelatedOriginal]
+
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
+
+        let replayDirectory = config.outputDirectory
+            .appendingPathComponent(".lungfish-provenance", isDirectory: true)
+            .appendingPathComponent("intermediates", isDirectory: true)
+            .appendingPathComponent("classification-inputs", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: replayDirectory.path))
+    }
+
+    /// `FASTQDerivativeService.materializeDatasetFASTQ` stages virtual subset,
+    /// trim, and demux bundles into `ProjectTempDirectory`, which lives INSIDE
+    /// the project at `<project>.lungfish/.tmp/`. Being inside the project tree
+    /// does not make those files durable -- they are deleted once the run ends,
+    /// so a replay command pointing at them would reference a missing file.
+    func testMaterializedInputInProjectScratchDirectoryIsCopied() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let project = fixture.root.appendingPathComponent("Study.lungfish", isDirectory: true)
+        let importsDirectory = project.appendingPathComponent("Imports", isDirectory: true)
+        let sourceBundle = importsDirectory.appendingPathComponent("virtual.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        let scratch = project
+            .appendingPathComponent(".tmp", isDirectory: true)
+            .appendingPathComponent("classify-mat-xyz", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let materialized = scratch.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: materialized, atomically: true, encoding: .utf8)
+        config.inputFiles = [materialized]
+        config.originalInputFiles = [sourceBundle]
+
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let materialization = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "Lungfish Classification Replay Input Materialization" },
+            "A file staged under <project>.lungfish/.tmp/ is transient and must be copied."
+        )
+        let copy = try XCTUnwrap(
+            materialization.outputs.first { $0.path.contains("/classification-inputs/") }
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        let replayArgv = try XCTUnwrap(krakenStep.durableReplayArgv)
+        XCTAssertTrue(replayArgv.contains(copy.path))
+        XCTAssertFalse(replayArgv.contains(materialized.path))
+    }
+
+    /// A materialized virtual bundle lives in a scratch directory outside the
+    /// project and is deleted after the run, so it still has to be copied.
+    func testTransientTemporaryInputIsStillCopiedForDurableReplay() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classification-transient-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let transientInput = scratch.appendingPathComponent("materialized.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: transientInput, atomically: true, encoding: .utf8)
+        let sourceBundle = fixture.root.appendingPathComponent("virtual.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        config.inputFiles = [transientInput]
+        config.originalInputFiles = [sourceBundle]
+
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let materialization = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "Lungfish Classification Replay Input Materialization" },
+            "A transient materialized input must still be copied for durable replay."
+        )
+        let copy = try XCTUnwrap(
+            materialization.outputs.first { $0.path.contains("/classification-inputs/") }
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertTrue(try XCTUnwrap(krakenStep.durableReplayArgv).contains(copy.path))
+    }
+
+    /// Mixed inputs: the durable one keeps its in-place path, only the transient
+    /// one is copied, and the replay command references both.
+    func testMixedDurableAndTransientInputsCopyOnlyTheTransientOne() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let sourceBundle = fixture.root.appendingPathComponent("paired.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        let durablePayload = sourceBundle.appendingPathComponent("R1.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: durablePayload, atomically: true, encoding: .utf8)
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classification-mixed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let transientPayload = scratch.appendingPathComponent("R2.fastq")
+        try "@read2\nACGT\n+\nIIII\n".write(to: transientPayload, atomically: true, encoding: .utf8)
+        config.inputFiles = [durablePayload, transientPayload]
+        config.originalInputFiles = [sourceBundle]
+
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
+
+        let replayDirectory = config.outputDirectory
+            .appendingPathComponent(".lungfish-provenance", isDirectory: true)
+            .appendingPathComponent("intermediates", isDirectory: true)
+            .appendingPathComponent("classification-inputs", isDirectory: true)
+        let copied = try FileManager.default.contentsOfDirectory(atPath: replayDirectory.path)
+        XCTAssertEqual(copied.count, 1, "Only the transient input may be copied: \(copied)")
+        XCTAssertTrue(try XCTUnwrap(copied.first).contains("R2.fastq"))
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        let replayArgv = try XCTUnwrap(krakenStep.durableReplayArgv)
+        XCTAssertTrue(replayArgv.contains(durablePayload.path))
+        XCTAssertFalse(replayArgv.contains(transientPayload.path))
+        XCTAssertTrue(replayArgv.contains { $0.contains("classification-inputs") && $0.contains("R2.fastq") })
+    }
+
+    // MARK: - Declared files must exist (Task 2a)
+
+    /// `compactKrakenOutputIfPossible` gzips and then deletes `classification.kraken`,
+    /// but the raw path was still declared in the run-level `files`/`outputs`, leaving
+    /// 55 dangling declarations in the user's batch.
+    func testCompletedRunDeclaresNoMissingFilesAfterKrakenCompaction() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig()
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager).classify(config: config)
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        XCTAssertEqual(envelope.exitStatus, 0)
+        let fm = FileManager.default
+        let declared = envelope.files.map(\.path) + envelope.outputs.map(\.path)
+        let missing = declared.filter { !fm.fileExists(atPath: $0) }
+        XCTAssertTrue(missing.isEmpty, "Run-level declarations must all exist on disk: \(missing)")
+        XCTAssertFalse(envelope.files.contains { $0.path == config.outputURL.path })
+        XCTAssertFalse(envelope.outputs.contains { $0.path == config.outputURL.path })
+
+        let compressedURL = config.outputURL.appendingPathExtension("gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: compressedURL)
+        XCTAssertTrue(envelope.outputs.contains { $0.path == compressedURL.path })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == indexURL.path })
+        XCTAssertEqual(
+            envelope.steps.first { $0.toolName == "gzip" }?.inputs.map(\.path),
+            [config.outputURL.path],
+            "Step-level records stay historically true."
+        )
+    }
+
+    // MARK: - Bracken report declaration (Task 2b)
+
+    /// Bracken auto-writes `<report>_bracken_<rank>.kreport` when `-w` is absent, so
+    /// 53 report files in the user's batch were produced but never declared.
+    func testBrackenReportIsWrittenAtTheExplicitPathAndDeclared() async throws {
+        let fixture = try FakeClassificationCondaFixture(reportRank: .species)
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig(goal: .profile, profileRequest: .automaticDefault)
+        let result = try await ClassificationPipeline(condaManager: fixture.condaManager).profile(config: config)
+
+        XCTAssertEqual(result.profileOutcome.state, .completed)
+        let reportURL = config.brackenReportURL
+        XCTAssertEqual(reportURL.lastPathComponent, "classification.bracken.kreport")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
+
+        let profileCall = try XCTUnwrap(fixture.brackenProfileInvocations().only)
+        XCTAssertTrue(profileCall.contains("-w \(reportURL.path)"), profileCall)
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
+        XCTAssertTrue(
+            brackenStep.outputs.contains { $0.path == reportURL.path && $0.role == .report },
+            "The Bracken re-estimated kreport must be a declared bracken step output."
+        )
+        let fm = FileManager.default
+        let missing = (envelope.files.map(\.path) + envelope.outputs.map(\.path))
+            .filter { !fm.fileExists(atPath: $0) }
+        XCTAssertTrue(missing.isEmpty, "Declared files must exist: \(missing)")
+
+        let sidecar = try XCTUnwrap(ClassificationResult.load(from: config.outputDirectory))
+        XCTAssertEqual(sidecar.brackenReportURL?.standardizedFileURL, reportURL.standardizedFileURL)
+    }
+
 }
 
 private extension Array {
@@ -1178,14 +1440,22 @@ private struct FakeClassificationCondaFixture {
               exit 0
             fi
             output=""
+            reportOutput=""
             while [ "$#" -gt 0 ]; do
               if [ "$1" = "-o" ]; then
                 shift
                 output="$1"
+              elif [ "$1" = "-w" ]; then
+                shift
+                reportOutput="$1"
               fi
               shift
             done
             mkdir -p "$(dirname "$output")"
+            if [ -n "$reportOutput" ]; then
+              mkdir -p "$(dirname "$reportOutput")"
+              printf '100.00\t1\t0\tR\t1\troot\n' > "$reportOutput"
+            fi
             \(brackenBody)
             ;;
           *)

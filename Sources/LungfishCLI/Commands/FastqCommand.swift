@@ -2285,8 +2285,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         try output.validateOutput()
         let runner = NativeToolRunner.shared
 
-        let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
-        let heapGB = max(1, min(31, physicalMemoryGB * 80 / 100))
+        let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
         var args = [
             "in=\(inputURL.path)",
             "out=\(output.output)",

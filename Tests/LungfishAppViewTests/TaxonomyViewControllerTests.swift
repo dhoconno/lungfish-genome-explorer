@@ -1311,6 +1311,63 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         XCTAssertEqual(captured?.tool, .kraken2)
     }
 
+    func testOwningSampleIdResolvesPerNodeSampleInMergedBatchTree() throws {
+        // Regression: BLAST Verify used `currentBatchSampleId` (always the FIRST
+        // selected sample) to pick the per-sample sidecar, so a node belonging to
+        // the second sample resolved read IDs against the wrong sample's index
+        // and failed with "No sequences provided for BLAST verification".
+        let resultDir = try makeTempDir(prefix: "KrakenMultiSampleOwner")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+
+        let db = try makeMultiSampleKrakenDatabase(in: resultDir)
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        host.contentView = NSView(frame: host.frame)
+        host.contentView?.addSubview(vc.view)
+
+        vc.batchURL = resultDir
+        vc.configureFromDatabase(db)
+
+        // Merged tree: synthetic root -> one synthetic sample node per sample.
+        vc.testTableView.expandAll()
+        vc.testTableView.outlineView.layoutSubtreeIfNeeded()
+
+        let tree = try XCTUnwrap(vc.testTableView.tree)
+
+        // Influenza A virus (11320) exists only under S2; Betacoronavirus (694002)
+        // only under S1. `currentBatchSampleId` is S1 for both.
+        XCTAssertEqual(vc.currentBatchSampleId, "S1")
+
+        let fluNode = try XCTUnwrap(findNode(in: tree.root, taxId: 11320))
+        let betacoronaNode = try XCTUnwrap(findNode(in: tree.root, taxId: 694002))
+
+        XCTAssertEqual(
+            vc.owningSampleId(for: betacoronaNode),
+            "S1",
+            "A node under the first sample must resolve to that sample"
+        )
+        XCTAssertEqual(
+            vc.owningSampleId(for: fluNode),
+            "S2",
+            "A node under the second sample must resolve to its OWN sample, not currentBatchSampleId"
+        )
+    }
+
+    private func findNode(in node: TaxonNode, taxId: Int) -> TaxonNode? {
+        if node.taxId == taxId { return node }
+        for child in node.children {
+            if let hit = findNode(in: child, taxId: taxId) { return hit }
+        }
+        return nil
+    }
+
     func testDisplayTaxTriageFromDatabase_wiresBlastCallback() throws {
         let viewerVC = ViewerViewController()
         _ = viewerVC.view

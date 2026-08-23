@@ -195,161 +195,194 @@ public final class FASTQReader: Sendable {
     ///
     /// Automatically handles gzip-compressed files (.gz extension).
     ///
+    /// Pull-based: a record is parsed only when the consumer asks for the next
+    /// one, so a slow consumer (per-read statistics, previews) never lets the
+    /// parser buffer the rest of the file. The previous producer-task design
+    /// yielded into an unbounded stream buffer and grew to 20 GB on a large
+    /// import (2026-08-22 OOM).
+    ///
     /// - Parameter url: URL of the FASTQ file
     /// - Returns: AsyncThrowingStream of FASTQ records
     public func records(from url: URL) -> AsyncThrowingStream<FASTQRecord, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    var detectedEncoding = self.encoding
-                    var lineNumber = 0
-                    var currentHeader: String?
-                    var currentSequence = ""
-                    var currentQuality = ""
-                    var expectedQualityLength = 0
-                    enum ParseState {
-                        case header
-                        case sequence
-                        case quality
-                    }
-                    var state: ParseState = .header
+        let parser = RecordSource(reader: self, lines: url.linesAutoDecompressing())
+        return AsyncThrowingStream(unfolding: {
+            if Task.isCancelled { return nil }
+            return try await parser.next()
+        })
+    }
 
-                    // Use auto-decompressing lines for gzip support
-                    for try await line in url.linesAutoDecompressing() {
-                        lineNumber += 1
+    /// Incremental FASTQ parser driven by consumer demand.
+    ///
+    /// Holds the line iterator and the parse state between `next()` calls so
+    /// exactly one record is materialised per call. Used serially by one
+    /// stream iterator.
+    private final class RecordSource: @unchecked Sendable {
+        private enum ParseState {
+            case header
+            case sequence
+            case quality
+        }
 
-                        guard line.count <= self.maxLineLength else {
-                            throw FASTQError.lineTooLong(line: lineNumber, length: line.count)
-                        }
+        private let reader: FASTQReader
+        private var lines: AsyncThrowingStream<String, Error>.AsyncIterator
+        private var detectedEncoding: QualityEncoding?
+        private var lineNumber = 0
+        private var currentHeader: String?
+        private var currentSequence = ""
+        private var currentQuality = ""
+        private var expectedQualityLength = 0
+        private var state: ParseState = .header
+        private var finished = false
 
-                        switch state {
-                        case .header:
-                            // Tolerate blank lines between records, but never inside a record.
-                            if line.isEmpty { continue }
-                            guard line.hasPrefix("@") else {
-                                throw FASTQError.invalidHeader(line: lineNumber, content: line)
-                            }
-                            currentHeader = String(line.dropFirst())
-                            currentSequence = ""
-                            currentQuality = ""
-                            expectedQualityLength = 0
-                            state = .sequence
+        init(reader: FASTQReader, lines: AsyncThrowingStream<String, Error>) {
+            self.reader = reader
+            self.lines = lines.makeAsyncIterator()
+            self.detectedEncoding = reader.encoding
+        }
 
-                        case .sequence:
-                            // FASTQ allows wrapped sequences; consume until separator line.
-                            if line.hasPrefix("+") {
-                                expectedQualityLength = currentSequence.count
-                                currentQuality = ""
-                                state = .quality
-                                continue
-                            }
-                            if self.validateSequence {
-                                do {
-                                    try self.validateSequenceCharacters(line, lineNumber: lineNumber)
-                                } catch let error as FASTQError {
-                                    // If sequence content has already started, treat a
-                                    // non-sequence line as a likely malformed separator.
-                                    if case .invalidSequenceCharacter = error, !currentSequence.isEmpty {
-                                        throw FASTQError.invalidSeparator(line: lineNumber, content: line)
-                                    }
-                                    throw error
-                                }
-                            }
-                            currentSequence += line
-
-                        case .quality:
-                            if expectedQualityLength == 0,
-                               currentQuality.isEmpty,
-                               line.hasPrefix("@"),
-                               let header = currentHeader {
-                                // Some line readers collapse empty lines. If the quality
-                                // line for a zero-length read was empty and omitted,
-                                // accept it and treat this as the next record header.
-                                let (identifier, description) = self.parseHeader(header)
-                                let record = FASTQRecord(
-                                    identifier: identifier,
-                                    description: description,
-                                    sequence: "",
-                                    quality: QualityScore(ascii: "", encoding: detectedEncoding ?? .phred33)
-                                )
-                                continuation.yield(record)
-
-                                currentHeader = String(line.dropFirst())
-                                currentSequence = ""
-                                currentQuality = ""
-                                expectedQualityLength = 0
-                                state = .sequence
-                                continue
-                            }
-
-                            // Quality may be wrapped. Consume until total quality length
-                            // matches sequence length. Even for empty reads, a quality
-                            // line must be present (it may be empty).
-                            currentQuality += line
-
-                            guard let header = currentHeader,
-                                  !currentSequence.isEmpty || expectedQualityLength == 0 else {
-                                throw FASTQError.incompleteRecord(line: lineNumber)
-                            }
-
-                            if currentQuality.count > expectedQualityLength {
-                                throw FASTQError.qualityLengthMismatch(
-                                    line: lineNumber,
-                                    sequenceLength: expectedQualityLength,
-                                    qualityLength: currentQuality.count
-                                )
-                            }
-
-                            guard currentQuality.count == expectedQualityLength else {
-                                // Continue reading wrapped quality lines.
-                                continue
-                            }
-
-                            // Auto-detect encoding from first record
-                            if detectedEncoding == nil {
-                                detectedEncoding = QualityEncoding.detect(from: currentQuality)
-                            }
-
-                            let (identifier, description) = self.parseHeader(header)
-                            let quality = QualityScore(
-                                ascii: currentQuality,
-                                encoding: detectedEncoding ?? .phred33
-                            )
-
-                            let record = FASTQRecord(
-                                identifier: identifier,
-                                description: description,
-                                sequence: currentSequence,
-                                quality: quality
-                            )
-
-                            continuation.yield(record)
-
-                            // Reset for next record
-                            currentHeader = nil
-                            currentSequence = ""
-                            currentQuality = ""
-                            expectedQualityLength = 0
-                            state = .header
-                        }
-                    }
-
-                    // Check for incomplete record at end
-                    if state == .quality, currentHeader != nil, currentQuality.count < expectedQualityLength {
-                        throw FASTQError.qualityLengthMismatch(
-                            line: lineNumber,
-                            sequenceLength: expectedQualityLength,
-                            qualityLength: currentQuality.count
-                        )
-                    }
-                    if state != .header || currentHeader != nil {
-                        throw FASTQError.unexpectedEndOfFile
-                    }
-
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+        func next() async throws -> FASTQRecord? {
+            if finished { return nil }
+            while let line = try await lines.next() {
+                if let record = try consume(line) {
+                    return record
                 }
+            }
+            finished = true
+            try checkEndOfInput()
+            return nil
+        }
+
+        /// Feeds one line into the parser; returns a record when one completes.
+        private func consume(_ line: String) throws -> FASTQRecord? {
+            lineNumber += 1
+
+            guard line.count <= reader.maxLineLength else {
+                throw FASTQError.lineTooLong(line: lineNumber, length: line.count)
+            }
+
+            switch state {
+            case .header:
+                // Tolerate blank lines between records, but never inside a record.
+                if line.isEmpty { return nil }
+                guard line.hasPrefix("@") else {
+                    throw FASTQError.invalidHeader(line: lineNumber, content: line)
+                }
+                currentHeader = String(line.dropFirst())
+                currentSequence = ""
+                currentQuality = ""
+                expectedQualityLength = 0
+                state = .sequence
+                return nil
+
+            case .sequence:
+                // FASTQ allows wrapped sequences; consume until separator line.
+                if line.hasPrefix("+") {
+                    expectedQualityLength = currentSequence.count
+                    currentQuality = ""
+                    state = .quality
+                    return nil
+                }
+                if reader.validateSequence {
+                    do {
+                        try reader.validateSequenceCharacters(line, lineNumber: lineNumber)
+                    } catch let error as FASTQError {
+                        // If sequence content has already started, treat a
+                        // non-sequence line as a likely malformed separator.
+                        if case .invalidSequenceCharacter = error, !currentSequence.isEmpty {
+                            throw FASTQError.invalidSeparator(line: lineNumber, content: line)
+                        }
+                        throw error
+                    }
+                }
+                currentSequence += line
+                return nil
+
+            case .quality:
+                if expectedQualityLength == 0,
+                   currentQuality.isEmpty,
+                   line.hasPrefix("@"),
+                   let header = currentHeader {
+                    // Some line readers collapse empty lines. If the quality
+                    // line for a zero-length read was empty and omitted,
+                    // accept it and treat this as the next record header.
+                    let (identifier, description) = reader.parseHeader(header)
+                    let record = FASTQRecord(
+                        identifier: identifier,
+                        description: description,
+                        sequence: "",
+                        quality: QualityScore(ascii: "", encoding: detectedEncoding ?? .phred33)
+                    )
+
+                    currentHeader = String(line.dropFirst())
+                    currentSequence = ""
+                    currentQuality = ""
+                    expectedQualityLength = 0
+                    state = .sequence
+                    return record
+                }
+
+                // Quality may be wrapped. Consume until total quality length
+                // matches sequence length. Even for empty reads, a quality
+                // line must be present (it may be empty).
+                currentQuality += line
+
+                guard let header = currentHeader,
+                      !currentSequence.isEmpty || expectedQualityLength == 0 else {
+                    throw FASTQError.incompleteRecord(line: lineNumber)
+                }
+
+                if currentQuality.count > expectedQualityLength {
+                    throw FASTQError.qualityLengthMismatch(
+                        line: lineNumber,
+                        sequenceLength: expectedQualityLength,
+                        qualityLength: currentQuality.count
+                    )
+                }
+
+                guard currentQuality.count == expectedQualityLength else {
+                    // Continue reading wrapped quality lines.
+                    return nil
+                }
+
+                // Auto-detect encoding from first record
+                if detectedEncoding == nil {
+                    detectedEncoding = QualityEncoding.detect(from: currentQuality)
+                }
+
+                let (identifier, description) = reader.parseHeader(header)
+                let quality = QualityScore(
+                    ascii: currentQuality,
+                    encoding: detectedEncoding ?? .phred33
+                )
+
+                let record = FASTQRecord(
+                    identifier: identifier,
+                    description: description,
+                    sequence: currentSequence,
+                    quality: quality
+                )
+
+                // Reset for next record
+                currentHeader = nil
+                currentSequence = ""
+                currentQuality = ""
+                expectedQualityLength = 0
+                state = .header
+                return record
+            }
+        }
+
+        private func checkEndOfInput() throws {
+            // Check for incomplete record at end
+            if state == .quality, currentHeader != nil, currentQuality.count < expectedQualityLength {
+                throw FASTQError.qualityLengthMismatch(
+                    line: lineNumber,
+                    sequenceLength: expectedQualityLength,
+                    qualityLength: currentQuality.count
+                )
+            }
+            if state != .header || currentHeader != nil {
+                throw FASTQError.unexpectedEndOfFile
             }
         }
     }

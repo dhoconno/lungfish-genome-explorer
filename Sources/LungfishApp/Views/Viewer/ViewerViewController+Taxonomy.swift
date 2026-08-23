@@ -157,7 +157,7 @@ extension ViewerViewController {
 
         // Wire BLAST verification callback.
         // When user clicks "Run BLAST" in the config popover, submit to NCBI BLAST.
-        let capturedInputFiles = result.config.inputFiles
+        let capturedSource = try? ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
         let capturedOutputURL = result.outputURL
         let capturedTree = result.tree
 
@@ -177,14 +177,15 @@ extension ViewerViewController {
 
             let taxId = node.taxId
             let taxonName = node.name
-            let inputFiles = capturedInputFiles
+            let resolvedSource = capturedSource
             let classificationOutput = capturedOutputURL
             let tree = capturedTree
 
             let task = Task.detached {
                 do {
                     // Guard: source FASTQ must exist for BLAST read extraction
-                    guard let sourceURL = inputFiles.first else {
+                    guard let sourceURL = resolvedSource else {
+                        taxonomyLogger.error("BLAST: could not resolve a source FASTQ for this classification")
                         throw BlastServiceError.noSequences
                     }
                     guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -359,7 +360,7 @@ extension ViewerViewController {
             let blastRunID = controller.beginBlastVerification(for: node)
             let sampleResult: ClassificationResult
             if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
-               let sampleId = controller.currentBatchSampleId,
+               let sampleId = controller.owningSampleId(for: node),
                let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }),
                let resolved = try? ClassificationResult.load(from: resultURL.appendingPathComponent(sampleRecord.resultDirectory)) {
                 sampleResult = resolved
@@ -384,13 +385,16 @@ extension ViewerViewController {
 
             let taxId = node.taxId
             let taxonName = node.name
-            let inputFiles = sampleResult.config.inputFiles
+            let resolvedSource = try? ClassifierReadResolver.resolveKraken2PrimarySource(
+                classResult: sampleResult
+            )
             let classificationOutput = sampleResult.outputURL
             let tree = sampleResult.tree
 
             let task = Task.detached {
                 do {
-                    guard let sourceURL = inputFiles.first else {
+                    guard let sourceURL = resolvedSource else {
+                        taxonomyLogger.error("BLAST: could not resolve a source FASTQ for the selected sample")
                         throw BlastServiceError.noSequences
                     }
                     guard FileManager.default.fileExists(atPath: sourceURL.path) else {

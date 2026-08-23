@@ -436,53 +436,72 @@ extension SequenceViewerView {
                 }
 
                 if !cachedAlignedReads.isEmpty {
-                    // Reuse cached pack layout if scale, data, viewport, and settings haven't changed.
-                    // Viewport position matters because reads are filtered to near-viewport before
-                    // packing — if the user pans significantly, the visible reads change.
-                    let viewportShift = abs(visibleRegion.start - cachedPackViewportStart)
+                    // Reuse the cached pack layout unless an input that actually
+                    // changes row assignment changed. `packReads` is
+                    // scale-dependent (it drops reads narrower than
+                    // `minReadPixels` and separates rows by a fixed 2px gap), so
+                    // the key carries the quantized scale. This path also
+                    // pre-filters reads to a viewport-derived pack window, so
+                    // that window is part of the key; the window is quantized to
+                    // quarter-viewport steps to preserve the previous
+                    // "repack when panned >25%" behavior instead of repacking on
+                    // every pixel of pan.
                     let viewportSpan = max(1, visibleRegion.end - visibleRegion.start)
+                    let panQuantum = max(1, viewportSpan / 4)
+                    let maxReadSpan = max(
+                        1,
+                        cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
+                    )
+                    let packPadding = max(maxReadSpan, min(10_000, max(500, viewportSpan)))
+                    let quantizedStart = (visibleRegion.start / panQuantum) * panQuantum
+                    let packStart = max(0, quantizedStart - packPadding)
+                    let packEnd = quantizedStart + viewportSpan + packPadding
+
+                    let key = ReadPackCacheKey(
+                        readGeneration: cachedReadSetGeneration,
+                        chromosome: visibleRegion.chromosome,
+                        scaleTier: ReadPackCacheKey.quantizeScale(scale),
+                        sortMode: "position",
+                        sortPosition: nil,
+                        maxRows: maxRowsLimit,
+                        verticalCompress: verticallyCompressContigSetting,
+                        prioritizedRegion: maxRowsLimit == nil ? nil : quantizedStart..<(quantizedStart + viewportSpan),
+                        filterWindow: packStart..<packEnd
+                    )
+
+                    let willRepack = (cachedPackKey != key)
                     let scaleChanged = (scale != cachedPackScale)
                     let dataChanged = (readFetchGeneration != cachedPackDataGeneration)
-                    let needsRepack = scaleChanged
-                        || dataChanged
-                        || (maxRowsCacheKey != cachedPackMaxRows)
-                        || (viewportShift > viewportSpan / 4) // Repack when panned >25% of viewport
 
-                    if needsRepack {
+                    if willRepack {
                         // New zoom/data fetch should snap back to top rows for predictable navigation.
                         if scaleChanged || dataChanged {
                             readScrollOffset = 0
                         }
+                    }
+
+                    _ = packedReadLayout(key: key) {
                         // Filter reads to viewport +/- safety padding while ensuring reads that
                         // overlap the visible window are never dropped.
                         // The cached read region can be much wider than the viewport (especially
                         // when zooming in from a wider view). Packing all reads wastes the limited
                         // 75-row budget on far off-screen reads, potentially leaving no rows for
                         // reads in the visible window.
-                        let viewportSpan = visibleRegion.end - visibleRegion.start
-                        let maxReadSpan = max(
-                            1,
-                            cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
-                        )
-                        let packPadding = max(maxReadSpan, min(10_000, max(500, viewportSpan)))
-                        let packStart = max(0, visibleRegion.start - packPadding)
-                        let packEnd = visibleRegion.end + packPadding
-
                         let readsForPacking = cachedAlignedReads.filter { read in
                             read.chromosome == visibleRegion.chromosome
                                 && read.alignmentEnd > packStart
                                 && read.position < packEnd
                         }
-
-                        let (packed, packOverflow) = ReadTrackRenderer.packReads(
+                        return ReadTrackRenderer.packReads(
                             readsForPacking,
                             frame: frame,
                             maxRows: maxRowsLimit,
                             sortMode: .position,
                             prioritizedRegion: visibleRegion.start..<visibleRegion.end
                         )
-                        cachedPackedReads = packed
-                        cachedPackOverflow = packOverflow
+                    }
+
+                    if willRepack {
                         cachedPackScale = scale
                         cachedPackDataGeneration = readFetchGeneration
                         cachedPackMaxRows = maxRowsCacheKey
@@ -524,6 +543,12 @@ extension SequenceViewerView {
                         maskedPositions = []
                     }
 
+                    // The context was translated by -readScrollOffset, so the
+                    // painted window in *content* coordinates is the clip rect
+                    // shifted down by the scroll offset. Rows scrolled above the
+                    // viewport are culled instead of being walked read-by-read.
+                    let contentClipRect = clipRect.offsetBy(dx: 0, dy: readScrollOffset)
+
                     if tier == .packed {
                         ReadTrackRenderer.drawPackedReads(
                             packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
@@ -533,6 +558,9 @@ extension SequenceViewerView {
                             verticalCompress: verticallyCompressContigSetting,
                             maxRowsLimit: maxRowsLimit,
                             maskedPositions: maskedPositions,
+                            layout: cachedPackedReadLayout,
+                            clipRect: contentClipRect,
+                            mismatchCache: cachedReadMismatchCache,
                             context: context, rect: drawRect
                         )
                     } else {
@@ -544,6 +572,9 @@ extension SequenceViewerView {
                             verticalCompress: verticallyCompressContigSetting,
                             maxRowsLimit: maxRowsLimit,
                             maskedPositions: maskedPositions,
+                            layout: cachedPackedReadLayout,
+                            clipRect: contentClipRect,
+                            mismatchCache: cachedReadMismatchCache,
                             context: context, rect: drawRect
                         )
                     }
@@ -703,9 +734,9 @@ extension SequenceViewerView {
             showStrandColors: showStrandColorsSetting
         )
         if tier == .packed {
-            ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], context: context, rect: rect)
+            ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, rect: rect)
         } else {
-            ReadTrackRenderer.drawBaseReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], context: context, rect: rect)
+            ReadTrackRenderer.drawBaseReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, rect: rect)
             if source.referenceSequence == nil && ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: packed.contains(where: { $0.read.mdTag != nil })) {
                 drawTrackLoadingBadge(context: context, message: ReadTrackRenderer.noReferenceBadgeMessage, yOffset: rowsY + 2, tooltip: ReadTrackRenderer.noReferenceBadgeTooltip)
             }
@@ -721,15 +752,35 @@ extension SequenceViewerView {
         frame: ReferenceFrame
     ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int, maxRows: Int?) {
         let maxRows = limitReadRowsSetting ? max(1, maxReadRowsSetting) : nil
-        let (packed, overflow) = ReadTrackRenderer.packReads(
-            cachedAlignedReads.filter { $0.chromosome == region.chromosome },
-            frame: frame,
+
+        // `packReads` is scale-dependent (it drops reads narrower than
+        // `minReadPixels` and separates rows by a fixed 2px gap), so the key
+        // carries the quantized scale rather than pretending packing is purely
+        // genomic. `prioritizedRegion` only reorders the input, which changes
+        // the outcome solely when a row cap is active and decides which reads
+        // win the scarce rows; with unlimited rows every read is placed, so the
+        // region is omitted from the key and panning reuses the layout.
+        let key = ReadPackCacheKey(
+            readGeneration: cachedReadSetGeneration,
+            chromosome: region.chromosome,
+            scaleTier: ReadPackCacheKey.quantizeScale(frame.scale),
+            sortMode: "position",
+            sortPosition: nil,
             maxRows: maxRows,
-            sortMode: .position,
-            prioritizedRegion: region.start..<region.end
+            verticalCompress: verticallyCompressContigSetting,
+            prioritizedRegion: maxRows == nil ? nil : region.start..<region.end,
+            filterWindow: nil
         )
-        cachedPackedReads = packed
-        cachedPackOverflow = overflow
+
+        let (packed, overflow) = packedReadLayout(key: key) {
+            ReadTrackRenderer.packReads(
+                cachedAlignedReads.filter { $0.chromosome == region.chromosome },
+                frame: frame,
+                maxRows: maxRows,
+                sortMode: .position,
+                prioritizedRegion: region.start..<region.end
+            )
+        }
         return (packed, overflow, maxRows)
     }
 

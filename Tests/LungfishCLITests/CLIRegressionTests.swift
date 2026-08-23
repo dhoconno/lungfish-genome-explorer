@@ -800,6 +800,123 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         XCTAssertEqual(explicitConfig.brackenProfileRequest?.rank, .explicit(.genus))
     }
 
+    func testWrapperProvenanceDropsCompactedRawKrakenOutputAtRunLevel() throws {
+        // The pipeline gzips `classification.kraken` and deletes the raw file.
+        // Its own envelope keeps the historically true kraken2 step output, and
+        // the CLI wrapper rebuilds a run-level envelope from those steps. The
+        // run-level `files`/`outputs` must not re-advertise the deleted raw path.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-compacted-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let rawOutputURL = tempDir.appendingPathComponent("classification.kraken")
+        let compressedOutputURL = tempDir.appendingPathComponent("classification.kraken.gz")
+        try "100.00\t1\t1\tR\t1\troot\n".write(to: reportURL, atomically: true, encoding: .utf8)
+        try "C\tread\t1\t4\t1:4\n".write(to: rawOutputURL, atomically: true, encoding: .utf8)
+        let databasePath = tempDir.appendingPathComponent("viral-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+
+        let config = ClassificationConfig(
+            goal: .classify,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "Viral",
+            databaseVersion: "2026.1",
+            databasePath: databasePath,
+            outputDirectory: tempDir
+        )
+
+        // Pipeline envelope: kraken2 step declares the raw output (true at the
+        // time), then gzip declares the compressed output.
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+        let reportDescriptor = try ProvenanceFileDescriptor.file(url: reportURL, format: .text, role: .report)
+        let rawDescriptor = try ProvenanceFileDescriptor.file(url: rawOutputURL, format: .text, role: .output)
+        let krakenStep = ProvenanceStep(
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", databasePath.path],
+            inputs: [inputDescriptor],
+            outputs: [reportDescriptor, rawDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 3,
+            startedAt: Date(timeIntervalSince1970: 100),
+            completedAt: Date(timeIntervalSince1970: 103)
+        )
+        try Data("compressed".utf8).write(to: compressedOutputURL)
+        let compressedDescriptor = try ProvenanceFileDescriptor.file(
+            url: compressedOutputURL, format: .text, role: .output
+        )
+        let gzipStep = ProvenanceStep(
+            toolName: "gzip",
+            toolVersion: "system",
+            argv: ["gzip", rawOutputURL.path],
+            inputs: [rawDescriptor],
+            outputs: [compressedDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 0.1,
+            startedAt: Date(timeIntervalSince1970: 103),
+            completedAt: Date(timeIntervalSince1970: 103.1)
+        )
+        let pipelineEnvelope = ProvenanceEnvelope(
+            workflowName: "Metagenomics Classification",
+            workflowVersion: "pipeline-version",
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: krakenStep.argv,
+            runtimeIdentity: .fixture(),
+            files: [inputDescriptor, reportDescriptor, compressedDescriptor],
+            output: reportDescriptor,
+            outputs: [reportDescriptor, compressedDescriptor],
+            steps: [krakenStep, gzipStep],
+            wallTimeSeconds: 3.1,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(pipelineEnvelope, to: tempDir)
+
+        // The raw file is gone by the time the wrapper writes its envelope.
+        try FileManager.default.removeItem(at: rawOutputURL)
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: compressedOutputURL,
+            brackenURL: nil,
+            profileOutcome: .notRequested,
+            runtime: 3.1,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: ["lungfish-cli", "conda", "classify", inputURL.path, "--db", "Viral"],
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+
+        let missingRunLevelPaths = (envelope.files + envelope.outputs)
+            .map(\.path)
+            .filter { !FileManager.default.fileExists(atPath: $0) }
+        XCTAssertEqual(missingRunLevelPaths, [], "run-level files must exist on disk")
+        XCTAssertFalse(envelope.files.contains { $0.path == rawOutputURL.path })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == compressedOutputURL.path })
+        XCTAssertEqual(envelope.exitStatus, 0)
+        // Step history stays historically true.
+        let recordedKraken = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertTrue(recordedKraken.outputs.contains { $0.path == rawOutputURL.path })
+    }
+
     func testDegradedProfileProvenanceAndTerminalPolicyAreResultDriven() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("classify-degraded-profile-\(UUID().uuidString)", isDirectory: true)
