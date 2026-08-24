@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
@@ -632,6 +633,46 @@ final class DetachedAlignmentViewerTests: XCTestCase {
 
         XCTAssertTrue(readProbe.cancelled)
         XCTAssertTrue(depthProbe.cancelled)
+    }
+
+    /// Regression: while the initial off-main snapshot checksum runs, the
+    /// viewer draws the "evidence is unavailable" badge. When the check
+    /// completes it must invalidate the display itself — before this fix the
+    /// badge stuck until an unrelated redraw (observed live with the 240MB
+    /// EsViritu reference).
+    func testMonitorCheckCompletionInvalidatesTheDisplay() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("evidence.bam")
+        let payload = Data("detached-evidence-payload".utf8)
+        try payload.write(to: bam)
+        let snapshot = ClassifierAlignmentEvidenceFileSnapshot(
+            size: Int64(payload.count),
+            sha256: SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        )
+        let source = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: bam,
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: bam.path, indexPath: "\(bam.path).bai", samtoolsPath: "/usr/bin/true"),
+            referenceSequence: nil,
+            bamSnapshot: snapshot
+        )
+        let view = SequenceViewerView(frame: .zero)
+        XCTAssertTrue(view.setDetachedAlignmentSource(source))
+        XCTAssertFalse(view.detachedEvidenceIsCurrent(source), "evidence must be pending until the first checksum completes")
+        let baseline = view.testDisplayInvalidationCount
+
+        var becameCurrent = false
+        for _ in 0..<250 {
+            if view.detachedEvidenceIsCurrent(source) { becameCurrent = true; break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(becameCurrent, "the monitor check never established the evidence signatures")
+        XCTAssertGreaterThan(
+            view.testDisplayInvalidationCount, baseline,
+            "completing the monitor check must invalidate the display so the pending badge clears"
+        )
     }
 
     private func makeCancellationTask(_ probe: CancellationProbe) -> Task<Void, Never> {

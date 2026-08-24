@@ -2527,6 +2527,13 @@ public class SequenceViewerView: NSView {
             return
         }
         for check in checks { detachedResourceSignatures[check.url] = resourceSignature(for: check.url) }
+        // The draw and fetch paths treated the evidence as pending while this
+        // check ran (and drew the "unavailable" badge). Now that the
+        // signatures are established, re-kick both — without this the badge
+        // sticks until an unrelated redraw (observed with the 240MB EsViritu
+        // reference, whose first checksum outlives the initial draw).
+        invalidateAlignmentFetchState()
+        needsDisplay = true
     }
 
     private func expectedSnapshots(for source: DetachedAlignmentSource) -> [(URL, ClassifierAlignmentEvidenceFileSnapshot)] {
