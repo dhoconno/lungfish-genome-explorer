@@ -2527,12 +2527,13 @@ public class SequenceViewerView: NSView {
             return
         }
         for check in checks { detachedResourceSignatures[check.url] = resourceSignature(for: check.url) }
-        // The draw and fetch paths treated the evidence as pending while this
-        // check ran (and drew the "unavailable" badge). Now that the
-        // signatures are established, re-kick both — without this the badge
-        // sticks until an unrelated redraw (observed with the 240MB EsViritu
-        // reference, whose first checksum outlives the initial draw).
-        invalidateAlignmentFetchState()
+        // The draw path treated the evidence as pending while this check ran
+        // (and drew the "unavailable" badge). Redraw now that the signatures
+        // are established — without this the badge sticks until an unrelated
+        // redraw (observed with the 240MB EsViritu reference, whose first
+        // checksum outlives the initial draw). Only a redraw: cancelling or
+        // invalidating fetch state here would tear down fetches that started
+        // legitimately while the checksum was still running.
         needsDisplay = true
     }
 
