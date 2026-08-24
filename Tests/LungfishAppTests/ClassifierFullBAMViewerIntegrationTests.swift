@@ -94,7 +94,12 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
             presentation: .init(workflowLabel: "NVD", resultLabel: "result", sampleLabel: "S1", contigLabel: "ctg")
         )
         provider.display(request)
-        for _ in 0..<100 where provider.status == .loading { await Task.yield() }
+        // Time-based wait: validation hashes the evidence files on a background
+        // executor, so a yield-only spin expires under machine load (observed
+        // as a gate flake) long before the checksum returns.
+        for _ in 0..<500 where provider.status == .loading {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertEqual(provider.status, .available(referenceStrength: "not provided", reason: nil))
         let actionContext = try XCTUnwrap(provider.viewer.alignmentActionContext)
         XCTAssertEqual(actionContext.identity.workflow, "nvd")
