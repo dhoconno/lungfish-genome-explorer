@@ -71,6 +71,7 @@ public final class ReadStyleSectionViewModel {
     public var consensusGapThresholdPercent: Double = 90
 
     /// Minimum depth required before a consensus base is emitted.
+    public var coverageScaleMode: CoverageScaleMode = .default
     public var consensusMinDepth: Double = 8
 
     /// Minimum spanning depth required before high-gap masking is applied.
@@ -370,6 +371,7 @@ public final class ReadStyleSectionViewModel {
         msaReferenceRowOptions = []
         selectedMSAReferenceRowID = nil
         msaResidueIdentityDisplayMode = .letters
+        coverageScaleMode = .default
         hasAlignmentTracks = false
         hasVariantCallableAlignmentTracks = false
         totalMappedReads = 0
@@ -1682,6 +1684,17 @@ public struct AlignmentViewSection: View {
                     .onChange(of: viewModel.minMapQ) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
+
+                Picker("Coverage scale", selection: $viewModel.coverageScaleMode) {
+                    ForEach(CoverageScaleMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: viewModel.coverageScaleMode) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+                .help("Compresses the coverage axis so low-coverage regions stay visible next to high-coverage peaks. Display only; depth values are unchanged.")
 
                 Text("Read Inclusion")
                     .font(.caption)
