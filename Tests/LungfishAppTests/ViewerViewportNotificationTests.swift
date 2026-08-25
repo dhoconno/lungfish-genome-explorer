@@ -117,6 +117,56 @@ final class ViewerViewportNotificationTests: XCTestCase {
         XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
     }
 
+    func testCoverageScaleModeAppliesFromNotification() {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .linear)
+
+        NotificationCenter.default.post(
+            name: .readDisplaySettingsChanged,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.coverageScaleMode: CoverageScaleMode.log10.rawValue]
+        )
+
+        XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .log10)
+    }
+
+    func testUnknownCoverageScaleModeLeavesCurrentSettingUnchanged() {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        viewer.viewerView.coverageScaleModeSetting = .squareRoot
+
+        NotificationCenter.default.post(
+            name: .readDisplaySettingsChanged,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.coverageScaleMode: "cube-root"]
+        )
+
+        XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .squareRoot)
+    }
+
+    func testCoverageScaleChangeDoesNotInvalidateConsensusOrDepthCaches() {
+        // Coverage scaling is a display transform: it must redraw without
+        // discarding fetched evidence or triggering a refetch, which would
+        // make changing the axis needlessly expensive on a large BAM.
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        viewer.viewerView.cachedConsensusRegion = GenomicRegion(chromosome: "chr1", start: 100, end: 200)
+        viewer.viewerView.cachedDepthRegion = GenomicRegion(chromosome: "chr1", start: 100, end: 200)
+        viewer.viewerView.cachedDepthPoints = [.init(position: 100, depth: 12)]
+
+        NotificationCenter.default.post(
+            name: .readDisplaySettingsChanged,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.coverageScaleMode: CoverageScaleMode.log10.rawValue]
+        )
+
+        XCTAssertEqual(viewer.viewerView.coverageScaleModeSetting, .log10)
+        XCTAssertNotNil(viewer.viewerView.cachedConsensusRegion)
+        XCTAssertNotNil(viewer.viewerView.cachedDepthRegion)
+        XCTAssertEqual(viewer.viewerView.cachedDepthPoints.count, 1)
+    }
+
     func testMaskingDepthChangeDoesNotInvalidateConsensusCache() {
         let viewer = ViewerViewController()
         _ = viewer.view

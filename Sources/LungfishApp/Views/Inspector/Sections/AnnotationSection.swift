@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishKit
 import LungfishCore
 import os.log
 
@@ -268,33 +269,26 @@ public struct AnnotationSection: View {
                 .foregroundStyle(.secondary)
 
             // Annotation height
-            HStack {
-                Text("Height")
-                    .font(.callout)
-                Spacer()
-                Text("\(Int(viewModel.annotationHeight)) pt")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-
-            Slider(value: $viewModel.annotationHeight, in: 8...32, step: 2)
+            NumericSliderField(
+                "Height",
+                value: $viewModel.annotationHeight,
+                in: 8...32,
+                step: 2,
+                suffix: "pt",
+                titleFont: .callout
+            )
                 .onChange(of: viewModel.annotationHeight) { _, _ in
                     viewModel.notifySettingsChanged()
                 }
 
             // Row spacing
-            HStack {
-                Text("Spacing")
-                    .font(.callout)
-                Spacer()
-                Text("\(Int(viewModel.annotationSpacing)) pt")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-
-            Slider(value: $viewModel.annotationSpacing, in: 0...10, step: 1)
+            NumericSliderField(
+                "Spacing",
+                value: $viewModel.annotationSpacing,
+                in: 0...10,
+                suffix: "pt",
+                titleFont: .callout
+            )
                 .onChange(of: viewModel.annotationSpacing) { _, _ in
                     viewModel.notifySettingsChanged()
                 }

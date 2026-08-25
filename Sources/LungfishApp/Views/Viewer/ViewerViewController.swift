@@ -1150,6 +1150,10 @@ public class ViewerViewController: NSViewController {
         if let minBaseQ = userInfo[NotificationUserInfoKey.consensusMinBaseQ] as? Int {
             viewerView.consensusMinBaseQSetting = max(0, min(60, minBaseQ))
         }
+        if let scaleRaw = userInfo[NotificationUserInfoKey.coverageScaleMode] as? String,
+           let scaleMode = CoverageScaleMode(rawValue: scaleRaw) {
+            viewerView.coverageScaleModeSetting = scaleMode
+        }
         if let showConsensus = userInfo[NotificationUserInfoKey.showConsensusTrack] as? Bool {
             viewerView.showConsensusTrackSetting = showConsensus
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishKit
 import LungfishCore
 import LungfishIO
 
@@ -48,13 +49,14 @@ struct GenotypeDropoutThresholdSection: View {
                 Toggle("% of sample reads", isOn: $sampleFractionEnabled)
                     .font(.caption)
                 if sampleFractionEnabled {
-                    HStack {
-                        Slider(value: $sampleFractionPercent, in: 0...10, step: 0.05)
-                        Text(String(format: "%.2f%%", sampleFractionPercent))
-                            .monospacedDigit()
-                            .font(.caption)
-                            .frame(width: 56, alignment: .trailing)
-                    }
+                    InlineNumericSliderField(
+                        accessibilityTitle: "% of sample reads",
+                        value: $sampleFractionPercent,
+                        in: 0...10,
+                        step: 0.05,
+                        suffix: "%",
+                        format: { String(format: "%.2f", $0) }
+                    )
                 }
             }
 
@@ -62,13 +64,14 @@ struct GenotypeDropoutThresholdSection: View {
                 Toggle("% of locus reads", isOn: $locusFractionEnabled)
                     .font(.caption)
                 if locusFractionEnabled {
-                    HStack {
-                        Slider(value: $locusFractionPercent, in: 0...10, step: 0.1)
-                        Text(String(format: "%.1f%%", locusFractionPercent))
-                            .monospacedDigit()
-                            .font(.caption)
-                            .frame(width: 56, alignment: .trailing)
-                    }
+                    InlineNumericSliderField(
+                        accessibilityTitle: "% of locus reads",
+                        value: $locusFractionPercent,
+                        in: 0...10,
+                        step: 0.1,
+                        suffix: "%",
+                        format: { String(format: "%.1f", $0) }
+                    )
                     if !availableLoci.isEmpty {
                         DisclosureGroup(
                             "Per-locus EQ (\(perLocusFractionPercents.count) override\(perLocusFractionPercents.count == 1 ? "" : "s"))",

@@ -393,6 +393,7 @@ public enum NotificationUserInfoKey {
 
     /// Key for minimum depth required before consensus sequence generation is attempted.
     public static let consensusMinDepth = "consensusMinDepth"
+    public static let coverageScaleMode = "coverageScaleMode"
 
     /// Key for minimum spanning depth required before gap masking is applied.
     public static let consensusMaskingMinDepth = "consensusMaskingMinDepth"

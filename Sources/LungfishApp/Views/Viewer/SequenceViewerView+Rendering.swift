@@ -387,7 +387,8 @@ extension SequenceViewerView {
                 regionEnd: visibleRegion.end,
                 frame: frame,
                 context: context,
-                rect: coverageRect
+                rect: coverageRect,
+                scaleMode: coverageScaleModeSetting
             )
             if isFetchingDepth && cachedDepthPoints.isEmpty {
                 let elapsed = depthFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
@@ -731,7 +732,8 @@ extension SequenceViewerView {
             regionEnd: region.end,
             frame: frame,
             context: context,
-            rect: coverageRect
+            rect: coverageRect,
+            scaleMode: coverageScaleModeSetting
         )
 
         let rowsY = coverageRect.maxY + coverageToConsensusGap

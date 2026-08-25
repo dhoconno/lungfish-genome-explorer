@@ -559,6 +559,7 @@ extension InspectorViewController {
             NotificationUserInfoKey.consensusMaskingEnabled: vm.consensusMaskingEnabled,
             NotificationUserInfoKey.consensusGapThresholdPercent: Int(vm.consensusGapThresholdPercent),
             NotificationUserInfoKey.consensusMinDepth: Int(vm.consensusMinDepth),
+            NotificationUserInfoKey.coverageScaleMode: vm.coverageScaleMode.rawValue,
             NotificationUserInfoKey.consensusMaskingMinDepth: Int(vm.consensusMaskingMinDepth),
             NotificationUserInfoKey.consensusMinMapQ: Int(vm.consensusMinMapQ),
             NotificationUserInfoKey.consensusMinBaseQ: Int(vm.consensusMinBaseQ),

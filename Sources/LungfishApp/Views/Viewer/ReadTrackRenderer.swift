@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishKit
 
 // MARK: - ReadTrackRenderer
 
@@ -408,7 +409,8 @@ public enum ReadTrackRenderer {
         regionEnd: Int,
         frame: ReferenceFrame,
         context: CGContext,
-        rect: CGRect
+        rect: CGRect,
+        scaleMode: CoverageScaleMode = .default
     ) {
         let pixelWidth = Int(rect.width)
         guard pixelWidth > 0, regionEnd > regionStart else { return }
@@ -432,7 +434,16 @@ public enum ReadTrackRenderer {
             maxDepth = depth
         }
         let meanDepth = stats.meanDepth
-        let yScale = (rect.height - 18) / CGFloat(maxDepth)
+        let trackHeight = rect.height - 18
+        // Height comes from the selected transform rather than a fixed linear
+        // ratio, so a single deep peak cannot flatten every shallow region.
+        func columnHeight(_ depth: Int) -> CGFloat {
+            let fraction = scaleMode.normalizedHeight(
+                depth: Double(depth),
+                maxDepth: Double(maxDepth)
+            )
+            return trackHeight * CGFloat(fraction)
+        }
 
         context.saveGState()
 
@@ -441,7 +452,7 @@ public enum ReadTrackRenderer {
         let areaPath = CGMutablePath()
         areaPath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
         for px in 0..<pixelWidth {
-            let h = CGFloat(bins[px]) * yScale
+            let h = columnHeight(bins[px])
             areaPath.addLine(to: CGPoint(x: rect.minX + CGFloat(px), y: rect.maxY - h))
         }
         areaPath.addLine(to: CGPoint(x: rect.minX + CGFloat(pixelWidth - 1), y: rect.maxY))
@@ -455,7 +466,7 @@ public enum ReadTrackRenderer {
         let outlinePath = CGMutablePath()
         outlinePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
         for px in 0..<pixelWidth {
-            let h = CGFloat(bins[px]) * yScale
+            let h = columnHeight(bins[px])
             outlinePath.addLine(to: CGPoint(x: rect.minX + CGFloat(px), y: rect.maxY - h))
         }
         context.addPath(outlinePath)
@@ -472,7 +483,8 @@ public enum ReadTrackRenderer {
             .font: NSFont.systemFont(ofSize: 9, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
-        ("Depth" as NSString).draw(at: CGPoint(x: legendRect.maxX + 4, y: rect.minY + 3), withAttributes: legendAttrs)
+        let depthLegend = scaleMode.axisLabel.map { "Depth (\($0))" } ?? "Depth"
+        (depthLegend as NSString).draw(at: CGPoint(x: legendRect.maxX + 4, y: rect.minY + 3), withAttributes: legendAttrs)
 
         // Summary labels
         let rightLabel = "max: \(maxDepth)x  mean: \(String(format: "%.1f", meanDepth))x" as NSString
@@ -484,8 +496,9 @@ public enum ReadTrackRenderer {
 
         let coveragePct = Double(stats.coveredBases) / Double(max(1, stats.span)) * 100
         let leftDetail = "\(Int(coveragePct.rounded()))% covered" as NSString
+        let depthLegendWidth = (depthLegend as NSString).size(withAttributes: legendAttrs).width
         leftDetail.draw(
-            at: CGPoint(x: legendRect.maxX + 44, y: rect.minY + 3),
+            at: CGPoint(x: legendRect.maxX + 8 + depthLegendWidth + 8, y: rect.minY + 3),
             withAttributes: legendAttrs
         )
 

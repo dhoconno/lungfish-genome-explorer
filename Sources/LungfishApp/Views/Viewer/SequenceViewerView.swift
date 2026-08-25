@@ -403,6 +403,9 @@ public class SequenceViewerView: NSView {
 
     /// Minimum depth required before a consensus base is emitted.
     var consensusMinDepthSetting: Int = 8
+    /// Vertical scaling for coverage tracks. Display-only: it changes how depth
+    /// is drawn, never the depth values themselves or any consensus evidence.
+    var coverageScaleModeSetting: CoverageScaleMode = .default
 
     /// Minimum spanning depth required before high-gap masking is applied.
     var consensusMaskingMinDepthSetting: Int = 8
