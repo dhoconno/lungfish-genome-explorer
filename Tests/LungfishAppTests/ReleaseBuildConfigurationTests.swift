@@ -819,7 +819,7 @@ struct ReleaseBuildConfigurationTests {
         }
 
         guard let dmgStageIndex = lines.firstIndex(where: {
-            $0.contains(#"/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/Lungfish.app""#)
+            $0.contains(#"/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}""#)
         }) else {
             Issue.record("expected DMG staging copy in release script")
             return

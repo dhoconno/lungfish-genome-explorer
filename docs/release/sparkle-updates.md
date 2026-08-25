@@ -57,9 +57,15 @@ Because the feed URL is baked into the bundle, a stable release is built as
 stable from its tagged commit rather than by re-labelling a preview DMG. A
 preview installation remains on the preview feed; switching to stable requires
 installing a stable DMG, and opting into Preview requires installing a Preview
-DMG. Both DMGs contain the same `Lungfish.app` wrapper and bundle identifier, so
-installing either channel replaces the other rather than creating side-by-side
-apps. Preview is publicly available as a GitHub prerelease and carries this
+DMG. The two channels ship differently named bundles: the stable DMG contains
+`Lungfish.app` and the preview DMG contains `Lungfish Preview.app`, so both can
+sit side by side in `/Applications` (the VS Code stable/Insiders model). They
+share the `com.lungfish.browser` bundle identifier because Sparkle refuses an
+update whose identifier differs from the installed app's; a preview install
+made before the rename keeps its `Lungfish.app` filename across Sparkle
+updates (Sparkle installs to the existing path) and only a fresh drag from a
+new preview DMG picks up the `Lungfish Preview.app` name.
+Preview is publicly available as a GitHub prerelease and carries this
 visible caveat: “Preview builds are under rapid iterative development. Features
 may be incomplete, change quickly, or require additional feedback.” If an
 in-app channel toggle is ever wanted, Sparkle 2's

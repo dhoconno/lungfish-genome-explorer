@@ -237,6 +237,14 @@ case "$CHANNEL" in
     preview)
         APP_DISPLAY_NAME="Lungfish Genome Explorer Preview"
         APP_SHORT_NAME="Lungfish Preview"
+        # The bundle FILENAME (not just CFBundleName) carries the Preview
+        # suffix so a preview install can sit in /Applications next to the
+        # stable "Lungfish.app", like VS Code stable vs Insiders. The bundle
+        # identifier stays com.lungfish.browser on both channels: Sparkle
+        # refuses updates whose identifier differs from the installed app's,
+        # so changing it would strand every existing preview install.
+        APP_BUNDLE_FILENAME="Lungfish Preview.app"
+        DMG_VOLUME_NAME="Lungfish Preview"
         if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
             SPARKLE_PUBLISH_RELEASE="sparkle-beta"
         fi
@@ -244,6 +252,8 @@ case "$CHANNEL" in
     stable)
         APP_DISPLAY_NAME="Lungfish Genome Explorer"
         APP_SHORT_NAME="Lungfish"
+        APP_BUNDLE_FILENAME="Lungfish.app"
+        DMG_VOLUME_NAME="Lungfish"
         if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
             SPARKLE_APPCAST_FILENAME="appcast-stable.xml"
         fi
@@ -455,7 +465,7 @@ if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>
 fi
 
 APP_PATH="${ARCHIVE_PATH}/Products/Applications/Lungfish.app"
-RELEASE_APP_PATH="${RELEASE_DIR}/Lungfish.app"
+RELEASE_APP_PATH="${RELEASE_DIR}/${APP_BUNDLE_FILENAME}"
 APP_ICON_SOURCE="${PROJECT_ROOT}/Sources/Lungfish/AppIcon.icns"
 APP_ICON_DEST="${APP_PATH}/Contents/Resources/AppIcon.icns"
 METADATA_PATH="${RELEASE_DIR}/release-metadata.txt"
@@ -957,11 +967,11 @@ DMG_PATH="${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg"
 DMG_STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/lungfish-dmg.XXXXXX")
 trap 'rm -rf "$DMG_STAGING_DIR"' EXIT
 
-/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/Lungfish.app"
+/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"
 ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
 /usr/bin/hdiutil create \
-    -volname "Lungfish" \
+    -volname "$DMG_VOLUME_NAME" \
     -srcfolder "$DMG_STAGING_DIR" \
     -format UDZO \
     "$DMG_PATH"

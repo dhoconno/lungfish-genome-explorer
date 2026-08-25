@@ -17,7 +17,7 @@ class ReleaseAppIconPackagingTests(unittest.TestCase):
 
         install_index = self._line_index('/usr/bin/install -m 644 "$APP_ICON_SOURCE" "$APP_ICON_DEST"')
         codesign_index = self._line_index('/usr/bin/codesign --force --sign "$SIGNING_IDENTITY"')
-        dmg_stage_index = self._line_index('/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/Lungfish.app"')
+        dmg_stage_index = self._line_index('/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"')
 
         self.assertLess(install_index, codesign_index)
         self.assertLess(install_index, dmg_stage_index)
