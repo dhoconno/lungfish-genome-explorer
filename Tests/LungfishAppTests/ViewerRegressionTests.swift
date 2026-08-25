@@ -67,15 +67,19 @@ final class ViewerRegressionTests: XCTestCase {
         XCTAssertEqual(natural, -36, accuracy: 0.001)
     }
 
-    func testSystemHorizontalPanAmountFollowsSystemScrollDirection() {
-        let systemTraditional = SequenceViewerView.horizontalPanAmountForTesting(
+    func testSystemPreferenceTrustsAppKitAdjustedDeltasOnEveryDevice() {
+        // AppKit deltas already carry the user's scroll-direction preference;
+        // .system must therefore behave like NSScrollView with a FIXED sign.
+        // Flipping on isDirectionInvertedFromDevice double-applies the
+        // preference and inverted scrolling for natural-off devices.
+        let systemTraditionalDevice = SequenceViewerView.horizontalPanAmountForTesting(
             deltaX: 12,
             scale: 3,
             hasPreciseScrollingDeltas: true,
             preference: .system,
             isDirectionInvertedFromDevice: false
         )
-        let systemNatural = SequenceViewerView.horizontalPanAmountForTesting(
+        let systemNaturalDevice = SequenceViewerView.horizontalPanAmountForTesting(
             deltaX: 12,
             scale: 3,
             hasPreciseScrollingDeltas: true,
@@ -83,8 +87,28 @@ final class ViewerRegressionTests: XCTestCase {
             isDirectionInvertedFromDevice: true
         )
 
-        XCTAssertEqual(systemTraditional, 36, accuracy: 0.001)
-        XCTAssertEqual(systemNatural, -36, accuracy: 0.001)
+        XCTAssertEqual(systemTraditionalDevice, -36, accuracy: 0.001)
+        XCTAssertEqual(systemNaturalDevice, -36, accuracy: 0.001)
+    }
+
+    func testExplicitPreferencesForceTheirFeelOnNaturalOffDevices() {
+        let naturalOnTraditionalDevice = SequenceViewerView.horizontalPanAmountForTesting(
+            deltaX: 12,
+            scale: 3,
+            hasPreciseScrollingDeltas: true,
+            preference: .natural,
+            isDirectionInvertedFromDevice: false
+        )
+        let traditionalOnTraditionalDevice = SequenceViewerView.horizontalPanAmountForTesting(
+            deltaX: 12,
+            scale: 3,
+            hasPreciseScrollingDeltas: true,
+            preference: .traditional,
+            isDirectionInvertedFromDevice: false
+        )
+
+        XCTAssertEqual(naturalOnTraditionalDevice, 36, accuracy: 0.001)
+        XCTAssertEqual(traditionalOnTraditionalDevice, -36, accuracy: 0.001)
     }
 
     func testBundleScrollDirectionOverrideFlipsNaturalAndTraditionalLabels() {

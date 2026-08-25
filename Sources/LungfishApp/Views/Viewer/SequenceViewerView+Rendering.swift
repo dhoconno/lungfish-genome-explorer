@@ -371,7 +371,7 @@ extension SequenceViewerView {
             let depthCovered = cachedDepthRegion?.chromosome == visibleRegion.chromosome
                 && (cachedDepthRegion?.start ?? Int.max) <= visibleRegion.start
                 && (cachedDepthRegion?.end ?? Int.min) >= visibleRegion.end
-            if !depthCovered && !isFetchingDepth {
+            if !depthCovered && !isFetchingDepth && depthFetchConsecutiveFailures < maxDepthFetchRetries {
                 fetchDepthAsync(bundle: bundle, region: visibleRegion)
             }
             lastRenderedCoverageY = coverageY
@@ -538,7 +538,7 @@ extension SequenceViewerView {
 
                     // Available vertical space: from rY to bottom of view
                     let availableHeight = max(0, bounds.height - rowsY)
-                    let visibleHeight = min(contentHeight, max(availableHeight, maxReadTrackHeight))
+                    let visibleHeight = min(contentHeight, availableHeight)
 
                     // Clamp scroll offset
                     let maxScroll = max(0, contentHeight - visibleHeight)
@@ -712,7 +712,7 @@ extension SequenceViewerView {
             // samtools depth does not share the view command's RG predicate, so
             // retaining a prior all-RG cache would misrepresent filtered reads.
             fetchDetachedDepth(source: source, region: region)
-        } else if !depthCovered && !isFetchingDepth {
+        } else if !depthCovered && !isFetchingDepth && depthFetchConsecutiveFailures < maxDepthFetchRetries {
             fetchDetachedDepth(source: source, region: region)
         }
         ReadTrackRenderer.drawCoverage(

@@ -675,6 +675,34 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         )
     }
 
+    /// A failed depth fetch must not cache its empty result as a covered
+    /// region (that blanks the depth plot until the bundle reloads); abandon
+    /// leaves the region uncovered for retry and counts the failure so the
+    /// draw path stops after a few attempts.
+    func testAbandonedDepthFetchLeavesRegionUncoveredAndCountsFailure() {
+        let view = SequenceViewerView(frame: .zero)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+
+        let failedToken = view.beginDepthFetch(
+            bundleURL: URL(fileURLWithPath: "/tmp/evidence.bam"),
+            trackID: "t",
+            region: region
+        )
+        XCTAssertTrue(view.abandonDepthFetch(failedToken))
+        XCTAssertFalse(view.testIsFetchingDepth)
+        XCTAssertNil(view.testCachedDepthRegion, "a failed fetch must not mark the region covered")
+        XCTAssertEqual(view.depthFetchConsecutiveFailures, 1)
+
+        let successToken = view.beginDepthFetch(
+            bundleURL: URL(fileURLWithPath: "/tmp/evidence.bam"),
+            trackID: "t",
+            region: region
+        )
+        XCTAssertTrue(view.commitDepthFetch(successToken, points: [], region: region))
+        XCTAssertEqual(view.depthFetchConsecutiveFailures, 0, "success resets the failure count")
+        XCTAssertNotNil(view.testCachedDepthRegion)
+    }
+
     private func makeCancellationTask(_ probe: CancellationProbe) -> Task<Void, Never> {
         Task.detached {
             await withTaskCancellationHandler(operation: {

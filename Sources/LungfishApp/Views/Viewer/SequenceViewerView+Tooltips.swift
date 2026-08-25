@@ -877,7 +877,7 @@ extension SequenceViewerView {
 
         // Check if point is in the visible read track area
         let availableHeight = bounds.height - rY
-        let visibleHeight = min(readContentHeight, max(availableHeight, maxReadTrackHeight))
+        let visibleHeight = min(readContentHeight, max(0, availableHeight))
         guard point.y >= rY && point.y < rY + visibleHeight else { return nil }
 
         // Account for scroll offset: convert screen Y to content Y

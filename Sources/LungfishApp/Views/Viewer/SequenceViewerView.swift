@@ -305,13 +305,19 @@ public class SequenceViewerView: NSView {
         for preference: ScrollDirectionPreference,
         isDirectionInvertedFromDevice: Bool
     ) -> CGFloat {
+        // AppKit's scrollingDelta values are already adjusted for the user's
+        // system scroll-direction preference, so standard behavior is a fixed
+        // sign (offset -= delta), exactly like NSScrollView — NOT a flip on
+        // isDirectionInvertedFromDevice, which double-applies the preference
+        // and inverts scrolling for every device with natural scrolling off.
+        // The explicit overrides force a feel regardless of the device state.
         switch preference {
         case .system:
-            return isDirectionInvertedFromDevice ? -1 : 1
-        case .natural:
             return -1
+        case .natural:
+            return isDirectionInvertedFromDevice ? -1 : 1
         case .traditional:
-            return 1
+            return isDirectionInvertedFromDevice ? 1 : -1
         }
     }
 
@@ -585,9 +591,16 @@ public class SequenceViewerView: NSView {
 
     /// Vertical scroll offset for the read track (when rows exceed available space)
     var readScrollOffset: CGFloat = 0
+    /// Consecutive depth-fetch failures for the current identity. A failed
+    /// fetch must NOT cache its empty result as covered (that blanks the
+    /// depth plot until the bundle is reloaded), but unbounded retries would
+    /// hammer samtools on a persistent failure — so the draw path stops
+    /// retrying after `maxDepthFetchRetries` and the counter resets on
+    /// success or invalidation.
+    var depthFetchConsecutiveFailures = 0
+    let maxDepthFetchRetries = 3
 
     /// Maximum height allocated for the read track before requiring scrolling
-    let maxReadTrackHeight: CGFloat = 300
 
     /// Total content height of the packed reads (set during draw)
     var readContentHeight: CGFloat = 0
@@ -1182,6 +1195,10 @@ public class SequenceViewerView: NSView {
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // macOS 14+ no longer clips NSView drawing to bounds by default; the
+        // track renderers rely on bounds clipping so a tall read track cannot
+        // paint over sibling views (seen over the annotation panel).
+        clipsToBounds = true
         configureAccessibility()
         setupDragAndDrop()
         setupAppearanceObserver()
@@ -1189,6 +1206,7 @@ public class SequenceViewerView: NSView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        clipsToBounds = true
         configureAccessibility()
         setupDragAndDrop()
         setupAppearanceObserver()
@@ -1382,6 +1400,7 @@ public class SequenceViewerView: NSView {
             cachedCoverageStats = nil
             isFetchingDepth = false
             depthFetchStartTime = nil
+            depthFetchConsecutiveFailures = 0
         }
 
         if invalidateConsensus {
@@ -1555,6 +1574,19 @@ public class SequenceViewerView: NSView {
         )
         isFetchingDepth = false
         depthFetchStartTime = nil
+        depthFetchConsecutiveFailures = 0
+        return true
+    }
+
+    /// Records a failed depth fetch WITHOUT caching its (empty) result as a
+    /// covered region, so the next draw retries instead of showing a blank
+    /// depth plot until the bundle is reloaded.
+    @discardableResult
+    func abandonDepthFetch(_ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>) -> Bool {
+        guard depthFetchGate.isCurrent(token) else { return false }
+        isFetchingDepth = false
+        depthFetchStartTime = nil
+        depthFetchConsecutiveFailures += 1
         return true
     }
 
@@ -1578,6 +1610,7 @@ public class SequenceViewerView: NSView {
     var testConsensusFetchGeneration: Int { consensusFetchGeneration }
     var testCachedAlignedReads: [AlignedRead] { cachedAlignedReads }
     var testCachedDepthPoints: [ReadTrackRenderer.CoveragePoint] { cachedDepthPoints }
+    var testCachedDepthRegion: GenomicRegion? { cachedDepthRegion }
     var testCachedConsensusSequence: String? { cachedConsensusSequence }
     var testCachedPackedReads: [(Int, AlignedRead)] { cachedPackedReads }
     var testCachedReadMismatchCache: ReadMismatchCache? { cachedReadMismatchCache }
@@ -2171,6 +2204,7 @@ public class SequenceViewerView: NSView {
         self.isFetchingConsensus = false
         self.readFetchStartTime = nil
         self.depthFetchStartTime = nil
+        self.depthFetchConsecutiveFailures = 0
         self.readFetchGeneration = 0
         self.depthFetchGeneration = 0
         self.consensusFetchGeneration = 0
@@ -2356,6 +2390,7 @@ public class SequenceViewerView: NSView {
         self.isFetchingConsensus = false
         self.readFetchStartTime = nil
         self.depthFetchStartTime = nil
+        self.depthFetchConsecutiveFailures = 0
         self.readFetchGeneration = 0
         self.depthFetchGeneration = 0
         self.consensusFetchGeneration = 0

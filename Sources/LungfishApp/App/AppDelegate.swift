@@ -904,10 +904,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Show main window when dock icon is clicked
+        // Bring the app forward when the Dock icon is clicked. When every
+        // window is miniaturized, hasVisibleWindows is false and showWindow's
+        // makeKeyAndOrderFront does NOT deminiaturize — the app then never
+        // completes cooperative activation and stays behind the frontmost app
+        // (reproduced on macOS 26). Deminiaturize explicitly, then fall back
+        // to showing the main window when nothing exists to restore.
         if !flag {
-            mainWindowController?.showWindow(nil)
+            if let miniaturized = sender.windows.first(where: { $0.isMiniaturized }) {
+                miniaturized.deminiaturize(nil)
+            } else {
+                mainWindowController?.showWindow(nil)
+            }
         }
+        NSApp.activate()
         return true
     }
 

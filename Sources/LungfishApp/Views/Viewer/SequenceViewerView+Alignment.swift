@@ -367,6 +367,7 @@ extension SequenceViewerView {
 
         Task.detached { [weak self] in
             var depthByPosition: [Int: Int] = [:]
+            var anyProviderFailed = false
             depthByPosition.reserveCapacity(8192)
 
             for (_, provider) in providers {
@@ -401,6 +402,7 @@ extension SequenceViewerView {
                         depthByPosition[point.position, default: 0] += point.depth
                     }
                 } catch {
+                    anyProviderFailed = true
                     sequenceViewerLogger.error("fetchDepthAsync: Failed to fetch depth: \(error)")
                 }
             }
@@ -413,6 +415,16 @@ extension SequenceViewerView {
                 MainActor.assumeIsolated {
                     guard let viewer = self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    if anyProviderFailed && mergedPoints.isEmpty {
+                        // A failed fetch's empty result is not coverage data.
+                        // Caching it as covered blanks the depth plot until the
+                        // bundle is reloaded; abandon so the next draw retries.
+                        if viewer.abandonDepthFetch(token) {
+                            sequenceViewerLogger.error("fetchDepthAsync: All providers failed for gen=\(tokenGeneration); leaving region uncovered for retry")
+                            viewer.setNeedsDisplay(viewer.bounds)
+                        }
+                        return
+                    }
                     guard viewer.commitDepthFetch(token, points: mergedPoints, region: expandedRegion) else {
                         sequenceViewerLogger.info("fetchDepthAsync: Discarding stale result gen=\(tokenGeneration)")
                         return

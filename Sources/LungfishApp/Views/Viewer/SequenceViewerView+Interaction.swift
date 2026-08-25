@@ -1779,7 +1779,7 @@ extension SequenceViewerView {
             // Check if mouse is in read track area for vertical scrolling
             let rY = lastRenderedReadY
             let readAvailHeight = bounds.height - rY
-            let readVisibleHeight = min(readContentHeight, max(readAvailHeight, maxReadTrackHeight))
+            let readVisibleHeight = min(readContentHeight, max(0, readAvailHeight))
             let inReadArea = !cachedPackedReads.isEmpty && readContentHeight > readVisibleHeight
                 && location.y >= rY && location.y < rY + readVisibleHeight
 
