@@ -140,3 +140,6 @@ docs/user-manual/fixtures/**/cache/
 # Superpowers brainstorm session artifacts (local scratch)
 .superpowers/
 .worktrees/
+
+# Agent worktrees are separate checkouts, never repo content
+.claude/worktrees/
