@@ -679,6 +679,16 @@ extension SequenceViewerView {
     /// no annotation/variant fetches and only draws bases when validation supplied a
     /// real FASTA record; it never constructs a read-derived reference.
     func drawDetachedAlignmentContent(frame: ReferenceFrame, context: CGContext) {
+        drawDetachedAlignmentTracks(frame: frame, context: context)
+        // Selection overlays paint above every track state, including the
+        // early-returning fetch/zoom-hint states, exactly like
+        // drawBundleContent — a drag selection the tracks path skipped would
+        // otherwise exist (centering/extraction see it) but never show.
+        drawColumnSelectionHighlight(frame: frame, context: context)
+        drawSelectedReadHighlights(frame: frame, context: context)
+    }
+
+    private func drawDetachedAlignmentTracks(frame: ReferenceFrame, context: CGContext) {
         guard let source = detachedAlignmentSource else { return }
         guard detachedEvidenceIsCurrent(source) else {
             drawTrackLoadingBadge(context: context, message: detachedEvidenceStaleReason ?? "Classifier alignment evidence is unavailable.", yOffset: 8)
@@ -775,7 +785,6 @@ extension SequenceViewerView {
                 drawTrackLoadingBadge(context: context, message: ReadTrackRenderer.noReferenceBadgeMessage, yOffset: rowsY + 2, tooltip: ReadTrackRenderer.noReferenceBadgeTooltip)
             }
         }
-        drawSelectedReadHighlights(frame: frame, context: context)
     }
 
     /// The stateful packing portion of detached rendering. Keeping this beside
