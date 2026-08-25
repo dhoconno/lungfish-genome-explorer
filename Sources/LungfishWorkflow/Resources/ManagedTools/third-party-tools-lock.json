@@ -1,7 +1,7 @@
 {
   "packID": "lungfish-tools",
   "displayName": "Third-Party Tools",
-  "version": "2026.8.9",
+  "version": "2026.8.10",
   "dependencySet": "2026.2",
   "dependencySetDate": "2026-08-18",
   "tools": [

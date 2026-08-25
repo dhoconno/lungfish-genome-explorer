@@ -3,7 +3,7 @@ import XCTest
 
 final class AppVersionTests: XCTestCase {
     func testCanonicalReleaseVersion() {
-        XCTAssertEqual(LungfishAppVersion.short, "2026.8.9")
-        XCTAssertEqual(LungfishAppVersion.cliToolVersion, "lungfish-cli 2026.8.9")
+        XCTAssertEqual(LungfishAppVersion.short, "2026.8.10")
+        XCTAssertEqual(LungfishAppVersion.cliToolVersion, "lungfish-cli 2026.8.10")
     }
 }
