@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishKit
 import LungfishCore
 
 /// General preferences: zoom, undo, VCF import, temp file retention.
@@ -27,13 +28,15 @@ struct GeneralSettingsTab: View {
                     in: 1_000...1_000_000,
                     step: 1_000
                 )
-                HStack {
-                    Text("Tooltip delay:")
-                    Slider(value: $settings.tooltipDelay, in: 0...1.0, step: 0.05)
-                    Text(String(format: "%.2fs", settings.tooltipDelay))
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
-                }
+                InlineNumericSliderField(
+                    label: "Tooltip delay:",
+                    accessibilityTitle: "Tooltip delay",
+                    value: $settings.tooltipDelay,
+                    in: 0...1.0,
+                    step: 0.05,
+                    suffix: "s",
+                    format: { String(format: "%.2f", $0) }
+                )
             }
 
             Section("Editing") {

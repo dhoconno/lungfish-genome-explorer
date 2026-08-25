@@ -468,10 +468,31 @@ final class AlignmentDataProviderTests: XCTestCase {
     }
 
     func testParseConsensusFASTANoRegionInHeader() {
+        // A header without a region suffix denotes the whole contig, which
+        // starts at the contig origin.
         let fasta = ">chr1\nACGT\n"
         let result = AlignmentDataProvider.parseConsensusFASTA(fasta)
         XCTAssertEqual(result.sequence, "ACGT")
-        XCTAssertNil(result.headerStart)
+        XCTAssertEqual(result.headerStart, 0)
+    }
+
+    func testParseConsensusFASTAWholeContigHeaderHasNoCoordinateSuffix() {
+        // `samtools consensus` omits the ":start-end" suffix when the requested
+        // region spans the entire contig, so a bare header must still resolve to
+        // the contig origin rather than an absent coordinate.
+        let fasta = ">NC_028478.1\nACGTACGT\n"
+        let result = AlignmentDataProvider.parseConsensusFASTA(fasta)
+        XCTAssertEqual(result.sequence, "ACGTACGT")
+        XCTAssertEqual(result.headerStart, 0)
+    }
+
+    func testParseConsensusFASTAIgnoresColonInContigNameWithoutRange() {
+        // A contig whose own name contains a colon must not be misread as a
+        // coordinate range; without a "-" separator there is no region to parse.
+        let fasta = ">HLA:A*01:01\nACGT\n"
+        let result = AlignmentDataProvider.parseConsensusFASTA(fasta)
+        XCTAssertEqual(result.sequence, "ACGT")
+        XCTAssertEqual(result.headerStart, 0)
     }
 
     func testParseConsensusFASTAPreservesDeletionMarkers() {
@@ -561,6 +582,24 @@ final class AlignmentDataProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(result.sequence, "ACGTA")
+    }
+
+    func testConsensusNormalizerAcceptsWholeContigCallerWithBareHeader() throws {
+        // Reproduces the EsViritu whole-contig failure: `samtools consensus`
+        // emits ">NC_028478.1" with no coordinate suffix for a full-contig
+        // region, which must still project onto the requested interval.
+        let request = consensusRequest(start: 0, end: 5, minimumDepth: 1)
+        let caller = AlignmentDataProvider.parseConsensusFASTA(">chrSynthetic\nACGTA\n")
+
+        let result = try AlignmentConsensusNormalizer.normalize(
+            caller: caller,
+            depth: (0..<5).map { .init(chromosome: "chrSynthetic", position: $0, depth: 1) },
+            request: request
+        )
+
+        XCTAssertEqual(result.sequence, "ACGTA")
+        XCTAssertEqual(result.referenceLength, 5)
+        XCTAssertFalse(result.allLowDepth)
     }
 
     func testConsensusNormalizerRejectsMissingOrExtraCoordinateProjection() {
@@ -691,6 +730,62 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertTrue(result.executionRecords.allSatisfy { !$0.runtimeIdentity.isEmpty })
         XCTAssertEqual(result.executionRecords.first?.executableVersion, "samtools 1.23.1")
         XCTAssertEqual(result.executionRecords.first?.readGroupFile?.contents, "alpha\nzeta\n")
+    }
+
+    func testFetchConsensusWholeContigAcceptsBareCallerHeader() async throws {
+        // End-to-end guard for the EsViritu whole-contig failure: when the
+        // requested region spans the entire contig, `samtools consensus` emits
+        // a bare ">chrom" header with no coordinate suffix. The pipeline must
+        // still project that output onto the requested interval instead of
+        // failing with a coordinate mismatch.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-consensus-whole-contig")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sourceURL = tempDir.appendingPathComponent("evidence.bam")
+        let sourceIndexURL = tempDir.appendingPathComponent("evidence.bam.bai")
+        try Data("source".utf8).write(to: sourceURL)
+        try Data("index".utf8).write(to: sourceIndexURL)
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        case "$1" in
+        --version)
+            printf 'samtools 1.24\n'
+            ;;
+        view)
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    printf 'filtered BAM' > "$2"
+                    break
+                fi
+                shift
+            done
+            ;;
+        index)
+            printf 'filtered index' > "$3"
+            ;;
+        consensus)
+            printf '>chrSynthetic\nACGTA\n'
+            ;;
+        depth)
+            printf 'chrSynthetic\t1\t5\nchrSynthetic\t2\t5\nchrSynthetic\t3\t5\nchrSynthetic\t4\t5\nchrSynthetic\t5\t5\n'
+            ;;
+        *)
+            exit 9
+            ;;
+        esac
+        """)
+        let provider = AlignmentDataProvider(
+            alignmentPath: sourceURL.path,
+            indexPath: sourceIndexURL.path,
+            samtoolsPath: script.path
+        )
+
+        let result = try await provider.fetchConsensus(
+            consensusRequest(start: 0, end: 5, minimumDepth: 1)
+        )
+
+        XCTAssertEqual(result.sequence, "ACGTA")
+        XCTAssertEqual(result.referenceLength, 5)
+        XCTAssertFalse(result.allLowDepth)
     }
 
     func testFetchConsensusRecordsChecksummedStdoutArtifacts() async throws {

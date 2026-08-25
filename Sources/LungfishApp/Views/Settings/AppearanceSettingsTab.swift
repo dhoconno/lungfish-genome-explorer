@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishKit
 import LungfishCore
 
 @MainActor
@@ -139,20 +140,20 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Dimensions") {
-                HStack {
-                    Text("Annotation height:")
-                    Slider(value: annotationHeightSelection, in: 8...32, step: 1)
-                    Text("\(Int(settings.defaultAnnotationHeight)) px")
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
-                }
-                HStack {
-                    Text("Row spacing:")
-                    Slider(value: annotationSpacingSelection, in: 0...8, step: 1)
-                    Text("\(Int(settings.defaultAnnotationSpacing)) px")
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
-                }
+                InlineNumericSliderField(
+                    label: "Annotation height:",
+                    accessibilityTitle: "Annotation height",
+                    value: annotationHeightSelection,
+                    in: 8...32,
+                    suffix: "px"
+                )
+                InlineNumericSliderField(
+                    label: "Row spacing:",
+                    accessibilityTitle: "Row spacing",
+                    value: annotationSpacingSelection,
+                    in: 0...8,
+                    suffix: "px"
+                )
             }
 
             Section("Scrolling") {

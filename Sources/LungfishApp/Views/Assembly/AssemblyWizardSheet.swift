@@ -540,24 +540,23 @@ struct AssemblyWizardSheet: View {
             }
 
             labeledRow("Threads") {
-                HStack(spacing: 12) {
-                    Slider(value: $threads, in: 1...Double(max(1, availableCores)), step: 1)
-                    Text("\(Int(threads))")
-                        .font(.system(.body, design: .monospaced))
-                        .frame(width: 36, alignment: .trailing)
-                }
+                InlineNumericSliderField(
+                    accessibilityTitle: "Threads",
+                    value: $threads,
+                    in: 1...Double(max(1, availableCores))
+                )
             }
             optionSummary("threads")
 
             if supportsMemoryLimit {
                 labeledRow("Memory Limit") {
-                    HStack(spacing: 12) {
-                        Slider(value: $memoryGB, in: 1...Double(max(1, availableMemoryGB)), step: 1)
-                            .accessibilityIdentifier("assembly-memory-slider")
-                        Text("\(Int(memoryGB)) GB")
-                            .font(.system(.body, design: .monospaced))
-                            .frame(width: 72, alignment: .trailing)
-                    }
+                    InlineNumericSliderField(
+                        accessibilityTitle: "Memory Limit",
+                        value: $memoryGB,
+                        in: 1...Double(max(1, availableMemoryGB)),
+                        suffix: "GB",
+                        sliderIdentifier: "assembly-memory-slider"
+                    )
                 }
                 optionSummary("memory-limit")
             }

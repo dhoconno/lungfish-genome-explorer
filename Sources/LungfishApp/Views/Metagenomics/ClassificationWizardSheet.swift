@@ -546,18 +546,18 @@ struct ClassificationWizardSheet: View {
         DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
                 // Confidence threshold
-                HStack {
-                    Text("Confidence:")
-                        .font(.system(size: 12))
-                        .frame(width: 120, alignment: .trailing)
-                    Slider(value: $confidence, in: 0...1, step: 0.05)
-                        .frame(maxWidth: 200)
-                        .accessibilityLabel("Confidence")
-                        .accessibilityIdentifier("classification-confidence-slider")
-                    Text(String(format: "%.2f", confidence))
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 40)
-                }
+                InlineNumericSliderField(
+                    label: "Confidence:",
+                    accessibilityTitle: "Confidence",
+                    value: $confidence,
+                    in: 0...1,
+                    step: 0.05,
+                    format: { String(format: "%.2f", $0) },
+                    sliderIdentifier: "classification-confidence-slider",
+                    labelWidth: 120,
+                    sliderMaxWidth: 200,
+                    labelFont: .system(size: 12)
+                )
 
                 // Minimum hit groups
                 HStack {

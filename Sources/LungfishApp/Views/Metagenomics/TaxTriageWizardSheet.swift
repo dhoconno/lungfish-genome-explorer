@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishKit
 import LungfishIO
 import LungfishWorkflow
 
@@ -486,16 +487,17 @@ struct TaxTriageWizardSheet: View {
         DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
                 // K2 Confidence threshold
-                HStack {
-                    Text("K2 Confidence:")
-                        .font(.system(size: 12))
-                        .frame(width: 120, alignment: .trailing)
-                    Slider(value: $k2Confidence, in: 0...1, step: 0.05)
-                        .frame(maxWidth: 200)
-                    Text(String(format: "%.2f", k2Confidence))
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 40)
-                }
+                InlineNumericSliderField(
+                    label: "K2 Confidence:",
+                    accessibilityTitle: "K2 Confidence",
+                    value: $k2Confidence,
+                    in: 0...1,
+                    step: 0.05,
+                    format: { String(format: "%.2f", $0) },
+                    labelWidth: 120,
+                    sliderMaxWidth: 200,
+                    labelFont: .system(size: 12)
+                )
 
                 // Top hits count
                 HStack {

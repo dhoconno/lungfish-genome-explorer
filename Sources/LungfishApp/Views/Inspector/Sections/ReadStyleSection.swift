@@ -1674,14 +1674,11 @@ public struct AlignmentViewSection: View {
                         viewModel.onSettingsChanged?()
                     }
 
-                HStack {
-                    Text("Minimum alignment confidence")
-                    Spacer()
-                    Text("\(Int(viewModel.minMapQ))")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: $viewModel.minMapQ, in: 0...60, step: 1)
+                NumericSliderField(
+                    "Minimum alignment confidence",
+                    value: $viewModel.minMapQ,
+                    in: 0...60
+                )
                     .onChange(of: viewModel.minMapQ) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
@@ -1898,15 +1895,13 @@ public struct ReadStyleSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack {
-                    Text("Maximum rows")
-                    Spacer()
-                    Text("\(Int(viewModel.maxReadRows))")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
+                NumericSliderField(
+                    "Maximum rows",
+                    value: $viewModel.maxReadRows,
+                    in: 10...2000,
+                    step: 10
+                )
                 .opacity(viewModel.limitReadRows ? 1.0 : 0.5)
-                Slider(value: $viewModel.maxReadRows, in: 10...2000, step: 10)
                     .disabled(!viewModel.limitReadRows)
                     .onChange(of: viewModel.maxReadRows) { _, _ in
                         viewModel.onSettingsChanged?()
@@ -1918,14 +1913,13 @@ public struct ReadStyleSection: View {
                     }
                     .help("Off keeps all mapped reads in the active view and enables stable vertical scrolling.")
 
-                HStack {
-                    Text("Read display budget")
-                    Spacer()
-                    Text("\(Int(viewModel.visibleReadBudget).formatted())")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: $viewModel.visibleReadBudget, in: 5_000...500_000, step: 5_000)
+                NumericSliderField(
+                    "Read display budget",
+                    value: $viewModel.visibleReadBudget,
+                    in: 5_000...500_000,
+                    step: 5_000,
+                    format: { Int($0).formatted() }
+                )
                     .onChange(of: viewModel.visibleReadBudget) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
@@ -2455,67 +2449,53 @@ public struct AnalysisSection: View {
                 }
                 .help("When enabled, columns where most spanning reads are gaps are masked in packed or base views.")
 
-            HStack {
-                Text("Consensus minimum depth")
-                Spacer()
-                Text("\(Int(viewModel.consensusMinDepth))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+            NumericSliderField(
+                "Consensus minimum depth",
+                value: $viewModel.consensusMinDepth,
+                in: 1...50
+            )
+            .onChange(of: viewModel.consensusMinDepth) { _, _ in
+                viewModel.onSettingsChanged?()
             }
-            Slider(value: $viewModel.consensusMinDepth, in: 1...50, step: 1)
-                .onChange(of: viewModel.consensusMinDepth) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
 
             if viewModel.consensusMaskingEnabled {
-                HStack {
-                    Text("Gap threshold")
-                    Spacer()
-                    Text("\(Int(viewModel.consensusGapThresholdPercent))%")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: $viewModel.consensusGapThresholdPercent, in: 50...99, step: 1)
-                    .onChange(of: viewModel.consensusGapThresholdPercent) { _, _ in
-                        viewModel.onSettingsChanged?()
-                    }
-
-                HStack {
-                    Text("Masking minimum depth")
-                    Spacer()
-                    Text("\(Int(viewModel.consensusMaskingMinDepth))")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: $viewModel.consensusMaskingMinDepth, in: 1...50, step: 1)
-                    .onChange(of: viewModel.consensusMaskingMinDepth) { _, _ in
-                        viewModel.onSettingsChanged?()
-                    }
-            }
-
-            HStack {
-                Text("Consensus minimum MAPQ")
-                Spacer()
-                Text("\(Int(viewModel.consensusMinMapQ))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $viewModel.consensusMinMapQ, in: 0...60, step: 1)
-                .onChange(of: viewModel.consensusMinMapQ) { _, _ in
+                NumericSliderField(
+                    "Gap threshold",
+                    value: $viewModel.consensusGapThresholdPercent,
+                    in: 50...99,
+                    suffix: "%"
+                )
+                .onChange(of: viewModel.consensusGapThresholdPercent) { _, _ in
                     viewModel.onSettingsChanged?()
                 }
 
-            HStack {
-                Text("Consensus minimum base quality")
-                Spacer()
-                Text("\(Int(viewModel.consensusMinBaseQ))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $viewModel.consensusMinBaseQ, in: 0...60, step: 1)
-                .onChange(of: viewModel.consensusMinBaseQ) { _, _ in
+                NumericSliderField(
+                    "Masking minimum depth",
+                    value: $viewModel.consensusMaskingMinDepth,
+                    in: 1...50
+                )
+                .onChange(of: viewModel.consensusMaskingMinDepth) { _, _ in
                     viewModel.onSettingsChanged?()
                 }
+            }
+
+            NumericSliderField(
+                "Consensus minimum MAPQ",
+                value: $viewModel.consensusMinMapQ,
+                in: 0...60
+            )
+            .onChange(of: viewModel.consensusMinMapQ) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            NumericSliderField(
+                "Consensus minimum base quality",
+                value: $viewModel.consensusMinBaseQ,
+                in: 0...60
+            )
+            .onChange(of: viewModel.consensusMinBaseQ) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
 
             if viewModel.supportsConsensusExtraction {
                 Divider()

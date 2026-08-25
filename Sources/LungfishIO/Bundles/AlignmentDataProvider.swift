@@ -1126,34 +1126,44 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     /// Parses FASTA produced by `samtools consensus` and returns sequence letters
     /// along with the 0-based start position extracted from the FASTA header.
     ///
-    /// The header typically has the format `>chrom:start-end` (1-based inclusive).
-    /// Parsing it allows us to determine the actual start position of the consensus
-    /// output, which may differ from the requested region when samtools clips to
-    /// the data range or when the `-a` flag is unsupported.
+    /// The header has the format `>chrom:start-end` (1-based inclusive) for a
+    /// sub-region, but `samtools consensus` emits a bare `>chrom` when the
+    /// requested region spans the whole contig. A bare header therefore denotes
+    /// the contig origin, not an absent coordinate: reporting `nil` there would
+    /// fail the normalizer's projection guard for every whole-contig request.
     static func parseConsensusFASTA(_ output: String) -> ConsensusFASTAResult {
         guard !output.isEmpty else { return ConsensusFASTAResult(sequence: "", headerStart: nil) }
         var sequence = String()
         sequence.reserveCapacity(max(256, output.count))
         var headerStart: Int?
+        var sawHeader = false
         output.enumerateLines { line, _ in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { return }
             if trimmed.hasPrefix(">") {
-                // Parse region from header: >chrom:start-end (1-based inclusive)
-                if headerStart == nil, let colonIdx = trimmed.firstIndex(of: ":") {
-                    let afterColon = trimmed[trimmed.index(after: colonIdx)...]
-                    if let dashIdx = afterColon.firstIndex(of: "-") {
-                        let startStr = afterColon[afterColon.startIndex..<dashIdx]
-                        if let start1based = Int(startStr), start1based > 0 {
-                            headerStart = start1based - 1  // Convert to 0-based
-                        }
-                    }
+                if !sawHeader {
+                    sawHeader = true
+                    headerStart = Self.parseConsensusHeaderStart(trimmed) ?? 0
                 }
                 return
             }
             sequence.append(trimmed.uppercased())
         }
         return ConsensusFASTAResult(sequence: sequence, headerStart: headerStart)
+    }
+
+    /// Extracts the 0-based start from a `>chrom:start-end` header, or `nil`
+    /// when the header carries no region suffix. A contig name may itself
+    /// contain colons (for example `HLA:A*01:01`), so only the final
+    /// colon-delimited field is considered, and it must be a numeric range.
+    private static func parseConsensusHeaderStart(_ header: String) -> Int? {
+        guard let colonIdx = header.lastIndex(of: ":") else { return nil }
+        let afterColon = header[header.index(after: colonIdx)...]
+        guard let dashIdx = afterColon.firstIndex(of: "-") else { return nil }
+        guard let start1based = Int(afterColon[afterColon.startIndex..<dashIdx]),
+              start1based > 0,
+              Int(afterColon[afterColon.index(after: dashIdx)...]) != nil else { return nil }
+        return start1based - 1
     }
 
     // MARK: - Process Execution
