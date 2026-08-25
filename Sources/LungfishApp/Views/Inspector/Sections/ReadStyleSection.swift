@@ -1685,12 +1685,16 @@ public struct AlignmentViewSection: View {
                         viewModel.onSettingsChanged?()
                     }
 
+                Text("Coverage scale")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Picker("Coverage scale", selection: $viewModel.coverageScaleMode) {
                     ForEach(CoverageScaleMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .onChange(of: viewModel.coverageScaleMode) { _, _ in
                     viewModel.onSettingsChanged?()
                 }
