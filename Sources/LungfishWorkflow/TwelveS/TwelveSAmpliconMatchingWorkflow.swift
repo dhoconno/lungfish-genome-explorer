@@ -594,7 +594,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         ]
         for reference in references {
             let target = reference.target
-            lines.append([
+            let fields: [String] = [
                 reference.targetID,
                 target.displayName,
                 target.scientificName ?? "",
@@ -609,7 +609,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 reference.metadata["n_species"] ?? "",
                 reference.metadata["primer_pairs"] ?? "",
                 reference.sourceHeader,
-            ].map(Self.tsvEscape).joined(separator: "\t"))
+            ]
+            lines.append(fields.map(Self.tsvEscape).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }

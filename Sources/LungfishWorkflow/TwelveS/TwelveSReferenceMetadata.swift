@@ -220,7 +220,7 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
                 data: try encoder.encode(entry.alternateMatches),
                 encoding: .utf8
             ) ?? "[]"
-            lines.append([
+            let fields: [String] = [
                 entry.targetID,
                 entry.sequenceSHA256,
                 entry.displayName,
@@ -237,7 +237,8 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
                 entry.metadata["n_primer_pairs"] ?? "",
                 entry.metadata["primer_pairs"] ?? "",
                 alternateJSON,
-            ].map(Self.tsvEscape).joined(separator: "\t"))
+            ]
+            lines.append(fields.map(Self.tsvEscape).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }

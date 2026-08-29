@@ -113,13 +113,31 @@ final class GzipLineSourceBackpressureTests: XCTestCase {
 }
 
 extension GzipLineSourceBackpressureTests {
+    func testWaitBoundedReturnsForAnAlreadyExitedChild() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try? process.run()
+        while process.isRunning { usleep(1_000) }
+
+        let started = Date()
+        GzipLineSource.waitBounded(process, timeout: 1.0)
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+        XCTAssertFalse(process.isRunning)
+        XCTAssertEqual(process.terminationStatus, 0)
+    }
+
     /// Teardown must never hang on a child that ignores SIGTERM (regression:
     /// the 2026-08-23 unit gate hung 54 minutes in `finishProcess`'s
     /// unbounded `waitUntilExit`).
     func testWaitBoundedKillsAChildThatIgnoresSIGTERM() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "trap '' TERM; sleep 1000"]
+        // `exec` keeps the ignored SIGTERM disposition while ensuring the
+        // long-running command remains Process's direct child. Without it,
+        // killing the shell can orphan `sleep`, which in turn wedges SwiftPM's
+        // test-process reaping on Xcode 26.6.
+        process.arguments = ["-c", "trap '' TERM; exec sleep 1000"]
         try? process.run()
         // Give the shell a moment to install the trap.
         usleep(300_000)

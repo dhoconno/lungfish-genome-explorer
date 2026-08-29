@@ -164,6 +164,10 @@ final class CondaManagerTests: XCTestCase {
         let installArgs = try XCTUnwrap(recorder.firstInstallArgs())
         XCTAssertTrue(installArgs.contains("bioconda::samtools=1.23.1=hc612e98_0"))
         XCTAssertTrue(installArgs.contains("samtools"))
+        XCTAssertTrue(
+            installArgs.contains("--override-channels"),
+            "managed installs must ignore user-level channels that can change transitive ABIs"
+        )
     }
 
     func testReinstallPackageSpecPassesExactSpecThrough() async throws {

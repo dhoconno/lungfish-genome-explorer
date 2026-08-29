@@ -49,6 +49,10 @@ class BashSyntaxTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_provisioning_includes_esviritu_database_needed_by_tier_three(self):
+        source = VERIFY.read_text(encoding="utf-8")
+        self.assertIn('esviritu download-db --no-progress', source)
+
 
 class DryRunTests(unittest.TestCase):
     def test_dry_run_prints_the_resolved_plan_line(self):

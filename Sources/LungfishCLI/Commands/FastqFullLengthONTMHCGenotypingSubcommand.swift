@@ -291,7 +291,7 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let cleanupWarningsJSON = String(decoding: try encoder.encode(cleanupWarnings), as: UTF8.self)
-        let values = [
+        let values: [String] = [
             outputDirectory, reportCSVPath, sampleSummaryCSVPath, statsJSONPath,
             workbookPath, primaryWorkbookPath, haplotypeAnalysisPath ?? "",
             unmatchedClustersFASTAPath, deduplicatedUnmatchedClustersFASTAPath,

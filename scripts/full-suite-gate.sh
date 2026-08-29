@@ -163,6 +163,48 @@ fi
 # skipOrFail and become failures under --require-tools.
 CONFORMANCE_ALLOWLIST="Test Case '-\[[A-Za-z]+\.(.*Conformance.*|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests)[^]]*\]' skipped"
 
+# Swift 6.2.4 can abort while reconstructing imported CoreGraphics debug types
+# against the macOS 26 SDK. This is the compiler's documented crash workaround;
+# keep it version-scoped so later compilers retain their default debug behavior.
+SWIFT_624_DEBUG_TYPE_WORKAROUND=0
+if swift --version 2>/dev/null | grep -q 'Swift version 6\.2\.4'; then
+    SWIFT_624_DEBUG_TYPE_WORKAROUND=1
+fi
+
+# Xcode 26.6's swift-test can fail to reap a completed xctest child and wait
+# forever. Run it under a watchdog that intervenes only when the direct child
+# is already a zombie and both XCTest and Swift Testing wrote final PASS
+# summaries. The caller still scans the complete log for failures and skips.
+run_swift_test() {
+    local output_log="$1"
+    shift
+    "$@" > "$output_log" 2>&1 &
+    local swift_pid=$!
+    while kill -0 "$swift_pid" 2>/dev/null; do
+        local child state child_command
+        for child in $(pgrep -P "$swift_pid" 2>/dev/null); do
+            state=$(ps -o state= -p "$child" 2>/dev/null | tr -d ' ')
+            child_command=$(ps -o command= -p "$child" 2>/dev/null)
+            # Compiler and package-plugin subprocesses can briefly become
+            # zombies during a normal build. Only the final XCTest runner is
+            # evidence of the Xcode 26.6 reaping bug this watchdog addresses.
+            if [[ "$state" == Z* && "$child_command" == *xctest* ]]; then
+                if grep -Eq "Test Suite '(All tests|Selected tests)' passed" "$output_log" \
+                    && grep -Eq 'Test run .* passed' "$output_log"; then
+                    kill "$swift_pid" 2>/dev/null || true
+                    wait "$swift_pid" 2>/dev/null || true
+                    return 0
+                fi
+                kill "$swift_pid" 2>/dev/null || true
+                wait "$swift_pid" 2>/dev/null || true
+                return 1
+            fi
+        done
+        sleep 1
+    done
+    wait "$swift_pid"
+}
+
 run_gate() {
     {
         echo "Full-suite gate starting at $(date) for $SHA"
@@ -177,14 +219,17 @@ run_gate() {
     # Single swift invocation (SwiftPM serializes on .build/.lock). --skip-update
     # keeps it offline (avoids the testSRASearch NCBI flake's dependency on the network).
     local swift_args=(test --skip-update --xunit-output "$LOG_DIR/gate-${STAMP}-${SHA}.xunit.xml")
+    if [ "$SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1 ]; then
+        swift_args+=(-Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types)
+    fi
     [ -n "$FILTER" ] && swift_args+=(--filter "$FILTER")
     [ -n "$SKIP" ] && swift_args+=(--skip "$SKIP")
     [ "$PARALLEL" -eq 1 ] && swift_args+=(--parallel)
 
     if [ "$REQUIRE_TOOLS" -eq 1 ]; then
-        LUNGFISH_REQUIRE_TOOLS=1 swift "${swift_args[@]}" > "$LOG" 2>&1
+        run_swift_test "$LOG" env LUNGFISH_REQUIRE_TOOLS=1 swift "${swift_args[@]}"
     else
-        swift "${swift_args[@]}" > "$LOG" 2>&1
+        run_swift_test "$LOG" swift "${swift_args[@]}"
     fi
     local status=$?
 
@@ -231,7 +276,11 @@ run_gate() {
             # load that makes timing-bounded tests fail. Retrying at peak churn
             # re-fails genuine load flakes and mislabels them deterministic.
             sleep 30
-            swift test --skip-update --filter "$retry_filter" > "$retry_log" 2>&1
+            local retry_args=(test --skip-update --filter "$retry_filter")
+            if [ "$SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1 ]; then
+                retry_args+=(-Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types)
+            fi
+            run_swift_test "$retry_log" swift "${retry_args[@]}"
             local retry_status=$?
             local retry_fail
             retry_fail=$(grep -cE "with [1-9][0-9]* failure|' failed \(|: error:" "$retry_log" 2>/dev/null)

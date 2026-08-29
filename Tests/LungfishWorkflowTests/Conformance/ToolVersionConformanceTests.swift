@@ -61,7 +61,15 @@ final class ToolVersionConformanceTests: XCTestCase {
                 if ToolAvailability.requireTools { failures.append("\(tool.id): not installed (\(exe) in env \(tool.environment)): \(error)") }
                 continue
             }
-            let r = try ProcessRunner.run(url, args, timeout: 60)
+            var environment = [String: String]()
+            if tool.id == "nextflow" {
+                let environmentRoot = url.deletingLastPathComponent().deletingLastPathComponent()
+                let javaHome = environmentRoot.appendingPathComponent("lib/jvm", isDirectory: true)
+                environment["JAVA_HOME"] = javaHome.path
+                environment["PATH"] = javaHome.appendingPathComponent("bin").path
+                    + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
+            }
+            let r = try ProcessRunner.run(url, args, environment: environment, timeout: 60)
             if ConformanceFixtures.skipsVersionMatch(for: tool.id) {
                 // Prints usage rather than a version string; a non-crash run (including
                 // its typical non-zero "no args" exit) is the pass condition.

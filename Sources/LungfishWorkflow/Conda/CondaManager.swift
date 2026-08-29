@@ -570,7 +570,7 @@ public actor CondaManager {
         logger.info("Creating environment '\(name, privacy: .public)' with packages: \(packages.joined(separator: ", "), privacy: .public)")
         progress?(0.1, "Creating environment '\(name)'\u{2026}")
 
-        var args = ["create", "-n", name, "--yes"]
+        var args = ["create", "-n", name, "--yes", "--override-channels"]
         for ch in effectiveChannels {
             args += ["-c", ch]
         }
@@ -721,7 +721,7 @@ public actor CondaManager {
             logger.info("Installing \(packages.joined(separator: ", "), privacy: .public) into '\(environment, privacy: .public)'")
             progress?(0.1, "Installing \(packages.joined(separator: ", "))\u{2026}")
 
-            var args = ["install", "-n", environment, "--yes"]
+            var args = ["install", "-n", environment, "--yes", "--override-channels"]
             for ch in effectiveChannels {
                 args += ["-c", ch]
             }

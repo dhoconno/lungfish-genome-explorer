@@ -234,13 +234,14 @@ seqkit_bin="${conda_root}/envs/seqkit/bin"
 
 # TaxTriage v3.3.x validates its own parameters and refuses to start without
 # --db (or --download_db), so the runner has to name a Kraken2 database. Prefer
-# an explicit --kraken2-db, otherwise take the first of viral or standard-16
+# an explicit --kraken2-db, otherwise take the first installed canonical
+# directory. Database installers prefix Kraken2 database IDs with `kraken2-`.
 # that is actually present in the root under test. Leaving it unset made the
 # pipeline fail inside Nextflow with an opaque exit 1, which is how this was
 # missed until tier 3 first ran.
 databases_root="${LUNGFISH_STORAGE_ROOT:-${HOME}/.lungfish}/databases/kraken2"
 if [[ -z "${kraken2_db}" ]]; then
-    for candidate in viral standard-16; do
+    for candidate in kraken2-viral kraken2-standard-16; do
         if [[ -d "${databases_root}/${candidate}" ]]; then
             kraken2_db="${databases_root}/${candidate}"
             break

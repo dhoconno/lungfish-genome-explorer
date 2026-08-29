@@ -20,8 +20,12 @@ public enum SamtoolsLocator {
     ) -> String? {
         let fm = FileManager.default
 
-        let managedSamtools = ManagedStorageConfigStore(homeDirectory: homeDirectory)
-            .currentCondaRootURL()
+        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory)
+        let defaultHome = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        let condaRoot = homeDirectory.standardizedFileURL == defaultHome
+            ? store.currentCondaRootURL()
+            : store.currentCondaRootURL(environment: [:])
+        let managedSamtools = condaRoot
             .appendingPathComponent("envs", isDirectory: true)
             .appendingPathComponent("samtools", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)

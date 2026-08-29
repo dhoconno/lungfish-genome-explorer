@@ -25,13 +25,7 @@ final class GenotypeAIHaplotypingExecutionService {
         keychain: KeychainSecretStorage = .shared
     ) async -> Bool {
         let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .openAI
-        let providerOrder = ([preferred] + [AIProviderIdentifier.openAI, .anthropic])
-            .filter { $0 == .anthropic || $0 == .openAI }
-            .reduce(into: [AIProviderIdentifier]()) { partial, provider in
-                if !partial.contains(provider) {
-                    partial.append(provider)
-                }
-            }
+        let providerOrder = supportedProviderOrder(preferred: preferred)
         for providerID in providerOrder {
             do {
                 switch providerID {
@@ -258,6 +252,20 @@ final class GenotypeAIHaplotypingExecutionService {
         }
     }
 
+    private static func supportedProviderOrder(
+        preferred: AIProviderIdentifier
+    ) -> [AIProviderIdentifier] {
+        let fallbackProviders = [AIProviderIdentifier.openAI, .anthropic]
+        var providers = [AIProviderIdentifier]()
+        for provider in [preferred] + fallbackProviders
+        where provider == .anthropic || provider == .openAI {
+            if !providers.contains(provider) {
+                providers.append(provider)
+            }
+        }
+        return providers
+    }
+
     private func progress(_ value: Double, ownsOperation: Bool) -> Double {
         ownsOperation ? value : Self.nestedProgress(value)
     }
@@ -268,13 +276,7 @@ final class GenotypeAIHaplotypingExecutionService {
 
     private func resolveProvider() async throws -> ResolvedProvider {
         let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .openAI
-        let providerOrder = ([preferred] + [AIProviderIdentifier.openAI, .anthropic])
-            .filter { $0 == .anthropic || $0 == .openAI }
-            .reduce(into: [AIProviderIdentifier]()) { partial, provider in
-                if !partial.contains(provider) {
-                    partial.append(provider)
-                }
-            }
+        let providerOrder = Self.supportedProviderOrder(preferred: preferred)
         for providerID in providerOrder {
             switch providerID {
             case .anthropic:

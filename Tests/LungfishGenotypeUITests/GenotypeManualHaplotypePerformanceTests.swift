@@ -305,9 +305,7 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
             ? (p95 - baselineP95) / baselineP95
             : 0
 
-        print(
-            "Manual haplotype release benchmark (seconds): "
-                + operations.map { operation in
+        let operationSummaries: [String] = operations.map { operation in
                     let operationP95 = percentile(operation.band, 0.95)
                     let operationP99 = percentile(operation.band, 0.99)
                     let operationP50 = percentile(operation.band, 0.50)
@@ -334,11 +332,13 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
                                 ? "paired"
                                 : "absolute-only-no-equivalent-baseline"
                         )
-                }.joined(separator: ", ")
-                + ", "
-                + "aggregate_p95=\(p95), aggregate_p99=\(p99), "
-                + "no_band_p95=\(baselineP95), "
-                + "regression=\(aggregateRegression)"
+        }
+        let aggregateSummary = "aggregate_p95=\(p95), aggregate_p99=\(p99), "
+            + "no_band_p95=\(baselineP95), regression=\(aggregateRegression)"
+        print(
+            "Manual haplotype release benchmark (seconds): "
+                + operationSummaries.joined(separator: ", ")
+                + ", " + aggregateSummary
         )
 
         let enforcesReleaseBudget: Bool

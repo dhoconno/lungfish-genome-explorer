@@ -25,7 +25,7 @@ final class ApplicationExportImportE2ETests: XCTestCase {
             "--format", "json",
         ])
 
-        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertEqual(result.exitCode, 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         let collectionURL = try assertCLIImportOutput(
             result.stdout,
             expectedCollectionName: "Representative Geneious Import",
@@ -76,7 +76,7 @@ final class ApplicationExportImportE2ETests: XCTestCase {
                 "--format", "json",
             ])
 
-            XCTAssertEqual(result.exitCode, 0, "\(fixture.kindArgument) stderr: \(result.stderr)")
+            XCTAssertEqual(result.exitCode, 0, "\(fixture.kindArgument) stdout: \(result.stdout)\nstderr: \(result.stderr)")
             let collectionURL = try assertCLIImportOutput(
                 result.stdout,
                 expectedCollectionNamePrefix: fixture.sourceName,

@@ -598,8 +598,10 @@ final class GzipLineSource {
         }
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
+            while process.isRunning {
+                usleep(20_000)
+            }
         }
-        process.waitUntilExit()
     }
 }
 

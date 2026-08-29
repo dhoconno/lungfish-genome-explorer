@@ -1174,10 +1174,9 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func lofreqCallArguments(plan: ViralVariantCallingExecutionPlan, alignmentURL: URL) -> [String] {
-        return ["call-parallel"]
+        return ["call"]
             + request.advancedArguments
             + [
-            "--pp-threads", String(max(1, request.threads)),
             "-f", plan.referenceURL.path,
             "-o", plan.rawVCFURL.path,
             alignmentURL.path,

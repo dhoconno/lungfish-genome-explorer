@@ -4383,13 +4383,22 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 fileDescriptorDictionary(url: request.retainedBAMURL, role: "output"),
                 fileDescriptorDictionary(url: request.retainedBAIURL, role: "index"),
             ]
-        let provenanceInputs: [[String: Any]] = inputs + mappingInputs + [
+        var provenanceInputs: [[String: Any]] = inputs
+        provenanceInputs += mappingInputs
+        provenanceInputs += [
             fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
             fileDescriptorDictionary(url: demuxManifestURL, role: "input"),
             fileDescriptorDictionary(url: scriptURL, role: "input"),
             fileDescriptorDictionary(url: reportScriptURL, role: "input"),
-        ] + (request.barcodeDefinitionsURL.map { [fileDescriptorDictionary(url: $0, role: "input")] } ?? [])
-            + comparisonInputs + stagedInputs + haplotypeDefinitionInputs + specialistPromptInputs + recordStoreInputs
+        ]
+        provenanceInputs += request.barcodeDefinitionsURL.map {
+            [fileDescriptorDictionary(url: $0, role: "input")]
+        } ?? []
+        provenanceInputs += comparisonInputs
+        provenanceInputs += stagedInputs
+        provenanceInputs += haplotypeDefinitionInputs
+        provenanceInputs += specialistPromptInputs
+        provenanceInputs += recordStoreInputs
         var transientAlignmentOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.mappingBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
@@ -4518,7 +4527,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     "stderr": publication.provenance.stderr ?? "",
                 ]]
             } ?? []
-        let steps: [[String: Any]] = mappingProcessSteps + mergeStep + [
+        var steps: [[String: Any]] = mappingProcessSteps
+        steps += mergeStep
+        steps += [
             [
                 "toolName": "samtools index",
                 "argv": [samtoolsURL.path] + mapping.samtoolsIndexArguments,
@@ -4534,13 +4545,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "wallTimeSeconds": filter.wallClockSeconds,
                 "stderr": filter.stderr,
             ],
-        ] + scientificArtifactSteps
-            + reviewableRowCatalogSteps
-            + haplotypeSteps
-            + currentHaplotypeSteps
-            + specialistPromptSteps
-            + recordStoreSteps
-            + [
+        ]
+        steps += scientificArtifactSteps
+        steps += reviewableRowCatalogSteps
+        steps += haplotypeSteps
+        steps += currentHaplotypeSteps
+        steps += specialistPromptSteps
+        steps += recordStoreSteps
+        steps += [
             [
                 "toolName": "openpyxl ONT genotype workbook report",
                 "argv": [reportPythonURL.path] + report.arguments,
@@ -4697,17 +4709,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let recordStoreInput = try referenceRecordStoreSnapshot.map {
             try canonicalFileDescriptor(url: $0.sourceURL, role: .reference)
         }
-        let canonicalInputs = deduplicated(
-            fastqInputs
-                + mappingFastqInputs
-                + [referenceInput, demuxInput, filterScriptInput, reportScriptInput]
-                + (barcodeInput.map { [$0] } ?? [])
-                + comparisonInputs
-                + stagedInputs
-                + (haplotypeDefinitionInput.map { [$0] } ?? [])
-                + (specialistPromptSource.map { [$0] } ?? [])
-                + (recordStoreInput.map { [$0] } ?? [])
-        )
+        var allCanonicalInputs = fastqInputs
+        allCanonicalInputs += mappingFastqInputs
+        allCanonicalInputs += [referenceInput, demuxInput, filterScriptInput, reportScriptInput]
+        allCanonicalInputs += barcodeInput.map { [$0] } ?? []
+        allCanonicalInputs += comparisonInputs
+        allCanonicalInputs += stagedInputs
+        allCanonicalInputs += haplotypeDefinitionInput.map { [$0] } ?? []
+        allCanonicalInputs += specialistPromptSource.map { [$0] } ?? []
+        allCanonicalInputs += recordStoreInput.map { [$0] } ?? []
+        let canonicalInputs = deduplicated(allCanonicalInputs)
 
         let mappingBAM = try canonicalFileDescriptor(url: request.mappingBAMURL, role: .output)
         let mappingBAI = try canonicalFileDescriptor(url: request.mappingBAIURL, role: .index)
@@ -4743,22 +4754,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let durableAlignmentOutputs = scientificArtifactPublication == nil
             ? []
             : [retainedBAM, retainedBAI]
-        let canonicalOutputs = deduplicated(
-            [
-                genotypeCSV,
-                sampleCSV,
-                statsJSON,
-            ]
-                + (haplotypeOutput.map { [$0] } ?? [])
-                + (currentHaplotypeOutput.map { [$0] } ?? [])
-                + [workbook, currentWorkbook, reportProvenance, legacyProvenance]
-                + (currentWorkbookProvenance.map { [$0] } ?? [])
-                + (specialistPromptOutput.map { [$0] } ?? [])
-                + (recordStoreOutput.map { [$0] } ?? [])
-                + durableAlignmentOutputs
-                + scientificArtifactOutputs
-                + reviewableRowCatalogOutputs
-        )
+        var allCanonicalOutputs = [genotypeCSV, sampleCSV, statsJSON]
+        allCanonicalOutputs += haplotypeOutput.map { [$0] } ?? []
+        allCanonicalOutputs += currentHaplotypeOutput.map { [$0] } ?? []
+        allCanonicalOutputs += [workbook, currentWorkbook, reportProvenance, legacyProvenance]
+        allCanonicalOutputs += currentWorkbookProvenance.map { [$0] } ?? []
+        allCanonicalOutputs += specialistPromptOutput.map { [$0] } ?? []
+        allCanonicalOutputs += recordStoreOutput.map { [$0] } ?? []
+        allCanonicalOutputs += durableAlignmentOutputs
+        allCanonicalOutputs += scientificArtifactOutputs
+        allCanonicalOutputs += reviewableRowCatalogOutputs
+        let canonicalOutputs = deduplicated(allCanonicalOutputs)
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
             role: .output
@@ -4954,6 +4960,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             )
         )
 
+        let canonicalStepFiles: [ProvenanceFileDescriptor] = canonicalSteps.flatMap { step in
+            step.inputs + step.outputs
+        }
+        let canonicalFiles = deduplicated(canonicalInputs + canonicalOutputs + canonicalStepFiles)
+
         return ProvenanceEnvelope(
             createdAt: completedAt,
             workflowName: Self.workflowName(for: resolvedMode),
@@ -4980,11 +4991,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 condaEnvironment: "lungfish-managed-tools",
                 condaPrefix: condaManager.rootPrefix.path
             ),
-            files: deduplicated(
-                canonicalInputs
-                    + canonicalOutputs
-                    + canonicalSteps.flatMap { $0.inputs + $0.outputs }
-            ),
+            files: canonicalFiles,
             output: outputDirectory,
             outputs: [outputDirectory] + canonicalOutputs,
             steps: canonicalSteps,

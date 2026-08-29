@@ -138,6 +138,20 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "the --parallel guard for integration/full/unfiltered runs is gone",
         )
 
+    def test_swift_624_debug_type_workaround_covers_primary_and_retry_runs(self):
+        gate = _gate_text()
+        self.assertIn("Swift version 6\\.2\\.4", gate)
+        self.assertIn("-disable-round-trip-debug-types", gate)
+        self.assertEqual(gate.count("-disable-round-trip-debug-types"), 2)
+        self.assertEqual(gate.count('SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1'), 2)
+
+    def test_xcode_266_zombie_watchdog_requires_both_final_pass_summaries(self):
+        gate = _gate_text()
+        self.assertIn('state" == Z*', gate)
+        self.assertIn("Test Suite '(All tests|Selected tests)' passed", gate)
+        self.assertIn("Test run .* passed", gate)
+        self.assertEqual(gate.count('run_swift_test "$'), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

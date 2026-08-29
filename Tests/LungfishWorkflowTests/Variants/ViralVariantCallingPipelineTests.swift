@@ -39,7 +39,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--call-indels"))
     }
 
-    func testLoFreqIndelCallingPreprocessesAndIndexesBAMBeforeCallParallel() async throws {
+    func testLoFreqIndelCallingPreprocessesAndIndexesBAMBeforeCall() async throws {
         let toolRunner = try makeFakeVariantToolRunner()
         let pipeline = try makePipeline(
             caller: .lofreq,
@@ -56,7 +56,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             step.toolName == "lofreq" && step.command.contains("index")
         })
         let callStep = try XCTUnwrap(result.provenanceSteps.first { step in
-            step.toolName == "lofreq" && step.command.contains("call-parallel")
+            step.toolName == "lofreq" && step.command.contains("call")
         })
         let indelqualOutput = try XCTUnwrap(indelqualStep.outputs.first { record in
             record.path.hasSuffix("lofreq.indelqual.bam")
@@ -74,7 +74,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(callStep.inputs.contains { $0.path == indelqualIndexOutput.path && $0.sha256 != nil && $0.sizeBytes != nil })
         XCTAssertTrue(result.commandLine.contains("lofreq indelqual"))
         XCTAssertTrue(result.commandLine.contains("lofreq index"))
-        XCTAssertTrue(result.commandLine.contains("lofreq call-parallel"))
+        XCTAssertTrue(result.commandLine.contains("lofreq call"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.normalizedVCFURL.path))
     }
 
@@ -548,7 +548,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
           touch "$2.bai"
           exit 0
         fi
-        if [ "$1" = "call-parallel" ]; then
+        if [ "$1" = "call" ]; then
           output=""
           input=""
           while [ "$#" -gt 0 ]; do

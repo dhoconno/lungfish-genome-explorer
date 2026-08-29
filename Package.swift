@@ -114,7 +114,11 @@ let package = Package(
         // Test-only SwiftUI inspection harness (F3: replaces source-text greps of
         // production .swift files with behavioral view assertions). Only test
         // targets depend on this product; no non-test target imports ViewInspector.
-        .package(url: "https://github.com/nalexn/ViewInspector", from: "0.10.0"),
+        // Upstream macOS 26 SDK compatibility fix for iOS-only SwiftUI types.
+        .package(
+            url: "https://github.com/nalexn/ViewInspector",
+            revision: "35650956fc0a809ae0492c3af727d9042692d268"
+        ),
     ],
     targets: [
         .target(

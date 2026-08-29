@@ -74,6 +74,10 @@ class RunPipelinesScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 64)
         self.assertIn("--which must be one of", result.stderr)
 
+    def test_default_database_discovery_uses_installer_directory_names(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("for candidate in kraken2-viral kraken2-standard-16", source)
+
 
 class CollectAndExitPathTests(unittest.TestCase):
     """The collect/diff/exit tail, driven with fake candidate directories.

@@ -154,7 +154,7 @@ final class TaxTriageDatabaseTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let dbURL = dir.appendingPathComponent("test.sqlite")
 
-        let rows = (0..<8).map { index in
+        let rows: [TaxTriageTaxonomyRow] = (0..<8).map { index in
             makeTestRow(
                 sample: index < 5 ? "s1" : "s2",
                 organism: index == 6 ? "Target virus" : "Virus \(index)",
@@ -168,7 +168,7 @@ final class TaxTriageDatabaseTests: XCTestCase {
 
         XCTAssertEqual(page.totalMatchingRows, 8)
         XCTAssertEqual(page.rows.count, 3)
-        XCTAssertEqual(page.rows.map(\.organism), ["Virus 2", "Virus 3", "Virus 4"])
+        XCTAssertEqual(page.rows.map { $0.organism }, ["Virus 2", "Virus 3", "Virus 4"])
 
         let filtered = try db.fetchRowsPage(
             samples: ["s1", "s2"],
@@ -178,7 +178,7 @@ final class TaxTriageDatabaseTests: XCTestCase {
         )
 
         XCTAssertEqual(filtered.totalMatchingRows, 1)
-        XCTAssertEqual(filtered.rows.map(\.organism), ["Target virus"])
+        XCTAssertEqual(filtered.rows.map { $0.organism }, ["Target virus"])
     }
 
     func testFetchSamples() throws {

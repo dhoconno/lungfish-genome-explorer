@@ -631,25 +631,26 @@ extension FullLengthONTMHCGenotypingPipeline {
             "evidence_reference_start",
             "evidence_cigar",
         ]]
-        result += rows.map {
-            [
-                $0.sample,
-                $0.allele,
-                $0.cluster,
-                String($0.clusterReads),
-                String($0.alleleLength),
-                String($0.alignedBases),
-                String($0.score),
-                $0.referenceSequenceID ?? "",
-                $0.mappingQuality.map(String.init) ?? "",
-                $0.cigar ?? "",
-                $0.evidence?.bamPath ?? "",
-                $0.evidence?.queryName ?? "",
-                $0.evidence?.referenceName ?? "",
-                $0.evidence?.readGroupID ?? "",
-                $0.evidence.map { String($0.referenceStart) } ?? "",
-                $0.evidence?.cigar ?? "",
+        for row in rows {
+            let fields: [String] = [
+                row.sample,
+                row.allele,
+                row.cluster,
+                String(row.clusterReads),
+                String(row.alleleLength),
+                String(row.alignedBases),
+                String(row.score),
+                row.referenceSequenceID ?? "",
+                row.mappingQuality.map(String.init) ?? "",
+                row.cigar ?? "",
+                row.evidence?.bamPath ?? "",
+                row.evidence?.queryName ?? "",
+                row.evidence?.referenceName ?? "",
+                row.evidence?.readGroupID ?? "",
+                row.evidence.map { String($0.referenceStart) } ?? "",
+                row.evidence?.cigar ?? "",
             ]
+            result.append(fields)
         }
         return result
     }

@@ -88,7 +88,7 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
                 totals[item.sample, default: 0] += item.clusterReads
             }
             let sampleCount = readsBySample.values.filter { $0 > 0 }.count
-            result.append([
+            var fields: [String] = [
                 unmatchedSequenceID,
                 String(group.count),
                 String(sampleCount),
@@ -100,10 +100,12 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
                 optionalNumber(metadata?.indelBases),
                 optionalNumber(metadata?.alignedBases),
                 optionalNumber(metadata?.score),
-            ] + sampleNames.map { sample in
+            ]
+            fields += sampleNames.map { sample in
                 guard let count = readsBySample[sample], count > 0 else { return "" }
                 return String(count)
-            })
+            }
+            result.append(fields)
         }
         return result
     }
@@ -206,7 +208,7 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
                 totals[item.sample, default: 0] += item.clusterReads
             }
             let sampleCount = readsBySample.values.filter { $0 > 0 }.count
-            result.append([
+            var fields: [String] = [
                 unmatchedSequenceID,
                 String(group.count),
                 String(sampleCount),
@@ -220,10 +222,12 @@ enum FullLengthONTMHCUnmatchedClosestMatchWorkbookBuilder {
                 metadata?.queryCoverage ?? "",
                 metadata?.eValue ?? "",
                 metadata?.bitScore ?? "",
-            ] + sampleNames.map { sample in
+            ]
+            fields += sampleNames.map { sample in
                 guard let count = readsBySample[sample], count > 0 else { return "" }
                 return String(count)
-            })
+            }
+            result.append(fields)
         }
         return result
     }

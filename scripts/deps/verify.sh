@@ -344,11 +344,12 @@ done
 echo "==> Reconciling pack tools against the manifest"
 "${cli}" tools update --apply --yes
 
-# These two are best effort: a database that is already present is a no-op, and
+# These databases are best effort: a database that is already present is a no-op, and
 # a download failure is reported by the tier that actually needs the database
 # rather than aborting provisioning for the tiers that do not.
 "${cli}" conda db download Viral || echo "warn: conda db download Viral failed" >&2
 "${cli}" conda db install-managed deacon-panhuman || echo "warn: conda db install-managed deacon-panhuman failed" >&2
+"${cli}" esviritu download-db --no-progress || echo "warn: esviritu download-db failed" >&2
 
 # The plan must hold no work that would change what the tiers measure. A pending
 # environment install, reinstall, removal, or bootstrap update means the root does
