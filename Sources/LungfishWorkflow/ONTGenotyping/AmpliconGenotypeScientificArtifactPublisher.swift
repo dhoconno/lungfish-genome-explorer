@@ -214,10 +214,26 @@ public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {
 
     private func loadCalls(from url: URL) throws -> [ONTGenotypeCall] {
         let content = try String(contentsOf: url, encoding: .utf8)
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         let rows = parseCSV(content)
         guard let headers = rows.first else { return [] }
-        let indexes = Dictionary(uniqueKeysWithValues: headers.enumerated().map {
-            ($0.element.trimmingCharacters(in: .whitespacesAndNewlines), $0.offset)
+        let normalizedHeaders = headers.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var seenHeaders = Set<String>()
+        for header in normalizedHeaders {
+            guard !header.isEmpty else {
+                throw AmpliconGenotypeScientificArtifactPublisherError
+                    .malformedGenotypeCSV("Column names must not be empty.")
+            }
+            guard seenHeaders.insert(header).inserted else {
+                throw AmpliconGenotypeScientificArtifactPublisherError
+                    .malformedGenotypeCSV("Duplicate column '\(header)'.")
+            }
+        }
+        let indexes = Dictionary(uniqueKeysWithValues: normalizedHeaders.enumerated().map {
+            ($0.element, $0.offset)
         })
         for required in ["sample", "genotype", "passed_alignments", "passed_unique_reads"]
         where indexes[required] == nil {

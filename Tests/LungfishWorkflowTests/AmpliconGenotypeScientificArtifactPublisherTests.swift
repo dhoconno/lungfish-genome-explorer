@@ -5,6 +5,68 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class AmpliconGenotypeScientificArtifactPublisherTests: XCTestCase {
+    func testPublishesCRLFGenotypeSummaryWithEqualReadCounts() throws {
+        let fixture = try Fixture(
+            csv: [
+                "sample,genotype,passed_alignments,passed_unique_reads",
+                "SampleA,E_02_nov_17,8053,8053",
+            ].joined(separator: "\r\n") + "\r\n",
+            fasta: """
+            >E_02_nov_17
+            ACGT
+            """
+        )
+        defer { fixture.remove() }
+
+        let publication = try AmpliconGenotypeScientificArtifactPublisher().publish(
+            reportCSVURL: fixture.csvURL,
+            referenceFASTAURL: fixture.fastaURL,
+            retainedBAMURL: fixture.bamURL,
+            retainedBAIURL: fixture.baiURL,
+            outputDirectoryURL: fixture.outputDirectory
+        )
+
+        XCTAssertEqual(
+            publication.provisionalExon2Document?.records.first?.sampleSupport,
+            [
+                ONTGenotypeProvisionalExon2SampleSupport(
+                    sample: "SampleA",
+                    passedAlignments: 8053,
+                    passedUniqueReads: 8053
+                ),
+            ]
+        )
+    }
+
+    func testRejectsDuplicateCSVHeadersWithTypedError() throws {
+        let fixture = try Fixture(
+            csv: """
+            sample,sample,genotype,passed_alignments,passed_unique_reads
+            SampleA,SampleA,E_02_nov_17,8,8
+            """,
+            fasta: """
+            >E_02_nov_17
+            ACGT
+            """
+        )
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(
+            try AmpliconGenotypeScientificArtifactPublisher().publish(
+                reportCSVURL: fixture.csvURL,
+                referenceFASTAURL: fixture.fastaURL,
+                retainedBAMURL: fixture.bamURL,
+                retainedBAIURL: fixture.baiURL,
+                outputDirectoryURL: fixture.outputDirectory
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? AmpliconGenotypeScientificArtifactPublisherError,
+                .malformedGenotypeCSV("Duplicate column 'sample'.")
+            )
+        }
+    }
+
     func testPublishesObservedNovelRecordsWithExactSequenceAndSortedSupport() throws {
         let fixture = try Fixture(
             csv: """
@@ -215,7 +277,8 @@ final class AmpliconGenotypeScientificArtifactPublisherTests: XCTestCase {
             fastaURL = root.appendingPathComponent("reference.fasta")
             bamURL = outputDirectory.appendingPathComponent("result.retained.demuxed.bam")
             baiURL = outputDirectory.appendingPathComponent("result.retained.demuxed.bam.bai")
-            try Data((csv + "\n").utf8).write(to: csvURL)
+            let csvWithTerminator = csv.hasSuffix("\n") ? csv : csv + "\n"
+            try Data(csvWithTerminator.utf8).write(to: csvURL)
             try Data((fasta + "\n").utf8).write(to: fastaURL)
             try Data("bam".utf8).write(to: bamURL)
             try Data("bai".utf8).write(to: baiURL)

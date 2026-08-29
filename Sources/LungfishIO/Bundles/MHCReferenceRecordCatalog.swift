@@ -86,7 +86,7 @@ public enum MHCReferenceRecordCatalogError: Error, LocalizedError, Equatable, Se
         case .conflictingLoci(let sequenceID, let alleleLocus, let annotatedGenes):
             return "Reference sequence '\(sequenceID)' resolves to allele locus '\(alleleLocus)' but has conflicting gene annotations: \(annotatedGenes.joined(separator: ", "))."
         case .unresolvedAlleleOrLocus(let sequenceID):
-            return "Reference sequence '\(sequenceID)' has no resolvable MHC allele name and locus in record metadata or its FASTA description."
+            return "Reference sequence '\(sequenceID)' has no resolvable MHC allele name and locus in record metadata, its FASTA description, or a recognized legacy IPD-MHC sequence identifier."
         }
     }
 }
@@ -95,8 +95,9 @@ public enum MHCReferenceRecordCatalogError: Error, LocalizedError, Equatable, Se
 ///
 /// The FASTA establishes the authoritative sequence IDs, order, and lengths. When
 /// present, the GenBank record store supplies allele, gene, and molecule-class
-/// annotations. Missing annotations fall back to the FASTA description and the
-/// configured cDNA length threshold.
+/// annotations. Missing annotations fall back to the FASTA description, a
+/// recognized legacy IPD-MHC sequence identifier, and the configured cDNA
+/// length threshold.
 public struct MHCReferenceRecordCatalog: Equatable, Sendable {
     public let records: [MHCReferenceRecord]
     private let recordsBySequenceID: [String: MHCReferenceRecord]
@@ -162,12 +163,14 @@ public struct MHCReferenceRecordCatalog: Equatable, Sendable {
             }
 
             let metadata = metadataBySequenceID[sequence.name] ?? RecordMetadata()
+            let legacyLocus = legacyIPDMHCLocus(from: sequence.name)
             let alleleName = try resolveAlleleName(
                 sequenceID: sequence.name,
                 description: sequence.description,
-                annotatedValues: metadata.alleles
+                annotatedValues: metadata.alleles,
+                legacySequenceID: legacyLocus == nil ? nil : sequence.name
             )
-            guard let locus = locus(from: alleleName) else {
+            guard let locus = locus(from: alleleName) ?? legacyLocus else {
                 throw MHCReferenceRecordCatalogError.unresolvedAlleleOrLocus(sequenceID: sequence.name)
             }
             try validateAnnotatedGenes(metadata.genes, alleleLocus: locus, sequenceID: sequence.name)
@@ -311,7 +314,8 @@ private extension MHCReferenceRecordCatalog {
     static func resolveAlleleName(
         sequenceID: String,
         description: String?,
-        annotatedValues: [String]
+        annotatedValues: [String],
+        legacySequenceID: String?
     ) throws -> String {
         let distinctAnnotated = uniqueSortedValues(annotatedValues)
         let invalidAnnotated = distinctAnnotated.filter { !isValidMHCAlleleName($0) }
@@ -337,10 +341,147 @@ private extension MHCReferenceRecordCatalog {
                 candidates: fallbackCandidates
             )
         }
-        guard let fallback = fallbackCandidates.first else {
-            throw MHCReferenceRecordCatalogError.unresolvedAlleleOrLocus(sequenceID: sequenceID)
+        if let fallback = fallbackCandidates.first {
+            return fallback
         }
-        return fallback
+        if let legacySequenceID {
+            return legacySequenceID
+        }
+        throw MHCReferenceRecordCatalogError.unresolvedAlleleOrLocus(sequenceID: sequenceID)
+    }
+
+    static func legacyIPDMHCLocus(from sequenceID: String) -> String? {
+        let identifierParts = sequenceID.split(
+            separator: "_",
+            maxSplits: 2,
+            omittingEmptySubsequences: false
+        )
+        guard identifierParts.count == 3,
+              identifierParts[0].count == 2,
+              identifierParts[0].allSatisfy(isASCIIDigit) else {
+            return nil
+        }
+        let locus = String(identifierParts[1])
+        guard isValidMHCAlleleName("\(locus)*001"),
+              isValidLegacyIPDMHCDesignation(identifierParts[2], locus: locus) else {
+            return nil
+        }
+        return locus
+    }
+
+    static func isValidLegacyIPDMHCDesignation(
+        _ designation: Substring,
+        locus: String
+    ) -> Bool {
+        let labelAndAliases = designation.split(
+            separator: "|",
+            omittingEmptySubsequences: false
+        )
+        guard (1...2).contains(labelAndAliases.count) else {
+            return false
+        }
+        guard labelAndAliases.count == 2 else {
+            return isValidLegacyIPDMHCAlleleDesignation(labelAndAliases[0], locus: locus)
+        }
+
+        let aliases = labelAndAliases[1].split(
+            separator: ",",
+            omittingEmptySubsequences: false
+        )
+        let aliasLoci = aliases.compactMap {
+            legacyIPDMHCAliasLocus(from: $0, referenceLocus: locus)
+        }
+        guard !aliases.isEmpty, aliasLoci.count == aliases.count else { return false }
+        return isValidLegacyIPDMHCGroupLabel(
+            labelAndAliases[0],
+            locus: locus,
+            aliasLoci: Set(aliasLoci)
+        )
+    }
+
+    static func isValidLegacyIPDMHCAlleleDesignation(
+        _ designation: Substring,
+        locus: String
+    ) -> Bool {
+        let colonDesignation = designation.split(
+            separator: "_",
+            omittingEmptySubsequences: false
+        ).joined(separator: ":")
+        return isValidMHCAlleleName("\(locus)*\(colonDesignation)")
+    }
+
+    static func legacyIPDMHCAliasLocus(
+        from alias: Substring,
+        referenceLocus: String
+    ) -> String? {
+        let fields = alias.split(separator: "_", omittingEmptySubsequences: false)
+        let referenceLocusParts = referenceLocus.split(
+            separator: "-",
+            omittingEmptySubsequences: false
+        )
+        guard fields.count >= 2, referenceLocusParts.count == 2 else { return nil }
+        let aliasGene = String(fields[0])
+        let aliasLocus = "\(referenceLocusParts[0])-\(aliasGene)"
+        let designation = fields.dropFirst().joined(separator: ":")
+        guard isValidMHCAlleleName("\(aliasLocus)*\(designation)") else { return nil }
+        return aliasGene
+    }
+
+    static func isValidLegacyIPDMHCGroupLabel(
+        _ label: Substring,
+        locus: String,
+        aliasLoci: Set<String>
+    ) -> Bool {
+        let locusParts = locus.split(separator: "-", omittingEmptySubsequences: false)
+        let fields = label.split(separator: "_", omittingEmptySubsequences: false)
+        guard locusParts.count == 2,
+              let firstCode = fields.first,
+              aliasLoci.contains(String(locusParts[1])),
+              isValidLegacyIPDMHCGroupCode(firstCode, gene: locusParts[1]) else {
+            return false
+        }
+        if fields.count == 1 {
+            return true
+        }
+
+        var index = 1
+        while index < fields.count {
+            let field = fields[index]
+            if aliasLoci.contains(String(field)),
+               index + 1 < fields.count,
+               isValidLegacyIPDMHCGroupCode(fields[index + 1], gene: field) {
+                index += 2
+                continue
+            }
+
+            let joinedMatches = aliasLoci.filter { aliasLocus in
+                guard field.hasPrefix(aliasLocus) else { return false }
+                let groupCode = field.dropFirst(aliasLocus.count)
+                return isValidLegacyIPDMHCGroupCode(groupCode, gene: Substring(aliasLocus))
+            }
+            guard joinedMatches.count == 1 else { return false }
+            index += 1
+        }
+        return true
+    }
+
+    static func isValidLegacyIPDMHCGroupCode(
+        _ code: Substring,
+        gene: Substring
+    ) -> Bool {
+        let numericAndGroup: Substring
+        if code.first == "W" {
+            guard gene.hasPrefix("DRB") else { return false }
+            numericAndGroup = code.dropFirst()
+        } else {
+            numericAndGroup = code
+        }
+        let numericIdentifier = numericAndGroup.prefix(while: isASCIIDigit)
+        guard !numericIdentifier.isEmpty else { return false }
+        let groupSuffix = numericAndGroup.dropFirst(numericIdentifier.count)
+        guard !groupSuffix.isEmpty else { return true }
+        guard groupSuffix.first == "g" else { return false }
+        return groupSuffix.dropFirst().allSatisfy(isASCIIDigit)
     }
 
     static func alleleNames(fromFASTAHeaderDescription description: String?) -> [String] {

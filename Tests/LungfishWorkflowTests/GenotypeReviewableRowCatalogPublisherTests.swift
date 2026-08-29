@@ -7,6 +7,37 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
+    func testMiSeqCSVSemanticAuthorityAcceptsCRLFProducerOutputWithEqualReadCounts() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let sampleURL = fixture.root.appendingPathComponent("samples.csv")
+        let reportURL = fixture.root.appendingPathComponent("calls.csv")
+        try Data(
+            [
+                "sample,passed_alignments,passed_unique_reads",
+                "S1,8053,8053",
+            ].joined(separator: "\r\n").appending("\r\n").utf8
+        ).write(to: sampleURL)
+        try Data(
+            [
+                "sample,genotype,passed_alignments,passed_unique_reads",
+                "S1,Mafa-A1*001:01,8053,8053",
+            ].joined(separator: "\r\n").appending("\r\n").utf8
+        ).write(to: reportURL)
+
+        let authority = try GenotypeReviewCSVSemanticAuthority.capture(
+            sampleSummaryURL: sampleURL,
+            reportURL: reportURL
+        )
+
+        XCTAssertEqual(authority.roster, ["S1"])
+        XCTAssertEqual(authority.calls.count, 1)
+        XCTAssertEqual(authority.calls[0].sample, "S1")
+        XCTAssertEqual(authority.calls[0].genotype, "Mafa-A1*001:01")
+        XCTAssertEqual(authority.calls[0].passedAlignments, 8053)
+        XCTAssertEqual(authority.calls[0].passedUniqueReads, 8053)
+    }
+
     func testCSVSemanticAuthorityRejectsPreCaptureRosterAndCallReplacement() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -375,6 +406,55 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             publication.artifact.sizeBytes,
             Int64(try ProvenanceFileHasher.fileSize(of: publication.outputURL))
         )
+    }
+
+    func testPublishesLegacyIPDMHCReferenceIDsWithExactCallJoins() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let bundleURL = fixture.root.appendingPathComponent(
+            "legacy-ipd-mhc.lungfishref",
+            isDirectory: true
+        )
+        let fastaURL = bundleURL.appendingPathComponent("genome/reference.fa")
+        try FileManager.default.createDirectory(
+            at: fastaURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let a1 = "01_Mamu-A1_001_05_01_01"
+        let dqa1 = "09_Mamu-DQA1_26g2|DQA1_26_02_01,DQA1_26_02_02,DQA1_26_06,DQA1_26_09"
+        let drb = "08_Mamu-DRB_W006g|DRB_W006_09_02,DRB_W006_09_03"
+        try Data(
+            ">\(a1)\nAAAAAAAAAA\n>\(dqa1)\nCCCCCCCCCC\n>\(drb)\nGGGGGGGGGG\n".utf8
+        ).write(to: fastaURL)
+        let manifest = ["genome": ["path": "genome/reference.fa"]]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+            .write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let referenceRecords = try MHCReferenceRecordCatalog.load(
+            from: bundleURL
+        ).records
+
+        let publication = try fixture.publisher.publish(
+            fixture.inputs(
+                references: referenceRecords,
+                calls: [
+                    makeCall("MHC-A", a1, [("S1", 8)]),
+                    makeCall("MHC-DQA1", dqa1, [("S1", 7)]),
+                    makeCall("MHC-DRB", drb, [("S1", 6)]),
+                ]
+            ),
+            to: fixture.outputDirectory
+        )
+        let rows = Dictionary(uniqueKeysWithValues: publication.document.rows.map {
+            ($0.displayName, $0)
+        })
+
+        XCTAssertEqual(Set(rows.keys), Set([a1, dqa1, drb]))
+        XCTAssertEqual(rows[a1]?.locus, "MHC-A")
+        XCTAssertEqual(rows[dqa1]?.locus, "MHC-DQA")
+        XCTAssertEqual(rows[drb]?.locus, "MHC-DRB")
+        XCTAssertEqual(rows[a1]?.supportBySample, ["S1": 8, "S2": 0])
+        XCTAssertEqual(rows[dqa1]?.supportBySample, ["S1": 7, "S2": 0])
+        XCTAssertEqual(rows[drb]?.supportBySample, ["S1": 6, "S2": 0])
     }
 
     func testResolvesRawReferenceSequenceIDsToAuthoritativeDisplayRows() throws {

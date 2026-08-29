@@ -321,7 +321,10 @@ struct GenotypeReviewCSVSemanticAuthority: Sendable {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(snapshot.url.path)
         }
-        let parsed = parseCSV(content)
+        let normalizedContent = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let parsed = parseCSV(normalizedContent)
         guard let header = parsed.first else { return [] }
         let normalizedHeader = header.map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)

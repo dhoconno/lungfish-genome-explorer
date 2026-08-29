@@ -100,6 +100,74 @@ final class MHCReferenceRecordCatalogTests: XCTestCase {
         XCTAssertEqual(first.records[1].sequenceLength, 12)
     }
 
+    func testFASTAOnlyFallbackAcceptsStructuredLegacyIPDMHCSequenceIDs() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >01_Mamu-A1_001_05_01_01
+            AAAAAAAAAA
+            >09_Mamu-DQA1_26g2|DQA1_26_02_01,DQA1_26_02_02,DQA1_26_06,DQA1_26_09
+            CCCCCCCCCC
+            >08_Mamu-DRB_W006_06
+            GGGGGGGGGG
+            >01_Mamu-A1_123|A1_123_01,A1_123_03_01_01,A1_123_04
+            TTTTTTTTTT
+            >08_Mamu-DRB_W006g|DRB_W006_09_02,DRB_W006_09_03
+            ACACACACAC
+            >04_Mamu-B_035_B049g|B_035_01_01_01,B_049_01_01_01
+            GTGTGTGTGT
+            """,
+            annotations: nil
+        )
+
+        let records = try MHCReferenceRecordCatalog.load(from: bundleURL).records
+
+        XCTAssertEqual(
+            records.map(\.alleleName),
+            [
+                "01_Mamu-A1_001_05_01_01",
+                "09_Mamu-DQA1_26g2|DQA1_26_02_01,DQA1_26_02_02,DQA1_26_06,DQA1_26_09",
+                "08_Mamu-DRB_W006_06",
+                "01_Mamu-A1_123|A1_123_01,A1_123_03_01_01,A1_123_04",
+                "08_Mamu-DRB_W006g|DRB_W006_09_02,DRB_W006_09_03",
+                "04_Mamu-B_035_B049g|B_035_01_01_01,B_049_01_01_01",
+            ]
+        )
+        XCTAssertEqual(
+            records.map(\.locus),
+            ["Mamu-A1", "Mamu-DQA1", "Mamu-DRB", "Mamu-A1", "Mamu-DRB", "Mamu-B"]
+        )
+        XCTAssertTrue(records.allSatisfy { $0.moleculeClass == .cDNA })
+        XCTAssertTrue(records.allSatisfy { $0.classEvidence == .lengthThresholdFallback })
+    }
+
+    func testFASTAOnlyFallbackRejectsMalformedLegacyIPDMHCSequenceIDs() throws {
+        let malformedSequenceIDs = [
+            "08_Mamu-A1_W006_06",
+            "01_Mamu-A1_001_bad",
+            "08_Mamu-DRB_Wfoo",
+            "08_Mamu-DRB_W006_extra",
+            "08_Mamu-A1_W006g|A1_006_01",
+            "09_Mamu-DQA1_26g2|DQA1_26_bad",
+        ]
+
+        for sequenceID in malformedSequenceIDs {
+            let bundleURL = try makeBundle(
+                fasta: """
+                >\(sequenceID)
+                AAAAAAAAAA
+                """,
+                annotations: nil
+            )
+
+            XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL)) { error in
+                XCTAssertEqual(
+                    error as? MHCReferenceRecordCatalogError,
+                    .unresolvedAlleleOrLocus(sequenceID: sequenceID)
+                )
+            }
+        }
+    }
+
     func testMissingRecordFieldsFallBackIndependentlyToFASTAAndLength() throws {
         let bundleURL = try makeBundle(
             fasta: """
