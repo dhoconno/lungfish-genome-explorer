@@ -49,6 +49,23 @@ class NightlyPrereleaseTests(unittest.TestCase):
     def setUp(self):
         self.release = load_module()
 
+    def _scope_candidate(self, fixture, channel="preview"):
+        commit = fixture._git("rev-parse", "HEAD").stdout.strip()
+        exclude = fixture.repo / ".git/info/exclude"
+        with exclude.open("a", encoding="utf-8") as handle:
+            handle.write(".build/\n")
+        fixture.release = self.release.release_coordinator.candidate_release_dir(
+            fixture.repo, channel, commit
+        )
+        fixture.archive = fixture.release / "Lungfish.xcarchive"
+        fixture.derived = (
+            fixture.repo
+            / ".build/release-derived-data"
+            / channel
+            / commit
+        )
+        return commit
+
     def test_agent_branch_allowlist_matches_codex_claude_and_claude_worktree_defaults(
         self,
     ):
@@ -595,7 +612,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         fixture._git("add", str(notes.relative_to(fixture.repo)))
         fixture._git("commit", "-q", "-m", "preview notes")
         fixture.prepare_remote_tag()
-        fixture.release = fixture.repo / "build/Release"
+        tagged_commit = self._scope_candidate(fixture)
         packaged = fixture.run("--package-only", "--channel", "preview")
         self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
         receipt = fixture.release / "unsigned-candidate-receipt.json"
@@ -682,8 +699,15 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         self.assertEqual(status, 0)
         self.assertEqual(prepared, [])
         self.assertEqual(resumed, [receipt])
+        self.assertEqual(
+            receipt,
+            fixture.repo
+            / "build/Release/preview"
+            / tagged_commit
+            / "unsigned-candidate-receipt.json",
+        )
 
-    def test_main_rejects_moved_lightweight_stale_or_wrong_channel_recovery(self):
+    def test_main_rejects_missing_conflicting_wrong_channel_or_commit_recovery(self):
         def run_nightly(fixture):
             rescue = fixture.repo / ".build/rescue"
             lock = fixture.repo / ".build/nightly-prerelease-release.lock"
@@ -744,7 +768,9 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         for failure in (
             "moved tag",
             "lightweight tag",
-            "stale receipt",
+            "missing receipt",
+            "conflicting version",
+            "wrong commit",
             "wrong channel",
         ):
             with self.subTest(failure=failure):
@@ -761,12 +787,19 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     fixture._git("add", str(notes.relative_to(fixture.repo)))
                     fixture._git("commit", "-q", "-m", "preview notes")
                 fixture.prepare_remote_tag()
-                fixture.release = fixture.repo / "build/Release"
                 channel = "stable" if failure == "wrong channel" else "preview"
+                commit = self._scope_candidate(fixture, channel)
                 packaged = fixture.run("--package-only", "--channel", channel)
                 self.assertEqual(
                     packaged.returncode, 0, packaged.stdout + packaged.stderr
                 )
+                if failure == "wrong channel":
+                    expected = self.release.release_coordinator.candidate_release_dir(
+                        fixture.repo, "preview", commit
+                    )
+                    expected.parent.mkdir(parents=True, exist_ok=True)
+                    fixture.release.rename(expected)
+                    fixture.release = expected
                 if failure == "moved tag":
                     remote_path = fixture._git(
                         "config", "--get", "lungfish.fixtureRemote.origin"
@@ -786,10 +819,15 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     fixture._git("tag", "-d", "v2026.8.1")
                     fixture._git("tag", "v2026.8.1")
                     fixture._git("push", "-q", remote_path, "v2026.8.1")
-                elif failure == "stale receipt":
+                elif failure == "missing receipt":
+                    (fixture.release / "unsigned-candidate-receipt.json").unlink()
+                elif failure in ("conflicting version", "wrong commit"):
                     receipt_path = fixture.release / "unsigned-candidate-receipt.json"
                     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-                    receipt["source"]["commit"] = "b" * 40
+                    if failure == "wrong commit":
+                        receipt["source"]["commit"] = "b" * 40
+                    else:
+                        receipt["release"]["version"] = "2026.8.2"
                     receipt_path.write_text(
                         json.dumps(receipt, sort_keys=True, separators=(",", ":"))
                         + "\n",
@@ -811,7 +849,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         fixture._git("add", str(notes.relative_to(fixture.repo)))
         fixture._git("commit", "-q", "-m", "preview notes")
         fixture.prepare_remote_tag()
-        fixture.release = fixture.repo / "build/Release"
+        self._scope_candidate(fixture)
         packaged = fixture.run("--package-only", "--channel", "preview")
         self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
         published = fixture.run(
@@ -1059,6 +1097,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         fixture = ReleaseBuilderFixture(self)
         self.addCleanup(fixture.cleanup)
         fixture.prepare_remote_tag()
+        self._scope_candidate(fixture, "stable")
         packaged = fixture.run("--package-only", "--channel", "stable")
         self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
         stale = {
@@ -1176,6 +1215,16 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         self,
     ):
         fixture = self._published_preview_fixture()
+        tagged_commit = fixture._git(
+            "rev-parse", "v2026.8.1^{}"
+        ).stdout.strip()
+        later = fixture.repo / "later-agent-work.txt"
+        later.write_text("landed after publication\n", encoding="utf-8")
+        fixture._git("add", later.name)
+        fixture._git("commit", "-q", "-m", "later agent work")
+        self.assertNotEqual(
+            fixture._git("rev-parse", "HEAD").stdout.strip(), tagged_commit
+        )
         rescue = fixture.repo / ".build/rescue"
         lock = fixture.repo / ".build/nightly-prerelease-release.lock"
         candidate = self.release.BranchCandidate(

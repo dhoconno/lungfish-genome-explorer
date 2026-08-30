@@ -685,15 +685,35 @@ def prepared_release_recovery_receipt(
     if parse_calver_tag(version) is None:
         return None
     tag = f"v{version}"
-    head = git_output(root, "rev-parse", "HEAD").strip()
-    probe = release_coordinator.CandidateIdentity(
-        receipt=root / "build/Release/unsigned-candidate-receipt.json",
-        tag=tag,
-        commit=head,
-        version=version,
-        scratch_path=Path("/"),
-    )
     try:
+        tagged = subprocess.run(
+            [
+                "git",
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                f"refs/tags/{tag}^{{commit}}",
+            ],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if tagged.returncode == 0:
+            commit = tagged.stdout.strip()
+        elif tagged.returncode == 1:
+            commit = git_output(root, "rev-parse", "HEAD").strip()
+        else:
+            raise NightlyReleaseError(f"could not resolve current release tag {tag}")
+        receipt = release_coordinator.candidate_receipt_path(root, channel, commit)
+        probe = release_coordinator.CandidateIdentity(
+            receipt=receipt,
+            tag=tag,
+            commit=commit,
+            version=version,
+            scratch_path=Path("/"),
+        )
         transaction_state = release_coordinator.tagged_publication_state(
             root, remote, channel, probe
         )

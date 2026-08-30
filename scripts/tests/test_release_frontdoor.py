@@ -346,6 +346,22 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
         self.assertEqual(path, ROOT / "build/Release/stable" / commit)
 
+    def test_package_and_recovery_share_the_exact_candidate_receipt_path(self):
+        commit = "a" * 40
+        expected = (
+            ROOT
+            / "build/Release/preview"
+            / commit
+            / "unsigned-candidate-receipt.json"
+        )
+
+        self.assertEqual(
+            self.release.candidate_receipt_path(ROOT, "preview", commit), expected
+        )
+        self.assertEqual(
+            self.release._base_request(ROOT, "preview", commit).receipt, expected
+        )
+
     def test_deterministic_candidate_paths_pass_real_target_validator(self):
         from scripts.release.release_repository import resolve_repository_identity
         from scripts.release.release_target_security import validate_release_targets

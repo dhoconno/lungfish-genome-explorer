@@ -15,6 +15,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any, Protocol
 
@@ -571,6 +572,13 @@ def candidate_release_dir(root: Path, channel: str, commit: str) -> Path:
     return root / "build" / "Release" / channel / commit
 
 
+def candidate_receipt_path(root: Path, channel: str, commit: str) -> Path:
+    return (
+        candidate_release_dir(root, channel, commit)
+        / "unsigned-candidate-receipt.json"
+    )
+
+
 def debug_plan(root: Path) -> tuple[list[list[str]], Path]:
     profile = load_contract(root / "config/release-contract.json").profile("debug")
     app = root / "build" / "Debug" / profile.appBundleFilename
@@ -622,7 +630,7 @@ def _base_request(
         root=root,
         channel=channel,
         mode="package",
-        receipt=release_dir / "unsigned-candidate-receipt.json",
+        receipt=candidate_receipt_path(root, channel, commit),
         remote="origin",
         main_branch="main",
         signing_identity="",
@@ -960,30 +968,57 @@ def verify_candidate_receipt_exact(
     receipt_path: Path,
     channel_name: str,
     runner: SubprocessRunner,
+    *,
+    expected_commit: str | None = None,
 ) -> CandidateIdentity:
     """Run the canonical receipt verifier and return its trusted identity."""
     identity = _candidate_receipt_identity(root, receipt_path, channel_name)
-    current = runner.text(["git", "rev-parse", "HEAD"]).strip()
-    if current != identity.commit:
-        raise ReleaseError("candidate receipt commit does not match HEAD")
+    current_commit = runner.text(["git", "rev-parse", "HEAD"]).strip()
+    selected_commit = current_commit if expected_commit is None else expected_commit
+    if HEX_COMMIT.fullmatch(selected_commit) is None:
+        raise ReleaseError("expected candidate commit is invalid")
+    if selected_commit != identity.commit:
+        raise ReleaseError("candidate receipt commit does not match expected commit")
     channel = load_contract(root / "config/release-contract.json").channel(channel_name)
     app = identity.receipt.parent / channel.appBundleFilename
-    runner.run(
-        [
-            str(root / "scripts/release/release-candidate-receipt.py"),
-            "verify",
-            "--app",
-            str(app),
-            "--receipt",
-            str(identity.receipt),
-            "--channel",
-            channel_name,
-            "--scratch-path",
-            str(identity.scratch_path),
-        ],
-        capture=True,
-        env={"PYTHONDONTWRITEBYTECODE": "1"},
-    )
+    arguments = [
+        "verify",
+        "--app",
+        str(app),
+        "--receipt",
+        str(identity.receipt),
+        "--channel",
+        channel_name,
+        "--scratch-path",
+        str(identity.scratch_path),
+    ]
+    if current_commit == selected_commit:
+        runner.run(
+            [str(root / "scripts/release/release-candidate-receipt.py"), *arguments],
+            capture=True,
+            env={"PYTHONDONTWRITEBYTECODE": "1"},
+        )
+    else:
+        with tempfile.TemporaryDirectory(prefix="lungfish-receipt-verify-") as temporary:
+            checkout = Path(temporary) / "source"
+            runner.run(
+                ["git", "worktree", "add", "--detach", str(checkout), selected_commit],
+                capture=True,
+            )
+            try:
+                SubprocessRunner(checkout, runner.environment).run(
+                    [
+                        str(checkout / "scripts/release/release-candidate-receipt.py"),
+                        *arguments,
+                    ],
+                    capture=True,
+                    env={"PYTHONDONTWRITEBYTECODE": "1"},
+                )
+            finally:
+                runner.run(
+                    ["git", "worktree", "remove", "--force", str(checkout)],
+                    capture=True,
+                )
     return identity
 
 
@@ -1235,8 +1270,13 @@ def tagged_publication_state(
     if not direct or not peeled or peeled != identity.commit:
         raise ReleaseError("current release tag is not exact for the candidate commit")
 
+    exact_receipt = candidate_receipt_path(root, channel_name, identity.commit)
     verified_identity = verify_candidate_receipt_exact(
-        root, identity.receipt, channel_name, runner
+        root,
+        exact_receipt,
+        channel_name,
+        runner,
+        expected_commit=identity.commit,
     )
     if (
         verified_identity.commit != identity.commit

@@ -19,6 +19,12 @@ calls `package` directly and remains read-only and secretless. Neither path
 implicitly prunes releases, tags, worktrees, or rescue archives. Detailed
 operator-authority reconciliation is intentionally a later documentation task.
 
+Front-door review ledger: round 1 found one Important recovery-path defect in
+the initial four-command implementation (`b29a194d`). It is closed: nightly now
+resolves the exact current-version tag commit and uses the same deterministic
+`build/Release/<channel>/<commit>/unsigned-candidate-receipt.json` helper as
+normal package/publish, including after later work advances `HEAD`.
+
 `v2026.8.4` was published as the first Stable CalVer release, but its
 automatic Toolset conformance job exposed a test-only MEGAHIT invocation that
 bypassed the shipped command builder. The correction is committed on `main`
