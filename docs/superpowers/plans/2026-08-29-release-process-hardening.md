@@ -14,7 +14,7 @@
 
 - Preview ships as `Lungfish Preview.app`; Stable ships as `Lungfish.app`; both retain `com.lungfish.browser` for existing Sparkle compatibility.
 - Preview uses `sparkle-beta/appcast-beta.xml` and is a prerelease; Stable uses `sparkle-stable/appcast-stable.xml` and is a full release.
-- Package-only work never reads private credentials, signs, notarizes, tags, publishes, or mutates remote state.
+- Package-only work never reads private credentials or performs Developer ID/distribution signing, notarizes, tags, publishes, or mutates remote state. It may apply only literal-identity `-`, timestamp-free ad-hoc seals to transformed Mach-O payloads required for exact-payload executable smoke.
 - A verified unsigned candidate is signed without rebuilding and is reusable only through an exact matching receipt.
 - Release builds never repair tracked lockfiles.
 - No credentials, profile contents, private keys, or full signing fingerprints are printed or committed.
@@ -158,7 +158,7 @@ Commit: `feat(release): bind unsigned candidates to provenance receipts`
 
 - [ ] **Step 1: Write failing phase-order tests**
 
-Run the builder with stub `xcodebuild`, `swift`, `codesign`, `notarytool`, and `gh`. Prove package-only needs no credential flags and never calls signing/notary/GitHub; archive arguments contain `CODE_SIGNING_ALLOWED=NO` and `CODE_SIGNING_REQUIRED=NO`; package lock consistency is fail-only; the deterministic scratch is passed to both SwiftPM and scanner; executable smoke runs before signing; output cleanup occurs only after Doctor; and resume rejects a changed receipt before codesign.
+Run the builder with stub `xcodebuild`, `swift`, `codesign`, `notarytool`, and `gh`. Prove package-only needs no credential flags and calls only literal-identity `-`, timestamp-free ad-hoc sealing before smoke—never Developer ID/distribution signing, notary, or GitHub; archive arguments contain `CODE_SIGNING_ALLOWED=NO` and `CODE_SIGNING_REQUIRED=NO`; package lock consistency is fail-only; the deterministic scratch is passed to both SwiftPM and scanner; exact-payload executable smoke and receipt creation follow ad-hoc sealing; output cleanup occurs only after Doctor; Developer ID signing follows receipt verification; and resume rejects a changed receipt before codesign.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -168,7 +168,7 @@ Expected: FAIL because the phase flags and receipt behavior do not exist.
 
 - [ ] **Step 3: Implement package-only flow**
 
-Move all destructive output preparation after package Doctor. Build an unsigned arm64 archive, build/install/sanitize the CLI and bootstrap tools, stamp contract-derived channel/Sparkle metadata, run portability and complete executable smoke tests, and write the receipt/metadata before returning without credential access.
+Move all destructive output preparation after package Doctor. Build an unsigned arm64 archive, build/install/sanitize the CLI and bootstrap tools, apply only identity-free ad-hoc seals to transformed Mach-O payloads, stamp contract-derived channel/Sparkle metadata, run portability and complete exact-payload executable smoke tests, and write the receipt/metadata before returning without credential access.
 
 - [ ] **Step 4: Implement receipt-validated signing flow**
 
@@ -176,7 +176,7 @@ Run credentials Doctor, verify the exact unsigned receipt, then sign nested code
 
 - [ ] **Step 5: Run a real local package regression**
 
-Run package-only for both channels with the selected supported Xcode. Stage both produced apps into one temporary directory and run metadata, portability, CLI version, resource-resolution, and smoke checks. Do not sign, tag, publish, or touch `/Applications`.
+Run package-only for both channels with the selected supported Xcode. Stage both produced apps into one temporary directory and run metadata, portability, CLI version, resource-resolution, and smoke checks. Permit only the package phase's identity-free ad-hoc seals; do not perform Developer ID/distribution signing, tag, publish, or touch `/Applications`.
 
 - [ ] **Step 6: Verify GREEN and commit**
 

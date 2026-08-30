@@ -215,6 +215,7 @@ class Doctor:
                 str(ROOT / "Lungfish.xcodeproj"),
                 "-scheme",
                 "Lungfish",
+                "-disableAutomaticPackageResolution",
                 "-showBuildSettings",
             ]
         )
@@ -275,21 +276,71 @@ class Doctor:
             raise CheckFailure("scratch root must be outside the user home directory")
         if scratch.exists() and scratch.is_dir():
             entries = list(scratch.iterdir())
-            if any(entry.is_symlink() for entry in entries):
-                raise CheckFailure("scratch cache contains a symlink component")
-            if not entries or any(
-                not entry.is_dir() or re.fullmatch(r"uid-[0-9]+", entry.name) is None
-                for entry in entries
-            ):
+            if not entries:
                 raise CheckFailure(
                     "existing scratch root is not owned by the Lungfish release cache"
                 )
-            self._validate_cache_metadata(
-                scratch.lstat(),
-                expected_uid=os.geteuid(),
-                require_private=True,
-            )
+            try:
+                self._validate_cache_metadata(
+                    scratch.lstat(),
+                    expected_uid=os.geteuid(),
+                    require_private=True,
+                )
+            except CheckFailure as error:
+                raise CheckFailure(f"scratch root is unsafe: {error}") from error
+            for entry in entries:
+                if entry.is_symlink() or not entry.is_dir():
+                    raise CheckFailure("scratch cache contains an unsupported entry")
+                if re.fullmatch(r"uid-[0-9]+", entry.name) is not None:
+                    continue
+                if re.fullmatch(r"[0-9a-f]{64}", entry.name) is None:
+                    raise CheckFailure(
+                        "existing scratch root is not owned by the Lungfish release cache"
+                    )
+                self._validate_package_scratch(entry)
         return scratch
+
+    def _validate_package_scratch(self, repository_root: Path) -> None:
+        self._validate_cache_metadata(
+            repository_root.lstat(), expected_uid=os.geteuid()
+        )
+        try:
+            commits = list(repository_root.iterdir())
+        except OSError as error:
+            raise CheckFailure("package scratch cache is unreadable") from error
+        if not commits:
+            raise CheckFailure("package scratch cache has no commit identity")
+        for commit_root in commits:
+            if (
+                commit_root.is_symlink()
+                or not commit_root.is_dir()
+                or re.fullmatch(r"[0-9a-fA-F]{40}", commit_root.name) is None
+            ):
+                raise CheckFailure("package scratch cache identity is invalid")
+            self._validate_cache_metadata(
+                commit_root.lstat(), expected_uid=os.geteuid()
+            )
+            for directory, directory_names, file_names in os.walk(
+                commit_root, followlinks=False
+            ):
+                for name in (*directory_names, *file_names):
+                    path = Path(directory) / name
+                    metadata = path.lstat()
+                    if stat.S_ISLNK(metadata.st_mode):
+                        # SwiftPM checkouts and binary frameworks legitimately
+                        # contain source and framework-layout symlinks. They are
+                        # safe below the private, owner-controlled repository
+                        # and commit identity roots; never follow them here.
+                        if metadata.st_uid != os.geteuid():
+                            raise CheckFailure(
+                                "package scratch cache contains a foreign-owned symlink"
+                            )
+                        continue
+                    self._validate_cache_metadata(
+                        metadata,
+                        expected_uid=os.geteuid(),
+                        require_directory=stat.S_ISDIR(metadata.st_mode),
+                    )
 
     def _scratch_root(self) -> Path:
         scratch = self._scratch_base()
@@ -310,6 +361,20 @@ class Doctor:
                 path = Path(directory) / name
                 metadata = path.lstat()
                 if stat.S_ISLNK(metadata.st_mode):
+                    relative_parts = path.relative_to(user_root).parts
+                    if (
+                        metadata.st_uid == os.geteuid()
+                        and len(relative_parts) >= 4
+                        and relative_parts[0] == "sparkle-tools"
+                        and re.fullmatch(r"[0-9a-f]{64}", relative_parts[1])
+                        is not None
+                        and relative_parts[2] == "build"
+                    ):
+                        # SwiftPM binary artifacts contain conventional
+                        # framework-layout symlinks. The private cache and
+                        # pin-keyed resolution roots above remain non-symlink
+                        # trust boundaries; do not follow build payload links.
+                        continue
                     raise CheckFailure("scratch cache contains a symlink component")
                 self._validate_cache_metadata(
                     metadata,

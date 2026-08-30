@@ -10,11 +10,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 INCLUDE_WORKTREES="${LUNGFISH_SANITIZE_INCLUDE_WORKTREES:-0}"
+ADHOC_SEAL=0
 declare -a BUILDER_ROOTS=()
 
 usage() {
-    echo "Usage: $0 <path> [<path> ...]" >&2
+    echo "Usage: $0 [--adhoc-seal] <path> [<path> ...]" >&2
 }
+
+if [ "${1:-}" = "--adhoc-seal" ]; then
+    ADHOC_SEAL=1
+    shift
+fi
 
 if [ "$#" -lt 1 ]; then
     usage
@@ -174,6 +180,14 @@ sanitize_file() {
     case "$file_type" in
         Mach-O*)
             rewrite_embedded_builder_paths "$path"
+            if [ "$ADHOC_SEAL" -eq 1 ]; then
+                # arm64 macOS kills a transformed Mach-O whose previous code
+                # signature is no longer valid. This identity-free seal uses no
+                # credential and is replaced by Developer ID only after the
+                # candidate receipt has been verified.
+                /usr/bin/codesign --force --sign - --timestamp=none "$path" >/dev/null
+                /usr/bin/codesign --verify --strict "$path"
+            fi
             chmod 755 "$path"
             ;;
         *)

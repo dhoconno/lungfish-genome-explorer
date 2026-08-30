@@ -47,9 +47,11 @@ The release flow has three boundaries:
    identity/team agreement, notary profile access, Sparkle generator and private
    key usability, GitHub authentication, and selected feed build-number state.
 2. **Package:** deterministic unsigned Xcode archive and arm64 CLI build,
-   channel metadata stamping, bundle assembly, portability scan, and smoke
-   tests. It produces a reusable candidate and package manifest without signing,
-   notarizing, publishing, tagging, or changing remote state.
+   channel metadata stamping, bundle assembly, identity-free ad-hoc sealing of
+   transformed Mach-O payloads, portability scan, and smoke tests. It produces
+   a reusable candidate and package manifest without Developer ID/distribution
+   signing, private credentials, notarizing, publishing, tagging, or changing
+   remote state.
 3. **Sign and publish:** consume the exact verified candidate without rebuilding,
    sign nested code and the app, notarize and staple app and DMG, verify the
    signed artifact, atomically publish the immutable release and mutable Sparkle
@@ -83,7 +85,7 @@ The generated resource accessor’s fallback is treated explicitly:
 
 This rule is tested by building the real CLI, not by checking shell source text.
 
-The unsigned candidate receives a canonical receipt containing the commit and
+The unsigned-for-distribution candidate receives a canonical receipt containing the commit and
 clean-tree state; channel, version, and build; wrapper and bundle metadata;
 package-lock and managed-manifest hashes; release-contract and builder hashes;
 Xcode, Swift, SDK, architecture, and deployment target; and hashes for the
@@ -95,10 +97,14 @@ mapped to receipt-validated recovery.
 ### 3. Signing boundaries
 
 Xcode archive creation always sets `CODE_SIGNING_ALLOWED=NO` and
-`CODE_SIGNING_REQUIRED=NO`. The release signer remains the sole authority that
-applies Developer ID signatures after bundle assembly and portability checks.
-Package-only CI therefore exercises the same archive and assembly path without
-requiring private credentials.
+`CODE_SIGNING_REQUIRED=NO`. Sanitization changes Mach-O bytes, so package-only
+applies only literal-identity `-`, timestamp-free ad-hoc seals to those
+transformed executables before exact-payload smoke tests. These seals use no
+Keychain identity or private credential, are bound by the receipt, and are not
+distribution signatures. The release signer remains the sole authority that
+applies Developer ID signatures, replacing the ad-hoc seals only after receipt
+verification. Package-only CI therefore exercises the same archive and
+assembly path without private credentials.
 
 ### 4. Toolchain policy
 

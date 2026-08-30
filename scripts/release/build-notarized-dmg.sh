@@ -10,22 +10,26 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--recover-existing-release] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-appcast-filename NAME] [--sparkle-publish-release TAG] [--sparkle-bridge-publish-release TAG] [--sparkle-bridge-appcast-filename NAME] [--prune-prereleases] [--prune-prereleases-keep COUNT] [--defer-remote-publish]
+Usage: build-notarized-dmg.sh [--package-only | --resume-candidate RECEIPT] [--signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE] [options]
 
-Required:
+Required for signing completion:
   --signing-identity  Developer ID Application identity used for codesign
   --team-id           Apple Developer Team ID
   --notary-profile    Keychain profile configured for xcrun notarytool
 
 Optional:
+  --package-only      Build and verify an unsigned reusable candidate without credentials
+  --resume-candidate RECEIPT
+                      Verify and sign the exact candidate bound by RECEIPT without rebuilding
   --describe-channel preview|stable
                       Print the contract-backed channel JSON and exit
-  --scratch-path      SwiftPM scratch path for lungfish-cli build (default: .build/xcode-cli-release)
+  --scratch-path      Explicit absolute SwiftPM scratch path for packaging
+                      (default: deterministic release root/repository key/commit)
   --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
   --release-dir       Release directory (default: build/Release)
   --derived-data-path DerivedData path for the Xcode archive (default: <project-root>/.build/release-derived-data)
-  --reuse-archive     Reuse an existing archive instead of running xcodebuild archive
-  --reuse-built-cli   Reuse an existing lungfish-cli from --scratch-path instead of running swift build
+  --reuse-archive     Retired; use --resume-candidate RECEIPT
+  --reuse-built-cli   Retired; use --resume-candidate RECEIPT
   --github-release-tag TAG
                       Upload the notarized DMG to this versioned GitHub release tag with gh
   --recover-existing-release
@@ -70,19 +74,26 @@ cd "$PROJECT_ROOT"
 PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
 SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-number.py"
 RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
+RELEASE_DOCTOR_SCRIPT="${PROJECT_ROOT}/scripts/release/release-doctor.py"
+CANDIDATE_RECEIPT_SCRIPT="${PROJECT_ROOT}/scripts/release/release-candidate-receipt.py"
 
 SIGNING_IDENTITY=""
 TEAM_ID=""
 NOTARY_PROFILE=""
-SCRATCH_PATH="${PROJECT_ROOT}/.build/xcode-cli-release"
+SCRATCH_PATH=""
+SCRATCH_PATH_EXPLICIT=0
 RELEASE_DIR="${PROJECT_ROOT}/build/Release"
 ARCHIVE_PATH="${RELEASE_DIR}/Lungfish.xcarchive"
 DERIVED_DATA_PATH=""
 REUSE_ARCHIVE=0
 REUSE_BUILT_CLI=0
+PACKAGE_ONLY=0
+RESUME_CANDIDATE=""
 SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-}"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_ED_KEY_FILE="${SPARKLE_ED_KEY_FILE:-}"
+SPARKLE_GENERATE_APPCAST_EXPLICIT=0
+SPARKLE_ED_KEY_FILE_EXPLICIT=0
 SPARKLE_APPCAST_DIR=""
 CHANNEL="preview"
 SHOW_HELP=0
@@ -123,6 +134,19 @@ while [ "$#" -gt 0 ]; do
             ;;
         --scratch-path)
             SCRATCH_PATH="$2"
+            SCRATCH_PATH_EXPLICIT=1
+            shift 2
+            ;;
+        --package-only)
+            PACKAGE_ONLY=1
+            shift
+            ;;
+        --resume-candidate)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --resume-candidate" >&2
+                exit 64
+            fi
+            RESUME_CANDIDATE="$2"
             shift 2
             ;;
         --archive-path)
@@ -159,10 +183,12 @@ while [ "$#" -gt 0 ]; do
             ;;
         --sparkle-generate-appcast)
             SPARKLE_GENERATE_APPCAST="$2"
+            SPARKLE_GENERATE_APPCAST_EXPLICIT=1
             shift 2
             ;;
         --sparkle-ed-key-file)
             SPARKLE_ED_KEY_FILE="$2"
+            SPARKLE_ED_KEY_FILE_EXPLICIT=1
             shift 2
             ;;
         --sparkle-appcast-dir)
@@ -337,11 +363,6 @@ if [ "$SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
 fi
 SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
 
-if [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; then
-    usage >&2
-    exit 64
-fi
-
 case "$CHANNEL" in
     preview|stable) ;;
     *)
@@ -349,6 +370,37 @@ case "$CHANNEL" in
         exit 64
         ;;
 esac
+if [ "$REUSE_ARCHIVE" -eq 1 ] || [ "$REUSE_BUILT_CLI" -eq 1 ]; then
+    echo "--reuse-archive and --reuse-built-cli are retired; use --resume-candidate RECEIPT" >&2
+    exit 64
+fi
+if [ "$PACKAGE_ONLY" -eq 1 ] && [ -n "$RESUME_CANDIDATE" ]; then
+    echo "--package-only and --resume-candidate are mutually exclusive" >&2
+    exit 64
+fi
+if [ -n "$RESUME_CANDIDATE" ] && [ "$SCRATCH_PATH_EXPLICIT" -eq 1 ]; then
+    echo "--resume-candidate derives its scratch identity from the verified receipt" >&2
+    exit 64
+fi
+if [ "$PACKAGE_ONLY" -eq 1 ]; then
+    if [ -n "$SIGNING_IDENTITY" ] || [ -n "$TEAM_ID" ] || [ -n "$NOTARY_PROFILE" ] \
+        || [ -n "$GITHUB_RELEASE_TAG" ] || [ "$RECOVER_EXISTING_RELEASE" -eq 1 ] \
+        || [ "$SPARKLE_GENERATE_APPCAST_EXPLICIT" -eq 1 ] \
+        || [ "$SPARKLE_ED_KEY_FILE_EXPLICIT" -eq 1 ] \
+        || [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 1 ] \
+        || [ "$SPARKLE_BRIDGE_PUBLISH_RELEASE_EXPLICIT" -eq 1 ] \
+        || [ "$PRERELEASE_PRUNE_ENABLED" -eq 1 ]; then
+        echo "--package-only cannot accept credential, signing, notarization, or publication options" >&2
+        exit 64
+    fi
+    # Ambient release-machine credential configuration is irrelevant to and
+    # must never be inspected or executed by package-only work.
+    SPARKLE_GENERATE_APPCAST=""
+    SPARKLE_ED_KEY_FILE=""
+elif [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; then
+    usage >&2
+    exit 64
+fi
 if [ "$CHANNEL" = "stable" ] \
     && { [ "$SPARKLE_BRIDGE_PUBLISH_RELEASE_EXPLICIT" -eq 1 ] \
         || [ "$SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT" -eq 1 ]; }; then
@@ -366,7 +418,7 @@ if ! [[ "$SOURCE_VERSION" =~ ^[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
     echo "invalid release version; expected YYYY.M.PATCH, found: ${SOURCE_VERSION:-<missing>}" >&2
     exit 64
 fi
-if [ -z "$GITHUB_RELEASE_TAG" ] && [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && [ -z "$GITHUB_RELEASE_TAG" ] && [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
     GITHUB_RELEASE_TAG="v${SOURCE_VERSION}"
 fi
 if [ -n "$GITHUB_RELEASE_TAG" ] && [ "$GITHUB_RELEASE_TAG" != "v${SOURCE_VERSION}" ]; then
@@ -405,7 +457,7 @@ if [ -n "$GITHUB_RELEASE_TAG" ]; then
     fi
 fi
 
-if [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; then
+if [ -z "$SPARKLE_PUBLIC_ED_KEY" ] && [ -z "$RESUME_CANDIDATE" ]; then
     echo "missing Sparkle public EdDSA key; pass --sparkle-public-ed-key or set LUNGFISH_SPARKLE_PUBLIC_ED_KEY" >&2
     exit 64
 fi
@@ -445,9 +497,6 @@ SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
-mkdir -p "$RELEASE_LOG_DIR"
-rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
-
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
         echo "missing required command: $1" >&2
@@ -455,18 +504,12 @@ require_command() {
     fi
 }
 
-require_command rg
-
-for command in git xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp python3 /usr/bin/plutil /usr/libexec/PlistBuddy; do
+for command in git shasum python3; do
     require_command "$command"
 done
-
-if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
-    require_command gh
-fi
-if [ "$PRERELEASE_PRUNE_ENABLED" -eq 1 ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
-    require_command gh
-    require_command python3
+if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ]; then
+    echo "release Doctor or candidate receipt helper is missing or not executable" >&2
+    exit 69
 fi
 
 verify_versioned_release_identity() {
@@ -527,26 +570,14 @@ verify_versioned_release_identity() {
     fi
 }
 
-verify_versioned_release_identity
-
-if [ -n "$SPARKLE_GENERATE_APPCAST" ] && [ ! -x "$SPARKLE_GENERATE_APPCAST" ]; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && [ -n "$SPARKLE_GENERATE_APPCAST" ] && [ ! -x "$SPARKLE_GENERATE_APPCAST" ]; then
     echo "sparkle generate_appcast is not executable: $SPARKLE_GENERATE_APPCAST" >&2
     exit 69
 fi
 
-if [ -n "$SPARKLE_ED_KEY_FILE" ] && [ ! -f "$SPARKLE_ED_KEY_FILE" ]; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && [ -n "$SPARKLE_ED_KEY_FILE" ] && [ ! -f "$SPARKLE_ED_KEY_FILE" ]; then
     echo "Sparkle private EdDSA key file not found: $SPARKLE_ED_KEY_FILE" >&2
     exit 69
-fi
-
-if ! security find-identity -v -p codesigning | grep -F "$SIGNING_IDENTITY" >/dev/null 2>&1; then
-    echo "signing identity not found in keychain: $SIGNING_IDENTITY" >&2
-    exit 70
-fi
-
-if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
-    echo "notarytool keychain profile is not usable: $NOTARY_PROFILE" >&2
-    exit 70
 fi
 
 APP_PATH="${ARCHIVE_PATH}/Products/Applications/Lungfish.app"
@@ -554,8 +585,49 @@ RELEASE_APP_PATH="${RELEASE_DIR}/${APP_BUNDLE_FILENAME}"
 APP_ICON_SOURCE="${PROJECT_ROOT}/Sources/Lungfish/AppIcon.icns"
 APP_ICON_DEST="${APP_PATH}/Contents/Resources/AppIcon.icns"
 METADATA_PATH="${RELEASE_DIR}/release-metadata.txt"
+PACKAGE_METADATA_PATH="${RELEASE_DIR}/package-metadata.txt"
+CANDIDATE_RECEIPT_PATH="${RELEASE_DIR}/unsigned-candidate-receipt.json"
 APP_NOTARY_LOG="${RELEASE_DIR}/notary-app-log.json"
 DMG_NOTARY_LOG="${RELEASE_DIR}/notary-dmg-log.json"
+
+refresh_output_paths() {
+    RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
+    ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
+    RELEASE_APP_PATH="${RELEASE_DIR}/${APP_BUNDLE_FILENAME}"
+    METADATA_PATH="${RELEASE_DIR}/release-metadata.txt"
+    PACKAGE_METADATA_PATH="${RELEASE_DIR}/package-metadata.txt"
+    CANDIDATE_RECEIPT_PATH="${RELEASE_DIR}/unsigned-candidate-receipt.json"
+    APP_NOTARY_LOG="${RELEASE_DIR}/notary-app-log.json"
+    DMG_NOTARY_LOG="${RELEASE_DIR}/notary-dmg-log.json"
+}
+
+if [ -n "$RESUME_CANDIDATE" ]; then
+    CANDIDATE_RECEIPT_PATH=$(python3 -c \
+        'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve(strict=True))' \
+        "$RESUME_CANDIDATE")
+    RELEASE_DIR=$(dirname "$CANDIDATE_RECEIPT_PATH")
+    refresh_output_paths
+    SCRATCH_PATH=$(python3 -c \
+        'import json,sys; value=json.load(open(sys.argv[1]))["build"]["scratchPath"]; assert isinstance(value,str) and value.startswith("/"); print(value)' \
+        "$CANDIDATE_RECEIPT_PATH")
+    APP_PATH="$RELEASE_APP_PATH"
+fi
+
+run_release_doctor() {
+    local mode="$1"
+    local doctor_args=(--mode "$mode" --channel "$CHANNEL")
+    if [ "$mode" = credentials ]; then
+        doctor_args+=(
+            --signing-identity "$SIGNING_IDENTITY"
+            --team-id "$TEAM_ID"
+            --notary-profile "$NOTARY_PROFILE"
+        )
+        if [ -n "$SPARKLE_ED_KEY_FILE" ]; then
+            doctor_args+=(--sparkle-ed-key-file "$SPARKLE_ED_KEY_FILE")
+        fi
+    fi
+    "$RELEASE_DOCTOR_SCRIPT" "${doctor_args[@]}"
+}
 
 relative_to_project_root() {
     case "$1" in
@@ -812,26 +884,13 @@ prune_github_prereleases() {
 }
 
 prepare_release_dir() {
-    case "$ARCHIVE_PATH" in
-        "$RELEASE_DIR"/*)
-            if [ "$REUSE_ARCHIVE" -eq 1 ]; then
-                mkdir -p "$RELEASE_DIR"
-                rm -rf "$RELEASE_APP_PATH" "$METADATA_PATH" "$APP_NOTARY_LOG" "$DMG_NOTARY_LOG"
-                rm -f "$RELEASE_DIR"/Lungfish-app-notary.zip
-                rm -f "$RELEASE_DIR"/Lungfish-*-arm64.dmg
-                return
-            fi
-            ;;
-    esac
-
     rm -rf "$RELEASE_DIR"
     mkdir -p "$RELEASE_DIR"
+    case "$ARCHIVE_PATH" in
+        "$RELEASE_DIR"/*) ;;
+        *) rm -rf "$ARCHIVE_PATH" ;;
+    esac
 }
-
-prepare_release_dir
-mkdir -p "$(dirname "$DERIVED_DATA_PATH")"
-
-cd "$PROJECT_ROOT"
 
 resolved_build_timestamp() {
     if [ -n "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
@@ -848,54 +907,95 @@ resolved_build_timestamp() {
     /bin/date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
-    LUNGFISH_BUILD_TIMESTAMP="$(resolved_build_timestamp)"
-    export LUNGFISH_BUILD_TIMESTAMP
-fi
+if [ -z "$RESUME_CANDIDATE" ]; then
+    # This is the sole pre-destructive package boundary. Doctor must finish
+    # before output or deterministic scratch directories are created.
+    run_release_doctor package
 
-if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
-    SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
-fi
-if [ -n "$SPARKLE_GENERATE_APPCAST" ]; then
-    if [ "$CHANNEL" = "stable" ]; then
-        # A stable build must remain newer than the preview train even before
-        # the stable feed exists. Only the selected stable feed's initial 404
-        # is optional; every other fetch or validation failure remains fatal.
-        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-            --planned "$SPARKLE_BUILD_NUMBER" \
-            --appcast-url "$SPARKLE_PREVIEW_FEED_URL"
-        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-            --planned "$SPARKLE_BUILD_NUMBER" \
-            --appcast-url "$SPARKLE_FEED_URL" \
-            --allow-http-not-found
-    else
-        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-            --planned "$SPARKLE_BUILD_NUMBER" \
-            --appcast-url "$SPARKLE_FEED_URL"
+    if [ -z "$SCRATCH_PATH" ]; then
+        repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
+        repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
+        release_commit=$(git rev-parse --verify HEAD)
+        SCRATCH_PATH="${LUNGFISH_RELEASE_SCRATCH_ROOT:-/private/var/tmp/lungfish-release-swiftpm}/${repository_key}/${release_commit}"
     fi
-fi
+    case "$SCRATCH_PATH" in
+        /*) ;;
+        *) echo "release scratch path must be absolute" >&2; exit 64 ;;
+    esac
 
-SWIFT_BUILD_PREFIX_MAP_ARGS=(
-    -Xswiftc -debug-prefix-map
-    -Xswiftc "$SCRATCH_PATH=/swiftpm-build"
-    -Xswiftc -debug-prefix-map
-    -Xswiftc "$PROJECT_ROOT=/workspace"
-    -Xswiftc -file-compilation-dir
-    -Xswiftc /workspace
-    -Xcc "-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build"
-    -Xcc "-fdebug-prefix-map=$SCRATCH_PATH=/swiftpm-build"
-    -Xcc "-ffile-prefix-map=$PROJECT_ROOT=/workspace"
-    -Xcc "-fdebug-prefix-map=$PROJECT_ROOT=/workspace"
-)
+    for command in rg xcodebuild xcrun ditto mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
+        require_command "$command"
+    done
 
-XCODE_OTHER_SWIFT_FLAGS="-debug-prefix-map $SCRATCH_PATH=/swiftpm-build -debug-prefix-map $PROJECT_ROOT=/workspace -file-compilation-dir /workspace"
-XCODE_OTHER_CFLAGS="-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build -fdebug-prefix-map=$SCRATCH_PATH=/swiftpm-build -ffile-prefix-map=$PROJECT_ROOT=/workspace -fdebug-prefix-map=$PROJECT_ROOT=/workspace"
+    prepare_release_dir
+    mkdir -p "$RELEASE_LOG_DIR" "$(dirname "$DERIVED_DATA_PATH")"
+    rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
+    umask 077
+    mkdir -p "$SCRATCH_PATH"
+    cd "$PROJECT_ROOT"
 
-/bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" --repair "$PROJECT_ROOT"
+    if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
+        LUNGFISH_BUILD_TIMESTAMP="$(resolved_build_timestamp)"
+        export LUNGFISH_BUILD_TIMESTAMP
+    fi
 
-if [ "$REUSE_ARCHIVE" -eq 1 ]; then
-    printf 'Reusing existing archive: %s\n' "$ARCHIVE_PATH"
-else
+    if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
+        SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
+    fi
+    if [ "$PACKAGE_ONLY" -eq 0 ] && [ -n "$SPARKLE_GENERATE_APPCAST" ]; then
+        if [ "$CHANNEL" = "stable" ]; then
+            python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+                --planned "$SPARKLE_BUILD_NUMBER" \
+                --appcast-url "$SPARKLE_PREVIEW_FEED_URL"
+            python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+                --planned "$SPARKLE_BUILD_NUMBER" \
+                --appcast-url "$SPARKLE_FEED_URL" \
+                --allow-http-not-found
+        else
+            python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+                --planned "$SPARKLE_BUILD_NUMBER" \
+                --appcast-url "$SPARKLE_FEED_URL"
+        fi
+    fi
+
+    SWIFT_BUILD_PREFIX_MAP_ARGS=(
+        -Xswiftc -debug-prefix-map
+        -Xswiftc "$SCRATCH_PATH=/swiftpm-build"
+        -Xswiftc -debug-prefix-map
+        -Xswiftc "$PROJECT_ROOT=/workspace"
+        -Xswiftc -file-compilation-dir
+        -Xswiftc /workspace
+        -Xcc "-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build"
+        -Xcc "-fdebug-prefix-map=$SCRATCH_PATH=/swiftpm-build"
+        -Xcc "-ffile-prefix-map=$PROJECT_ROOT=/workspace"
+        -Xcc "-fdebug-prefix-map=$PROJECT_ROOT=/workspace"
+        -Xlinker -oso_prefix
+        -Xlinker "$SCRATCH_PATH/"
+    )
+
+    # Xcode canonicalizes /private/var and /private/tmp through their shorter
+    # aliases in compiler inputs. Map both spellings so a caller-selected
+    # DerivedData directory cannot leak into the unsigned candidate.
+    XCODE_DERIVED_DATA_ALIAS="$DERIVED_DATA_PATH"
+    case "$DERIVED_DATA_PATH" in
+        /private/var/*|/private/tmp/*)
+            XCODE_DERIVED_DATA_ALIAS="${DERIVED_DATA_PATH#/private}"
+            ;;
+        /var/*|/tmp/*)
+            XCODE_DERIVED_DATA_ALIAS="/private${DERIVED_DATA_PATH}"
+            ;;
+    esac
+
+    XCODE_OTHER_SWIFT_FLAGS="-debug-prefix-map $SCRATCH_PATH=/swiftpm-build -debug-prefix-map $PROJECT_ROOT=/workspace -debug-prefix-map $DERIVED_DATA_PATH=/xcode-derived -file-compilation-dir /workspace"
+    XCODE_OTHER_CFLAGS="-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build -fdebug-prefix-map=$SCRATCH_PATH=/swiftpm-build -ffile-prefix-map=$PROJECT_ROOT=/workspace -fdebug-prefix-map=$PROJECT_ROOT=/workspace -ffile-prefix-map=$DERIVED_DATA_PATH=/xcode-derived -fdebug-prefix-map=$DERIVED_DATA_PATH=/xcode-derived"
+    if [ "$XCODE_DERIVED_DATA_ALIAS" != "$DERIVED_DATA_PATH" ]; then
+        XCODE_OTHER_SWIFT_FLAGS="$XCODE_OTHER_SWIFT_FLAGS -debug-prefix-map $XCODE_DERIVED_DATA_ALIAS=/xcode-derived"
+        XCODE_OTHER_CFLAGS="$XCODE_OTHER_CFLAGS -ffile-prefix-map=$XCODE_DERIVED_DATA_ALIAS=/xcode-derived -fdebug-prefix-map=$XCODE_DERIVED_DATA_ALIAS=/xcode-derived"
+    fi
+
+    # Release transactions are fail-only. Repair is a separate development action.
+    /bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" "$PROJECT_ROOT"
+
     LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1 \
     LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1 \
     xcodebuild -project Lungfish.xcodeproj \
@@ -912,50 +1012,109 @@ else
         OTHER_CPLUSPLUSFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
         CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_NUMBER" \
         LUNGFISH_SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
-        DEVELOPMENT_TEAM="$TEAM_ID" \
+        CODE_SIGNING_ALLOWED=NO \
+        CODE_SIGNING_REQUIRED=NO \
+        -disableAutomaticPackageResolution \
         -showBuildTimingSummary \
         -resultBundlePath "$ARCHIVE_RESULT_BUNDLE_PATH" \
         archive
-fi
 
-if [ ! -d "$APP_PATH" ]; then
-    echo "archived app not found: $APP_PATH" >&2
-    exit 72
-fi
+    if [ ! -d "$APP_PATH" ]; then
+        echo "archived app not found: $APP_PATH" >&2
+        exit 72
+    fi
 
-if [ "$REUSE_BUILT_CLI" -eq 1 ]; then
-    printf 'Reusing existing built CLI from scratch path: %s\n' "$SCRATCH_PATH"
-else
-    /usr/bin/xcrun swift build \
+    xcrun swift build \
         --package-path "$PROJECT_ROOT" \
         --product lungfish-cli \
         --configuration release \
         --arch arm64 \
         --scratch-path "$SCRATCH_PATH" \
         "${SWIFT_BUILD_PREFIX_MAP_ARGS[@]}"
+
+    CLI_SOURCE="${SCRATCH_PATH}/arm64-apple-macosx/release/lungfish-cli"
+    CLI_DEST="${APP_PATH}/Contents/MacOS/lungfish-cli"
+    WORKFLOW_TOOLS_DIR="${APP_PATH}/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools"
+
+    if [ ! -f "$CLI_SOURCE" ]; then
+        echo "built CLI not found: $CLI_SOURCE" >&2
+        exit 72
+    fi
+
+    /usr/bin/install -m 755 "$CLI_SOURCE" "$CLI_DEST"
+    /bin/bash scripts/sanitize-bundled-tools.sh \
+        --adhoc-seal \
+        "$APP_PATH/Contents/MacOS" \
+        "$WORKFLOW_TOOLS_DIR"
+    install_app_icon
+    configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"
+
+    scripts/smoke-test-release-tools.sh "$APP_PATH" \
+        --portability-only \
+        --allowed-swiftpm-fallback "$SCRATCH_PATH"
+
+    ditto "$APP_PATH" "$RELEASE_APP_PATH"
+    scripts/smoke-test-release-tools.sh "$RELEASE_APP_PATH" \
+        --allowed-swiftpm-fallback "$SCRATCH_PATH"
+
+    VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${RELEASE_APP_PATH}/Contents/Info.plist")
+    if [ "$VERSION" != "$SOURCE_VERSION" ]; then
+        echo "packaged app version does not match source version: $VERSION != $SOURCE_VERSION" >&2
+        exit 65
+    fi
+
+    "$CANDIDATE_RECEIPT_SCRIPT" create \
+        --app "$RELEASE_APP_PATH" \
+        --output "$CANDIDATE_RECEIPT_PATH" \
+        --channel "$CHANNEL" \
+        --scratch-path "$SCRATCH_PATH"
+
+    COMMIT_SHA=$(git rev-parse HEAD)
+    cat >"$PACKAGE_METADATA_PATH" <<EOF
+version=${VERSION}
+build_number=${SPARKLE_BUILD_NUMBER}
+channel=${CHANNEL}
+git_commit=${COMMIT_SHA}
+scratch_path=${SCRATCH_PATH}
+candidate_app=${RELEASE_APP_PATH}
+candidate_receipt=${CANDIDATE_RECEIPT_PATH}
+archive_path=${ARCHIVE_PATH}
+EOF
+
+    if [ "$PACKAGE_ONLY" -eq 1 ]; then
+        printf 'Unsigned package complete:\n'
+        printf '  App: %s\n' "$RELEASE_APP_PATH"
+        printf '  Receipt: %s\n' "$CANDIDATE_RECEIPT_PATH"
+        printf '  Metadata: %s\n' "$PACKAGE_METADATA_PATH"
+        exit 0
+    fi
+
+    APP_PATH="$RELEASE_APP_PATH"
 fi
 
-CLI_SOURCE="${SCRATCH_PATH}/arm64-apple-macosx/release/lungfish-cli"
+# Credentials are checked only after a complete unsigned candidate exists. The
+# exact receipt is then verified immediately before the first codesign call.
+run_release_doctor credentials
+"$CANDIDATE_RECEIPT_SCRIPT" verify \
+    --app "$APP_PATH" \
+    --receipt "$CANDIDATE_RECEIPT_PATH" \
+    --channel "$CHANNEL" \
+    --scratch-path "$SCRATCH_PATH"
+
+verify_versioned_release_identity
+
+for command in codesign hdiutil ditto mktemp xcrun /usr/bin/file /usr/bin/find; do
+    require_command "$command"
+done
+if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
+    require_command gh
+fi
+
 CLI_DEST="${APP_PATH}/Contents/MacOS/lungfish-cli"
 WORKFLOW_TOOLS_DIR="${APP_PATH}/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools"
 
-if [ ! -f "$CLI_SOURCE" ]; then
-    echo "built CLI not found: $CLI_SOURCE" >&2
-    echo "run without --reuse-built-cli first or provide --scratch-path with a release CLI build" >&2
-    exit 72
-fi
-
-/usr/bin/install -m 755 "$CLI_SOURCE" "$CLI_DEST"
-/bin/bash scripts/sanitize-bundled-tools.sh "$APP_PATH/Contents/MacOS" "$WORKFLOW_TOOLS_DIR"
-install_app_icon
-configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"
-
-# Fail before codesign/notarization work if release packaging leaked build or
-# Homebrew paths back into the app bundle.
-scripts/smoke-test-release-tools.sh "$APP_PATH" --portability-only
-
 sign_developer_id_runtime() {
-    /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
+    codesign --force --sign "$SIGNING_IDENTITY" \
         --options runtime \
         --timestamp \
         --generate-entitlement-der \
@@ -993,7 +1152,7 @@ sign_sparkle_framework() {
     sign_developer_id_runtime "$sparkle_framework"
 }
 
-/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
+codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
     --entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements" \
@@ -1006,7 +1165,7 @@ sign_sparkle_framework() {
 if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
     while IFS= read -r -d '' candidate; do
         if /usr/bin/file -b "$candidate" | grep -q '^Mach-O'; then
-            /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
+            codesign --force --sign "$SIGNING_IDENTITY" \
                 --options runtime \
                 --timestamp \
                 --generate-entitlement-der \
@@ -1023,29 +1182,28 @@ sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 # Outer app signing seals the bundle. Every nested Mach-O was signed above,
 # so we deliberately omit `--deep` (which can strip or overwrite those inner
 # signatures in unpredictable ways on recent macOS releases).
-/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
+codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
     --entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements" \
     --generate-entitlement-der \
     "$APP_PATH"
 
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-scripts/smoke-test-release-tools.sh "$APP_PATH"
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+scripts/smoke-test-release-tools.sh "$APP_PATH" \
+    --allowed-swiftpm-fallback "$SCRATCH_PATH"
 
 APP_NOTARY_ZIP="${RELEASE_DIR}/Lungfish-app-notary.zip"
-/usr/bin/ditto -c -k --keepParent "$APP_PATH" "$APP_NOTARY_ZIP"
+ditto -c -k --keepParent "$APP_PATH" "$APP_NOTARY_ZIP"
 
-/usr/bin/xcrun notarytool submit "$APP_NOTARY_ZIP" \
+xcrun notarytool submit "$APP_NOTARY_ZIP" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait \
     --output-format json >"$APP_NOTARY_LOG"
 
 rm -f "$APP_NOTARY_ZIP"
 
-/usr/bin/xcrun stapler staple "$APP_PATH"
-
-/usr/bin/ditto "$APP_PATH" "$RELEASE_APP_PATH"
+xcrun stapler staple "$APP_PATH"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
 if [ "$VERSION" != "$SOURCE_VERSION" ]; then
@@ -1056,26 +1214,26 @@ DMG_PATH="${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg"
 DMG_STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/lungfish-dmg.XXXXXX")
 trap 'rm -rf "$DMG_STAGING_DIR"' EXIT
 
-/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"
+ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"
 ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
-/usr/bin/hdiutil create \
+hdiutil create \
     -volname "$DMG_VOLUME_NAME" \
     -srcfolder "$DMG_STAGING_DIR" \
     -format UDZO \
     "$DMG_PATH"
 
-/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
+codesign --force --sign "$SIGNING_IDENTITY" \
     --timestamp \
     --generate-entitlement-der \
     "$DMG_PATH"
 
-/usr/bin/xcrun notarytool submit "$DMG_PATH" \
+xcrun notarytool submit "$DMG_PATH" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait \
     --output-format json >"$DMG_NOTARY_LOG"
 
-/usr/bin/xcrun stapler staple "$DMG_PATH"
+xcrun stapler staple "$DMG_PATH"
 
 publish_github_release_dmg
 generate_sparkle_appcast

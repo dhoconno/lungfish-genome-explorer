@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,53 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.lockfile_script = (
             self.root / "scripts" / "check-package-resolved-consistency.sh"
         )
+        self.sanitizer = self.root / "scripts" / "sanitize-bundled-tools.sh"
+
+    def test_sanitizer_adhoc_seals_transformed_vendor_macho_for_execution(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executable = Path(temp_dir) / "micromamba"
+            source = self.root / "Sources/LungfishWorkflow/Resources/Tools/micromamba"
+            shutil.copyfile(source, executable)
+            executable.chmod(0o755)
+            self.assertIn(b"/Users/", executable.read_bytes())
+
+            sanitized = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(self.sanitizer),
+                    "--adhoc-seal",
+                    str(executable),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(
+                sanitized.returncode, 0, sanitized.stdout + sanitized.stderr
+            )
+
+            ran = subprocess.run(
+                [str(executable), "--version"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertTrue(ran.stdout.strip())
+            self.assertNotIn(b"/Users/", executable.read_bytes())
+
+            signature = subprocess.run(
+                ["/usr/bin/codesign", "-d", "--verbose=4", str(executable)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(signature.returncode, 0, signature.stderr)
+            self.assertIn("Signature=adhoc", signature.stderr)
+            self.assertIn("TeamIdentifier=not set", signature.stderr)
 
     def test_smoke_test_fails_when_app_icon_resource_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -213,21 +261,6 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PASS Package.resolved consistency", result.stdout)
 
-    def test_release_script_checks_lockfiles_before_reusing_archive(self):
-        release_script = (
-            self.root / "scripts" / "release" / "build-notarized-dmg.sh"
-        ).read_text()
-        lines = release_script.splitlines()
-        guard_index = self._line_index(
-            lines,
-            '/bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" --repair "$PROJECT_ROOT"',
-        )
-        reuse_index = self._line_index(
-            lines, "printf 'Reusing existing archive: %s\\n' \"$ARCHIVE_PATH\""
-        )
-
-        self.assertLess(guard_index, reuse_index)
-
     def _make_minimal_app(self, root, include_icon=False, include_cli=False):
         app_path = root / "Lungfish.app"
         macos = app_path / "Contents" / "MacOS"
@@ -342,12 +375,6 @@ esac
 """,
             encoding="utf-8",
         )
-
-    def _line_index(self, lines, marker):
-        for index, line in enumerate(lines):
-            if marker in line:
-                return index
-        self.fail(f"missing line containing {marker!r}")
 
 
 if __name__ == "__main__":

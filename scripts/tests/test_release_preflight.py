@@ -103,6 +103,10 @@ class ReleaseDoctorFixture:
                 if [[ " $* " == *" -version "* ]]; then
                   printf 'Xcode %s\\nBuild version 17F80\\n' "$STUB_XCODE_VERSION"
                 elif [[ " $* " == *" -showBuildSettings "* ]]; then
+                  if [ -n "${STUB_PACKAGE_LOCK_SENTINEL:-}" ] \
+                    && [[ " $* " != *" -disableAutomaticPackageResolution "* ]]; then
+                    printf 'mutated\\n' >"$STUB_PACKAGE_LOCK_SENTINEL"
+                  fi
                   printf '    MACOSX_DEPLOYMENT_TARGET = %s\\n' "$STUB_DEPLOYMENT_TARGET"
                 else
                   exit 65
@@ -317,6 +321,19 @@ class ReleaseDoctorTests(unittest.TestCase):
         env = {**self.fx.env, "STUB_DEPLOYMENT_TARGET": "15.0"}
         self.assert_failure("deployment target", env=env)
 
+    def test_deployment_inspection_cannot_mutate_package_lock_state(self):
+        lock_sentinel = self.fx.root / "workspace-Package.resolved"
+        lock_sentinel.write_text("original\n", encoding="utf-8")
+        env = {
+            **self.fx.env,
+            "STUB_PACKAGE_LOCK_SENTINEL": str(lock_sentinel),
+        }
+
+        result = self.fx.run_doctor(env=env)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(lock_sentinel.read_text(encoding="utf-8"), "original\n")
+
     def test_rejects_insufficient_disk_space(self):
         env = {**self.fx.env, "STUB_DISK_AVAILABLE_KB": str(2 * 1024 * 1024)}
         self.assert_failure("free disk", env=env)
@@ -365,6 +382,48 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.fx.scratch.chmod(0o700)
         user_root.chmod(0o700)
         result = self.fx.run_doctor()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS scratch root", result.stdout)
+
+    def test_accepts_framework_symlinks_inside_pin_keyed_resolver_build(self):
+        user_root = self.fx.scratch / f"uid-{os.geteuid()}"
+        framework = (
+            user_root
+            / "sparkle-tools"
+            / ("a" * 64)
+            / "build/artifacts/sparkle/Sparkle/Sparkle.framework"
+        )
+        (framework / "Versions/B/Resources").mkdir(parents=True)
+        (framework / "Versions/Current").symlink_to("B")
+        (framework / "Resources").symlink_to("Versions/Current/Resources")
+        self.fx.scratch.chmod(0o700)
+        user_root.chmod(0o700)
+
+        result = self.fx.run_doctor()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS scratch root", result.stdout)
+
+    def test_accepts_existing_deterministic_package_scratch_as_scratch(self):
+        package_scratch = self.fx.scratch / ("b" * 64) / ("c" * 40)
+        package_scratch.mkdir(parents=True)
+        self.fx.scratch.chmod(0o700)
+
+        result = self.fx.run_doctor()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS scratch root", result.stdout)
+
+    def test_accepts_swiftpm_symlinks_below_private_package_scratch_identity(self):
+        package_scratch = self.fx.scratch / ("b" * 64) / ("c" * 40)
+        checkout = package_scratch / "checkouts/dependency/Sources"
+        checkout.mkdir(parents=True)
+        (checkout / "Real.swift").write_text("// fixture\n")
+        (checkout / "Linked.swift").symlink_to("Real.swift")
+        self.fx.scratch.chmod(0o700)
+
+        result = self.fx.run_doctor()
+
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS scratch root", result.stdout)
 
