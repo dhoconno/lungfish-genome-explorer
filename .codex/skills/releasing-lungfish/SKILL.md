@@ -66,32 +66,26 @@ releases`. Git tags, GitHub release state, and committed notes are the ledger.
 
 ## Debug build
 
-<!-- BEGIN LUNGFISH DEBUG FACTS -->
-- Wrapper: `build/Debug/Lungfish Debug.app`
+Use only `python3 scripts/release/release.py debug`. The coordinator selects the
+supported Xcode, sanitizes release credentials, runs the focused
+`ReleaseBuildConfigurationTests` static gate, performs internal Debug assembly,
+and then validates relocation and self-containment. It does not run the whole
+unit tier.
+
+- App path: `build/Debug/Lungfish Debug.app`
 - Display name: `Lungfish Genome Explorer Debug`
-- Short name: `Lungfish Debug`
+- Bundle name: `Lungfish Debug`
 - Bundle identifier: `com.lungfish.browser.debug`
-- Signature: locally ad-hoc signed
-- Distribution: not Developer ID signed; not notarized
-- Portability: self-contained and relocatable; no checkout or `.build` dependency
-<!-- END LUNGFISH DEBUG FACTS -->
+- Channel metadata: `debug`
+- Signature: locally ad-hoc signed; not Developer ID signed or notarized
+- Portability: self-contained and relocatable with no checkout or `.build`
+  dependency
 
-This local test profile is NOT a release and must never receive a tag, upload, Sparkle publication, or GitHub release attachment. Produce one whenever the user asks to "try", "test", or "smoke" a fix before release, and do it from the feature branch, not `main`.
-
-1. Run the unit tier first: `bash scripts/full-suite-gate.sh --tier unit` must print PASS (serialize it with any other `swift` invocation; SwiftPM holds one `.build/.lock` per checkout).
-2. Build the wrapper with the following command (add `--skip-build` only when the exact commit is already compiled):
-   `bash scripts/build-app.sh --debug`
-3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.
-4. Launch it for the user:
-   `open "build/Debug/Lungfish Debug.app"`
-   Run the executable directly when `LUNGFISH_*` environment overrides are needed:
-   `build/Debug/Lungfish\ Debug.app/Contents/MacOS/Lungfish`
-   Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
-5. Report the commit hash, branch, absolute `.app` path, unit-tier PASS line, and the exact signature/distribution facts above.
-6. Prove relocation, packaged resources, signature identity, and checkout independence:
-   `bash scripts/smoke-test-debug-app.sh "build/Debug/Lungfish Debug.app" --compiling-build-dir "$PWD/.build"`
-
-Do not reuse `build/Release/` or `build-notarized-dmg.sh` for this profile, and do not delete its wrapper when cleaning up a release run unless the user asks.
+Debug is not a release, has no updater or publication path, and must never
+receive a tag, upload, Sparkle publication, or GitHub release attachment. Report
+the commit, branch, absolute app path, focused static-gate result, exact identity,
+signature, and relocation result. Do not expose the internal assembly or smoke
+helpers as operator commands.
 
 ## Release machine bootstrap and Doctor
 

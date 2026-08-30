@@ -13,6 +13,13 @@ VALIDATOR = SKILL_ROOT / "scripts/validate.py"
 INSTALLER = SKILL_ROOT / "scripts/install.sh"
 
 
+def insert_into_skill_debug_section(contents: str, addition: str) -> str:
+    next_heading = "\n## Release machine bootstrap and Doctor"
+    if next_heading not in contents:
+        raise AssertionError("skill fixture is missing the heading after Debug build")
+    return contents.replace(next_heading, f"\n{addition}{next_heading}", 1)
+
+
 class ReleasingLungfishSkillTests(unittest.TestCase):
     def run_validator(self, repo_root: Path, skill_root: Path = SKILL_ROOT):
         return subprocess.run(
@@ -75,6 +82,7 @@ fi
             "docs/superpowers/specs/2026-08-29-release-process-hardening-design.md",
             "docs/superpowers/plans/2026-08-29-release-process-hardening.md",
             "SKILLS.md",
+            "README.md",
         )
         for relative in relative_paths:
             source = REPO_ROOT / relative
@@ -286,6 +294,85 @@ fi
             self.assertNotIn("build/Debug/Lungfish.app", contents)
             self.assertNotIn("NOT self-contained", contents)
 
+    def test_debug_authorities_use_only_the_coordinator_command(self):
+        helper_commands = (
+            "bash scripts/build-app.sh",
+            "scripts/smoke-test-debug-app.sh",
+            "scripts/full-suite-gate.sh",
+            "bash scripts/release/build-notarized-dmg.sh",
+        )
+        for relative in (
+            ".codex/skills/releasing-lungfish/SKILL.md",
+            "SKILLS.md",
+            "README.md",
+        ):
+            with self.subTest(authority=relative):
+                contents = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("python3 scripts/release/release.py debug", contents)
+                for helper in helper_commands:
+                    self.assertNotIn(helper, contents)
+
+    def test_validator_rejects_appended_helper_commands_with_correct_debug_facts(self):
+        mutations = (
+            ("SKILL.md", "bash scripts/build-app.sh --debug"),
+            ("SKILL.md", "bash scripts/smoke-test-debug-app.sh build/Debug/Lungfish\\ Debug.app"),
+            ("SKILL.md", "bash scripts/full-suite-gate.sh --tier unit"),
+            ("SKILL.md", "bash scripts/release/build-notarized-dmg.sh --package-only --channel preview"),
+            ("SKILLS.md", "scripts/build-app.sh --debug"),
+            ("README.md", "scripts/full-suite-gate.sh --tier unit"),
+        )
+        for authority, helper in mutations:
+            with self.subTest(authority=authority, helper=helper):
+                self.assert_authority_mutation_fails(
+                    authority,
+                    lambda text, helper=helper: text + f"\nRun `{helper}`.\n",
+                    "helper command",
+                )
+
+    def test_validator_derives_the_ordered_debug_plan_from_release_py(self):
+        self.assert_authority_mutation_fails(
+            "scripts/release/release.py",
+            lambda text: text.replace(
+                '["swift", "test", "--filter", "ReleaseBuildConfigurationTests"],',
+                '["swift", "test", "--filter", "DifferentStaticGateTests"],',
+                1,
+            ),
+            "debug plan",
+        )
+
+    def test_validator_accepts_semantically_equivalent_debug_authority(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            skill = Path(temporary) / "skill"
+            self.copy_authority_fixture(repo)
+            shutil.copytree(SKILL_ROOT, skill)
+            path = skill / "SKILL.md"
+            contents = path.read_text(encoding="utf-8")
+            start = contents.index("## Debug build")
+            end = contents.index("## Release machine bootstrap and Doctor", start)
+            replacement = """## Debug build
+
+Use only `python3 scripts/release/release.py debug`. The coordinator runs the
+focused `ReleaseBuildConfigurationTests` static gate, performs internal Debug
+assembly, and then performs relocation and self-containment validation.
+
+- App path: `build/Debug/Lungfish Debug.app`
+- Visible title: `Lungfish Genome Explorer Debug`
+- Bundle name: `Lungfish Debug`
+- Identifier: `com.lungfish.browser.debug`
+- Channel metadata: `debug`
+
+This non-release profile is locally ad-hoc signed, never Developer ID signed or
+notarized, and has no updater or publication path. It is self-contained and
+relocatable with no dependency on the checkout or its `.build` directory.
+
+"""
+            path.write_text(contents[:start] + replacement + contents[end:], encoding="utf-8")
+
+            result = self.run_validator(repo, skill)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_validator_rejects_stale_debug_artifact_claims(self):
         with tempfile.TemporaryDirectory() as temporary:
             skill = Path(temporary) / "skill"
@@ -320,9 +407,9 @@ fi
                 shutil.copytree(SKILL_ROOT, skill)
                 skill_file = skill / "SKILL.md"
                 skill_file.write_text(
-                    skill_file.read_text(encoding="utf-8").replace(
-                        "<!-- END LUNGFISH DEBUG FACTS -->",
-                        f"<!-- END LUNGFISH DEBUG FACTS -->\n{contradiction}",
+                    insert_into_skill_debug_section(
+                        skill_file.read_text(encoding="utf-8"),
+                        f"\n{contradiction}\n",
                     ),
                     encoding="utf-8",
                 )
@@ -331,46 +418,6 @@ fi
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("debug", (result.stdout + result.stderr).lower())
-
-    def test_validator_rejects_unrecognized_accurate_debug_paraphrase(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            skill = Path(temporary) / "skill"
-            shutil.copytree(SKILL_ROOT, skill)
-            skill_file = skill / "SKILL.md"
-            skill_file.write_text(
-                skill_file.read_text(encoding="utf-8").replace(
-                    "<!-- END LUNGFISH DEBUG FACTS -->",
-                    "<!-- END LUNGFISH DEBUG FACTS -->\n"
-                    "The Debug app is distribution-unsigned: it is not Developer ID signed, "
-                    "but it is locally ad-hoc signed and self-contained.",
-                ),
-                encoding="utf-8",
-            )
-
-            result = self.run_validator(REPO_ROOT, skill)
-
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("debug", (result.stdout + result.stderr).lower())
-
-    def test_validator_rejects_reordered_debug_facts(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            skill = Path(temporary) / "skill"
-            shutil.copytree(SKILL_ROOT, skill)
-            skill_file = skill / "SKILL.md"
-            skill_file.write_text(
-                skill_file.read_text(encoding="utf-8").replace(
-                    "- Wrapper: `build/Debug/Lungfish Debug.app`\n"
-                    "- Display name: `Lungfish Genome Explorer Debug`",
-                    "- Display name: `Lungfish Genome Explorer Debug`\n"
-                    "- Wrapper: `build/Debug/Lungfish Debug.app`",
-                ),
-                encoding="utf-8",
-            )
-
-            result = self.run_validator(REPO_ROOT, skill)
-
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("debug", (result.stdout + result.stderr).lower())
 
     def test_validator_rejects_review_claims_inserted_after_facts_block(self):
         claims = (
@@ -388,105 +435,14 @@ fi
                 shutil.copytree(SKILL_ROOT, skill)
                 skill_file = skill / "SKILL.md"
                 skill_file.write_text(
-                    skill_file.read_text(encoding="utf-8").replace(
-                        "<!-- END LUNGFISH DEBUG FACTS -->",
-                        f"<!-- END LUNGFISH DEBUG FACTS -->\n{claim}",
+                    insert_into_skill_debug_section(
+                        skill_file.read_text(encoding="utf-8"),
+                        f"\n{claim}\n",
                     ),
                     encoding="utf-8",
                 )
 
                 result = self.run_validator(REPO_ROOT, skill)
-
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("debug", (result.stdout + result.stderr).lower())
-
-    def test_validator_rejects_any_missing_reordered_or_extra_section_line(self):
-        skill_text = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-        mutations = (
-            skill_text.replace(
-                "This local test profile is NOT a release and must never receive a tag, upload, Sparkle publication, or GitHub release attachment. Produce one whenever the user asks to \"try\", \"test\", or \"smoke\" a fix before release, and do it from the feature branch, not `main`.\n",
-                "",
-            ),
-            skill_text.replace(
-                "3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.\n"
-                "4. Launch it for the user:",
-                "4. Launch it for the user:\n"
-                "3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.",
-            ),
-            skill_text.replace(
-                "<!-- END LUNGFISH DEBUG FACTS -->",
-                "<!-- END LUNGFISH DEBUG FACTS -->\n- Note: the local app remains portable after relocation.",
-            ),
-            skill_text.replace(
-                "unless the user asks.\n\n## Release machine bootstrap and Doctor",
-                "unless the user asks.\n\n\n## Release machine bootstrap and Doctor",
-            ),
-        )
-
-        for index, mutated in enumerate(mutations):
-            with self.subTest(mutation=index), tempfile.TemporaryDirectory() as temporary:
-                skill = Path(temporary) / f"skill-{index}"
-                shutil.copytree(SKILL_ROOT, skill)
-                (skill / "SKILL.md").write_text(mutated, encoding="utf-8")
-
-                result = self.run_validator(REPO_ROOT, skill)
-
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("debug", (result.stdout + result.stderr).lower())
-
-    def test_validator_rejects_extra_catalog_entry_line_without_debug_keyword(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            repo = Path(temporary) / "repo"
-            self.make_fixture(repo)
-            catalog = repo / "SKILLS.md"
-            catalog.write_text(
-                catalog.read_text(encoding="utf-8").replace(
-                    "<!-- END LUNGFISH DEBUG FACTS -->",
-                    "<!-- END LUNGFISH DEBUG FACTS -->\n- Signature: none",
-                ),
-                encoding="utf-8",
-            )
-
-            result = self.run_validator(repo)
-
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("debug", (result.stdout + result.stderr).lower())
-
-    def test_validator_rejects_non_exact_heading_and_wrapper_spacing(self):
-        skill_mutations = (
-            ("## Debug build", "    ## Debug build"),
-            ("build/Debug/Lungfish Debug.app", "build/Debug/Lungfish  Debug.app"),
-        )
-        for index, (original, replacement) in enumerate(skill_mutations):
-            with self.subTest(source="skill", mutation=index), tempfile.TemporaryDirectory() as temporary:
-                skill = Path(temporary) / f"skill-{index}"
-                shutil.copytree(SKILL_ROOT, skill)
-                skill_file = skill / "SKILL.md"
-                skill_file.write_text(
-                    skill_file.read_text(encoding="utf-8").replace(original, replacement, 1),
-                    encoding="utf-8",
-                )
-
-                result = self.run_validator(REPO_ROOT, skill)
-
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("debug", (result.stdout + result.stderr).lower())
-
-        catalog_mutations = (
-            ("## Debug build", "    ## Debug build"),
-            ("build/Debug/Lungfish Debug.app", "build/Debug/Lungfish  Debug.app"),
-        )
-        for index, (original, replacement) in enumerate(catalog_mutations):
-            with self.subTest(source="catalog", mutation=index), tempfile.TemporaryDirectory() as temporary:
-                repo = Path(temporary) / f"repo-{index}"
-                self.make_fixture(repo)
-                catalog = repo / "SKILLS.md"
-                catalog.write_text(
-                    catalog.read_text(encoding="utf-8").replace(original, replacement, 1),
-                    encoding="utf-8",
-                )
-
-                result = self.run_validator(repo)
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("debug", (result.stdout + result.stderr).lower())
@@ -498,7 +454,7 @@ fi
             skill_file = skill / "SKILL.md"
             skill_file.write_text(
                 skill_file.read_text(encoding="utf-8")
-                + "\nThis later section remains outside Debug authority.\n",
+                + "\n## Historical notes\n\n- Signature: none\n",
                 encoding="utf-8",
             )
 

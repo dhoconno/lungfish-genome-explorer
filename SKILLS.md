@@ -7,11 +7,18 @@ notarized `.dmg` asset. Zip archives are useful for debugging, but they are not
 enough for end users because unsigned or unnotarized app bundles are difficult
 to run on macOS.
 
-The sole release front door is `python3 scripts/release/release.py`: run
-`doctor`, then `package preview|stable`, then `publish preview|stable`. Re-run
-`publish` for receipt-bound recovery without rebuilding. Low-level builders are
-internal. The full machine, channel, cache, verification, and side-by-side
-caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
+The sole operator front door is exactly:
+
+```text
+python3 scripts/release/release.py debug
+python3 scripts/release/release.py doctor [--profile PATH]
+python3 scripts/release/release.py package preview|stable
+python3 scripts/release/release.py publish preview|stable [--profile PATH]
+```
+
+Re-run `publish` for receipt-bound recovery without rebuilding. Low-level
+builders are internal. The full machine, channel, cache, verification, and
+side-by-side caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
 `docs/release/sparkle-updates.md`.
 
 ## Dependency Sweep
@@ -24,20 +31,12 @@ board remains defense-in-depth after publication. See
 
 ## Debug build
 
-<!-- BEGIN LUNGFISH DEBUG FACTS -->
-- Wrapper: `build/Debug/Lungfish Debug.app`
-- Display name: `Lungfish Genome Explorer Debug`
-- Short name: `Lungfish Debug`
-- Bundle identifier: `com.lungfish.browser.debug`
-- Signature: locally ad-hoc signed
-- Distribution: not Developer ID signed; not notarized
-- Portability: self-contained and relocatable; no checkout or `.build` dependency
-<!-- END LUNGFISH DEBUG FACTS -->
-
-After the unit tier passes, produce the local test wrapper from the feature branch:
-`bash scripts/build-app.sh --debug`
-
-Verify it with the compiling `.build` directory:
-`scripts/smoke-test-debug-app.sh`
-
-The full operational rules live in the shared skill file.
+Run only `python3 scripts/release/release.py debug`. It runs the focused
+`ReleaseBuildConfigurationTests` static gate, internal Debug assembly, and
+relocation/self-containment validation; it does not claim a whole unit-tier run.
+The result is the locally ad-hoc-signed, non-notarized
+`build/Debug/Lungfish Debug.app`, displaying `Lungfish Genome Explorer Debug`
+with bundle name `Lungfish Debug`, identifier `com.lungfish.browser.debug`, and
+channel `debug`. It is not Developer ID signed, is not a release, has no updater
+or publication path, and is self-contained and relocatable with no checkout or
+`.build` dependency.

@@ -137,7 +137,31 @@ cd lungfish-genome-explorer
 swift build -c release --arch arm64
 ```
 
-A signed and notarized `.dmg` is produced through `python3 scripts/release/release.py package preview|stable` followed by `python3 scripts/release/release.py publish preview|stable` on a provisioned release Mac. Sparkle appcast publishing is documented in [docs/release/sparkle-updates.md](docs/release/sparkle-updates.md).
+Release and Debug operators use exactly:
+
+```text
+python3 scripts/release/release.py debug
+python3 scripts/release/release.py doctor [--profile PATH]
+python3 scripts/release/release.py package preview|stable
+python3 scripts/release/release.py publish preview|stable [--profile PATH]
+```
+
+### Debug build
+
+Run only `python3 scripts/release/release.py debug`. It runs the focused
+`ReleaseBuildConfigurationTests` static gate, internal
+assembly, and relocation/self-containment validation. It produces the locally
+ad-hoc-signed, not notarized `build/Debug/Lungfish Debug.app` with display name
+`Lungfish Genome Explorer Debug`, bundle name `Lungfish Debug`, identifier
+`com.lungfish.browser.debug`, and channel `debug`. It is not a release, is not
+Developer ID signed, has no updater/publication path, and is self-contained and
+relocatable without the checkout or `.build` directory.
+
+### Release packaging
+
+On a provisioned release Mac, run `package` before `publish`; repeat `publish`
+for receipt-bound recovery without rebuilding. Sparkle appcast publishing is
+documented in [docs/release/sparkle-updates.md](docs/release/sparkle-updates.md).
 
 ## User Manual
 
@@ -171,7 +195,8 @@ Setting `LUNGFISH_REQUIRE_TOOLS=1` turns these (and other tool/database-availabi
 LUNGFISH_REQUIRE_TOOLS=1 swift test --filter 'IVarConverterViralReconParity|ReadsToVariantsEndToEndTests'
 ```
 
-`scripts/full-suite-gate.sh --require-tools` runs the whole suite this way and additionally fails if any tool/database skip is recorded within the conformance suites.
+The internal conformance gate runs the whole suite this way and additionally
+fails if any tool/database skip is recorded within the conformance suites.
 
 ## Reporting Issues
 

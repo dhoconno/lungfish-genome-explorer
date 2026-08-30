@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -46,6 +47,8 @@ PRIMARY_AUTHORITIES = (
     "agents/definitions/codex/release-agent.md",
     "docs/release/sparkle-updates.md",
     "docs/release/NEXT-RELEASE-HANDOFF.md",
+    "SKILLS.md",
+    "README.md",
 )
 CHANNEL_AUTHORITIES = (
     ".codex/skills/releasing-lungfish/SKILL.md",
@@ -55,58 +58,17 @@ CHANNEL_AUTHORITIES = (
     "docs/release/NEXT-RELEASE-HANDOFF.md",
 )
 
-DEBUG_SECTION_HEADER = "## Debug build"
-CANONICAL_SKILL_DEBUG_SECTION = r"""## Debug build
-
-<!-- BEGIN LUNGFISH DEBUG FACTS -->
-- Wrapper: `build/Debug/Lungfish Debug.app`
-- Display name: `Lungfish Genome Explorer Debug`
-- Short name: `Lungfish Debug`
-- Bundle identifier: `com.lungfish.browser.debug`
-- Signature: locally ad-hoc signed
-- Distribution: not Developer ID signed; not notarized
-- Portability: self-contained and relocatable; no checkout or `.build` dependency
-<!-- END LUNGFISH DEBUG FACTS -->
-
-This local test profile is NOT a release and must never receive a tag, upload, Sparkle publication, or GitHub release attachment. Produce one whenever the user asks to "try", "test", or "smoke" a fix before release, and do it from the feature branch, not `main`.
-
-1. Run the unit tier first: `bash scripts/full-suite-gate.sh --tier unit` must print PASS (serialize it with any other `swift` invocation; SwiftPM holds one `.build/.lock` per checkout).
-2. Build the wrapper with the following command (add `--skip-build` only when the exact commit is already compiled):
-   `bash scripts/build-app.sh --debug`
-3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.
-4. Launch it for the user:
-   `open "build/Debug/Lungfish Debug.app"`
-   Run the executable directly when `LUNGFISH_*` environment overrides are needed:
-   `build/Debug/Lungfish\ Debug.app/Contents/MacOS/Lungfish`
-   Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
-5. Report the commit hash, branch, absolute `.app` path, unit-tier PASS line, and the exact signature/distribution facts above.
-6. Prove relocation, packaged resources, signature identity, and checkout independence:
-   `bash scripts/smoke-test-debug-app.sh "build/Debug/Lungfish Debug.app" --compiling-build-dir "$PWD/.build"`
-
-Do not reuse `build/Release/` or `build-notarized-dmg.sh` for this profile, and do not delete its wrapper when cleaning up a release run unless the user asks.
-
-"""
-
-CANONICAL_CATALOG_DEBUG_SECTION = r"""## Debug build
-
-<!-- BEGIN LUNGFISH DEBUG FACTS -->
-- Wrapper: `build/Debug/Lungfish Debug.app`
-- Display name: `Lungfish Genome Explorer Debug`
-- Short name: `Lungfish Debug`
-- Bundle identifier: `com.lungfish.browser.debug`
-- Signature: locally ad-hoc signed
-- Distribution: not Developer ID signed; not notarized
-- Portability: self-contained and relocatable; no checkout or `.build` dependency
-<!-- END LUNGFISH DEBUG FACTS -->
-
-After the unit tier passes, produce the local test wrapper from the feature branch:
-`bash scripts/build-app.sh --debug`
-
-Verify it with the compiling `.build` directory:
-`scripts/smoke-test-debug-app.sh`
-
-The full operational rules live in the shared skill file.
-"""
+DEBUG_AUTHORITIES = (
+    ".codex/skills/releasing-lungfish/SKILL.md",
+    "SKILLS.md",
+    "README.md",
+)
+HELPER_PATH = re.compile(
+    r"(?:\./)?scripts/(?:"
+    r"build-app\.sh|smoke-test-debug-app\.sh|full-suite-gate\.sh|"
+    r"release/build-notarized-dmg\.sh)",
+    re.IGNORECASE,
+)
 
 SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
@@ -129,25 +91,186 @@ def read_text(path: Path, errors: list[str], label: str) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def validate_debug_section(
-    contents: str, source: str, canonical: str, errors: list[str]
-) -> None:
-    lines = contents.replace("\r\n", "\n").splitlines(keepends=True)
-    starts = [
-        index
-        for index, line in enumerate(lines)
-        if line == f"{DEBUG_SECTION_HEADER}\n" or line == DEBUG_SECTION_HEADER
-    ]
-    if len(starts) != 1:
-        errors.append(f"{source} must contain exactly one canonical {DEBUG_SECTION_HEADER} section")
-        return
-    start = starts[0]
-    end = next(
-        (index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")),
-        len(lines),
+def markdown_section(contents: str, title: str) -> str | None:
+    headings = list(
+        re.finditer(
+            r"^(?P<marks>#{1,6})\s+(?P<title>[^\n#]+?)\s*#*\s*$",
+            contents,
+            re.MULTILINE,
+        )
     )
-    if "".join(lines[start:end]) != canonical:
-        errors.append(f"{source} {DEBUG_SECTION_HEADER} section differs from the validator contract")
+    matches = [
+        heading
+        for heading in headings
+        if heading.group("title").strip().casefold() == title.casefold()
+    ]
+    if len(matches) != 1:
+        return None
+    start_heading = matches[0]
+    level = len(start_heading.group("marks"))
+    end = next(
+        (
+            heading.start()
+            for heading in headings
+            if heading.start() > start_heading.start()
+            and len(heading.group("marks")) <= level
+        ),
+        len(contents),
+    )
+    return contents[start_heading.start():end]
+
+
+def exposes_helper_command(contents: str) -> bool:
+    command_prefix = re.compile(r"^(?:\$\s*)?(?:bash|sh|python3)\s+", re.IGNORECASE)
+    direct_prefix = re.compile(r"^(?:\$\s*)?(?:\./)?scripts/", re.IGNORECASE)
+    candidates = re.findall(r"`([^`\n]+)`", contents)
+    candidates.extend(
+        line.strip()
+        for block in re.findall(r"```[^\n]*\n(.*?)```", contents, re.DOTALL)
+        for line in block.splitlines()
+    )
+    candidates.extend(line.strip() for line in contents.splitlines())
+    for candidate in candidates:
+        if HELPER_PATH.search(candidate) and (
+            command_prefix.search(candidate) or direct_prefix.search(candidate)
+        ):
+            return True
+    return False
+
+
+def load_debug_plan(
+    repo_root: Path, errors: list[str]
+) -> tuple[list[list[str]], Path] | None:
+    release_path = repo_root / "scripts/release/release.py"
+    module_name = "_lungfish_release_authority_validator"
+    spec = importlib.util.spec_from_file_location(module_name, release_path)
+    if spec is None or spec.loader is None:
+        errors.append("Release coordinator module could not be loaded for Debug-plan validation")
+        return None
+    module = importlib.util.module_from_spec(spec)
+    release_dir = str(release_path.parent)
+    sys.path.insert(0, release_dir)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+        commands, app = module.debug_plan(repo_root)
+    except Exception as error:  # noqa: BLE001 - validator reports closed boundary
+        errors.append(f"Release coordinator Debug plan could not be evaluated: {error}")
+        return None
+    finally:
+        sys.modules.pop(module_name, None)
+        sys.path.remove(release_dir)
+    return commands, app
+
+
+def validate_debug_plan(
+    plan: tuple[list[list[str]], Path] | None,
+    contract: dict[str, object],
+    repo_root: Path,
+    errors: list[str],
+) -> str:
+    if plan is None:
+        return ""
+    commands, app = plan
+    profiles = contract.get("buildProfiles", {})
+    debug = profiles.get("debug", {}) if isinstance(profiles, dict) else {}
+    filename = debug.get("appBundleFilename") if isinstance(debug, dict) else None
+    expected_app = repo_root / "build/Debug" / str(filename)
+    valid = (
+        len(commands) == 3
+        and commands[0] == [
+            "swift",
+            "test",
+            "--filter",
+            "ReleaseBuildConfigurationTests",
+        ]
+        and commands[1] == [
+            "/bin/bash",
+            str(repo_root / "scripts/build-app.sh"),
+            "--debug",
+        ]
+        and commands[2] == [
+            "/bin/bash",
+            str(repo_root / "scripts/smoke-test-debug-app.sh"),
+            str(expected_app),
+            "--compiling-build-dir",
+            str(repo_root / ".build"),
+        ]
+        and app == expected_app
+    )
+    if not valid:
+        errors.append(
+            "release.py Debug plan must run the focused static gate, internal Debug assembly, then relocation smoke"
+        )
+        return ""
+    return commands[0][-1]
+
+
+def validate_debug_authorities(
+    texts: dict[str, str],
+    contract: dict[str, object],
+    static_gate: str,
+    errors: list[str],
+) -> None:
+    profiles = contract.get("buildProfiles", {})
+    debug = profiles.get("debug", {}) if isinstance(profiles, dict) else {}
+    if not isinstance(debug, dict):
+        errors.append("Release contract is missing the Debug build profile")
+        return
+    expected_markers = (
+        f"build/Debug/{debug.get('appBundleFilename', '')}",
+        str(debug.get("displayName", "")),
+        str(debug.get("bundleName", "")),
+        str(debug.get("bundleIdentifier", "")),
+        str(debug.get("releaseChannel", "")),
+        static_gate,
+    )
+    contradiction_patterns = (
+        r"(?:carries\s+no\s+signature|signature\s*:\s*none)",
+        r"debug[^\n.]{0,120}(?:omit|without)[^\n.]{0,40}ad[ -]?hoc",
+        r"debug[^\n.]{0,160}(?:not\s+(?:all\s+)?(?:carried|contained)|load[^\n.]*source checkout)",
+        r"(?:debug|portability)[^\n.]{0,120}(?:not self-contained|depends on (?:the )?checkout)",
+        r"resources?[^\n.]{0,100}(?:load|adjacent)[^\n.]*\.build",
+        r"(?:debug|distribution)[^\n.]{0,120}(?:developer id signed and notarized|is notarized)",
+        r"(?:debug[^\n.]{0,100})?(?:wrapper|app path)\s*:[^\n]*`?(?:build/Debug/)?Lungfish\.app`?",
+        r"debug[^\n.]{0,120}wrapper[^\n.]*Lungfish\.app",
+        r"(?:debug[^\n.]{0,100})?(?:visible (?:application )?title|display name)\s*(?:is|:)[^\n]*`?Lungfish(?: Debug)?`?(?:[.\n]|$)",
+    )
+    for relative in DEBUG_AUTHORITIES:
+        text = markdown_section(texts[relative], "Debug build")
+        if text is None:
+            errors.append(f"{relative} must contain exactly one semantic Debug build section")
+            continue
+        normalized = " ".join(text.split())
+        lowered = normalized.lower()
+        for marker in expected_markers:
+            if marker and marker.lower() not in lowered:
+                errors.append(
+                    f"{relative} omits Debug contract/plan semantic value: {marker}"
+                )
+        required_semantics = (
+            (r"ad[ -]?hoc[ -]?signed", "locally ad-hoc signed"),
+            (r"(?:not|never) developer id signed", "not Developer ID signed"),
+            (r"(?:not|never|non-)[^.;]{0,80}notarized", "not notarized"),
+            (r"self-contained", "self-contained"),
+            (r"relocat", "relocatable"),
+            (r"(?:no|without)[^.;]{0,80}checkout", "no checkout dependency"),
+            (r"(?:no|without)[^.;]{0,100}\.build", "no .build dependency"),
+            (r"(?:not a release|non-release)", "non-release profile"),
+            (r"(?:no|without)[^.;]{0,80}updater", "no updater path"),
+            (r"(?:no|without)[^.;]{0,80}publication", "no publication path"),
+        )
+        for pattern, label in required_semantics:
+            if re.search(pattern, lowered) is None:
+                errors.append(f"{relative} omits Debug semantic: {label}")
+        for pattern in contradiction_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                errors.append(f"{relative} contains a contradictory Debug claim")
+                break
+        if re.search(r"(?:run the unit tier|after the unit tier passes|--tier\s+unit)", text, re.IGNORECASE):
+            errors.append(
+                f"{relative} falsely claims release.py debug runs the whole unit tier"
+            )
 
 
 def validate_contract(repo_root: Path, errors: list[str]) -> dict[str, object]:
@@ -187,6 +310,20 @@ def validate_contract(repo_root: Path, errors: list[str]) -> dict[str, object]:
     }
     if contract.get("channels") != expected_channels:
         errors.append("Release contract channel wrapper/feed/bundle identity differs from canonical Preview/Stable semantics")
+    expected_debug = {
+        "appBundleFilename": "Lungfish Debug.app",
+        "displayName": "Lungfish Genome Explorer Debug",
+        "bundleName": "Lungfish Debug",
+        "bundleIdentifier": "com.lungfish.browser.debug",
+        "releaseChannel": "debug",
+        "isRelease": False,
+        "publishable": False,
+        "updaterEnabled": False,
+    }
+    if contract.get("buildProfiles") != {"debug": expected_debug}:
+        errors.append(
+            "Release contract Debug identity/capabilities differ from the canonical non-release profile"
+        )
     toolchain = contract.get("toolchain")
     expected_toolchain = {
         "xcodeMinimum": "26.4.1",
@@ -243,13 +380,23 @@ def validate_frontdoor(repo_root: Path, errors: list[str]) -> None:
             errors.append(f"Release front door still exposes retired public option {retired}")
 
 
-def validate_authority_texts(repo_root: Path, skill_root: Path, errors: list[str]) -> None:
+def validate_authority_texts(
+    repo_root: Path,
+    skill_root: Path,
+    contract: dict[str, object],
+    static_gate: str,
+    errors: list[str],
+) -> None:
     texts: dict[str, str] = {}
     for relative in PRIMARY_AUTHORITIES:
         path = skill_root / "SKILL.md" if relative.startswith(".codex/skills/") else repo_root / relative
         texts[relative] = read_text(path, errors, relative)
     for relative, text in texts.items():
         normalized = " ".join(text.split())
+        if exposes_helper_command(text):
+            errors.append(
+                f"{relative} exposes a low-level helper command outside the release.py front door"
+            )
         for command in PUBLIC_COMMAND_LINES:
             if command not in text:
                 errors.append(f"{relative} does not document the exact four-command release front door: {command}")
@@ -301,6 +448,7 @@ def validate_authority_texts(repo_root: Path, skill_root: Path, errors: list[str
     mirror = texts["agents/definitions/codex/release-agent.md"]
     if agent != mirror:
         errors.append("Release agent copies must be byte-identical")
+    validate_debug_authorities(texts, contract, static_gate, errors)
 
 
 def workflow_job(text: str, name: str) -> str:
@@ -432,15 +580,18 @@ def main() -> int:
         if not (repo_root / relative).is_file():
             errors.append(f"Missing required repository file: {relative}")
 
-    validate_contract(repo_root, errors)
+    contract = validate_contract(repo_root, errors)
+    debug_plan = load_debug_plan(repo_root, errors)
+    static_gate = validate_debug_plan(debug_plan, contract, repo_root, errors)
     validate_frontdoor(repo_root, errors)
-    validate_authority_texts(repo_root, skill_root, errors)
+    validate_authority_texts(
+        repo_root,
+        skill_root,
+        contract,
+        static_gate,
+        errors,
+    )
     validate_ci_and_nightly(repo_root, errors)
-
-    skill_text = read_text(skill_root / "SKILL.md", errors, str(skill_root / "SKILL.md"))
-    validate_debug_section(skill_text, "Release skill", CANONICAL_SKILL_DEBUG_SECTION, errors)
-    catalog = read_text(repo_root / "SKILLS.md", errors, "SKILLS.md")
-    validate_debug_section(catalog, "SKILLS.md", CANONICAL_CATALOG_DEBUG_SECTION, errors)
 
     for path in skill_root.rglob("*") if skill_root.is_dir() else ():
         if not path.is_file() or path.suffix in {".pyc", ".png", ".jpg"}:
