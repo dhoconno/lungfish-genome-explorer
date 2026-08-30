@@ -339,7 +339,11 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             self.release_script,
         )
         self.assertIn(
-            'gh release upload "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path" --clobber',
+            'publish_mutable_asset_if_changed "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path"',
+            self.release_script,
+        )
+        self.assertIn(
+            'gh release upload "$release_tag" "$local_path" --clobber',
             self.release_script,
         )
 

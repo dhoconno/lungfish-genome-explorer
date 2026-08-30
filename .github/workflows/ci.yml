@@ -109,23 +109,33 @@ jobs:
         env:
           LUNGFISH_SPARKLE_PUBLIC_ED_KEY: FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c=
         run: |
-          release_root="$PWD/.build/ci-package/${{ matrix.channel }}/Release"
-          bash scripts/release/build-notarized-dmg.sh \
-            --package-only \
-            --channel ${{ matrix.channel }} \
-            --release-dir "$release_root" \
-            --archive-path "$PWD/.build/ci-package/${{ matrix.channel }}/Lungfish.xcarchive" \
-            --derived-data-path "$PWD/.build/ci-package/${{ matrix.channel }}/DerivedData"
+          package_root="$PWD/.build/ci-package/${{ matrix.channel }}"
+          release_root="$package_root/Release"
+          package_log="$package_root/package-only.log"
+          mkdir -p "$package_root"
+          if bash scripts/release/build-notarized-dmg.sh \
+              --package-only \
+              --channel ${{ matrix.channel }} \
+              --release-dir "$release_root" \
+              --archive-path "$package_root/Lungfish.xcarchive" \
+              --derived-data-path "$package_root/DerivedData" \
+              >"$package_log" 2>&1; then
+            :
+          else
+            status=$?
+            exit "$status"
+          fi
 
       - name: Upload unsigned package evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-package-${{ matrix.channel }}-evidence
-          if-no-files-found: error
+          if-no-files-found: ignore
           path: |
             .build/ci-package/${{ matrix.channel }}/Release/package-metadata.txt
             .build/ci-package/${{ matrix.channel }}/Release/unsigned-candidate-receipt.json
+            .build/ci-package/${{ matrix.channel }}/package-only.log
 
   release-context:
     name: Release context

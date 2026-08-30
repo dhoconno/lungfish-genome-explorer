@@ -521,17 +521,26 @@ verify_versioned_release_identity() {
 
     local head_commit
     local remote_lines
+    local remote_tag_object
     local remote_tag_commit
+    local direct_count
+    local peeled_count
     local release_exists=0
     head_commit=$(git rev-parse HEAD)
     remote_lines=$(git ls-remote --tags origin \
         "refs/tags/${GITHUB_RELEASE_TAG}" \
         "refs/tags/${GITHUB_RELEASE_TAG}^{}")
+    direct_count=$(printf '%s\n' "$remote_lines" \
+        | awk -v ref="refs/tags/${GITHUB_RELEASE_TAG}" '$2 == ref { count += 1 } END { print count + 0 }')
+    peeled_count=$(printf '%s\n' "$remote_lines" \
+        | awk -v ref="refs/tags/${GITHUB_RELEASE_TAG}^{}" '$2 == ref { count += 1 } END { print count + 0 }')
+    remote_tag_object=$(printf '%s\n' "$remote_lines" \
+        | awk -v ref="refs/tags/${GITHUB_RELEASE_TAG}" '$2 == ref { print $1 }')
     remote_tag_commit=$(printf '%s\n' "$remote_lines" \
-        | awk '$2 ~ /\^\{\}$/ { print $1; found=1 } END { if (!found && NR > 0) print first } NR == 1 { first=$1 }' \
-        | head -n 1)
-    if [ -z "$remote_tag_commit" ]; then
-        echo "release tag is not present on origin; push it before publication: $GITHUB_RELEASE_TAG" >&2
+        | awk -v ref="refs/tags/${GITHUB_RELEASE_TAG}^{}" '$2 == ref { print $1 }')
+    if [ "$direct_count" -ne 1 ] || [ "$peeled_count" -ne 1 ] \
+        || [ -z "$remote_tag_object" ] || [ -z "$remote_tag_commit" ]; then
+        echo "release tag must be present as one exact annotated tag: $GITHUB_RELEASE_TAG" >&2
         exit 64
     fi
     if [ "$remote_tag_commit" != "$head_commit" ]; then
@@ -775,6 +784,53 @@ publish_github_release_dmg() {
     gh "${create_args[@]}"
 }
 
+ensure_mutable_release() {
+    local release_tag="$1"
+    local title="$2"
+    local notes="$3"
+    local target_commit
+    target_commit="$(git rev-parse HEAD)"
+    if ! gh release view "$release_tag" >/dev/null 2>&1; then
+        gh release create "$release_tag" \
+            --title "$title" \
+            --notes "$notes" \
+            --prerelease \
+            --target "$target_commit"
+        return
+    fi
+    local actual_target
+    local actual_draft
+    local actual_prerelease
+    actual_target=$(gh release view "$release_tag" --json targetCommitish --jq .targetCommitish)
+    actual_draft=$(gh release view "$release_tag" --json isDraft --jq .isDraft)
+    actual_prerelease=$(gh release view "$release_tag" --json isPrerelease --jq .isPrerelease)
+    if [ "$actual_draft" != false ] || [ "$actual_prerelease" != true ]; then
+        echo "mutable Sparkle release has unsafe draft/channel state: $release_tag" >&2
+        exit 64
+    fi
+    if [ "$actual_target" != "$target_commit" ]; then
+        gh release edit "$release_tag" --target "$target_commit"
+    fi
+}
+
+publish_mutable_asset_if_changed() {
+    local release_tag="$1"
+    local local_path="$2"
+    local asset_name
+    local expected_digest
+    local expected_size
+    local remote_record
+    asset_name=$(basename "$local_path")
+    expected_digest="sha256:$(shasum -a 256 "$local_path" | awk '{print $1}')"
+    expected_size=$(/usr/bin/stat -f %z "$local_path")
+    remote_record=$(gh release view "$release_tag" --json assets \
+        --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
+    if [ "$remote_record" = "${expected_digest}"$'\t'"${expected_size}" ]; then
+        return
+    fi
+    gh release upload "$release_tag" "$local_path" --clobber
+}
+
 generate_sparkle_appcast() {
     if [ -z "$SPARKLE_GENERATE_APPCAST" ]; then
         return
@@ -835,27 +891,14 @@ generate_sparkle_appcast() {
             feed_title="Lungfish Sparkle Stable Appcast"
             feed_notes="Mutable Sparkle stable appcast feed for Lungfish Genome Explorer."
         fi
-        if ! gh release view "$SPARKLE_PUBLISH_RELEASE" >/dev/null 2>&1; then
-            local target_commit
-            target_commit="$(git rev-parse HEAD)"
-            gh release create "$SPARKLE_PUBLISH_RELEASE" \
-                --title "$feed_title" \
-                --notes "$feed_notes" \
-                --prerelease \
-                --target "$target_commit"
-        else
-            local target_commit
-            target_commit="$(git rev-parse HEAD)"
-            gh release edit "$SPARKLE_PUBLISH_RELEASE" --target "$target_commit"
-        fi
-
-        gh release upload "$SPARKLE_PUBLISH_RELEASE" "$SPARKLE_APPCAST_PATH" --clobber
+        ensure_mutable_release "$SPARKLE_PUBLISH_RELEASE" "$feed_title" "$feed_notes"
+        publish_mutable_asset_if_changed "$SPARKLE_PUBLISH_RELEASE" "$SPARKLE_APPCAST_PATH"
         if [ -f "$notes_dest" ]; then
-            gh release upload "$SPARKLE_PUBLISH_RELEASE" "$notes_dest" --clobber
+            publish_mutable_asset_if_changed "$SPARKLE_PUBLISH_RELEASE" "$notes_dest"
         fi
         for signed_feed_asset in "$SPARKLE_APPCAST_PATH".* "$notes_dest".*; do
             if [ -f "$signed_feed_asset" ]; then
-                gh release upload "$SPARKLE_PUBLISH_RELEASE" "$signed_feed_asset" --clobber
+                publish_mutable_asset_if_changed "$SPARKLE_PUBLISH_RELEASE" "$signed_feed_asset"
             fi
         done
     fi
@@ -864,21 +907,11 @@ generate_sparkle_appcast() {
         local bridge_appcast_path="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"
         /bin/cp -p "$SPARKLE_APPCAST_PATH" "$bridge_appcast_path"
 
-        if ! gh release view "$SPARKLE_BRIDGE_PUBLISH_RELEASE" >/dev/null 2>&1; then
-            local target_commit
-            target_commit="$(git rev-parse HEAD)"
-            gh release create "$SPARKLE_BRIDGE_PUBLISH_RELEASE" \
-                --title "Lungfish Sparkle Legacy Bridge Appcast" \
-                --notes "Mutable Sparkle appcast bridge for legacy Lungfish prerelease channels." \
-                --prerelease \
-                --target "$target_commit"
-        else
-            local target_commit
-            target_commit="$(git rev-parse HEAD)"
-            gh release edit "$SPARKLE_BRIDGE_PUBLISH_RELEASE" --target "$target_commit"
-        fi
-
-        gh release upload "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path" --clobber
+        ensure_mutable_release \
+            "$SPARKLE_BRIDGE_PUBLISH_RELEASE" \
+            "Lungfish Sparkle Legacy Bridge Appcast" \
+            "Mutable Sparkle appcast bridge for legacy Lungfish prerelease channels."
+        publish_mutable_asset_if_changed "$SPARKLE_BRIDGE_PUBLISH_RELEASE" "$bridge_appcast_path"
     fi
 }
 
@@ -933,8 +966,9 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         *) echo "release scratch path must be absolute" >&2; exit 64 ;;
     esac
 
-    # This is the sole pre-destructive package boundary. Doctor must finish
-    # before output or deterministic scratch directories are created.
+    # The coordinator owns the first request-level Doctor gate. The builder
+    # repeats Doctor immediately before its own destructive output boundary so
+    # direct builder callers cannot bypass the same safety contract.
     run_release_doctor package
 
     for command in rg xcodebuild /usr/bin/xcrun /usr/bin/ditto /usr/bin/mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
@@ -1160,31 +1194,152 @@ clear_verified_retry_artifacts() {
         *) echo "refusing signed-app cleanup outside receipt directory" >&2; exit 64 ;;
     esac
 }
-clear_verified_retry_artifacts
-
-verify_versioned_release_identity
-
-for command in /usr/bin/codesign /usr/bin/hdiutil /usr/bin/ditto /usr/bin/mktemp /usr/bin/xcrun /usr/bin/file /usr/bin/find; do
-    require_command "$command"
-done
-if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
-    require_command gh
-fi
-
-SIGNING_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.signing-work.XXXXXX")
-/bin/chmod 700 "$SIGNING_WORK_DIR"
-APP_PATH="${SIGNING_WORK_DIR}/${APP_BUNDLE_FILENAME}"
-/usr/bin/ditto "$RELEASE_APP_PATH" "$APP_PATH"
 
 cleanup_release_workdirs() {
+    if [ "${RECOVERY_MOUNTED:-0}" -eq 1 ] && [ -n "${RECOVERY_MOUNT_POINT:-}" ]; then
+        /usr/bin/hdiutil detach "$RECOVERY_MOUNT_POINT" >/dev/null 2>&1 || true
+    fi
     if [ -n "${SIGNING_WORK_DIR:-}" ]; then
         /bin/rm -rf "$SIGNING_WORK_DIR"
     fi
     if [ -n "${DMG_STAGING_DIR:-}" ]; then
         /bin/rm -rf "$DMG_STAGING_DIR"
     fi
+    if [ -n "${RECOVERY_WORK_DIR:-}" ]; then
+        /bin/rm -rf "$RECOVERY_WORK_DIR"
+    fi
 }
 trap cleanup_release_workdirs EXIT
+
+remote_asset_record() {
+    local release_tag="$1"
+    local asset_name="$2"
+    local record
+    local line_count
+    record=$(gh release view "$release_tag" --json assets \
+        --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
+    line_count=$(printf '%s\n' "$record" | awk 'NF { count += 1 } END { print count + 0 }')
+    if [ "$line_count" -ne 1 ]; then
+        echo "immutable release asset is missing or ambiguous: ${asset_name}" >&2
+        exit 64
+    fi
+    printf '%s\n' "$record"
+}
+
+verify_file_matches_remote_asset() {
+    local path="$1"
+    local expected_digest="$2"
+    local expected_size="$3"
+    local label="$4"
+    local actual_digest
+    local actual_size
+    if [ ! -f "$path" ] || [ -L "$path" ]; then
+        echo "$label must be a regular non-symlink file: $path" >&2
+        exit 64
+    fi
+    case "$expected_digest" in
+        sha256:[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+        *) echo "$label remote digest is missing or malformed" >&2; exit 64 ;;
+    esac
+    if [ "${#expected_digest}" -ne 71 ] || ! [[ "$expected_size" =~ ^[1-9][0-9]*$ ]]; then
+        echo "$label remote digest or size is malformed" >&2
+        exit 64
+    fi
+    actual_digest="sha256:$(shasum -a 256 "$path" | awk '{print $1}')"
+    actual_size=$(/usr/bin/stat -f %z "$path")
+    if [ "$actual_digest" != "$expected_digest" ] || [ "$actual_size" != "$expected_size" ]; then
+        echo "$label does not match the immutable GitHub release asset" >&2
+        exit 64
+    fi
+}
+
+verify_recovered_signed_app() {
+    local app="$1"
+    if [ ! -d "$app" ] || [ -L "$app" ]; then
+        echo "recovered signed app is unavailable or unsafe: $app" >&2
+        exit 64
+    fi
+    /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
+    /usr/bin/xcrun stapler validate "$app"
+    scripts/smoke-test-release-tools.sh "$app" \
+        --allowed-swiftpm-fallback "$SCRATCH_PATH"
+}
+
+recover_immutable_release_artifacts() {
+    local asset_record
+    local remote_digest
+    local remote_size
+    local downloaded_dmg
+    asset_record=$(remote_asset_record "$GITHUB_RELEASE_TAG" "$(basename "$DMG_PATH")")
+    IFS=$'\t' read -r remote_digest remote_size <<<"$asset_record"
+
+    if [ -e "$DMG_PATH" ] || [ -L "$DMG_PATH" ]; then
+        verify_file_matches_remote_asset "$DMG_PATH" "$remote_digest" "$remote_size" \
+            "local recovery DMG"
+    else
+        RECOVERY_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.immutable-recovery.XXXXXX")
+        /bin/chmod 700 "$RECOVERY_WORK_DIR"
+        gh release download "$GITHUB_RELEASE_TAG" \
+            --pattern "$(basename "$DMG_PATH")" \
+            --dir "$RECOVERY_WORK_DIR"
+        downloaded_dmg="${RECOVERY_WORK_DIR}/$(basename "$DMG_PATH")"
+        verify_file_matches_remote_asset "$downloaded_dmg" "$remote_digest" "$remote_size" \
+            "downloaded recovery DMG"
+        /bin/mv "$downloaded_dmg" "$DMG_PATH"
+    fi
+
+    if [ -e "$SIGNED_APP_PATH" ] || [ -L "$SIGNED_APP_PATH" ]; then
+        verify_recovered_signed_app "$SIGNED_APP_PATH"
+        return
+    fi
+
+    if [ -z "${RECOVERY_WORK_DIR:-}" ]; then
+        RECOVERY_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.immutable-recovery.XXXXXX")
+        /bin/chmod 700 "$RECOVERY_WORK_DIR"
+    fi
+    RECOVERY_MOUNT_POINT="${RECOVERY_WORK_DIR}/mount"
+    local extracted_app="${RECOVERY_WORK_DIR}/${APP_BUNDLE_FILENAME}"
+    /bin/mkdir -p "$RECOVERY_MOUNT_POINT"
+    /usr/bin/hdiutil attach \
+        -readonly \
+        -nobrowse \
+        -mountpoint "$RECOVERY_MOUNT_POINT" \
+        "$DMG_PATH" >/dev/null
+    RECOVERY_MOUNTED=1
+    if [ ! -d "${RECOVERY_MOUNT_POINT}/${APP_BUNDLE_FILENAME}" ] \
+        || [ -L "${RECOVERY_MOUNT_POINT}/${APP_BUNDLE_FILENAME}" ]; then
+        echo "immutable DMG does not contain the expected app bundle" >&2
+        exit 64
+    fi
+    /usr/bin/ditto "${RECOVERY_MOUNT_POINT}/${APP_BUNDLE_FILENAME}" "$extracted_app"
+    /usr/bin/hdiutil detach "$RECOVERY_MOUNT_POINT" >/dev/null
+    RECOVERY_MOUNTED=0
+    verify_recovered_signed_app "$extracted_app"
+    /bin/mkdir -p "$(dirname "$SIGNED_APP_PATH")"
+    /bin/mv "$extracted_app" "$SIGNED_APP_PATH"
+}
+
+verify_versioned_release_identity
+
+for command in /usr/bin/codesign /usr/bin/hdiutil /usr/bin/ditto /usr/bin/mktemp /usr/bin/xcrun /usr/bin/file /usr/bin/find /usr/bin/stat; do
+    require_command "$command"
+done
+if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
+    require_command gh
+fi
+
+if [ "$RECOVER_EXISTING_RELEASE" -eq 1 ]; then
+    # Once the immutable release exists, its exact DMG is the source of truth.
+    # Recovery must never rebuild, re-sign, re-notarize, replace, or upload it.
+    recover_immutable_release_artifacts
+    APP_PATH="$SIGNED_APP_PATH"
+    VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
+else
+    clear_verified_retry_artifacts
+    SIGNING_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.signing-work.XXXXXX")
+    /bin/chmod 700 "$SIGNING_WORK_DIR"
+    APP_PATH="${SIGNING_WORK_DIR}/${APP_BUNDLE_FILENAME}"
+    /usr/bin/ditto "$RELEASE_APP_PATH" "$APP_PATH"
 
 CLI_DEST="${APP_PATH}/Contents/MacOS/lungfish-cli"
 WORKFLOW_TOOLS_DIR="${APP_PATH}/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools"
@@ -1317,6 +1472,12 @@ ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 /usr/bin/xcrun stapler staple "$DMG_PATH"
 
 publish_github_release_dmg
+fi
+
+if [ "$VERSION" != "$SOURCE_VERSION" ]; then
+    echo "release artifact version does not match source version: $VERSION != $SOURCE_VERSION" >&2
+    exit 65
+fi
 generate_sparkle_appcast
 prune_github_prereleases
 

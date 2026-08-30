@@ -9,6 +9,7 @@ import os
 import plistlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -667,12 +668,128 @@ def ensure_release_collision_free(root: Path, remote: str, release_tag: str) -> 
         )
 
 
-def run_common_coordinator(root: Path, args: argparse.Namespace) -> None:
+def prepared_release_recovery_receipt(
+    root: Path, remote: str, channel: str = "preview"
+) -> Path | None:
+    version = current_version(root)
+    if parse_calver_tag(version) is None:
+        return None
+    tag = f"v{version}"
+    raw = git_output(
+        root,
+        "ls-remote",
+        "--tags",
+        remote,
+        f"refs/tags/{tag}",
+        f"refs/tags/{tag}^{{}}",
+    )
+    direct = ""
+    peeled = ""
+    for line in raw.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            raise NightlyReleaseError("remote release tag response is malformed")
+        commit, ref = fields
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise NightlyReleaseError("remote release tag commit is malformed")
+        if ref == f"refs/tags/{tag}":
+            if direct:
+                raise NightlyReleaseError("remote release tag response is ambiguous")
+            direct = commit
+        elif ref == f"refs/tags/{tag}^{{}}":
+            if peeled:
+                raise NightlyReleaseError("remote release tag response is ambiguous")
+            peeled = commit
+        else:
+            raise NightlyReleaseError("remote release tag response is out of scope")
+    if not direct and not peeled:
+        return None
+    if not direct or not peeled:
+        raise NightlyReleaseError(
+            f"current release tag is not an exact annotated tag: {tag}"
+        )
+    head = git_output(root, "rev-parse", "HEAD").strip()
+    if peeled != head:
+        raise NightlyReleaseError(
+            f"current release tag does not peel to HEAD: {tag}"
+        )
+
+    receipt_path = root / "build/Release/unsigned-candidate-receipt.json"
+    try:
+        receipt_info = receipt_path.lstat()
+    except OSError as error:
+        raise NightlyReleaseError(
+            f"tagged release recovery receipt is unavailable: {receipt_path}"
+        ) from error
+    if (
+        not stat.S_ISREG(receipt_info.st_mode)
+        or stat.S_ISLNK(receipt_info.st_mode)
+        or not 0 < receipt_info.st_size <= 1024 * 1024
+    ):
+        raise NightlyReleaseError("tagged release recovery receipt is unsafe")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt_commit = receipt["source"]["commit"]
+        release = receipt["release"]
+        receipt_version = release["version"]
+        receipt_channel = release["channel"]
+        scratch_path = receipt["build"]["scratchPath"]
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise NightlyReleaseError(
+            "tagged release recovery receipt is malformed"
+        ) from error
+    if (
+        receipt_commit != head
+        or receipt_version != version
+        or receipt_channel != channel
+        or not isinstance(scratch_path, str)
+        or not scratch_path.startswith("/")
+    ):
+        raise NightlyReleaseError(
+            "tagged release recovery receipt identity does not match HEAD/version/channel"
+        )
+    contract_path = root / "config/release-contract.json"
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        app_filename = contract["channels"][channel]["appBundleFilename"]
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise NightlyReleaseError("release contract is malformed") from error
+    if not isinstance(app_filename, str) or not app_filename:
+        raise NightlyReleaseError("release contract app filename is malformed")
+    run(
+        [
+            str(root / "scripts/release/release-candidate-receipt.py"),
+            "verify",
+            "--app",
+            str(receipt_path.parent / app_filename),
+            "--receipt",
+            str(receipt_path),
+            "--channel",
+            channel,
+            "--scratch-path",
+            scratch_path,
+        ],
+        cwd=root,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    return receipt_path
+
+
+def run_common_coordinator(
+    root: Path,
+    args: argparse.Namespace,
+    resume_receipt: Path | None = None,
+) -> None:
+    mode = (
+        ["--resume", str(resume_receipt)]
+        if resume_receipt is not None
+        else ["--prepare"]
+    )
     command = [
         sys.executable,
         str(args.release_coordinator),
         "preview",
-        "--prepare",
+        *mode,
         "--repo",
         str(root),
         "--remote",
@@ -846,6 +963,17 @@ def main(argv: list[str]) -> int:
         git(root, "pull", "--ff-only", args.remote, args.main_branch)
 
         old_version = current_version(root)
+        recovery_receipt = prepared_release_recovery_receipt(
+            root, args.remote, channel="preview"
+        )
+        if recovery_receipt is not None:
+            release_tag = f"v{old_version}"
+            rescue_dir = create_rescue_dir(root, rescue_root, release_tag)
+            write_rescue_archive(root, rescue_dir, [])
+            run_common_coordinator(root, args, resume_receipt=recovery_receipt)
+            ensure_clean_main(root, args.main_branch)
+            print_summary(release_tag, rescue_dir)
+            return 0
         tags = git_output(root, "tag", "--list").splitlines()
         release_versions = sorted(
             set(remote_release_tags(root, args.remote)) | set(github_release_tags(root))

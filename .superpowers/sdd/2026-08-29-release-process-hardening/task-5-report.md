@@ -18,9 +18,10 @@ contract:
 - Refined RED: 20 coordinator/workflow tests ran with 2 failures and 11 errors.
 - Nightly delegation RED: both focused delegation tests errored because
   `run_common_coordinator` did not exist.
-- Independent-verification RED: the coordinator selected the scratch
-  `app_path`, causing the published-app verification test to fail before the
-  fix to `release_app_path`.
+- The original independent-verification fixture encoded the builder metadata
+  keys backward. Independent review replaced it with real builder output and
+  proved `app_path` is the signed/notarized app while `release_app_path` is the
+  preserved unsigned candidate; the verifier now uses `app_path`.
 - Stable dependency-gate RED: the workflow test showed that the dependency
   receipt job was restricted to Preview and absent from Stable dependencies.
 - Dependency-receipt semantics RED: the focused receipt test proved that pack
@@ -92,7 +93,7 @@ contract:
   complete successfully.
 - Credentials are checked and passed only after the exact-SHA board succeeds.
   Subprocess errors do not echo captured command output or receipt contents.
-- Independent verification checks the release-directory app, streamed DMG
+- Independent verification checks the signed/notarized app, streamed DMG
   digest, code signature, stapling, Gatekeeper, smoke behavior, immutable
   release identity/state/assets, and mutable feed target/appcast assets.
 
@@ -115,3 +116,68 @@ Live GitHub tag/run behavior and Apple/Sparkle credentialed operations were not
 exercised, by task requirement. Their command construction, ordering, failure
 gates, and recovery paths are covered at subprocess boundaries without remote
 mutation.
+
+## Independent-review correction
+
+The first independent review found two Critical and four Important gaps. Each
+was reproduced with behavioral RED tests before production or workflow edits:
+
+- Real builder metadata proved independent verification selected the preserved
+  unsigned `release_app_path` instead of the signed/notarized `app_path`.
+- A stateful GitHub test double and nondeterministic DMG-signing fixture proved
+  recovery deleted and recreated a timestamp-sensitive immutable artifact, then
+  could not match the already-published digest.
+- Required GitHub Actions jobs with duplicate display names proved the name map
+  accepted one duplicate depending on order.
+- Missing immutable/feed digests and sizes, wrong mutable state, and a wrong
+  Preview bridge digest all passed the original independent verifier.
+- A real annotated remote tag plus real package receipt proved nightly advanced
+  CalVer instead of resuming; moved, lightweight, stale, and wrong-channel
+  variants were also incorrectly ignored.
+- An absent private-key path proved CLI construction touched credential paths
+  before package/tag/exact-SHA CI work.
+- CI workflow evidence proved package logs were absent and missing evidence was
+  configured as an error instead of an always-uploaded best-effort artifact.
+
+The corrected transaction now treats the published immutable release as the
+source of truth. Recovery validates exact tag/HEAD/channel/non-draft identity,
+requires one remote DMG asset with exact SHA-256 and integer size, preserves a
+matching local DMG or downloads that exact asset to a private temporary
+directory and atomically places it, and verifies an existing signed app or
+extracts it from a read-only mount of the verified DMG. The recovery branch
+cannot archive, build Swift, sign, notarize, create a DMG, or upload the
+versioned asset. Mutable feed and bridge releases are reconciled afterward and
+exact matching assets are not uploaded twice.
+
+Independent verification now uses the builder's signed `app_path`; requires
+exact local/remote hash and size for the immutable DMG, primary appcast, and
+legacy bridge appcast; and binds every remote release to target SHA,
+non-draft state, and expected channel state. Every required CI job name must
+occur exactly once. Credential paths remain expanded lexical absolute paths
+until credentialed resume after the exact-SHA gate.
+
+Nightly now checks the current prepared CalVer before selecting a new version.
+One exact annotated remote tag peeling to HEAD plus a bounded regular receipt
+whose commit/version/Preview channel and full canonical verification match
+causes exactly one common-coordinator `--resume`; invalid recovery evidence
+fails closed without version preparation. The builder's repeated Doctor is
+documented as defense at the destructive boundary, while the coordinator owns
+the earlier request-level gate.
+
+CI's secretless unsigned package matrix now captures stdout/stderr in a channel
+log outside the destructively prepared Release directory and uploads that log,
+metadata, and receipt under `always()` with missing evidence ignored. Apps,
+archives, DMGs, signed outputs, and private material remain excluded.
+
+Correction verification:
+
+- Builder phase suite: 25 tests passed.
+- Nightly/coordinator suite: 35 tests passed.
+- CI workflow suite: 21 tests passed.
+- Contract-defined broader release suite: 192 tests passed in 171.793 seconds
+  after updating one stale static assertion for the new idempotent
+  mutable-upload helper.
+- Bash syntax, Python compilation, PyYAML/Ruby YAML parsing (12 jobs), and
+  `git diff --check`: passed.
+- No live tag/push, GitHub mutation, credential lookup, signing, notarization,
+  or remote publication was performed.

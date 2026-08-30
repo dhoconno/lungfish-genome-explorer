@@ -1,7 +1,9 @@
 import argparse
+import copy
 import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -11,6 +13,8 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from scripts.tests.test_release_builder_phases import ReleaseBuilderFixture
 
 
 def load_module():
@@ -573,6 +577,226 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 calls.index("run_common_coordinator"), calls.index("cleanup_agent_refs")
             )
 
+    def test_main_resumes_exact_current_tag_receipt_before_advancing_calver(self):
+        fixture = ReleaseBuilderFixture(self)
+        self.addCleanup(fixture.cleanup)
+        notes = fixture.repo / "docs/release-notes/2026.8.1.md"
+        notes.write_text(
+            notes.read_text(encoding="utf-8").replace(
+                "Channel: Stable", "Channel: Preview"
+            ),
+            encoding="utf-8",
+        )
+        fixture._git("add", str(notes.relative_to(fixture.repo)))
+        fixture._git("commit", "-q", "-m", "preview notes")
+        fixture.prepare_remote_tag()
+        fixture.release = fixture.repo / "build/Release"
+        packaged = fixture.run("--package-only", "--channel", "preview")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        receipt = fixture.release / "unsigned-candidate-receipt.json"
+        rescue = fixture.repo / ".build/rescue"
+        lock = fixture.repo / ".build/nightly-prerelease-release.lock"
+        resumed = []
+        prepared = []
+
+        def create_lock(_root):
+            lock.mkdir(parents=True)
+            return lock
+
+        def coordinator(_root, _args, resume_receipt=None):
+            resumed.append(resume_receipt)
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "PATH": f"{fixture.bin}:{os.environ['PATH']}",
+                        "BUILDER_EVENTS": str(fixture.events),
+                        "BUILDER_PYTHON": str(
+                            Path(__file__).resolve().parents[2]
+                            / ".ci-python/bin/python"
+                        ),
+                    },
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(self.release, "create_lock", create_lock)
+            )
+            for name in (
+                "ensure_rescue_root_is_ignored",
+                "prune_rescue_archives",
+                "ensure_clean_main",
+                "git",
+                "write_rescue_archive",
+                "cleanup_agent_refs",
+                "print_summary",
+            ):
+                stack.enter_context(mock.patch.object(self.release, name))
+            stack.enter_context(
+                mock.patch.object(self.release, "github_release_tags", return_value=[])
+            )
+            stack.enter_context(
+                mock.patch.object(self.release, "discover_agent_branches", return_value=[])
+            )
+            stack.enter_context(
+                mock.patch.object(self.release, "create_rescue_dir", return_value=rescue)
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release,
+                    "prepare_release_commit",
+                    side_effect=lambda *_args: prepared.append(True),
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(self.release, "ensure_release_collision_free")
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release, "run_common_coordinator", side_effect=coordinator
+                )
+            )
+            status = self.release.main(
+                [
+                    "--repo",
+                    str(fixture.repo),
+                    "--main-branch",
+                    "master",
+                    "--rescue-root",
+                    str(rescue),
+                    "--signing-identity",
+                    "Developer ID Application: Example",
+                    "--team-id",
+                    "TEAMID",
+                    "--notary-profile",
+                    "notary",
+                    "--sparkle-generate-appcast",
+                    str(fixture.bin / "generate_appcast"),
+                    "--dependency-receipt",
+                    str(fixture.root / "dependency-receipt.json"),
+                    "--no-prune-prereleases",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(prepared, [])
+        self.assertEqual(resumed, [receipt])
+
+    def test_main_rejects_moved_lightweight_stale_or_wrong_channel_recovery(self):
+        def run_nightly(fixture):
+            rescue = fixture.repo / ".build/rescue"
+            lock = fixture.repo / ".build/nightly-prerelease-release.lock"
+
+            def create_lock(_root):
+                lock.mkdir(parents=True)
+                return lock
+
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(
+                    mock.patch.object(self.release, "create_lock", create_lock)
+                )
+                for name in (
+                    "ensure_rescue_root_is_ignored",
+                    "prune_rescue_archives",
+                    "ensure_clean_main",
+                    "git",
+                    "write_rescue_archive",
+                    "cleanup_agent_refs",
+                    "print_summary",
+                    "ensure_release_collision_free",
+                ):
+                    stack.enter_context(mock.patch.object(self.release, name))
+                stack.enter_context(
+                    mock.patch.object(
+                        self.release, "github_release_tags", return_value=[]
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        self.release, "discover_agent_branches", return_value=[]
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        self.release, "create_rescue_dir", return_value=rescue
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(self.release, "prepare_release_commit")
+                )
+                stack.enter_context(
+                    mock.patch.object(self.release, "run_common_coordinator")
+                )
+                return self.release.main(
+                    [
+                        "--repo",
+                        str(fixture.repo),
+                        "--main-branch",
+                        "master",
+                        "--rescue-root",
+                        str(rescue),
+                        "--signing-identity",
+                        "Developer ID Application: Example",
+                        "--team-id",
+                        "TEAMID",
+                        "--notary-profile",
+                        "notary",
+                        "--sparkle-generate-appcast",
+                        str(fixture.bin / "generate_appcast"),
+                        "--dependency-receipt",
+                        str(fixture.root / "dependency-receipt.json"),
+                        "--no-prune-prereleases",
+                    ]
+                )
+
+        for failure in ("moved tag", "lightweight tag", "stale receipt", "wrong channel"):
+            with self.subTest(failure=failure):
+                fixture = ReleaseBuilderFixture(self)
+                self.addCleanup(fixture.cleanup)
+                if failure != "wrong channel":
+                    notes = fixture.repo / "docs/release-notes/2026.8.1.md"
+                    notes.write_text(
+                        notes.read_text(encoding="utf-8").replace(
+                            "Channel: Stable", "Channel: Preview"
+                        ),
+                        encoding="utf-8",
+                    )
+                    fixture._git("add", str(notes.relative_to(fixture.repo)))
+                    fixture._git("commit", "-q", "-m", "preview notes")
+                fixture.prepare_remote_tag()
+                fixture.release = fixture.repo / "build/Release"
+                channel = "stable" if failure == "wrong channel" else "preview"
+                packaged = fixture.run("--package-only", "--channel", channel)
+                self.assertEqual(
+                    packaged.returncode, 0, packaged.stdout + packaged.stderr
+                )
+                if failure == "moved tag":
+                    head = fixture._git("rev-parse", "HEAD").stdout.strip()
+                    tree = fixture._git("write-tree").stdout.strip()
+                    other = fixture._git(
+                        "commit-tree", tree, "-p", head, "-m", "moved tag"
+                    ).stdout.strip()
+                    fixture._git(
+                        "tag", "-f", "-a", "v2026.8.1", other, "-m", "moved"
+                    )
+                    fixture._git("push", "-q", "--force", "origin", "v2026.8.1")
+                elif failure == "lightweight tag":
+                    fixture._git("push", "-q", "origin", ":refs/tags/v2026.8.1")
+                    fixture._git("tag", "-d", "v2026.8.1")
+                    fixture._git("tag", "v2026.8.1")
+                    fixture._git("push", "-q", "origin", "v2026.8.1")
+                elif failure == "stale receipt":
+                    receipt_path = fixture.release / "unsigned-candidate-receipt.json"
+                    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                    receipt["source"]["commit"] = "b" * 40
+                    receipt_path.write_text(
+                        json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+                        encoding="utf-8",
+                    )
+
+                self.assertEqual(run_nightly(fixture), 1)
+
 
 class CommonReleaseCoordinatorTests(unittest.TestCase):
     def setUp(self):
@@ -718,6 +942,49 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertEqual(operations.events[0], "verify-candidate-receipt")
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
 
+    def test_cli_defers_missing_credential_paths_until_after_exact_sha_gate(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temporary = Path(temp_dir)
+            receipt = temporary / "unsigned-candidate-receipt.json"
+            receipt.write_text("{}", encoding="utf-8")
+            missing_generator = temporary / "missing-generate_appcast"
+            missing_private_key = temporary / "missing-private-key"
+            reached_transaction = []
+
+            def execute(_transaction, request):
+                reached_transaction.append(True)
+                self.assertEqual(
+                    request.sparkle_generate_appcast, missing_generator.absolute()
+                )
+                self.assertEqual(
+                    request.sparkle_ed_key_file, missing_private_key.absolute()
+                )
+                raise self.coordinator.ReleaseError(
+                    "credentialed release prerequisites are unavailable"
+                )
+
+            stderr = io.StringIO()
+            with mock.patch.object(
+                self.coordinator.ReleaseCoordinator, "execute", execute
+            ), contextlib.redirect_stderr(stderr):
+                status = self.coordinator.main(
+                    [
+                        "stable",
+                        "--resume",
+                        str(receipt),
+                        "--repo",
+                        str(Path(__file__).resolve().parents[2]),
+                        "--sparkle-generate-appcast",
+                        str(missing_generator),
+                        "--sparkle-ed-key-file",
+                        str(missing_private_key),
+                    ]
+                )
+
+            self.assertEqual(status, 1)
+            self.assertEqual(reached_transaction, [True])
+            self.assertNotIn(str(missing_private_key), stderr.getvalue())
+
     def test_any_exact_sha_ci_gate_failure_blocks_credentials_and_publication(self):
         for conclusion in ("failure", "cancelled", "skipped"):
             with self.subTest(conclusion=conclusion):
@@ -767,12 +1034,30 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                     [success_run], jobs, channel="stable", tag=tag, expected_sha=sha
                 )
 
+        duplicate_failure = {
+            "name": stable_jobs[-1]["name"],
+            "status": "completed",
+            "conclusion": "failure",
+        }
+        for duplicate_jobs in (
+            [*stable_jobs, duplicate_failure],
+            [*stable_jobs[:-1], duplicate_failure, stable_jobs[-1]],
+        ):
+            with self.subTest(order=[job["conclusion"] for job in duplicate_jobs[-2:]]):
+                with self.assertRaisesRegex(self.coordinator.ReleaseError, "ambiguous"):
+                    self.coordinator.evaluate_actions_runs(
+                        [success_run],
+                        duplicate_jobs,
+                        channel="stable",
+                        tag=tag,
+                        expected_sha=sha,
+                    )
+
     def test_independent_verification_uses_the_published_release_app(self):
         class VerificationRunner:
-            def __init__(self, release_payload, feed_payload):
+            def __init__(self, payloads):
                 self.commands = []
-                self.release_payload = release_payload
-                self.feed_payload = feed_payload
+                self.payloads = payloads
 
             def run(self, command, **_kwargs):
                 self.commands.append(command)
@@ -780,70 +1065,273 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
             def json(self, command):
                 self.commands.append(command)
-                if command[3] == "v2026.8.1":
-                    return self.release_payload
-                return self.feed_payload
+                return self.payloads[command[3]]
 
         root = Path(__file__).resolve().parents[2]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            release_dir = Path(temp_dir)
-            receipt = release_dir / "unsigned-candidate-receipt.json"
-            receipt.write_text("{}", encoding="utf-8")
-            published_app = release_dir / "Lungfish.app"
-            published_app.write_text("signed app", encoding="utf-8")
-            dmg = release_dir / "Lungfish.dmg"
-            dmg.write_bytes(b"signed dmg")
-            digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
-            (release_dir / "release-metadata.txt").write_text(
-                "\n".join(
-                    [
-                        "version=2026.8.1",
-                        "channel=stable",
-                        f"git_commit={'a' * 40}",
-                        "app_path=/private/var/tmp/release-scratch/Signed.app",
-                        f"release_app_path={published_app}",
-                        f"DMG_PATH={dmg}",
-                        f"dmg_sha256={digest}",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            release_payload = {
-                "targetCommitish": "a" * 40,
+        fixture = ReleaseBuilderFixture(self)
+        self.addCleanup(fixture.cleanup)
+        packaged = fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        completed = fixture.run(
+            "--resume-candidate",
+            str(fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--defer-remote-publish",
+            "--channel",
+            "stable",
+            "--sparkle-generate-appcast",
+            str(fixture.bin / "generate_appcast"),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        metadata = self.coordinator._metadata(fixture.release / "release-metadata.txt")
+        signed_app = Path(metadata["app_path"])
+        unsigned_app = Path(metadata["release_app_path"])
+        dmg = Path(metadata["DMG_PATH"])
+        appcast = Path(metadata["sparkle_appcast_path"])
+        commit = fixture._git("rev-parse", "HEAD").stdout.strip()
+        dmg_digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
+        appcast_digest = hashlib.sha256(appcast.read_bytes()).hexdigest()
+        payloads = {
+            "v2026.8.1": {
+                "targetCommitish": commit,
                 "isPrerelease": False,
                 "isDraft": False,
                 "assets": [
                     {
                         "name": dmg.name,
-                        "digest": f"sha256:{digest}",
+                        "digest": f"sha256:{dmg_digest}",
                         "size": dmg.stat().st_size,
                     }
                 ],
-            }
-            feed_payload = {
-                "targetCommitish": "a" * 40,
-                "assets": [{"name": "appcast-stable.xml"}],
-            }
-            operations = self.coordinator.LocalReleaseOperations(root)
-            operations.runner = VerificationRunner(release_payload, feed_payload)
-            request = self.request(channel="stable")
-            identity = self.coordinator.CandidateIdentity(
-                receipt=receipt,
-                tag="v2026.8.1",
-                commit="a" * 40,
-                version="2026.8.1",
-                scratch_path=Path("/private/var/tmp/release-scratch"),
-            )
+            },
+            "sparkle-stable": {
+                "targetCommitish": commit,
+                "isPrerelease": True,
+                "isDraft": False,
+                "assets": [
+                    {
+                        "name": appcast.name,
+                        "digest": f"sha256:{appcast_digest}",
+                        "size": appcast.stat().st_size,
+                    }
+                ],
+            },
+        }
+        operations = self.coordinator.LocalReleaseOperations(root)
+        operations.runner = VerificationRunner(payloads)
+        request = self.request(channel="stable")
+        identity = self.coordinator.CandidateIdentity(
+            receipt=fixture.release / "unsigned-candidate-receipt.json",
+            tag="v2026.8.1",
+            commit=commit,
+            version="2026.8.1",
+            scratch_path=fixture.scratch_root,
+        )
 
+        operations.independent_verify(request, identity)
+
+        codesign = next(
+            command
+            for command in operations.runner.commands
+            if "codesign" in command[0]
+        )
+        self.assertEqual(Path(codesign[-1]), signed_app.resolve())
+        self.assertNotEqual(Path(codesign[-1]), unsigned_app.resolve())
+
+    def test_independent_verification_requires_exact_remote_digests_sizes_and_state(
+        self,
+    ):
+        class VerificationRunner:
+            def __init__(self, payloads):
+                self.payloads = payloads
+
+            def run(self, command, **_kwargs):
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            def json(self, command):
+                return self.payloads[command[3]]
+
+        fixture = ReleaseBuilderFixture(self)
+        self.addCleanup(fixture.cleanup)
+        packaged = fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        completed = fixture.run(
+            "--resume-candidate",
+            str(fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--defer-remote-publish",
+            "--channel",
+            "stable",
+            "--sparkle-generate-appcast",
+            str(fixture.bin / "generate_appcast"),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        metadata = self.coordinator._metadata(fixture.release / "release-metadata.txt")
+        dmg = Path(metadata["DMG_PATH"])
+        appcast = Path(metadata["sparkle_appcast_path"])
+        commit = fixture._git("rev-parse", "HEAD").stdout.strip()
+        payloads = {
+            "v2026.8.1": {
+                "targetCommitish": commit,
+                "isPrerelease": False,
+                "isDraft": False,
+                "assets": [
+                    {
+                        "name": dmg.name,
+                        "digest": f"sha256:{hashlib.sha256(dmg.read_bytes()).hexdigest()}",
+                        "size": dmg.stat().st_size,
+                    }
+                ],
+            },
+            "sparkle-stable": {
+                "targetCommitish": commit,
+                "isPrerelease": True,
+                "isDraft": False,
+                "assets": [
+                    {
+                        "name": appcast.name,
+                        "digest": f"sha256:{hashlib.sha256(appcast.read_bytes()).hexdigest()}",
+                        "size": appcast.stat().st_size,
+                    }
+                ],
+            },
+        }
+        request = self.request(channel="stable")
+        identity = self.coordinator.CandidateIdentity(
+            receipt=fixture.release / "unsigned-candidate-receipt.json",
+            tag="v2026.8.1",
+            commit=commit,
+            version="2026.8.1",
+            scratch_path=fixture.scratch_root,
+        )
+        cases = {
+            "immutable digest missing": lambda value: value["v2026.8.1"]["assets"][0].pop("digest"),
+            "immutable size missing": lambda value: value["v2026.8.1"]["assets"][0].pop("size"),
+            "feed digest missing": lambda value: value["sparkle-stable"]["assets"][0].pop("digest"),
+            "feed size missing": lambda value: value["sparkle-stable"]["assets"][0].pop("size"),
+            "feed digest wrong": lambda value: value["sparkle-stable"]["assets"][0].update(digest="sha256:" + "0" * 64),
+            "feed size wrong": lambda value: value["sparkle-stable"]["assets"][0].update(size=appcast.stat().st_size + 1),
+            "feed draft": lambda value: value["sparkle-stable"].update(isDraft=True),
+            "feed channel state": lambda value: value["sparkle-stable"].update(isPrerelease=False),
+        }
+        for label, mutate in cases.items():
+            with self.subTest(label=label):
+                bad = copy.deepcopy(payloads)
+                mutate(bad)
+                operations = self.coordinator.LocalReleaseOperations(
+                    Path(__file__).resolve().parents[2]
+                )
+                operations.runner = VerificationRunner(bad)
+                with self.assertRaises(self.coordinator.ReleaseError):
+                    operations.independent_verify(request, identity)
+
+    def test_independent_verification_binds_preview_bridge_to_local_appcast(self):
+        class VerificationRunner:
+            def __init__(self, payloads):
+                self.payloads = payloads
+
+            def run(self, command, **_kwargs):
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            def json(self, command):
+                return self.payloads[command[3]]
+
+        fixture = ReleaseBuilderFixture(self)
+        self.addCleanup(fixture.cleanup)
+        notes = fixture.repo / "docs/release-notes/2026.8.1.md"
+        notes.write_text(
+            notes.read_text(encoding="utf-8").replace("Channel: Stable", "Channel: Preview"),
+            encoding="utf-8",
+        )
+        fixture._git("add", str(notes.relative_to(fixture.repo)))
+        fixture._git("commit", "-q", "-m", "preview notes")
+        packaged = fixture.run("--package-only", "--channel", "preview")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        completed = fixture.run(
+            "--resume-candidate",
+            str(fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--defer-remote-publish",
+            "--channel",
+            "preview",
+            "--sparkle-generate-appcast",
+            str(fixture.bin / "generate_appcast"),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        metadata = self.coordinator._metadata(fixture.release / "release-metadata.txt")
+        dmg = Path(metadata["DMG_PATH"])
+        appcast = Path(metadata["sparkle_appcast_path"])
+        bridge = appcast.parent / "appcast-alpha.xml"
+        bridge.write_bytes(appcast.read_bytes())
+        commit = fixture._git("rev-parse", "HEAD").stdout.strip()
+        digest = hashlib.sha256(appcast.read_bytes()).hexdigest()
+        asset = {
+            "name": appcast.name,
+            "digest": f"sha256:{digest}",
+            "size": appcast.stat().st_size,
+        }
+        payloads = {
+            "v2026.8.1": {
+                "targetCommitish": commit,
+                "isPrerelease": True,
+                "isDraft": False,
+                "assets": [
+                    {
+                        "name": dmg.name,
+                        "digest": f"sha256:{hashlib.sha256(dmg.read_bytes()).hexdigest()}",
+                        "size": dmg.stat().st_size,
+                    }
+                ],
+            },
+            "sparkle-beta": {
+                "targetCommitish": commit,
+                "isPrerelease": True,
+                "isDraft": False,
+                "assets": [asset],
+            },
+            "sparkle-alpha": {
+                "targetCommitish": commit,
+                "isPrerelease": True,
+                "isDraft": False,
+                "assets": [
+                    {
+                        "name": bridge.name,
+                        "digest": "sha256:" + "0" * 64,
+                        "size": bridge.stat().st_size,
+                    }
+                ],
+            },
+        }
+        operations = self.coordinator.LocalReleaseOperations(
+            Path(__file__).resolve().parents[2]
+        )
+        operations.runner = VerificationRunner(payloads)
+        request = self.request(channel="preview")
+        identity = self.coordinator.CandidateIdentity(
+            receipt=fixture.release / "unsigned-candidate-receipt.json",
+            tag="v2026.8.1",
+            commit=commit,
+            version="2026.8.1",
+            scratch_path=fixture.scratch_root,
+        )
+
+        with self.assertRaises(self.coordinator.ReleaseError):
             operations.independent_verify(request, identity)
-
-            codesign = next(
-                command
-                for command in operations.runner.commands
-                if "codesign" in command[0]
-            )
-            self.assertEqual(Path(codesign[-1]), published_app.resolve())
 
     def test_dependency_receipt_is_bound_to_manifest_and_complete_environments(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -930,6 +1418,40 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         )
         self.assertIn("--dependency-receipt", command)
         self.assertNotIn("build-notarized-dmg.sh", " ".join(command))
+
+    def test_nightly_recovery_delegates_one_resume_without_prepare(self):
+        nightly = load_module()
+        args = argparse.Namespace(
+            release_coordinator=Path("/repo/scripts/release/release.py"),
+            remote="origin",
+            main_branch="main",
+            signing_identity="Developer ID Application: Example (TEAMID)",
+            team_id="TEAMID",
+            notary_profile="notary",
+            sparkle_generate_appcast="/sparkle/generate_appcast",
+            sparkle_public_ed_key="public",
+            sparkle_ed_key_file="",
+            dependency_receipt=Path("/verify/dependency-receipt.json"),
+            ci_timeout_seconds=600,
+            ci_poll_seconds=10,
+            prune_prereleases=True,
+            prune_prereleases_keep=10,
+        )
+        receipt = Path("/repo/build/Release/unsigned-candidate-receipt.json")
+        commands = []
+        with mock.patch.object(
+            nightly,
+            "run",
+            side_effect=lambda command, **_kwargs: commands.append(command),
+        ):
+            nightly.run_common_coordinator(
+                Path("/repo"), args, resume_receipt=receipt
+            )
+
+        self.assertEqual(len(commands), 1)
+        self.assertIn("--resume", commands[0])
+        self.assertIn(str(receipt), commands[0])
+        self.assertNotIn("--prepare", commands[0])
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ class ReleaseBuilderFixture:
         self.repo = self.root / "repo"
         self.bin = self.root / "bin"
         self.events = self.root / "events.log"
+        self.gh_state = self.root / "gh-state.json"
         self.scratch_root = self.root / "scratch-root"
         self.release = self.root / "release"
         self.archive = self.root / "archive" / "Lungfish.xcarchive"
@@ -48,6 +49,7 @@ class ReleaseBuilderFixture:
 
     def _copy_repository_inputs(self):
         paths = (
+            ".gitignore",
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release_contract.py",
             "scripts/release/release_cache_security.py",
@@ -112,9 +114,13 @@ class ReleaseBuilderFixture:
             r"""
             #!/bin/bash
             set -eu
-            printf 'receipt:%s:%s\n' "$1" "$*" >>"$BUILDER_EVENTS"
-            "$BUILDER_PYTHON" "$(dirname "$0")/release-candidate-receipt-real.py" "$@"
-            printf 'receipt:%s:ok\n' "$1" >>"$BUILDER_EVENTS"
+            if [ -n "${BUILDER_EVENTS:-}" ]; then
+                printf 'receipt:%s:%s\n' "$1" "$*" >>"$BUILDER_EVENTS"
+            fi
+            "${BUILDER_PYTHON:-python3}" "$(dirname "$0")/release-candidate-receipt-real.py" "$@"
+            if [ -n "${BUILDER_EVENTS:-}" ]; then
+                printf 'receipt:%s:ok\n' "$1" >>"$BUILDER_EVENTS"
+            fi
             """,
         )
         self._write_executable(
@@ -302,14 +308,184 @@ class ReleaseBuilderFixture:
                         exit 77
                     fi
                 fi
+                target="${@: -1}"
+                if [ "${BUILDER_NONDETERMINISTIC_DMG:-0}" = 1 ] \
+                    && [[ "$target" = *.dmg ]] \
+                    && [[ " $* " == *" --sign "* ]]; then
+                    printf 'fixture-dmg-signature:%s\n' "$(wc -l <"$BUILDER_EVENTS")" >>"$target"
+                fi
             """,
-            "gh": 'printf \'gh:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "security": 'printf \'security:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "file": "echo 'Mach-O 64-bit executable arm64'\n",
             "ditto": 'printf \'ditto:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nif [ "${1:-}" = -c ]; then : >"${@: -1}"; else cp -R "$1" "$2"; fi\n',
-            "hdiutil": 'printf \'hdiutil:%s\\n\' "$*" >>"$BUILDER_EVENTS"\ntarget="${@: -1}"\n[ ! -e "$target" ] || exit 73\n: >"$target"\n',
+            "hdiutil": r'''
+                printf 'hdiutil:%s\n' "$*" >>"$BUILDER_EVENTS"
+                case "${1:-}" in
+                    create)
+                        target="${@: -1}"
+                        source=
+                        while [ "$#" -gt 0 ]; do
+                            if [ "$1" = -srcfolder ]; then source="$2"; shift; fi
+                            shift
+                        done
+                        [ ! -e "$target" ] || exit 73
+                        printf 'fixture-dmg\n' >"$target"
+                        rm -rf "${target}.fixture-app"
+                        cp -R "$source" "${target}.fixture-app"
+                        ;;
+                    attach)
+                        dmg="${@: -1}"
+                        mountpoint=
+                        while [ "$#" -gt 0 ]; do
+                            if [ "$1" = -mountpoint ]; then mountpoint="$2"; shift; fi
+                            shift
+                        done
+                        mkdir -p "$mountpoint"
+                        fixture="${dmg}.fixture-app"
+                        if [ ! -d "$fixture" ]; then
+                            fixture="${BUILDER_REMOTE_DMG_FIXTURE:-}"
+                        fi
+                        cp -R "$fixture"/. "$mountpoint"/
+                        ;;
+                    detach) ;;
+                    *) exit 64 ;;
+                esac
+            ''',
         }.items():
             self._write_executable(self.bin / name, f"#!/bin/bash\nset -eu\n{body}")
+
+        self._write_executable(
+            self.bin / "generate_appcast",
+            r'''
+            #!/bin/bash
+            set -eu
+            output=
+            directory="${@: -1}"
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = -o ]; then output="$2"; shift; fi
+                shift
+            done
+            dmg=$(find "$directory" -maxdepth 1 -name '*.dmg' -type f -print -quit)
+            digest=$(shasum -a 256 "$dmg" | awk '{print $1}')
+            printf 'fixture-appcast:%s\n' "$digest" >"$output"
+            printf 'generate_appcast:%s\n' "$output" >>"$BUILDER_EVENTS"
+            ''',
+        )
+        self._write_executable(
+            self.bin / "gh",
+            r'''
+            #!/usr/bin/env python3
+            import hashlib
+            import json
+            import os
+            from pathlib import Path
+            import re
+            import shutil
+            import sys
+
+            arguments = sys.argv[1:]
+            with Path(os.environ["BUILDER_EVENTS"]).open("a", encoding="utf-8") as handle:
+                handle.write("gh:" + " ".join(arguments) + "\n")
+            state_path = Path(os.environ["BUILDER_GH_STATE"])
+            state = json.loads(state_path.read_text()) if state_path.exists() else {"releases": {}}
+            releases = state["releases"]
+            asset_store = state_path.parent / "gh-assets"
+            asset_store.mkdir(exist_ok=True)
+
+            def save():
+                state_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+
+            def asset(path):
+                path = Path(path)
+                data = path.read_bytes()
+                stored = asset_store / f"{len(list(asset_store.iterdir()))}-{path.name}"
+                shutil.copy2(path, stored)
+                return {
+                    "name": path.name,
+                    "digest": "sha256:" + hashlib.sha256(data).hexdigest(),
+                    "size": len(data),
+                    "storedPath": str(stored),
+                }
+
+            if arguments[:2] != ["release", "view"] and arguments[:2] != ["release", "create"] \
+                    and arguments[:2] != ["release", "edit"] and arguments[:2] != ["release", "upload"] \
+                    and arguments[:2] != ["release", "download"]:
+                raise SystemExit(64)
+            action = arguments[1]
+            tag = arguments[2]
+            if action == "view":
+                release = releases.get(tag)
+                if release is None:
+                    raise SystemExit(1)
+                if "--jq" not in arguments:
+                    if "--json" in arguments:
+                        print(json.dumps(release))
+                    raise SystemExit(0)
+                expression = arguments[arguments.index("--jq") + 1]
+                fields = {
+                    ".targetCommitish": release["targetCommitish"],
+                    ".isPrerelease": str(release["isPrerelease"]).lower(),
+                    ".isDraft": str(release["isDraft"]).lower(),
+                }
+                if expression in fields:
+                    print(fields[expression])
+                    raise SystemExit(0)
+                match = re.search(r'select\(\.name == "([^"]+)"\)', expression)
+                selected = [item for item in release["assets"] if match and item["name"] == match.group(1)]
+                if "@tsv" in expression:
+                    for item in selected:
+                        print(f'{item["digest"]}\t{item["size"]}')
+                elif ".digest" in expression:
+                    for item in selected:
+                        print(item["digest"])
+                raise SystemExit(0)
+            if action == "create":
+                if tag.startswith("sparkle-") and os.environ.get("BUILDER_FAIL_FEED_CREATE") == "1":
+                    raise SystemExit(88)
+                target = arguments[arguments.index("--target") + 1]
+                release = {
+                    "targetCommitish": target,
+                    "isPrerelease": "--prerelease" in arguments,
+                    "isDraft": False,
+                    "assets": [],
+                }
+                if len(arguments) > 3 and not arguments[3].startswith("--"):
+                    release["assets"].append(asset(arguments[3]))
+                releases[tag] = release
+                save()
+                raise SystemExit(0)
+            release = releases.get(tag)
+            if release is None:
+                raise SystemExit(1)
+            if action == "edit":
+                release["targetCommitish"] = arguments[arguments.index("--target") + 1]
+                save()
+                raise SystemExit(0)
+            if action == "upload":
+                replacement = asset(arguments[3])
+                existing = [item for item in release["assets"] if item["name"] == replacement["name"]]
+                if existing and "--clobber" not in arguments:
+                    raise SystemExit(1)
+                release["assets"] = [item for item in release["assets"] if item["name"] != replacement["name"]]
+                release["assets"].append(replacement)
+                save()
+                raise SystemExit(0)
+            pattern = arguments[arguments.index("--pattern") + 1]
+            destination = Path(arguments[arguments.index("--dir") + 1])
+            selected = [item for item in release["assets"] if item["name"] == pattern]
+            if len(selected) != 1:
+                raise SystemExit(1)
+            destination.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(selected[0]["storedPath"], destination / pattern)
+            fixture = os.environ.get("BUILDER_REMOTE_DMG_FIXTURE")
+            if fixture:
+                shutil.copytree(
+                    fixture,
+                    destination / f"{pattern}.fixture-app",
+                    symlinks=True,
+                )
+            ''',
+        )
 
     def _adapt_canonical_tools_for_fixture(self):
         """Redirect only this disposable builder copy to explicit test doubles."""
@@ -346,6 +522,7 @@ class ReleaseBuilderFixture:
                 "LUNGFISH_SPARKLE_PUBLIC_ED_KEY": "public-test-key",
                 "BUILDER_DOCTOR_FAIL": "1" if doctor_fail else "0",
                 "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
+                "BUILDER_GH_STATE": str(self.gh_state),
                 "PYTHONDONTWRITEBYTECODE": "1",
             }
         )
@@ -407,6 +584,13 @@ class ReleaseBuilderFixture:
             stderr=subprocess.PIPE,
             check=False,
         )
+
+    def prepare_remote_tag(self, tag="v2026.8.1"):
+        remote = self.root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        self._git("remote", "add", "origin", str(remote))
+        self._git("tag", "-a", tag, "-m", f"fixture {tag}")
+        self._git("push", "-q", "origin", tag)
 
     def _git(self, *arguments):
         return subprocess.run(
@@ -1150,6 +1334,150 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     ),
                     "stale\n",
                 )
+
+    def test_immutable_release_recovery_reuses_exact_dmg_without_signing_or_notarizing(
+        self,
+    ):
+        self.fixture.prepare_remote_tag()
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        resume = (
+            "--resume-candidate",
+            str(self.fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "stable",
+            "--github-release-tag",
+            "v2026.8.1",
+            "--sparkle-generate-appcast",
+            str(self.fixture.bin / "generate_appcast"),
+        )
+        failed = self.fixture.run(
+            *resume,
+            extra_env={
+                "BUILDER_FAIL_FEED_CREATE": "1",
+                "BUILDER_NONDETERMINISTIC_DMG": "1",
+            },
+        )
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        dmg = self.fixture.release / "Lungfish-2026.8.1-arm64.dmg"
+        immutable_bytes = dmg.read_bytes()
+        before_retry = len(self.fixture.event_lines())
+
+        recovered = self.fixture.run(
+            *resume,
+            "--recover-existing-release",
+            extra_env={"BUILDER_NONDETERMINISTIC_DMG": "1"},
+        )
+
+        self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
+        self.assertEqual(dmg.read_bytes(), immutable_bytes)
+        retry_events = self.fixture.event_lines()[before_retry:]
+        self.assertFalse(
+            any(line.startswith(("xcodebuild:", "swift:")) for line in retry_events)
+        )
+        self.assertFalse(
+            any(
+                line.startswith("codesign:") and " --sign " in f" {line} "
+                for line in retry_events
+            )
+        )
+        self.assertFalse(any("notarytool submit" in line for line in retry_events))
+        self.assertFalse(any(line.startswith("hdiutil:create") for line in retry_events))
+        self.assertFalse(
+            any(
+                line.startswith("gh:release upload v2026.8.1")
+                for line in retry_events
+            )
+        )
+        all_events = self.fixture.event_lines()
+        self.assertEqual(
+            sum(
+                line.startswith("gh:release create v2026.8.1")
+                for line in all_events
+            ),
+            1,
+        )
+        self.assertEqual(
+            sum(
+                line.startswith("gh:release upload sparkle-stable")
+                and "appcast-stable.xml" in line
+                for line in all_events
+            ),
+            1,
+        )
+
+    def test_immutable_release_recovery_downloads_and_extracts_missing_local_artifacts(
+        self,
+    ):
+        self.fixture.prepare_remote_tag()
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        resume = (
+            "--resume-candidate",
+            str(self.fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "stable",
+            "--github-release-tag",
+            "v2026.8.1",
+            "--sparkle-generate-appcast",
+            str(self.fixture.bin / "generate_appcast"),
+        )
+        failed = self.fixture.run(
+            *resume,
+            extra_env={"BUILDER_FAIL_FEED_CREATE": "1"},
+        )
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        dmg = self.fixture.release / "Lungfish-2026.8.1-arm64.dmg"
+        immutable_bytes = dmg.read_bytes()
+        fixture_contents = Path(f"{dmg}.fixture-app")
+        remote_fixture_contents = self.fixture.root / "remote-dmg.fixture-app"
+        shutil.copytree(fixture_contents, remote_fixture_contents, symlinks=True)
+        dmg.unlink()
+        shutil.rmtree(fixture_contents)
+        shutil.rmtree(self.fixture.release / "signed")
+        before_retry = len(self.fixture.event_lines())
+
+        recovered = self.fixture.run(
+            *resume,
+            "--recover-existing-release",
+            extra_env={"BUILDER_REMOTE_DMG_FIXTURE": str(remote_fixture_contents)},
+        )
+
+        self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
+        self.assertEqual(dmg.read_bytes(), immutable_bytes)
+        self.assertTrue(
+            (self.fixture.release / "signed/Lungfish.app/Contents/MacOS/Lungfish").is_file()
+        )
+        retry_events = self.fixture.event_lines()[before_retry:]
+        self.assertTrue(
+            any(line.startswith("gh:release download v2026.8.1") for line in retry_events)
+        )
+        self.assertTrue(
+            any(
+                line.startswith("hdiutil:attach ") and " -readonly " in f" {line} "
+                for line in retry_events
+            )
+        )
+        self.assertFalse(any(line.startswith("hdiutil:create") for line in retry_events))
+        self.assertFalse(any("notarytool submit" in line for line in retry_events))
+        self.assertFalse(
+            any(
+                line.startswith("codesign:") and " --sign " in f" {line} "
+                for line in retry_events
+            )
+        )
 
     def test_production_credentialed_apple_tools_are_canonical(self):
         source = (ROOT / "scripts/release/build-notarized-dmg.sh").read_text(

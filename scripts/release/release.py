@@ -280,13 +280,15 @@ def evaluate_actions_runs(
     if type(run_id) is not int or run_id <= 0:
         raise ReleaseError("exact-SHA GitHub Actions run has no valid database id")
 
-    jobs_by_name = {
-        job.get("name"): job for job in jobs if isinstance(job.get("name"), str)
-    }
     for name in required_ci_jobs(channel):
-        job = jobs_by_name.get(name)
-        if job is None:
+        matches = [job for job in jobs if job.get("name") == name]
+        if not matches:
             raise ReleaseError(f"required GitHub Actions job is missing: {name}")
+        if len(matches) != 1:
+            raise ReleaseError(
+                f"required GitHub Actions job is ambiguous: {name}"
+            )
+        job = matches[0]
         job_status = job.get("status")
         job_conclusion = job.get("conclusion")
         if job_status != "completed":
@@ -431,6 +433,49 @@ def _contained_artifact(release_dir: Path, value: str, label: str) -> Path:
     return resolved
 
 
+def _verify_exact_remote_asset(
+    payload: dict[str, Any], local_path: Path, expected_name: str, label: str
+) -> None:
+    try:
+        info = local_path.lstat()
+    except OSError as error:
+        raise ReleaseError(f"{label} local artifact is unavailable") from error
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise ReleaseError(f"{label} local artifact must be a regular file")
+    assets = payload.get("assets")
+    if not isinstance(assets, list):
+        raise ReleaseError(f"{label} assets are malformed")
+    matches = [
+        asset
+        for asset in assets
+        if isinstance(asset, dict) and asset.get("name") == expected_name
+    ]
+    if len(matches) != 1:
+        qualifier = "missing" if not matches else "ambiguous"
+        raise ReleaseError(f"{label} asset is {qualifier}: {expected_name}")
+    asset = matches[0]
+    digest = _sha256_file(local_path)
+    if asset.get("digest") != f"sha256:{digest}":
+        raise ReleaseError(f"{label} digest is wrong or unavailable")
+    remote_size = asset.get("size")
+    if type(remote_size) is not int or remote_size != info.st_size:
+        raise ReleaseError(f"{label} size is wrong or unavailable")
+
+
+def _verify_mutable_release_identity(
+    payload: Any, identity: CandidateIdentity, label: str
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ReleaseError(f"{label} response is malformed")
+    if payload.get("targetCommitish") != identity.commit:
+        raise ReleaseError(f"{label} target is not the candidate commit")
+    if payload.get("isDraft") is not False:
+        raise ReleaseError(f"{label} is a draft")
+    if payload.get("isPrerelease") is not True:
+        raise ReleaseError(f"{label} channel state is wrong")
+    return payload
+
+
 class LocalReleaseOperations:
     def __init__(self, root: Path):
         self.root = root.resolve(strict=True)
@@ -446,6 +491,8 @@ class LocalReleaseOperations:
         )
 
     def doctor_package(self, request: ReleaseRequest, _plan: ReleasePlan) -> None:
+        # This is the coordinator's request-level gate. The builder repeats the
+        # Doctor at its destructive mutation boundary as defense for direct use.
         archive, derived, release_dir = self._paths(request)
         commit = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
         scratch = (
@@ -750,8 +797,8 @@ class LocalReleaseOperations:
         dmg = _contained_artifact(release_dir, metadata.get("DMG_PATH", ""), "DMG_PATH")
         signed_app = _contained_artifact(
             release_dir,
-            metadata.get("release_app_path", ""),
-            "release_app_path",
+            metadata.get("app_path", ""),
+            "app_path",
         )
         digest = _sha256_file(dmg)
         if HEX_SHA256.fullmatch(digest) is None or metadata.get("dmg_sha256") != digest:
@@ -798,23 +845,15 @@ class LocalReleaseOperations:
             raise ReleaseError("published GitHub release is a draft")
         if release.get("isPrerelease") is not channel.githubPrerelease:
             raise ReleaseError("published GitHub release channel state is wrong")
-        assets = release.get("assets")
-        if not isinstance(assets, list):
-            raise ReleaseError("published GitHub release assets are malformed")
-        dmg_asset = next(
-            (
-                asset
-                for asset in assets
-                if isinstance(asset, dict) and asset.get("name") == dmg.name
-            ),
-            None,
+        _verify_exact_remote_asset(
+            release, dmg, dmg.name, "published GitHub release DMG"
         )
-        if dmg_asset is None:
-            raise ReleaseError("published GitHub release is missing the DMG")
-        if dmg_asset.get("digest") not in (None, "", f"sha256:{digest}"):
-            raise ReleaseError("published GitHub release DMG digest is wrong")
-        if dmg_asset.get("size") not in (None, dmg.stat().st_size):
-            raise ReleaseError("published GitHub release DMG size is wrong")
+
+        appcast = _contained_artifact(
+            release_dir,
+            metadata.get("sparkle_appcast_path", ""),
+            "sparkle_appcast_path",
+        )
 
         feed = self.runner.json(
             [
@@ -826,17 +865,20 @@ class LocalReleaseOperations:
                 "targetCommitish,isPrerelease,isDraft,assets,url",
             ]
         )
-        if not isinstance(feed, dict) or feed.get("targetCommitish") != identity.commit:
-            raise ReleaseError(
-                "mutable Sparkle feed target is not the candidate commit"
-            )
-        feed_assets = feed.get("assets")
-        if not isinstance(feed_assets, list) or not any(
-            isinstance(asset, dict) and asset.get("name") == channel.appcastFilename
-            for asset in feed_assets
-        ):
-            raise ReleaseError("mutable Sparkle feed is missing its appcast")
+        feed = _verify_mutable_release_identity(
+            feed, identity, "mutable Sparkle feed"
+        )
+        _verify_exact_remote_asset(
+            feed, appcast, channel.appcastFilename, "mutable Sparkle feed appcast"
+        )
         if channel.legacyBridgeRelease:
+            if not channel.legacyBridgeAppcastFilename:
+                raise ReleaseError("legacy Sparkle bridge filename is unavailable")
+            bridge_appcast = _contained_artifact(
+                release_dir,
+                str(appcast.parent / channel.legacyBridgeAppcastFilename),
+                "legacy Sparkle bridge appcast",
+            )
             bridge = self.runner.json(
                 [
                     "gh",
@@ -847,13 +889,15 @@ class LocalReleaseOperations:
                     "targetCommitish,isPrerelease,isDraft,assets,url",
                 ]
             )
-            bridge_assets = bridge.get("assets") if isinstance(bridge, dict) else None
-            if not isinstance(bridge_assets, list) or not any(
-                isinstance(asset, dict)
-                and asset.get("name") == channel.legacyBridgeAppcastFilename
-                for asset in bridge_assets
-            ):
-                raise ReleaseError("legacy Sparkle bridge is missing its appcast")
+            bridge = _verify_mutable_release_identity(
+                bridge, identity, "legacy Sparkle bridge"
+            )
+            _verify_exact_remote_asset(
+                bridge,
+                bridge_appcast,
+                channel.legacyBridgeAppcastFilename,
+                "legacy Sparkle bridge appcast",
+            )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -888,7 +932,7 @@ def _parser() -> argparse.ArgumentParser:
 def _required_path(value: Path | None, label: str) -> Path:
     if value is None:
         raise ReleaseError(f"{label} is required")
-    return value.expanduser().resolve()
+    return value.expanduser().absolute()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -939,7 +983,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.sparkle_generate_appcast, "--sparkle-generate-appcast"
             ),
             sparkle_ed_key_file=(
-                args.sparkle_ed_key_file.expanduser().resolve(strict=True)
+                args.sparkle_ed_key_file.expanduser().absolute()
                 if args.sparkle_ed_key_file is not None
                 else None
             ),

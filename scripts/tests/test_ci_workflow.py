@@ -317,8 +317,19 @@ class CIWorkflowTests(unittest.TestCase):
             if step.get("uses", "").startswith("actions/upload-artifact")
         )
         paths = upload["with"]["path"]
+        self.assertEqual(upload.get("if"), "always()")
+        self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
         self.assertIn("package-metadata.txt", paths)
         self.assertIn("unsigned-candidate-receipt.json", paths)
+        self.assertIn("package-only.log", paths)
+        self.assertNotIn("Release/package-only.log", paths)
+        build = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Build and verify unsigned candidate"
+        )["run"]
+        self.assertIn("package-only.log", build)
+        self.assertIn(">\"$package_log\" 2>&1", build)
         for forbidden in ("*.app", ".xcarchive", "signed/", "*.dmg", "private"):
             self.assertNotIn(forbidden, paths)
 
