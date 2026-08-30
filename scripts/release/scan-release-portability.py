@@ -10,7 +10,11 @@ import stat
 import sys
 from urllib.parse import quote_from_bytes
 
+from release_cache_security import CacheSecurityError, validate_ancestor_chain
 
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_SCRATCH_ROOT = Path("/private/var/tmp/lungfish-release-swiftpm")
 CHUNK_SIZE = 1024 * 1024
 MAX_EVIDENCE = 20
 CLI_RELATIVE_PATH = Path("Contents/MacOS/lungfish-cli")
@@ -30,6 +34,7 @@ FORBIDDEN_PATTERNS = (
     (b"/opt/homebrew", "homebrew"),
     (b"/usr/local/Cellar", "homebrew-cellar"),
     (b"/usr/local/Homebrew", "homebrew"),
+    (os.fsencode(ROOT.resolve()), "repository-root"),
 )
 PATH_CONTINUATION = frozenset(
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~/-"
@@ -48,7 +53,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _regular_files(app: Path):
-    for directory, directory_names, file_names in os.walk(app, followlinks=False):
+    def traversal_error(error: OSError) -> None:
+        raise ScanError("app payload traversal failed") from error
+
+    for directory, directory_names, file_names in os.walk(
+        app, followlinks=False, onerror=traversal_error
+    ):
         directory_names.sort()
         file_names.sort()
         directory_path = Path(directory)
@@ -63,6 +73,58 @@ def _regular_files(app: Path):
             if not stat.S_ISREG(metadata.st_mode):
                 raise ScanError("app payload contains an unsupported file type")
             yield path
+
+
+def _is_same_or_descendant(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _trusted_scratch_path(path: Path) -> Path:
+    if not path.is_absolute():
+        raise ScanError("allowed SwiftPM fallback scratch path must be absolute")
+    normalized = Path(os.path.abspath(path))
+    configured_root = Path(
+        os.environ.get("LUNGFISH_RELEASE_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT))
+    ).expanduser()
+    if not configured_root.is_absolute():
+        raise ScanError("configured release scratch root is not trusted")
+    configured_root = Path(os.path.abspath(configured_root))
+
+    try:
+        validate_ancestor_chain(configured_root, expected_uid=os.geteuid())
+        validate_ancestor_chain(normalized, expected_uid=os.geteuid())
+    except CacheSecurityError as error:
+        raise ScanError(
+            "allowed SwiftPM fallback scratch path is not trusted"
+        ) from error
+
+    home = Path(os.environ.get("HOME", str(Path.home()))).resolve(strict=False)
+    repository = ROOT.resolve()
+    forbidden_roots = (
+        home,
+        repository,
+        Path("/opt/homebrew"),
+        Path("/usr/local/Homebrew"),
+        Path("/usr/local/Cellar"),
+    )
+    forbidden_scratch_patterns = tuple(
+        pattern
+        for pattern, _ in FORBIDDEN_PATTERNS
+        if pattern
+        not in (b"/private/var/tmp", b"/tmp/lungfish", os.fsencode(repository))
+    )
+    encoded = os.fsencode(normalized)
+    if (
+        not _is_same_or_descendant(normalized, configured_root)
+        or any(_is_same_or_descendant(normalized, root) for root in forbidden_roots)
+        or any(pattern in encoded for pattern in forbidden_scratch_patterns)
+        or (
+            b"/tmp/lungfish" in encoded
+            and not _is_same_or_descendant(normalized, DEFAULT_SCRATCH_ROOT)
+        )
+    ):
+        raise ScanError("allowed SwiftPM fallback scratch path is not trusted")
+    return normalized
 
 
 def _is_exact_fallback(data: bytes, start: int, fallback: bytes) -> bool:
@@ -188,8 +250,6 @@ def _scan_file(
 
 
 def scan(app: Path, scratch_path: Path) -> tuple[int, list[tuple[str, int, str]]]:
-    if not scratch_path.is_absolute():
-        raise ScanError("allowed SwiftPM fallback scratch path must be absolute")
     if not app.is_dir():
         raise ScanError("app must be a directory")
     try:
@@ -198,7 +258,7 @@ def scan(app: Path, scratch_path: Path) -> tuple[int, list[tuple[str, int, str]]
     except OSError as error:
         raise ScanError("app must be a directory") from error
 
-    normalized_scratch = Path(os.path.abspath(scratch_path))
+    normalized_scratch = _trusted_scratch_path(scratch_path)
     fallback = os.fsencode(normalized_scratch / SWIFTPM_RESOURCE_SUFFIX)
     if len(fallback) > 4096:
         raise ScanError("allowed SwiftPM fallback path is too long")

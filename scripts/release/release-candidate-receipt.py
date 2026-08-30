@@ -479,8 +479,20 @@ def _build_receipt(app_path: Path, channel: str, scratch_path: Path) -> dict[str
 def _write_receipt(path: Path, payload: dict[str, Any], app_path: Path) -> None:
     output = _safe_output_path(path)
     app = _normalize_app(app_path)
-    if output == app or app in output.parents:
-        raise ReceiptError("receipt output must be outside the app")
+    current = output.parent
+    while True:
+        try:
+            if os.path.samefile(current, app):
+                raise ReceiptError("receipt output must be outside the app")
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            raise ReceiptError(
+                "receipt output containment could not be verified"
+            ) from error
+        if current == current.parent:
+            break
+        current = current.parent
     temporary: Path | None = None
     try:
         descriptor, raw_path = tempfile.mkstemp(

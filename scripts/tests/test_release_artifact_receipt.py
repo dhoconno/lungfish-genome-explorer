@@ -11,6 +11,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TRUSTED_SCRATCH = Path(
+    "/private/var/tmp/lungfish-release-swiftpm/uid-test/repository/commit"
+)
 
 
 class ReleasePortabilityScannerTests(unittest.TestCase):
@@ -45,13 +48,11 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             root = Path(temp_dir)
             app = self._make_app(root)
             binary = app / "Contents" / "MacOS" / "fixture"
-            prefix = b"\x00\xff" + b"x" * (1024 * 1024 - 3)
-            payload = (
-                prefix + b"\x00TOP-SECRET-BINARY-BYTES\x00" + b"\x00".join(markers)
-            )
+            prefix = b"\x00\xff" + b"x" * (1024 * 1024 - 5)
+            payload = prefix + b"\x00".join(markers) + b"\x00TOP-SECRET-BINARY-BYTES"
             binary.write_bytes(payload)
 
-            result = self.run_scanner(app, root / "scratch")
+            result = self.run_scanner(app, TRUSTED_SCRATCH)
 
             self.assertEqual(result.returncode, 1)
             evidence = result.stdout.splitlines()
@@ -61,7 +62,12 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
                 f"Contents/MacOS/fixture:{payload.index(markers[0])}:user-home",
                 evidence,
             )
-            self.assertIn("FAIL portability findings=7 shown=7", evidence[-1])
+            self.assertEqual(payload.index(markers[0]), 1024 * 1024 - 3)
+            self.assertIn(
+                f"Contents/MacOS/fixture:{payload.index(markers[1])}:repository-root",
+                evidence,
+            )
+            self.assertIn("FAIL portability findings=8 shown=8", evidence[-1])
             self.assertNotIn("TOP-SECRET", result.stdout + result.stderr)
             self.assertNotIn("alice", result.stdout + result.stderr)
             self.assertLess(len(result.stdout), 4096)
@@ -73,7 +79,7 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             binary = app / "Contents" / "MacOS" / "fixture"
             binary.write_bytes(b"\x00".join([b"/Users/private"] * 25))
 
-            result = self.run_scanner(app, root / "scratch")
+            result = self.run_scanner(app, TRUSTED_SCRATCH)
 
             self.assertEqual(result.returncode, 1)
             lines = result.stdout.splitlines()
@@ -110,6 +116,32 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             self.assertEqual(duplicate.returncode, 1)
             self.assertIn("swiftpm-fallback", duplicate.stdout)
 
+    def test_swiftpm_fallback_rejects_home_repo_and_homebrew_scratch_roots(self):
+        scratch_paths = (
+            Path("/Users/alice/lungfish-release-swiftpm/repo/commit"),
+            ROOT / ".build" / "release-swiftpm",
+            Path("/opt/homebrew/var/lungfish-release-swiftpm/repo/commit"),
+        )
+        for scratch in scratch_paths:
+            with self.subTest(
+                scratch=scratch
+            ), tempfile.TemporaryDirectory() as temp_dir:
+                app = self._make_app(Path(temp_dir))
+                cli = app / "Contents" / "MacOS" / "lungfish-cli"
+                fallback = (
+                    scratch
+                    / "arm64-apple-macosx"
+                    / "release"
+                    / "LungfishGenomeBrowser_LungfishWorkflow.bundle"
+                )
+                cli.write_bytes(b"mach-o\x00" + os.fsencode(fallback) + b"\x00")
+
+                result = self.run_scanner(app, scratch)
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("scratch path is not trusted", result.stderr)
+                self.assertNotIn(str(scratch), result.stdout + result.stderr)
+
     def test_private_var_tmp_is_rejected_outside_the_exact_cli_fallback(self):
         cases = {
             "wrong file": (
@@ -145,12 +177,28 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             root = Path(temp_dir)
             app = self._make_app(root)
             relative = self.run_scanner(app, "relative/scratch")
-            missing = self.run_scanner(root / "missing.app", root / "scratch")
+            missing = self.run_scanner(root / "missing.app", TRUSTED_SCRATCH)
 
             self.assertEqual(relative.returncode, 2)
             self.assertIn("must be absolute", relative.stderr)
             self.assertEqual(missing.returncode, 2)
             self.assertIn("app must be a directory", missing.stderr)
+
+    def test_scan_fails_closed_when_a_payload_directory_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._make_app(Path(temp_dir))
+            blocked = app / "Contents" / "Resources" / "blocked"
+            blocked.mkdir()
+            (blocked / "secret.bin").write_bytes(b"/Users/alice/secret")
+            blocked.chmod(0)
+            try:
+                result = self.run_scanner(app, TRUSTED_SCRATCH)
+            finally:
+                blocked.chmod(0o700)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("payload traversal failed", result.stderr)
+            self.assertNotIn("alice", result.stdout + result.stderr)
 
     @staticmethod
     def _make_app(root: Path) -> Path:
@@ -207,6 +255,22 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             self.assertEqual(receipt["build"]["scratchPath"], str(fixture["scratch"]))
             self.assertEqual(receipt["inputs"]["micromambaUpstreamSha256"], "a" * 64)
             self.assertEqual(
+                receipt["inputs"]["packageResolvedSha256"],
+                hashlib.sha256(fixture["package_lock"].read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                receipt["inputs"]["managedManifestSha256"],
+                hashlib.sha256(fixture["managed_manifest"].read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                receipt["inputs"]["releaseContractSha256"],
+                hashlib.sha256(fixture["contract"].read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                receipt["inputs"]["builderSha256"],
+                hashlib.sha256(fixture["builder"].read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
                 receipt["artifacts"]["lungfishCLI"]["sha256"],
                 hashlib.sha256(b"transformed cli\n").hexdigest(),
             )
@@ -250,45 +314,90 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             )
             self.assertEqual(self._verify(fixture).returncode, 0)
 
-    def test_verify_fails_closed_for_each_mutated_bound_receipt_field(self):
-        mutations = {
-            "commit": lambda value: value["source"].update(commit="0" * 40),
-            "channel": lambda value: value["release"].update(channel="preview"),
-            "build": lambda value: value["release"].update(build="43"),
-            "package lock hash": lambda value: value["inputs"].update(
-                packageResolvedSha256="0" * 64
+    def test_create_derives_changed_build_and_scratch_from_real_inputs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            with fixture["info_plist"].open("rb") as handle:
+                info = plistlib.load(handle)
+            info["CFBundleVersion"] = "43"
+            with fixture["info_plist"].open("wb") as handle:
+                plistlib.dump(info, handle, sort_keys=True)
+            other_scratch = fixture["scratch"].with_name("creation-scratch")
+            other_scratch.mkdir(mode=0o700)
+
+            result = self._create(fixture, scratch=other_scratch.resolve())
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            receipt = json.loads(fixture["receipt"].read_text())
+            self.assertEqual(receipt["release"]["build"], "43")
+            self.assertEqual(
+                receipt["build"]["scratchPath"], str(other_scratch.resolve())
+            )
+
+    def test_verify_detects_each_real_provenance_input_mutation(self):
+        tracked_mutations = {
+            "package lock": (
+                "package_lock",
+                lambda path: path.write_text('{"pins":[],"version":2}  \n'),
             ),
-            "managed lock hash": lambda value: value["inputs"].update(
-                managedManifestSha256="0" * 64
+            "managed manifest": (
+                "managed_manifest",
+                lambda path: path.write_text(path.read_text() + " \n"),
             ),
-            "contract hash": lambda value: value["inputs"].update(
-                releaseContractSha256="0" * 64
+            "release contract": (
+                "contract",
+                lambda path: path.write_text(path.read_text() + " \n"),
             ),
-            "builder hash": lambda value: value["inputs"].update(
-                builderSha256="0" * 64
-            ),
-            "toolchain": lambda value: value["toolchain"].update(swiftVersion="6.3"),
-            "scratch": lambda value: value["build"].update(
-                scratchPath="/private/var/tmp/other"
-            ),
-            "payload": lambda value: value["artifacts"].update(
-                packagedAppPayloadSha256="0" * 64
+            "builder": (
+                "builder",
+                lambda path: path.write_text(path.read_text() + "# changed\n"),
             ),
         }
-        for label, mutate in mutations.items():
+        for label, (key, mutate) in tracked_mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
                 fixture = self._make_fixture(Path(temp_dir))
                 self.assertEqual(self._create(fixture).returncode, 0)
-                receipt = json.loads(fixture["receipt"].read_text())
-                mutate(receipt)
-                fixture["receipt"].write_text(
-                    json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n"
+                path = fixture[key]
+                self._git(
+                    fixture["repo"],
+                    "update-index",
+                    "--assume-unchanged",
+                    str(path.relative_to(fixture["repo"])),
+                )
+                mutate(path)
+                self.assertEqual(
+                    self._git(fixture["repo"], "status", "--porcelain").stdout, ""
                 )
 
                 result = self._verify(fixture)
 
                 self.assertEqual(result.returncode, 1)
-                self.assertIn("FAIL unsigned candidate receipt", result.stderr)
+                self.assertIn("receipt does not match", result.stderr)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            self.assertEqual(self._create(fixture).returncode, 0)
+            with fixture["info_plist"].open("rb") as handle:
+                info = plistlib.load(handle)
+            info["CFBundleVersion"] = "43"
+            with fixture["info_plist"].open("wb") as handle:
+                plistlib.dump(info, handle, sort_keys=True)
+
+            changed_build = self._verify(fixture)
+
+            self.assertEqual(changed_build.returncode, 1)
+            self.assertIn("receipt does not match", changed_build.stderr)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            self.assertEqual(self._create(fixture).returncode, 0)
+            other_scratch = fixture["scratch"].with_name("other-scratch")
+            other_scratch.mkdir(mode=0o700)
+
+            changed_scratch = self._verify(fixture, scratch=other_scratch.resolve())
+
+            self.assertEqual(changed_scratch.returncode, 1)
+            self.assertIn("receipt does not match", changed_scratch.stderr)
 
     def test_verify_detects_each_payload_or_toolchain_mutation(self):
         mutations = {
@@ -410,6 +519,24 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             self.assertIn("outside the app", nested.stderr)
             self.assertFalse(fixture["receipt"].exists())
 
+    def test_create_refuses_case_alias_output_inside_app(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            alias_app = fixture["release"] / "lungfish.app"
+            try:
+                aliases_app = os.path.samefile(alias_app, fixture["app"])
+            except FileNotFoundError:
+                aliases_app = False
+            if not aliases_app:
+                self.skipTest("requires a case-insensitive filesystem")
+            fixture["receipt"] = alias_app / "Contents" / "case-alias.json"
+
+            result = self._create(fixture)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("outside the app", result.stderr)
+            self.assertFalse(fixture["receipt"].exists())
+
     def _make_fixture(self, root: Path, include_symlink: bool = False):
         root = root.resolve()
         repo = root / "repo"
@@ -432,8 +559,10 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         builder.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         builder.chmod(0o755)
         (repo / "config").mkdir()
-        shutil.copy2(ROOT / "config" / "release-contract.json", repo / "config")
-        (repo / "Package.resolved").write_text('{"pins":[],"version":2}\n')
+        contract = repo / "config" / "release-contract.json"
+        shutil.copy2(ROOT / "config" / "release-contract.json", contract)
+        package_lock = repo / "Package.resolved"
+        package_lock.write_text('{"pins":[],"version":2}\n')
         managed = (
             repo
             / "Sources"
@@ -500,7 +629,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "LungfishReleaseChannel": "stable",
             "SUFeedURL": "https://github.test/releases/download/sparkle-stable/appcast-stable.xml",
         }
-        with (app / "Contents" / "Info.plist").open("wb") as handle:
+        info_plist = app / "Contents" / "Info.plist"
+        with info_plist.open("wb") as handle:
             plistlib.dump(info, handle, sort_keys=True)
         app_executable = macos / "Lungfish"
         app_executable.write_bytes(b"unsigned app executable\n")
@@ -539,6 +669,11 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "bin": bin_dir,
             "toolchain": toolchain,
             "commit": commit,
+            "builder": builder,
+            "contract": contract,
+            "package_lock": package_lock,
+            "managed_manifest": managed,
+            "info_plist": info_plist,
         }
 
     def _create(self, fixture, scratch=None):
@@ -555,7 +690,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             str(scratch if scratch is not None else fixture["scratch"]),
         )
 
-    def _verify(self, fixture, channel="stable"):
+    def _verify(self, fixture, channel="stable", scratch=None):
         return self._run(
             fixture,
             "verify",
@@ -566,7 +701,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "--channel",
             channel,
             "--scratch-path",
-            str(fixture["scratch"]),
+            str(scratch if scratch is not None else fixture["scratch"]),
         )
 
     def _run(self, fixture, *arguments):
