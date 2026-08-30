@@ -760,15 +760,26 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("fastp") == false)
     }
 
-    @Test("Notarized DMG release script fails early if ripgrep is unavailable")
-    func notarizedDMGReleaseScriptFailsEarlyIfRipgrepIsUnavailable() throws {
-        let script = try String(
+    @Test("Release Doctor requires ripgrep before package mutation")
+    func releaseDoctorRequiresRipgrepBeforePackageMutation() throws {
+        let doctor = try String(
             contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+                .appendingPathComponent("scripts/release/release-doctor.py"),
+            encoding: .utf8
+        )
+        let coordinator = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/release/release.py"),
             encoding: .utf8
         )
 
-        #expect(script.contains("require_command rg"))
+        #expect(doctor.contains(#""python3", "rg""#))
+        #expect(coordinator.contains("self.operations.doctor_package(request, plan)"))
+        #expect(coordinator.contains("self.operations.package_only(request)"))
+        #expect(
+            coordinator.range(of: "self.operations.doctor_package(request, plan)")!.lowerBound
+                < coordinator.range(of: "self.operations.package_only(request)")!.lowerBound
+        )
     }
 
     @Test("Release smoke test resolves ripgrep from PATH instead of /usr/bin")
@@ -783,17 +794,18 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("/usr/bin/rg") == false)
     }
 
-    @Test("Release smoke test scans for Homebrew path leaks")
-    func releaseSmokeTestScansForHomebrewPathLeaks() throws {
-        let script = try String(
+    @Test("Release portability scanner rejects Homebrew path leaks")
+    func releasePortabilityScannerRejectsHomebrewPathLeaks() throws {
+        let scanner = try String(
             contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/smoke-test-release-tools.sh"),
+                .appendingPathComponent("scripts/release/scan-release-portability.py"),
             encoding: .utf8
         )
 
-        #expect(script.contains(#""/opt/homebrew""#))
-        #expect(script.contains(#""/usr/local/Cellar""#))
-        #expect(script.contains(#""/usr/local/Homebrew""#))
+        #expect(scanner.contains(#"b"/opt/homebrew""#))
+        #expect(scanner.contains(#"b"/usr/local/Cellar""#))
+        #expect(scanner.contains(#"b"/usr/local/Homebrew""#))
+        #expect(scanner.contains("FORBIDDEN_PATTERNS"))
     }
 
     @Test("Production sources avoid hardcoded Homebrew path fallbacks")
@@ -943,8 +955,8 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("OTHER_SWIFT_FLAGS=\"\\$(inherited) $XCODE_OTHER_SWIFT_FLAGS\""))
     }
 
-    @Test("Notarized DMG release script preserves derived data cache across runs")
-    func notarizedDMGReleaseScriptPreservesDerivedDataCacheAcrossRuns() throws {
+    @Test("Notarized DMG release script derives persistent caches from the canonical fingerprint")
+    func notarizedDMGReleaseScriptDerivesPersistentCachesFromCanonicalFingerprint() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
@@ -952,23 +964,30 @@ struct ReleaseBuildConfigurationTests {
         )
 
         #expect(script.contains("${RELEASE_DIR}/DerivedData") == false)
-        #expect(script.contains("$PROJECT_ROOT/.build") || script.contains("${PROJECT_ROOT}/.build"))
+        #expect(script.contains("python3 \"$CACHE_FINGERPRINT_SCRIPT\" derive"))
+        #expect(script.contains("CACHE_SWIFTPM) SCRATCH_PATH=\"$cache_value\""))
+        #expect(script.contains("CACHE_DERIVED_DATA) DERIVED_DATA_PATH=\"$cache_value\""))
+        #expect(script.contains("canonical cache fingerprint"))
     }
 
-    @Test("Notarized DMG release script supports explicit build reuse")
-    func notarizedDMGReleaseScriptSupportsExplicitBuildReuse() throws {
+    @Test("Notarized DMG release script retires unsafe reuse in favor of receipt-bound recovery")
+    func notarizedDMGReleaseScriptUsesReceiptBoundRecovery() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("--reuse-archive"))
-        #expect(script.contains("--reuse-built-cli"))
-        #expect(script.contains("REUSE_ARCHIVE=0"))
-        #expect(script.contains("REUSE_BUILT_CLI=0"))
-        #expect(script.contains(#"if [ "$REUSE_ARCHIVE" -eq 1 ]"#))
-        #expect(script.contains(#"if [ "$REUSE_BUILT_CLI" -eq 1 ]"#))
+        #expect(script.contains("--resume-candidate RECEIPT"))
+        #expect(script.contains("--reuse-archive     Retired"))
+        #expect(script.contains("--reuse-built-cli   Retired"))
+        let retirementGuard = #"if [ "$REUSE_ARCHIVE" -eq 1 ] || [ "$REUSE_BUILT_CLI" -eq 1 ]; then"#
+        #expect(script.contains(retirementGuard))
+        #expect(
+            script.range(of: retirementGuard)!.lowerBound
+                < script.range(of: "release_commit=$(git rev-parse --verify HEAD)")!.lowerBound
+        )
+        #expect(script.contains(#""$CANDIDATE_RECEIPT_SCRIPT" verify"#))
     }
 
     @Test("Notarized DMG release metadata redacts local signing details")
@@ -997,7 +1016,7 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(script.contains("relative_to_project_root"))
         #expect(script.contains("archive_path=$(relative_to_project_root \"$ARCHIVE_PATH\")"))
-        #expect(script.contains("app_path=$(relative_to_project_root \"$APP_PATH\")"))
+        #expect(script.contains("app_path=$(relative_to_project_root \"$SIGNED_APP_PATH\")"))
         #expect(script.contains("release_app_path=$(relative_to_project_root \"$RELEASE_APP_PATH\")"))
         #expect(script.contains("DMG_PATH=$(relative_to_project_root \"$DMG_PATH\")"))
     }
@@ -1022,9 +1041,10 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        let sanitizeMarker = #"scripts/sanitize-bundled-tools.sh "$APP_PATH/Contents/MacOS""#
+        let sanitizeMarker = #"scripts/sanitize-bundled-tools.sh \"#
 
         #expect(script.contains(sanitizeMarker))
+        #expect(script.contains("--adhoc-seal"))
         let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
         guard let sanitizeIndex = lines.firstIndex(where: { $0.contains(sanitizeMarker) }),
               let codesignIndex = lines.enumerated().first(where: { index, line in
@@ -1059,7 +1079,7 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        let scanMarker = #"scripts/smoke-test-release-tools.sh "$APP_PATH" --portability-only"#
+        let scanMarker = #"scripts/smoke-test-release-tools.sh "$APP_PATH" \"#
         let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
         guard let scanIndex = lines.firstIndex(where: { $0.contains(scanMarker) }),
               let codesignIndex = lines.enumerated().first(where: { _, line in
@@ -1070,6 +1090,7 @@ struct ReleaseBuildConfigurationTests {
             return
         }
 
+        #expect(script.contains("--portability-only"))
         #expect(scanIndex < codesignIndex)
     }
 
@@ -1095,15 +1116,18 @@ struct ReleaseBuildConfigurationTests {
         #expect(FileManager.default.fileExists(atPath: entitlementsURL.path) == false)
     }
 
-    @Test("Release agent is tracked in repo")
-    func releaseAgentIsTrackedInRepo() throws {
+    @Test("Release agent exposes only the coordinator front door")
+    func releaseAgentExposesOnlyCoordinatorFrontDoor() throws {
         let agent = try Self.releaseAgentCanonicalContents()
 
         #expect(agent.contains("name: release-agent"))
-        #expect(agent.contains("scripts/release/build-notarized-dmg.sh"))
-        #expect(agent.contains("scripts/smoke-test-release-tools.sh"))
-        #expect(agent.contains("notarytool"))
-        #expect(agent.contains(".dmg"))
+        #expect(agent.contains("python3 scripts/release/release.py debug"))
+        #expect(agent.contains("python3 scripts/release/release.py doctor [--profile PATH]"))
+        #expect(agent.contains("python3 scripts/release/release.py package preview|stable"))
+        #expect(agent.contains("python3 scripts/release/release.py publish preview|stable [--profile PATH]"))
+        #expect(agent.contains("release.py prepare") == false)
+        #expect(agent.contains("release.py resume") == false)
+        #expect(agent.contains("release.py status") == false)
     }
 
     @Test("Release agent mirror matches canonical definition")
@@ -1118,18 +1142,16 @@ struct ReleaseBuildConfigurationTests {
         #expect(mirror == canonical)
     }
 
-    @Test("Release agent documents versioning release notes and GitHub publication")
-    func releaseAgentDocumentsVersioningReleaseNotesAndGitHubPublication() throws {
+    @Test("Release agent documents receipt-bound publication and recovery")
+    func releaseAgentDocumentsReceiptBoundPublicationAndRecovery() throws {
         let agent = try Self.releaseAgentCanonicalContents()
         let requiredPhrases = [
-            "Determine the next version",
-            "CFBundleShortVersionString",
-            "lungfish-cli --version",
-            "docs/release-notes/<new-version>.md",
-            "git tag",
-            "gh release create",
-            "gh release view",
-            "git status --short --branch"
+            "credentialless",
+            "current-HEAD",
+            "receipt",
+            "without rebuilding",
+            "Re-run `publish` for recovery",
+            "reverify"
         ]
 
         for phrase in requiredPhrases {
@@ -1137,21 +1159,22 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
-    @Test("Release agent documents independent post build verification")
-    func releaseAgentDocumentsIndependentPostBuildVerification() throws {
+    @Test("Release agent documents channel identity and shared bundle caveat")
+    func releaseAgentDocumentsChannelIdentityAndSharedBundleCaveat() throws {
         let agent = try Self.releaseAgentCanonicalContents()
+        let normalizedAgent = agent.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let requiredPhrases = [
-            "codesign --verify --deep --strict",
-            "xcrun stapler validate",
-            "spctl -a -vv -t open",
-            "notary-app-log.json",
-            "notary-dmg-log.json",
-            "shasum -a 256",
-            "release-metadata.txt"
+            "Lungfish Preview.app",
+            "Lungfish.app",
+            "sparkle-beta/appcast-beta.xml",
+            "sparkle-stable/appcast-stable.xml",
+            "com.lungfish.browser",
+            "not fully independent",
+            "simultaneous execution is not promised"
         ]
 
         for phrase in requiredPhrases {
-            #expect(agent.contains(phrase), "release agent is missing: \(phrase)")
+            #expect(normalizedAgent.contains(phrase), "release agent is missing: \(phrase)")
         }
     }
 
@@ -1230,18 +1253,25 @@ struct ReleaseBuildConfigurationTests {
         #expect(workflow.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1"))
     }
 
-    @Test("Git ignore rules do not hide tracked files")
-    func gitIgnoreRulesDoNotHideTrackedFiles() throws {
-        let result = try Self.runCommand(
-            URL(fileURLWithPath: "/usr/bin/git"),
-            arguments: ["ls-files", "-ci", "--exclude-standard"],
-            currentDirectory: Self.repositoryRoot()
-        )
+    @Test("Release authority files are tracked")
+    func releaseAuthorityFilesAreTracked() throws {
+        let authorityPaths = [
+            "config/release-contract.json",
+            "scripts/release/release.py",
+            ".codex/skills/releasing-lungfish/SKILL.md",
+            ".codex/agents/release-agent.md",
+            "agents/definitions/codex/release-agent.md",
+            "docs/release/sparkle-updates.md"
+        ]
 
-        #expect(
-            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            "Tracked files hidden by .gitignore:\n\(result.stdout)"
-        )
+        for path in authorityPaths {
+            let result = try Self.runCommand(
+                URL(fileURLWithPath: "/usr/bin/git"),
+                arguments: ["ls-files", "--error-unmatch", path],
+                currentDirectory: Self.repositoryRoot()
+            )
+            #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == path)
+        }
     }
 
     @Test("Release GUI runtime avoids compile-time source path fallbacks")

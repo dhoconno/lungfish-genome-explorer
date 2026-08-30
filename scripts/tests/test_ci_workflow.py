@@ -308,6 +308,31 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("--notary-profile", runs)
         self.assertNotIn("gh release", runs)
 
+    def test_build_and_release_jobs_resolve_the_supported_xcode_range(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        expected_jobs = {
+            "package-smoke",
+            "release-dependency-receipt",
+            "release-preview-gates",
+            "release-stable-full",
+            "release-stable-conformance",
+            "build-smoke",
+            "full",
+            "toolset-conformance",
+        }
+        resolver = 'python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"'
+        for job_name in expected_jobs:
+            selections = [
+                step
+                for step in wf["jobs"][job_name]["steps"]
+                if step.get("name") == "Select supported Xcode"
+            ]
+            self.assertEqual(len(selections), 1, job_name)
+            self.assertEqual(selections[0].get("run"), resolver, job_name)
+
+        self.assertNotIn("xcode-select -s", self.workflow)
+        self.assertNotIn("Xcode_26.4.1", self.workflow)
+
     def test_package_smoke_uses_the_validator_approved_repository_defaults(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["package-smoke"]

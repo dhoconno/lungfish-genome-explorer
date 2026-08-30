@@ -71,10 +71,10 @@ Commit: `refactor(release): centralize channel and toolchain contract`
 - Modify: `.gitignore` only if a local release-profile path is not already ignored
 
 **Interfaces:**
-- CLI: `release-doctor.py --mode package|credentials --channel preview|stable [--signing-identity NAME --team-id ID --notary-profile PROFILE --sparkle-ed-key-file PATH] [--json-report PATH]`.
+- Internal helper interface: `release-doctor.py --mode package|credentials`; operators use only `release.py doctor [--profile PATH]`.
 - Environment: honors a valid `DEVELOPER_DIR`; otherwise selects `/Applications/Xcode.app/Contents/Developer` when present; rejects CommandLineTools-only selection.
 - Resolver stdout: absolute `generate_appcast` path, `sign_update` path, and `generate_keys` path as shell-safe key/value output. It may run `swift package resolve` but may not alter tracked lockfiles.
-- Tracked nightly wrapper reads non-secret defaults only. Credential/profile names come from explicit flags, environment, or ignored `${HOME}/.config/lungfish/release.env`.
+- Tracked nightly reads credential/profile names only from the strict private JSON profile selected by `--profile`; no shell environment profile exists.
 
 - [ ] **Step 1: Write failing preflight tests**
 
@@ -195,10 +195,10 @@ Commit: `refactor(release): package and verify before signing`
 - Modify: `scripts/tests/test_ci_workflow.py`
 
 **Interfaces:**
-- Manual CLI: `release.py preview|stable --prepare|--resume RECEIPT [credential/profile options]`.
+- Supported CLI: `release.py package preview|stable` followed by `release.py publish preview|stable [--profile PATH]`; rerunning `publish` is recovery.
 - Coordinator order: Doctor → required source/dependency gates → package-only → verify receipt → create/push annotated tag → wait for exact tagged SHA CI gates → resume candidate for sign/notary → publish immutable GitHub release → publish mutable feed(s) → independent verification.
 - Nightly retains branch/worktree integration and version preparation, then calls the same coordinator interface once.
-- CI package matrix calls `build-notarized-dmg.sh --package-only --channel preview|stable`; tag candidate jobs parse the committed release note’s exact `Channel:` field and run the contract-defined gates.
+- CI package matrix calls `release.py package preview|stable`; tag candidate jobs parse the committed release note’s exact `Channel:` field and run the contract-defined gates.
 
 - [ ] **Step 1: Write failing delegation/order tests**
 
@@ -426,3 +426,11 @@ receipt/Doctor integration, contract gate, focused tests, and authority records.
 - [x] **Step 3: RED/GREEN exact namespace contents and reject release artifacts without deleting unknown entries**
 - [x] **Step 4: RED/GREEN exact channel/commit release outputs, scoped archive defaults, broad legacy rejection, and sibling preservation**
 - [x] **Step 5: Re-run focused receipt/cache/builder/target/front-door/Doctor suites and static authority checks**
+
+### Core follow-on Task 14: Reconcile final release authorities and static process coverage
+
+- [x] **Step 1: Inventory the contract, four help surfaces, CI/nightly calls, authorities, and stale Swift assertions**
+- [x] **Step 2: RED/GREEN semantic mutations for obsolete front doors, builder bypass, shell profile, pruning, channel identity, toolchain pin, Debug facts, and nightly ordering**
+- [x] **Step 3: Reconcile the skill, both byte-identical agents, operator docs, handoff, catalog, README, CI Xcode selection, design, and plan**
+- [x] **Step 4: Replace stale Swift release assertions with receipt, Doctor, scanner, sanitizer, cache, channel, and tracked-authority contracts**
+- [x] **Step 5: Run the focused Swift suite, authority/front-door/CI/nightly Python suites, validator, syntax/YAML, agent-copy, and diff checks without release mutation**

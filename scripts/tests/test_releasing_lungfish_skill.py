@@ -47,9 +47,196 @@ fi
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents)
 
+    def copy_authority_fixture(self, root: Path):
+        relative_paths = (
+            "config/release-contract.json",
+            "scripts/release/release.py",
+            "scripts/release/release_contract.py",
+            "scripts/release/release_cache_fingerprint.py",
+            "scripts/release/release_cache_security.py",
+            "scripts/release/release_repository.py",
+            "scripts/release/release_target_security.py",
+            "scripts/release/release_xcode.py",
+            "scripts/release/build-notarized-dmg.sh",
+            "scripts/release/check-sparkle-build-number.py",
+            "scripts/release/run-nightly-prerelease.sh",
+            "scripts/release/nightly_prerelease_release.py",
+            "scripts/build-app.sh",
+            "scripts/full-suite-gate.sh",
+            "scripts/testing/run-macos-xcui.sh",
+            "scripts/tests/test_full_suite_gate_tiers.py",
+            "scripts/tests/test_sparkle_release_packaging.py",
+            "scripts/tests/test_release_smoke.py",
+            ".github/workflows/ci.yml",
+            ".codex/agents/release-agent.md",
+            "agents/definitions/codex/release-agent.md",
+            "docs/release/sparkle-updates.md",
+            "docs/release/NEXT-RELEASE-HANDOFF.md",
+            "docs/superpowers/specs/2026-08-29-release-process-hardening-design.md",
+            "docs/superpowers/plans/2026-08-29-release-process-hardening.md",
+            "SKILLS.md",
+        )
+        for relative in relative_paths:
+            source = REPO_ROOT / relative
+            destination = root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+
+    def assert_authority_mutation_fails(
+        self,
+        relative_path: str,
+        mutate,
+        expected: str,
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            skill = Path(temporary) / "skill"
+            self.copy_authority_fixture(repo)
+            shutil.copytree(SKILL_ROOT, skill)
+            baseline = self.run_validator(repo, skill)
+            self.assertEqual(
+                baseline.returncode,
+                0,
+                "authority mutation fixture must start valid:\n"
+                + baseline.stdout
+                + baseline.stderr,
+            )
+            target = skill / "SKILL.md" if relative_path == "SKILL.md" else repo / relative_path
+            original = target.read_text(encoding="utf-8")
+            mutated = mutate(original)
+            self.assertNotEqual(mutated, original, f"mutation did not change {relative_path}")
+            target.write_text(mutated, encoding="utf-8")
+
+            result = self.run_validator(repo, skill)
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(expected.lower(), (result.stdout + result.stderr).lower())
+
     def test_real_repository_validates(self):
         result = self.run_validator(REPO_ROOT)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_validator_rejects_old_same_name_replacement_claim(self):
+        self.assert_authority_mutation_fails(
+            "docs/release/sparkle-updates.md",
+            lambda text: text + (
+                "\nPreview and Stable both install as Lungfish.app, so installing one "
+                "replaces the other and side-by-side installation is impossible.\n"
+            ),
+            "side-by-side",
+        )
+
+    def test_validator_rejects_direct_builder_operator_instructions(self):
+        self.assert_authority_mutation_fails(
+            "docs/release/sparkle-updates.md",
+            lambda text: text + (
+                "\nOperators publish with `bash scripts/release/build-notarized-dmg.sh "
+                "--channel preview`.\n"
+            ),
+            "front door",
+        )
+
+    def test_validator_rejects_retired_prepare_resume_public_interface(self):
+        for option in ("--prepare", "--resume"):
+            with self.subTest(option=option):
+                self.assert_authority_mutation_fails(
+                    "docs/release/sparkle-updates.md",
+                    lambda text, option=option: text + (
+                        f"\nRun `python3 scripts/release/release.py preview {option}`.\n"
+                    ),
+                    option,
+                )
+
+    def test_validator_rejects_shell_release_environment_instructions(self):
+        self.assert_authority_mutation_fails(
+            "scripts/release/run-nightly-prerelease.sh",
+            lambda text: text + '\nsource "$HOME/.config/lungfish/release.env"\n',
+            "release.env",
+        )
+
+    def test_validator_rejects_implicit_release_pruning(self):
+        self.assert_authority_mutation_fails(
+            "docs/release/sparkle-updates.md",
+            lambda text: text + "\nEvery Preview publish automatically prunes old prereleases.\n",
+            "prune",
+        )
+
+    def test_validator_rejects_wrong_channel_wrapper_feed_and_bundle_caveat(self):
+        mutations = (
+            ("Lungfish Preview.app", "Lungfish Beta.app", "wrapper"),
+            ("appcast-beta.xml", "appcast-preview.xml", "appcast"),
+            (
+                "## Channel identity",
+                "## Channel identity\n\nLaunch Services/defaults/TCC/state are fully independent.",
+                "bundle identifier",
+            ),
+        )
+        for original, replacement, expected in mutations:
+            with self.subTest(replacement=replacement):
+                self.assert_authority_mutation_fails(
+                    "docs/release/sparkle-updates.md",
+                    lambda text, original=original, replacement=replacement: text.replace(
+                        original, replacement
+                    ),
+                    expected,
+                )
+
+    def test_validator_rejects_exact_xcode_pin(self):
+        self.assert_authority_mutation_fails(
+            ".github/workflows/ci.yml",
+            lambda text: text + "\n# CI requires exactly Xcode 26.4.1.\n",
+            "xcode",
+        )
+
+    def test_validator_parses_release_help_and_rejects_extra_public_command(self):
+        self.assert_authority_mutation_fails(
+            "scripts/release/release.py",
+            lambda text: text.replace(
+                'debug = commands.add_parser("debug"',
+                'commands.add_parser("status", help="retired status")\n    debug = commands.add_parser("debug"',
+                1,
+            ),
+            "command",
+        )
+
+    def test_validator_rejects_ci_and_nightly_builder_bypasses(self):
+        mutations = (
+            (
+                ".github/workflows/ci.yml",
+                lambda text: text.replace(
+                    "python3 scripts/release/release.py package ${{ matrix.channel }}",
+                    "bash scripts/release/build-notarized-dmg.sh --package-only --channel ${{ matrix.channel }}",
+                    1,
+                ),
+                "ci",
+            ),
+            (
+                "scripts/release/nightly_prerelease_release.py",
+                lambda text: text + '\nDIRECT_BUILDER = "scripts/release/build-notarized-dmg.sh"\n',
+                "nightly",
+            ),
+        )
+        for path, mutation, expected in mutations:
+            with self.subTest(path=path):
+                self.assert_authority_mutation_fails(path, mutation, expected)
+
+    def test_validator_rejects_reversed_nightly_package_publish_order(self):
+        def reverse_commands(text: str) -> str:
+            return text.replace(
+                '"package",\n                "preview",',
+                '"publish",\n                "preview",',
+                1,
+            ).replace(
+                '"publish",\n            "preview",',
+                '"package",\n            "preview",',
+                1,
+            )
+
+        self.assert_authority_mutation_fails(
+            "scripts/release/nightly_prerelease_release.py",
+            reverse_commands,
+            "package then publish",
+        )
 
     def test_skill_uses_collision_safe_calendar_versions(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -62,15 +249,18 @@ fi
     def test_skill_routes_channel_through_release_state_not_the_version(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
 
-        self.assertIn("--channel preview", skill)
-        self.assertIn("--channel stable", skill)
-        self.assertIn("Do not manually dispatch CI", skill)
-        self.assertIn("release event", skill)
+        self.assertIn("release.py package preview|stable", skill)
+        self.assertIn("release.py publish preview|stable", skill)
+        self.assertNotIn("release.py preview --prepare", skill)
+        self.assertNotIn("release.py stable --resume", skill)
+        self.assertIn("Do not give operators, CI, or nightly direct helper", skill)
+        self.assertIn("exact tagged SHA", skill)
         self.assertIn("appcast-beta.xml", skill)
         self.assertIn("appcast-stable.xml", skill)
 
     def test_skill_requires_visible_channel_identity_caveat_and_independent_bundle_checks(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        semantic_text = " ".join(skill.split())
 
         for marker in (
             "Lungfish Genome Explorer Preview",
@@ -82,7 +272,7 @@ fi
             "CFBundleDisplayName",
             "CFBundleName",
         ):
-            self.assertIn(marker, skill)
+            self.assertIn(marker, semantic_text)
 
     def test_debug_guidance_matches_current_local_artifact(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -228,8 +418,8 @@ fi
                 "<!-- END LUNGFISH DEBUG FACTS -->\n- Note: the local app remains portable after relocation.",
             ),
             skill_text.replace(
-                "unless the user asks.\n\n## Load Current Authority",
-                "unless the user asks.\n\n\n## Load Current Authority",
+                "unless the user asks.\n\n## Release machine bootstrap and Doctor",
+                "unless the user asks.\n\n\n## Release machine bootstrap and Doctor",
             ),
         )
 
@@ -318,6 +508,7 @@ fi
 
     def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        semantic_text = " ".join(skill.split())
 
         for marker in (
             "Channel:",
@@ -327,7 +518,7 @@ fi
             "Included preview releases",
             "latest full versioned GitHub release",
         ):
-            self.assertIn(marker, skill)
+            self.assertIn(marker, semantic_text)
 
     def test_validator_rejects_missing_authoritative_file(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -342,11 +533,9 @@ fi
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.make_fixture(root)
-            script = root / "scripts/release/build-notarized-dmg.sh"
-            script.write_text(script.read_text().replace("--sparkle-bridge-publish-release", ""))
             result = self.run_validator(root)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("--sparkle-bridge-publish-release", result.stdout + result.stderr)
+            self.assertIn("release.py", result.stdout + result.stderr)
 
     def test_validator_rejects_secret_like_skill_content(self):
         with tempfile.TemporaryDirectory() as temporary:

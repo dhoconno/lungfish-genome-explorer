@@ -14,7 +14,10 @@ Preview and Stable are intentionally distinct applications on disk:
 - Stable ships as `Lungfish.app`, displays “Lungfish Genome Explorer,” uses the
   stable Sparkle feed, and is a full GitHub release.
 - Both retain bundle identifier `com.lungfish.browser` for Sparkle update
-  compatibility. Their different filenames permit side-by-side installation.
+  compatibility. Distinct wrapper paths, names, feeds, and updater hosts permit
+  side-by-side installation, but Launch Services, defaults, TCC, and other
+  identifier-keyed state are not fully independent; simultaneous execution is
+  not promised.
 
 Debug is a third build profile, but it is deliberately not a release channel.
 It ships only as a local, ad-hoc-signed `Lungfish Debug.app`, displays
@@ -176,11 +179,12 @@ therefore block publication rather than merely detecting defects afterward.
 
 ### 6. Release-machine doctor
 
-Doctor supports two modes:
+The public `release.py doctor [--profile PATH]` reports two readiness levels.
+Its internal helper has package and credential probes:
 
-- `--package-only` validates toolchain, commands, source, writable deterministic
+- Package readiness validates toolchain, commands, source, writable deterministic
   scratch storage, and public packaging inputs. This runs in CI.
-- `--credentials` additionally validates Developer ID/private-key availability,
+- Publish readiness additionally validates Developer ID/private-key availability,
   Team ID agreement, notary profile usability, GitHub release permissions, and
   Sparkle signing by signing and verifying a disposable probe payload without
   printing secrets.
@@ -189,19 +193,18 @@ Doctor is idempotent and read-only except for private temporary probe files that
 it removes. Sleeping or relocking the Mac results in an actionable credential
 failure before a release commit, tag, or expensive archive build.
 
-Doctor resolves Sparkle command-line tools from the pinned package dependency
+The coordinator resolves Sparkle command-line tools from the pinned package dependency
 when they are absent, rather than requiring a lucky pre-existing DerivedData or
-`.build/artifacts` path. Scheduled-machine credential names and local overrides
-live in an ignored local profile or explicit environment, never in the tracked
+`.build/artifacts` path. Scheduled-machine credential names live only in the
+strict private JSON profile, never in a shell environment file or the tracked
 nightly wrapper.
 
-The common coordinator is the only credentialed release entry point. It runs
+The common coordinator is the sole supported release entry point. It runs
 credentials Doctor before any source gate, compilation, tag creation, or remote
-mutation, and repeats it after exact-SHA CI. The phase builder accepts direct
-package-only and contract-description requests, but refuses every direct
-credentialed prepare, resume, recovery, signing, notarization, or publication
-request with an instruction to use `release.py`. The coordinator supplies a
-fresh per-child internal capability only to its credentialed builder child;
+mutation, and repeats it after exact-SHA CI. The low-level builder's
+package-only, receipt-resume, and contract-description flags are internal
+interfaces, never operator, CI, or nightly commands. The coordinator supplies
+a fresh per-child internal capability only to its credentialed builder child;
 that capability is never ambient in Doctor, source-gate, or package children.
 
 Before packaging, the coordinator also requires a non-shallow checkout on the
@@ -212,9 +215,9 @@ owns the live Sparkle build-number policy. Preview checks its contract-declared
 legacy Alpha bridge and Beta feed strictly. Stable checks the same Alpha and
 Beta migration floors strictly, then checks the Stable feed and allows 404 only
 for an as-yet-uninitialized Stable feed. A missing legacy floor in the contract
-is a hard failure. Resume repeats source-history verification and checks these
-feeds against the verified candidate receipt build, so a standalone
-package-only run cannot bypass either gate.
+is a hard failure. Publish recovery repeats source-history verification and
+checks these feeds against the verified candidate receipt build, so the
+internal signer cannot bypass either gate.
 
 After exact-SHA CI and the second credentials Doctor, the coordinator rechecks
 every applicable receipt-bound feed immediately before starting the
@@ -291,8 +294,8 @@ All behavior changes follow red/green TDD.
    custom scratch path, manual Xcode selection workaround, or Desktop key file.
 2. Preview and Stable install side-by-side using their documented filenames and
    channel-specific metadata.
-3. Package-only CI exercises the real release archive, CLI assembly,
-   portability, and smoke-test path without credentials.
+3. Credentialless `release.py package` CI exercises the real release archive,
+   CLI assembly, portability, and smoke-test path without credentials.
 4. The default builder path passes its own portability policy on supported
    Xcode/Swift versions.
 5. A locked/missing credential or unsupported toolchain fails during Doctor,
@@ -426,3 +429,18 @@ targets and are rejected before cleanup; direct internal builder defaults are
 derived from the selected channel and current commit. These constraints keep
 receipt paths from becoming authority, prevent stale readiness from bypassing
 serialization, and preserve every sibling fingerprint and release candidate.
+
+## Reconciled authority boundary
+
+The sole supported operator interface is `release.py debug`, `doctor
+[--profile]`, `package preview|stable`, and `publish preview|stable [--profile]`.
+CI uses `package`; nightly uses `package` then `publish`; repeating `publish` is
+the recovery operation. Builder phase flags remain internal implementation
+details. Authorities must not instruct direct builder use, shell `release.env`,
+an exact Xcode patch, or implicit pruning.
+
+The authority validator parses the contract, every public help surface, the CI
+package job, and the nightly command AST. Mutation tests retain both positive
+words while reversing nightly package/publish semantics, as well as exercising
+old same-name replacement, direct-builder, retired-option, shell-profile,
+implicit-prune, wrong-channel-identity, exact-Xcode, and stale Debug claims.

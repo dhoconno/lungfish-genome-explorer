@@ -137,7 +137,7 @@ cd lungfish-genome-explorer
 swift build -c release --arch arm64
 ```
 
-A signed and notarized `.dmg` can be produced with `bash scripts/release/build-notarized-dmg.sh` (requires Developer ID signing assets). Sparkle appcast publishing is documented in [docs/release/sparkle-updates.md](docs/release/sparkle-updates.md).
+A signed and notarized `.dmg` is produced through `python3 scripts/release/release.py package preview|stable` followed by `python3 scripts/release/release.py publish preview|stable` on a provisioned release Mac. Sparkle appcast publishing is documented in [docs/release/sparkle-updates.md](docs/release/sparkle-updates.md).
 
 ## User Manual
 

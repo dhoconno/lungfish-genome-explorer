@@ -7,20 +7,20 @@ notarized `.dmg` asset. Zip archives are useful for debugging, but they are not
 enough for end users because unsigned or unnotarized app bundles are difficult
 to run on macOS.
 
-Use `scripts/release/build-notarized-dmg.sh` with the release machine's
-Developer ID Application identity and `notarytool` Keychain profile, verify the
-result with `stapler validate`, and attach the notarized DMG to the GitHub
-release before considering the release complete.
+The sole release front door is `python3 scripts/release/release.py`: run
+`doctor`, then `package preview|stable`, then `publish preview|stable`. Re-run
+`publish` for receipt-bound recovery without rebuilding. Low-level builders are
+internal. The full machine, channel, cache, verification, and side-by-side
+caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
+`docs/release/sparkle-updates.md`.
 
 ## Dependency Sweep
 
-Before every release, run `scripts/deps/verify.sh` against an isolated storage
-root and require its reconciled receipt to match the manifest dependency set
-and canonical hash. Preview releases rely on that local evidence plus the
-normal push Fast gate; do not manually dispatch CI as part of release. A full
-stable GitHub release triggers Build/smoke and Toolset conformance through the
-`released` event, and both must pass before the stable release is complete. See
-`docs/release/dependency-sweep.md` for the full semiannual sweep checklist.
+The coordinator requires the reconciled dependency receipt to match the
+manifest dependency set and canonical hash, and gates the exact tagged SHA
+before publication. Do not manually dispatch CI. The full Stable release event
+board remains defense-in-depth after publication. See
+`docs/release/dependency-sweep.md` for the semiannual sweep checklist.
 
 ## Debug build
 

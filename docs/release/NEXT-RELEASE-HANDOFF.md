@@ -1,131 +1,80 @@
-# Stable release recovery: Lungfish 2026.8.5
+# Next Release Handoff
 
-## Current supported release entry points
+## Current authority
 
-Release automation now enters only through:
+Use only:
 
 ```text
 python3 scripts/release/release.py debug
+python3 scripts/release/release.py doctor [--profile PATH]
 python3 scripts/release/release.py package preview|stable
 python3 scripts/release/release.py publish preview|stable [--profile PATH]
-python3 scripts/release/release.py doctor [--profile PATH]
 ```
 
-The default machine profile is strict JSON at
-`~/.config/lungfish/release.json`; the nightly wrapper never sources the retired
-`release.env`. Nightly prepares version/source state, then calls `package` and
-`publish` with the same profile (or `publish` alone for exact recovery). CI
-calls `package` directly and remains read-only and secretless. Neither path
-implicitly prunes releases, tags, worktrees, or rescue archives. Detailed
-operator-authority reconciliation is intentionally a later documentation task.
+Re-run `publish` for partial-release recovery. It derives the exact
+current-HEAD/channel receipt and continues without rebuilding. Direct builder
+commands, public prepare/resume/status modes, shell `release.env`, and implicit
+release pruning are retired. CI and nightly use the same front door. Retention
+is a separate explicit maintenance task.
 
-Compiler-cache/readiness ledger: package and CI builds now derive one canonical
-toolchain/recipe fingerprint after selecting Xcode. Only SwiftPM and
-DerivedData intermediates are reusable, under the private
-`/private/var/tmp/lungfish-release-cache/v1/<repository-key>/<fingerprint>/`
-namespace; release candidates and publication artifacts remain in their
-receipt-bound output directories. Compatible Xcode releases are accepted by
-range (for example 26.6), while exact Xcode/Swift/SDK identities make distinct
-keys. Run `release.py doctor` on a new release Mac first: absent default profile
-means package-ready can still succeed while publish-ready is reported false;
-an explicit missing/unsafe profile returns nonzero. Doctor does not install,
-repair, sign, notarize, publish, or contact credential services in package
-mode.
+The strict default profile is `~/.config/lungfish/release.json`, a current-user
+regular non-symlink at mode 0600 beneath an owner-only directory. Schema v1 has
+exactly `schemaVersion`, `repository`, `signingIdentity`, `teamId`, and
+`notaryProfile`. The Sparkle private key remains in Keychain and the tools come
+from the pinned package dependency.
 
-Compiler-cache review ledger: round 1 found three Important trust-boundary
-defects and one Minor namespace-content gap in the initial cache slice
-(`eeb02c38`). They are closed. Receipt verification now derives canonical
-cache paths solely from configured authority and recomputed inputs; an
-alternate private directory cannot make its own receipt valid. Lock readiness
-uses a unique exclusive-create token written only after `flock` and removed
-before unlock. Cache namespaces reject unknown top-level artifacts without
-deleting them. Repository release output is restricted to
-`build/Release/<channel>/<40-hex-commit>/`; broad legacy roots/archives are
-rejected before cleanup and scoped siblings are preserved.
+Doctor reports package and publish readiness separately. A fresh Mac needs full
+Xcode `>=26.4.1,<27` with first launch complete, Swift `>=6.2,<7`, SDK 26,
+deployment target 26.0, arm64, 20 GiB free on cache and output volumes, Git,
+Bash, ripgrep, Python 3.11+, `gh`, a `.ci-python` containing the CI-listed
+focused/full gate dependencies, the Developer ID certificate/private key, a
+notary Keychain profile, the Sparkle Keychain key, and the strict JSON profile.
+Doctor does not install or repair these inputs and no manual `xcode-select`
+workaround is part of the release procedure.
 
-Front-door review ledger: round 1 found one Important recovery-path defect in
-the initial four-command implementation (`b29a194d`). It is closed: nightly now
-resolves the exact current-version tag commit and uses the same deterministic
-`build/Release/<channel>/<commit>/unsigned-candidate-receipt.json` helper as
-normal package/publish, including after later work advances `HEAD`.
+## Channel and installation ledger
 
-`v2026.8.4` was published as the first Stable CalVer release, but its
-automatic Toolset conformance job exposed a test-only MEGAHIT invocation that
-bypassed the shipped command builder. The correction is committed on `main`
-and passes the focused conformance test. Because the 2026.8.4 tag and public
-release are immutable, recovery continues as collision-free Stable version
-`2026.8.5`; it must receive a fresh Stable build, signature, notarization,
-DMG, and Sparkle item. Complete notes are in
-`docs/release-notes/2026.8.5.md`.
+- Preview: `Lungfish Preview.app`, `Lungfish Genome Explorer Preview`,
+  `sparkle-beta/appcast-beta.xml`, legacy
+  `sparkle-alpha/appcast-alpha.xml`, GitHub prerelease.
+- Stable: `Lungfish.app`, `Lungfish Genome Explorer`,
+  `sparkle-stable/appcast-stable.xml`, full GitHub release.
 
-## Historical handoff: dependency set 2026.2 release preparation
+Both retain `com.lungfish.browser` for Sparkle continuity. Distinct wrapper
+paths, names, feeds, and updater hosts permit side-by-side installation, but
+Launch Services, defaults, TCC, and other identifier-keyed state are not fully
+independent; simultaneous execution is not promised. A Preview copy already
+installed as `Lungfish.app` updates in place until manually reinstalled from a
+current Preview DMG.
 
-Status: completed by the CalVer preview release train. `v2026.8.1` was the
-first CalVer tag, but its downloadable artifact was withdrawn after a
-portability defect was found in the bundled micromamba binary. The corrected
-Preview replacement is `v2026.8.3`; see `docs/release-notes/2026.8.3.md`. The
-intermediate `v2026.8.2` preparation tag was not published. Use the
-release skill and current remote ledger for every later version rather than
-the pre-release instructions below.
+## Transaction and cache ledger
 
-Merged to main on 2026-08-19 at f99b2bf6 (tag `deps-plan-c-complete`). Main was
-fast-forwarded from `claude/lge-dependency-upgrade-plan-b6b53b`, 115 commits.
+Package is credentialless. It runs package Doctor, focused tests and
+contract-selected channel gates, then writes and verifies the candidate under
+`build/Release/<channel>/<40-hex-commit>/`. Publish verifies that receipt before
+loading credentials, repeats dependency/source/channel/credential/feed gates,
+pushes the annotated tag, waits for the required exact-SHA CI jobs, repeats
+live readiness, signs without rebuilding, notarizes, staples, publishes, and
+independently verifies. Preview uses strict Alpha/Beta live floors; Stable also
+checks Stable and permits absence only before that feed exists.
 
-At the time of this handoff the branch had not bumped the app version and main
-still read `0.5.0-beta29`. That historical instruction has now been completed.
+Only SwiftPM and DerivedData compiler intermediates are cached under the
+private fingerprint namespace. The path-independent fingerprint binds the
+repository, exact compiler/SDK identities, architecture/deployment, locks,
+contract, and recipe. Compatible repeated builds serialize and reuse one
+namespace; incompatible inputs select siblings. Candidate receipts, payloads,
+DMGs, signatures, feeds, and credentials are never cached, cached bytes are not
+release authority, and nothing is implicitly pruned.
 
-## Version bump sites (all must move together)
+## Historical recovery ledger
 
-- `Sources/LungfishCore/AppVersion.swift` is the single source for the app version.
-- `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, the
-  top-level `"version"` field (NOT the per-tool `version` fields, which are tool pins).
-- `Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist`.
-- Current-version test expectations such as
-  `Tests/LungfishCoreTests/AppVersionTests.swift`. Preserve deliberate legacy
-  decoding fixtures in dependency and provenance tests.
+`v2026.8.4` was the first Stable CalVer release. Its automatic Toolset
+conformance job exposed a test-only MEGAHIT path that bypassed the shipped
+command builder. The immutable correction shipped as Stable `v2026.8.5`.
 
-Write `docs/release-notes/<new-version>.md` before building: the release script copies
-it into the Sparkle appcast entry. `docs/release-notes/deps-2026.2.md` already holds the
-dependency-set notes and contains a draft block intended for that file.
-
-## What ships in this release
-
-Dependency set 2026.2: 31 manifest entries moved, plus SwiftPM package updates. Full
-detail in `docs/release-notes/deps-2026.2.md` and
-`docs/reports/2026-08-18-dependency-sweep-2026.2-results.md`.
-
-The upgrade path was rehearsed against a clone of a real 57-environment install before
-merge: see `docs/verification/2026-08-19-upgrade-path-rehearsal.md`. Users upgrading
-from an earlier set get 23 environment reinstalls, 3 advisory database updates and a
-micromamba bootstrap, about 3.5 GB, with no environments removed.
-
-## Merged after the first handoff draft
-
-Two additional bodies of work landed on main after the section below was written:
-
-- The tier 3 first run and its fixes: a shipped esviritu detect path bug, the
-  TaxTriage v3.3.8 --db requirement, and refreshed pipeline goldens. See
-  docs/verification/2026-08-19-tier3-first-run.md.
-- The codex/fix-bracken-installer branch, reconciled by merge: the Metagenomics
-  pack now builds Bracken 3.1 from source (sha256-pinned tarball plus pinned
-  toolchain), and Kraken read indexes are portable (main's implementation kept;
-  the two branches had built the same feature independently). Serialized conda
-  environment mutations, special database version migration, and per-sample
-  Kraken extraction scoping also arrive with this merge.
-
-## Known state at merge
-
-- Full suite on merged main: see the run recorded in the rehearsal document. The only
-  failures are the known environmental ones (`FileSystemWatcherTests` FSEvents, and a
-  load-sensitive MEGAHIT 1.2.9 crash that passes in isolation and in tier 1).
-- Tier 3 (`scripts/deps/run-pipelines.sh`) has still never run: it needs Apple
-  Containers or Docker on the build host.
-- CI `toolset-conformance` has not been dispatched, because the branch was never pushed
-  before merging. Consider running it against main now that main carries the manifest.
-
-## Release invocation
-
-See `project_release_build` notes and `docs/release/sparkle-updates.md`. Two gotchas that
-have bitten before: the tagged commit must already exist on origin before
-`gh release create --target <sha>`, and never pass `--reuse-archive` after a successful
-notarize and staple, because re-signing corrupts the stapled bundle.
+Dependency set 2026.2 was completed by the CalVer Preview train. `v2026.8.1`
+was withdrawn after a bundled micromamba portability defect; corrected Preview
+artifact `v2026.8.3` replaced it, while `v2026.8.2` remained an unpublished
+preparation tag. Current release decisions come from remote tags, GitHub
+release state, committed per-version notes, the release contract, and the
+current coordinator—not these historical events.

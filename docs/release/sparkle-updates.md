@@ -1,83 +1,67 @@
-# Sparkle Updates
+# Sparkle Updates and macOS Releases
 
-Lungfish uses Sparkle for graphical macOS updates. The app does not poll
-GitHub's `/releases/latest` endpoint because GitHub defines that endpoint as
-the latest non-prerelease, non-draft release. Preview builds use a fixed
-Sparkle feed instead:
+## Supported commands
 
-`https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml`
+All manual, CI, recovery, and scheduled release work enters through exactly:
 
-The compatibility-named `sparkle-beta` GitHub release is the mutable preview
-feed container. Each real app version gets a canonical CalVer tag such as
-`v2026.8.1`, with the notarized DMG attached there. Version strings never carry
-alpha, beta, preview, or stable suffixes; channel status belongs to the feed,
-GitHub release state, and signed bundle metadata. The appcast points at those
-versioned DMG assets.
+```text
+python3 scripts/release/release.py debug
+python3 scripts/release/release.py doctor [--profile PATH]
+python3 scripts/release/release.py package preview|stable
+python3 scripts/release/release.py publish preview|stable [--profile PATH]
+```
 
-Legacy alpha builds before `0.5.0-beta1` still read:
+Run `package` before `publish`. Re-run the identical `publish` command to recover
+an interrupted signing, notarization, or publication transaction. Recovery
+revalidates the deterministic current-HEAD receipt and does not rebuild.
+Low-level release builders and phase helpers are internal interfaces, not
+operator, CI, or nightly entry points.
 
-`https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml`
+No release command implicitly prunes GitHub releases, tags, worktrees, rescue
+archives, cache namespaces, or candidates. When retention is intentionally
+requested as a separate maintenance task, inspect and then run
+`scripts/release/prune-github-prereleases.py`; it is not part of publication.
 
-To migrate those users automatically, publish the same signed preview appcast item
-to `sparkle-alpha` as `appcast-alpha.xml`. After users install the current app,
-the app bundle's `SUFeedURL` points at the preview feed for subsequent updates.
+## Channel identity
 
-New versions use `YYYY.M.PATCH`. Capture the release machine's local date once,
-then increment the highest patch for that year/month found across remote Git
-tags and GitHub releases; a new month starts at `1`. Month and patch components
-have no leading zeroes.
+Both channels use the same suffix-free `YYYY.M.PATCH` sequence. Channel state is
+carried by the signed bundle metadata, baked feed, and GitHub prerelease state:
 
-## Channels
+| Fact | Preview | Stable |
+|---|---|---|
+| Wrapper | `Lungfish Preview.app` | `Lungfish.app` |
+| Display name | `Lungfish Genome Explorer Preview` | `Lungfish Genome Explorer` |
+| Bundle name | `Lungfish Preview` | `Lungfish` |
+| Release channel | `preview` | `stable` |
+| Feed container | `sparkle-beta` | `sparkle-stable` |
+| Appcast | `appcast-beta.xml` | `appcast-stable.xml` |
+| GitHub release | Prerelease | Full release |
 
-Both channels share the single `YYYY.M.PATCH` version line: every build, preview
-or stable, takes the next patch number, so `2026.8.7` names exactly one build no
-matter which channel carries it, Sparkle's version comparison stays trivially
-correct for a user who switches channels, and no suffix grammar exists to parse.
-Stable versions are therefore not consecutive (a user may see `2026.8.2` then
-`2026.8.9`); that is expected. The channel has a three-part identity, never in
-the version string:
+Preview also publishes the same signed item to the legacy
+`sparkle-alpha/appcast-alpha.xml` bridge so older Alpha installations can move
+onto the Beta feed.
 
-- The Sparkle feed the app polls, baked in at build time by
-  `build-notarized-dmg.sh --channel`:
-  - `--channel preview` (default): `appcast-beta.xml` at the `sparkle-beta`
-    release, published as a GitHub prerelease.
-  - `--channel stable`: `appcast-stable.xml` at the `sparkle-stable` release,
-    published as a full GitHub release.
-- The GitHub release's prerelease flag, which is also what routes CI: a full
-  release (or promoting a prerelease to full) fires the `released` event and
-  runs the heavy validation board; prereleases run nothing beyond the push
-  gate their commit already passed.
-- The signed bundle metadata, stamped before Developer ID signing:
-  - Preview: `CFBundleDisplayName=Lungfish Genome Explorer Preview`,
-    `CFBundleName=Lungfish Preview`, and `LungfishReleaseChannel=preview`.
-  - Stable: `CFBundleDisplayName=Lungfish Genome Explorer`,
-    `CFBundleName=Lungfish`, and `LungfishReleaseChannel=stable`.
+Both channels retain bundle identifier `com.lungfish.browser`; Sparkle rejects
+an update whose identifier differs from the installed app. The distinct wrapper
+paths, names, feeds, and updater hosts allow Preview and Stable side-by-side
+installation. The shared identifier also means Launch Services, defaults, TCC,
+and other identifier-keyed state are not fully independent, and simultaneous
+execution is not promised. A Preview copy installed before the rename keeps its
+existing `Lungfish.app` path during in-place Sparkle updates. Manually install a
+current Preview DMG to obtain `Lungfish Preview.app`.
 
-Because the feed URL is baked into the bundle, a stable release is built as
-stable from its tagged commit rather than by re-labelling a preview DMG. A
-preview installation remains on the preview feed; switching to stable requires
-installing a stable DMG, and opting into Preview requires installing a Preview
-DMG. The two channels ship differently named bundles: the stable DMG contains
-`Lungfish.app` and the preview DMG contains `Lungfish Preview.app`, so both can
-sit side by side in `/Applications` (the VS Code stable/Insiders model). They
-share the `com.lungfish.browser` bundle identifier because Sparkle refuses an
-update whose identifier differs from the installed app's; a preview install
-made before the rename keeps its `Lungfish.app` filename across Sparkle
-updates (Sparkle installs to the existing path) and only a fresh drag from a
-new preview DMG picks up the `Lungfish Preview.app` name.
-Preview is publicly available as a GitHub prerelease and carries this
-visible caveat: “Preview builds are under rapid iterative development. Features
-may be incomplete, change quickly, or require additional feedback.” If an
-in-app channel toggle is ever wanted, Sparkle 2's
-`<sparkle:channel>` element and `allowedChannels` delegate support a single-feed
-model where promotion republishes the same signed item without the channel tag;
-adopt that only alongside the settings UI and a migration plan for existing
-preview-feed installs.
+Preview releases and About text include: “Preview builds are under rapid
+iterative development. Features may be incomplete, change quickly, or require
+additional feedback.”
 
-## Release Notes Across Channels
+## Release notes and version ledger
 
-Immutable tags, GitHub's prerelease/full state, and committed per-version notes
-are the release ledger. Do not maintain a second channel/version registry.
+Choose the next collision-free `YYYY.M.PATCH` by capturing the release Mac's
+local date and incrementing the highest positive patch for that year/month
+across remote immutable versioned tags and GitHub releases. Ignore drafts,
+legacy versions, and mutable `sparkle-*` containers. Never overwrite a
+collision.
+
 Every `docs/release-notes/<version>.md` begins with:
 
 ```text
@@ -87,126 +71,98 @@ Stable baseline: v<full-version>|None (bootstrap aggregation baseline: v<version
 Dependency set: <set>
 ```
 
-Preview notes cover one versioned-release delta. Stable notes compare the latest
-full versioned release with the candidate, then reconcile that Git diff with
-every intervening committed preview note. Before the first stable release, use
-the explicitly recorded bootstrap aggregation baseline rather than repository
-root. Stable notes include `## Included preview releases` and aggregate, without
-duplication, user-facing workflows, correctness and stability, scientific
-provenance, storage or migration changes, dependency/database pins,
-platform/toolchain compatibility, release infrastructure, and known issues.
+Preview notes cover the previous versioned-release delta. Stable notes reconcile
+the Git diff and every intervening committed note from the latest full release,
+or from the recorded bootstrap aggregation baseline before the first Stable,
+and include `## Included preview releases`. Immutable tags, GitHub release
+state, and committed notes are the ledger; do not add a mutable registry.
 
-## One-Time Setup
+## Fresh release Mac bootstrap
 
-1. Download the matching Sparkle release tools and run `generate_keys`.
-2. Store the printed public key as `LUNGFISH_SPARKLE_PUBLIC_ED_KEY`.
-3. Keep the private EdDSA key in the signing machine's login Keychain.
-   For unattended release runs, export it to a temporary mode-0600 file with
-   `generate_keys -x /path/to/private-key.txt` and pass that file with
-   `--sparkle-ed-key-file`; delete the file after the release.
-4. Authenticate GitHub CLI with release permissions: `gh auth login`.
+Provision the machine directly; this repository intentionally does not invent
+an installer:
 
-Sparkle's public key is injected during release archive builds. Development
-builds leave the key empty, which keeps the menu item present but disabled.
+1. Install full Xcode `>=26.4.1,<27`, launch it once, accept the license, and
+   finish first-launch components. The coordinator selects a compatible full
+   Xcode; do not use a manual `xcode-select` workaround.
+2. Install Git, Bash, ripgrep, Python 3.11 or newer, and GitHub CLI. Authenticate
+   `gh` for the selected repository. Provision `.ci-python` with Pillow,
+   openpyxl, and PyYAML for focused/script gates plus numpy, biopython, scipy,
+   and pandas for full/conformance gates; CI remains the dependency authority.
+   Xcode/macOS provide the Apple build, signing, notarization, plist, archive,
+   and disk-image commands.
+3. Import the Developer ID Application certificate with its private key into
+   the login Keychain.
+4. Configure a usable `notarytool` Keychain profile.
+5. Resolve the repository-pinned Sparkle tools and create/import the Sparkle
+   EdDSA private key in the login Keychain. Do not export a key file for release.
+6. Create an owner-only `~/.config/lungfish` directory and a current-user,
+   regular, non-symlink mode-0600 `~/.config/lungfish/release.json` containing
+   exactly:
 
-## Release Flow
+   ```json
+   {
+     "schemaVersion": 1,
+     "repository": "OWNER/REPO",
+     "signingIdentity": "Developer ID Application: Example (TEAMID)",
+     "teamId": "TEAMID",
+     "notaryProfile": "PROFILE"
+   }
+   ```
 
-```bash
-export LUNGFISH_SPARKLE_PUBLIC_ED_KEY="<base64 public key from generate_keys>"
+7. Run `python3 scripts/release/release.py doctor`. It reports `Package
+   readiness` and `Publish readiness` separately. A missing default profile can
+   report package READY/publish NOT READY with exit zero; an explicit missing or
+   unsafe profile, or a failed credential probe, exits nonzero. Doctor is
+   read-only apart from disposable probes and never installs or repairs tools.
 
-bash scripts/release/build-notarized-dmg.sh \
-  --channel preview \
-  --signing-identity "Developer ID Application: Example (TEAMID)" \
-  --team-id TEAMID \
-  --notary-profile PROFILE \
-  --github-release-tag "v2026.8.1" \
-  --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
-  --sparkle-ed-key-file "/path/to/private-key.txt" \
-  --sparkle-bridge-publish-release "sparkle-alpha" \
-  --sparkle-bridge-appcast-filename "appcast-alpha.xml" \
-  --prune-prereleases
-```
+The release contract also requires Swift `>=6.2,<7`, macOS SDK major 26,
+deployment target 26.0, arm64, and at least 20 GiB free on both cache and output
+volumes.
 
-For stable, use `--channel stable` and omit the preview bridge and pruning
-flags. The channel chooses `sparkle-stable/appcast-stable.xml` and makes the
-versioned GitHub release full rather than prerelease. Explicit appcast flags
-remain available for audited recovery or migration and override these defaults.
+## Package and publish semantics
 
-Before signing, the builder reads back and requires the selected
-`CFBundleDisplayName`, `CFBundleName`, and `LungfishReleaseChannel` values. In
-post-build verification, independently inspect those three keys in the archived
-app, the copied release app, and the mounted DMG app; do not infer channel from
-the app wrapper or DMG filename.
+`package` is credentialless. It sanitizes credential/capability environment
+values, runs package Doctor, the focused release module list, dependency/source
+gates selected by `config/release-contract.json`, internal unsigned assembly,
+portability and smoke checks, then exact receipt verification. Its output is
+`build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json` plus
+the bound candidate. Preview runs unit+integration; Stable runs
+full+conformance with required tools.
 
-The script sets `CFBundleVersion` from `git rev-list --count HEAD` unless
-`LUNGFISH_BUILD_NUMBER` is set. Every shipped update must have a greater
-`CFBundleVersion` than the previous shipped build, regardless of the marketing
-version string. The script fetches the selected channel's live appcast and
-enforces this before building.
+CI invokes `release.py package` for both channels on main without profiles,
+secrets, Developer ID signing, notarization, tags, GitHub publication, or feed
+mutation. Tag CI reads the exact committed `Channel:` field and runs the
+contract-selected gates on that exact tagged SHA.
 
-For direct publication, push the annotated `v<version>` tag first. The release
-script requires that the peeled remote tag, local `HEAD`, and GitHub release
-target all identify the same commit. It refuses to overwrite an existing
-versioned release by default. Use `--recover-existing-release` only to resume a
-known partial publication after those identity checks pass.
+`publish` verifies the expected channel/current-HEAD receipt before it reads the
+strict profile. It then repeats source history, dependency receipt, focused
+tests, channel gates, credential Doctor, and live Sparkle build floors; creates
+and atomically pushes the annotated tag; waits for the required exact-SHA CI;
+repeats credentials and receipt-bound live floors; and only then gives the
+candidate to the internal signer. There is no rebuild between package receipt
+and Developer ID signing.
 
-The script uploads the notarized DMG to the channel-appropriate versioned
-GitHub release, then generates and publishes that channel's appcast to its
-fixed mutable feed container. Release notes are copied from
-`docs/release-notes/<version>.md` when present. Mutable `sparkle-*` feed
-containers remain prerelease/non-latest infrastructure; only a versioned stable
-release is full and triggers the heavy `release` event board.
+The signer replaces package ad-hoc seals, signs nested code and the app,
+notarizes and staples app and DMG, publishes the immutable versioned release,
+then updates the mutable channel feed and Preview bridge. Independent
+verification checks receipt/commit/tag identity, app and CLI versions, wrapper
+and bundle metadata, feed URL, signatures, notarization logs and staples,
+Gatekeeper, smoke tests, DMG SHA-256, GitHub target/prerelease/assets, and exact
+appcast assets.
 
-## Preview Retention Policy
+Live build-number floors are repeated immediately before internal signing and
+again before remote mutation. Preview requires strict legacy Alpha and Beta
+floors. Stable requires those migration floors plus Stable; only a never-created
+Stable feed may be absent.
 
-Preview builds are intentionally frequent, but the large DMG assets do not
-need to stay attached to GitHub Release records forever. Keep git tags and
-committed release notes as the durable record, then prune only old GitHub
-Release containers.
+## Compiler cache and repeated builds
 
-The nightly prerelease coordinator enables this policy by default after a
-successful publish and verification:
-
-```bash
-scripts/release/run-nightly-prerelease.sh
-```
-
-For CalVer, it keeps the newest 10 preview release records across month boundaries,
-keeps the current release, keeps `sparkle-beta`, and deletes older versioned
-prerelease GitHub Release records without `--cleanup-tag`. The git tags remain,
-so an older build can be recreated from commit history when needed.
-
-Release notes are preserved before anything is deleted. A versioned prerelease
-record is only eligible for pruning when the matching
-`docs/release-notes/<version>.md` file exists in the checkout. Stale note
-assets on the mutable `sparkle-beta` release are pruned only when their matching
-tag still exists and the committed release-note file is present. The active
-`appcast-beta.xml` feed asset is never pruned by this policy.
-
-For a manual release, opt in explicitly:
-
-```bash
-bash scripts/release/build-notarized-dmg.sh \
-  --channel preview \
-  --signing-identity "Developer ID Application: Example (TEAMID)" \
-  --team-id TEAMID \
-  --notary-profile PROFILE \
-  --github-release-tag "v2026.8.1" \
-  --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
-  --sparkle-ed-key-file "/path/to/private-key.txt" \
-  --prune-prereleases \
-  --prune-prereleases-keep 10
-```
-
-To preview the retention plan without deleting anything:
-
-```bash
-scripts/release/prune-github-prereleases.py \
-  --current-tag "v2026.8.1" \
-  --keep 10
-```
-
-When `--sparkle-bridge-publish-release sparkle-alpha` is set, the script also
-copies that generated preview appcast item to `appcast-alpha.xml` on the legacy
-alpha feed. The current app still embeds the preview `SUFeedURL`; the bridge
-feed only exists to let old alpha installations discover the update once.
+Only disposable SwiftPM and Xcode DerivedData intermediates are reusable at
+`/private/var/tmp/lungfish-release-cache/v1/<repository-key>/<fingerprint>/`.
+The canonical, path-independent fingerprint covers repository identity,
+Xcode/Swift/SDK identities, architecture, deployment target, dependency locks,
+release contract, and build recipe. Compatible builds serialize and reuse one
+namespace; a changed compiler input selects a sibling. Candidate apps, receipts,
+signed/notarized outputs, DMGs, feeds, and credentials never enter the cache.
+Receipt hashes—not cached bytes—authorize recovery.
