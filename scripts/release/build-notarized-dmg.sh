@@ -23,8 +23,8 @@ Optional:
                       Verify and sign the exact candidate bound by RECEIPT without rebuilding
   --describe-channel preview|stable
                       Print the contract-backed channel JSON and exit
-  --scratch-path      Explicit absolute SwiftPM scratch path for packaging
-                      (default: deterministic release root/repository key/commit)
+  --scratch-path      Explicit canonical SwiftPM scratch path for packaging;
+                      must match the configured root/repository key/commit
   --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
   --release-dir       Release directory (default: build/Release)
   --derived-data-path DerivedData path for the Xcode archive (default: <project-root>/.build/release-derived-data)
@@ -616,6 +616,14 @@ fi
 run_release_doctor() {
     local mode="$1"
     local doctor_args=(--mode "$mode" --channel "$CHANNEL")
+    if [ "$mode" = package ]; then
+        doctor_args+=(
+            --scratch-path "$SCRATCH_PATH"
+            --release-dir "$RELEASE_DIR"
+            --archive-path "$ARCHIVE_PATH"
+            --derived-data-path "$DERIVED_DATA_PATH"
+        )
+    fi
     if [ "$mode" = credentials ]; then
         doctor_args+=(
             --signing-identity "$SIGNING_IDENTITY"
@@ -884,11 +892,11 @@ prune_github_prereleases() {
 }
 
 prepare_release_dir() {
-    rm -rf "$RELEASE_DIR"
-    mkdir -p "$RELEASE_DIR"
+    /bin/rm -rf "$RELEASE_DIR"
+    /bin/mkdir -p "$RELEASE_DIR"
     case "$ARCHIVE_PATH" in
         "$RELEASE_DIR"/*) ;;
-        *) rm -rf "$ARCHIVE_PATH" ;;
+        *) /bin/rm -rf "$ARCHIVE_PATH" ;;
     esac
 }
 
@@ -908,10 +916,6 @@ resolved_build_timestamp() {
 }
 
 if [ -z "$RESUME_CANDIDATE" ]; then
-    # This is the sole pre-destructive package boundary. Doctor must finish
-    # before output or deterministic scratch directories are created.
-    run_release_doctor package
-
     if [ -z "$SCRATCH_PATH" ]; then
         repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
         repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
@@ -923,15 +927,21 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         *) echo "release scratch path must be absolute" >&2; exit 64 ;;
     esac
 
-    for command in rg xcodebuild xcrun ditto mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
+    # This is the sole pre-destructive package boundary. Doctor must finish
+    # before output or deterministic scratch directories are created.
+    run_release_doctor package
+
+    for command in rg xcodebuild /usr/bin/xcrun /usr/bin/ditto /usr/bin/mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
         require_command "$command"
     done
 
-    prepare_release_dir
-    mkdir -p "$RELEASE_LOG_DIR" "$(dirname "$DERIVED_DATA_PATH")"
-    rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
     umask 077
-    mkdir -p "$SCRATCH_PATH"
+    prepare_release_dir
+    /bin/mkdir -p "$RELEASE_LOG_DIR" "$DERIVED_DATA_PATH"
+    : >"${RELEASE_DIR}/.lungfish-release-output"
+    : >"${DERIVED_DATA_PATH}/.lungfish-derived-data-output"
+    /bin/rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
+    /bin/mkdir -p "$SCRATCH_PATH"
     cd "$PROJECT_ROOT"
 
     if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
@@ -1024,7 +1034,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         exit 72
     fi
 
-    xcrun swift build \
+    /usr/bin/xcrun swift build \
         --package-path "$PROJECT_ROOT" \
         --product lungfish-cli \
         --configuration release \
@@ -1053,7 +1063,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         --portability-only \
         --allowed-swiftpm-fallback "$SCRATCH_PATH"
 
-    ditto "$APP_PATH" "$RELEASE_APP_PATH"
+    /usr/bin/ditto "$APP_PATH" "$RELEASE_APP_PATH"
     scripts/smoke-test-release-tools.sh "$RELEASE_APP_PATH" \
         --allowed-swiftpm-fallback "$SCRATCH_PATH"
 
@@ -1103,18 +1113,34 @@ run_release_doctor credentials
 
 verify_versioned_release_identity
 
-for command in codesign hdiutil ditto mktemp xcrun /usr/bin/file /usr/bin/find; do
+for command in /usr/bin/codesign /usr/bin/hdiutil /usr/bin/ditto /usr/bin/mktemp /usr/bin/xcrun /usr/bin/file /usr/bin/find; do
     require_command "$command"
 done
 if [ "$DEFER_REMOTE_PUBLISH" -eq 0 ] && { [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; }; then
     require_command gh
 fi
 
+SIGNING_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.signing-work.XXXXXX")
+/bin/chmod 700 "$SIGNING_WORK_DIR"
+APP_PATH="${SIGNING_WORK_DIR}/${APP_BUNDLE_FILENAME}"
+/usr/bin/ditto "$RELEASE_APP_PATH" "$APP_PATH"
+SIGNED_APP_PATH="${RELEASE_DIR}/signed/${APP_BUNDLE_FILENAME}"
+
+cleanup_release_workdirs() {
+    if [ -n "${SIGNING_WORK_DIR:-}" ]; then
+        /bin/rm -rf "$SIGNING_WORK_DIR"
+    fi
+    if [ -n "${DMG_STAGING_DIR:-}" ]; then
+        /bin/rm -rf "$DMG_STAGING_DIR"
+    fi
+}
+trap cleanup_release_workdirs EXIT
+
 CLI_DEST="${APP_PATH}/Contents/MacOS/lungfish-cli"
 WORKFLOW_TOOLS_DIR="${APP_PATH}/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools"
 
 sign_developer_id_runtime() {
-    codesign --force --sign "$SIGNING_IDENTITY" \
+    /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
         --options runtime \
         --timestamp \
         --generate-entitlement-der \
@@ -1152,7 +1178,7 @@ sign_sparkle_framework() {
     sign_developer_id_runtime "$sparkle_framework"
 }
 
-codesign --force --sign "$SIGNING_IDENTITY" \
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
     --entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements" \
@@ -1165,7 +1191,7 @@ codesign --force --sign "$SIGNING_IDENTITY" \
 if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
     while IFS= read -r -d '' candidate; do
         if /usr/bin/file -b "$candidate" | grep -q '^Mach-O'; then
-            codesign --force --sign "$SIGNING_IDENTITY" \
+            /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
                 --options runtime \
                 --timestamp \
                 --generate-entitlement-der \
@@ -1182,28 +1208,32 @@ sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 # Outer app signing seals the bundle. Every nested Mach-O was signed above,
 # so we deliberately omit `--deep` (which can strip or overwrite those inner
 # signatures in unpredictable ways on recent macOS releases).
-codesign --force --sign "$SIGNING_IDENTITY" \
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
     --entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements" \
     --generate-entitlement-der \
     "$APP_PATH"
 
-codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 scripts/smoke-test-release-tools.sh "$APP_PATH" \
     --allowed-swiftpm-fallback "$SCRATCH_PATH"
 
 APP_NOTARY_ZIP="${RELEASE_DIR}/Lungfish-app-notary.zip"
-ditto -c -k --keepParent "$APP_PATH" "$APP_NOTARY_ZIP"
+/usr/bin/ditto -c -k --keepParent "$APP_PATH" "$APP_NOTARY_ZIP"
 
-xcrun notarytool submit "$APP_NOTARY_ZIP" \
+/usr/bin/xcrun notarytool submit "$APP_NOTARY_ZIP" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait \
     --output-format json >"$APP_NOTARY_LOG"
 
-rm -f "$APP_NOTARY_ZIP"
+/bin/rm -f "$APP_NOTARY_ZIP"
 
-xcrun stapler staple "$APP_PATH"
+/usr/bin/xcrun stapler staple "$APP_PATH"
+
+/bin/rm -rf "${RELEASE_DIR}/signed"
+/bin/mkdir -p "$(dirname "$SIGNED_APP_PATH")"
+/usr/bin/ditto "$APP_PATH" "$SIGNED_APP_PATH"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
 if [ "$VERSION" != "$SOURCE_VERSION" ]; then
@@ -1211,29 +1241,28 @@ if [ "$VERSION" != "$SOURCE_VERSION" ]; then
     exit 65
 fi
 DMG_PATH="${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg"
-DMG_STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/lungfish-dmg.XXXXXX")
-trap 'rm -rf "$DMG_STAGING_DIR"' EXIT
+DMG_STAGING_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.dmg-staging.XXXXXX")
 
-ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"
+/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"
 ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
-hdiutil create \
+/usr/bin/hdiutil create \
     -volname "$DMG_VOLUME_NAME" \
     -srcfolder "$DMG_STAGING_DIR" \
     -format UDZO \
     "$DMG_PATH"
 
-codesign --force --sign "$SIGNING_IDENTITY" \
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --timestamp \
     --generate-entitlement-der \
     "$DMG_PATH"
 
-xcrun notarytool submit "$DMG_PATH" \
+/usr/bin/xcrun notarytool submit "$DMG_PATH" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait \
     --output-format json >"$DMG_NOTARY_LOG"
 
-xcrun stapler staple "$DMG_PATH"
+/usr/bin/xcrun stapler staple "$DMG_PATH"
 
 publish_github_release_dmg
 generate_sparkle_appcast
@@ -1260,7 +1289,7 @@ prerelease_prune_enabled=${PRERELEASE_PRUNE_ENABLED}
 prerelease_prune_keep=${PRERELEASE_PRUNE_KEEP}
 prerelease_prune_report_path=$(relative_to_project_root "${PRERELEASE_PRUNE_REPORT_PATH:-}")
 archive_path=$(relative_to_project_root "$ARCHIVE_PATH")
-app_path=$(relative_to_project_root "$APP_PATH")
+app_path=$(relative_to_project_root "$SIGNED_APP_PATH")
 release_app_path=$(relative_to_project_root "$RELEASE_APP_PATH")
 DMG_PATH=$(relative_to_project_root "$DMG_PATH")
 dmg_sha256=${DMG_SHA}
@@ -1270,7 +1299,8 @@ dmg_notary_log=$(relative_to_project_root "$DMG_NOTARY_LOG")
 EOF
 
 printf 'Release complete:\n'
-printf '  App: %s\n' "$RELEASE_APP_PATH"
+printf '  Unsigned candidate: %s\n' "$RELEASE_APP_PATH"
+printf '  Signed app: %s\n' "$SIGNED_APP_PATH"
 printf '  DMG: %s\n' "$DMG_PATH"
 if [ -n "${SPARKLE_APPCAST_PATH:-}" ]; then
     printf '  Sparkle appcast: %s\n' "$SPARKLE_APPCAST_PATH"

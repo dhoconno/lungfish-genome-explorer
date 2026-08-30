@@ -30,6 +30,7 @@ class ReleaseBuilderFixture:
         self._copy_repository_inputs()
         self._install_internal_phase_wrappers()
         self._install_external_tools()
+        self._adapt_canonical_tools_for_fixture()
         self._git("init", "-q")
         self._git("config", "user.email", "builder@example.test")
         self._git("config", "user.name", "Builder Test")
@@ -48,6 +49,7 @@ class ReleaseBuilderFixture:
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release_contract.py",
             "scripts/release/release_cache_security.py",
+            "scripts/release/release_target_security.py",
             "scripts/release/release-candidate-receipt.py",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
@@ -122,6 +124,30 @@ class ReleaseBuilderFixture:
             if [ "${BUILDER_DOCTOR_FAIL:-0}" = 1 ]; then
                 echo 'FAIL fixture doctor' >&2
                 exit 1
+            fi
+            scratch=
+            release=
+            archive=
+            derived=
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    --scratch-path) scratch="$2"; shift 2 ;;
+                    --release-dir) release="$2"; shift 2 ;;
+                    --archive-path) archive="$2"; shift 2 ;;
+                    --derived-data-path) derived="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            if [ -n "$scratch" ]; then
+                repo=$(cd "$(dirname "$0")/../.." && pwd)
+                "$BUILDER_PYTHON" "$(dirname "$0")/release_target_security.py" \
+                    --project-root "$repo" \
+                    --home "$HOME" \
+                    --scratch-root "$LUNGFISH_RELEASE_SCRATCH_ROOT" \
+                    --scratch-path "$scratch" \
+                    --release-dir "$release" \
+                    --archive-path "$archive" \
+                    --derived-data-path "$derived"
             fi
             echo 'PASS fixture doctor'
             """,
@@ -243,7 +269,28 @@ class ReleaseBuilderFixture:
             '#!/bin/sh\n[ "${1:-}" = -m ] && echo arm64 || /usr/bin/uname "$@"\n',
         )
         for name, body in {
-            "codesign": 'printf \'codesign:%s\\n\' "$*" >>"$BUILDER_EVENTS"\n',
+            "codesign": r"""
+                printf 'codesign:%s\n' "$*" >>"$BUILDER_EVENTS"
+                if [[ " $* " == *" --sign - "* ]]; then
+                    exit 0
+                fi
+                if [ "${BUILDER_CODESIGN_MUTATE:-0}" = 1 ] \
+                    && [[ " $* " == *" --sign "* ]]; then
+                    target="${@: -1}"
+                    if [ -d "$target" ]; then
+                        target="$target/Contents/MacOS/Lungfish"
+                    fi
+                    printf '\nfixture-developer-id-mutation\n' >>"$target"
+                    count_file="$BUILDER_CODESIGN_COUNT"
+                    count=0
+                    if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+                    count=$((count + 1))
+                    printf '%s\n' "$count" >"$count_file"
+                    if [ "${BUILDER_CODESIGN_FAIL_AT:-0}" = "$count" ]; then
+                        exit 77
+                    fi
+                fi
+            """,
             "gh": 'printf \'gh:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "security": 'printf \'security:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "file": "echo 'Mach-O 64-bit executable arm64'\n",
@@ -252,12 +299,25 @@ class ReleaseBuilderFixture:
         }.items():
             self._write_executable(self.bin / name, f"#!/bin/bash\nset -eu\n{body}")
 
+    def _adapt_canonical_tools_for_fixture(self):
+        """Redirect only this disposable builder copy to explicit test doubles."""
+        source = self.builder.read_text(encoding="utf-8")
+        for canonical, replacement in {
+            "/usr/bin/codesign": self.bin / "codesign",
+            "/usr/bin/ditto": self.bin / "ditto",
+            "/usr/bin/hdiutil": self.bin / "hdiutil",
+            "/usr/bin/xcrun": self.bin / "xcrun",
+        }.items():
+            source = source.replace(canonical, str(replacement))
+        self.builder.write_text(source, encoding="utf-8")
+
     def run(
         self,
         *arguments,
         doctor_fail=False,
         release=None,
         archive=None,
+        derived=None,
         extra_env=None,
     ):
         environment = os.environ.copy()
@@ -273,6 +333,7 @@ class ReleaseBuilderFixture:
                 "LUNGFISH_RELEASE_SCRATCH_ROOT": str(self.scratch_root),
                 "LUNGFISH_SPARKLE_PUBLIC_ED_KEY": "public-test-key",
                 "BUILDER_DOCTOR_FAIL": "1" if doctor_fail else "0",
+                "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
                 "PYTHONDONTWRITEBYTECODE": "1",
             }
         )
@@ -286,7 +347,7 @@ class ReleaseBuilderFixture:
             "--archive-path",
             str(archive or self.archive),
             "--derived-data-path",
-            str(self.derived),
+            str(derived or self.derived),
             *arguments,
         ]
         return subprocess.run(
@@ -301,6 +362,39 @@ class ReleaseBuilderFixture:
 
     def event_lines(self):
         return self.events.read_text().splitlines() if self.events.exists() else []
+
+    def verify_receipt(self, *, channel="stable"):
+        return subprocess.run(
+            [
+                str(PYTHON),
+                str(self.repo / "scripts/release/release-candidate-receipt-real.py"),
+                "verify",
+                "--app",
+                str(self.release / "Lungfish.app"),
+                "--receipt",
+                str(self.release / "unsigned-candidate-receipt.json"),
+                "--channel",
+                channel,
+                "--scratch-path",
+                str(
+                    json.loads(
+                        (self.release / "unsigned-candidate-receipt.json").read_text()
+                    )["build"]["scratchPath"]
+                ),
+            ],
+            cwd=self.repo,
+            env={
+                **os.environ,
+                "PATH": f"{self.bin}:{os.environ['PATH']}",
+                "BUILDER_EVENTS": str(self.events),
+                "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
 
     def _git(self, *arguments):
         return subprocess.run(
@@ -469,6 +563,105 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(), "keep\n")
         self.assertFalse(self.fixture.scratch_root.exists())
 
+    def test_existing_unrelated_archive_is_rejected_without_deleting_sentinel(self):
+        archive = self.fixture.root / "unrelated.xcarchive"
+        archive.mkdir()
+        sentinel = archive / "do-not-delete.txt"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+
+        result = self.fixture.run("--package-only", archive=archive)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+        self.assertFalse(
+            any(line.startswith("xcodebuild:") for line in self.fixture.event_lines())
+        )
+
+    def test_existing_unrelated_release_and_derived_targets_fail_closed(self):
+        for label, overrides in (
+            ("release", {"release": self.fixture.root / "unrelated-release"}),
+            ("derived", {"derived": self.fixture.root / "unrelated-derived"}),
+        ):
+            with self.subTest(label=label):
+                target = overrides[label]
+                target.mkdir()
+                sentinel = target / "do-not-delete.txt"
+                sentinel.write_text("preserve\n", encoding="utf-8")
+
+                result = self.fixture.run("--package-only", **overrides)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+                self.assertFalse(
+                    any(
+                        line.startswith("xcodebuild:")
+                        for line in self.fixture.event_lines()
+                    )
+                )
+
+    def test_repository_scratch_is_rejected_before_build_or_creation(self):
+        scratch = self.fixture.repo / "Sources/unsafe-release-scratch"
+
+        result = self.fixture.run("--package-only", "--scratch-path", str(scratch))
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(scratch.exists())
+        self.assertFalse(
+            any(line.startswith("xcodebuild:") for line in self.fixture.event_lines())
+        )
+
+    def test_symlinked_release_target_is_rejected_without_replacing_link(self):
+        outside = self.fixture.root / "outside-release"
+        outside.mkdir()
+        sentinel = outside / "do-not-delete.txt"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+        release_link = self.fixture.root / "release-link"
+        release_link.symlink_to(outside, target_is_directory=True)
+
+        result = self.fixture.run("--package-only", release=release_link)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(release_link.is_symlink())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+        self.assertFalse(
+            any(line.startswith("xcodebuild:") for line in self.fixture.event_lines())
+        )
+
+    def test_non_archive_suffix_and_alias_archive_are_rejected_without_cleanup(self):
+        for archive in (
+            self.fixture.root / "not-an-archive",
+            self.fixture.root / "alias-parent/../aliased.xcarchive",
+        ):
+            with self.subTest(archive=archive):
+                actual = archive.resolve(strict=False)
+                actual.mkdir(parents=True)
+                sentinel = actual / "do-not-delete.txt"
+                sentinel.write_text("preserve\n", encoding="utf-8")
+
+                result = self.fixture.run("--package-only", archive=archive)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+                self.assertFalse(
+                    any(
+                        line.startswith("xcodebuild:")
+                        for line in self.fixture.event_lines()
+                    )
+                )
+
+    def test_overlapping_release_and_derived_targets_fail_before_cleanup(self):
+        self.fixture.release.mkdir()
+        sentinel = self.fixture.release / "do-not-delete.txt"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+
+        result = self.fixture.run("--package-only", derived=self.fixture.release)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+        self.assertFalse(
+            any(line.startswith("xcodebuild:") for line in self.fixture.event_lines())
+        )
+
     def test_default_flow_smokes_and_verifies_exact_candidate_before_codesign(self):
         result = self.fixture.run(
             "--signing-identity",
@@ -542,6 +735,93 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             )
         )
         self.assertTrue(any(line.startswith("receipt:verify:") for line in new_events))
+
+    def test_failed_mutating_codesign_preserves_receipt_candidate_and_retry_succeeds(
+        self,
+    ):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        candidate = self.fixture.release / "Lungfish.app"
+        before = {
+            path.relative_to(candidate): path.read_bytes()
+            for path in candidate.rglob("*")
+            if path.is_file()
+        }
+        receipt_before = self.fixture.verify_receipt()
+        self.assertEqual(
+            receipt_before.returncode,
+            0,
+            receipt_before.stdout + receipt_before.stderr,
+        )
+
+        failed = self.fixture.run(
+            "--resume-candidate",
+            str(self.fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--defer-remote-publish",
+            "--channel",
+            "stable",
+            extra_env={
+                "BUILDER_CODESIGN_MUTATE": "1",
+                "BUILDER_CODESIGN_FAIL_AT": "1",
+            },
+        )
+
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        after_failure = {
+            path.relative_to(candidate): path.read_bytes()
+            for path in candidate.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(after_failure, before)
+        verified_after_failure = self.fixture.verify_receipt()
+        self.assertEqual(
+            verified_after_failure.returncode,
+            0,
+            verified_after_failure.stdout + verified_after_failure.stderr,
+        )
+
+        (self.fixture.root / "codesign-count").unlink(missing_ok=True)
+        events_before_retry = len(self.fixture.event_lines())
+        retried = self.fixture.run(
+            "--resume-candidate",
+            str(self.fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--defer-remote-publish",
+            "--channel",
+            "stable",
+            extra_env={"BUILDER_CODESIGN_MUTATE": "1"},
+        )
+
+        self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        retry_events = self.fixture.event_lines()[events_before_retry:]
+        self.assertFalse(
+            any(line.startswith(("xcodebuild:", "swift:")) for line in retry_events)
+        )
+        verified_after_retry = self.fixture.verify_receipt()
+        self.assertEqual(
+            verified_after_retry.returncode,
+            0,
+            verified_after_retry.stdout + verified_after_retry.stderr,
+        )
+
+    def test_production_credentialed_apple_tools_are_canonical(self):
+        source = (ROOT / "scripts/release/build-notarized-dmg.sh").read_text(
+            encoding="utf-8"
+        )
+        for tool in ("codesign", "ditto", "hdiutil", "xcrun"):
+            with self.subTest(tool=tool):
+                self.assertIn(f"/usr/bin/{tool}", source)
 
     def test_raw_reuse_flags_fail_with_receipt_migration_guidance(self):
         for flag in ("--reuse-archive", "--reuse-built-cli"):

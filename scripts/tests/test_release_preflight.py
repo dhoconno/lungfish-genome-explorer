@@ -146,7 +146,9 @@ class ReleaseDoctorFixture:
                       printf '%s' "$STUB_GIT_STATUS"
                     fi
                     ;;
+                  "config --get") printf 'https://github.com/example/lungfish.git\\n' ;;
                   "rev-parse --verify") printf '0123456789abcdef0123456789abcdef01234567\\n' ;;
+                  "rev-parse --show-toplevel") printf '%s\\n' "$PWD" ;;
                   "remote get-url") printf 'https://github.com/example/lungfish.git\\n' ;;
                   *) exit 65 ;;
                 esac
@@ -279,6 +281,30 @@ class ReleaseDoctorFixture:
             self.case.assertEqual(self.sentinel_snapshot(), sentinel_before)
         return result
 
+    def target_args(self, **overrides) -> tuple[str, ...]:
+        repository_key = hashlib.sha256(
+            b"https://github.com/example/lungfish.git"
+        ).hexdigest()
+        values = {
+            "scratch": self.scratch
+            / repository_key
+            / "0123456789abcdef0123456789abcdef01234567",
+            "release": self.root / "safe-targets/release",
+            "archive": self.root / "safe-targets/archive/Lungfish.xcarchive",
+            "derived": self.root / "safe-targets/derived",
+        }
+        values.update(overrides)
+        return (
+            "--scratch-path",
+            str(values["scratch"]),
+            "--release-dir",
+            str(values["release"]),
+            "--archive-path",
+            str(values["archive"]),
+            "--derived-data-path",
+            str(values["derived"]),
+        )
+
 
 class ReleaseDoctorTests(unittest.TestCase):
     def setUp(self):
@@ -337,6 +363,74 @@ class ReleaseDoctorTests(unittest.TestCase):
     def test_rejects_insufficient_disk_space(self):
         env = {**self.fx.env, "STUB_DISK_AVAILABLE_KB": str(2 * 1024 * 1024)}
         self.assert_failure("free disk", env=env)
+
+    def test_accepts_exact_private_nonoverlapping_mutation_targets(self):
+        result = self.fx.run_doctor(extra=self.fx.target_args())
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS mutation targets", result.stdout)
+
+    def test_rejects_dangerous_mutation_targets_before_scratch_write(self):
+        unrelated_archive = self.fx.root / "existing-unrelated.xcarchive"
+        unrelated_archive.mkdir()
+        unrelated_sentinel = unrelated_archive / "do-not-delete.txt"
+        unrelated_sentinel.write_text("preserve\n", encoding="utf-8")
+        unrelated_release = self.fx.root / "existing-unrelated-release"
+        unrelated_release.mkdir()
+        (unrelated_release / "do-not-delete.txt").write_text(
+            "preserve\n", encoding="utf-8"
+        )
+        unrelated_derived = self.fx.root / "existing-unrelated-derived"
+        unrelated_derived.mkdir()
+        (unrelated_derived / "do-not-delete.txt").write_text(
+            "preserve\n", encoding="utf-8"
+        )
+        symlink_target = self.fx.root / "symlink-target"
+        symlink_target.mkdir()
+        release_link = self.fx.root / "release-link"
+        release_link.symlink_to(symlink_target, target_is_directory=True)
+        aliased_release = self.fx.root / "alias-parent/../aliased-release"
+        cases = {
+            "filesystem root": {"release": Path("/")},
+            "repository": {"release": ROOT},
+            "repository ancestor": {"release": ROOT.parent},
+            "home": {"release": Path(self.fx.env["HOME"])},
+            "repository scratch": {"scratch": ROOT / "Sources/unsafe-release-scratch"},
+            "non-xcarchive": {"archive": self.fx.root / "archive-output"},
+            "existing unrelated archive": {"archive": unrelated_archive},
+            "existing unrelated release": {"release": unrelated_release},
+            "existing unrelated DerivedData": {"derived": unrelated_derived},
+            "symlink release": {"release": release_link},
+            "aliased release": {"release": aliased_release},
+            "release-derived overlap": {
+                "release": self.fx.root / "overlap",
+                "derived": self.fx.root / "overlap",
+            },
+        }
+
+        for label, overrides in cases.items():
+            with self.subTest(label=label):
+                scratch_root_existed = self.fx.scratch.exists()
+                result = self.fx.run_doctor(extra=self.fx.target_args(**overrides))
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("mutation targets", result.stdout + result.stderr)
+                if not scratch_root_existed:
+                    self.assertFalse(self.fx.scratch.exists())
+                self.assertEqual(
+                    unrelated_sentinel.read_text(encoding="utf-8"), "preserve\n"
+                )
+                self.assertEqual(
+                    (unrelated_release / "do-not-delete.txt").read_text(
+                        encoding="utf-8"
+                    ),
+                    "preserve\n",
+                )
+                self.assertEqual(
+                    (unrelated_derived / "do-not-delete.txt").read_text(
+                        encoding="utf-8"
+                    ),
+                    "preserve\n",
+                )
 
     def test_rejects_unwritable_deterministic_scratch_root(self):
         blocked = self.fx.root / "not-a-directory"

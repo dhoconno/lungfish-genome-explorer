@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import shlex
 import shutil
@@ -22,6 +24,7 @@ from release_cache_security import (
     validate_metadata,
 )
 from release_contract import CONTRACT_PATH, load_contract
+from release_target_security import TargetSecurityError, validate_release_targets
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -366,8 +369,7 @@ class Doctor:
                         metadata.st_uid == os.geteuid()
                         and len(relative_parts) >= 4
                         and relative_parts[0] == "sparkle-tools"
-                        and re.fullmatch(r"[0-9a-f]{64}", relative_parts[1])
-                        is not None
+                        and re.fullmatch(r"[0-9a-f]{64}", relative_parts[1]) is not None
                         and relative_parts[2] == "build"
                     ):
                         # SwiftPM binary artifacts contain conventional
@@ -402,6 +404,53 @@ class Doctor:
                 f"at least {self.toolchain.minimumFreeDiskGiB} GiB is required"
             )
         return f"at least {self.toolchain.minimumFreeDiskGiB} GiB is available"
+
+    def _mutation_targets(self) -> str:
+        values = (
+            self.args.scratch_path,
+            self.args.release_dir,
+            self.args.archive_path,
+            self.args.derived_data_path,
+        )
+        if not any(values):
+            return "no package mutation targets were requested"
+        if not all(values):
+            raise CheckFailure(
+                "scratch, release, archive, and DerivedData targets must be supplied together"
+            )
+
+        remote = self.run_command(["git", "config", "--get", "remote.origin.url"])
+        repository_identity = remote.stdout.strip() if remote.returncode == 0 else ""
+        if not repository_identity:
+            top_level = self.run_command(["git", "rev-parse", "--show-toplevel"])
+            if top_level.returncode != 0 or not top_level.stdout.strip():
+                raise CheckFailure("could not derive repository scratch identity")
+            repository_identity = top_level.stdout.strip()
+        head = self.run_command(["git", "rev-parse", "--verify", "HEAD"])
+        if head.returncode != 0:
+            raise CheckFailure("could not derive commit scratch identity")
+        repository_key = hashlib.sha256(repository_identity.encode()).hexdigest()
+        try:
+            validate_release_targets(
+                project_root=ROOT,
+                home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
+                scratch_root=Path(
+                    self.environment.get(
+                        "LUNGFISH_RELEASE_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT)
+                    )
+                ).expanduser(),
+                scratch_path=self.args.scratch_path,
+                release_dir=self.args.release_dir,
+                archive_path=self.args.archive_path,
+                derived_data_path=self.args.derived_data_path,
+                repository_key=repository_key,
+                commit=head.stdout.strip(),
+            )
+        except TargetSecurityError as error:
+            raise CheckFailure(str(error)) from error
+        return (
+            "exact package mutation targets are canonical, private, and nonoverlapping"
+        )
 
     def _scratch_write(self) -> str:
         scratch_base = self._scratch_base()
@@ -682,6 +731,7 @@ class Doctor:
             ("macOS SDK", self._sdk_version),
             ("host architecture", self._host_architecture),
             ("project deployment target", self._deployment_target),
+            ("mutation targets", self._mutation_targets),
             ("free disk", self._disk_space),
             ("scratch root", self._scratch_write),
             ("clean source tree", self._clean_tree),
@@ -754,6 +804,10 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--team-id")
     value.add_argument("--notary-profile")
     value.add_argument("--sparkle-ed-key-file", type=Path)
+    value.add_argument("--scratch-path", type=Path)
+    value.add_argument("--release-dir", type=Path)
+    value.add_argument("--archive-path", type=Path)
+    value.add_argument("--derived-data-path", type=Path)
     value.add_argument("--json-report", type=Path)
     return value
 
