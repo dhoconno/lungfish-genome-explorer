@@ -387,10 +387,18 @@ def validate_release_targets(
         raise TargetSecurityError("repository scratch key is invalid")
     if re.fullmatch(r"[0-9a-fA-F]{40}", commit) is None:
         raise TargetSecurityError("repository commit identity is invalid")
-    expected_scratch = scratch_base / repository_key / commit.lower()
+    cache_fingerprint = scratch.parent.name
+    if re.fullmatch(r"[0-9a-f]{64}", cache_fingerprint) is None:
+        raise TargetSecurityError("release cache fingerprint is invalid")
+    expected_namespace = scratch_base / "v1" / repository_key / cache_fingerprint
+    expected_scratch = expected_namespace / "swiftpm"
     if scratch != expected_scratch:
         raise TargetSecurityError(
-            "scratch path must match the current repository and commit identity"
+            "scratch path must match the repository and cache fingerprint identity"
+        )
+    if derived != expected_namespace / "derived-data":
+        raise TargetSecurityError(
+            "DerivedData path must share the exact cache fingerprint namespace"
         )
     if _contains(home, scratch) or _contains(project, scratch):
         raise TargetSecurityError("scratch path must be outside home and repository")
@@ -405,20 +413,13 @@ def validate_release_targets(
     recognized_repository_targets = {
         ("release directory", project / "build" / "Release"),
         ("archive path", project / "build" / "Release" / "Lungfish.xcarchive"),
-        ("DerivedData path", project / ".build" / "release-derived-data"),
     }
     scoped_repository_targets: set[tuple[str, Path]] = set()
     scoped_triples: list[tuple[Path, Path, Path]] = []
     for channel in ("preview", "stable"):
         scoped_release = project / "build" / "Release" / channel / commit.lower()
         scoped_archive = scoped_release / "Lungfish.xcarchive"
-        scoped_derived = (
-            project
-            / ".build"
-            / "release-derived-data"
-            / channel
-            / commit.lower()
-        )
+        scoped_derived = expected_namespace / "derived-data"
         scoped_triples.append((scoped_release, scoped_archive, scoped_derived))
         scoped_repository_targets.update(
             {
@@ -433,7 +434,6 @@ def validate_release_targets(
         for label, target in (
             ("release directory", release),
             ("archive path", archive),
-            ("DerivedData path", derived),
         )
     )
     if uses_scoped_target and (release, archive, derived) not in scoped_triples:
@@ -446,7 +446,7 @@ def validate_release_targets(
                 raise TargetSecurityError(
                     f"{label} is an unrecognized repository output path"
                 )
-        elif label != "scratch path":
+        elif label not in ("scratch path", "DerivedData path"):
             _private_external_ancestor(target, expected_uid=uid, label=label)
 
     allowed_release_archive_overlap = release in archive.parents
@@ -469,17 +469,9 @@ def validate_release_targets(
             continue
         raise TargetSecurityError(f"{left_label} overlaps {right_label}")
 
-    derived_is_default = (
-        "DerivedData path",
-        derived,
-    ) in recognized_repository_targets
     if release.exists() and any(release.iterdir()):
         validate_release_output_marker(
             release, repository_key=repository_key, expected_uid=uid
-        )
-    if not derived_is_default:
-        _validate_existing_output(
-            derived, label="DerivedData path", marker=DERIVED_MARKER
         )
     if not allowed_release_archive_overlap:
         _validate_existing_archive(

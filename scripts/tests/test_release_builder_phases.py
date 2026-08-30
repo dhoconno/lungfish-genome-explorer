@@ -54,6 +54,7 @@ class ReleaseBuilderFixture:
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release_contract.py",
             "scripts/release/release_cache_security.py",
+            "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_target_security.py",
             "scripts/release/release_repository.py",
             "scripts/release/release_xcode.py",
@@ -61,6 +62,14 @@ class ReleaseBuilderFixture:
             "scripts/release/release-candidate-receipt.py",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
+            "Package.swift",
+            "Lungfish-Info.plist",
+            "lungfish-cli.entitlements",
+            "scripts/bundle-native-tools.sh",
+            "scripts/sanitize-bundled-tools.sh",
+            "scripts/setup-worktree.sh",
+            "scripts/smoke-test-release-tools.sh",
+            "scripts/release/scan-release-portability.py",
         )
         for relative in paths:
             destination = self.repo / relative
@@ -298,7 +307,11 @@ class ReleaseBuilderFixture:
                 exit 0
             fi
             if [ "${1:-}" = --sdk ]; then
-                echo '26.0'
+                if [ "${3:-}" = --show-sdk-build-version ]; then
+                    echo '25A100'
+                else
+                    echo '26.0'
+                fi
                 exit 0
             fi
             if [ "${1:-}" = swift ] && [ "${2:-}" = build ]; then
@@ -598,6 +611,7 @@ class ReleaseBuilderFixture:
                     self.repo
                     / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
                 ),
+                "LUNGFISH_RELEASE_CACHE_ROOT": str(self.scratch_root),
                 "LUNGFISH_RELEASE_SCRATCH_ROOT": str(self.scratch_root),
                 "LUNGFISH_SPARKLE_PUBLIC_ED_KEY": "public-test-key",
                 "BUILDER_DOCTOR_FAIL": "1" if doctor_fail else "0",
@@ -617,10 +631,10 @@ class ReleaseBuilderFixture:
             str(release or self.release),
             "--archive-path",
             str(archive or self.archive),
-            "--derived-data-path",
-            str(derived or self.derived),
             *arguments,
         ]
+        if derived is not None:
+            command[2:2] = ["--derived-data-path", str(derived)]
         return subprocess.run(
             command,
             cwd=self.repo,
@@ -839,8 +853,12 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_REQUIRED=NO", archive)
         swift = next(line for line in events if line.startswith("swift:"))
         scratch = swift.split("--scratch-path ", 1)[1].split()[0]
+        derived = archive.split("-derivedDataPath ", 1)[1].split()[0]
         self.assertTrue(Path(scratch).is_absolute())
         self.assertTrue(scratch.startswith(str(self.fixture.scratch_root) + os.sep))
+        self.assertEqual(Path(scratch).name, "swiftpm")
+        self.assertEqual(Path(derived).name, "derived-data")
+        self.assertEqual(Path(scratch).parent, Path(derived).parent)
         self.assertIn(f"-Xlinker -oso_prefix -Xlinker {scratch}/", swift)
         smoke = [line for line in events if line.startswith("smoke:")]
         self.assertEqual(
@@ -848,6 +866,10 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         )
         receipt = next(line for line in events if line.startswith("receipt:create:"))
         self.assertIn(f"--scratch-path {scratch}", receipt)
+        payload = json.loads(
+            (self.fixture.release / "unsigned-candidate-receipt.json").read_text()
+        )
+        self.assertEqual(payload["cache"]["fingerprint"], Path(scratch).parent.name)
 
     def test_builder_exports_the_shared_canonical_xcode_selection(self):
         default = Path("/Applications/Xcode.app/Contents/Developer")
@@ -888,14 +910,11 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             if line.startswith("xcodebuild:")
         )
         self.assertIn("-disableAutomaticPackageResolution", archive)
-        self.assertIn(
-            f"-ffile-prefix-map={self.fixture.derived}=/xcode-derived", archive
-        )
-        self.assertIn(
-            f"-fdebug-prefix-map={self.fixture.derived}=/xcode-derived", archive
-        )
-        derived_alias = str(self.fixture.derived).removeprefix("/private")
-        if derived_alias != str(self.fixture.derived):
+        derived = archive.split("-derivedDataPath ", 1)[1].split()[0]
+        self.assertIn(f"-ffile-prefix-map={derived}=/xcode-derived", archive)
+        self.assertIn(f"-fdebug-prefix-map={derived}=/xcode-derived", archive)
+        derived_alias = str(derived).removeprefix("/private")
+        if derived_alias != str(derived):
             self.assertIn(f"-ffile-prefix-map={derived_alias}=/xcode-derived", archive)
             self.assertIn(f"-fdebug-prefix-map={derived_alias}=/xcode-derived", archive)
 
@@ -977,7 +996,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             json.loads(marker.read_text(encoding="utf-8")),
             {
                 "outputType": "lungfish-xcarchive",
-                "repositoryKey": Path(receipt["build"]["scratchPath"]).parent.name,
+                "repositoryKey": receipt["cache"]["fields"]["repository"]["key"],
                 "schemaVersion": 1,
             },
         )
@@ -1000,7 +1019,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             {
                 "outputType": "lungfish-release-output",
                 "releaseDir": str(self.fixture.release),
-                "repositoryKey": Path(receipt["build"]["scratchPath"]).parent.name,
+                "repositoryKey": receipt["cache"]["fields"]["repository"]["key"],
                 "schemaVersion": 1,
             },
         )
@@ -1068,7 +1087,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         valid = {
             "schemaVersion": 1,
             "outputType": "lungfish-release-output",
-            "repositoryKey": Path(receipt["build"]["scratchPath"]).parent.name,
+            "repositoryKey": receipt["cache"]["fields"]["repository"]["key"],
             "releaseDir": str(self.fixture.release),
         }
         cases = {

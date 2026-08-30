@@ -24,10 +24,10 @@ Optional:
   --describe-channel preview|stable
                       Print the contract-backed channel JSON and exit
   --scratch-path      Explicit canonical SwiftPM scratch path for packaging;
-                      must match the configured root/repository key/commit
+                      must match the canonical cache fingerprint
   --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
   --release-dir       Release directory (default: build/Release)
-  --derived-data-path DerivedData path for the Xcode archive (default: <project-root>/.build/release-derived-data)
+  --derived-data-path DerivedData path for the Xcode archive; must match the canonical cache fingerprint
   --remote NAME      Selected Git remote used for identity and tag checks (default: origin)
   --github-repository OWNER/REPO
                       Require the selected remote to identify this GitHub repository
@@ -81,6 +81,7 @@ SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-n
 RELEASE_TARGET_SECURITY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_target_security.py"
 RELEASE_REPOSITORY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_repository.py"
 RELEASE_XCODE_SCRIPT="${PROJECT_ROOT}/scripts/release/release_xcode.py"
+CACHE_FINGERPRINT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_cache_fingerprint.py"
 CANDIDATE_RECEIPT_SCRIPT="${PROJECT_ROOT}/scripts/release/release-candidate-receipt.py"
 
 SIGNING_IDENTITY=""
@@ -91,6 +92,7 @@ SCRATCH_PATH_EXPLICIT=0
 RELEASE_DIR="${PROJECT_ROOT}/build/Release"
 ARCHIVE_PATH="${RELEASE_DIR}/Lungfish.xcarchive"
 DERIVED_DATA_PATH=""
+DERIVED_DATA_PATH_EXPLICIT=0
 REUSE_ARCHIVE=0
 REUSE_BUILT_CLI=0
 PACKAGE_ONLY=0
@@ -166,6 +168,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --derived-data-path)
             DERIVED_DATA_PATH="$2"
+            DERIVED_DATA_PATH_EXPLICIT=1
             shift 2
             ;;
         --remote)
@@ -326,6 +329,7 @@ fi
 XCODE_ASSIGNMENT=$(python3 "$RELEASE_XCODE_SCRIPT" --shell)
 eval "$XCODE_ASSIGNMENT"
 export DEVELOPER_DIR
+unset CC CXX SDKROOT SWIFT_EXEC TOOLCHAINS
 
 CONTRACT_SPARKLE_APPCAST_FILENAME=""
 CONTRACT_SPARKLE_PUBLISH_RELEASE=""
@@ -352,6 +356,7 @@ while IFS='=' read -r contract_key contract_value; do
         PREVIEW_APPCAST_FILENAME) PREVIEW_APPCAST_FILENAME="$contract_value" ;;
         PREVIEW_LEGACY_SPARKLE_RELEASE) PREVIEW_LEGACY_SPARKLE_RELEASE="$contract_value" ;;
         PREVIEW_LEGACY_APPCAST_FILENAME) PREVIEW_LEGACY_APPCAST_FILENAME="$contract_value" ;;
+        DEPLOYMENT_TARGET) DEPLOYMENT_TARGET="$contract_value" ;;
         *)
             echo "unexpected release contract key: ${contract_key}" >&2
             exit 64
@@ -363,7 +368,7 @@ for required_contract_value in \
     "$APP_BUNDLE_FILENAME" "$APP_DISPLAY_NAME" "$APP_SHORT_NAME" \
     "$APP_BUNDLE_IDENTIFIER" "$RELEASE_CHANNEL" "$CONTRACT_SPARKLE_PUBLISH_RELEASE" \
     "$CONTRACT_SPARKLE_APPCAST_FILENAME" "$GITHUB_PRERELEASE" "$DMG_VOLUME_NAME" \
-    "$PREVIEW_SPARKLE_RELEASE" "$PREVIEW_APPCAST_FILENAME"; do
+    "$PREVIEW_SPARKLE_RELEASE" "$PREVIEW_APPCAST_FILENAME" "$DEPLOYMENT_TARGET"; do
     if [ -z "$required_contract_value" ]; then
         echo "release contract query omitted a required channel value" >&2
         exit 64
@@ -524,10 +529,6 @@ if [ "$PRERELEASE_PRUNE_KEEP" -lt 1 ]; then
     exit 64
 fi
 
-if [ -z "$DERIVED_DATA_PATH" ]; then
-    DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
-fi
-
 SPARKLE_FEED_URL=""
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
@@ -545,6 +546,7 @@ done
 if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ] \
     || [ ! -f "$RELEASE_TARGET_SECURITY_SCRIPT" ] \
     || [ ! -f "$RELEASE_REPOSITORY_SCRIPT" ] \
+    || [ ! -f "$CACHE_FINGERPRINT_SCRIPT" ] \
     || [ ! -f "$SPARKLE_BUILD_GATE_SCRIPT" ] \
     || [ ! -f "$RELEASE_XCODE_SCRIPT" ]; then
     echo "release Doctor or candidate receipt helper is missing or not executable" >&2
@@ -691,6 +693,9 @@ APP_NOTARY_LOG="${RELEASE_DIR}/notary-app-log.json"
 DMG_NOTARY_LOG="${RELEASE_DIR}/notary-dmg-log.json"
 
 release_commit=$(git rev-parse --verify HEAD)
+CACHE_ROOT="${LUNGFISH_RELEASE_CACHE_ROOT:-/private/var/tmp/lungfish-release-cache}"
+CACHE_FINGERPRINT=""
+CACHE_NAMESPACE=""
 
 refresh_output_paths() {
     RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
@@ -732,6 +737,8 @@ run_release_doctor() {
             --release-dir "$RELEASE_DIR"
             --archive-path "$ARCHIVE_PATH"
             --derived-data-path "$DERIVED_DATA_PATH"
+            --cache-root "$CACHE_ROOT"
+            --cache-fingerprint "$CACHE_FINGERPRINT"
         )
     fi
     if [ "$mode" = credentials ]; then
@@ -1050,13 +1057,37 @@ resolved_build_timestamp() {
 }
 
 if [ -z "$RESUME_CANDIDATE" ]; then
-    if [ -z "$SCRATCH_PATH" ]; then
-        SCRATCH_PATH="${LUNGFISH_RELEASE_SCRATCH_ROOT:-/private/var/tmp/lungfish-release-swiftpm}/${repository_key}/${release_commit}"
+    requested_scratch="$SCRATCH_PATH"
+    requested_derived="$DERIVED_DATA_PATH"
+    cache_output=$(python3 "$CACHE_FINGERPRINT_SCRIPT" derive \
+        --project-root "$PROJECT_ROOT" \
+        --repository "github.com/${GITHUB_REPOSITORY}" \
+        --repository-key "$repository_key" \
+        --deployment-target "$DEPLOYMENT_TARGET" \
+        --cache-root "$CACHE_ROOT")
+    while IFS='=' read -r cache_key cache_value; do
+        case "$cache_key" in
+            CACHE_FINGERPRINT) CACHE_FINGERPRINT="$cache_value" ;;
+            CACHE_NAMESPACE) CACHE_NAMESPACE="$cache_value" ;;
+            CACHE_SWIFTPM) SCRATCH_PATH="$cache_value" ;;
+            CACHE_DERIVED_DATA) DERIVED_DATA_PATH="$cache_value" ;;
+            *) echo "release cache helper returned malformed output" >&2; exit 64 ;;
+        esac
+    done <<<"$cache_output"
+    if ! [[ "$CACHE_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] \
+        || [ -z "$CACHE_NAMESPACE" ] || [ -z "$SCRATCH_PATH" ] \
+        || [ -z "$DERIVED_DATA_PATH" ]; then
+        echo "release cache helper returned an incomplete namespace" >&2
+        exit 64
     fi
-    case "$SCRATCH_PATH" in
-        /*) ;;
-        *) echo "release scratch path must be absolute" >&2; exit 64 ;;
-    esac
+    if [ "$SCRATCH_PATH_EXPLICIT" -eq 1 ] && [ "$requested_scratch" != "$SCRATCH_PATH" ]; then
+        echo "explicit scratch path does not match the canonical cache fingerprint" >&2
+        exit 64
+    fi
+    if [ "$DERIVED_DATA_PATH_EXPLICIT" -eq 1 ] && [ "$requested_derived" != "$DERIVED_DATA_PATH" ]; then
+        echo "explicit DerivedData path does not match the canonical cache fingerprint" >&2
+        exit 64
+    fi
 
     # The coordinator owns the first request-level Doctor gate. The builder
     # repeats Doctor immediately before its own destructive output boundary so
@@ -1066,19 +1097,56 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     fi
     run_release_doctor package
 
+    python3 "$CACHE_FINGERPRINT_SCRIPT" prepare \
+        --project-root "$PROJECT_ROOT" \
+        --repository "github.com/${GITHUB_REPOSITORY}" \
+        --repository-key "$repository_key" \
+        --deployment-target "$DEPLOYMENT_TARGET" \
+        --cache-root "$CACHE_ROOT" >/dev/null
+
+    CACHE_LOCK_READY="${CACHE_NAMESPACE}/.ready-$$"
+    python3 "$CACHE_FINGERPRINT_SCRIPT" hold-lock \
+        --namespace "$CACHE_NAMESPACE" \
+        --ready-file "$CACHE_LOCK_READY" \
+        --parent-pid "$$" &
+    CACHE_LOCK_PID=$!
+    release_cache_lock() {
+        if [ -n "${CACHE_LOCK_PID:-}" ]; then
+            /bin/kill "$CACHE_LOCK_PID" 2>/dev/null || true
+            wait "$CACHE_LOCK_PID" 2>/dev/null || true
+            CACHE_LOCK_PID=""
+        fi
+        if [ -n "${CACHE_LOCK_READY:-}" ]; then
+            /bin/rm -f "$CACHE_LOCK_READY"
+        fi
+    }
+    trap release_cache_lock EXIT
+    lock_wait=0
+    while [ ! -f "$CACHE_LOCK_READY" ]; do
+        if ! /bin/kill -0 "$CACHE_LOCK_PID" 2>/dev/null; then
+            wait "$CACHE_LOCK_PID" || true
+            echo "release cache namespace lock failed" >&2
+            exit 75
+        fi
+        lock_wait=$((lock_wait + 1))
+        if [ "$lock_wait" -ge 300 ]; then
+            echo "timed out waiting for release cache namespace lock" >&2
+            exit 75
+        fi
+        /bin/sleep 0.1
+    done
+
     for command in rg xcodebuild /usr/bin/xcrun /usr/bin/ditto /usr/bin/mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
         require_command "$command"
     done
 
     umask 077
     prepare_release_dir
-    /bin/mkdir -p "$RELEASE_LOG_DIR" "$DERIVED_DATA_PATH"
+    /bin/mkdir -p "$RELEASE_LOG_DIR"
     python3 "$RELEASE_TARGET_SECURITY_SCRIPT" record-release-output \
         --release-dir "$RELEASE_DIR" \
         --repository-key "$repository_key"
-    : >"${DERIVED_DATA_PATH}/.lungfish-derived-data-output"
     /bin/rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
-    /bin/mkdir -p "$SCRATCH_PATH"
     cd "$PROJECT_ROOT"
 
     if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
@@ -1201,7 +1269,9 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         --app "$RELEASE_APP_PATH" \
         --output "$CANDIDATE_RECEIPT_PATH" \
         --channel "$CHANNEL" \
-        --scratch-path "$SCRATCH_PATH"
+        --scratch-path "$SCRATCH_PATH" \
+        --remote "$GIT_REMOTE" \
+        --github-repository "$GITHUB_REPOSITORY"
 
     COMMIT_SHA=$(git rev-parse HEAD)
     cat >"$PACKAGE_METADATA_PATH" <<EOF
@@ -1216,6 +1286,7 @@ archive_path=${ARCHIVE_PATH}
 EOF
 
     if [ "$PACKAGE_ONLY" -eq 1 ]; then
+        release_cache_lock
         printf 'Unsigned package complete:\n'
         printf '  App: %s\n' "$RELEASE_APP_PATH"
         printf '  Receipt: %s\n' "$CANDIDATE_RECEIPT_PATH"
@@ -1224,6 +1295,8 @@ EOF
     fi
 
     APP_PATH="$RELEASE_APP_PATH"
+    release_cache_lock
+    trap - EXIT
 fi
 
 # Recheck credentials after packaging and immediately before receipt verification
@@ -1234,7 +1307,9 @@ run_release_doctor credentials
     --app "$APP_PATH" \
     --receipt "$CANDIDATE_RECEIPT_PATH" \
     --channel "$CHANNEL" \
-    --scratch-path "$SCRATCH_PATH"
+    --scratch-path "$SCRATCH_PATH" \
+    --remote "$GIT_REMOTE" \
+    --github-repository "$GITHUB_REPOSITORY"
 VERIFIED_SPARKLE_BUILD_NUMBER=$(python3 -c \
     'import json,sys; value=json.load(open(sys.argv[1]))["release"]["build"]; assert isinstance(value,str) and value.isdigit() and int(value) > 0; print(value)' \
     "$CANDIDATE_RECEIPT_PATH")

@@ -26,6 +26,12 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from release_contract import load_contract  # noqa: E402
+from release_cache_fingerprint import (  # noqa: E402
+    CacheFingerprintError,
+    CachePaths,
+    cache_paths,
+    collect_fingerprint_document,
+)
 from release_repository import (  # noqa: E402
     RepositoryIdentity,
     RepositoryIdentityError,
@@ -808,31 +814,38 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
         else _default_profile_path()
     )
     if profile_path is None and not selected_profile_path.exists():
-        print(
-            f"Publish readiness: NOT READY (create private profile {selected_profile_path})"
-        )
+        print("Publish readiness: NOT READY (create the private default release profile)")
         return 0
-    profile = load_release_profile(selected_profile_path)
+    try:
+        profile = load_release_profile(selected_profile_path)
+    except ReleaseError:
+        print("Publish readiness: NOT READY (release profile is missing or unsafe)")
+        return 1
     if profile.repository != repository.github_repository:
-        raise ReleaseError("release profile repository does not match selected origin")
+        print("Publish readiness: NOT READY (release profile repository mismatch)")
+        return 1
     developer_dir = package_operations.runner.environment["DEVELOPER_DIR"]
     credential_environment = sanitized_publish_environment(os.environ.copy())
     credential_environment["DEVELOPER_DIR"] = developer_dir
-    _resolve_sparkle_generate_appcast(root, credential_environment)
-    credential_operations = LocalReleaseOperations(
-        root,
-        profile.repository,
-        credential_environment,
-    )
-    credential_operations.doctor_credentials(
-        replace(
-            request,
-            signing_identity=profile.signing_identity,
-            team_id=profile.team_id,
-            notary_profile=profile.notary_profile,
-            github_repository=profile.repository,
+    try:
+        _resolve_sparkle_generate_appcast(root, credential_environment)
+        credential_operations = LocalReleaseOperations(
+            root,
+            profile.repository,
+            credential_environment,
         )
-    )
+        credential_operations.doctor_credentials(
+            replace(
+                request,
+                signing_identity=profile.signing_identity,
+                team_id=profile.team_id,
+                notary_profile=profile.notary_profile,
+                github_repository=profile.repository,
+            )
+        )
+    except ReleaseError:
+        print("Publish readiness: NOT READY (credential readiness checks failed)")
+        return 1
     print("Publish readiness: READY")
     return 0
 
@@ -970,6 +983,8 @@ def verify_candidate_receipt_exact(
     runner: SubprocessRunner,
     *,
     expected_commit: str | None = None,
+    remote: str = "origin",
+    github_repository: str | None = None,
 ) -> CandidateIdentity:
     """Run the canonical receipt verifier and return its trusted identity."""
     identity = _candidate_receipt_identity(root, receipt_path, channel_name)
@@ -991,7 +1006,11 @@ def verify_candidate_receipt_exact(
         channel_name,
         "--scratch-path",
         str(identity.scratch_path),
+        "--remote",
+        remote,
     ]
+    if github_repository:
+        arguments.extend(["--github-repository", github_repository])
     if current_commit == selected_commit:
         runner.run(
             [str(root / "scripts/release/release-candidate-receipt.py"), *arguments],
@@ -1277,6 +1296,8 @@ def tagged_publication_state(
         channel_name,
         runner,
         expected_commit=identity.commit,
+        remote=remote,
+        github_repository=repository.github_repository,
     )
     if (
         verified_identity.commit != identity.commit
@@ -1433,6 +1454,8 @@ class LocalReleaseOperations:
         except XcodeSelectionError as error:
             raise ReleaseError(str(error)) from error
         selected_environment["DEVELOPER_DIR"] = str(developer_dir)
+        for build_variable in ("CC", "CXX", "SDKROOT", "SWIFT_EXEC", "TOOLCHAINS"):
+            selected_environment.pop(build_variable, None)
         if github_repository:
             selected_environment["GH_REPO"] = github_repository
         if credentialless:
@@ -1444,12 +1467,31 @@ class LocalReleaseOperations:
             )
         self.contract = load_contract(self.root / "config/release-contract.json")
 
+    def _cache_paths(self, request: ReleaseRequest) -> CachePaths:
+        identity = _repository_identity(
+            self.runner, request.remote, request.github_repository or None
+        )
+        cache_root = Path(
+            self.runner.environment.get(
+                "LUNGFISH_RELEASE_CACHE_ROOT",
+                "/private/var/tmp/lungfish-release-cache",
+            )
+        )
+        try:
+            document = collect_fingerprint_document(
+                project_root=self.root,
+                repository=f"github.com/{identity.github_repository}",
+                repository_key=identity.repository_key,
+                deployment_target=self.contract.toolchain.deploymentTarget,
+                command_output=self.runner.text,
+            )
+            return cache_paths(cache_root, identity.repository_key, document)
+        except CacheFingerprintError as error:
+            raise ReleaseError(str(error)) from error
+
     def _paths(self, request: ReleaseRequest) -> tuple[Path, Path, Path]:
         release_dir = request.release_dir.resolve()
-        commit = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
-        derived_data = self.root / ".build/release-derived-data"
-        if release_dir != self.root / "build/Release":
-            derived_data = derived_data / request.channel / commit
+        derived_data = self._cache_paths(request).derived_data
         return (
             release_dir / "Lungfish.xcarchive",
             derived_data,
@@ -1570,19 +1612,8 @@ class LocalReleaseOperations:
         # This is the coordinator's request-level gate. The builder repeats the
         # Doctor at its destructive mutation boundary as defense for direct use.
         archive, derived, release_dir = self._paths(request)
-        commit = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
-        scratch = (
-            Path(
-                os.environ.get(
-                    "LUNGFISH_RELEASE_SCRATCH_ROOT",
-                    "/private/var/tmp/lungfish-release-swiftpm",
-                )
-            )
-            / _repository_identity(
-                self.runner, request.remote, request.github_repository
-            ).repository_key
-            / commit
-        )
+        selected_cache = self._cache_paths(request)
+        scratch = selected_cache.swiftpm
         self.runner.run(
             [
                 sys.executable,
@@ -1599,6 +1630,10 @@ class LocalReleaseOperations:
                 str(archive),
                 "--derived-data-path",
                 str(derived),
+                "--cache-root",
+                str(selected_cache.namespace.parents[2]),
+                "--cache-fingerprint",
+                selected_cache.fingerprint,
                 "--remote",
                 request.remote,
                 "--github-repository",
@@ -1631,6 +1666,7 @@ class LocalReleaseOperations:
 
     def package_only(self, request: ReleaseRequest) -> Path:
         archive, derived, release_dir = self._paths(request)
+        selected_cache = self._cache_paths(request)
         command = [
             "/bin/bash",
             str(SCRIPT_DIR / "build-notarized-dmg.sh"),
@@ -1643,6 +1679,8 @@ class LocalReleaseOperations:
             str(archive),
             "--derived-data-path",
             str(derived),
+            "--scratch-path",
+            str(selected_cache.swiftpm),
             "--sparkle-public-ed-key",
             request.sparkle_public_ed_key,
             "--remote",
@@ -1714,6 +1752,8 @@ class LocalReleaseOperations:
             request.receipt,
             request.channel,
             self.runner,
+            remote=request.remote,
+            github_repository=request.github_repository,
         )
 
     def _remote_tag(

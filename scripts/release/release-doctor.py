@@ -14,6 +14,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Callable
 
@@ -23,6 +24,12 @@ from release_cache_security import (
     validate_metadata,
 )
 from release_contract import CONTRACT_PATH, load_contract
+from release_cache_fingerprint import (
+    CacheFingerprintError,
+    CachePaths,
+    cache_paths,
+    collect_fingerprint_document,
+)
 from release_repository import (
     RepositoryIdentity,
     RepositoryIdentityError,
@@ -36,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = ROOT / "scripts" / "release" / "resolve-sparkle-tools.sh"
 LOCK_CHECK = ROOT / "scripts" / "check-package-resolved-consistency.sh"
 DEFAULT_SCRATCH_ROOT = Path("/private/var/tmp/lungfish-release-swiftpm")
+DEFAULT_CACHE_ROOT = Path("/private/var/tmp/lungfish-release-cache")
 COMMAND_TIMEOUT_SECONDS = 30
 
 
@@ -61,6 +69,7 @@ class Doctor:
         self.developer_dir: Path | None = None
         self.sparkle_tools: dict[str, Path] = {}
         self.repository_identity: RepositoryIdentity | None = None
+        self.cache: CachePaths | None = None
 
     def check(self, name: str, operation: Callable[[], str]) -> bool:
         try:
@@ -102,7 +111,10 @@ class Doctor:
         return "full Xcode developer directory selected"
 
     def _required_commands(self) -> str:
-        names = ["df", "git", "uname", "xcodebuild", "xcrun"]
+        names = [
+            "bash", "df", "ditto", "git", "mktemp", "plutil", "python3", "rg",
+            "uname", "xcodebuild", "xcrun",
+        ]
         if self.args.mode == "credentials":
             names.extend(["gh", "security"])
         missing = [
@@ -117,6 +129,11 @@ class Doctor:
                 "missing required commands: " + ", ".join(sorted(missing))
             )
         return "all required commands are available"
+
+    def _python_version(self) -> str:
+        if sys.version_info < (3, 11):
+            raise CheckFailure("Python 3.11 or newer is required")
+        return f"Python {sys.version_info.major}.{sys.version_info.minor} is supported"
 
     @staticmethod
     def _version_tuple(raw: str, label: str) -> tuple[int, ...]:
@@ -151,6 +168,9 @@ class Doctor:
         if result.returncode != 0:
             raise CheckFailure("xcodebuild -version failed for the selected Xcode")
         observed = self._version_tuple(result.stdout, "Xcode version")
+        build = re.search(r"^Build version\s+(\S+)\s*$", result.stdout, re.MULTILINE)
+        if build is None:
+            raise CheckFailure("could not parse Xcode build identity")
         if not self._version_in_range(
             observed, self.toolchain.xcodeMinimum, self.toolchain.xcodeMaximumExclusive
         ):
@@ -158,7 +178,18 @@ class Doctor:
                 f"observed version is outside [{self.toolchain.xcodeMinimum}, "
                 f"{self.toolchain.xcodeMaximumExclusive})"
             )
-        return "observed version is within the contract range"
+        return (
+            f"Xcode {'.'.join(map(str, observed))} build {build.group(1)} "
+            "is within the contract range"
+        )
+
+    def _xcode_first_launch(self) -> str:
+        result = self.run_command(["xcodebuild", "-checkFirstLaunchStatus"])
+        if result.returncode != 0:
+            raise CheckFailure(
+                "Xcode first-launch setup is incomplete; run the Apple-provided setup before releasing"
+            )
+        return "Xcode first-launch setup is complete"
 
     def _swift_version(self) -> str:
         result = self.run_command(["xcrun", "swift", "--version"])
@@ -172,7 +203,7 @@ class Doctor:
                 f"observed version is outside [{self.toolchain.swiftMinimum}, "
                 f"{self.toolchain.swiftMaximumExclusive})"
             )
-        return "observed version is within the contract range"
+        return f"Swift {'.'.join(map(str, observed))} is within the contract range"
 
     def _sdk_version(self) -> str:
         result = self.run_command(["xcrun", "--sdk", "macosx", "--show-sdk-version"])
@@ -181,7 +212,101 @@ class Doctor:
         observed = self._version_tuple(result.stdout, "macOS SDK version")
         if observed[0] != self.toolchain.sdkMajor:
             raise CheckFailure(f"expected SDK major {self.toolchain.sdkMajor}")
-        return f"SDK major {self.toolchain.sdkMajor} is selected"
+        build = self.run_command(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-build-version"]
+        )
+        if build.returncode != 0 or not build.stdout.strip():
+            raise CheckFailure("selected Xcode could not report the macOS SDK build")
+        return (
+            f"macOS SDK {'.'.join(map(str, observed))} "
+            f"build {build.stdout.strip()} is selected"
+        )
+
+    def _cache_root_path(self) -> Path:
+        raw = self.args.cache_root or Path(
+            self.environment.get("LUNGFISH_RELEASE_CACHE_ROOT", str(DEFAULT_CACHE_ROOT))
+        )
+        root = raw.expanduser()
+        if not root.is_absolute():
+            raise CheckFailure("release cache root must be absolute")
+        return Path(os.path.abspath(root))
+
+    def _cache_identity(self) -> str:
+        identity = self._selected_repository_identity()
+        try:
+            document = collect_fingerprint_document(
+                project_root=ROOT,
+                repository=f"github.com/{identity.github_repository}",
+                repository_key=identity.repository_key,
+                deployment_target=self.toolchain.deploymentTarget,
+                command_output=lambda command: self._checked_output(command),
+            )
+            selected = cache_paths(
+                self._cache_root_path(), identity.repository_key, document
+            )
+        except CacheFingerprintError as error:
+            raise CheckFailure(str(error)) from error
+        if (
+            self.args.cache_fingerprint
+            and self.args.cache_fingerprint != selected.fingerprint
+        ):
+            raise CheckFailure("cache fingerprint does not match the selected compiler recipe")
+        if self.args.scratch_path and self.args.scratch_path != selected.swiftpm:
+            raise CheckFailure("SwiftPM scratch path does not match the cache fingerprint")
+        if (
+            self.args.derived_data_path
+            and self.args.derived_data_path != selected.derived_data
+        ):
+            raise CheckFailure("DerivedData path does not match the cache fingerprint")
+        self.cache = selected
+        return "canonical compiler-cache fingerprint matches the selected toolchain and recipe"
+
+    def _checked_output(self, command: list[str]) -> str:
+        result = self.run_command(command)
+        if result.returncode != 0 or not result.stdout.strip():
+            raise CacheFingerprintError("compiler identity command failed")
+        return result.stdout
+
+    def _cache_root_write(self) -> str:
+        root = self._cache_root_path()
+        repository = ROOT.resolve()
+        home = Path(self.environment.get("HOME", str(Path.home()))).resolve(
+            strict=False
+        )
+        if (
+            root == repository
+            or repository in root.parents
+            or root == home
+            or home in root.parents
+        ):
+            raise CheckFailure("release cache root must be outside the repository and home")
+        existed = root.exists()
+        probe: Path | None = None
+        try:
+            validate_ancestor_chain(root, expected_uid=os.geteuid())
+            if not existed:
+                root.mkdir(mode=0o700)
+            self._validate_cache_metadata(
+                root.lstat(), expected_uid=os.geteuid(), require_private=True
+            )
+            descriptor, raw = tempfile.mkstemp(prefix=".doctor-cache-probe-", dir=root)
+            probe = Path(raw)
+            with os.fdopen(descriptor, "wb") as handle:
+                os.fchmod(handle.fileno(), 0o600)
+                handle.write(b"lungfish-release-doctor\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        except (CacheSecurityError, OSError) as error:
+            raise CheckFailure("private release cache root is unsafe or unwritable") from error
+        finally:
+            if probe is not None:
+                probe.unlink(missing_ok=True)
+            if not existed:
+                try:
+                    root.rmdir()
+                except OSError:
+                    pass
+        return "private owner-only cache root accepts bounded disposable writes"
 
     def _host_architecture(self) -> str:
         result = self.run_command(["uname", "-m"])
@@ -368,24 +493,34 @@ class Doctor:
         return user_root
 
     def _disk_space(self) -> str:
-        scratch = self._scratch_base()
-        probe = scratch
-        while not probe.exists() and probe != probe.parent:
-            probe = probe.parent
-        result = self.run_command(["df", "-Pk", str(probe)])
-        if result.returncode != 0:
-            raise CheckFailure("could not inspect free disk space")
-        lines = [line for line in result.stdout.splitlines() if line.strip()]
-        try:
-            available_kib = int(lines[-1].split()[3])
-        except (IndexError, ValueError) as error:
-            raise CheckFailure("could not parse free disk space") from error
+        locations = (
+            self._cache_root_path(),
+            self.args.release_dir or ROOT / "build/Release",
+        )
         required_kib = self.toolchain.minimumFreeDiskGiB * 1024 * 1024
-        if available_kib < required_kib:
-            raise CheckFailure(
-                f"at least {self.toolchain.minimumFreeDiskGiB} GiB is required"
-            )
-        return f"at least {self.toolchain.minimumFreeDiskGiB} GiB is available"
+        checked: set[str] = set()
+        for location in locations:
+            probe = location
+            while not probe.exists() and probe != probe.parent:
+                probe = probe.parent
+            result = self.run_command(["df", "-Pk", str(probe)])
+            if result.returncode != 0:
+                raise CheckFailure("could not inspect free disk space")
+            lines = [line for line in result.stdout.splitlines() if line.strip()]
+            try:
+                fields = lines[-1].split()
+                available_kib = int(fields[3])
+                volume = fields[-1]
+            except (IndexError, ValueError) as error:
+                raise CheckFailure("could not parse free disk space") from error
+            if volume in checked:
+                continue
+            checked.add(volume)
+            if available_kib < required_kib:
+                raise CheckFailure(
+                    f"at least {self.toolchain.minimumFreeDiskGiB} GiB is required on cache and output volumes"
+                )
+        return f"at least {self.toolchain.minimumFreeDiskGiB} GiB is available on cache and output volumes"
 
     def _mutation_targets(self) -> str:
         values = (
@@ -409,11 +544,7 @@ class Doctor:
             validate_release_targets(
                 project_root=ROOT,
                 home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
-                scratch_root=Path(
-                    self.environment.get(
-                        "LUNGFISH_RELEASE_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT)
-                    )
-                ).expanduser(),
+                scratch_root=self._cache_root_path(),
                 scratch_path=self.args.scratch_path,
                 release_dir=self.args.release_dir,
                 archive_path=self.args.archive_path,
@@ -730,13 +861,17 @@ class Doctor:
             ("selected Git remote", self._selected_repository),
             ("Xcode selection", self._select_xcode),
             ("required commands", self._required_commands),
+            ("Python version", self._python_version),
             ("Xcode version", self._xcode_version),
+            ("Xcode first-launch", self._xcode_first_launch),
             ("Swift version", self._swift_version),
             ("macOS SDK", self._sdk_version),
             ("host architecture", self._host_architecture),
             ("project deployment target", self._deployment_target),
             ("mutation targets", self._mutation_targets),
+            ("cache fingerprint", self._cache_identity),
             ("free disk", self._disk_space),
+            ("release cache root", self._cache_root_write),
             ("scratch root", self._scratch_write),
             ("clean source tree", self._clean_tree),
             ("source HEAD", self._head),
@@ -814,6 +949,8 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--release-dir", type=Path)
     value.add_argument("--archive-path", type=Path)
     value.add_argument("--derived-data-path", type=Path)
+    value.add_argument("--cache-root", type=Path)
+    value.add_argument("--cache-fingerprint")
     value.add_argument("--json-report", type=Path)
     return value
 

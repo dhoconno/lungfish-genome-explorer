@@ -152,7 +152,7 @@ Commit: `feat(release): bind unsigned candidates to provenance receipts`
 
 **Interfaces:**
 - New modes: `--package-only`, `--resume-candidate RECEIPT`, and default credentialed completion.
-- Default scratch: `${LUNGFISH_RELEASE_SCRATCH_ROOT:-/private/var/tmp/lungfish-release-swiftpm}/<repository-key>/<commit>`; it is absolute, deterministic, and created only after Doctor.
+- Current compiler scratch: `${LUNGFISH_RELEASE_CACHE_ROOT:-/private/var/tmp/lungfish-release-cache}/v1/<repository-key>/<fingerprint>/swiftpm`; it is absolute, deterministic, private, and prepared only after Doctor. `LUNGFISH_RELEASE_SCRATCH_ROOT` remains the separate pinned Sparkle-tool resolver cache.
 - Package-only output: unsigned archive app plus `${release-dir}/unsigned-candidate-receipt.json` and `${release-dir}/package-metadata.txt`.
 - Credentialed completion either packages once then signs, or consumes `--resume-candidate`; it never rebuilds after receipt verification.
 
@@ -235,7 +235,7 @@ Commit: `feat(release): unify coordination and gate exact release SHA`
   builder, and receipt child command; cover ambient Command Line Tools with a
   valid default Xcode.
 - Use the builder's validator-approved defaults (`build/Release`, its nested
-  archive, and `.build/release-derived-data`) from the coordinator and CI;
+  archive, and fingerprint-scoped external DerivedData) from the coordinator and CI;
   write CI logs outside the unmarked release directory.
 - Require full history, the configured main branch, and remote-main ancestry
   before packaging. Run credentials Doctor before compilation/tag mutation and
@@ -407,3 +407,14 @@ automation drift.
 - [x] **Step 4: RED/GREEN Debug/Doctor wiring and reject every retired public credential, receipt, resume, and prune option**
 - [x] **Step 5: RED/GREEN CI and nightly delegation through package/publish with one JSON profile and no shell sourcing or implicit cleanup**
 - [x] **Step 6: Run focused and broad release verification, validators, syntax/YAML checks, diff review, and commit the clean slice**
+
+### Core follow-on Task 12: Add minimal multi-Mac compiler caching and actionable Doctor readiness
+
+**Files:** canonical cache fingerprint/security helper, coordinator/builder/
+receipt/Doctor integration, contract gate, focused tests, and authority records.
+
+- [x] **Step 1: RED/GREEN canonical path-independent v1 fingerprint coverage for every compiler, SDK, contract, lock, recipe, configuration, architecture, and deployment input**
+- [x] **Step 2: RED/GREEN private fingerprint namespaces, exact ownership/mode/type/symlink validation, sibling isolation, and same-namespace serialization**
+- [x] **Step 3: RED/GREEN shared coordinator/builder paths and receipt recomputation without treating cache state as authority**
+- [x] **Step 4: RED/GREEN fresh-Mac package readiness, compatible Xcode 26.x behavior, bounded cache/output probes, and explicit profile exit semantics**
+- [x] **Step 5: Run focused/broad release verification, validator/static/syntax/diff checks, safe credentialless real Doctor, and commit the clean slice**

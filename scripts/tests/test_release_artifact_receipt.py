@@ -483,8 +483,33 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
                 "Apple Swift version 6.2 (swiftlang-a)",
             )
             self.assertEqual(receipt["toolchain"]["sdkVersion"], "26.0")
+            self.assertIn("sdkBuildVersion", receipt["toolchain"])
+            self.assertEqual(receipt["toolchain"]["sdkBuildVersion"], "25A100")
             self.assertEqual(receipt["toolchain"]["architecture"], "arm64")
             self.assertEqual(receipt["toolchain"]["deploymentTarget"], "26.0")
+            self.assertEqual(receipt["cache"]["schemaVersion"], 1)
+            self.assertRegex(receipt["cache"]["fingerprint"], r"^[0-9a-f]{64}$")
+            self.assertEqual(
+                receipt["cache"]["fingerprint"],
+                hashlib.sha256(
+                    (
+                        json.dumps(
+                            receipt["cache"]["fields"],
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        + "\n"
+                    ).encode()
+                ).hexdigest(),
+            )
+            self.assertEqual(
+                receipt["cache"]["fields"]["repository"]["canonicalIdentity"],
+                "github.com/example/lungfish",
+            )
+            self.assertEqual(
+                receipt["cache"]["fields"]["toolchain"]["xcode"],
+                {"build": "17F90", "version": "26.4.1"},
+            )
             self.assertEqual(receipt["build"]["scratchPath"], str(fixture["scratch"]))
             self.assertEqual(receipt["inputs"]["micromambaUpstreamSha256"], "a" * 64)
             self.assertEqual(
@@ -647,7 +672,11 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
                 encoding="utf-8",
             ),
             "Swift compiler build": lambda fixture: fixture["toolchain"].write_text(
-                "XCODE_VERSION=26.4.1\nXCODE_BUILD=17F90\nSWIFT_VERSION=6.2\nSWIFT_BUILD=swiftlang-b\nSDK_VERSION=26.0\nARCH=arm64\n",
+                "XCODE_VERSION=26.4.1\nXCODE_BUILD=17F90\nSWIFT_VERSION=6.2\nSWIFT_BUILD=swiftlang-b\nSDK_VERSION=26.0\nSDK_BUILD=25A100\nARCH=arm64\n",
+                encoding="utf-8",
+            ),
+            "SDK build": lambda fixture: fixture["toolchain"].write_text(
+                "XCODE_VERSION=26.4.1\nXCODE_BUILD=17F90\nSWIFT_VERSION=6.2\nSWIFT_BUILD=swiftlang-a\nSDK_VERSION=26.0\nSDK_BUILD=25A101\nARCH=arm64\n",
                 encoding="utf-8",
             ),
         }
@@ -706,6 +735,22 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             result = self._verify(fixture)
             self.assertEqual(result.returncode, 1)
             self.assertIn("canonical", result.stderr)
+
+    def test_verify_recomputes_and_rejects_a_changed_cache_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            self.assertEqual(self._create(fixture).returncode, 0)
+            receipt = json.loads(fixture["receipt"].read_text())
+            self.assertIn("cache", receipt)
+            receipt["cache"]["fingerprint"] = "0" * 64
+            fixture["receipt"].write_text(
+                json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+
+            result = self._verify(fixture)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cache fingerprint", result.stderr)
 
     def test_receipt_rejects_symlink_escape_and_detects_contained_target_change(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -780,14 +825,29 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         scratch.mkdir(mode=0o700)
 
         (repo / "scripts" / "release").mkdir(parents=True)
-        for name in (
-            "release-candidate-receipt.py",
-            "release_contract.py",
-            "release_cache_security.py",
-        ):
-            source = ROOT / "scripts" / "release" / name
-            if source.exists():
-                shutil.copy2(source, repo / "scripts" / "release" / name)
+        recipe_paths = (
+            "Lungfish-Info.plist",
+            "Lungfish.xcodeproj/project.pbxproj",
+            "Package.swift",
+            "lungfish-cli.entitlements",
+            "scripts/bundle-native-tools.sh",
+            "scripts/check-package-resolved-consistency.sh",
+            "scripts/release/build-notarized-dmg.sh",
+            "scripts/release/release-candidate-receipt.py",
+            "scripts/release/release_cache_fingerprint.py",
+            "scripts/release/release_cache_security.py",
+            "scripts/release/release_contract.py",
+            "scripts/release/release_repository.py",
+            "scripts/release/scan-release-portability.py",
+            "scripts/sanitize-bundled-tools.sh",
+            "scripts/setup-worktree.sh",
+            "scripts/smoke-test-release-tools.sh",
+        )
+        for relative in recipe_paths:
+            source = ROOT / relative
+            destination = repo / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
         builder = repo / "scripts" / "release" / "build-notarized-dmg.sh"
         builder.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         builder.chmod(0o755)
@@ -821,7 +881,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
 
         toolchain = root / "toolchain.env"
         toolchain.write_text(
-            "XCODE_VERSION=26.4.1\nXCODE_BUILD=17F90\nSWIFT_VERSION=6.2\nSWIFT_BUILD=swiftlang-a\nSDK_VERSION=26.0\nARCH=arm64\n",
+            "XCODE_VERSION=26.4.1\nXCODE_BUILD=17F90\nSWIFT_VERSION=6.2\nSWIFT_BUILD=swiftlang-a\nSDK_VERSION=26.0\nSDK_BUILD=25A100\nARCH=arm64\n",
             encoding="utf-8",
         )
         bin_dir = root / "bin"
@@ -834,6 +894,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             bin_dir / "xcrun",
             '#!/bin/sh\n. "$RECEIPT_TOOLCHAIN_FIXTURE"\n'
             'if [ "$1" = "swift" ]; then printf "Apple Swift version %s (%s)\\n" "$SWIFT_VERSION" "$SWIFT_BUILD"; '
+            'elif [ "$3" = "--show-sdk-build-version" ]; then printf "%s\\n" "$SDK_BUILD"; '
             'else printf "%s\\n" "$SDK_VERSION"; fi\n',
         )
         self._write_executable(
@@ -886,6 +947,13 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         self._git(repo, "config", "user.name", "Receipt Test")
         self._git(repo, "add", ".")
         self._git(repo, "commit", "-q", "-m", "fixture")
+        self._git(
+            repo,
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/example/lungfish.git",
+        )
         commit = self._git(repo, "rev-parse", "HEAD").stdout.strip()
         receipt = release / "candidate.json"
         return {

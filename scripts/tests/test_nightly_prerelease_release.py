@@ -1526,13 +1526,14 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             check=True,
         ).stdout.strip()
-        scratch_root = Path("/private/var/tmp/lungfish-release-swiftpm")
+        namespace = derived.parent
+        scratch_root = namespace.parents[2]
 
         validate_release_targets(
             project_root=root,
             home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
             scratch_root=scratch_root,
-            scratch_path=scratch_root / repository.repository_key / commit,
+            scratch_path=namespace / "swiftpm",
             release_dir=release_dir,
             archive_path=archive,
             derived_data_path=derived,

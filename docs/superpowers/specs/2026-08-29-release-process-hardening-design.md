@@ -357,8 +357,9 @@ capability environment values, runs package Doctor and contract-selected gates,
 delegates to the internal package-only builder, and verifies the resulting
 receipt. Candidates live at
 `build/Release/<channel>/<full-commit>/`, with matching channel/commit-scoped
-DerivedData, so Preview and Stable or adjacent commits cannot overwrite one
-another.
+candidate outputs. DerivedData is independently compiler-fingerprint-scoped,
+so compatible adjacent candidates can reuse intermediates while incompatible
+toolchains cannot collide.
 
 `publish` derives that exact current-HEAD/channel receipt and verifies source,
 channel, and payload before credential checks. It then loads only the strict v1
@@ -376,3 +377,34 @@ the pinned dependency after Xcode selection, and the private Sparkle key stays
 in Keychain. `doctor` reports package readiness without loading ambient release
 credentials and adds publish readiness only when the JSON profile is present
 and safe.
+
+## Multi-Mac compiler-cache and readiness boundary
+
+Release packaging reuses only disposable SwiftPM and Xcode compiler state. A
+single canonical v1 JSON document binds the canonical GitHub repository,
+Xcode version/build, full Swift identity and its SHA-256, macOS SDK
+version/build, arm64 architecture, deployment target, Release products,
+Package.resolved, release contract, and an explicit hashed build recipe. Its
+SHA-256 selects
+`/private/var/tmp/lungfish-release-cache/v1/<repository-key>/<fingerprint>/`,
+with `swiftpm` and `derived-data` children. User, home, checkout, Xcode install
+path, channel, and commit are deliberately absent; compiler-compatibility
+changes select a sibling rather than deleting or overwriting another key.
+
+The root and namespace are owner-controlled, non-symlink trust boundaries.
+Every existing entry is checked before reuse, and one private advisory lock
+serializes builders sharing a fingerprint. Candidate apps, receipts, signed or
+notarized outputs, credentials, DMGs, and feeds never enter this cache. The
+candidate receipt records the exact canonical fields and fingerprint, and
+verification recomputes both against the selected toolchain and payload, so
+cached bytes never become release authority.
+
+Package Doctor now checks the selected full Xcode and first-launch state,
+compatible (not pinned-exact) Xcode/Swift policy, exact SDK identity, arm64,
+deployment settings, Python/local commands, fail-only dependency locks, both
+cache and output disk floors, and a bounded private-cache write probe. A
+missing default profile reports package READY and publish NOT READY with exit
+zero; an explicitly requested missing/unsafe profile or failed credential
+probe is publish NOT READY and nonzero. Doctor neither installs nor repairs
+software and credential mode remains the existing signing/notary/GitHub/
+Sparkle verification boundary.

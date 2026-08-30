@@ -375,18 +375,18 @@ class FrontDoorTransactionTests(unittest.TestCase):
         ).stdout.strip()
         repository = resolve_repository_identity(ROOT, "origin")
         release_dir = self.release.candidate_release_dir(ROOT, "preview", commit)
-        scratch_root = Path("/private/var/tmp/lungfish-release-swiftpm")
+        scratch_root = Path("/private/var/tmp/lungfish-release-cache")
+        fingerprint = "f" * 64
+        namespace = scratch_root / "v1" / repository.repository_key / fingerprint
 
         validate_release_targets(
             project_root=ROOT,
             home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
             scratch_root=scratch_root,
-            scratch_path=scratch_root / repository.repository_key / commit,
+            scratch_path=namespace / "swiftpm",
             release_dir=release_dir,
             archive_path=release_dir / "Lungfish.xcarchive",
-            derived_data_path=ROOT
-            / ".build/release-derived-data/preview"
-            / commit,
+            derived_data_path=namespace / "derived-data",
             repository_key=repository.repository_key,
             commit=commit,
         )
@@ -396,15 +396,13 @@ class FrontDoorTransactionTests(unittest.TestCase):
                 project_root=ROOT,
                 home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
                 scratch_root=scratch_root,
-                scratch_path=scratch_root / repository.repository_key / commit,
+                scratch_path=namespace / "swiftpm",
                 release_dir=release_dir,
                 archive_path=ROOT
                 / "build/Release/stable"
                 / commit
                 / "Lungfish.xcarchive",
-                derived_data_path=ROOT
-                / ".build/release-derived-data/preview"
-                / commit,
+                derived_data_path=namespace / "derived-data",
                 repository_key=repository.repository_key,
                 commit=commit,
             )
@@ -455,6 +453,31 @@ class DoctorFrontDoorTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(package.package_calls, 1)
         self.assertEqual(operations.call_count, 1)
+        self.assertIn("Package readiness: READY", output)
+        self.assertTrue(any("Publish readiness: NOT READY" in item for item in output))
+
+    def test_explicit_missing_profile_is_publish_not_ready_and_nonzero(self):
+        release = load_module()
+        missing = ROOT / ".build/explicit-missing-release-profile.json"
+
+        class PackageOperations:
+            def __init__(self):
+                self.runner = SimpleNamespace(
+                    environment={"DEVELOPER_DIR": "/Applications/Xcode.app"}
+                )
+
+            def doctor_package(self, _request, _plan):
+                pass
+
+        output = []
+        with mock.patch.object(release, "_head_commit", return_value="a" * 40), mock.patch.object(
+            release, "resolve_repository_identity", return_value=SimpleNamespace(github_repository="example/lungfish")
+        ), mock.patch.object(
+            release, "LocalReleaseOperations", return_value=PackageOperations()
+        ), mock.patch("builtins.print", side_effect=lambda value: output.append(value)):
+            status = release.run_doctor(ROOT, missing)
+
+        self.assertNotEqual(status, 0)
         self.assertIn("Package readiness: READY", output)
         self.assertTrue(any("Publish readiness: NOT READY" in item for item in output))
 

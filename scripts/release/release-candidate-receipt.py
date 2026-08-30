@@ -22,7 +22,12 @@ from release_cache_security import (
     validate_ancestor_chain,
     validate_metadata,
 )
+from release_cache_fingerprint import (
+    collect_fingerprint_document,
+    fingerprint as cache_fingerprint,
+)
 from release_contract import CONTRACT_PATH, load_contract
+from release_repository import RepositoryIdentityError, resolve_repository_identity
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +68,7 @@ RECEIPT_FIELDS = frozenset(
         "toolchain",
         "build",
         "artifacts",
+        "cache",
     }
 )
 
@@ -412,6 +418,9 @@ def _toolchain_identity() -> dict[str, Any]:
             _run(["xcrun", "--sdk", "macosx", "--show-sdk-version"]),
             "macOS SDK",
         ),
+        "sdkBuildVersion": _run(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-build-version"]
+        ),
         "swiftCompilerIdentity": swift_identity,
         "swiftVersion": _parse_version(swift_identity, "Swift"),
         "xcodeBuildVersion": xcode_build,
@@ -437,12 +446,28 @@ def _micromamba_upstream_hash(architecture: str) -> str:
     return value
 
 
-def _build_receipt(app_path: Path, channel: str, scratch_path: Path) -> dict[str, Any]:
+def _build_receipt(
+    app_path: Path,
+    channel: str,
+    scratch_path: Path,
+    remote: str,
+    github_repository: str | None,
+) -> dict[str, Any]:
     source = _source_identity()
     app = _normalize_app(app_path)
     scratch = _normalize_existing_directory(scratch_path, "scratch path")
     identities, _ = _bundle_identity(app, channel)
     toolchain = _toolchain_identity()
+    try:
+        repository = resolve_repository_identity(ROOT, remote, github_repository)
+    except RepositoryIdentityError as error:
+        raise ReceiptError("canonical repository identity is unavailable") from error
+    cache_fields = collect_fingerprint_document(
+        project_root=ROOT,
+        repository=f"github.com/{repository.github_repository}",
+        repository_key=repository.repository_key,
+        deployment_target=toolchain["deploymentTarget"],
+    )
     executable = Path("Contents/MacOS") / identities["wrapper"]["executable"]
     inputs = {
         "builderSha256": _input_hash(BUILDER_PATH),
@@ -470,6 +495,11 @@ def _build_receipt(app_path: Path, channel: str, scratch_path: Path) -> dict[str
             "swiftPMResourceFallback": str(scratch / SWIFTPM_RESOURCE_SUFFIX),
         },
         "artifacts": artifacts,
+        "cache": {
+            "schemaVersion": 1,
+            "fingerprint": cache_fingerprint(cache_fields),
+            "fields": cache_fields,
+        },
     }
     if _source_identity() != source:
         raise ReceiptError("source identity changed while creating receipt")
@@ -542,6 +572,15 @@ def _read_receipt(path: Path) -> dict[str, Any]:
         raise ReceiptError("receipt fields are missing or unknown")
     if raw != _canonical_bytes(value):
         raise ReceiptError("receipt JSON is not canonical")
+    cache = value.get("cache")
+    if (
+        not isinstance(cache, dict)
+        or set(cache) != {"schemaVersion", "fingerprint", "fields"}
+        or cache.get("schemaVersion") != 1
+        or not isinstance(cache.get("fields"), dict)
+        or cache.get("fingerprint") != cache_fingerprint(cache["fields"])
+    ):
+        raise ReceiptError("cache fingerprint does not match its canonical fields")
     return value
 
 
@@ -553,11 +592,15 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--output", required=True, type=Path)
     create.add_argument("--channel", required=True, choices=("preview", "stable"))
     create.add_argument("--scratch-path", required=True, type=Path)
+    create.add_argument("--remote", default="origin")
+    create.add_argument("--github-repository")
     verify = subparsers.add_parser("verify")
     verify.add_argument("--app", required=True, type=Path)
     verify.add_argument("--receipt", required=True, type=Path)
     verify.add_argument("--channel", required=True, choices=("preview", "stable"))
     verify.add_argument("--scratch-path", required=True, type=Path)
+    verify.add_argument("--remote", default="origin")
+    verify.add_argument("--github-repository")
     return parser
 
 
@@ -565,12 +608,24 @@ def main() -> int:
     args = _parser().parse_args()
     try:
         if args.operation == "create":
-            payload = _build_receipt(args.app, args.channel, args.scratch_path)
+            payload = _build_receipt(
+                args.app,
+                args.channel,
+                args.scratch_path,
+                args.remote,
+                args.github_repository,
+            )
             _write_receipt(args.output, payload, args.app)
             print("PASS unsigned candidate receipt created")
         else:
             receipt = _read_receipt(args.receipt)
-            observed = _build_receipt(args.app, args.channel, args.scratch_path)
+            observed = _build_receipt(
+                args.app,
+                args.channel,
+                args.scratch_path,
+                args.remote,
+                args.github_repository,
+            )
             if receipt != observed:
                 raise ReceiptError("unsigned candidate receipt does not match")
             print("PASS unsigned candidate receipt")

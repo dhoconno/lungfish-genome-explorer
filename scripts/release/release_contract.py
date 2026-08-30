@@ -404,6 +404,7 @@ def _shell_values(contract: ReleaseContract, name: str) -> list[tuple[str, Any]]
         ("PREVIEW_APPCAST_FILENAME", preview.appcastFilename),
         ("PREVIEW_LEGACY_SPARKLE_RELEASE", preview.legacyBridgeRelease),
         ("PREVIEW_LEGACY_APPCAST_FILENAME", preview.legacyBridgeAppcastFilename),
+        ("DEPLOYMENT_TARGET", contract.toolchain.deploymentTarget),
     ]
 
 

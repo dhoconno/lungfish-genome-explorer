@@ -56,6 +56,7 @@ class ReleaseDoctorFixture:
             self.developer_dir / "usr" / "bin" / "xcodebuild", "exit 0"
         )
         self.scratch = self.root / "scratch"
+        self.cache_root = self.root / "release-cache"
         self.sparkle = self.root / "sparkle" / "bin"
         self.sparkle.mkdir(parents=True)
         self.sparkle_log = self.root / "sparkle.log"
@@ -70,10 +71,13 @@ class ReleaseDoctorFixture:
             "PATH": f"{self.bin}:/usr/bin:/bin",
             "DEVELOPER_DIR": str(self.developer_dir),
             "LUNGFISH_RELEASE_SCRATCH_ROOT": str(self.scratch),
+            "LUNGFISH_RELEASE_CACHE_ROOT": str(self.cache_root),
             "LUNGFISH_SPARKLE_TOOLS_DIR": str(self.sparkle),
             "STUB_XCODE_VERSION": "26.4.1",
             "STUB_SWIFT_VERSION": "6.2.3",
             "STUB_SDK_VERSION": "26.1",
+            "STUB_SDK_BUILD": "25A123",
+            "STUB_FIRST_LAUNCH_OK": "1",
             "STUB_ARCH": "arm64",
             "STUB_DEPLOYMENT_TARGET": "26.0",
             "STUB_DISK_AVAILABLE_KB": str(30 * 1024 * 1024),
@@ -105,12 +109,16 @@ class ReleaseDoctorFixture:
 
     def _install_commands(self) -> None:
         self._write_executable(self.bin / "python3", 'exec "$STUB_PYTHON" "$@"')
+        for name in ("ditto", "mktemp", "plutil", "rg"):
+            self._write_executable(self.bin / name, "exit 0")
         self._write_executable(
             self.bin / "xcodebuild",
             textwrap.dedent(
                 """
                 if [[ " $* " == *" -version "* ]]; then
                   printf 'Xcode %s\\nBuild version 17F80\\n' "$STUB_XCODE_VERSION"
+                elif [[ " $* " == *" -checkFirstLaunchStatus "* ]]; then
+                  [ "$STUB_FIRST_LAUNCH_OK" = 1 ]
                 elif [[ " $* " == *" -showBuildSettings "* ]]; then
                   if [ -n "${STUB_PACKAGE_LOCK_SENTINEL:-}" ] \
                     && [[ " $* " != *" -disableAutomaticPackageResolution "* ]]; then
@@ -131,6 +139,8 @@ class ReleaseDoctorFixture:
                   printf 'Apple Swift version %s (swiftlang-test)\\n' "$STUB_SWIFT_VERSION"
                 elif [ "${1:-}" = "--sdk" ] && [ "${2:-}" = "macosx" ] && [ "${3:-}" = "--show-sdk-version" ]; then
                   printf '%s\\n' "$STUB_SDK_VERSION"
+                elif [ "${1:-}" = "--sdk" ] && [ "${2:-}" = "macosx" ] && [ "${3:-}" = "--show-sdk-build-version" ]; then
+                  printf '%s\\n' "$STUB_SDK_BUILD"
                 elif [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "history" ]; then
                   [ "$STUB_NOTARY_OK" = 1 ]
                 else
@@ -142,6 +152,7 @@ class ReleaseDoctorFixture:
         self._write_executable(self.bin / "uname", "printf '%s\\n' \"$STUB_ARCH\"")
         self._write_executable(
             self.bin / "df",
+            "[ -z \"${STUB_DF_LOG:-}\" ] || printf '%s\\n' \"$*\" >>\"$STUB_DF_LOG\"\n"
             "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n'\n"
             "printf 'stub 99999999 1 %s 1%% /\\n' \"$STUB_DISK_AVAILABLE_KB\"",
         )
@@ -317,13 +328,38 @@ class ReleaseDoctorFixture:
 
     def target_args(self, **overrides) -> tuple[str, ...]:
         repository_key = hashlib.sha256(b"github.com/example/lungfish").hexdigest()
+        derived = subprocess.run(
+            [
+                str(PYTHON),
+                str(ROOT / "scripts/release/release_cache_fingerprint.py"),
+                "derive",
+                "--project-root",
+                str(ROOT),
+                "--repository",
+                "github.com/example/lungfish",
+                "--repository-key",
+                repository_key,
+                "--deployment-target",
+                "26.0",
+                "--cache-root",
+                str(self.cache_root),
+            ],
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        ).stdout
+        fingerprint = next(
+            line.split("=", 1)[1]
+            for line in derived.splitlines()
+            if line.startswith("CACHE_FINGERPRINT=")
+        )
+        namespace = self.cache_root / "v1" / repository_key / fingerprint
         values = {
-            "scratch": self.scratch
-            / repository_key
-            / "0123456789abcdef0123456789abcdef01234567",
+            "scratch": namespace / "swiftpm",
             "release": self.root / "safe-targets/release",
             "archive": self.root / "safe-targets/archive/Lungfish.xcarchive",
-            "derived": self.root / "safe-targets/derived",
+            "derived": namespace / "derived-data",
         }
         values.update(overrides)
         return (
@@ -335,6 +371,10 @@ class ReleaseDoctorFixture:
             str(values["archive"]),
             "--derived-data-path",
             str(values["derived"]),
+            "--cache-root",
+            str(self.cache_root),
+            "--cache-fingerprint",
+            fingerprint,
         )
 
 
@@ -386,12 +426,25 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assert_failure("Xcode version", env=env)
 
     def test_accepts_later_compatible_xcode_patch(self):
-        env = {**self.fx.env, "STUB_XCODE_VERSION": "26.99.7"}
+        env = {**self.fx.env, "STUB_XCODE_VERSION": "26.6"}
 
         result = self.fx.run_doctor(env=env)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS Xcode version", result.stdout)
+
+    def test_rejects_incomplete_xcode_first_launch_setup(self):
+        env = {**self.fx.env, "STUB_FIRST_LAUNCH_OK": "0"}
+        self.assert_failure("first-launch", env=env)
+
+    def test_requires_exact_sdk_build_identity(self):
+        env = {**self.fx.env, "STUB_SDK_BUILD": ""}
+        self.assert_failure("macOS SDK", env=env)
+
+    def test_rejects_cache_fingerprint_argument_mismatch(self):
+        args = list(self.fx.target_args())
+        args[args.index("--cache-fingerprint") + 1] = "e" * 64
+        self.assert_failure("cache fingerprint", extra=tuple(args))
 
     def test_rejects_swift_outside_contract_range(self):
         env = {**self.fx.env, "STUB_SWIFT_VERSION": "7.0"}
@@ -433,6 +486,17 @@ class ReleaseDoctorTests(unittest.TestCase):
     def test_rejects_insufficient_disk_space(self):
         env = {**self.fx.env, "STUB_DISK_AVAILABLE_KB": str(2 * 1024 * 1024)}
         self.assert_failure("free disk", env=env)
+
+    def test_checks_cache_and_output_disk_locations(self):
+        log = self.fx.root / "df.log"
+        env = {**self.fx.env, "STUB_DF_LOG": str(log)}
+
+        result = self.fx.run_doctor(env=env)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        probes = log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(probes), 2)
+        self.assertNotEqual(probes[0], probes[1])
 
     def test_accepts_exact_private_nonoverlapping_mutation_targets(self):
         result = self.fx.run_doctor(extra=self.fx.target_args())

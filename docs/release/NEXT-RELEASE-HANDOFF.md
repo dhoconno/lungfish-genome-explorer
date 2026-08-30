@@ -19,6 +19,19 @@ calls `package` directly and remains read-only and secretless. Neither path
 implicitly prunes releases, tags, worktrees, or rescue archives. Detailed
 operator-authority reconciliation is intentionally a later documentation task.
 
+Compiler-cache/readiness ledger: package and CI builds now derive one canonical
+toolchain/recipe fingerprint after selecting Xcode. Only SwiftPM and
+DerivedData intermediates are reusable, under the private
+`/private/var/tmp/lungfish-release-cache/v1/<repository-key>/<fingerprint>/`
+namespace; release candidates and publication artifacts remain in their
+receipt-bound output directories. Compatible Xcode releases are accepted by
+range (for example 26.6), while exact Xcode/Swift/SDK identities make distinct
+keys. Run `release.py doctor` on a new release Mac first: absent default profile
+means package-ready can still succeed while publish-ready is reported false;
+an explicit missing/unsafe profile returns nonzero. Doctor does not install,
+repair, sign, notarize, publish, or contact credential services in package
+mode.
+
 Front-door review ledger: round 1 found one Important recovery-path defect in
 the initial four-command implementation (`b29a194d`). It is closed: nightly now
 resolves the exact current-version tag commit and uses the same deterministic
