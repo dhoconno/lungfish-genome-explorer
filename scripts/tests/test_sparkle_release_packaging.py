@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import shutil
@@ -15,6 +16,12 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.release_script = (
             self.root / "scripts" / "release" / "build-notarized-dmg.sh"
         ).read_text()
+        self.release_script_path = (
+            self.root / "scripts" / "release" / "build-notarized-dmg.sh"
+        )
+        self.release_contract = json.loads(
+            (self.root / "config" / "release-contract.json").read_text()
+        )
 
     def test_app_target_links_sparkle_without_adding_it_to_lungfish_app_library(self):
         self.assertIn('url: "https://github.com/sparkle-project/Sparkle"', self.package_swift)
@@ -46,7 +53,6 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("--sparkle-appcast-filename", self.release_script)
         self.assertIn("--sparkle-publish-release", self.release_script)
         self.assertIn("--github-release-tag", self.release_script)
-        self.assertIn("appcast-beta.xml", self.release_script)
         self.assertIn('-o "$SPARKLE_APPCAST_PATH"', self.release_script)
         self.assertIn('--ed-key-file "$SPARKLE_ED_KEY_FILE"', self.release_script)
         self.assertIn("--download-url-prefix", self.release_script)
@@ -61,16 +67,49 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertNotIn('docs/release-notes/v${VERSION}.md', self.release_script)
 
     def test_channel_defaults_select_the_matching_feed_container(self):
-        self.assertIn('CHANNEL="preview"', self.release_script)
-        self.assertIn('SPARKLE_PUBLISH_RELEASE="sparkle-beta"', self.release_script)
-        self.assertIn('SPARKLE_APPCAST_FILENAME="appcast-beta.xml"', self.release_script)
-        self.assertIn('SPARKLE_PUBLISH_RELEASE="sparkle-stable"', self.release_script)
-        self.assertIn('SPARKLE_APPCAST_FILENAME="appcast-stable.xml"', self.release_script)
-        self.assertIn("invalid --channel", self.release_script)
-        self.assertIn("channel=${CHANNEL}", self.release_script)
-        self.assertIn("stable channel does not support a legacy preview-feed bridge", self.release_script)
-        self.assertIn("stable channel does not support preview-release pruning", self.release_script)
-        self.assertIn("Lungfish Sparkle Stable Appcast", self.release_script)
+        for channel in ("preview", "stable"):
+            with self.subTest(channel=channel):
+                result = self._run_builder("--describe-channel", channel)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    json.loads(result.stdout),
+                    self.release_contract["channels"][channel],
+                )
+
+    def test_release_script_rejects_invalid_channels_behaviorally(self):
+        result = self._run_builder("--describe-channel", "nightly")
+
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("invalid --channel", result.stderr)
+
+    def test_stable_channel_rejects_preview_only_flags_behaviorally(self):
+        cases = (
+            (
+                "--sparkle-bridge-publish-release",
+                "sparkle-alpha",
+                "legacy preview-feed bridge",
+            ),
+            ("--prune-prereleases", None, "preview-release pruning"),
+        )
+        for flag, value, expected_error in cases:
+            with self.subTest(flag=flag):
+                arguments = [
+                    "--signing-identity",
+                    "dummy",
+                    "--team-id",
+                    "TEAMID",
+                    "--notary-profile",
+                    "dummy",
+                    "--channel",
+                    "stable",
+                    flag,
+                ]
+                if value is not None:
+                    arguments.append(value)
+                result = self._run_builder(*arguments)
+
+                self.assertEqual(result.returncode, 64)
+                self.assertIn(expected_error, result.stderr)
 
     def test_xcode_and_swift_package_pin_the_same_sparkle_version(self):
         self.assertIn('exact: "2.9.6"', self.package_swift)
@@ -89,6 +128,13 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             version_file.parent.mkdir(parents=True)
             manifest_file.parent.mkdir(parents=True)
             shutil.copy2(self.root / "scripts" / "release" / "build-notarized-dmg.sh", script)
+            shutil.copy2(
+                self.root / "scripts" / "release" / "release_contract.py",
+                script.parent / "release_contract.py",
+            )
+            contract = root / "config" / "release-contract.json"
+            contract.parent.mkdir(parents=True)
+            shutil.copy2(self.root / "config" / "release-contract.json", contract)
             manifest_file.write_text('{"dependencySet":"2026.2"}\n', encoding="utf-8")
 
             def run(version, tag=None, notes_text=None, channel="preview"):
@@ -170,9 +216,21 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn('--planned "$SPARKLE_BUILD_NUMBER"', self.release_script)
 
     def test_stable_build_gate_uses_preview_feed_as_strict_global_floor(self):
-        self.assertIn(
-            'SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml"',
-            self.release_script,
+        preview = json.loads(
+            self._run_builder("--describe-channel", "preview").stdout
+        )
+        stable = json.loads(self._run_builder("--describe-channel", "stable").stdout)
+        self.assertEqual(
+            (preview["sparkleRelease"], preview["appcastFilename"]),
+            ("sparkle-beta", "appcast-beta.xml"),
+        )
+        self.assertEqual(
+            (stable["sparkleRelease"], stable["appcastFilename"]),
+            ("sparkle-stable", "appcast-stable.xml"),
+        )
+        self.assertNotEqual(
+            (preview["sparkleRelease"], preview["appcastFilename"]),
+            (stable["sparkleRelease"], stable["appcastFilename"]),
         )
         preview_gate_index = self._line_index('--appcast-url "$SPARKLE_PREVIEW_FEED_URL"')
         optional_stable_gate_index = self._line_index("--allow-http-not-found")
@@ -191,15 +249,13 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("prerelease_prune_enabled=", self.release_script)
 
     def test_release_script_can_publish_legacy_alpha_appcast_filename(self):
-        self.assertIn("SPARKLE_APPCAST_FILENAME=", self.release_script)
-        self.assertIn("SPARKLE_APPCAST_FILENAME=\"$2\"", self.release_script)
-        self.assertIn(
-            'SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_APPCAST_FILENAME}"',
-            self.release_script,
-        )
-        self.assertIn(
-            'SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"',
-            self.release_script,
+        result = self._run_builder("--describe-channel", "preview")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        described = json.loads(result.stdout)
+        self.assertEqual(described["legacyBridgeRelease"], "sparkle-alpha")
+        self.assertEqual(
+            described["legacyBridgeAppcastFilename"], "appcast-alpha.xml"
         )
 
     def test_release_script_can_publish_legacy_bridge_feed_without_changing_primary_feed(self):
@@ -227,14 +283,6 @@ class SparkleReleasePackagingTests(unittest.TestCase):
 
     def test_release_script_stamps_channel_specific_bundle_identity_before_signing_and_dmg_staging(self):
         for expected in (
-            'APP_DISPLAY_NAME="Lungfish Genome Explorer Preview"',
-            'APP_SHORT_NAME="Lungfish Preview"',
-            'APP_BUNDLE_FILENAME="Lungfish Preview.app"',
-            'DMG_VOLUME_NAME="Lungfish Preview"',
-            'APP_DISPLAY_NAME="Lungfish Genome Explorer"',
-            'APP_SHORT_NAME="Lungfish"',
-            'APP_BUNDLE_FILENAME="Lungfish.app"',
-            'DMG_VOLUME_NAME="Lungfish"',
             'plutil -replace CFBundleDisplayName',
             'plutil -replace CFBundleName',
             'plutil -replace LungfishReleaseChannel',
@@ -251,6 +299,17 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn('RELEASE_APP_PATH="${RELEASE_DIR}/${APP_BUNDLE_FILENAME}"', self.release_script)
         self.assertIn('"${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"', self.release_script)
         self.assertIn('-volname "$DMG_VOLUME_NAME"', self.release_script)
+
+        for channel in ("preview", "stable"):
+            with self.subTest(channel=channel):
+                result = self._run_builder("--describe-channel", channel)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                described = json.loads(result.stdout)
+                expected = self.release_contract["channels"][channel]
+                self.assertEqual(described["appBundleFilename"], expected["appBundleFilename"])
+                self.assertEqual(described["displayName"], expected["displayName"])
+                self.assertEqual(described["bundleName"], expected["bundleName"])
+                self.assertEqual(described["dmgVolumeName"], expected["dmgVolumeName"])
 
     def test_release_script_creates_github_release_tags_at_current_commit(self):
         self.assertIn("target_commit=\"$(git rev-parse HEAD)\"", self.release_script)
@@ -279,6 +338,18 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             if marker in line:
                 return index
         self.fail(f"missing line containing {marker!r}")
+
+    def _run_builder(self, *arguments):
+        environment = os.environ.copy()
+        environment.pop("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", None)
+        return subprocess.run(
+            ["bash", str(self.release_script_path), *arguments],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            env=environment,
+            check=False,
+        )
 
 
 if __name__ == "__main__":

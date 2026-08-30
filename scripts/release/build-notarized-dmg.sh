@@ -18,6 +18,8 @@ Required:
   --notary-profile    Keychain profile configured for xcrun notarytool
 
 Optional:
+  --describe-channel preview|stable
+                      Print the contract-backed channel JSON and exit
   --scratch-path      SwiftPM scratch path for lungfish-cli build (default: .build/xcode-cli-release)
   --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
   --release-dir       Release directory (default: build/Release)
@@ -68,6 +70,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "$PROJECT_ROOT"
 PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
 SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-number.py"
+RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
 
 SIGNING_IDENTITY=""
 TEAM_ID=""
@@ -83,16 +86,19 @@ SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_ED_KEY_FILE="${SPARKLE_ED_KEY_FILE:-}"
 SPARKLE_APPCAST_DIR=""
 CHANNEL="preview"
+DESCRIBE_CHANNEL=""
 SPARKLE_APPCAST_FILENAME_EXPLICIT=0
 SPARKLE_PUBLISH_RELEASE_EXPLICIT=0
-SPARKLE_APPCAST_FILENAME="appcast-beta.xml"
+SPARKLE_BRIDGE_PUBLISH_RELEASE_EXPLICIT=0
+SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT=0
+SPARKLE_APPCAST_FILENAME=""
 SPARKLE_BRIDGE_PUBLISH_RELEASE=""
-SPARKLE_BRIDGE_APPCAST_FILENAME="appcast-alpha.xml"
+SPARKLE_BRIDGE_APPCAST_FILENAME=""
 SPARKLE_DOWNLOAD_URL_PREFIX=""
 SPARKLE_PUBLISH_RELEASE=""
 SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
-SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml"
+SPARKLE_PREVIEW_FEED_URL=""
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
 RECOVER_EXISTING_RELEASE=0
@@ -171,6 +177,14 @@ while [ "$#" -gt 0 ]; do
             CHANNEL="$2"
             shift 2
             ;;
+        --describe-channel)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --describe-channel" >&2
+                exit 64
+            fi
+            DESCRIBE_CHANNEL="$2"
+            shift 2
+            ;;
         --sparkle-appcast-filename)
             SPARKLE_APPCAST_FILENAME="$2"
             SPARKLE_APPCAST_FILENAME_EXPLICIT=1
@@ -187,10 +201,12 @@ while [ "$#" -gt 0 ]; do
             ;;
         --sparkle-bridge-publish-release)
             SPARKLE_BRIDGE_PUBLISH_RELEASE="$2"
+            SPARKLE_BRIDGE_PUBLISH_RELEASE_EXPLICIT=1
             shift 2
             ;;
         --sparkle-bridge-appcast-filename)
             SPARKLE_BRIDGE_APPCAST_FILENAME="$2"
+            SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT=1
             shift 2
             ;;
         --prune-prereleases)
@@ -221,46 +237,99 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ -n "$DESCRIBE_CHANNEL" ]; then
+    case "$DESCRIBE_CHANNEL" in
+        preview|stable) ;;
+        *)
+            echo "invalid --channel: ${DESCRIBE_CHANNEL} (expected preview or stable)" >&2
+            exit 64
+            ;;
+    esac
+    exec python3 "$RELEASE_CONTRACT_SCRIPT" describe --channel "$DESCRIBE_CHANNEL"
+fi
+
+if ! channel_contract_output=$(python3 "$RELEASE_CONTRACT_SCRIPT" shell --channel "$CHANNEL"); then
+    case "$CHANNEL" in
+        preview|stable)
+            echo "failed to load release contract for channel: ${CHANNEL}" >&2
+            ;;
+        *)
+            echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
+            ;;
+    esac
+    exit 64
+fi
+
+CONTRACT_SPARKLE_APPCAST_FILENAME=""
+CONTRACT_SPARKLE_PUBLISH_RELEASE=""
+CONTRACT_SPARKLE_BRIDGE_PUBLISH_RELEASE=""
+CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME=""
+PREVIEW_SPARKLE_RELEASE=""
+PREVIEW_APPCAST_FILENAME=""
+while IFS='=' read -r contract_key contract_value; do
+    case "$contract_key" in
+        APP_BUNDLE_FILENAME) APP_BUNDLE_FILENAME="$contract_value" ;;
+        APP_DISPLAY_NAME) APP_DISPLAY_NAME="$contract_value" ;;
+        APP_SHORT_NAME) APP_SHORT_NAME="$contract_value" ;;
+        APP_BUNDLE_IDENTIFIER) APP_BUNDLE_IDENTIFIER="$contract_value" ;;
+        RELEASE_CHANNEL) RELEASE_CHANNEL="$contract_value" ;;
+        SPARKLE_PUBLISH_RELEASE) CONTRACT_SPARKLE_PUBLISH_RELEASE="$contract_value" ;;
+        SPARKLE_APPCAST_FILENAME) CONTRACT_SPARKLE_APPCAST_FILENAME="$contract_value" ;;
+        GITHUB_PRERELEASE) GITHUB_PRERELEASE="$contract_value" ;;
+        DMG_VOLUME_NAME) DMG_VOLUME_NAME="$contract_value" ;;
+        SPARKLE_BRIDGE_PUBLISH_RELEASE) CONTRACT_SPARKLE_BRIDGE_PUBLISH_RELEASE="$contract_value" ;;
+        SPARKLE_BRIDGE_APPCAST_FILENAME) CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME="$contract_value" ;;
+        PREVIEW_SPARKLE_RELEASE) PREVIEW_SPARKLE_RELEASE="$contract_value" ;;
+        PREVIEW_APPCAST_FILENAME) PREVIEW_APPCAST_FILENAME="$contract_value" ;;
+        *)
+            echo "unexpected release contract key: ${contract_key}" >&2
+            exit 64
+            ;;
+    esac
+done <<< "$channel_contract_output"
+
+for required_contract_value in \
+    "$APP_BUNDLE_FILENAME" "$APP_DISPLAY_NAME" "$APP_SHORT_NAME" \
+    "$APP_BUNDLE_IDENTIFIER" "$RELEASE_CHANNEL" "$CONTRACT_SPARKLE_PUBLISH_RELEASE" \
+    "$CONTRACT_SPARKLE_APPCAST_FILENAME" "$GITHUB_PRERELEASE" "$DMG_VOLUME_NAME" \
+    "$PREVIEW_SPARKLE_RELEASE" "$PREVIEW_APPCAST_FILENAME"; do
+    if [ -z "$required_contract_value" ]; then
+        echo "release contract query omitted a required channel value" >&2
+        exit 64
+    fi
+done
+if [ "$RELEASE_CHANNEL" != "$CHANNEL" ]; then
+    echo "release contract channel mismatch: expected ${CHANNEL}, found ${RELEASE_CHANNEL}" >&2
+    exit 64
+fi
+case "$GITHUB_PRERELEASE" in
+    true|false) ;;
+    *)
+        echo "invalid githubPrerelease value in release contract: ${GITHUB_PRERELEASE}" >&2
+        exit 64
+        ;;
+esac
+if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
+    SPARKLE_APPCAST_FILENAME="$CONTRACT_SPARKLE_APPCAST_FILENAME"
+fi
+if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
+    SPARKLE_PUBLISH_RELEASE="$CONTRACT_SPARKLE_PUBLISH_RELEASE"
+fi
+if [ "$SPARKLE_BRIDGE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
+    SPARKLE_BRIDGE_PUBLISH_RELEASE="$CONTRACT_SPARKLE_BRIDGE_PUBLISH_RELEASE"
+fi
+if [ "$SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
+    SPARKLE_BRIDGE_APPCAST_FILENAME="$CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME"
+fi
+SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
+
 if [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; then
     usage >&2
     exit 64
 fi
 
-# The channel decides which Sparkle feed the built app polls and whether the
-# GitHub release is a prerelease. preview (the default, today's behavior) feeds
-# appcast-beta.xml at sparkle-beta and publishes a prerelease; stable feeds
-# appcast-stable.xml at sparkle-stable and publishes a full release, which is
-# what triggers CI's heavy board via the 'released' event. Explicit
-# --sparkle-appcast-filename / --sparkle-publish-release still win. Resolve
-# these defaults before deriving the versioned tag and validating its notes.
 case "$CHANNEL" in
-    preview)
-        APP_DISPLAY_NAME="Lungfish Genome Explorer Preview"
-        APP_SHORT_NAME="Lungfish Preview"
-        # The bundle FILENAME (not just CFBundleName) carries the Preview
-        # suffix so a preview install can sit in /Applications next to the
-        # stable "Lungfish.app", like VS Code stable vs Insiders. The bundle
-        # identifier stays com.lungfish.browser on both channels: Sparkle
-        # refuses updates whose identifier differs from the installed app's,
-        # so changing it would strand every existing preview install.
-        APP_BUNDLE_FILENAME="Lungfish Preview.app"
-        DMG_VOLUME_NAME="Lungfish Preview"
-        if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
-            SPARKLE_PUBLISH_RELEASE="sparkle-beta"
-        fi
-        ;;
-    stable)
-        APP_DISPLAY_NAME="Lungfish Genome Explorer"
-        APP_SHORT_NAME="Lungfish"
-        APP_BUNDLE_FILENAME="Lungfish.app"
-        DMG_VOLUME_NAME="Lungfish"
-        if [ "$SPARKLE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
-            SPARKLE_APPCAST_FILENAME="appcast-stable.xml"
-        fi
-        if [ "$SPARKLE_PUBLISH_RELEASE_EXPLICIT" -eq 0 ]; then
-            SPARKLE_PUBLISH_RELEASE="sparkle-stable"
-        fi
-        ;;
+    preview|stable) ;;
     *)
         echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
         exit 64
@@ -332,11 +401,15 @@ case "$SPARKLE_APPCAST_FILENAME" in
         ;;
 esac
 case "$SPARKLE_BRIDGE_APPCAST_FILENAME" in
-    ""|*/*)
+    */*)
         echo "invalid Sparkle bridge appcast filename: $SPARKLE_BRIDGE_APPCAST_FILENAME" >&2
         exit 64
         ;;
 esac
+if [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] && [ -z "$SPARKLE_BRIDGE_APPCAST_FILENAME" ]; then
+    echo "Sparkle bridge appcast filename is required when a bridge release is selected" >&2
+    exit 64
+fi
 case "$PRERELEASE_PRUNE_KEEP" in
     ''|*[!0-9]*)
         echo "invalid prerelease prune keep count: $PRERELEASE_PRUNE_KEEP" >&2
@@ -352,7 +425,7 @@ if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
 
-SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"
+SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
@@ -426,11 +499,7 @@ verify_versioned_release_identity() {
             exit 64
         fi
         release_is_prerelease=$(gh release view "$GITHUB_RELEASE_TAG" --json isPrerelease --jq .isPrerelease)
-        local expected_prerelease="true"
-        if [ "$CHANNEL" = "stable" ]; then
-            expected_prerelease="false"
-        fi
-        if [ "$release_is_prerelease" != "$expected_prerelease" ]; then
+        if [ "$release_is_prerelease" != "$GITHUB_PRERELEASE" ]; then
             echo "existing GitHub release channel does not match --channel ${CHANNEL}: $GITHUB_RELEASE_TAG" >&2
             exit 64
         fi
@@ -515,23 +584,27 @@ configure_sparkle_info_plist() {
     /usr/bin/plutil -replace SUVerifyUpdateBeforeExtraction -bool YES "$info_plist"
     /usr/bin/plutil -replace CFBundleDisplayName -string "$APP_DISPLAY_NAME" "$info_plist"
     /usr/bin/plutil -replace CFBundleName -string "$APP_SHORT_NAME" "$info_plist"
-    /usr/bin/plutil -replace LungfishReleaseChannel -string "$CHANNEL" "$info_plist"
+    /usr/bin/plutil -replace CFBundleIdentifier -string "$APP_BUNDLE_IDENTIFIER" "$info_plist"
+    /usr/bin/plutil -replace LungfishReleaseChannel -string "$RELEASE_CHANNEL" "$info_plist"
 
     local actual_feed
     local actual_public_key
     local actual_display_name
     local actual_short_name
+    local actual_bundle_identifier
     local actual_channel
     actual_feed=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$info_plist")
     actual_public_key=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$info_plist")
     actual_display_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$info_plist")
     actual_short_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$info_plist")
+    actual_bundle_identifier=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$info_plist")
     actual_channel=$(/usr/libexec/PlistBuddy -c "Print :LungfishReleaseChannel" "$info_plist")
     if [ "$actual_feed" != "$SPARKLE_FEED_URL" ] \
         || [ "$actual_public_key" != "$SPARKLE_PUBLIC_ED_KEY" ] \
         || [ "$actual_display_name" != "$APP_DISPLAY_NAME" ] \
         || [ "$actual_short_name" != "$APP_SHORT_NAME" ] \
-        || [ "$actual_channel" != "$CHANNEL" ]; then
+        || [ "$actual_bundle_identifier" != "$APP_BUNDLE_IDENTIFIER" ] \
+        || [ "$actual_channel" != "$RELEASE_CHANNEL" ]; then
         echo "failed to configure Sparkle or bundle identity Info.plist keys" >&2
         exit 72
     fi
@@ -586,7 +659,7 @@ publish_github_release_dmg() {
         --title "$GITHUB_RELEASE_TAG"
         --target "$target_commit"
     )
-    if [ "$CHANNEL" = "preview" ]; then
+    if [ "$GITHUB_PRERELEASE" = "true" ]; then
         create_args+=(--prerelease)
     else
         # A full release fires the 'released' event, which runs CI's heavy
@@ -716,7 +789,7 @@ prune_github_prereleases() {
     python3 "$PRERELEASE_PRUNE_SCRIPT" \
         --current-tag "$GITHUB_RELEASE_TAG" \
         --keep "$PRERELEASE_PRUNE_KEEP" \
-        --sparkle-release "${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}" \
+        --sparkle-release "$SPARKLE_PUBLISH_RELEASE" \
         --notes-root "${PROJECT_ROOT}/docs/release-notes" \
         --report-path "$PRERELEASE_PRUNE_REPORT_PATH" \
         --apply

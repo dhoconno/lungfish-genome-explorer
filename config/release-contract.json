@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "channels": {
+    "preview": {
+      "appBundleFilename": "Lungfish Preview.app",
+      "displayName": "Lungfish Genome Explorer Preview",
+      "bundleName": "Lungfish Preview",
+      "bundleIdentifier": "com.lungfish.browser",
+      "releaseChannel": "preview",
+      "sparkleRelease": "sparkle-beta",
+      "appcastFilename": "appcast-beta.xml",
+      "githubPrerelease": true,
+      "dmgVolumeName": "Lungfish Preview",
+      "legacyBridgeRelease": "sparkle-alpha",
+      "legacyBridgeAppcastFilename": "appcast-alpha.xml"
+    },
+    "stable": {
+      "appBundleFilename": "Lungfish.app",
+      "displayName": "Lungfish Genome Explorer",
+      "bundleName": "Lungfish",
+      "bundleIdentifier": "com.lungfish.browser",
+      "releaseChannel": "stable",
+      "sparkleRelease": "sparkle-stable",
+      "appcastFilename": "appcast-stable.xml",
+      "githubPrerelease": false,
+      "dmgVolumeName": "Lungfish",
+      "legacyBridgeRelease": "",
+      "legacyBridgeAppcastFilename": ""
+    }
+  },
+  "toolchain": {
+    "xcodeMinimum": "26.4.1",
+    "xcodeMaximumExclusive": "27.0",
+    "swiftMinimum": "6.2",
+    "swiftMaximumExclusive": "7.0",
+    "sdkMajor": 26,
+    "deploymentTarget": "26.0",
+    "architecture": "arm64",
+    "minimumFreeDiskGiB": 20
+  }
+}
