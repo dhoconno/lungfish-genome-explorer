@@ -7,6 +7,8 @@ import importlib.util
 import io
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -945,6 +947,140 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 with self.assertRaises(self.release.NightlyReleaseError):
                     classify()
                 metadata_path.write_text(original_metadata, encoding="utf-8")
+
+    def test_tagged_state_requires_canonical_production_receipt_for_complete_and_incomplete(
+        self,
+    ):
+        fixture = self._published_preview_fixture()
+        receipt_path = fixture.release / "unsigned-candidate-receipt.json"
+        original_receipt = receipt_path.read_bytes()
+        original_mode = stat.S_IMODE(receipt_path.stat().st_mode)
+        complete_state = json.loads(fixture.gh_state.read_text(encoding="utf-8"))
+        incomplete_state = copy.deepcopy(complete_state)
+        del incomplete_state["releases"]["sparkle-alpha"]
+        identity = self.release.release_coordinator._candidate_receipt_identity(
+            fixture.repo, receipt_path, "preview"
+        )
+
+        def canonical(payload):
+            return (
+                json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+            ).encode("utf-8")
+
+        def mutate_unknown_field():
+            payload = json.loads(original_receipt)
+            payload["unknown"] = True
+            receipt_path.write_bytes(canonical(payload))
+
+        def mutate_noncanonical_json():
+            receipt_path.write_bytes(original_receipt.rstrip() + b"  \n")
+
+        def mutate_mode():
+            receipt_path.chmod(0o644)
+
+        def mutate_stale_builder_hash():
+            payload = json.loads(original_receipt)
+            payload["inputs"]["builderSha256"] = "0" * 64
+            receipt_path.write_bytes(canonical(payload))
+
+        mutations = {
+            "unknown field": mutate_unknown_field,
+            "noncanonical JSON": mutate_noncanonical_json,
+            "wrong mode": mutate_mode,
+            "stale builder hash": mutate_stale_builder_hash,
+        }
+        for state_label, remote_state in (
+            ("complete", complete_state),
+            ("incomplete", incomplete_state),
+        ):
+            for receipt_label, mutate in mutations.items():
+                with self.subTest(state=state_label, receipt=receipt_label):
+                    receipt_path.write_bytes(original_receipt)
+                    receipt_path.chmod(original_mode)
+                    fixture.gh_state.write_text(
+                        json.dumps(remote_state, sort_keys=True), encoding="utf-8"
+                    )
+                    mutate()
+                    with self._publication_state_environment(fixture):
+                        with self.assertRaises(
+                            self.release.release_coordinator.ReleaseError
+                        ):
+                            self.release.release_coordinator.tagged_publication_state(
+                                fixture.repo, "origin", "preview", identity
+                            )
+        receipt_path.write_bytes(original_receipt)
+        receipt_path.chmod(original_mode)
+
+    def test_local_mutable_evidence_uses_only_exact_contract_appcast_paths(self):
+        fixture = self._published_preview_fixture()
+        receipt = fixture.release / "unsigned-candidate-receipt.json"
+        metadata_path = fixture.release / "release-metadata.txt"
+        original_metadata = metadata_path.read_text(encoding="utf-8")
+        metadata = self.release.release_coordinator._metadata(metadata_path)
+        appcast = fixture.repo / metadata["sparkle_appcast_path"]
+        bridge = fixture.repo / metadata["sparkle_bridge_appcast_path"]
+        identity = self.release.release_coordinator._candidate_receipt_identity(
+            fixture.repo, receipt, "preview"
+        )
+
+        def write_metadata(**updates):
+            values = self.release.release_coordinator._metadata(metadata_path)
+            values.update(updates)
+            metadata_path.write_text(
+                "".join(f"{key}={value}\n" for key, value in values.items()),
+                encoding="utf-8",
+            )
+
+        def classify():
+            with self._publication_state_environment(fixture):
+                return self.release.release_coordinator.tagged_publication_state(
+                    fixture.repo, "origin", "preview", identity
+                )
+
+        alternate = appcast.parent / "alternate.xml"
+        shutil.copy2(appcast, alternate)
+        write_metadata(sparkle_appcast_path=str(alternate.relative_to(fixture.repo)))
+        with self.assertRaises(self.release.release_coordinator.ReleaseError):
+            classify()
+        alternate.unlink()
+        metadata_path.write_text(original_metadata, encoding="utf-8")
+
+        primary_bytes = appcast.read_bytes()
+        bridge_bytes = bridge.read_bytes()
+        self.assertEqual(primary_bytes, bridge_bytes)
+        write_metadata(
+            sparkle_appcast_path=str(bridge.relative_to(fixture.repo)),
+            sparkle_bridge_appcast_path=str(appcast.relative_to(fixture.repo)),
+        )
+        with self.assertRaises(self.release.release_coordinator.ReleaseError):
+            classify()
+        metadata_path.write_text(original_metadata, encoding="utf-8")
+
+        real_leaf = appcast.parent / "real-appcast.xml"
+        appcast.rename(real_leaf)
+        appcast.symlink_to(real_leaf.name)
+        with self.assertRaises(self.release.release_coordinator.ReleaseError):
+            classify()
+        appcast.unlink()
+        real_leaf.rename(appcast)
+
+        appcast_parent = appcast.parent
+        real_parent = appcast_parent.with_name("real-sparkle-appcast")
+        appcast_parent.rename(real_parent)
+        appcast_parent.symlink_to(real_parent.name, target_is_directory=True)
+        with self.assertRaises(self.release.release_coordinator.ReleaseError):
+            classify()
+        appcast_parent.unlink()
+        real_parent.rename(appcast_parent)
+
+        write_metadata(
+            sparkle_appcast_path=metadata["sparkle_appcast_path"].replace(
+                "sparkle-appcast", "Sparkle-Appcast"
+            )
+        )
+        with self.assertRaises(self.release.release_coordinator.ReleaseError):
+            classify()
+        metadata_path.write_text(original_metadata, encoding="utf-8")
 
     def test_crash_after_mutable_target_edit_before_upload_remains_resumable(self):
         fixture = ReleaseBuilderFixture(self)

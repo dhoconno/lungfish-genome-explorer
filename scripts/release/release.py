@@ -430,6 +430,38 @@ def _candidate_receipt_identity(
     )
 
 
+def verify_candidate_receipt_exact(
+    root: Path,
+    receipt_path: Path,
+    channel_name: str,
+    runner: SubprocessRunner,
+) -> CandidateIdentity:
+    """Run the canonical receipt verifier and return its trusted identity."""
+    identity = _candidate_receipt_identity(root, receipt_path, channel_name)
+    current = runner.text(["git", "rev-parse", "HEAD"]).strip()
+    if current != identity.commit:
+        raise ReleaseError("candidate receipt commit does not match HEAD")
+    channel = load_contract(root / "config/release-contract.json").channel(channel_name)
+    app = identity.receipt.parent / channel.appBundleFilename
+    runner.run(
+        [
+            str(root / "scripts/release/release-candidate-receipt.py"),
+            "verify",
+            "--app",
+            str(app),
+            "--receipt",
+            str(identity.receipt),
+            "--channel",
+            channel_name,
+            "--scratch-path",
+            str(identity.scratch_path),
+        ],
+        capture=True,
+        env={"PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    return identity
+
+
 def _remote_tag_commit(raw: str, tag: str) -> tuple[str, str]:
     direct = ""
     peeled = ""
@@ -553,19 +585,10 @@ def _optional_local_mutable_identities(
     channel_name: str,
     identity: CandidateIdentity,
     *,
-    bridge_required: bool,
+    primary_filename: str,
+    bridge_filename: str | None,
 ) -> tuple[tuple[str, int] | None, tuple[str, int] | None]:
     receipt_path = identity.receipt
-    if not receipt_path.exists() and not receipt_path.is_symlink():
-        return None, None
-    receipt_identity = _candidate_receipt_identity(root, receipt_path, channel_name)
-    if (
-        receipt_identity.commit != identity.commit
-        or receipt_identity.version != identity.version
-        or receipt_identity.tag != identity.tag
-    ):
-        raise ReleaseError("local completion receipt conflicts with the candidate")
-
     metadata_path = receipt_path.parent / "release-metadata.txt"
     if not metadata_path.exists() and not metadata_path.is_symlink():
         return None, None
@@ -580,13 +603,19 @@ def _optional_local_mutable_identities(
     release_dir = receipt_path.parent.resolve(strict=True)
 
     def local_identity_for(
-        path_key: str, digest_key: str, size_key: str, label: str
+        path_key: str,
+        digest_key: str,
+        size_key: str,
+        expected_filename: str,
+        label: str,
     ) -> tuple[str, int] | None:
         value = metadata.get(path_key, "")
         digest = metadata.get(digest_key, "")
         size_value = metadata.get(size_key, "")
-        if not value or not digest or not size_value:
+        if not value and not digest and not size_value:
             return None
+        if not value or not digest or not size_value:
+            raise ReleaseError(f"{label} local completion identity is incomplete")
         if HEX_SHA256.fullmatch(digest) is None or not size_value.isdigit():
             raise ReleaseError(f"{label} local completion identity is malformed")
         size = int(size_value)
@@ -594,20 +623,30 @@ def _optional_local_mutable_identities(
             raise ReleaseError(f"{label} local completion size is malformed")
         raw_path = Path(value)
         path = raw_path if raw_path.is_absolute() else root / raw_path
-        resolved = path.resolve(strict=False)
-        try:
-            resolved.relative_to(release_dir)
-        except ValueError as error:
+        expected_path = release_dir / "sparkle-appcast" / expected_filename
+        if path != expected_path:
             raise ReleaseError(
-                f"{label} local completion path escapes the release directory"
-            ) from error
-        if not path.exists() and not path.is_symlink():
-            return None
-        contained = _contained_artifact(release_dir, str(path), label)
-        info = contained.lstat()
+                f"{label} local completion path is not the contract artifact"
+            )
+        current = release_dir
+        for part in ("sparkle-appcast", expected_filename):
+            current /= part
+            try:
+                component = current.lstat()
+            except FileNotFoundError:
+                return None
+            except OSError as error:
+                raise ReleaseError(
+                    f"{label} local completion path is unavailable"
+                ) from error
+            if stat.S_ISLNK(component.st_mode):
+                raise ReleaseError(f"{label} local completion path contains a symlink")
+        if path.resolve(strict=True) != expected_path:
+            raise ReleaseError(f"{label} local completion path is not canonical")
+        info = path.lstat()
         if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
             raise ReleaseError(f"{label} local completion artifact is unsafe")
-        if info.st_size != size or _sha256_file(contained) != digest:
+        if info.st_size != size or _sha256_file(path) != digest:
             raise ReleaseError(
                 f"{label} local completion identity conflicts with bytes"
             )
@@ -617,14 +656,16 @@ def _optional_local_mutable_identities(
         "sparkle_appcast_path",
         "sparkle_appcast_sha256",
         "sparkle_appcast_size",
+        primary_filename,
         "primary appcast",
     )
     bridge = None
-    if bridge_required:
+    if bridge_filename:
         bridge = local_identity_for(
             "sparkle_bridge_appcast_path",
             "sparkle_bridge_appcast_sha256",
             "sparkle_bridge_appcast_size",
+            bridge_filename,
             "legacy bridge appcast",
         )
     return primary, bridge
@@ -664,13 +705,27 @@ def tagged_publication_state(
     if not direct or not peeled or peeled != identity.commit:
         raise ReleaseError("current release tag is not exact for the candidate commit")
 
+    verified_identity = verify_candidate_receipt_exact(
+        root, identity.receipt, channel_name, runner
+    )
+    if (
+        verified_identity.commit != identity.commit
+        or verified_identity.version != identity.version
+        or verified_identity.tag != identity.tag
+    ):
+        raise ReleaseError("verified candidate receipt conflicts with tagged identity")
+    identity = verified_identity
+
     contract = load_contract(root / "config/release-contract.json")
     channel = contract.channel(channel_name)
     local_primary, local_bridge = _optional_local_mutable_identities(
         root,
         channel_name,
         identity,
-        bridge_required=bool(channel.legacyBridgeRelease),
+        primary_filename=channel.appcastFilename,
+        bridge_filename=(
+            channel.legacyBridgeAppcastFilename if channel.legacyBridgeRelease else None
+        ),
     )
     checks = [
         _publication_release_state(
@@ -896,30 +951,12 @@ class LocalReleaseOperations:
         return receipt
 
     def verify_candidate_receipt(self, request: ReleaseRequest) -> CandidateIdentity:
-        identity = _candidate_receipt_identity(
-            self.root, request.receipt, request.channel
+        return verify_candidate_receipt_exact(
+            self.root,
+            request.receipt,
+            request.channel,
+            self.runner,
         )
-        current = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
-        if current != identity.commit:
-            raise ReleaseError("candidate receipt commit does not match HEAD")
-        channel = self.contract.channel(request.channel)
-        app = identity.receipt.parent / channel.appBundleFilename
-        self.runner.run(
-            [
-                sys.executable,
-                str(SCRIPT_DIR / "release-candidate-receipt.py"),
-                "verify",
-                "--app",
-                str(app),
-                "--receipt",
-                str(identity.receipt),
-                "--channel",
-                request.channel,
-                "--scratch-path",
-                str(identity.scratch_path),
-            ]
-        )
-        return identity
 
     def _remote_tag(
         self, request: ReleaseRequest, identity: CandidateIdentity

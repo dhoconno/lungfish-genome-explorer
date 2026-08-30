@@ -1725,6 +1725,45 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertNotIn("dhoconno/lungfish-genome-explorer", events)
         self.assertNotIn("mirror.example.test", events)
 
+    def test_remote_repository_case_change_preserves_package_recovery_identity(self):
+        self.fixture.prepare_remote_tag(
+            remote_name="upstream",
+            github_url="https://github.com/Right/LungFish.git",
+        )
+        remote_args = (
+            "--remote",
+            "upstream",
+            "--github-repository",
+            "right/lungfish",
+        )
+        packaged = self.fixture.run(
+            "--package-only", "--channel", "stable", *remote_args
+        )
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        failed = self.fixture.run(
+            *self._stable_resume_args(),
+            *remote_args,
+            extra_env={"BUILDER_FAIL_FEED_CREATE": "1"},
+        )
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+
+        self.fixture._git(
+            "remote",
+            "set-url",
+            "upstream",
+            "https://github.com/right/lungfish.git",
+        )
+        recovered = self.fixture.run(
+            *self._stable_resume_args(),
+            *remote_args,
+            "--recover-existing-release",
+            extra_env={
+                "BUILDER_EXPECTED_GH_REPO": "github.com/right/lungfish",
+                "BUILDER_REQUIRE_EXPLICIT_GH_REPO": "1",
+            },
+        )
+        self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
+
     def test_production_credentialed_apple_tools_are_canonical(self):
         source = (ROOT / "scripts/release/build-notarized-dmg.sh").read_text(
             encoding="utf-8"

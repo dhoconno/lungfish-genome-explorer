@@ -289,3 +289,55 @@ Round-3 verification:
   `git diff --check`, and the release-skill validator passed.
 - No live tag/push, GitHub query or mutation, credential access, signing,
   notarization, or remote publication was performed.
+
+## Independent-review correction round 4
+
+The fourth review found three Important provenance and canonical-identity gaps.
+Strict behavioral REDs were captured before each production correction:
+
+- Eight complete/incomplete transaction cases accepted receipts with an
+  unknown field, noncanonical JSON, mode other than 0600, or a stale builder
+  hash because the classifier used only a shallow identity read.
+- The exact-path regression first demonstrated that an alternate contained
+  appcast was accepted when its bytes matched; the completed matrix also covers
+  swapped primary/bridge paths, symlinked leaves and parents, and case aliases.
+- Mixed-case fetch/push GitHub identities failed comparison and changed the
+  repository boundary; a packaging-to-recovery case change failed before the
+  package gate. A follow-up RED also covered host and `.git` extension case.
+
+The classifier now calls the repository's exact production candidate-receipt
+verifier for every tagged complete or incomplete transaction before inspecting
+publication state. That verifier alone enforces canonical JSON/schema, mode,
+current clean HEAD, contract app identity, exact scratch, payload, builder,
+manifest, package lock, contract, toolchain, and input hashes. The coordinator
+and nightly path share this one verifier; nightly's duplicate partial receipt
+parser was removed. An untagged normal preparation remains unaffected because
+there is not yet a recovery receipt to verify.
+
+Mutable completion evidence is accepted only at the exact canonical contract
+paths `release/sparkle-appcast/<primary filename>` and, when required,
+`release/sparkle-appcast/<legacy bridge filename>`. Metadata must provide the
+matching path/hash/size key set. Alternate contained files, aliases, wrong
+letter case, swapped keys, and any symlink component fail closed; missing
+completion metadata or missing exact artifacts remains safely incomplete.
+
+GitHub owner/repository identity now rejects non-ASCII and invalid segments,
+normalizes validated owner/repository text to lowercase, and treats harmless
+ASCII case changes in the github.com host, owner, repository, and `.git`
+extension canonically. Fetch/push comparisons, repository keys, `GH_REPO`,
+scratch/markers, and derived Sparkle URLs therefore remain stable across a
+case-only remote change. A stateful builder regression packages with mixed
+case, publishes the immutable release, changes remote case, and resumes without
+rebuilding the immutable artifact.
+
+Round-4 verification:
+
+- Focused RED: 14 expected failures/errors before production changes; all
+  focused regressions passed after implementation and formatting.
+- Nightly/coordinator suite: 43 passed; Doctor/preflight suite: 50 passed;
+  builder suite: 31 passed.
+- Final post-format broader release discovery: 196 passed in 282.774 seconds.
+- Python compilation, Bash syntax, PyYAML/Ruby workflow parsing, Black format,
+  `git diff --check`, and the release-skill validator passed.
+- No live tag/push, GitHub query or mutation, credential access, signing,
+  notarization, or remote publication was performed.

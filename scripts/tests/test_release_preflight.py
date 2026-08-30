@@ -816,6 +816,28 @@ class ReleaseRepositoryIdentityTests(unittest.TestCase):
                 ],
                 "secret-token",
             ),
+            "owner segment ending in hyphen": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right-/lungfish.git",
+                    ),
+                ],
+                "",
+            ),
+            "dot-only repository segment": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right/...git",
+                    ),
+                ],
+                "",
+            ),
         }
         for index, (label, (commands, secret)) in enumerate(cases.items()):
             with self.subTest(label=label):
@@ -832,7 +854,7 @@ class ReleaseRepositoryIdentityTests(unittest.TestCase):
                     self.assertNotIn(secret, str(raised.exception))
 
     def test_repository_key_is_canonical_across_remote_name_and_url_syntax(self):
-        self.git("remote", "add", "upstream", "https://github.com/right/lungfish.git")
+        self.git("remote", "add", "upstream", "https://GitHub.com/Right/LungFish.GIT")
         self.git(
             "remote",
             "set-url",

@@ -9,7 +9,6 @@ import os
 import plistlib
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import time
@@ -705,66 +704,7 @@ def prepared_release_recovery_receipt(
         return None
     if transaction_state == "complete":
         return None
-
-    receipt_path = root / "build/Release/unsigned-candidate-receipt.json"
-    try:
-        receipt_info = receipt_path.lstat()
-    except OSError as error:
-        raise NightlyReleaseError(
-            f"tagged release recovery receipt is unavailable: {receipt_path}"
-        ) from error
-    if (
-        not stat.S_ISREG(receipt_info.st_mode)
-        or stat.S_ISLNK(receipt_info.st_mode)
-        or not 0 < receipt_info.st_size <= 1024 * 1024
-    ):
-        raise NightlyReleaseError("tagged release recovery receipt is unsafe")
-    try:
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        receipt_commit = receipt["source"]["commit"]
-        release = receipt["release"]
-        receipt_version = release["version"]
-        receipt_channel = release["channel"]
-        scratch_path = receipt["build"]["scratchPath"]
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise NightlyReleaseError(
-            "tagged release recovery receipt is malformed"
-        ) from error
-    if (
-        receipt_commit != head
-        or receipt_version != version
-        or receipt_channel != channel
-        or not isinstance(scratch_path, str)
-        or not scratch_path.startswith("/")
-    ):
-        raise NightlyReleaseError(
-            "tagged release recovery receipt identity does not match HEAD/version/channel"
-        )
-    contract_path = root / "config/release-contract.json"
-    try:
-        contract = json.loads(contract_path.read_text(encoding="utf-8"))
-        app_filename = contract["channels"][channel]["appBundleFilename"]
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise NightlyReleaseError("release contract is malformed") from error
-    if not isinstance(app_filename, str) or not app_filename:
-        raise NightlyReleaseError("release contract app filename is malformed")
-    run(
-        [
-            str(root / "scripts/release/release-candidate-receipt.py"),
-            "verify",
-            "--app",
-            str(receipt_path.parent / app_filename),
-            "--receipt",
-            str(receipt_path),
-            "--channel",
-            channel,
-            "--scratch-path",
-            scratch_path,
-        ],
-        cwd=root,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-    )
-    return receipt_path
+    return probe.receipt
 
 
 def run_common_coordinator(

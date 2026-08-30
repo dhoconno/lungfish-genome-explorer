@@ -13,13 +13,16 @@ import subprocess
 
 REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 GITHUB_REPOSITORY = re.compile(
-    r"^(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/(?P<repo>[A-Za-z0-9._-]+)$"
+    r"^(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)/(?P<repo>[A-Za-z0-9._-]{1,100})$",
+    re.ASCII,
 )
 HTTPS_REMOTE = re.compile(
-    r"^https://github\.com/(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?$"
+    r"^https://github\.com/(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?$",
+    re.ASCII | re.IGNORECASE,
 )
 SSH_REMOTE = re.compile(
-    r"^(?:ssh://git@github\.com/|git@github\.com:)(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?$"
+    r"^(?:ssh://git@github\.com/|git@github\.com:)(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)?$",
+    re.ASCII | re.IGNORECASE,
 )
 
 
@@ -41,8 +44,9 @@ def github_repository_from_url(url: str) -> str:
         raise RepositoryIdentityError(
             "selected Git remote must be an uncredentialed github.com repository"
         )
-    repository = f"{match.group('owner')}/{match.group('repo')}"
-    if GITHUB_REPOSITORY.fullmatch(repository) is None:
+    repository = f"{match.group('owner')}/{match.group('repo')}".lower()
+    parsed = GITHUB_REPOSITORY.fullmatch(repository)
+    if parsed is None or set(parsed.group("repo")) == {"."}:
         raise RepositoryIdentityError("selected Git remote repository is malformed")
     return repository
 
@@ -53,10 +57,16 @@ def repository_identity_from_url(
     if REMOTE_NAME.fullmatch(remote) is None:
         raise RepositoryIdentityError("selected Git remote name is invalid")
     repository = github_repository_from_url(url)
-    if expected_repository is not None and expected_repository != repository:
-        raise RepositoryIdentityError(
-            "selected Git remote does not match the requested GitHub repository"
-        )
+    if expected_repository is not None:
+        expected = GITHUB_REPOSITORY.fullmatch(expected_repository)
+        if expected is None or set(expected.group("repo")) == {"."}:
+            raise RepositoryIdentityError(
+                "requested GitHub repository identity is malformed"
+            )
+        if expected_repository.lower() != repository:
+            raise RepositoryIdentityError(
+                "selected Git remote does not match the requested GitHub repository"
+            )
     return RepositoryIdentity(
         remote=remote,
         github_repository=repository,
