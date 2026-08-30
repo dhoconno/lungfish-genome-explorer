@@ -36,9 +36,6 @@ FORBIDDEN_PATTERNS = (
     (b"/usr/local/Homebrew", "homebrew"),
     (os.fsencode(ROOT.resolve()), "repository-root"),
 )
-PATH_CONTINUATION = frozenset(
-    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~/-"
-)
 
 
 class ScanError(ValueError):
@@ -143,9 +140,9 @@ def _is_exact_fallback(data: bytes, start: int, fallback: bytes) -> bool:
     end = start + len(fallback)
     if data[start:end] != fallback:
         return False
-    if end == len(data):
-        return True
-    return data[end] not in PATH_CONTINUATION
+    leading_boundary = start == 0 or data[start - 1] == 0
+    trailing_boundary = end == len(data) or data[end] == 0
+    return leading_boundary and trailing_boundary
 
 
 def _scan_file(
@@ -245,7 +242,7 @@ def _scan_file(
                 if final:
                     break
                 next_scan_offset = safe_end
-                carry = data[-overlap:] if overlap else b""
+                carry = data[-(overlap + 1) :] if overlap else b""
             after = os.fstat(handle.fileno())
     except OSError as error:
         raise ScanError("app payload changed or became unreadable") from error

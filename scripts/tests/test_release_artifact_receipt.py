@@ -248,6 +248,100 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(result.stdout, "PASS portability\n")
 
+    def test_custom_fallback_rejects_non_record_boundaries(self):
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-custom-", dir="/private/var/tmp"
+        ) as scratch_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            fallback = os.fsencode(scratch / SWIFTPM_RESOURCE_SUFFIX)
+            cases = {
+                "path prefix": b"/evil" + fallback + b"\x00",
+                "colon suffix": b"\x00" + fallback + b":extra\x00",
+                "space suffix": b"\x00" + fallback + b" extra\x00",
+                "question suffix": b"\x00" + fallback + b"?extra\x00",
+                "at suffix": b"\x00" + fallback + b"@extra\x00",
+                "non-ASCII prefix": b"\xff" + fallback + b"\x00",
+                "non-ASCII suffix": b"\x00" + fallback + b"\xffextra\x00",
+            }
+            for label, contents in cases.items():
+                with self.subTest(
+                    label=label
+                ), tempfile.TemporaryDirectory() as app_dir:
+                    app = self._make_app(Path(app_dir))
+                    cli = app / "Contents" / "MacOS" / "lungfish-cli"
+                    cli.write_bytes(contents)
+
+                    result = self.run_scanner(app, scratch, scratch_root=scratch_root)
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("swiftpm-fallback", result.stdout)
+
+    def test_custom_fallback_allows_nul_or_file_record_boundaries(self):
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-custom-", dir="/private/var/tmp"
+        ) as scratch_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            fallback = os.fsencode(scratch / SWIFTPM_RESOURCE_SUFFIX)
+            records = (
+                fallback + b"\x00",
+                b"\x00" + fallback,
+                b"\x00" + fallback + b"\x00",
+            )
+            for contents in records:
+                with self.subTest(
+                    contents=contents
+                ), tempfile.TemporaryDirectory() as app_dir:
+                    app = self._make_app(Path(app_dir))
+                    cli = app / "Contents" / "MacOS" / "lungfish-cli"
+                    cli.write_bytes(contents)
+
+                    result = self.run_scanner(app, scratch, scratch_root=scratch_root)
+
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "PASS portability\n")
+
+    def test_custom_fallback_rejects_invalid_boundaries_across_chunks(self):
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-custom-", dir="/private/var/tmp"
+        ) as scratch_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            fallback = os.fsencode(scratch / SWIFTPM_RESOURCE_SUFFIX)
+            leading_split = b"z" * (1024 * 1024 - 1) + b"x" + fallback + b"\x00"
+            trailing_split = (
+                b"z" * (1024 * 1024 - len(fallback)) + fallback + b"?extra\x00"
+            )
+            overlap = (len(fallback) + 1) * 2
+            ownership_split = (
+                b"z" * (1024 * 1024 - overlap - 1)
+                + b"x"
+                + fallback
+                + b"\x00"
+                + b"z" * overlap
+            )
+            cases = {
+                "leading boundary": leading_split,
+                "trailing boundary": trailing_split,
+                "leading scan ownership boundary": ownership_split,
+            }
+            for label, contents in cases.items():
+                with self.subTest(
+                    label=label
+                ), tempfile.TemporaryDirectory() as app_dir:
+                    app = self._make_app(Path(app_dir))
+                    cli = app / "Contents" / "MacOS" / "lungfish-cli"
+                    cli.write_bytes(contents)
+
+                    result = self.run_scanner(app, scratch, scratch_root=scratch_root)
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("swiftpm-fallback", result.stdout)
+
     def test_exact_custom_fallback_suppression_survives_a_chunk_boundary(self):
         with tempfile.TemporaryDirectory(
             prefix="lungfish-custom-", dir="/private/var/tmp"
@@ -257,7 +351,7 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             scratch.mkdir(parents=True)
             fallback = os.fsencode(scratch / SWIFTPM_RESOURCE_SUFFIX)
             overlap = (len(fallback) + 1) * 2
-            prefix = b"x" * (1024 * 1024 - overlap - 1)
+            prefix = b"x" * (1024 * 1024 - overlap - 2) + b"\x00"
             app = self._make_app(Path(app_dir))
             cli = app / "Contents" / "MacOS" / "lungfish-cli"
             cli.write_bytes(prefix + fallback + b"\x00" + b"z" * overlap)
