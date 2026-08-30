@@ -26,6 +26,25 @@ import XCTest
 @available(macOS 26, *)
 final class AppleContainerRuntimeIntegrationTests: XCTestCase {
 
+    func testDebugContainerCachePathIsIsolated() {
+        let caches = URL(fileURLWithPath: "/tmp/Library/Caches", isDirectory: true)
+
+        XCTAssertEqual(
+            AppleContainerRuntime.defaultImageStorePath(
+                appIdentity: .stable,
+                cachesDirectory: caches
+            ),
+            caches.appendingPathComponent("com.lungfish.containers", isDirectory: true)
+        )
+        XCTAssertEqual(
+            AppleContainerRuntime.defaultImageStorePath(
+                appIdentity: .debug,
+                cachesDirectory: caches
+            ),
+            caches.appendingPathComponent("com.lungfish.debug.containers", isDirectory: true)
+        )
+    }
+
     // MARK: - Helpers
 
     /// Checks if a container runtime error is due to missing virtualization entitlement.

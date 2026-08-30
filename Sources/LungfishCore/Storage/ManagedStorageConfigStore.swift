@@ -53,21 +53,27 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
 
     private let fileManager: FileManager
     private let homeDirectory: URL
+    private let appIdentity: LungfishAppIdentity
 
     public init(
         fileManager: FileManager = .default,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory.standardizedFileURL
+        self.appIdentity = appIdentity
         self.configURL = self.homeDirectory
             .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("lungfish", isDirectory: true)
+            .appendingPathComponent(appIdentity.managedStorageConfigDirectoryName, isDirectory: true)
             .appendingPathComponent("storage-location.json")
     }
 
     public var defaultLocation: ManagedStorageLocation {
-        ManagedStorageLocation.defaultLocation(homeDirectory: homeDirectory)
+        ManagedStorageLocation.defaultLocation(
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
+        )
     }
 
     public func bootstrapConfigLoadState() -> BootstrapConfigLoadState {
@@ -103,7 +109,7 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         case .loaded(let config) where !config.activeRootPath.isEmpty:
             return ManagedStorageLocation(rootURL: URL(fileURLWithPath: config.activeRootPath, isDirectory: true))
         case .missing:
-            return legacyLocation() ?? defaultLocation
+            return appIdentity.isDebug ? defaultLocation : (legacyLocation() ?? defaultLocation)
         case .malformed:
             return defaultLocation
         case .loaded:
@@ -128,7 +134,9 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
 
     public func resetToDefaultLocation() throws {
         try removeBootstrapConfigIfPresent()
-        UserDefaults.standard.removeObject(forKey: Self.legacyDatabaseStorageLocationKey)
+        if !appIdentity.isDebug {
+            UserDefaults.standard.removeObject(forKey: Self.legacyDatabaseStorageLocationKey)
+        }
     }
 
     public func setActiveRoot(_ rootURL: URL) throws {

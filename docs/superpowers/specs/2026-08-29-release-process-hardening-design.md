@@ -67,10 +67,13 @@ and window-state paths, caches or temporary roots where present, and Keychain
 service names. Preview and Stable retain their existing state behavior, and
 explicitly injected paths/services remain authoritative for tests and callers.
 
-The Debug bundle includes every SwiftPM/runtime resource at a path the generated
-`Bundle.module` accessors can resolve relative to the moved wrapper. Relocation
-smoke copies the real app, makes the compiling checkout and `.build` unavailable,
-and exercises resources without launching user UI or reading production state.
+The Debug bundle includes every SwiftPM/runtime resource under canonical
+`Contents/Resources` paths. Owned production resource lookups use
+`RuntimeResourceLocator`; direct `Bundle.module` overloads remain only as
+injected test seams. Relocation smoke copies the real app, makes the compiling
+`.build` unavailable, and exercises resources from outside the checkout without
+launching user UI or reading production state. This layout also keeps the app
+wrapper sealable: resource bundles are not duplicated or symlinked into its root.
 
 ### 1. Three explicit phases
 

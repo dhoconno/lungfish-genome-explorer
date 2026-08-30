@@ -16,11 +16,60 @@ struct DebugCommand: AsyncParsableCommand {
         subcommands: [
             EnvSubcommand.self,
             ContainerSubcommand.self,
+            ResourceSmokeSubcommand.self,
             FASTQIngestSubcommand.self,
             WorkflowLogSubcommand.self,
         ],
         defaultSubcommand: EnvSubcommand.self
     )
+}
+
+// MARK: - Packaged Resource Smoke
+
+/// Loads packaged resources through the portable runtime locator without
+/// reading or writing user state.
+struct ResourceSmokeSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "resource-smoke",
+        abstract: "Verify packaged runtime resources without launching the app UI"
+    )
+
+    func run() async throws {
+        guard
+            let toolManifest = RuntimeResourceLocator.path(
+                "Tools/tool-versions.json",
+                in: .workflow
+            ),
+            FileManager.default.fileExists(atPath: toolManifest.path)
+        else {
+            throw ValidationError("Packaged workflow tool manifest is unavailable")
+        }
+
+        guard !RecipeRegistryV2.builtinRecipes().isEmpty else {
+            throw ValidationError("Packaged workflow recipes are unavailable")
+        }
+
+        guard
+            let primerSchemeManifest = RuntimeResourceLocator.path(
+                "PrimerSchemes/QIASeqDIRECT-SARS2.lungfishprimers/manifest.json",
+                in: .app
+            ),
+            FileManager.default.fileExists(atPath: primerSchemeManifest.path)
+        else {
+            throw ValidationError("Packaged app primer schemes are unavailable")
+        }
+
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        guard MCMHaplotypingPreset.builtInPresetDescriptorURL(id: preset.id) != nil else {
+            throw ValidationError("SwiftPM preset resource is unavailable")
+        }
+        guard !(try preset.bundledSpecialistPromptMarkdown()).isEmpty else {
+            throw ValidationError("SwiftPM specialist prompt resource is empty")
+        }
+        _ = try AIHaplotypingKnowledgePackLoader.bundledMacaqueMHC()
+
+        print("debug-resource-smoke-ok")
+    }
 }
 
 // MARK: - Environment Check

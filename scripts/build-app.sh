@@ -219,7 +219,6 @@ while IFS= read -r -d '' bundle; do
             ;;
     esac
     cp -R "$bundle" "$RESOURCES_DIR/"
-    ln -s "Contents/Resources/$bundle_name" "$APP_DIR/$bundle_name"
 done < <(/usr/bin/find "$BUILD_DIR" -maxdepth 1 -type d -name '*.bundle' -print0)
 
 SPARKLE_FRAMEWORK_SOURCE="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"

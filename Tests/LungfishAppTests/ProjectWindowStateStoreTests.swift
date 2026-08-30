@@ -87,4 +87,33 @@ final class ProjectWindowStateStoreTests: XCTestCase {
         let loaded = try store.load()
         XCTAssertTrue(loaded.windows.isEmpty)
     }
+
+    func testDefaultWindowStatePathIsIsolatedForDebug() {
+        let applicationSupport = tempRoot.appendingPathComponent(
+            "Application Support",
+            isDirectory: true
+        )
+
+        XCTAssertEqual(
+            ProjectWindowStateStore.defaultStateURL(
+                appIdentity: .stable,
+                applicationSupportDirectory: applicationSupport
+            ),
+            applicationSupport.appendingPathComponent("Lungfish/window-state.json")
+        )
+        XCTAssertEqual(
+            ProjectWindowStateStore.defaultStateURL(
+                appIdentity: .preview,
+                applicationSupportDirectory: applicationSupport
+            ),
+            applicationSupport.appendingPathComponent("Lungfish/window-state.json")
+        )
+        XCTAssertEqual(
+            ProjectWindowStateStore.defaultStateURL(
+                appIdentity: .debug,
+                applicationSupportDirectory: applicationSupport
+            ),
+            applicationSupport.appendingPathComponent("Lungfish Debug/window-state.json")
+        )
+    }
 }

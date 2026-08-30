@@ -3,30 +3,28 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 /// Enumerates built-in .lungfishprimers bundles shipped in the app's Resources.
-///
-/// In production, callers query against `Bundle.main`; tests query against `Bundle.module`
-/// (the LungfishApp module's bundle) via the `in:` overload.
 public enum BuiltInPrimerSchemeService {
-    /// Returns built-in primer scheme bundles sorted by manifest name.
-    ///
-    /// - Parameter bundle: The bundle whose Resources/PrimerSchemes folder should be enumerated. Defaults to `.main`.
-    public static func listBuiltInSchemes(in bundle: Bundle = .main) -> [PrimerSchemeBundle] {
-        let bundledSchemes = loadSchemes(in: bundle)
-        if !bundledSchemes.isEmpty {
-            return bundledSchemes
+    /// Returns built-in primer scheme bundles from the portable app resource root.
+    public static func listBuiltInSchemes() -> [PrimerSchemeBundle] {
+        guard let folderURL = RuntimeResourceLocator.path("PrimerSchemes", in: .app) else {
+            return []
         }
-        if bundle.bundleURL != Bundle.module.bundleURL {
-            return loadSchemes(in: Bundle.module)
-        }
-        return []
+        return loadSchemes(from: folderURL)
     }
 
-    private static func loadSchemes(in bundle: Bundle) -> [PrimerSchemeBundle] {
+    /// Returns built-in schemes from an explicitly injected bundle.
+    public static func listBuiltInSchemes(in bundle: Bundle) -> [PrimerSchemeBundle] {
         guard let resourceURL = bundle.resourceURL else { return [] }
-        let folderURL = resourceURL.appendingPathComponent("PrimerSchemes", isDirectory: true)
+        return loadSchemes(
+            from: resourceURL.appendingPathComponent("PrimerSchemes", isDirectory: true)
+        )
+    }
+
+    private static func loadSchemes(from folderURL: URL) -> [PrimerSchemeBundle] {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
         ) else { return [] }

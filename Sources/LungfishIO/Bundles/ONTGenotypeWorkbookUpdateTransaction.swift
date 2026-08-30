@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 
 public enum ONTGenotypeWorkbookUpdateTransactionPhase: String, Codable, Sendable {
     case prepared
@@ -504,8 +505,12 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         try discoveredMarkerURLs(for: bundleURL).count
     }
 
-    public static func defaultAttestationRootURL() throws -> URL {
-        guard let applicationSupport = FileManager.default.urls(
+    public static func defaultAttestationRootURL(
+        appIdentity: LungfishAppIdentity = .current,
+        applicationSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        guard let applicationSupport = applicationSupportDirectory ?? fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first else {
@@ -514,7 +519,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         return applicationSupport
-            .appendingPathComponent("Lungfish", isDirectory: true)
+            .appendingPathComponent(appIdentity.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("workbook-publication-attestations", isDirectory: true)
     }
 

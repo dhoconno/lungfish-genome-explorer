@@ -28,9 +28,14 @@ public actor KeychainSecretStorage {
 
     public static let shared = KeychainSecretStorage()
 
-    private let service = "com.lungfish.secrets"
+    public nonisolated let serviceIdentifier: String
 
-    public init() {}
+    public init(
+        service: String? = nil,
+        appIdentity: LungfishAppIdentity = .current
+    ) {
+        self.serviceIdentifier = service ?? appIdentity.keychainService
+    }
 
     // MARK: - Well-Known Keys
 
@@ -76,14 +81,14 @@ public actor KeychainSecretStorage {
         // regardless of the existing stored value.
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: serviceIdentifier,
             kSecAttrAccount as String: key,
         ]
         SecItemDelete(deleteQuery as CFDictionary)
 
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: serviceIdentifier,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
@@ -106,7 +111,7 @@ public actor KeychainSecretStorage {
     public func retrieve(forKey key: String) throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: serviceIdentifier,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -134,7 +139,7 @@ public actor KeychainSecretStorage {
     public func delete(forKey key: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: serviceIdentifier,
             kSecAttrAccount as String: key,
         ]
 
@@ -154,7 +159,7 @@ public actor KeychainSecretStorage {
     public func hasSecret(forKey key: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: serviceIdentifier,
             kSecAttrAccount as String: key,
             kSecReturnData as String: false,
         ]

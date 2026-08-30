@@ -8,11 +8,7 @@ import XCTest
 @MainActor
 final class AppIdentityPresentationTests: XCTestCase {
 
-    private let preview = LungfishAppIdentity.from(infoDictionary: [
-        "CFBundleDisplayName": "Lungfish Genome Explorer Preview",
-        "CFBundleName": "Lungfish Preview",
-        "LungfishReleaseChannel": "preview",
-    ])
+    private let preview = LungfishAppIdentity.preview
 
     func testPreviewApplicationMenuUsesPreviewIdentity() throws {
         let _ = NSApplication.shared

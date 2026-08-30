@@ -88,10 +88,23 @@ public actor TempFileManager {
 
     /// Tracks temp directories created during this session for cleanup.
     private let sessionTempDirectories = SessionTempDirectoryRegistry()
+    private nonisolated let appIdentity: LungfishAppIdentity
+    public nonisolated let temporaryRootURL: URL
 
     // MARK: - Initialization
 
-    init() {}
+    init(
+        appIdentity: LungfishAppIdentity = .current,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) {
+        self.appIdentity = appIdentity
+        self.temporaryRootURL = appIdentity.isDebug
+            ? temporaryDirectory.appendingPathComponent(
+                appIdentity.temporaryDirectoryName,
+                isDirectory: true
+            )
+            : temporaryDirectory
+    }
 
     /// Sets the max temp file age from a retention value in hours.
     public func setMaxAge(hours: Int) {
@@ -112,26 +125,31 @@ public actor TempFileManager {
 
         var totalBytesReclaimed: UInt64 = 0
 
-        // Clean up system temp directory
-        let systemTempDir = FileManager.default.temporaryDirectory
-        totalBytesReclaimed += await cleanupDirectory(systemTempDir)
+        if appIdentity.isDebug {
+            // Debug must never enumerate or remove Stable/Preview temporary state.
+            totalBytesReclaimed += await cleanupDirectory(temporaryRootURL)
+        } else {
+            // Preserve the historical Stable/Preview cleanup locations.
+            let systemTempDir = FileManager.default.temporaryDirectory
+            totalBytesReclaimed += await cleanupDirectory(systemTempDir)
 
-        // Also check /tmp directly (macOS sometimes uses this)
-        let tmpDir = URL(fileURLWithPath: "/tmp")
-        if tmpDir != systemTempDir {
-            totalBytesReclaimed += await cleanupDirectory(tmpDir)
+            // Also check /tmp directly (macOS sometimes uses this)
+            let tmpDir = URL(fileURLWithPath: "/tmp")
+            if tmpDir != systemTempDir {
+                totalBytesReclaimed += await cleanupDirectory(tmpDir)
+            }
+
+            // Check /private/tmp (the actual location on macOS)
+            let privateTmpDir = URL(fileURLWithPath: "/private/tmp")
+            if privateTmpDir != systemTempDir && privateTmpDir != tmpDir {
+                totalBytesReclaimed += await cleanupDirectory(privateTmpDir)
+            }
+
+            // Check volume root for any misplaced temp files
+            // (This can happen if code incorrectly constructs paths)
+            let volumeRoot = URL(fileURLWithPath: "/")
+            totalBytesReclaimed += await cleanupMisplacedFiles(in: volumeRoot)
         }
-
-        // Check /private/tmp (the actual location on macOS)
-        let privateTmpDir = URL(fileURLWithPath: "/private/tmp")
-        if privateTmpDir != systemTempDir && privateTmpDir != tmpDir {
-            totalBytesReclaimed += await cleanupDirectory(privateTmpDir)
-        }
-
-        // Check volume root for any misplaced temp files
-        // (This can happen if code incorrectly constructs paths)
-        let volumeRoot = URL(fileURLWithPath: "/")
-        totalBytesReclaimed += await cleanupMisplacedFiles(in: volumeRoot)
 
         if totalBytesReclaimed > 0 {
             let formatter = ByteCountFormatter()
@@ -226,7 +244,7 @@ public actor TempFileManager {
     /// Creates and registers a session directory before returning it to a
     /// synchronous caller.
     public nonisolated func createRegisteredTempDirectory(prefix: String) throws -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = temporaryRootURL
             .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
 
         try FileManager.default.createDirectory(

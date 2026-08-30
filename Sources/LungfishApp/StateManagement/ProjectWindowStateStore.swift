@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public struct CodableWindowFrame: Codable, Hashable, Sendable {
     public var x: Double
@@ -104,18 +105,30 @@ public final class ProjectWindowStateStore {
     private let fileManager: FileManager
 
     public init(
-        stateURL: URL = ProjectWindowStateStore.defaultStateURL(),
-        fileManager: FileManager = .default
+        stateURL: URL? = nil,
+        fileManager: FileManager = .default,
+        appIdentity: LungfishAppIdentity = .current
     ) {
-        self.stateURL = stateURL
         self.fileManager = fileManager
+        self.stateURL = stateURL ?? Self.defaultStateURL(
+            appIdentity: appIdentity,
+            fileManager: fileManager
+        )
     }
 
-    public static func defaultStateURL() -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+    public static func defaultStateURL(
+        appIdentity: LungfishAppIdentity = .current,
+        applicationSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let support = applicationSupportDirectory
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library/Application Support",
+                isDirectory: true
+            )
         return support
-            .appendingPathComponent("Lungfish", isDirectory: true)
+            .appendingPathComponent(appIdentity.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("window-state.json", isDirectory: false)
     }
 

@@ -5,6 +5,16 @@ import Testing
 struct RuntimeResourceLocatorTests {
 
     @Test
+    func defaultLocatorResolvesSwiftPMTestResources() {
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow
+        )
+
+        #expect(resolved != nil)
+    }
+
+    @Test
     func resolvesWorkflowResourcesFromNestedAppBundle() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("runtime-resource-locator-\(UUID().uuidString)", isDirectory: true)

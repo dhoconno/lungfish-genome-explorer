@@ -808,6 +808,34 @@ final class DocumentMetadataRegressionTests: XCTestCase {
 
 final class TempFileManagerRegressionTests: XCTestCase {
 
+    func testDebugTempDirectoriesUseAnIsolatedRoot() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "TempFileManagerIdentity-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let stable = TempFileManager(
+            appIdentity: .stable,
+            temporaryDirectory: base
+        )
+        let debug = TempFileManager(
+            appIdentity: .debug,
+            temporaryDirectory: base
+        )
+        let debugDirectory = try debug.createRegisteredTempDirectory(
+            prefix: "lungfish-test-"
+        )
+
+        XCTAssertEqual(stable.temporaryRootURL, base)
+        XCTAssertEqual(
+            debug.temporaryRootURL,
+            base.appendingPathComponent("com.lungfish.debug", isDirectory: true)
+        )
+        XCTAssertEqual(debugDirectory.deletingLastPathComponent(), debug.temporaryRootURL)
+        debug.cleanupSessionFilesSynchronously()
+    }
+
     func testCreateTempDirectory() async throws {
         let manager = TempFileManager.shared
 

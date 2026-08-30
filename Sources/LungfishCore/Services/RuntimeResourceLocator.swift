@@ -194,6 +194,10 @@ public enum RuntimeResourceLocator {
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
             return true
         }
+        if let executableName = executableURL?.lastPathComponent,
+           executableName == "xctest" || executableName == "swiftpm-testing-helper" {
+            return true
+        }
         if isInsideXCTestBundle(mainResourceURL) || isInsideXCTestBundle(executableURL) {
             return true
         }

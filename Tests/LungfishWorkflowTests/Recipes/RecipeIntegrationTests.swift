@@ -8,6 +8,25 @@ import LungfishTestSupport
 
 final class RecipeIntegrationTests: XCTestCase {
 
+    func testDebugUserRecipesDirectoryIsIsolated() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/Application Support")
+
+        XCTAssertEqual(
+            RecipeRegistryV2.userRecipesDirectoryURL(
+                appIdentity: .debug,
+                applicationSupportDirectory: applicationSupport
+            ),
+            applicationSupport.appendingPathComponent("Lungfish Debug/recipes")
+        )
+        XCTAssertEqual(
+            RecipeRegistryV2.userRecipesDirectoryURL(
+                appIdentity: .stable,
+                applicationSupportDirectory: applicationSupport
+            ),
+            applicationSupport.appendingPathComponent("Lungfish/recipes")
+        )
+    }
+
     func testVSP2RecipeLoadsAndValidates() throws {
         let recipes = RecipeRegistryV2.builtinRecipes()
         let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })

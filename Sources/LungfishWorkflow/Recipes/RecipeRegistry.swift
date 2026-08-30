@@ -33,21 +33,37 @@ public enum RecipeRegistryV2 {
 
     // MARK: - User recipes
 
-    /// Load user recipes from `~/Library/Application Support/Lungfish/recipes/`.
-    public static func userRecipes() -> [Recipe] {
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
+    /// Load user recipes from the current app identity's Application Support directory.
+    public static func userRecipes(
+        appIdentity: LungfishAppIdentity = .current,
+        fileManager: FileManager = .default,
+        applicationSupportDirectory: URL? = nil
+    ) -> [Recipe] {
+        let userRecipesDir = userRecipesDirectoryURL(
+            appIdentity: appIdentity,
+            applicationSupportDirectory: applicationSupportDirectory,
+            fileManager: fileManager
+        )
+        guard fileManager.fileExists(atPath: userRecipesDir.path) else {
             return []
         }
-        let userRecipesDir = appSupport
-            .appendingPathComponent("Lungfish")
+        return loadRecipes(from: userRecipesDir, fileManager: fileManager)
+    }
+
+    public static func userRecipesDirectoryURL(
+        appIdentity: LungfishAppIdentity = .current,
+        applicationSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let appSupport = applicationSupportDirectory
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library/Application Support",
+                isDirectory: true
+            )
+        return appSupport
+            .appendingPathComponent(appIdentity.applicationSupportDirectoryName)
             .appendingPathComponent("recipes")
-        guard FileManager.default.fileExists(atPath: userRecipesDir.path) else {
-            return []
-        }
-        return loadRecipes(from: userRecipesDir)
     }
 
     // MARK: - Combined access
@@ -74,9 +90,11 @@ public enum RecipeRegistryV2 {
 
     // MARK: - Private helpers
 
-    private static func loadRecipes(from directory: URL) -> [Recipe] {
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(
+    private static func loadRecipes(
+        from directory: URL,
+        fileManager: FileManager = .default
+    ) -> [Recipe] {
+        guard let contents = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
             options: .skipsHiddenFiles

@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
@@ -34,7 +35,10 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
     }
 
     public static func builtInPresetDescriptorURL(id: String) -> URL? {
-        builtInPresetDescriptorURL(id: id, bundle: .module)
+        RuntimeResourceLocator.path(
+            "MCMHaplotyping/\(id).preset.json",
+            in: .workflow
+        )
     }
 
     public static func builtInPresetDescriptorURL(id: String, bundle: Bundle) -> URL? {
@@ -66,7 +70,13 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
     }
 
     public func bundledReferenceBundleURL() throws -> URL {
-        try bundledReferenceBundleURL(bundle: .module)
+        guard let url = RuntimeResourceLocator.path(
+            "\(referenceBundleResourceSubdirectory)/\(referenceBundleResourceName).\(referenceBundleResourceExtension)",
+            in: .workflow
+        ) else {
+            throw MCMHaplotypingPresetError.missingBundledReferenceBundle(id)
+        }
+        return url.standardizedFileURL
     }
 
     public func bundledReferenceBundleURL(bundle: Bundle) throws -> URL {
@@ -81,7 +91,13 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
     }
 
     public func bundledSpecialistPromptURL() throws -> URL {
-        try bundledSpecialistPromptURL(bundle: .module)
+        guard let url = RuntimeResourceLocator.path(
+            "\(aiPromptResourceSubdirectory)/\(aiPromptResourceName).\(aiPromptResourceExtension)",
+            in: .workflow
+        ) else {
+            throw MCMHaplotypingPresetError.missingBundledSpecialistPrompt(id)
+        }
+        return url.standardizedFileURL
     }
 
     public func bundledSpecialistPromptURL(bundle: Bundle) throws -> URL {
@@ -96,7 +112,7 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
     }
 
     public func bundledSpecialistPromptMarkdown() throws -> String {
-        try bundledSpecialistPromptMarkdown(bundle: .module)
+        try String(contentsOf: bundledSpecialistPromptURL(), encoding: .utf8)
     }
 
     public func bundledSpecialistPromptMarkdown(bundle: Bundle) throws -> String {

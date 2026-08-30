@@ -381,7 +381,7 @@ Run: `git status --short --branch` in both the worktree and primary checkout. Do
 - A moved Debug wrapper resolves all runtime resources with the checkout and
   compiling `.build` unavailable.
 
-- [ ] **Step 1: Write failing identity and default-state isolation tests**
-- [ ] **Step 2: Implement explicit Debug identity and derived state namespaces**
-- [ ] **Step 3: Write failing relocated-resource smoke and implement bundle layout**
-- [ ] **Step 4: Run real Debug build/relocation smoke and focused verification**
+- [x] **Step 1: Write failing identity and default-state isolation tests**
+- [x] **Step 2: Implement explicit Debug identity and derived state namespaces**
+- [x] **Step 3: Write failing relocated-resource smoke and implement bundle layout**
+- [x] **Step 4: Run real Debug build/relocation smoke and focused verification**

@@ -4126,6 +4126,11 @@ final class DebugCommandRegressionTests: XCTestCase {
     func testSubcommands() {
         let subs = DebugCommand.configuration.subcommands
         XCTAssertGreaterThanOrEqual(subs.count, 4)
+        XCTAssertTrue(subs.contains { $0 == ResourceSmokeSubcommand.self })
+    }
+
+    func testResourceSmokeSubcommandParsesWithoutStatefulOptions() throws {
+        XCTAssertNoThrow(try ResourceSmokeSubcommand.parse([]))
     }
 
     func testDefaultSubcommand() {

@@ -47,6 +47,40 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.currentLocation().rootURL.path, home.appendingPathComponent(".lungfish").path)
     }
 
+    func testDebugDefaultsUseIsolatedConfigAndManagedStorageRoots() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let store = ManagedStorageConfigStore(
+            homeDirectory: home,
+            appIdentity: .debug
+        )
+
+        XCTAssertEqual(
+            store.configURL.path,
+            home.appendingPathComponent(".config/lungfish-debug/storage-location.json").path
+        )
+        XCTAssertEqual(
+            store.currentLocation(environment: [:]).rootURL.path,
+            home.appendingPathComponent(".lungfish-debug").path
+        )
+    }
+
+    func testDebugDoesNotReadStableLegacyStoragePreference() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let legacyRoot = URL(fileURLWithPath: "/tmp/legacy-lungfish", isDirectory: true)
+        let legacyKey = "DatabaseStorageLocation"
+        UserDefaults.standard.set(legacyRoot.path, forKey: legacyKey)
+        addTeardownBlock {
+            UserDefaults.standard.removeObject(forKey: legacyKey)
+        }
+
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug)
+
+        XCTAssertEqual(
+            store.currentLocation(environment: [:]).rootURL.standardizedFileURL,
+            home.appendingPathComponent(".lungfish-debug", isDirectory: true).standardizedFileURL
+        )
+    }
+
     func testCurrentLocationFallsBackToDefaultWhenLegacyDatabaseStorageLocationIsInvalid() throws {
         let home = try makeTemporaryHomeDirectory()
         let legacyRoot = URL(fileURLWithPath: "/Volumes/My SSD/Lungfish", isDirectory: true)

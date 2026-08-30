@@ -55,8 +55,16 @@ public struct ManagedStorageLocation: Sendable, Codable, Equatable {
         rootURL.appendingPathComponent("dependency-receipt.json", isDirectory: false)
     }
 
-    public static func defaultLocation(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> ManagedStorageLocation {
-        ManagedStorageLocation(rootURL: homeDirectory.appendingPathComponent(".lungfish", isDirectory: true))
+    public static func defaultLocation(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
+    ) -> ManagedStorageLocation {
+        ManagedStorageLocation(
+            rootURL: homeDirectory.appendingPathComponent(
+                appIdentity.managedStorageDirectoryName,
+                isDirectory: true
+            )
+        )
     }
 
     public static func validateSelection(

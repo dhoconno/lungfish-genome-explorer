@@ -1356,7 +1356,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
 // MARK: - Local Operation Log Documents
 
-private enum OperationLogDocument {
+enum OperationLogDocument {
     static func write(item: OperationCenter.Item) throws -> URL {
         let url = fileURL(for: item)
         try FileManager.default.createDirectory(
@@ -1368,17 +1368,29 @@ private enum OperationLogDocument {
     }
 
     private static func fileURL(for item: OperationCenter.Item) -> URL {
-        let logsDirectory = FileManager.default
-            .urls(for: .libraryDirectory, in: .userDomainMask)
-            .first!
-            .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("Lungfish", isDirectory: true)
-            .appendingPathComponent("Operations", isDirectory: true)
+        let logsDirectory = defaultLogsDirectory()
 
         let datePrefix = fileTimestamp(item.startedAt)
         let titleSlug = slug(item.title)
         let idPrefix = String(item.id.uuidString.prefix(8)).lowercased()
         return logsDirectory.appendingPathComponent("\(datePrefix)-\(titleSlug)-\(idPrefix).log")
+    }
+
+    static func defaultLogsDirectory(
+        appIdentity: LungfishAppIdentity = .current,
+        libraryDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let library = libraryDirectory
+            ?? fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library",
+                isDirectory: true
+            )
+        return library
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent(appIdentity.logDirectoryName, isDirectory: true)
+            .appendingPathComponent("Operations", isDirectory: true)
     }
 
     private static func render(item: OperationCenter.Item) -> String {

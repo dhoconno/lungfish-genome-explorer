@@ -4,16 +4,13 @@ import LungfishIO
 
 final class BuiltInPrimerSchemeServiceTests: XCTestCase {
     func testListBuiltInSchemesReturnsBundledSchemes() throws {
-        let schemes = BuiltInPrimerSchemeService.listBuiltInSchemes(in: Bundle.module)
+        let schemes = BuiltInPrimerSchemeService.listBuiltInSchemes()
         XCTAssertFalse(schemes.isEmpty, "expected at least one built-in primer scheme")
         XCTAssertTrue(schemes.contains { $0.manifest.name == "QIASeqDIRECT-SARS2" })
     }
 
-    func testDefaultBundleMainCallDoesNotCrash() {
-        // Exercises the default `bundle: Bundle = .main` parameter path.
-        // In a unit-test process, Bundle.main points at the xctest runner, which has
-        // no Resources/PrimerSchemes folder — so we expect an empty array, not a crash.
-        let result = BuiltInPrimerSchemeService.listBuiltInSchemes()
-        XCTAssertTrue(result.isEmpty || !result.isEmpty, "signature-breakage smoke test")
+    func testInjectedBundleOverrideRemainsAuthoritative() {
+        let schemes = BuiltInPrimerSchemeService.listBuiltInSchemes(in: Bundle.module)
+        XCTAssertTrue(schemes.isEmpty)
     }
 }

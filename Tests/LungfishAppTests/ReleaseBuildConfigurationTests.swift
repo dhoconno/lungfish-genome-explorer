@@ -217,9 +217,22 @@ struct ReleaseBuildConfigurationTests {
         )
 
         #expect(script.contains("find \"$BUILD_DIR\" -maxdepth 1 -type d -name '*.bundle'"))
-        #expect(script.contains("ln -s \"Contents/Resources/$bundle_name\""))
+        #expect(script.contains("ln -s \"Contents/Resources/$bundle_name\"") == false)
         #expect(script.contains("sanitize-bundled-tools.sh"))
         #expect(script.contains("lungfish-cli"))
+
+        for relativePath in [
+            "Sources/LungfishApp/Services/BuiltInPrimerSchemeService.swift",
+            "Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift",
+            "Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingKnowledgePack.swift",
+        ] {
+            let source = try String(
+                contentsOf: Self.repositoryRoot().appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            #expect(source.contains("Bundle.module") == false)
+            #expect(source.contains("RuntimeResourceLocator"))
+        }
     }
 
     @Test("Fallback build-app script embeds Sparkle framework for local launch")

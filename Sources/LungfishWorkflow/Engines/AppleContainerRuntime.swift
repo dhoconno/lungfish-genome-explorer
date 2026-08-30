@@ -86,7 +86,12 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
     ///   - kernelPath: Optional path to a Linux kernel binary.
     ///     If not provided, the runtime will look for a bundled kernel in Resources/Containerization.
     /// - Throws: `ContainerRuntimeError.runtimeNotAvailable` if initialization fails
-    public init(imageStorePath: URL? = nil, kernelPath: URL? = nil) async throws {
+    public init(
+        imageStorePath: URL? = nil,
+        kernelPath: URL? = nil,
+        appIdentity: LungfishAppIdentity = .current,
+        cachesDirectory: URL? = nil
+    ) async throws {
         // Verify platform requirements
         #if !arch(arm64)
         throw ContainerRuntimeError.runtimeNotAvailable(
@@ -96,9 +101,10 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         #endif
 
         // Set up image store path
-        let storePath = imageStorePath ?? FileManager.default
-            .urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("com.lungfish.containers")
+        let storePath = imageStorePath ?? Self.defaultImageStorePath(
+            appIdentity: appIdentity,
+            cachesDirectory: cachesDirectory
+        )
 
         self.imageStorePath = storePath
 
@@ -153,6 +159,23 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         }
 
         logger.info("Apple Container runtime initialized at \(storePath.path)")
+    }
+
+    public static func defaultImageStorePath(
+        appIdentity: LungfishAppIdentity = .current,
+        cachesDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let caches = cachesDirectory
+            ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library/Caches",
+                isDirectory: true
+            )
+        return caches.appendingPathComponent(
+            appIdentity.containerCacheDirectoryName,
+            isDirectory: true
+        )
     }
 
     // MARK: - ContainerRuntimeProtocol

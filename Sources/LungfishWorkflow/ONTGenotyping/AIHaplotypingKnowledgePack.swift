@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum AIHaplotypingKnowledgePackError: Error, Equatable, LocalizedError, Sendable {
@@ -547,10 +548,9 @@ public enum AIHaplotypingKnowledgePackLoader {
     }
 
     public static func bundledPack(named name: String) throws -> AIHaplotypingKnowledgePack {
-        guard let url = Bundle.module.url(
-            forResource: name,
-            withExtension: "json",
-            subdirectory: "AIHaplotyping"
+        guard let url = RuntimeResourceLocator.path(
+            "AIHaplotyping/\(name).json",
+            in: .workflow
         ) else {
             throw AIHaplotypingKnowledgePackError.missingBundledPack(name)
         }
