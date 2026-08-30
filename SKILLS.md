@@ -22,7 +22,7 @@ stable GitHub release triggers Build/smoke and Toolset conformance through the
 `released` event, and both must pass before the stable release is complete. See
 `docs/release/dependency-sweep.md` for the full semiannual sweep checklist.
 
-## Debug Test Builds
+## Debug build
 
 <!-- BEGIN LUNGFISH DEBUG FACTS -->
 - Wrapper: `build/Debug/Lungfish Debug.app`

@@ -62,28 +62,74 @@ REQUIRED_SKILL_MARKERS = (
     "com.lungfish.browser.debug",
 )
 
-DEBUG_FACTS_START = "<!-- BEGIN LUNGFISH DEBUG FACTS -->"
-DEBUG_FACTS_END = "<!-- END LUNGFISH DEBUG FACTS -->"
-CANONICAL_DEBUG_FACTS = (
-    "- Wrapper: `build/Debug/Lungfish Debug.app`",
-    "- Display name: `Lungfish Genome Explorer Debug`",
-    "- Short name: `Lungfish Debug`",
-    "- Bundle identifier: `com.lungfish.browser.debug`",
-    "- Signature: locally ad-hoc signed",
-    "- Distribution: not Developer ID signed; not notarized",
-    "- Portability: self-contained and relocatable; no checkout or `.build` dependency",
+DEBUG_SECTION_HEADER = "## Debug build"
+
+
+def normalize_authority_line(line: str) -> str:
+    return " ".join(line.split())
+
+
+def canonical_section(contents: str) -> tuple[str, ...]:
+    return tuple(normalize_authority_line(line) for line in contents.strip("\n").splitlines())
+
+
+CANONICAL_SKILL_DEBUG_SECTION = canonical_section(
+    r"""
+## Debug build
+
+<!-- BEGIN LUNGFISH DEBUG FACTS -->
+- Wrapper: `build/Debug/Lungfish Debug.app`
+- Display name: `Lungfish Genome Explorer Debug`
+- Short name: `Lungfish Debug`
+- Bundle identifier: `com.lungfish.browser.debug`
+- Signature: locally ad-hoc signed
+- Distribution: not Developer ID signed; not notarized
+- Portability: self-contained and relocatable; no checkout or `.build` dependency
+<!-- END LUNGFISH DEBUG FACTS -->
+
+This local test profile is NOT a release and must never receive a tag, upload, Sparkle publication, or GitHub release attachment. Produce one whenever the user asks to "try", "test", or "smoke" a fix before release, and do it from the feature branch, not `main`.
+
+1. Run the unit tier first: `bash scripts/full-suite-gate.sh --tier unit` must print PASS (serialize it with any other `swift` invocation; SwiftPM holds one `.build/.lock` per checkout).
+2. Build the wrapper with the following command (add `--skip-build` only when the exact commit is already compiled):
+   `bash scripts/build-app.sh --debug`
+3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.
+4. Launch it for the user:
+   `open "build/Debug/Lungfish Debug.app"`
+   Run the executable directly when `LUNGFISH_*` environment overrides are needed:
+   `build/Debug/Lungfish\ Debug.app/Contents/MacOS/Lungfish`
+   Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
+5. Report the commit hash, branch, absolute `.app` path, unit-tier PASS line, and the exact signature/distribution facts above.
+6. Prove relocation, packaged resources, signature identity, and checkout independence:
+   `bash scripts/smoke-test-debug-app.sh "build/Debug/Lungfish Debug.app" --compiling-build-dir "$PWD/.build"`
+
+Do not reuse `build/Release/` or `build-notarized-dmg.sh` for this profile, and do not delete its wrapper when cleaning up a release run unless the user asks.
+
+"""
+) + ("",)
+
+CANONICAL_CATALOG_DEBUG_SECTION = canonical_section(
+    r"""
+## Debug build
+
+<!-- BEGIN LUNGFISH DEBUG FACTS -->
+- Wrapper: `build/Debug/Lungfish Debug.app`
+- Display name: `Lungfish Genome Explorer Debug`
+- Short name: `Lungfish Debug`
+- Bundle identifier: `com.lungfish.browser.debug`
+- Signature: locally ad-hoc signed
+- Distribution: not Developer ID signed; not notarized
+- Portability: self-contained and relocatable; no checkout or `.build` dependency
+<!-- END LUNGFISH DEBUG FACTS -->
+
+After the unit tier passes, produce the local test wrapper from the feature branch:
+`bash scripts/build-app.sh --debug`
+
+Verify it with the compiling `.build` directory:
+`scripts/smoke-test-debug-app.sh`
+
+The full operational rules live in the shared skill file.
+"""
 )
-ALLOWED_DEBUG_REFERENCE_LINES = frozenset(
-    {
-        "## Debug Test Builds",
-        "`bash scripts/build-app.sh --debug`",
-        "`open \"build/Debug/Lungfish Debug.app\"`",
-        "`build/Debug/Lungfish\\ Debug.app/Contents/MacOS/Lungfish`",
-        "`bash scripts/smoke-test-debug-app.sh \"build/Debug/Lungfish Debug.app\" --compiling-build-dir \"$PWD/.build\"`",
-        "`scripts/smoke-test-debug-app.sh`",
-    }
-)
-DEBUG_WORD = re.compile(r"\bdebug\b", re.IGNORECASE)
 
 SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
@@ -99,37 +145,30 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def normalize_authority_line(line: str) -> str:
-    return " ".join(line.split())
-
-
-def validate_debug_authority(contents: str, source: str, errors: list[str]) -> None:
+def validate_debug_section(
+    contents: str,
+    source: str,
+    canonical: tuple[str, ...],
+    errors: list[str],
+) -> None:
     lines = contents.splitlines()
-    starts = [index for index, line in enumerate(lines) if line.strip() == DEBUG_FACTS_START]
-    ends = [index for index, line in enumerate(lines) if line.strip() == DEBUG_FACTS_END]
+    starts = [index for index, line in enumerate(lines) if line.strip() == DEBUG_SECTION_HEADER]
+    if len(starts) != 1:
+        errors.append(f"{source} must contain exactly one canonical {DEBUG_SECTION_HEADER} section")
+        return
 
-    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
-        errors.append(f"{source} must contain exactly one ordered canonical Debug facts block")
-        facts_range: range = range(0)
-    else:
-        facts_range = range(starts[0], ends[0] + 1)
-        actual_facts = tuple(
-            normalize_authority_line(line)
-            for line in lines[starts[0] + 1 : ends[0]]
-            if line.strip()
-        )
-        if actual_facts != CANONICAL_DEBUG_FACTS:
-            errors.append(f"{source} canonical Debug facts differ from the validator contract")
-
-    for index, line in enumerate(lines):
-        if index in facts_range:
-            continue
-        normalized = normalize_authority_line(line)
-        if DEBUG_WORD.search(line) and normalized not in ALLOWED_DEBUG_REFERENCE_LINES:
-            errors.append(
-                f"{source} contains an unrecognized Debug claim/reference outside the canonical facts block: "
-                f"line {index + 1}"
-            )
+    start = starts[0]
+    end = next(
+        (
+            index
+            for index in range(start + 1, len(lines))
+            if lines[index].startswith("## ")
+        ),
+        len(lines),
+    )
+    actual = tuple(normalize_authority_line(line) for line in lines[start:end])
+    if actual != canonical:
+        errors.append(f"{source} {DEBUG_SECTION_HEADER} section differs from the validator contract")
 
 
 def main() -> int:
@@ -179,12 +218,22 @@ def main() -> int:
             if marker not in skill_text:
                 errors.append(f"Release skill is missing required CalVer policy: {marker}")
 
-        validate_debug_authority(skill_text, "Release skill", errors)
+        validate_debug_section(
+            skill_text,
+            "Release skill",
+            CANONICAL_SKILL_DEBUG_SECTION,
+            errors,
+        )
 
     catalog_file = repo_root / "SKILLS.md"
     if catalog_file.is_file():
         catalog_text = catalog_file.read_text(errors="replace")
-        validate_debug_authority(catalog_text, "SKILLS.md", errors)
+        validate_debug_section(
+            catalog_text,
+            "SKILLS.md",
+            CANONICAL_CATALOG_DEBUG_SECTION,
+            errors,
+        )
 
     for path in skill_root.rglob("*") if skill_root.is_dir() else ():
         if not path.is_file() or path.suffix in {".pyc", ".png", ".jpg"}:

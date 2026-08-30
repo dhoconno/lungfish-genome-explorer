@@ -34,9 +34,13 @@ fi
             "scripts/release/check-sparkle-build-number.py": "# build-number gate\n",
             "docs/release/sparkle-updates.md": "Sparkle release instructions\n",
             ".codex/agents/release-agent.md": "Release agent instructions\n",
-            "SKILLS.md": "Release requirements\n",
+            "SKILLS.md": (REPO_ROOT / "SKILLS.md").read_text(encoding="utf-8"),
             "scripts/tests/test_sparkle_release_packaging.py": "# release test\n",
             "scripts/tests/test_release_smoke.py": "# smoke test\n",
+            "scripts/build-app.sh": "#!/bin/sh\n",
+            "scripts/full-suite-gate.sh": "# --tier smoke) unit) integration) conformance) full)\n",
+            "scripts/testing/run-macos-xcui.sh": "#!/bin/sh\n",
+            "scripts/tests/test_full_suite_gate_tiers.py": "# tier tests\n",
         }
         for relative, contents in required.items():
             path = root / relative
@@ -126,7 +130,10 @@ fi
                 shutil.copytree(SKILL_ROOT, skill)
                 skill_file = skill / "SKILL.md"
                 skill_file.write_text(
-                    skill_file.read_text(encoding="utf-8") + f"\n\n{contradiction}\n",
+                    skill_file.read_text(encoding="utf-8").replace(
+                        "<!-- END LUNGFISH DEBUG FACTS -->",
+                        f"<!-- END LUNGFISH DEBUG FACTS -->\n{contradiction}",
+                    ),
                     encoding="utf-8",
                 )
 
@@ -141,9 +148,12 @@ fi
             shutil.copytree(SKILL_ROOT, skill)
             skill_file = skill / "SKILL.md"
             skill_file.write_text(
-                skill_file.read_text(encoding="utf-8")
-                + "\n\nThe Debug app is distribution-unsigned: it is not Developer ID signed, "
-                "but it is locally ad-hoc signed and self-contained.\n",
+                skill_file.read_text(encoding="utf-8").replace(
+                    "<!-- END LUNGFISH DEBUG FACTS -->",
+                    "<!-- END LUNGFISH DEBUG FACTS -->\n"
+                    "The Debug app is distribution-unsigned: it is not Developer ID signed, "
+                    "but it is locally ad-hoc signed and self-contained.",
+                ),
                 encoding="utf-8",
             )
 
@@ -168,6 +178,86 @@ fi
             )
 
             result = self.run_validator(REPO_ROOT, skill)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("debug", (result.stdout + result.stderr).lower())
+
+    def test_validator_rejects_review_claims_inserted_after_facts_block(self):
+        claims = (
+            "- Signature: none",
+            "- Resources: load from adjacent `.build` bundles",
+            "- Portability: depends on the checkout",
+            "- Wrapper: `Lungfish.app`",
+            "- Display name: `Lungfish`",
+            "- Distribution: Developer ID signed and notarized",
+        )
+
+        for index, claim in enumerate(claims):
+            with self.subTest(claim=claim), tempfile.TemporaryDirectory() as temporary:
+                skill = Path(temporary) / f"skill-{index}"
+                shutil.copytree(SKILL_ROOT, skill)
+                skill_file = skill / "SKILL.md"
+                skill_file.write_text(
+                    skill_file.read_text(encoding="utf-8").replace(
+                        "<!-- END LUNGFISH DEBUG FACTS -->",
+                        f"<!-- END LUNGFISH DEBUG FACTS -->\n{claim}",
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = self.run_validator(REPO_ROOT, skill)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("debug", (result.stdout + result.stderr).lower())
+
+    def test_validator_rejects_any_missing_reordered_or_extra_section_line(self):
+        skill_text = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        mutations = (
+            skill_text.replace(
+                "This local test profile is NOT a release and must never receive a tag, upload, Sparkle publication, or GitHub release attachment. Produce one whenever the user asks to \"try\", \"test\", or \"smoke\" a fix before release, and do it from the feature branch, not `main`.\n",
+                "",
+            ),
+            skill_text.replace(
+                "3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.\n"
+                "4. Launch it for the user:",
+                "4. Launch it for the user:\n"
+                "3. The result uses the exact identity in the facts block and registers separately from the installed release copy. Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the local test bundle identifier explicitly.",
+            ),
+            skill_text.replace(
+                "<!-- END LUNGFISH DEBUG FACTS -->",
+                "<!-- END LUNGFISH DEBUG FACTS -->\n- Note: the local app remains portable after relocation.",
+            ),
+            skill_text.replace(
+                "unless the user asks.\n\n## Load Current Authority",
+                "unless the user asks.\n\n\n## Load Current Authority",
+            ),
+        )
+
+        for index, mutated in enumerate(mutations):
+            with self.subTest(mutation=index), tempfile.TemporaryDirectory() as temporary:
+                skill = Path(temporary) / f"skill-{index}"
+                shutil.copytree(SKILL_ROOT, skill)
+                (skill / "SKILL.md").write_text(mutated, encoding="utf-8")
+
+                result = self.run_validator(REPO_ROOT, skill)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("debug", (result.stdout + result.stderr).lower())
+
+    def test_validator_rejects_extra_catalog_entry_line_without_debug_keyword(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            self.make_fixture(repo)
+            catalog = repo / "SKILLS.md"
+            catalog.write_text(
+                catalog.read_text(encoding="utf-8").replace(
+                    "<!-- END LUNGFISH DEBUG FACTS -->",
+                    "<!-- END LUNGFISH DEBUG FACTS -->\n- Signature: none",
+                ),
+                encoding="utf-8",
+            )
+
+            result = self.run_validator(repo)
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("debug", (result.stdout + result.stderr).lower())

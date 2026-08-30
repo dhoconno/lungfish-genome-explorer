@@ -25,7 +25,7 @@ Every `docs/release-notes/<version>.md` starts with these audit fields:
 
 Preview notes describe the delta from the previous versioned release. Stable notes are aggregate notes: compare the latest full versioned GitHub release tag to `HEAD`, read every intervening committed versioned note, and reconcile both against the Git diff. Before the first stable release, use the explicitly recorded bootstrap aggregation baseline (currently `v0.5.0-beta29`), never the repository root. Include `## Included preview releases` listing the intervening preview versions. Aggregate and deduplicate user-visible workflows, correctness/stability, scientific provenance, storage/migrations, dependency and database pins, platform/toolchain compatibility, updater/release infrastructure, and known issues. Git tags, GitHub release state, and committed per-version notes are the ledger; do not create a second mutable channel/version registry.
 
-## Debug Test Builds
+## Debug build
 
 <!-- BEGIN LUNGFISH DEBUG FACTS -->
 - Wrapper: `build/Debug/Lungfish Debug.app`
