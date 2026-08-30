@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SMOKE = ROOT / "scripts" / "smoke-test-debug-app.sh"
+IDENTITY_PARSER = ROOT / "scripts" / "release" / "validate_debug_codesign_identity.py"
 
 
 class DebugAppSmokeTests(unittest.TestCase):
@@ -178,19 +179,13 @@ class DebugAppSmokeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ad-hoc signature", result.stderr)
 
-    def test_rejects_developer_identity_on_any_nested_signed_code(self):
-        codesign_stub = self.root / "codesign-stub.sh"
+    def test_codesign_environment_override_cannot_replace_system_verifier(self):
+        verifier_marker = self.root / "arbitrary-verifier-executed"
+        codesign_stub = self.root / "untrusted-codesign.sh"
         codesign_stub.write_text(
             """#!/bin/bash
-target=""
-for argument in "$@"; do target="$argument"; done
-if [[ " $* " == *" --display "* ]] && [[ "$target" == */DeveloperLikeHelper ]]; then
-    echo "Executable=$target" >&2
-    echo "Signature=Developer ID" >&2
-    echo "TeamIdentifier=FAKE123" >&2
-    exit 0
-fi
-exec /usr/bin/codesign "$@"
+touch "$ARBITRARY_VERIFIER_MARKER"
+exit 99
 """,
             encoding="utf-8",
         )
@@ -200,12 +195,47 @@ exec /usr/bin/codesign "$@"
             additions={
                 "LUNGFISH_DEBUG_SMOKE_CODESIGN": str(codesign_stub),
                 "LUNGFISH_DEBUG_SMOKE_TESTING": "1",
+                "ARBITRARY_VERIFIER_MARKER": str(verifier_marker),
             }
         )
 
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(verifier_marker.exists())
+
+    def test_identity_parser_rejects_team_signed_nested_code(self):
+        result = subprocess.run(
+            ["python3", str(IDENTITY_PARSER), "NestedHelper"],
+            input=(
+                "Executable=/tmp/NestedHelper\n"
+                "Identifier=com.example.helper\n"
+                "Signature=Developer ID\n"
+                "TeamIdentifier=ABCDE12345\n"
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("DeveloperLikeHelper", result.stderr)
-        self.assertIn("exact ad-hoc signature", result.stderr)
+        self.assertIn("NestedHelper", result.stderr)
+
+    def test_identity_parser_accepts_exact_ad_hoc_identity(self):
+        result = subprocess.run(
+            ["python3", str(IDENTITY_PARSER), "NestedHelper"],
+            input=(
+                "Executable=/tmp/NestedHelper\n"
+                "Identifier=com.example.helper\n"
+                "Signature=adhoc\n"
+                "TeamIdentifier=not set\n"
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_rejects_any_sparkle_metadata(self):
         self.write_plist({"SUFeedURL": "https://example.invalid/appcast.xml"})

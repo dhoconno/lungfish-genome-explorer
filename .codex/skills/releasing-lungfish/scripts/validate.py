@@ -62,70 +62,28 @@ REQUIRED_SKILL_MARKERS = (
     "com.lungfish.browser.debug",
 )
 
-REQUIRED_DEBUG_MARKERS = (
-    "build/Debug/Lungfish Debug.app",
-    "Lungfish Genome Explorer Debug",
-    "ad-hoc",
-    "self-contained",
+DEBUG_FACTS_START = "<!-- BEGIN LUNGFISH DEBUG FACTS -->"
+DEBUG_FACTS_END = "<!-- END LUNGFISH DEBUG FACTS -->"
+CANONICAL_DEBUG_FACTS = (
+    "- Wrapper: `build/Debug/Lungfish Debug.app`",
+    "- Display name: `Lungfish Genome Explorer Debug`",
+    "- Short name: `Lungfish Debug`",
+    "- Bundle identifier: `com.lungfish.browser.debug`",
+    "- Signature: locally ad-hoc signed",
+    "- Distribution: not Developer ID signed; not notarized",
+    "- Portability: self-contained and relocatable; no checkout or `.build` dependency",
 )
-
-STALE_DEBUG_MARKERS = (
-    "build/Debug/Lungfish.app",
-    "NOT self-contained",
-    "build is unsigned and for local testing only",
+ALLOWED_DEBUG_REFERENCE_LINES = frozenset(
+    {
+        "## Debug Test Builds",
+        "`bash scripts/build-app.sh --debug`",
+        "`open \"build/Debug/Lungfish Debug.app\"`",
+        "`build/Debug/Lungfish\\ Debug.app/Contents/MacOS/Lungfish`",
+        "`bash scripts/smoke-test-debug-app.sh \"build/Debug/Lungfish Debug.app\" --compiling-build-dir \"$PWD/.build\"`",
+        "`scripts/smoke-test-debug-app.sh`",
+    }
 )
-
-CONTRADICTORY_DEBUG_PATTERNS = (
-    (
-        "claims the Debug app has no signature",
-        re.compile(
-            r"(?:\bdebug(?:\s+(?:app|build|artifact)s?)?\b.{0,60}(?<!distribution[- ])\bunsigned\b|"
-            r"(?<!distribution[- ])\bunsigned\b.{0,60}\bdebug(?:\s+(?:app|build|artifact)s?)?\b)",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "claims the Debug app is not ad-hoc signed",
-        re.compile(
-            r"(?:\bdebug(?:\s+(?:app|build|artifact)s?)?\b.{0,60}\bnot\s+ad[ -]?hoc(?:\s+signed)?\b|"
-            r"\b(?:not\s+ad[ -]?hoc(?:\s+signed)?|ad[ -]?hoc\s+signing\s+is\s+not\s+used)\b"
-            r".{0,60}\bdebug(?:\s+(?:app|build|artifact)s?)?\b)",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "claims the Debug app is not self-contained",
-        re.compile(
-            r"(?:\bdebug(?:\s+(?:app|build|artifact)s?)?\b.{0,60}\bnot\s+self[ -]?contained\b|"
-            r"\bnot\s+self[ -]?contained\b.{0,60}\bdebug(?:\s+(?:app|build|artifact)s?)?\b)",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "claims the Debug app depends on the checkout",
-        re.compile(
-            r"(?:\bdebug\b.{0,100}\b(?:checkout[ -]dependent|depends?\s+on\b.{0,30}\bcheckout|"
-            r"requires?\b.{0,40}\b(?:checkout|(?:compiling\s+)?\.build)\b)|"
-            r"\b(?:checkout[ -]dependent|depends?\s+on\b.{0,30}\bcheckout)\b.{0,60}\bdebug\b)",
-            re.IGNORECASE | re.DOTALL,
-        ),
-    ),
-    (
-        "names the obsolete Debug wrapper",
-        re.compile(
-            r"(?:\bbuild/debug/lungfish\.app\b|\bdebug\s+wrapper\s+(?:is|:)\s*[`\"']?lungfish\.app\b)",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "uses the short bundle name as the Debug display name",
-        re.compile(
-            r"\bdebug\b.{0,60}\b(?:display\s+name\s+(?:is|of|:)|is\s+(?:displayed|shown)\s+as)\s*"
-            r"[`\"']?lungfish\s+debug\b",
-            re.IGNORECASE,
-        ),
-    ),
-)
+DEBUG_WORD = re.compile(r"\bdebug\b", re.IGNORECASE)
 
 SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
@@ -141,10 +99,37 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def validate_debug_semantics(contents: str, source: str, errors: list[str]) -> None:
-    for description, pattern in CONTRADICTORY_DEBUG_PATTERNS:
-        if pattern.search(contents):
-            errors.append(f"{source} contains contradictory Debug guidance: {description}")
+def normalize_authority_line(line: str) -> str:
+    return " ".join(line.split())
+
+
+def validate_debug_authority(contents: str, source: str, errors: list[str]) -> None:
+    lines = contents.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.strip() == DEBUG_FACTS_START]
+    ends = [index for index, line in enumerate(lines) if line.strip() == DEBUG_FACTS_END]
+
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        errors.append(f"{source} must contain exactly one ordered canonical Debug facts block")
+        facts_range: range = range(0)
+    else:
+        facts_range = range(starts[0], ends[0] + 1)
+        actual_facts = tuple(
+            normalize_authority_line(line)
+            for line in lines[starts[0] + 1 : ends[0]]
+            if line.strip()
+        )
+        if actual_facts != CANONICAL_DEBUG_FACTS:
+            errors.append(f"{source} canonical Debug facts differ from the validator contract")
+
+    for index, line in enumerate(lines):
+        if index in facts_range:
+            continue
+        normalized = normalize_authority_line(line)
+        if DEBUG_WORD.search(line) and normalized not in ALLOWED_DEBUG_REFERENCE_LINES:
+            errors.append(
+                f"{source} contains an unrecognized Debug claim/reference outside the canonical facts block: "
+                f"line {index + 1}"
+            )
 
 
 def main() -> int:
@@ -194,24 +179,12 @@ def main() -> int:
             if marker not in skill_text:
                 errors.append(f"Release skill is missing required CalVer policy: {marker}")
 
-        for marker in REQUIRED_DEBUG_MARKERS:
-            if marker not in skill_text:
-                errors.append(f"Release skill is missing current Debug guidance: {marker}")
-        for marker in STALE_DEBUG_MARKERS:
-            if marker in skill_text:
-                errors.append(f"Release skill contains stale Debug guidance: {marker}")
-        validate_debug_semantics(skill_text, "Release skill", errors)
+        validate_debug_authority(skill_text, "Release skill", errors)
 
     catalog_file = repo_root / "SKILLS.md"
     if catalog_file.is_file():
         catalog_text = catalog_file.read_text(errors="replace")
-        for marker in REQUIRED_DEBUG_MARKERS:
-            if marker not in catalog_text:
-                errors.append(f"SKILLS.md is missing current Debug guidance: {marker}")
-        for marker in STALE_DEBUG_MARKERS:
-            if marker in catalog_text:
-                errors.append(f"SKILLS.md contains stale Debug guidance: {marker}")
-        validate_debug_semantics(catalog_text, "SKILLS.md", errors)
+        validate_debug_authority(catalog_text, "SKILLS.md", errors)
 
     for path in skill_root.rglob("*") if skill_root.is_dir() else ():
         if not path.is_file() or path.suffix in {".pyc", ".png", ".jpg"}:

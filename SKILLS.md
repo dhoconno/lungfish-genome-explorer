@@ -24,12 +24,20 @@ stable GitHub release triggers Build/smoke and Toolset conformance through the
 
 ## Debug Test Builds
 
-A build handed to the user for local testing is produced with
-`bash scripts/build-app.sh --debug` after the unit tier passes, yielding
-`build/Debug/Lungfish Debug.app` (bundle id `com.lungfish.browser.debug`, display
-name "Lungfish Genome Explorer Debug"). It is locally ad-hoc signed, not
-Developer ID signed or notarized, never tagged or uploaded, and is built from
-the feature branch. It is self-contained after relocation; verify that with
-`scripts/smoke-test-debug-app.sh` and the compiling `.build` directory. The full
-rules live in the shared
-`.codex/skills/releasing-lungfish/SKILL.md` under "Debug Test Builds".
+<!-- BEGIN LUNGFISH DEBUG FACTS -->
+- Wrapper: `build/Debug/Lungfish Debug.app`
+- Display name: `Lungfish Genome Explorer Debug`
+- Short name: `Lungfish Debug`
+- Bundle identifier: `com.lungfish.browser.debug`
+- Signature: locally ad-hoc signed
+- Distribution: not Developer ID signed; not notarized
+- Portability: self-contained and relocatable; no checkout or `.build` dependency
+<!-- END LUNGFISH DEBUG FACTS -->
+
+After the unit tier passes, produce the local test wrapper from the feature branch:
+`bash scripts/build-app.sh --debug`
+
+Verify it with the compiling `.build` directory:
+`scripts/smoke-test-debug-app.sh`
+
+The full operational rules live in the shared skill file.

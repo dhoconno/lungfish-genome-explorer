@@ -110,20 +110,14 @@ fi
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Debug", result.stdout + result.stderr)
 
-    def test_validator_rejects_semantic_debug_contradictions_case_insensitively(self):
+    def test_validator_rejects_unrecognized_debug_claims_fail_closed(self):
         contradictions = (
-            "The Debug app is unsigned.",
-            "DEBUG is NOT AD HOC signed.",
-            "Debug is not self-contained.",
-            "Debug remains checkout-dependent and requires the compiling .build tree.",
-            "The local wrapper is BUILD/DEBUG/LUNGFISH.APP.",
-            "The Debug display name is Lungfish Debug.",
-            "Unsigned Debug artifacts are copied locally.",
-            "Ad hoc signing is not used for Debug builds.",
-            "The app is not self contained in Debug builds.",
-            "Debug artifacts depend on the checkout.",
-            "The Debug wrapper is Lungfish.app.",
-            "Debug is displayed as Lungfish Debug.",
+            "For Debug, the application bundle carries no signature.",
+            "For Debug, local signing must omit the ad hoc identity.",
+            "Debug runtime files are not all carried inside the moved app.",
+            "Debug can load runtime assets from the source checkout.",
+            "The Debug app wrapper keeps the legacy Lungfish.app filename.",
+            "Debug's visible application title is Lungfish Debug.",
         )
 
         for index, contradiction in enumerate(contradictions):
@@ -139,9 +133,9 @@ fi
                 result = self.run_validator(REPO_ROOT, skill)
 
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("contradict", (result.stdout + result.stderr).lower())
+                self.assertIn("debug", (result.stdout + result.stderr).lower())
 
-    def test_validator_accepts_distribution_unsigned_debug_wording(self):
+    def test_validator_rejects_unrecognized_accurate_debug_paraphrase(self):
         with tempfile.TemporaryDirectory() as temporary:
             skill = Path(temporary) / "skill"
             shutil.copytree(SKILL_ROOT, skill)
@@ -155,7 +149,28 @@ fi
 
             result = self.run_validator(REPO_ROOT, skill)
 
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("debug", (result.stdout + result.stderr).lower())
+
+    def test_validator_rejects_reordered_debug_facts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skill = Path(temporary) / "skill"
+            shutil.copytree(SKILL_ROOT, skill)
+            skill_file = skill / "SKILL.md"
+            skill_file.write_text(
+                skill_file.read_text(encoding="utf-8").replace(
+                    "- Wrapper: `build/Debug/Lungfish Debug.app`\n"
+                    "- Display name: `Lungfish Genome Explorer Debug`",
+                    "- Display name: `Lungfish Genome Explorer Debug`\n"
+                    "- Wrapper: `build/Debug/Lungfish Debug.app`",
+                ),
+                encoding="utf-8",
+            )
+
+            result = self.run_validator(REPO_ROOT, skill)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("debug", (result.stdout + result.stderr).lower())
 
     def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
