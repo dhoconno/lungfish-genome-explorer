@@ -41,7 +41,7 @@ class ReleaseDoctorFixture:
     def __init__(self, case: unittest.TestCase):
         self.case = case
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.developer_dir = self.root / "Xcode.app" / "Contents" / "Developer"
@@ -568,6 +568,34 @@ class SparkleResolverTests(unittest.TestCase):
         (scratch / f"uid-{os.getuid()}").chmod(0o700)
         return old_tools, user_tools
 
+    def _run_resolver_with_xcrun_probe(
+        self, repo: Path, resolver: Path, scratch: Path, temp_root: Path
+    ) -> tuple[subprocess.CompletedProcess[str], Path]:
+        bin_dir = temp_root / "probe-bin"
+        bin_dir.mkdir()
+        invoked = temp_root / "xcrun-invoked"
+        xcrun = bin_dir / "xcrun"
+        xcrun.write_text(
+            '#!/bin/bash\nset -eu\ntouch "$STUB_XCRUN_SENTINEL"\nexit 99\n',
+            encoding="utf-8",
+        )
+        xcrun.chmod(0o755)
+        result = subprocess.run(
+            ["/bin/bash", str(resolver)],
+            cwd=repo,
+            env={
+                **os.environ,
+                "PATH": f"{bin_dir}:/usr/bin:/bin",
+                "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+                "STUB_XCRUN_SENTINEL": str(invoked),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        return result, invoked
+
     def test_resolver_emits_absolute_executable_tool_paths_without_touching_lockfile(
         self,
     ):
@@ -606,7 +634,8 @@ class SparkleResolverTests(unittest.TestCase):
 
     def test_resolver_uses_a_minimal_package_derived_from_the_tracked_sparkle_pin(self):
         with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp) / "repo"
+            temp_root = Path(temp).resolve()
+            repo = temp_root / "repo"
             release_scripts = repo / "scripts" / "release"
             release_scripts.mkdir(parents=True)
             resolver = release_scripts / "resolve-sparkle-tools.sh"
@@ -627,10 +656,10 @@ class SparkleResolverTests(unittest.TestCase):
             )
             shutil.copy2(ROOT / "Package.resolved", repo / "Package.resolved")
             before = (repo / "Package.resolved").read_bytes()
-            bin_dir = Path(temp) / "bin"
+            bin_dir = temp_root / "bin"
             bin_dir.mkdir()
-            manifest_log = Path(temp) / "resolved-manifest.txt"
-            resolved_log = Path(temp) / "resolved-lock.json"
+            manifest_log = temp_root / "resolved-manifest.txt"
+            resolved_log = temp_root / "resolved-lock.json"
             xcrun = bin_dir / "xcrun"
             xcrun.write_text(
                 "#!/bin/bash\nset -eu\n"
@@ -659,7 +688,7 @@ class SparkleResolverTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "PATH": f"{bin_dir}:/usr/bin:/bin",
-                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(Path(temp) / "scratch"),
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(temp_root / "scratch"),
                     "STUB_MANIFEST_LOG": str(manifest_log),
                     "STUB_RESOLVED_LOG": str(resolved_log),
                 },
@@ -699,7 +728,7 @@ class SparkleResolverTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "PATH": f"{bin_dir}:/usr/bin:/bin",
-                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(Path(temp) / "scratch"),
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(temp_root / "scratch"),
                     "STUB_MANIFEST_LOG": str(manifest_log),
                     "STUB_RESOLVED_LOG": str(resolved_log),
                 },
@@ -714,10 +743,11 @@ class SparkleResolverTests(unittest.TestCase):
 
     def test_resolver_rejects_preseeded_tools_without_private_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
-            repo, resolver = self._copy_resolver_repo(Path(temp))
-            scratch = Path(temp) / "scratch"
+            temp_root = Path(temp).resolve()
+            repo, resolver = self._copy_resolver_repo(temp_root)
+            scratch = temp_root / "scratch"
             old_tools, user_tools = self._preseed_both_cache_layouts(repo, scratch)
-            executed = Path(temp) / "preseeded-executed"
+            executed = temp_root / "preseeded-executed"
             for directory in (old_tools, user_tools):
                 write_tool_trio(directory, f'touch "{executed}"; exit 0')
             result = subprocess.run(
@@ -738,8 +768,9 @@ class SparkleResolverTests(unittest.TestCase):
 
     def test_resolver_rejects_group_or_other_writable_user_cache(self):
         with tempfile.TemporaryDirectory() as temp:
-            repo, resolver = self._copy_resolver_repo(Path(temp))
-            scratch = Path(temp) / "scratch"
+            temp_root = Path(temp).resolve()
+            repo, resolver = self._copy_resolver_repo(temp_root)
+            scratch = temp_root / "scratch"
             self._preseed_both_cache_layouts(repo, scratch)
             (scratch / f"uid-{os.getuid()}").chmod(0o770)
             result = subprocess.run(
@@ -759,10 +790,11 @@ class SparkleResolverTests(unittest.TestCase):
 
     def test_resolver_rejects_symlinked_cache_components(self):
         with tempfile.TemporaryDirectory() as temp:
-            repo, resolver = self._copy_resolver_repo(Path(temp))
-            scratch = Path(temp) / "scratch"
+            temp_root = Path(temp).resolve()
+            repo, resolver = self._copy_resolver_repo(temp_root)
+            scratch = temp_root / "scratch"
             lock_hash = resolved_lock_hash(repo / "Package.resolved")
-            outside = Path(temp) / "outside-build"
+            outside = temp_root / "outside-build"
             write_tool_trio(outside / "artifacts" / "sparkle" / "Sparkle" / "bin")
             for root in (
                 scratch / "sparkle-tools" / lock_hash,
@@ -787,11 +819,75 @@ class SparkleResolverTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("symlink", result.stderr)
 
+    def test_resolver_rejects_nonsticky_writable_scratch_ancestor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp).resolve()
+            repo, resolver = self._copy_resolver_repo(temp_root)
+            unsafe_parent = temp_root / "unsafe-parent"
+            unsafe_parent.mkdir()
+            unsafe_parent.chmod(0o777)
+            result, invoked = self._run_resolver_with_xcrun_probe(
+                repo, resolver, unsafe_parent / "scratch", temp_root
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("unsafe ancestor", result.stderr)
+            self.assertFalse(invoked.exists())
+
+    def test_resolver_rejects_symlink_in_scratch_ancestor_chain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp).resolve()
+            repo, resolver = self._copy_resolver_repo(temp_root)
+            real_parent = temp_root / "real-parent"
+            real_parent.mkdir()
+            linked_parent = temp_root / "linked-parent"
+            linked_parent.symlink_to(real_parent)
+            result, invoked = self._run_resolver_with_xcrun_probe(
+                repo, resolver, linked_parent / "scratch", temp_root
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("symlink", result.stderr)
+            self.assertFalse(invoked.exists())
+
+    def test_ancestor_metadata_boundary_rejects_foreign_owner(self):
+        helper = ROOT / "scripts" / "release" / "release_cache_security.py"
+        spec = importlib.util.spec_from_file_location("release_cache_test", helper)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertTrue(
+            hasattr(module, "validate_ancestor_metadata"),
+            "cache helper must expose the ancestor ownership boundary",
+        )
+        metadata = SimpleNamespace(
+            st_uid=os.geteuid() + 1,
+            st_mode=stat.S_IFDIR | 0o755,
+        )
+        with self.assertRaises(module.CacheSecurityError):
+            module.validate_ancestor_metadata(metadata, expected_uid=os.geteuid())
+
+    def test_default_private_var_tmp_ancestor_chain_is_accepted(self):
+        helper = ROOT / "scripts" / "release" / "release_cache_security.py"
+        spec = importlib.util.spec_from_file_location(
+            "release_cache_default_test", helper
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertTrue(
+            hasattr(module, "validate_ancestor_chain"),
+            "cache helper must validate the full ancestor chain",
+        )
+        module.validate_ancestor_chain(
+            Path("/private/var/tmp"), expected_uid=os.geteuid()
+        )
+
 
 class NightlyReleaseProfileTests(unittest.TestCase):
     def test_wrapper_never_consumes_preseeded_unproven_cache_tools(self):
         with tempfile.TemporaryDirectory() as temp:
-            temp_root = Path(temp)
+            temp_root = Path(temp).resolve()
             home = temp_root / "home"
             home.mkdir()
             bin_dir = temp_root / "bin"

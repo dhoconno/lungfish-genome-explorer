@@ -20,6 +20,41 @@ class CacheSecurityError(ValueError):
     """A cache path cannot be trusted for release executable discovery."""
 
 
+def validate_ancestor_metadata(metadata: os.stat_result, *, expected_uid: int) -> None:
+    if stat.S_ISLNK(metadata.st_mode):
+        raise CacheSecurityError("scratch root ancestor chain contains a symlink")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise CacheSecurityError("scratch root ancestor is not a directory")
+    if metadata.st_uid not in (0, expected_uid):
+        raise CacheSecurityError("scratch root ancestor has a foreign owner UID")
+    mode = stat.S_IMODE(metadata.st_mode)
+    if mode & 0o022 and not metadata.st_mode & stat.S_ISVTX:
+        raise CacheSecurityError(
+            "scratch root has unsafe ancestor permissions allowing rename or replacement"
+        )
+
+
+def validate_ancestor_chain(path: Path, *, expected_uid: int) -> None:
+    path = path.expanduser()
+    if not path.is_absolute():
+        raise CacheSecurityError("scratch root must be absolute")
+    path = Path(os.path.abspath(path))
+    current = Path(path.anchor)
+    try:
+        validate_ancestor_metadata(current.lstat(), expected_uid=expected_uid)
+    except OSError as error:
+        raise CacheSecurityError("scratch root ancestor is unavailable") from error
+    for part in path.parts[1:]:
+        current = current / part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            break
+        except OSError as error:
+            raise CacheSecurityError("scratch root ancestor is unavailable") from error
+        validate_ancestor_metadata(metadata, expected_uid=expected_uid)
+
+
 def validate_metadata(
     metadata: os.stat_result,
     *,
@@ -95,15 +130,13 @@ def prepare_user_cache(base: Path, *, expected_uid: int | None = None) -> Path:
     base = base.expanduser()
     if not base.is_absolute():
         raise CacheSecurityError("scratch root must be absolute")
-    if base.is_symlink():
-        raise CacheSecurityError("scratch root must not be a symlink")
+    base = Path(os.path.abspath(base))
+    validate_ancestor_chain(base, expected_uid=uid)
     try:
         base.mkdir(parents=True, mode=0o700, exist_ok=True)
     except OSError as error:
         raise CacheSecurityError("scratch root cannot be created") from error
-    if base.is_symlink() or not base.is_dir():
-        raise CacheSecurityError("scratch root must be a real directory")
-    base = base.resolve(strict=True)
+    validate_ancestor_chain(base, expected_uid=uid)
     validate_metadata(
         _lstat(base),
         expected_uid=uid,

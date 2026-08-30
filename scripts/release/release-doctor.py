@@ -16,7 +16,11 @@ import subprocess
 import tempfile
 from typing import Callable
 
-from release_cache_security import CacheSecurityError, validate_metadata
+from release_cache_security import (
+    CacheSecurityError,
+    validate_ancestor_chain,
+    validate_metadata,
+)
 from release_contract import CONTRACT_PATH, load_contract
 
 
@@ -256,8 +260,10 @@ class Doctor:
         ).expanduser()
         if not scratch.is_absolute():
             raise CheckFailure("deterministic scratch root must be absolute")
-        if scratch.is_symlink():
-            raise CheckFailure("deterministic scratch root must not be a symlink")
+        try:
+            validate_ancestor_chain(scratch, expected_uid=os.geteuid())
+        except CacheSecurityError as error:
+            raise CheckFailure(str(error)) from error
         scratch = scratch.resolve(strict=False)
         repository = ROOT.resolve()
         home = Path(self.environment.get("HOME", str(Path.home()))).resolve(
@@ -341,6 +347,10 @@ class Doctor:
         try:
             if not scratch_base.exists():
                 scratch_base.mkdir(parents=True, mode=0o700)
+            try:
+                validate_ancestor_chain(scratch_base, expected_uid=os.geteuid())
+            except CacheSecurityError as error:
+                raise CheckFailure(str(error)) from error
             if not scratch.exists():
                 scratch.mkdir(mode=0o700)
                 created = True
