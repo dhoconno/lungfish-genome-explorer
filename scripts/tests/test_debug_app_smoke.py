@@ -67,6 +67,10 @@ class DebugAppSmokeTests(unittest.TestCase):
             text=True,
         )
         shutil.copy2(executable, self.app / "Contents" / "MacOS" / "lungfish-cli")
+        helpers = self.app / "Contents" / "Helpers"
+        helpers.mkdir()
+        self.nested_helper = helpers / "DeveloperLikeHelper"
+        shutil.copy2(executable, self.nested_helper)
         self.info_plist = self.app / "Contents" / "Info.plist"
         self.write_plist({})
         self.sign_app()
@@ -89,6 +93,7 @@ class DebugAppSmokeTests(unittest.TestCase):
         for executable in (
             self.app / "Contents" / "MacOS" / "Lungfish",
             self.app / "Contents" / "MacOS" / "lungfish-cli",
+            self.nested_helper,
         ):
             subprocess.run(
                 [
@@ -172,6 +177,35 @@ class DebugAppSmokeTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ad-hoc signature", result.stderr)
+
+    def test_rejects_developer_identity_on_any_nested_signed_code(self):
+        codesign_stub = self.root / "codesign-stub.sh"
+        codesign_stub.write_text(
+            """#!/bin/bash
+target=""
+for argument in "$@"; do target="$argument"; done
+if [[ " $* " == *" --display "* ]] && [[ "$target" == */DeveloperLikeHelper ]]; then
+    echo "Executable=$target" >&2
+    echo "Signature=Developer ID" >&2
+    echo "TeamIdentifier=FAKE123" >&2
+    exit 0
+fi
+exec /usr/bin/codesign "$@"
+""",
+            encoding="utf-8",
+        )
+        codesign_stub.chmod(0o755)
+
+        result = self.run_smoke(
+            additions={
+                "LUNGFISH_DEBUG_SMOKE_CODESIGN": str(codesign_stub),
+                "LUNGFISH_DEBUG_SMOKE_TESTING": "1",
+            }
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DeveloperLikeHelper", result.stderr)
+        self.assertIn("exact ad-hoc signature", result.stderr)
 
     def test_rejects_any_sparkle_metadata(self):
         self.write_plist({"SUFeedURL": "https://example.invalid/appcast.xml"})

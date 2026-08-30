@@ -127,9 +127,29 @@ public enum RuntimeResourceLocator {
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Resources", isDirectory: true)
             .standardizedFileURL
+        let canonicalAppBundleURL = appBundleURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
         let canonicalAppResourcesURL = rawAppResourcesURL?
             .resolvingSymlinksInPath()
             .standardizedFileURL
+
+        if let rawAppResourcesURL,
+           let canonicalAppBundleURL,
+           let canonicalAppResourcesURL {
+            let resourceAttributes = try? fileManager.attributesOfItem(
+                atPath: rawAppResourcesURL.path
+            )
+            let exactCanonicalResourcesURL = canonicalAppBundleURL
+                .appendingPathComponent("Contents", isDirectory: true)
+                .appendingPathComponent("Resources", isDirectory: true)
+                .standardizedFileURL
+            guard resourceAttributes?[.type] as? FileAttributeType != .typeSymbolicLink,
+                  canonicalAppResourcesURL.path == exactCanonicalResourcesURL.path,
+                  isStrictDescendant(canonicalAppResourcesURL, of: canonicalAppBundleURL) else {
+                return []
+            }
+        }
 
         func appendIfExists(_ url: URL?) {
             guard let url else { return }
@@ -188,10 +208,12 @@ public enum RuntimeResourceLocator {
             }
         }
 
-        appendBundleRoots(in: mainResourceURL)
-        appendIfExists(mainResourceURL)
+        if appBundleURL != nil || allowSourceFallback {
+            appendBundleRoots(in: mainResourceURL)
+            appendIfExists(mainResourceURL)
+        }
 
-        if let executableURL {
+        if let executableURL, (appBundleURL != nil || allowSourceFallback) {
             let executableDirectory = executableURL
                 .resolvingSymlinksInPath()
                 .standardizedFileURL
@@ -205,9 +227,7 @@ public enum RuntimeResourceLocator {
             appendIfExists(siblingResources)
             appendIfExists(executableDirectory.appendingPathComponent("Resources"))
             appendIfExists(executableDirectory)
-            if allowSourceFallback {
-                appendSourceResources(from: executableDirectory)
-            }
+            if allowSourceFallback { appendSourceResources(from: executableDirectory) }
         }
 
         if allowSourceFallback {

@@ -110,6 +110,53 @@ fi
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Debug", result.stdout + result.stderr)
 
+    def test_validator_rejects_semantic_debug_contradictions_case_insensitively(self):
+        contradictions = (
+            "The Debug app is unsigned.",
+            "DEBUG is NOT AD HOC signed.",
+            "Debug is not self-contained.",
+            "Debug remains checkout-dependent and requires the compiling .build tree.",
+            "The local wrapper is BUILD/DEBUG/LUNGFISH.APP.",
+            "The Debug display name is Lungfish Debug.",
+            "Unsigned Debug artifacts are copied locally.",
+            "Ad hoc signing is not used for Debug builds.",
+            "The app is not self contained in Debug builds.",
+            "Debug artifacts depend on the checkout.",
+            "The Debug wrapper is Lungfish.app.",
+            "Debug is displayed as Lungfish Debug.",
+        )
+
+        for index, contradiction in enumerate(contradictions):
+            with self.subTest(contradiction=contradiction), tempfile.TemporaryDirectory() as temporary:
+                skill = Path(temporary) / f"skill-{index}"
+                shutil.copytree(SKILL_ROOT, skill)
+                skill_file = skill / "SKILL.md"
+                skill_file.write_text(
+                    skill_file.read_text(encoding="utf-8") + f"\n\n{contradiction}\n",
+                    encoding="utf-8",
+                )
+
+                result = self.run_validator(REPO_ROOT, skill)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("contradict", (result.stdout + result.stderr).lower())
+
+    def test_validator_accepts_distribution_unsigned_debug_wording(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skill = Path(temporary) / "skill"
+            shutil.copytree(SKILL_ROOT, skill)
+            skill_file = skill / "SKILL.md"
+            skill_file.write_text(
+                skill_file.read_text(encoding="utf-8")
+                + "\n\nThe Debug app is distribution-unsigned: it is not Developer ID signed, "
+                "but it is locally ad-hoc signed and self-contained.\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_validator(REPO_ROOT, skill)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
 

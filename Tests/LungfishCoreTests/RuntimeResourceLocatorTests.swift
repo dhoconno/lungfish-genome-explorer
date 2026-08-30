@@ -119,6 +119,35 @@ struct RuntimeResourceLocatorTests {
     }
 
     @Test
+    func standaloneCLIHasNoImplicitAdjacentSwiftPMBundleFallback() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-adjacent-cli-\(UUID().uuidString)", isDirectory: true)
+        let debugDirectory = tempRoot.appendingPathComponent(".build/arm64-apple-macosx/debug", isDirectory: true)
+        let executable = debugDirectory.appendingPathComponent("lungfish-cli")
+        let adjacentBundle = debugDirectory
+            .appendingPathComponent("LungfishGenomeBrowser_LungfishWorkflow.bundle", isDirectory: true)
+        let leakedResource = adjacentBundle.appendingPathComponent("Tools/tool-versions.json")
+        try FileManager.default.createDirectory(
+            at: leakedResource.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: leakedResource)
+        try Data("executable".utf8).write(to: executable)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow,
+            mainResourceURL: nil,
+            executableURL: executable,
+            currentWorkingDirectoryURL: tempRoot,
+            fileManager: .default
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
     func rejectsUnsafeRelativeResourcePaths() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("runtime-resource-path-\(UUID().uuidString)", isDirectory: true)
@@ -180,6 +209,39 @@ struct RuntimeResourceLocatorTests {
 
         let resolved = RuntimeResourceLocator.path(
             "escape.json",
+            in: .workflow,
+            mainResourceURL: appResources,
+            executableURL: appExecutable,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func appResourceLookupRejectsSymlinkedResourcesRootOutsideWrapper() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-root-symlink-\(UUID().uuidString)", isDirectory: true)
+        let appContents = tempRoot.appendingPathComponent("Lungfish Debug.app/Contents", isDirectory: true)
+        let appResources = appContents.appendingPathComponent("Resources", isDirectory: true)
+        let appExecutable = appContents.appendingPathComponent("MacOS/Lungfish")
+        let outsideResources = tempRoot.appendingPathComponent("outside-resources", isDirectory: true)
+        let outsideResource = outsideResources.appendingPathComponent("Tools/tool-versions.json")
+        try FileManager.default.createDirectory(
+            at: appExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideResource.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: outsideResource)
+        try FileManager.default.createSymbolicLink(at: appResources, withDestinationURL: outsideResources)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
             in: .workflow,
             mainResourceURL: appResources,
             executableURL: appExecutable,

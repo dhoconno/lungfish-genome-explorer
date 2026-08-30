@@ -393,3 +393,4 @@ Run: `git status --short --branch` in both the worktree and primary checkout. Do
 - [x] **Step 3: Isolate PBAA/TaxTriage Nextflow homes, preset storage, and the legacy database default while preserving Preview/Stable**
 - [x] **Step 4: Correct current Debug facts in the release skill/catalog and make their validator reject the stale claims**
 - [x] **Step 5: Re-run focused Swift/Python tests and a real build/relocation smoke, then commit the clean correction**
+- [x] **Step 6: Close second-review adjacent-bundle, Resources-root, nested-signature, and semantic-validator gaps with adversarial RED/GREEN tests**

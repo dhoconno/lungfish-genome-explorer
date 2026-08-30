@@ -335,3 +335,14 @@ derive from the identity-aware managed-storage root. Remaining `.lungfish` and
 `.nextflow` literals are project/bundle format markers, per-run output names,
 container examples, or deliberate legacy migration detection rather than
 cross-profile user defaults.
+
+The second independent review closes two narrower trust-boundary gaps.
+Production standalone executables do not scan adjacent SwiftPM bundles at all;
+only explicit developer/test injection enables adjacent or checkout discovery,
+while app executables remain confined to the exact, non-symlinked canonical
+`Contents/Resources` root. The relocation smoke inventories every discoverable
+signed nested code object and container and requires each identity to be ad-hoc
+with no TeamIdentifier. Skill validation rejects semantic, case-insensitive
+contradictions about Debug signing, self-containment, checkout dependence,
+wrapper name, or display name while allowing the accurate statement that Debug
+is distribution-unsigned and not Developer ID signed.

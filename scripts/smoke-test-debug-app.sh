@@ -6,6 +6,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CONTRACT_SCRIPT="$PROJECT_ROOT/scripts/release/release_contract.py"
+CODESIGN_BIN="/usr/bin/codesign"
+if [ -n "${LUNGFISH_DEBUG_SMOKE_CODESIGN:-}" ]; then
+    if [ "${LUNGFISH_DEBUG_SMOKE_TESTING:-}" != "1" ]; then
+        echo "The codesign verifier override is test-only" >&2
+        exit 1
+    fi
+    CODESIGN_BIN="$LUNGFISH_DEBUG_SMOKE_CODESIGN"
+fi
 
 usage() {
     echo "Usage: $(basename "$0") APP_PATH [--compiling-build-dir PATH]" >&2
@@ -39,6 +47,10 @@ done
 
 if [ ! -d "$SOURCE_APP" ]; then
     echo "Debug app does not exist: $SOURCE_APP" >&2
+    exit 1
+fi
+if [ ! -x "$CODESIGN_BIN" ]; then
+    echo "codesign verifier is not executable: $CODESIGN_BIN" >&2
     exit 1
 fi
 
@@ -140,14 +152,20 @@ for executable in "$APP_EXECUTABLE" "$CLI"; do
     fi
 done
 
-if ! /usr/bin/codesign --verify --deep --strict --verbose=4 "$RELOCATED_APP" 2>&1; then
+if ! "$CODESIGN_BIN" --verify --deep --strict --verbose=4 "$RELOCATED_APP" 2>&1; then
     echo "Relocated Debug app does not have a valid deep ad-hoc signature" >&2
     exit 1
 fi
 
 verify_ad_hoc_signature() {
     signed_path="$1"
-    signature_details="$(/usr/bin/codesign --display --verbose=4 "$signed_path" 2>&1)"
+    signature_details="$("$CODESIGN_BIN" --display --verbose=4 "$signed_path" 2>&1)"
+    verify_ad_hoc_signature_details "$signed_path" "$signature_details"
+}
+
+verify_ad_hoc_signature_details() {
+    signed_path="$1"
+    signature_details="$2"
     if ! printf '%s\n' "$signature_details" | /usr/bin/grep -Fx "Signature=adhoc" >/dev/null \
         || ! printf '%s\n' "$signature_details" | /usr/bin/grep -Fx "TeamIdentifier=not set" >/dev/null; then
         echo "Debug artifact must have an exact ad-hoc signature with no TeamIdentifier: $signed_path" >&2
@@ -157,6 +175,18 @@ verify_ad_hoc_signature() {
 verify_ad_hoc_signature "$RELOCATED_APP"
 verify_ad_hoc_signature "$APP_EXECUTABLE"
 verify_ad_hoc_signature "$CLI"
+
+signed_code_count=0
+while IFS= read -r -d '' candidate; do
+    if signature_details="$("$CODESIGN_BIN" --display --verbose=4 "$candidate" 2>&1)"; then
+        verify_ad_hoc_signature_details "$candidate" "$signature_details"
+        signed_code_count=$((signed_code_count + 1))
+    fi
+done < <(/usr/bin/find -P "$RELOCATED_APP" \( -type f -o -type d \) -print0)
+if [ "$signed_code_count" -lt 3 ]; then
+    echo "Relocated Debug app did not expose all expected signed code objects" >&2
+    exit 1
+fi
 
 RESOURCES_DIR="$RELOCATED_APP/Contents/Resources"
 resource_bundle_count=0
