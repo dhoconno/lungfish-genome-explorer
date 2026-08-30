@@ -9,7 +9,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: smoke-test-release-tools.sh <Lungfish.app> [--portability-only]
+Usage: smoke-test-release-tools.sh <Lungfish.app> [--portability-only] [--allowed-swiftpm-fallback ABSOLUTE_PATH]
 
 Verifies that only micromamba remains bundled, scans the packaged app for
 leaked build/Homebrew paths, and optionally runs tiny smoke tests against the
@@ -25,11 +25,22 @@ fi
 APP_PATH="$1"
 shift
 PORTABILITY_ONLY=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORTABILITY_SCANNER="${SCRIPT_DIR}/release/scan-release-portability.py"
+ALLOWED_SWIFTPM_FALLBACK="/private/var/tmp/lungfish-release-swiftpm/no-allowed-fallback"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --portability-only)
             PORTABILITY_ONLY=1
+            ;;
+        --allowed-swiftpm-fallback)
+            if [ "$#" -lt 2 ]; then
+                echo "--allowed-swiftpm-fallback requires an absolute path" >&2
+                exit 64
+            fi
+            ALLOWED_SWIFTPM_FALLBACK="$2"
+            shift
             ;;
         -h|--help)
             usage
@@ -73,6 +84,11 @@ fi
 
 if [ -z "$RG_BIN" ]; then
     echo "missing required command: rg" >&2
+    exit 69
+fi
+
+if [ ! -x "$PORTABILITY_SCANNER" ]; then
+    echo "portability scanner missing or not executable" >&2
     exit 69
 fi
 
@@ -256,43 +272,12 @@ run_test() {
     fi
 }
 
-run_portability_scan() {
-    local leak_patterns=(
-        "/Users/"
-        "/Users/dho"
-        "/private/tmp/"
-        "/var/folders"
-        "/tmp/lungfish"
-        "DerivedData"
-        ".worktrees/"
-        "/.tmp/"
-        ".build/xcode-cli-release"
-        "/opt/homebrew"
-        "/opt/homebrew/Cellar"
-        "/usr/local/Cellar"
-        "/usr/local/Homebrew"
-    )
-
-    local pattern
-    for pattern in "${leak_patterns[@]}"; do
-        if "$RG_BIN" -a --hidden --no-ignore -n --fixed-strings "$pattern" "$APP_PATH" >"$TMP_DIR/portability-scan.stderr" 2>&1; then
-            printf 'FAIL portability leak=%s\n' "$pattern" >&2
-            sed -n '1,120p' "$TMP_DIR/portability-scan.stderr" >&2 || true
-            exit 1
-        else
-            local scan_rc=$?
-            if [ "$scan_rc" -ne 1 ]; then
-                printf 'FAIL portability scan failed pattern=%s exit=%s\n' "$pattern" "$scan_rc" >&2
-                sed -n '1,120p' "$TMP_DIR/portability-scan.stderr" >&2 || true
-                exit "$scan_rc"
-            fi
-        fi
-    done
-
-    printf 'PASS portability\n'
-}
-
-run_portability_scan
+if "$PORTABILITY_SCANNER" "$APP_PATH" \
+    --allowed-swiftpm-fallback "$ALLOWED_SWIFTPM_FALLBACK"; then
+    :
+else
+    exit $?
+fi
 
 if [ "$PORTABILITY_ONLY" -eq 1 ]; then
     exit 0

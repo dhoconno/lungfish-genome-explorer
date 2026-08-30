@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,7 +9,9 @@ class ReleaseSmokeTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parents[2]
         self.script = self.root / "scripts" / "smoke-test-release-tools.sh"
-        self.lockfile_script = self.root / "scripts" / "check-package-resolved-consistency.sh"
+        self.lockfile_script = (
+            self.root / "scripts" / "check-package-resolved-consistency.sh"
+        )
 
     def test_smoke_test_fails_when_app_icon_resource_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -44,7 +45,9 @@ class ReleaseSmokeTests(unittest.TestCase):
 
     def test_smoke_test_runs_embedded_cli_and_provenance_command(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True, include_cli=True)
+            app_path = self._make_minimal_app(
+                Path(temp_dir), include_icon=True, include_cli=True
+            )
 
             result = subprocess.run(
                 ["/bin/bash", str(self.script), str(app_path)],
@@ -62,15 +65,15 @@ class ReleaseSmokeTests(unittest.TestCase):
 
     def test_smoke_test_rejects_generic_local_absolute_paths(self):
         leak_markers = [
-            "/Users/alice/project",
-            "/private/tmp/lungfish",
-            "/var/folders/abc/lungfish",
-            "/tmp/lungfish",
-            "DerivedData/Lungfish",
-            ".worktrees/codebase-quality",
-            "/.tmp/lungfish",
+            ("/Users/alice/project", "user-home"),
+            ("/private/tmp/lungfish", "private-tmp"),
+            ("/var/folders/abc/lungfish", "macos-temporary"),
+            ("/tmp/lungfish", "random-lungfish-tmp"),
+            ("DerivedData/Lungfish", "derived-data"),
+            (".worktrees/codebase-quality", "worktree"),
+            ("/.tmp/lungfish", "temporary-directory"),
         ]
-        for marker in leak_markers:
+        for marker, label in leak_markers:
             with self.subTest(marker=marker):
                 with tempfile.TemporaryDirectory() as temp_dir:
                     app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
@@ -78,7 +81,12 @@ class ReleaseSmokeTests(unittest.TestCase):
                     leak_file.write_text(f"debug path: {marker}\n", encoding="utf-8")
 
                     result = subprocess.run(
-                        ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                        [
+                            "/bin/bash",
+                            str(self.script),
+                            str(app_path),
+                            "--portability-only",
+                        ],
                         text=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
@@ -86,7 +94,8 @@ class ReleaseSmokeTests(unittest.TestCase):
                     )
 
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn(marker, result.stderr)
+                    self.assertIn(label, result.stdout)
+                    self.assertNotIn(marker, result.stdout + result.stderr)
 
     def test_smoke_test_allows_private_tmp_root_runtime_constant(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -111,7 +120,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=build_root) as temp_dir:
             app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
             leak_file = app_path / "Contents" / "Resources" / ".leak.txt"
-            leak_file.write_text("debug path: /Users/runner/project\n", encoding="utf-8")
+            leak_file.write_text(
+                "debug path: /Users/runner/project\n", encoding="utf-8"
+            )
 
             result = subprocess.run(
                 ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
@@ -122,48 +133,51 @@ class ReleaseSmokeTests(unittest.TestCase):
             )
 
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("/Users/", result.stderr)
+            self.assertIn("user-home", result.stdout)
+            self.assertNotIn("runner", result.stdout + result.stderr)
 
-    def test_smoke_test_fails_when_portability_scanner_errors(self):
+    def test_smoke_test_passes_exact_swiftpm_fallback_to_portability_scanner(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            app_path = self._make_minimal_app(temp_root, include_icon=True)
-            stub_bin = temp_root / "bin"
-            stub_bin.mkdir()
-            rg_stub = stub_bin / "rg"
-            real_rg = shutil.which("rg")
-            self.assertIsNotNone(real_rg)
-            rg_stub.write_text(
-                "#!/bin/sh\n"
-                "case \" $* \" in\n"
-                "  *' --hidden '*) echo scanner failed >&2; exit 2 ;;\n"
-                "esac\n"
-                f'exec "{real_rg}" "$@"\n',
-                encoding="utf-8",
+            app_path = self._make_minimal_app(
+                temp_root, include_icon=True, include_cli=True
             )
-            os.chmod(rg_stub, 0o755)
-            environment = os.environ.copy()
-            environment["PATH"] = f"{stub_bin}:{environment['PATH']}"
+            scratch = Path("/private/var/tmp/lungfish-release-swiftpm/repo/commit")
+            fallback = (
+                scratch
+                / "arm64-apple-macosx"
+                / "release"
+                / "LungfishGenomeBrowser_LungfishWorkflow.bundle"
+            )
+            cli = app_path / "Contents" / "MacOS" / "lungfish-cli"
+            cli.write_bytes(b"mach-o\x00" + os.fsencode(fallback) + b"\x00")
+            cli.chmod(0o755)
 
             result = subprocess.run(
-                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                [
+                    "/bin/bash",
+                    str(self.script),
+                    str(app_path),
+                    "--portability-only",
+                    "--allowed-swiftpm-fallback",
+                    str(scratch),
+                ],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
-                env=environment,
             )
 
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("portability scan failed", result.stderr)
-            self.assertIn("scanner failed", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("PASS portability", result.stdout)
 
     def test_package_resolved_guard_fails_when_xcode_lockfile_diverges(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             self._write_package_resolved(repo / "Package.resolved", revision="root")
             self._write_package_resolved(
-                repo / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+                repo
+                / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
                 revision="xcode",
             )
 
@@ -183,7 +197,8 @@ class ReleaseSmokeTests(unittest.TestCase):
             repo = Path(temp_dir)
             self._write_package_resolved(repo / "Package.resolved", revision="same")
             self._write_package_resolved(
-                repo / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+                repo
+                / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
                 revision="same",
             )
 
@@ -199,13 +214,17 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("PASS Package.resolved consistency", result.stdout)
 
     def test_release_script_checks_lockfiles_before_reusing_archive(self):
-        release_script = (self.root / "scripts" / "release" / "build-notarized-dmg.sh").read_text()
+        release_script = (
+            self.root / "scripts" / "release" / "build-notarized-dmg.sh"
+        ).read_text()
         lines = release_script.splitlines()
         guard_index = self._line_index(
             lines,
             '/bin/bash "$PROJECT_ROOT/scripts/check-package-resolved-consistency.sh" --repair "$PROJECT_ROOT"',
         )
-        reuse_index = self._line_index(lines, "printf 'Reusing existing archive: %s\\n' \"$ARCHIVE_PATH\"")
+        reuse_index = self._line_index(
+            lines, "printf 'Reusing existing archive: %s\\n' \"$ARCHIVE_PATH\""
+        )
 
         self.assertLess(guard_index, reuse_index)
 
@@ -244,7 +263,8 @@ class ReleaseSmokeTests(unittest.TestCase):
         )
         (tools / "VERSIONS.txt").write_text("- micromamba: 1.0\n", encoding="utf-8")
         (managed_tools / "third-party-tools-lock.json").write_text(
-            '{"bootstrap":{"micromamba":{"version":"1.0","sha256":{}}}}\n', encoding="utf-8"
+            '{"bootstrap":{"micromamba":{"version":"1.0","sha256":{}}}}\n',
+            encoding="utf-8",
         )
 
         if include_icon:
