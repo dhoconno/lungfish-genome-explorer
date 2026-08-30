@@ -64,18 +64,7 @@ REQUIRED_SKILL_MARKERS = (
 
 DEBUG_SECTION_HEADER = "## Debug build"
 
-
-def normalize_authority_line(line: str) -> str:
-    return " ".join(line.split())
-
-
-def canonical_section(contents: str) -> tuple[str, ...]:
-    return tuple(normalize_authority_line(line) for line in contents.strip("\n").splitlines())
-
-
-CANONICAL_SKILL_DEBUG_SECTION = canonical_section(
-    r"""
-## Debug build
+CANONICAL_SKILL_DEBUG_SECTION = r"""## Debug build
 
 <!-- BEGIN LUNGFISH DEBUG FACTS -->
 - Wrapper: `build/Debug/Lungfish Debug.app`
@@ -105,11 +94,8 @@ This local test profile is NOT a release and must never receive a tag, upload, S
 Do not reuse `build/Release/` or `build-notarized-dmg.sh` for this profile, and do not delete its wrapper when cleaning up a release run unless the user asks.
 
 """
-) + ("",)
 
-CANONICAL_CATALOG_DEBUG_SECTION = canonical_section(
-    r"""
-## Debug build
+CANONICAL_CATALOG_DEBUG_SECTION = r"""## Debug build
 
 <!-- BEGIN LUNGFISH DEBUG FACTS -->
 - Wrapper: `build/Debug/Lungfish Debug.app`
@@ -129,7 +115,6 @@ Verify it with the compiling `.build` directory:
 
 The full operational rules live in the shared skill file.
 """
-)
 
 SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
@@ -148,11 +133,15 @@ def parse_args() -> argparse.Namespace:
 def validate_debug_section(
     contents: str,
     source: str,
-    canonical: tuple[str, ...],
+    canonical: str,
     errors: list[str],
 ) -> None:
-    lines = contents.splitlines()
-    starts = [index for index, line in enumerate(lines) if line.strip() == DEBUG_SECTION_HEADER]
+    lines = contents.replace("\r\n", "\n").splitlines(keepends=True)
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if line == f"{DEBUG_SECTION_HEADER}\n" or line == DEBUG_SECTION_HEADER
+    ]
     if len(starts) != 1:
         errors.append(f"{source} must contain exactly one canonical {DEBUG_SECTION_HEADER} section")
         return
@@ -166,7 +155,7 @@ def validate_debug_section(
         ),
         len(lines),
     )
-    actual = tuple(normalize_authority_line(line) for line in lines[start:end])
+    actual = "".join(lines[start:end])
     if actual != canonical:
         errors.append(f"{source} {DEBUG_SECTION_HEADER} section differs from the validator contract")
 

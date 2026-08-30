@@ -262,6 +262,60 @@ fi
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("debug", (result.stdout + result.stderr).lower())
 
+    def test_validator_rejects_non_exact_heading_and_wrapper_spacing(self):
+        skill_mutations = (
+            ("## Debug build", "    ## Debug build"),
+            ("build/Debug/Lungfish Debug.app", "build/Debug/Lungfish  Debug.app"),
+        )
+        for index, (original, replacement) in enumerate(skill_mutations):
+            with self.subTest(source="skill", mutation=index), tempfile.TemporaryDirectory() as temporary:
+                skill = Path(temporary) / f"skill-{index}"
+                shutil.copytree(SKILL_ROOT, skill)
+                skill_file = skill / "SKILL.md"
+                skill_file.write_text(
+                    skill_file.read_text(encoding="utf-8").replace(original, replacement, 1),
+                    encoding="utf-8",
+                )
+
+                result = self.run_validator(REPO_ROOT, skill)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("debug", (result.stdout + result.stderr).lower())
+
+        catalog_mutations = (
+            ("## Debug build", "    ## Debug build"),
+            ("build/Debug/Lungfish Debug.app", "build/Debug/Lungfish  Debug.app"),
+        )
+        for index, (original, replacement) in enumerate(catalog_mutations):
+            with self.subTest(source="catalog", mutation=index), tempfile.TemporaryDirectory() as temporary:
+                repo = Path(temporary) / f"repo-{index}"
+                self.make_fixture(repo)
+                catalog = repo / "SKILLS.md"
+                catalog.write_text(
+                    catalog.read_text(encoding="utf-8").replace(original, replacement, 1),
+                    encoding="utf-8",
+                )
+
+                result = self.run_validator(repo)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("debug", (result.stdout + result.stderr).lower())
+
+    def test_validator_excludes_content_after_next_same_level_heading(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skill = Path(temporary) / "skill"
+            shutil.copytree(SKILL_ROOT, skill)
+            skill_file = skill / "SKILL.md"
+            skill_file.write_text(
+                skill_file.read_text(encoding="utf-8")
+                + "\nThis later section remains outside Debug authority.\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_validator(REPO_ROOT, skill)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
 
