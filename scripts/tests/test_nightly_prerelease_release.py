@@ -1311,9 +1311,11 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.coordinator = load_coordinator_module()
 
     class RecordingOperations:
-        def __init__(self, ci_error=None):
+        def __init__(self, ci_error=None, sparkle_error_on_call=None):
             self.events = []
             self.ci_error = ci_error
+            self.sparkle_error_on_call = sparkle_error_on_call
+            self.sparkle_calls = 0
 
         def doctor_package(self, _request, _plan):
             self.events.append("doctor:package")
@@ -1326,6 +1328,13 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         def validate_sparkle_build_number(self, _request, _identity=None):
             self.events.append("sparkle-build-number")
+            self.sparkle_calls += 1
+            if self.sparkle_calls == self.sparkle_error_on_call:
+                raise self.coordinator_error("live Sparkle feed advanced")
+
+        @staticmethod
+        def coordinator_error(message):
+            return RuntimeError(message)
 
         def verify_dependency_receipt(self, _request):
             self.events.append("dependency-receipt")
@@ -1541,6 +1550,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                 "annotated-tag-push",
                 "wait-exact-sha-ci",
                 "doctor:credentials",
+                "sparkle-build-number",
                 "credentialed-resume-publish",
                 "independent-verify",
             ],
@@ -1553,16 +1563,34 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         transaction.execute(self.request(mode="resume"))
 
-        self.assertEqual(operations.events[0], "doctor:credentials")
+        self.assertEqual(operations.events[0], "source-history")
         self.assertNotIn("doctor:package", operations.events)
         self.assertNotIn("package-only", operations.events)
         self.assertNotIn("focused-release-tests", operations.events)
         self.assertEqual(operations.events.count("doctor:credentials"), 2)
+        self.assertEqual(operations.events.count("sparkle-build-number"), 2)
         self.assertLess(
             operations.events.index("sparkle-build-number"),
             operations.events.index("annotated-tag-push"),
         )
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
+
+    def test_feed_advance_after_exact_sha_ci_blocks_prepare_and_resume_publication(
+        self,
+    ):
+        for mode, failing_call in (("prepare", 2), ("resume", 2)):
+            with self.subTest(mode=mode):
+                operations = self.RecordingOperations(
+                    sparkle_error_on_call=failing_call
+                )
+                transaction = self.coordinator.ReleaseCoordinator(operations)
+
+                with self.assertRaisesRegex(RuntimeError, "feed advanced"):
+                    transaction.execute(self.request(mode=mode))
+
+                self.assertIn("wait-exact-sha-ci", operations.events)
+                self.assertNotIn("credentialed-resume-publish", operations.events)
+                self.assertEqual(operations.events[-1], "sparkle-build-number")
 
     def test_source_history_requires_non_shallow_current_remote_main(self):
         class FakeRunner:
@@ -1625,14 +1653,45 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         operations.validate_sparkle_build_number(request)
 
-        self.assertEqual(len(operations.runner.commands), 2)
+        self.assertEqual(len(operations.runner.commands), 3)
         joined = [" ".join(command) for command in operations.runner.commands]
+        self.assertTrue(
+            any("sparkle-alpha/appcast-alpha.xml" in item for item in joined)
+        )
         self.assertTrue(any("sparkle-beta/appcast-beta.xml" in item for item in joined))
         stable = next(
             item for item in joined if "sparkle-stable/appcast-stable.xml" in item
         )
         self.assertIn("--allow-http-not-found", stable)
         self.assertTrue(all("--planned 321" in item for item in joined))
+
+    def test_stable_live_build_gate_rejects_a_contract_without_legacy_alpha_floor(self):
+        class FakeRunner:
+            environment = {"LUNGFISH_BUILD_NUMBER": "321"}
+
+            def run(self, _command, **_kwargs):
+                raise AssertionError("an incomplete floor set must fail before HTTP")
+
+        operations = object.__new__(self.coordinator.LocalReleaseOperations)
+        operations.root = Path(__file__).resolve().parents[2]
+        contract = self.coordinator.load_contract(
+            operations.root / "config/release-contract.json"
+        )
+        preview = dataclasses.replace(
+            contract.channel("preview"),
+            legacyBridgeRelease="",
+            legacyBridgeAppcastFilename="",
+        )
+        operations.contract = dataclasses.replace(
+            contract, channels={**contract.channels, "preview": preview}
+        )
+        operations.runner = FakeRunner()
+        request = dataclasses.replace(
+            self.request(channel="stable"), github_repository="example/lungfish"
+        )
+
+        with self.assertRaisesRegex(self.coordinator.ReleaseError, "legacy alpha"):
+            operations.validate_sparkle_build_number(request)
 
     def test_resume_live_build_gate_uses_the_verified_receipt_build(self):
         class FakeRunner:
@@ -1670,6 +1729,67 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         command = " ".join(operations.runner.commands[0])
         self.assertIn("--planned 432", command)
         self.assertNotIn("999", command)
+
+    def test_coordinator_passes_a_fresh_capability_only_to_credentialed_builder(self):
+        class FakeRunner:
+            def __init__(self):
+                self.calls = []
+                self.environment = {}
+
+            def run(self, command, **kwargs):
+                self.calls.append((command, kwargs))
+                return subprocess.CompletedProcess(command, 1)
+
+        with tempfile.TemporaryDirectory() as temp:
+            temporary = Path(temp)
+            generator = temporary / "generate_appcast"
+            generator.write_text("#!/bin/sh\n", encoding="utf-8")
+            receipt = temporary / "unsigned-candidate-receipt.json"
+            receipt.write_text(
+                json.dumps({"release": {"build": "432"}}), encoding="utf-8"
+            )
+            operations = object.__new__(self.coordinator.LocalReleaseOperations)
+            operations.root = Path(__file__).resolve().parents[2]
+            operations.contract = self.coordinator.load_contract(
+                operations.root / "config/release-contract.json"
+            )
+            operations.runner = FakeRunner()
+            identity = self.coordinator.CandidateIdentity(
+                receipt=receipt,
+                commit="a" * 40,
+                version="2026.8.1",
+                tag="v2026.8.1",
+                scratch_path=temporary / "scratch",
+            )
+            request = dataclasses.replace(
+                self.request(mode="resume"),
+                sparkle_generate_appcast=generator,
+                github_repository="example/lungfish",
+            )
+
+            operations.resume_publish(request, identity)
+
+        builder_command, builder_options = operations.runner.calls[-1]
+        self.assertIn("build-notarized-dmg.sh", " ".join(builder_command))
+        self.assertIn(
+            "check-sparkle-build-number.py",
+            " ".join(operations.runner.calls[-2][0]),
+        )
+        capability = builder_options["env"]["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"]
+        self.assertRegex(capability, r"^[0-9a-f]{64}$")
+        for _command, options in operations.runner.calls[:-1]:
+            self.assertNotIn(
+                "LUNGFISH_RELEASE_COORDINATOR_CAPABILITY", options.get("env", {})
+            )
+
+    def test_subprocess_runner_strips_an_ambient_coordinator_capability(self):
+        variable = "LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"
+        with mock.patch.dict(os.environ, {variable: "b" * 64}):
+            runner = self.coordinator.SubprocessRunner(
+                Path(__file__).resolve().parents[2]
+            )
+
+        self.assertNotIn(variable, runner.environment)
 
     def test_cli_defers_missing_credential_paths_until_after_exact_sha_gate(self):
         with tempfile.TemporaryDirectory() as temp_dir:

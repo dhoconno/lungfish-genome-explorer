@@ -244,6 +244,21 @@ Commit: `feat(release): unify coordination and gate exact release SHA`
   prepare and receipt-bound resume. Stable checks the Preview migration floor
   strictly and permits 404 only for an uninitialized Stable feed.
 
+#### Post-Task 5 P0 review repair
+
+- Refuse every direct credentialed builder prepare, resume, and recovery path;
+  permit only package-only/contract queries or a credentialed child carrying a
+  fresh coordinator-only capability. Run source-history verification on resume
+  as well as prepare.
+- Derive the complete live-floor set from the contract: Alpha and Beta are
+  strict migration floors, and only Stable's own absent feed may return 404.
+  Reject a contract that omits the legacy Alpha floor.
+- Recheck receipt-bound floors after exact-SHA CI immediately before invoking
+  the credentialed builder, immediately before its first Developer ID
+  signature, and again after signing/notarization before any publication.
+  Record the remaining response-to-command race and defer its elimination to a
+  server-side conditional publication split.
+
 ### Task 6: Reconcile release authorities and stabilize process-tree regression
 
 **Files:**

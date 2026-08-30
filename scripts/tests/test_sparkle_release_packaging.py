@@ -207,6 +207,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                 )
                 environment = os.environ.copy()
                 environment.pop("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", None)
+                environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"] = "a" * 64
                 command = [
                     "bash",
                     str(script),
@@ -409,6 +410,8 @@ class SparkleReleasePackagingTests(unittest.TestCase):
     def _run_builder(self, *arguments):
         environment = os.environ.copy()
         environment.pop("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", None)
+        if "--signing-identity" in arguments:
+            environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"] = "a" * 64
         return subprocess.run(
             ["bash", str(self.release_script_path), *arguments],
             cwd=self.root,

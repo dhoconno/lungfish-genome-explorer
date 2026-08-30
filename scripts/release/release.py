@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -38,6 +39,7 @@ CALVER = re.compile(r"^[1-9]\d{3}\.(?:[1-9]|1[0-2])\.[1-9]\d*$")
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 PUBLIC_SPARKLE_KEY = "FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c="
+COORDINATOR_CAPABILITY_ENV = "LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"
 
 
 class ReleaseError(RuntimeError):
@@ -161,8 +163,8 @@ class ReleaseCoordinator:
     def execute(self, request: ReleaseRequest) -> CandidateIdentity:
         plan = release_plan(request.root, request.channel)
         active = request
+        self.operations.verify_source_history(active)
         if request.mode == "prepare":
-            self.operations.verify_source_history(active)
             self.operations.doctor_credentials(active)
             self.operations.doctor_package(active, plan)
             self.operations.validate_sparkle_build_number(active)
@@ -183,6 +185,7 @@ class ReleaseCoordinator:
         self.operations.ensure_annotated_tag(active, identity)
         self.operations.wait_exact_sha_ci(active, identity)
         self.operations.doctor_credentials(active)
+        self.operations.validate_sparkle_build_number(active, identity)
         self.operations.resume_publish(active, identity)
         self.operations.independent_verify(active, identity)
         return identity
@@ -341,6 +344,7 @@ class SubprocessRunner:
                 )
                 self.environment["GH_REPO"] = self.github_repository
                 self.environment.pop("GH_HOST", None)
+        self.environment.pop(COORDINATOR_CAPABILITY_ENV, None)
 
     def run(
         self,
@@ -1067,19 +1071,34 @@ class LocalReleaseOperations:
             raise ReleaseError("GitHub repository is required for Sparkle validation")
         preview = self.contract.channel("preview")
         selected = self.contract.channel(request.channel)
-        feeds = (
-            [(preview, False), (selected, True)]
-            if request.channel == "stable"
-            else [(selected, False)]
-        )
-        for channel, allow_missing in feeds:
+        if not preview.legacyBridgeRelease or not preview.legacyBridgeAppcastFilename:
+            raise ReleaseError(
+                "release contract omitted the legacy alpha Sparkle floor"
+            )
+        floors = [
+            (
+                preview.legacyBridgeRelease,
+                preview.legacyBridgeAppcastFilename,
+                False,
+            )
+        ]
+        if request.channel == "stable":
+            floors.extend(
+                [
+                    (preview.sparkleRelease, preview.appcastFilename, False),
+                    (selected.sparkleRelease, selected.appcastFilename, True),
+                ]
+            )
+        else:
+            floors.append((selected.sparkleRelease, selected.appcastFilename, False))
+        for release, filename, allow_missing in floors:
             command = [
                 sys.executable,
                 str(SCRIPT_DIR / "check-sparkle-build-number.py"),
                 "--planned",
                 planned,
                 "--appcast-url",
-                f"https://github.com/{repository}/releases/download/{channel.sparkleRelease}/{channel.appcastFilename}",
+                f"https://github.com/{repository}/releases/download/{release}/{filename}",
             ]
             if allow_missing:
                 command.append("--allow-http-not-found")
@@ -1282,7 +1301,11 @@ class LocalReleaseOperations:
                     str(request.prune_prereleases_keep),
                 ]
             )
-        self.runner.run(command)
+        self.validate_sparkle_build_number(request, identity)
+        self.runner.run(
+            command,
+            env={COORDINATOR_CAPABILITY_ENV: secrets.token_hex(32)},
+        )
 
     def independent_verify(
         self, request: ReleaseRequest, identity: CandidateIdentity

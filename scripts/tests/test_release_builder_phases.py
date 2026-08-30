@@ -57,6 +57,7 @@ class ReleaseBuilderFixture:
             "scripts/release/release_target_security.py",
             "scripts/release/release_repository.py",
             "scripts/release/release_xcode.py",
+            "scripts/release/check-sparkle-build-number.py",
             "scripts/release/release-candidate-receipt.py",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
@@ -110,6 +111,25 @@ class ReleaseBuilderFixture:
 
     def _install_internal_phase_wrappers(self):
         release_dir = self.repo / "scripts" / "release"
+        self._write_executable(
+            release_dir / "check-sparkle-build-number.py",
+            r"""
+            #!/usr/bin/python3
+            import os
+            from pathlib import Path
+            import sys
+
+            events = Path(os.environ["BUILDER_EVENTS"])
+            count = sum(
+                line.startswith("sparkle-gate:")
+                for line in events.read_text(encoding="utf-8").splitlines()
+            ) + 1
+            with events.open("a", encoding="utf-8") as handle:
+                handle.write(f"sparkle-gate:{' '.join(sys.argv[1:])}\n")
+            if os.environ.get("BUILDER_SPARKLE_GATE_FAIL_ON_CALL") == str(count):
+                raise SystemExit(64)
+            """,
+        )
         real_receipt = release_dir / "release-candidate-receipt-real.py"
         (release_dir / "release-candidate-receipt.py").replace(real_receipt)
         self._write_executable(
@@ -566,6 +586,7 @@ class ReleaseBuilderFixture:
         archive=None,
         derived=None,
         extra_env=None,
+        coordinated=True,
     ):
         environment = os.environ.copy()
         environment.update(
@@ -587,6 +608,8 @@ class ReleaseBuilderFixture:
         )
         if extra_env:
             environment.update(extra_env)
+        if coordinated:
+            environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"] = "a" * 64
         command = [
             "/bin/bash",
             str(self.builder),
@@ -768,6 +791,41 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertEqual(rejected_identity.returncode, 64)
         self.assertIn("cannot accept credential", rejected_identity.stderr)
         self.assertEqual(self.fixture.event_lines()[before:], [])
+
+    def test_direct_credentialed_prepare_resume_and_recovery_require_release_coordinator(
+        self,
+    ):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        credentialed = (
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "stable",
+            "--github-release-tag",
+            "v2026.8.1",
+            "--sparkle-generate-appcast",
+            str(self.fixture.bin / "generate_appcast"),
+        )
+        cases = (
+            ("prepare", (*credentialed, "--defer-remote-publish")),
+            ("resume", self._stable_resume_args()),
+            (
+                "recovery",
+                (*self._stable_resume_args(), "--recover-existing-release"),
+            ),
+        )
+
+        for label, arguments in cases:
+            with self.subTest(label=label):
+                result = self.fixture.run(*arguments, coordinated=False)
+
+                self.assertEqual(result.returncode, 64)
+                self.assertIn("scripts/release/release.py", result.stderr)
 
     def test_package_phase_is_unsigned_fail_only_and_shares_one_deterministic_scratch(
         self,
@@ -1223,6 +1281,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             next(line for line in events if line.startswith("receipt:create:"))
         )
         receipt = events.index("receipt:verify:ok")
+        sparkle_gate = events.index(
+            next(line for line in events if line.startswith("sparkle-gate:"))
+        )
         codesign = events.index(
             next(
                 line
@@ -1246,10 +1307,44 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertLess(complete, receipt_create)
         self.assertLess(receipt_create, credential_doctors[1])
         self.assertLess(credential_doctors[1], receipt)
+        self.assertLess(receipt, sparkle_gate)
+        self.assertLess(sparkle_gate, codesign)
         self.assertLess(complete, receipt)
         self.assertLess(receipt, codesign)
         self.assertEqual(sum(line.startswith("xcodebuild:") for line in events), 1)
         self.assertEqual(sum(line.startswith("swift:") for line in events), 1)
+
+    def test_feed_advance_during_signing_aborts_before_publication(self):
+        self.fixture.prepare_remote_tag()
+        result = self.fixture.run(
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "stable",
+            "--sparkle-generate-appcast",
+            str(self.fixture.bin / "generate_appcast"),
+            extra_env={"BUILDER_SPARKLE_GATE_FAIL_ON_CALL": "4"},
+        )
+
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        events = self.fixture.event_lines()
+        self.assertTrue(
+            any(
+                line.startswith("codesign:") and "--sign - --timestamp=none" not in line
+                for line in events
+            )
+        )
+        self.assertFalse(any(line.startswith("generate_appcast:") for line in events))
+        self.assertFalse(
+            any(
+                line.startswith(("gh:release create", "gh:release upload"))
+                for line in events
+            )
+        )
 
     def test_resume_never_rebuilds_and_rejects_payload_change_before_codesign(self):
         packaged = self.fixture.run("--package-only", "--channel", "stable")

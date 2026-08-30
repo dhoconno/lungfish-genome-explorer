@@ -77,6 +77,7 @@ cd "$PROJECT_ROOT"
 PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
 RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
 RELEASE_DOCTOR_SCRIPT="${PROJECT_ROOT}/scripts/release/release-doctor.py"
+SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-number.py"
 RELEASE_TARGET_SECURITY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_target_security.py"
 RELEASE_REPOSITORY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_repository.py"
 RELEASE_XCODE_SCRIPT="${PROJECT_ROOT}/scripts/release/release_xcode.py"
@@ -302,6 +303,14 @@ if [ -n "$DESCRIBE_CHANNEL" ]; then
     exec python3 "$RELEASE_CONTRACT_SCRIPT" describe --channel "$DESCRIBE_CHANNEL"
 fi
 
+if [ "$PACKAGE_ONLY" -eq 0 ]; then
+    if ! [[ "${LUNGFISH_RELEASE_COORDINATOR_CAPABILITY:-}" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "credentialed release operations must be invoked through scripts/release/release.py" >&2
+        exit 64
+    fi
+    unset LUNGFISH_RELEASE_COORDINATOR_CAPABILITY
+fi
+
 if ! channel_contract_output=$(python3 "$RELEASE_CONTRACT_SCRIPT" shell --channel "$CHANNEL"); then
     case "$CHANNEL" in
         preview|stable)
@@ -324,6 +333,8 @@ CONTRACT_SPARKLE_BRIDGE_PUBLISH_RELEASE=""
 CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME=""
 PREVIEW_SPARKLE_RELEASE=""
 PREVIEW_APPCAST_FILENAME=""
+PREVIEW_LEGACY_SPARKLE_RELEASE=""
+PREVIEW_LEGACY_APPCAST_FILENAME=""
 while IFS='=' read -r contract_key contract_value; do
     case "$contract_key" in
         APP_BUNDLE_FILENAME) APP_BUNDLE_FILENAME="$contract_value" ;;
@@ -339,6 +350,8 @@ while IFS='=' read -r contract_key contract_value; do
         SPARKLE_BRIDGE_APPCAST_FILENAME) CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME="$contract_value" ;;
         PREVIEW_SPARKLE_RELEASE) PREVIEW_SPARKLE_RELEASE="$contract_value" ;;
         PREVIEW_APPCAST_FILENAME) PREVIEW_APPCAST_FILENAME="$contract_value" ;;
+        PREVIEW_LEGACY_SPARKLE_RELEASE) PREVIEW_LEGACY_SPARKLE_RELEASE="$contract_value" ;;
+        PREVIEW_LEGACY_APPCAST_FILENAME) PREVIEW_LEGACY_APPCAST_FILENAME="$contract_value" ;;
         *)
             echo "unexpected release contract key: ${contract_key}" >&2
             exit 64
@@ -356,6 +369,11 @@ for required_contract_value in \
         exit 64
     fi
 done
+if [ -z "$PREVIEW_LEGACY_SPARKLE_RELEASE" ] \
+    || [ -z "$PREVIEW_LEGACY_APPCAST_FILENAME" ]; then
+    echo "release contract omitted the legacy alpha Sparkle floor" >&2
+    exit 64
+fi
 if [ "$RELEASE_CHANNEL" != "$CHANNEL" ]; then
     echo "release contract channel mismatch: expected ${CHANNEL}, found ${RELEASE_CHANNEL}" >&2
     exit 64
@@ -527,6 +545,7 @@ done
 if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ] \
     || [ ! -f "$RELEASE_TARGET_SECURITY_SCRIPT" ] \
     || [ ! -f "$RELEASE_REPOSITORY_SCRIPT" ] \
+    || [ ! -f "$SPARKLE_BUILD_GATE_SCRIPT" ] \
     || [ ! -f "$RELEASE_XCODE_SCRIPT" ]; then
     echo "release Doctor or candidate receipt helper is missing or not executable" >&2
     exit 69
@@ -558,6 +577,27 @@ GITHUB_REPOSITORY="$resolved_github_repository"
 unset GH_HOST
 export GH_REPO="github.com/${GITHUB_REPOSITORY}"
 SPARKLE_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
+
+run_live_sparkle_build_gates() {
+    local planned="$1"
+    local feed_root="https://github.com/${GITHUB_REPOSITORY}/releases/download"
+    python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+        --planned "$planned" \
+        --appcast-url "${feed_root}/${PREVIEW_LEGACY_SPARKLE_RELEASE}/${PREVIEW_LEGACY_APPCAST_FILENAME}"
+    if [ "$CHANNEL" = stable ]; then
+        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+            --planned "$planned" \
+            --appcast-url "${feed_root}/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
+        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+            --planned "$planned" \
+            --appcast-url "${feed_root}/${CONTRACT_SPARKLE_PUBLISH_RELEASE}/${CONTRACT_SPARKLE_APPCAST_FILENAME}" \
+            --allow-http-not-found
+    else
+        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+            --planned "$planned" \
+            --appcast-url "${feed_root}/${CONTRACT_SPARKLE_PUBLISH_RELEASE}/${CONTRACT_SPARKLE_APPCAST_FILENAME}"
+    fi
+}
 
 github_cli() {
     command gh --repo "$GH_REPO" "$@"
@@ -1195,6 +1235,9 @@ run_release_doctor credentials
     --receipt "$CANDIDATE_RECEIPT_PATH" \
     --channel "$CHANNEL" \
     --scratch-path "$SCRATCH_PATH"
+VERIFIED_SPARKLE_BUILD_NUMBER=$(python3 -c \
+    'import json,sys; value=json.load(open(sys.argv[1]))["release"]["build"]; assert isinstance(value,str) and value.isdigit() and int(value) > 0; print(value)' \
+    "$CANDIDATE_RECEIPT_PATH")
 python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
     --release-dir "$RELEASE_DIR" \
     --repository-key "$repository_key"
@@ -1444,6 +1487,7 @@ sign_sparkle_framework() {
     sign_developer_id_runtime "$sparkle_framework"
 }
 
+run_live_sparkle_build_gates "$VERIFIED_SPARKLE_BUILD_NUMBER"
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
@@ -1532,6 +1576,7 @@ ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
 /usr/bin/xcrun stapler staple "$DMG_PATH"
 
+run_live_sparkle_build_gates "$VERIFIED_SPARKLE_BUILD_NUMBER"
 publish_github_release_dmg
 fi
 
@@ -1539,6 +1584,7 @@ if [ "$VERSION" != "$SOURCE_VERSION" ]; then
     echo "release artifact version does not match source version: $VERSION != $SOURCE_VERSION" >&2
     exit 65
 fi
+run_live_sparkle_build_gates "$VERIFIED_SPARKLE_BUILD_NUMBER"
 generate_sparkle_appcast
 prune_github_prereleases
 

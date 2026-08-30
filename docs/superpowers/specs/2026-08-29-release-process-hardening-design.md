@@ -158,21 +158,37 @@ when they are absent, rather than requiring a lucky pre-existing DerivedData or
 live in an ignored local profile or explicit environment, never in the tracked
 nightly wrapper.
 
-The common coordinator runs credentials Doctor before any source gate,
-compilation, tag creation, or remote mutation, and repeats it after exact-SHA CI
-immediately before signing resume. A direct credentialed builder applies the
-same before-compilation and before-signing checks. Package-only remains
-credential-free.
+The common coordinator is the only credentialed release entry point. It runs
+credentials Doctor before any source gate, compilation, tag creation, or remote
+mutation, and repeats it after exact-SHA CI. The phase builder accepts direct
+package-only and contract-description requests, but refuses every direct
+credentialed prepare, resume, recovery, signing, notarization, or publication
+request with an instruction to use `release.py`. The coordinator supplies a
+fresh per-child internal capability only to its credentialed builder child;
+that capability is never ambient in Doctor, source-gate, or package children.
 
 Before packaging, the coordinator also requires a non-shallow checkout on the
 configured main branch and proves the selected remote main is an ancestor of
 the local release-preparation commit. This permits the intentional unpushed
-release commit while rejecting stale or unrelated history. The coordinator,
-not the phase builder, owns the live Sparkle build-number gate: Preview checks
-its live feed; Stable uses the Preview feed as a strict migration floor and
-also checks the Stable feed, allowing only an as-yet-uninitialized Stable feed.
-Resume rechecks the live feeds against the verified candidate receipt build so
-a standalone package-only run cannot bypass the gate.
+release commit while rejecting stale or unrelated history. The coordinator
+owns the live Sparkle build-number policy. Preview checks its contract-declared
+legacy Alpha bridge and Beta feed strictly. Stable checks the same Alpha and
+Beta migration floors strictly, then checks the Stable feed and allows 404 only
+for an as-yet-uninitialized Stable feed. A missing legacy floor in the contract
+is a hard failure. Resume repeats source-history verification and checks these
+feeds against the verified candidate receipt build, so a standalone
+package-only run cannot bypass either gate.
+
+After exact-SHA CI and the second credentials Doctor, the coordinator rechecks
+every applicable receipt-bound feed immediately before starting the
+credentialed builder. The builder applies the same contract-derived checks
+again immediately before the first Developer ID signature and after
+signing/notarization immediately before any versioned or mutable-feed
+publication. This closes the long CI and signing/notary intervals. A narrow
+network response-to-next-command race remains because GitHub release asset
+replacement offers no compare-and-swap precondition; eliminating it requires a
+future publication split with server-side conditional mutable-asset updates,
+not another earlier read-only check.
 
 ### 7. One release authority
 
