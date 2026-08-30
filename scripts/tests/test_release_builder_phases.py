@@ -39,6 +39,7 @@ class ReleaseBuilderFixture:
         self._git("config", "user.name", "Builder Test")
         self._git("add", ".")
         self._git("commit", "-q", "-m", "fixture")
+        self._git("remote", "add", "origin", "https://github.com/example/lungfish.git")
 
     def cleanup(self):
         self.temporary.cleanup()
@@ -54,6 +55,7 @@ class ReleaseBuilderFixture:
             "scripts/release/release_contract.py",
             "scripts/release/release_cache_security.py",
             "scripts/release/release_target_security.py",
+            "scripts/release/release_repository.py",
             "scripts/release/release-candidate-receipt.py",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
@@ -137,12 +139,14 @@ class ReleaseBuilderFixture:
             release=
             archive=
             derived=
+            remote=origin
             while [ "$#" -gt 0 ]; do
                 case "$1" in
                     --scratch-path) scratch="$2"; shift 2 ;;
                     --release-dir) release="$2"; shift 2 ;;
                     --archive-path) archive="$2"; shift 2 ;;
                     --derived-data-path) derived="$2"; shift 2 ;;
+                    --remote) remote="$2"; shift 2 ;;
                     *) shift ;;
                 esac
             done
@@ -155,7 +159,8 @@ class ReleaseBuilderFixture:
                     --scratch-path "$scratch" \
                     --release-dir "$release" \
                     --archive-path "$archive" \
-                    --derived-data-path "$derived"
+                    --derived-data-path "$derived" \
+                    --remote "$remote"
             fi
             echo 'PASS fixture doctor'
             """,
@@ -318,7 +323,7 @@ class ReleaseBuilderFixture:
             "security": 'printf \'security:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "file": "echo 'Mach-O 64-bit executable arm64'\n",
             "ditto": 'printf \'ditto:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nif [ "${1:-}" = -c ]; then : >"${@: -1}"; else cp -R "$1" "$2"; fi\n',
-            "hdiutil": r'''
+            "hdiutil": r"""
                 printf 'hdiutil:%s\n' "$*" >>"$BUILDER_EVENTS"
                 case "${1:-}" in
                     create)
@@ -347,16 +352,35 @@ class ReleaseBuilderFixture:
                         fi
                         cp -R "$fixture"/. "$mountpoint"/
                         ;;
-                    detach) ;;
+                    detach)
+                        if [ "${BUILDER_FAIL_DETACH:-0}" = 1 ]; then
+                            printf 'mounted-sentinel\n' >"$2/mounted-sentinel.txt"
+                            exit 81
+                        fi
+                        ;;
                     *) exit 64 ;;
                 esac
-            ''',
+            """,
         }.items():
             self._write_executable(self.bin / name, f"#!/bin/bash\nset -eu\n{body}")
 
         self._write_executable(
+            self.bin / "shasum",
+            r"""
+            target="${@: -1}"
+            if [ -n "${BUILDER_FORGED_SHA256:-}" ] \
+                && [[ "$target" = *.dmg || "$target" = *.xml ]]; then
+                printf '%s  %s\n' "$BUILDER_FORGED_SHA256" "$target"
+                printf 'shasum-spoof:%s\n' "$*" >>"$BUILDER_EVENTS"
+                exit 0
+            fi
+            exec /usr/bin/shasum "$@"
+            """,
+        )
+
+        self._write_executable(
             self.bin / "generate_appcast",
-            r'''
+            r"""
             #!/bin/bash
             set -eu
             output=
@@ -369,11 +393,11 @@ class ReleaseBuilderFixture:
             digest=$(shasum -a 256 "$dmg" | awk '{print $1}')
             printf 'fixture-appcast:%s\n' "$digest" >"$output"
             printf 'generate_appcast:%s\n' "$output" >>"$BUILDER_EVENTS"
-            ''',
+            """,
         )
         self._write_executable(
             self.bin / "gh",
-            r'''
+            r"""
             #!/usr/bin/env python3
             import hashlib
             import json
@@ -411,6 +435,9 @@ class ReleaseBuilderFixture:
                     and arguments[:2] != ["release", "edit"] and arguments[:2] != ["release", "upload"] \
                     and arguments[:2] != ["release", "download"]:
                 raise SystemExit(64)
+            expected_repository = os.environ.get("BUILDER_EXPECTED_GH_REPO")
+            if expected_repository and os.environ.get("GH_REPO") != expected_repository:
+                raise SystemExit(89)
             action = arguments[1]
             tag = arguments[2]
             if action == "view":
@@ -484,7 +511,7 @@ class ReleaseBuilderFixture:
                     destination / f"{pattern}.fixture-app",
                     symlinks=True,
                 )
-            ''',
+            """,
         )
 
     def _adapt_canonical_tools_for_fixture(self):
@@ -585,12 +612,23 @@ class ReleaseBuilderFixture:
             check=False,
         )
 
-    def prepare_remote_tag(self, tag="v2026.8.1"):
-        remote = self.root / "origin.git"
+    def prepare_remote_tag(
+        self,
+        tag="v2026.8.1",
+        *,
+        remote_name="origin",
+        github_url="https://github.com/example/lungfish.git",
+    ):
+        remote = self.root / f"{remote_name}.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
-        self._git("remote", "add", "origin", str(remote))
+        self._git("config", f"url.{remote}.insteadOf", github_url)
+        existing = self._git("remote").stdout.splitlines()
+        if remote_name in existing:
+            self._git("remote", "set-url", remote_name, github_url)
+        else:
+            self._git("remote", "add", remote_name, github_url)
         self._git("tag", "-a", tag, "-m", f"fixture {tag}")
-        self._git("push", "-q", "origin", tag)
+        self._git("push", "-q", remote_name, tag)
 
     def _git(self, *arguments):
         return subprocess.run(
@@ -625,6 +663,25 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
 
     def tearDown(self):
         self.fixture.cleanup()
+
+    def _stable_resume_args(self, fixture=None):
+        selected = fixture or self.fixture
+        return (
+            "--resume-candidate",
+            str(selected.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "stable",
+            "--github-release-tag",
+            "v2026.8.1",
+            "--sparkle-generate-appcast",
+            str(selected.bin / "generate_appcast"),
+        )
 
     def test_package_only_needs_no_credentials_and_stops_before_private_or_remote_tools(
         self,
@@ -1388,19 +1445,15 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             )
         )
         self.assertFalse(any("notarytool submit" in line for line in retry_events))
-        self.assertFalse(any(line.startswith("hdiutil:create") for line in retry_events))
         self.assertFalse(
-            any(
-                line.startswith("gh:release upload v2026.8.1")
-                for line in retry_events
-            )
+            any(line.startswith("hdiutil:create") for line in retry_events)
+        )
+        self.assertFalse(
+            any(line.startswith("gh:release upload v2026.8.1") for line in retry_events)
         )
         all_events = self.fixture.event_lines()
         self.assertEqual(
-            sum(
-                line.startswith("gh:release create v2026.8.1")
-                for line in all_events
-            ),
+            sum(line.startswith("gh:release create v2026.8.1") for line in all_events),
             1,
         )
         self.assertEqual(
@@ -1458,11 +1511,16 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
         self.assertEqual(dmg.read_bytes(), immutable_bytes)
         self.assertTrue(
-            (self.fixture.release / "signed/Lungfish.app/Contents/MacOS/Lungfish").is_file()
+            (
+                self.fixture.release / "signed/Lungfish.app/Contents/MacOS/Lungfish"
+            ).is_file()
         )
         retry_events = self.fixture.event_lines()[before_retry:]
         self.assertTrue(
-            any(line.startswith("gh:release download v2026.8.1") for line in retry_events)
+            any(
+                line.startswith("gh:release download v2026.8.1")
+                for line in retry_events
+            )
         )
         self.assertTrue(
             any(
@@ -1470,7 +1528,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                 for line in retry_events
             )
         )
-        self.assertFalse(any(line.startswith("hdiutil:create") for line in retry_events))
+        self.assertFalse(
+            any(line.startswith("hdiutil:create") for line in retry_events)
+        )
         self.assertFalse(any("notarytool submit" in line for line in retry_events))
         self.assertFalse(
             any(
@@ -1478,6 +1538,154 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                 for line in retry_events
             )
         )
+
+    def test_recovery_rejects_signed_parent_symlink_before_feed_mutation(self):
+        self.fixture.prepare_remote_tag()
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        resume = self._stable_resume_args()
+        failed = self.fixture.run(*resume, extra_env={"BUILDER_FAIL_FEED_CREATE": "1"})
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        signed_parent = self.fixture.release / "signed"
+        shutil.rmtree(signed_parent)
+        outside = self.fixture.root / "outside-signed"
+        outside.mkdir()
+        sentinel = outside / "sentinel.txt"
+        sentinel.write_text("unchanged\n", encoding="utf-8")
+        signed_parent.symlink_to(outside, target_is_directory=True)
+        before = len(self.fixture.event_lines())
+
+        recovered = self.fixture.run(*resume, "--recover-existing-release")
+
+        self.assertNotEqual(
+            recovered.returncode, 0, recovered.stdout + recovered.stderr
+        )
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+        self.assertFalse((outside / "Lungfish.app").exists())
+        retry_events = self.fixture.event_lines()[before:]
+        self.assertFalse(
+            any(line.startswith("gh:release create sparkle-") for line in retry_events)
+        )
+
+    def test_recovery_rejects_signed_parent_case_alias(self):
+        self.fixture.prepare_remote_tag()
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        resume = self._stable_resume_args()
+        failed = self.fixture.run(*resume, extra_env={"BUILDER_FAIL_FEED_CREATE": "1"})
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        shutil.rmtree(self.fixture.release / "signed")
+        alias = self.fixture.release / "Signed"
+        alias.mkdir()
+        if not (self.fixture.release / "signed").exists():
+            self.skipTest("fixture filesystem is case-sensitive")
+
+        recovered = self.fixture.run(*resume, "--recover-existing-release")
+
+        self.assertNotEqual(
+            recovered.returncode, 0, recovered.stdout + recovered.stderr
+        )
+
+    def test_recovery_rejects_hostile_path_hash_for_local_and_downloaded_dmg(self):
+        for source in ("local", "downloaded"):
+            with self.subTest(source=source):
+                fixture = ReleaseBuilderFixture(self)
+                self.addCleanup(fixture.cleanup)
+                fixture.prepare_remote_tag()
+                packaged = fixture.run("--package-only", "--channel", "stable")
+                self.assertEqual(
+                    packaged.returncode, 0, packaged.stdout + packaged.stderr
+                )
+                resume = self._stable_resume_args(fixture)
+                failed = fixture.run(
+                    *resume, extra_env={"BUILDER_FAIL_FEED_CREATE": "1"}
+                )
+                self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+                dmg = fixture.release / "Lungfish-2026.8.1-arm64.dmg"
+                original = dmg.read_bytes()
+                digest = hashlib.sha256(original).hexdigest()
+                corrupt = bytes([original[0] ^ 1]) + original[1:]
+                if source == "local":
+                    dmg.write_bytes(corrupt)
+                else:
+                    state = json.loads(fixture.gh_state.read_text(encoding="utf-8"))
+                    asset = state["releases"]["v2026.8.1"]["assets"][0]
+                    Path(asset["storedPath"]).write_bytes(corrupt)
+                    dmg.unlink()
+                before = len(fixture.event_lines())
+
+                recovered = fixture.run(
+                    *resume,
+                    "--recover-existing-release",
+                    extra_env={"BUILDER_FORGED_SHA256": digest},
+                )
+
+                self.assertNotEqual(
+                    recovered.returncode, 0, recovered.stdout + recovered.stderr
+                )
+                self.assertFalse(
+                    any(
+                        line.startswith("gh:release create sparkle-")
+                        for line in fixture.event_lines()[before:]
+                    )
+                )
+
+    def test_failed_recovery_detach_preserves_mounted_private_workspace(self):
+        self.fixture.prepare_remote_tag()
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        resume = self._stable_resume_args()
+        failed = self.fixture.run(*resume, extra_env={"BUILDER_FAIL_FEED_CREATE": "1"})
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        shutil.rmtree(self.fixture.release / "signed")
+        before = len(self.fixture.event_lines())
+
+        recovered = self.fixture.run(
+            *resume,
+            "--recover-existing-release",
+            extra_env={"BUILDER_FAIL_DETACH": "1"},
+        )
+
+        self.assertNotEqual(
+            recovered.returncode, 0, recovered.stdout + recovered.stderr
+        )
+        retained = list(self.fixture.release.glob(".immutable-recovery.*"))
+        self.assertEqual(len(retained), 1)
+        self.assertTrue((retained[0] / "mount/mounted-sentinel.txt").is_file())
+        self.assertFalse(
+            any(
+                line.startswith("gh:release create sparkle-")
+                for line in self.fixture.event_lines()[before:]
+            )
+        )
+
+    def test_selected_upstream_remote_binds_scratch_tag_and_github_repository(self):
+        self.fixture.prepare_remote_tag(
+            remote_name="upstream",
+            github_url="https://github.com/right/lungfish.git",
+        )
+        hostile = self.fixture.root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(hostile)], check=True)
+        hostile_url = "https://github.com/wrong/lungfish.git"
+        self.fixture._git("config", f"url.{hostile}.insteadOf", hostile_url)
+        self.fixture._git("remote", "set-url", "origin", hostile_url)
+        remote_args = (
+            "--remote",
+            "upstream",
+            "--github-repository",
+            "right/lungfish",
+        )
+
+        packaged = self.fixture.run(
+            "--package-only", "--channel", "stable", *remote_args
+        )
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        completed = self.fixture.run(
+            *self._stable_resume_args(),
+            *remote_args,
+            extra_env={"BUILDER_EXPECTED_GH_REPO": "right/lungfish"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
     def test_production_credentialed_apple_tools_are_canonical(self):
         source = (ROOT / "scripts/release/build-notarized-dmg.sh").read_text(

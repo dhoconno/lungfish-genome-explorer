@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,6 +23,11 @@ from release_cache_security import (
     validate_metadata,
 )
 from release_contract import CONTRACT_PATH, load_contract
+from release_repository import (
+    RepositoryIdentity,
+    RepositoryIdentityError,
+    repository_identity_from_url,
+)
 from release_target_security import TargetSecurityError, validate_release_targets
 
 
@@ -55,6 +59,7 @@ class Doctor:
         self.results: list[CheckResult] = []
         self.developer_dir: Path | None = None
         self.sparkle_tools: dict[str, Path] = {}
+        self.repository_identity: RepositoryIdentity | None = None
 
     def check(self, name: str, operation: Callable[[], str]) -> bool:
         try:
@@ -419,17 +424,10 @@ class Doctor:
                 "scratch, release, archive, and DerivedData targets must be supplied together"
             )
 
-        remote = self.run_command(["git", "config", "--get", "remote.origin.url"])
-        repository_identity = remote.stdout.strip() if remote.returncode == 0 else ""
-        if not repository_identity:
-            top_level = self.run_command(["git", "rev-parse", "--show-toplevel"])
-            if top_level.returncode != 0 or not top_level.stdout.strip():
-                raise CheckFailure("could not derive repository scratch identity")
-            repository_identity = top_level.stdout.strip()
+        repository_identity = self._selected_repository_identity()
         head = self.run_command(["git", "rev-parse", "--verify", "HEAD"])
         if head.returncode != 0:
             raise CheckFailure("could not derive commit scratch identity")
-        repository_key = hashlib.sha256(repository_identity.encode()).hexdigest()
         try:
             validate_release_targets(
                 project_root=ROOT,
@@ -443,7 +441,7 @@ class Doctor:
                 release_dir=self.args.release_dir,
                 archive_path=self.args.archive_path,
                 derived_data_path=self.args.derived_data_path,
-                repository_key=repository_key,
+                repository_key=repository_identity.repository_key,
                 commit=head.stdout.strip(),
             )
         except TargetSecurityError as error:
@@ -451,6 +449,29 @@ class Doctor:
         return (
             "exact package mutation targets are canonical, private, and nonoverlapping"
         )
+
+    def _selected_repository_identity(self) -> RepositoryIdentity:
+        if self.repository_identity is not None:
+            return self.repository_identity
+        result = self.run_command(
+            ["git", "config", "--get", f"remote.{self.args.remote}.url"]
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise CheckFailure("selected Git remote is unavailable")
+        try:
+            identity = repository_identity_from_url(
+                self.args.remote,
+                result.stdout,
+                self.args.github_repository,
+            )
+        except RepositoryIdentityError as error:
+            raise CheckFailure(str(error)) from error
+        self.repository_identity = identity
+        return identity
+
+    def _selected_repository(self) -> str:
+        self._selected_repository_identity()
+        return "selected Git remote is bound to one GitHub repository"
 
     def _scratch_write(self) -> str:
         scratch_base = self._scratch_base()
@@ -628,19 +649,12 @@ class Doctor:
         return "GitHub authentication is usable"
 
     def _github_repository(self) -> str:
-        remote = self.run_command(["git", "remote", "get-url", "origin"])
-        if remote.returncode != 0:
-            raise CheckFailure("GitHub repository API target could not be derived")
-        match = re.search(
-            r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?\s*$", remote.stdout.strip()
-        )
-        if match is None:
-            raise CheckFailure("GitHub repository API target could not be derived")
+        identity = self._selected_repository_identity()
         result = self.run_command(
             [
                 "gh",
                 "api",
-                f"repos/{match.group(1)}/{match.group(2)}",
+                f"repos/{identity.github_repository}",
                 "--jq",
                 ".permissions.push",
             ]
@@ -724,6 +738,7 @@ class Doctor:
 
     def run(self) -> bool:
         package_checks = (
+            ("selected Git remote", self._selected_repository),
             ("Xcode selection", self._select_xcode),
             ("required commands", self._required_commands),
             ("Xcode version", self._xcode_version),
@@ -804,6 +819,8 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--team-id")
     value.add_argument("--notary-profile")
     value.add_argument("--sparkle-ed-key-file", type=Path)
+    value.add_argument("--remote", default="origin")
+    value.add_argument("--github-repository")
     value.add_argument("--scratch-path", type=Path)
     value.add_argument("--release-dir", type=Path)
     value.add_argument("--archive-path", type=Path)

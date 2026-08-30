@@ -17,6 +17,11 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import release as release_coordinator  # noqa: E402
 
 VERSIONED_FILES = (
     "Lungfish.xcodeproj/project.pbxproj",
@@ -675,44 +680,24 @@ def prepared_release_recovery_receipt(
     if parse_calver_tag(version) is None:
         return None
     tag = f"v{version}"
-    raw = git_output(
-        root,
-        "ls-remote",
-        "--tags",
-        remote,
-        f"refs/tags/{tag}",
-        f"refs/tags/{tag}^{{}}",
-    )
-    direct = ""
-    peeled = ""
-    for line in raw.splitlines():
-        fields = line.split()
-        if len(fields) != 2:
-            raise NightlyReleaseError("remote release tag response is malformed")
-        commit, ref = fields
-        if not re.fullmatch(r"[0-9a-f]{40}", commit):
-            raise NightlyReleaseError("remote release tag commit is malformed")
-        if ref == f"refs/tags/{tag}":
-            if direct:
-                raise NightlyReleaseError("remote release tag response is ambiguous")
-            direct = commit
-        elif ref == f"refs/tags/{tag}^{{}}":
-            if peeled:
-                raise NightlyReleaseError("remote release tag response is ambiguous")
-            peeled = commit
-        else:
-            raise NightlyReleaseError("remote release tag response is out of scope")
-    if not direct and not peeled:
-        return None
-    if not direct or not peeled:
-        raise NightlyReleaseError(
-            f"current release tag is not an exact annotated tag: {tag}"
-        )
     head = git_output(root, "rev-parse", "HEAD").strip()
-    if peeled != head:
-        raise NightlyReleaseError(
-            f"current release tag does not peel to HEAD: {tag}"
+    probe = release_coordinator.CandidateIdentity(
+        receipt=root / "build/Release/unsigned-candidate-receipt.json",
+        tag=tag,
+        commit=head,
+        version=version,
+        scratch_path=Path("/"),
+    )
+    try:
+        transaction_state = release_coordinator.tagged_publication_state(
+            root, remote, channel, probe
         )
+    except release_coordinator.ReleaseError as error:
+        raise NightlyReleaseError(str(error)) from error
+    if transaction_state == "untagged":
+        return None
+    if transaction_state == "complete":
+        return None
 
     receipt_path = root / "build/Release/unsigned-candidate-receipt.json"
     try:
@@ -815,6 +800,9 @@ def run_common_coordinator(
         "--prune-prereleases-keep",
         str(args.prune_prereleases_keep),
     ]
+    github_repository = getattr(args, "github_repository", "")
+    if github_repository:
+        command.extend(["--github-repository", github_repository])
     if args.sparkle_ed_key_file:
         command.extend(["--sparkle-ed-key-file", str(args.sparkle_ed_key_file)])
     command.append(
@@ -955,6 +943,14 @@ def main(argv: list[str]) -> int:
     rescue_root = args.rescue_root.resolve()
     lock_path: Path | None = None
     try:
+        try:
+            repository = release_coordinator.resolve_repository_identity(
+                root, args.remote
+            )
+        except release_coordinator.RepositoryIdentityError as error:
+            raise NightlyReleaseError(str(error)) from error
+        args.github_repository = repository.github_repository
+        os.environ["GH_REPO"] = repository.github_repository
         lock_path = create_lock(root)
         ensure_rescue_root_is_ignored(root, rescue_root)
         prune_rescue_archives(rescue_root, retention_days=args.rescue_retention_days)

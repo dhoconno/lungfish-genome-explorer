@@ -181,3 +181,57 @@ Correction verification:
   `git diff --check`: passed.
 - No live tag/push, GitHub mutation, credential lookup, signing, notarization,
   or remote publication was performed.
+
+## Independent-review correction round 2
+
+The second review found four Important security/idempotency gaps and one Minor
+cleanup hazard. Strict behavioral REDs were captured before implementation:
+
+- A complete immutable/feed/bridge publication still returned its receipt and
+  the nightly driver replayed resume forever instead of integrating later agent
+  work and selecting the next CalVer. Wrong targets, drafts, duplicate assets,
+  and empty digests were incorrectly treated as resumable state.
+- Recovery accepted a symlinked or case-aliased `signed` ancestor and could move
+  the extracted app outside the marked release directory before mutable-feed
+  publication.
+- A hostile PATH `shasum` accepted same-size corrupt local and downloaded DMGs.
+- Builder/coordinator identity remained partly hard-coded to `origin`, while
+  `gh` could use a hostile default repository even when `upstream` was selected.
+- A failed recovery mount detach was suppressed and the mounted private recovery
+  workspace was recursively removed.
+
+The correction adds one shared, read-only tagged-publication classifier in the
+coordinator. It binds one selected GitHub remote, requires an exact annotated
+tag peeling to the candidate SHA, validates target SHA/draft/channel state, and
+requires one uniquely named asset with a canonical nonempty SHA-256 digest and
+positive integer size for the immutable DMG and every required mutable appcast.
+Complete state advances normally; incomplete consistent state resumes the exact
+receipt once; conflicting or ambiguous state fails closed.
+
+One strict repository-identity helper now derives the GitHub owner/repository
+and scratch/marker key from the selected remote URL. Coordinator, Doctor,
+builder, target security, and nightly pass that selection end-to-end; all `gh`
+calls inherit the exact `GH_REPO`, and Doctor's API probe names the same
+repository explicitly. Credentialed URLs, non-GitHub remotes, and requested
+repository mismatches are rejected without printing the remote URL.
+
+Signed recovery output now goes through the release target-security boundary
+before parent creation, extraction moves, or feed publication. The exact
+`release/signed/<app>` target must have canonical case and a private,
+current-owner, non-symlink ancestor chain. Security/publication hashing uses
+internal streaming SHA-256 or canonical `/usr/bin/shasum`; PATH resolution is
+not trusted for repository keys, DMGs, metadata, or mutable appcasts. A failed
+explicit DMG detach remains fatal, retains the mounted workspace, and prevents
+feed mutation and recursive cleanup.
+
+Round-2 verification:
+
+- Final focused correction regressions after formatting: 10 passed.
+- Builder suite: 30 passed; nightly/coordinator suite: 38 passed; Doctor and
+  naming suites: 49 passed (117 focused tests total).
+- Contract-defined broader release suite: 202 passed in 234.673 seconds; three
+  additional release modules: 7 passed.
+- Python compilation, Bash syntax, PyYAML/Ruby workflow parsing (12 jobs), Black
+  formatting, `git diff --check`, and the release-skill validator passed.
+- No live tag/push, GitHub mutation/publication, credential access, signing,
+  notarization, or remote mutation was performed.

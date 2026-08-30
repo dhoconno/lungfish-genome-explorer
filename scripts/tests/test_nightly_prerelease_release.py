@@ -452,6 +452,17 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
 
             with contextlib.ExitStack() as stack:
                 stack.enter_context(
+                    mock.patch.object(
+                        self.release.release_coordinator,
+                        "resolve_repository_identity",
+                        return_value=self.release.release_coordinator.RepositoryIdentity(
+                            remote="origin",
+                            github_repository="example/lungfish",
+                            repository_key="a" * 64,
+                        ),
+                    )
+                )
+                stack.enter_context(
                     mock.patch.object(self.release, "create_lock", fake_create_lock)
                 )
                 stack.enter_context(
@@ -637,10 +648,14 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 mock.patch.object(self.release, "github_release_tags", return_value=[])
             )
             stack.enter_context(
-                mock.patch.object(self.release, "discover_agent_branches", return_value=[])
+                mock.patch.object(
+                    self.release, "discover_agent_branches", return_value=[]
+                )
             )
             stack.enter_context(
-                mock.patch.object(self.release, "create_rescue_dir", return_value=rescue)
+                mock.patch.object(
+                    self.release, "create_rescue_dir", return_value=rescue
+                )
             )
             stack.enter_context(
                 mock.patch.object(
@@ -750,7 +765,12 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     ]
                 )
 
-        for failure in ("moved tag", "lightweight tag", "stale receipt", "wrong channel"):
+        for failure in (
+            "moved tag",
+            "lightweight tag",
+            "stale receipt",
+            "wrong channel",
+        ):
             with self.subTest(failure=failure):
                 fixture = ReleaseBuilderFixture(self)
                 self.addCleanup(fixture.cleanup)
@@ -777,9 +797,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     other = fixture._git(
                         "commit-tree", tree, "-p", head, "-m", "moved tag"
                     ).stdout.strip()
-                    fixture._git(
-                        "tag", "-f", "-a", "v2026.8.1", other, "-m", "moved"
-                    )
+                    fixture._git("tag", "-f", "-a", "v2026.8.1", other, "-m", "moved")
                     fixture._git("push", "-q", "--force", "origin", "v2026.8.1")
                 elif failure == "lightweight tag":
                     fixture._git("push", "-q", "origin", ":refs/tags/v2026.8.1")
@@ -791,11 +809,230 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
                     receipt["source"]["commit"] = "b" * 40
                     receipt_path.write_text(
-                        json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+                        json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+                        + "\n",
                         encoding="utf-8",
                     )
 
                 self.assertEqual(run_nightly(fixture), 1)
+
+    def _published_preview_fixture(self):
+        fixture = ReleaseBuilderFixture(self)
+        self.addCleanup(fixture.cleanup)
+        notes = fixture.repo / "docs/release-notes/2026.8.1.md"
+        notes.write_text(
+            notes.read_text(encoding="utf-8").replace(
+                "Channel: Stable", "Channel: Preview"
+            ),
+            encoding="utf-8",
+        )
+        fixture._git("add", str(notes.relative_to(fixture.repo)))
+        fixture._git("commit", "-q", "-m", "preview notes")
+        fixture.prepare_remote_tag()
+        fixture.release = fixture.repo / "build/Release"
+        packaged = fixture.run("--package-only", "--channel", "preview")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        published = fixture.run(
+            "--resume-candidate",
+            str(fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "preview",
+            "--github-release-tag",
+            "v2026.8.1",
+            "--sparkle-generate-appcast",
+            str(fixture.bin / "generate_appcast"),
+        )
+        self.assertEqual(published.returncode, 0, published.stdout + published.stderr)
+        return fixture
+
+    def _publication_state_environment(self, fixture):
+        return mock.patch.dict(
+            os.environ,
+            {
+                "PATH": f"{fixture.bin}:{os.environ['PATH']}",
+                "BUILDER_EVENTS": str(fixture.events),
+                "BUILDER_GH_STATE": str(fixture.gh_state),
+                "BUILDER_PYTHON": str(
+                    Path(__file__).resolve().parents[2] / ".ci-python/bin/python"
+                ),
+            },
+        )
+
+    def test_completed_current_publication_is_not_replayed(self):
+        fixture = self._published_preview_fixture()
+        with self._publication_state_environment(fixture):
+            receipt = self.release.prepared_release_recovery_receipt(
+                fixture.repo, "origin", channel="preview"
+            )
+
+        self.assertIsNone(receipt)
+
+    def test_partial_publication_resumes_and_conflicting_state_fails_closed(self):
+        fixture = self._published_preview_fixture()
+        original = json.loads(fixture.gh_state.read_text(encoding="utf-8"))
+        receipt = fixture.release / "unsigned-candidate-receipt.json"
+        partial_states = {
+            "post-tag": {"releases": {}},
+            "immutable-only": {
+                "releases": {"v2026.8.1": original["releases"]["v2026.8.1"]}
+            },
+            "bridge-missing": {
+                "releases": {
+                    key: value
+                    for key, value in original["releases"].items()
+                    if key != "sparkle-alpha"
+                }
+            },
+        }
+        for label, state in partial_states.items():
+            with self.subTest(partial=label):
+                fixture.gh_state.write_text(
+                    json.dumps(state, sort_keys=True), encoding="utf-8"
+                )
+                with self._publication_state_environment(fixture):
+                    self.assertEqual(
+                        self.release.prepared_release_recovery_receipt(
+                            fixture.repo, "origin", channel="preview"
+                        ),
+                        receipt,
+                    )
+
+        conflicts = {}
+        wrong_target = copy.deepcopy(original)
+        wrong_target["releases"]["v2026.8.1"]["targetCommitish"] = "f" * 40
+        conflicts["wrong target"] = wrong_target
+        draft_feed = copy.deepcopy(original)
+        draft_feed["releases"]["sparkle-beta"]["isDraft"] = True
+        conflicts["draft feed"] = draft_feed
+        duplicate = copy.deepcopy(original)
+        duplicate["releases"]["sparkle-beta"]["assets"].append(
+            copy.deepcopy(duplicate["releases"]["sparkle-beta"]["assets"][0])
+        )
+        conflicts["ambiguous asset"] = duplicate
+        empty_digest = copy.deepcopy(original)
+        empty_digest["releases"]["sparkle-alpha"]["assets"][0]["digest"] = ""
+        conflicts["empty digest"] = empty_digest
+        for label, state in conflicts.items():
+            with self.subTest(conflict=label):
+                fixture.gh_state.write_text(
+                    json.dumps(state, sort_keys=True), encoding="utf-8"
+                )
+                with self._publication_state_environment(fixture):
+                    with self.assertRaises(self.release.NightlyReleaseError):
+                        self.release.prepared_release_recovery_receipt(
+                            fixture.repo, "origin", channel="preview"
+                        )
+
+    def test_completed_publication_integrates_later_agent_work_and_prepares_next_calver(
+        self,
+    ):
+        fixture = self._published_preview_fixture()
+        rescue = fixture.repo / ".build/rescue"
+        lock = fixture.repo / ".build/nightly-prerelease-release.lock"
+        candidate = self.release.BranchCandidate(
+            name="codex/later-work", ref="codex/later-work", source="local"
+        )
+        events = []
+
+        def create_lock(_root):
+            lock.mkdir(parents=True)
+            return lock
+
+        def coordinator(_root, _args, resume_receipt=None):
+            events.append(("coordinator", resume_receipt))
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(self._publication_state_environment(fixture))
+            stack.enter_context(
+                mock.patch.object(self.release, "create_lock", create_lock)
+            )
+            for name in (
+                "ensure_rescue_root_is_ignored",
+                "prune_rescue_archives",
+                "ensure_clean_main",
+                "git",
+                "write_rescue_archive",
+                "commit_dirty_worktrees",
+                "cleanup_agent_refs",
+                "print_summary",
+                "ensure_release_collision_free",
+            ):
+                stack.enter_context(mock.patch.object(self.release, name))
+            stack.enter_context(
+                mock.patch.object(
+                    self.release, "github_release_tags", return_value=["v2026.8.1"]
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release, "discover_agent_branches", return_value=[candidate]
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release,
+                    "select_approved_agent_branches",
+                    return_value=[candidate],
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release, "create_rescue_dir", return_value=rescue
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release,
+                    "merge_agent_branches",
+                    side_effect=lambda *_args: events.append(("merge", candidate.name)),
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release,
+                    "prepare_or_resume_release",
+                    side_effect=lambda *_args: events.append(("prepare", _args[1])),
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    self.release, "run_common_coordinator", side_effect=coordinator
+                )
+            )
+            status = self.release.main(
+                [
+                    "--repo",
+                    str(fixture.repo),
+                    "--main-branch",
+                    "master",
+                    "--rescue-root",
+                    str(rescue),
+                    "--approved-agent-branch",
+                    candidate.name,
+                    "--signing-identity",
+                    "Developer ID Application: Example",
+                    "--team-id",
+                    "TEAMID",
+                    "--notary-profile",
+                    "notary",
+                    "--sparkle-generate-appcast",
+                    str(fixture.bin / "generate_appcast"),
+                    "--dependency-receipt",
+                    str(fixture.root / "dependency-receipt.json"),
+                    "--no-prune-prereleases",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        self.assertIn(("merge", candidate.name), events)
+        self.assertIn(("prepare", "v2026.8.2"), events)
+        self.assertIn(("coordinator", None), events)
 
 
 class CommonReleaseCoordinatorTests(unittest.TestCase):
@@ -1215,14 +1452,28 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             scratch_path=fixture.scratch_root,
         )
         cases = {
-            "immutable digest missing": lambda value: value["v2026.8.1"]["assets"][0].pop("digest"),
-            "immutable size missing": lambda value: value["v2026.8.1"]["assets"][0].pop("size"),
-            "feed digest missing": lambda value: value["sparkle-stable"]["assets"][0].pop("digest"),
-            "feed size missing": lambda value: value["sparkle-stable"]["assets"][0].pop("size"),
-            "feed digest wrong": lambda value: value["sparkle-stable"]["assets"][0].update(digest="sha256:" + "0" * 64),
-            "feed size wrong": lambda value: value["sparkle-stable"]["assets"][0].update(size=appcast.stat().st_size + 1),
+            "immutable digest missing": lambda value: value["v2026.8.1"]["assets"][
+                0
+            ].pop("digest"),
+            "immutable size missing": lambda value: value["v2026.8.1"]["assets"][0].pop(
+                "size"
+            ),
+            "feed digest missing": lambda value: value["sparkle-stable"]["assets"][
+                0
+            ].pop("digest"),
+            "feed size missing": lambda value: value["sparkle-stable"]["assets"][0].pop(
+                "size"
+            ),
+            "feed digest wrong": lambda value: value["sparkle-stable"]["assets"][
+                0
+            ].update(digest="sha256:" + "0" * 64),
+            "feed size wrong": lambda value: value["sparkle-stable"]["assets"][
+                0
+            ].update(size=appcast.stat().st_size + 1),
             "feed draft": lambda value: value["sparkle-stable"].update(isDraft=True),
-            "feed channel state": lambda value: value["sparkle-stable"].update(isPrerelease=False),
+            "feed channel state": lambda value: value["sparkle-stable"].update(
+                isPrerelease=False
+            ),
         }
         for label, mutate in cases.items():
             with self.subTest(label=label):
@@ -1250,7 +1501,9 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.addCleanup(fixture.cleanup)
         notes = fixture.repo / "docs/release-notes/2026.8.1.md"
         notes.write_text(
-            notes.read_text(encoding="utf-8").replace("Channel: Stable", "Channel: Preview"),
+            notes.read_text(encoding="utf-8").replace(
+                "Channel: Stable", "Channel: Preview"
+            ),
             encoding="utf-8",
         )
         fixture._git("add", str(notes.relative_to(fixture.repo)))
@@ -1444,9 +1697,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             "run",
             side_effect=lambda command, **_kwargs: commands.append(command),
         ):
-            nightly.run_common_coordinator(
-                Path("/repo"), args, resume_receipt=receipt
-            )
+            nightly.run_common_coordinator(Path("/repo"), args, resume_receipt=receipt)
 
         self.assertEqual(len(commands), 1)
         self.assertIn("--resume", commands[0])

@@ -23,6 +23,12 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from release_contract import load_contract  # noqa: E402
+from release_repository import (  # noqa: E402
+    RepositoryIdentity,
+    RepositoryIdentityError,
+    repository_identity_from_url,
+    resolve_repository_identity,
+)
 
 
 MAX_JSON_BYTES = 2 * 1024 * 1024
@@ -70,6 +76,7 @@ class ReleaseRequest:
     prune_prereleases: bool
     prune_prereleases_keep: int
     sparkle_public_ed_key: str = PUBLIC_SPARKLE_KEY
+    github_repository: str = ""
 
 
 @dataclass(frozen=True)
@@ -285,9 +292,7 @@ def evaluate_actions_runs(
         if not matches:
             raise ReleaseError(f"required GitHub Actions job is missing: {name}")
         if len(matches) != 1:
-            raise ReleaseError(
-                f"required GitHub Actions job is ambiguous: {name}"
-            )
+            raise ReleaseError(f"required GitHub Actions job is ambiguous: {name}")
         job = matches[0]
         job_status = job.get("status")
         job_conclusion = job.get("conclusion")
@@ -301,8 +306,11 @@ def evaluate_actions_runs(
 
 
 class SubprocessRunner:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, environment: dict[str, str] | None = None):
         self.root = root
+        self.environment = os.environ.copy()
+        if environment:
+            self.environment.update(environment)
 
     def run(
         self,
@@ -312,10 +320,13 @@ class SubprocessRunner:
         env: dict[str, str] | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        command_environment = self.environment.copy()
+        if env:
+            command_environment.update(env)
         result = subprocess.run(
             command,
             cwd=self.root,
-            env=env,
+            env=command_environment,
             text=True,
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE if capture else None,
@@ -342,14 +353,23 @@ class SubprocessRunner:
             ) from error
 
 
-def _repository_key(runner: SubprocessRunner, root: Path) -> str:
-    origin = runner.run(
-        ["git", "config", "--get", "remote.origin.url"], capture=True, check=False
+def _repository_identity(
+    runner: SubprocessRunner,
+    remote: str,
+    expected_repository: str | None = None,
+) -> RepositoryIdentity:
+    result = runner.run(
+        ["git", "config", "--get", f"remote.{remote}.url"],
+        capture=True,
+        check=False,
     )
-    identity = (origin.stdout or "").strip() if origin.returncode == 0 else ""
-    if not identity:
-        identity = str(root)
-    return hashlib.sha256(identity.encode()).hexdigest()
+    url = (result.stdout or "").strip() if result.returncode == 0 else ""
+    if not url:
+        raise ReleaseError("selected Git remote is unavailable")
+    try:
+        return repository_identity_from_url(remote, url, expected_repository)
+    except RepositoryIdentityError as error:
+        raise ReleaseError(str(error)) from error
 
 
 def _candidate_receipt_identity(
@@ -390,11 +410,167 @@ def _remote_tag_commit(raw: str, tag: str) -> tuple[str, str]:
         fields = line.split()
         if len(fields) != 2:
             raise ReleaseError("remote tag response is malformed")
-        if fields[1] == f"refs/tags/{tag}":
+        commit, ref = fields
+        if HEX_COMMIT.fullmatch(commit) is None:
+            raise ReleaseError("remote tag response commit is malformed")
+        if ref == f"refs/tags/{tag}":
+            if direct:
+                raise ReleaseError("remote tag response is ambiguous")
             direct = fields[0]
-        elif fields[1] == f"refs/tags/{tag}^{{}}":
+        elif ref == f"refs/tags/{tag}^{{}}":
+            if peeled:
+                raise ReleaseError("remote tag response is ambiguous")
             peeled = fields[0]
+        else:
+            raise ReleaseError("remote tag response is out of scope")
     return direct, peeled
+
+
+def _remote_release_payload(
+    runner: SubprocessRunner, tag: str, label: str
+) -> dict[str, Any] | None:
+    result = runner.run(
+        [
+            "gh",
+            "release",
+            "view",
+            tag,
+            "--json",
+            "targetCommitish,isPrerelease,isDraft,assets,url",
+        ],
+        capture=True,
+        check=False,
+    )
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        raise ReleaseError(f"could not inspect {label}")
+    try:
+        payload = json.loads(result.stdout or "")
+    except json.JSONDecodeError as error:
+        raise ReleaseError(f"{label} response is malformed") from error
+    if not isinstance(payload, dict):
+        raise ReleaseError(f"{label} response is malformed")
+    return payload
+
+
+def _publication_asset_state(
+    payload: dict[str, Any], expected_name: str, label: str
+) -> str:
+    assets = payload.get("assets")
+    if not isinstance(assets, list):
+        raise ReleaseError(f"{label} assets are malformed")
+    matches = [
+        asset
+        for asset in assets
+        if isinstance(asset, dict) and asset.get("name") == expected_name
+    ]
+    if not matches:
+        return "incomplete"
+    if len(matches) != 1:
+        raise ReleaseError(f"{label} asset is ambiguous")
+    asset = matches[0]
+    digest = asset.get("digest")
+    size = asset.get("size")
+    if (
+        not isinstance(digest, str)
+        or not digest.startswith("sha256:")
+        or HEX_SHA256.fullmatch(digest.removeprefix("sha256:")) is None
+        or type(size) is not int
+        or size <= 0
+    ):
+        raise ReleaseError(f"{label} asset digest or size is malformed")
+    return "complete"
+
+
+def _publication_release_state(
+    payload: dict[str, Any] | None,
+    *,
+    identity: CandidateIdentity,
+    prerelease: bool,
+    asset_name: str,
+    label: str,
+) -> str:
+    if payload is None:
+        return "incomplete"
+    if payload.get("targetCommitish") != identity.commit:
+        raise ReleaseError(f"{label} target is not the candidate commit")
+    if payload.get("isDraft") is not False:
+        raise ReleaseError(f"{label} is a draft")
+    if payload.get("isPrerelease") is not prerelease:
+        raise ReleaseError(f"{label} channel state is wrong")
+    return _publication_asset_state(payload, asset_name, label)
+
+
+def tagged_publication_state(
+    root: Path,
+    remote: str,
+    channel_name: str,
+    identity: CandidateIdentity,
+    expected_repository: str | None = None,
+) -> str:
+    """Classify an exact tagged transaction as incomplete or complete.
+
+    Existing conflicting release state fails closed. The selected Git remote is
+    the sole source of repository identity for both Git and GitHub inspection.
+    """
+
+    try:
+        repository = resolve_repository_identity(root, remote, expected_repository)
+    except RepositoryIdentityError as error:
+        raise ReleaseError(str(error)) from error
+    runner = SubprocessRunner(root, {"GH_REPO": repository.github_repository})
+    raw = runner.text(
+        [
+            "git",
+            "ls-remote",
+            "--tags",
+            remote,
+            f"refs/tags/{identity.tag}",
+            f"refs/tags/{identity.tag}^{{}}",
+        ]
+    )
+    direct, peeled = _remote_tag_commit(raw, identity.tag)
+    if not direct and not peeled:
+        return "untagged"
+    if not direct or not peeled or peeled != identity.commit:
+        raise ReleaseError("current release tag is not exact for the candidate commit")
+
+    contract = load_contract(root / "config/release-contract.json")
+    channel = contract.channel(channel_name)
+    checks = [
+        _publication_release_state(
+            _remote_release_payload(runner, identity.tag, "immutable release"),
+            identity=identity,
+            prerelease=channel.githubPrerelease,
+            asset_name=f"Lungfish-{identity.version}-arm64.dmg",
+            label="immutable release",
+        ),
+        _publication_release_state(
+            _remote_release_payload(
+                runner, channel.sparkleRelease, "mutable Sparkle feed"
+            ),
+            identity=identity,
+            prerelease=True,
+            asset_name=channel.appcastFilename,
+            label="mutable Sparkle feed",
+        ),
+    ]
+    if channel.legacyBridgeRelease:
+        if not channel.legacyBridgeAppcastFilename:
+            raise ReleaseError("legacy Sparkle bridge filename is unavailable")
+        checks.append(
+            _publication_release_state(
+                _remote_release_payload(
+                    runner, channel.legacyBridgeRelease, "legacy Sparkle bridge"
+                ),
+                identity=identity,
+                prerelease=True,
+                asset_name=channel.legacyBridgeAppcastFilename,
+                label="legacy Sparkle bridge",
+            )
+        )
+    return "complete" if all(state == "complete" for state in checks) else "incomplete"
 
 
 def _metadata(path: Path) -> dict[str, str]:
@@ -477,9 +653,10 @@ def _verify_mutable_release_identity(
 
 
 class LocalReleaseOperations:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, github_repository: str = ""):
         self.root = root.resolve(strict=True)
-        self.runner = SubprocessRunner(self.root)
+        environment = {"GH_REPO": github_repository} if github_repository else None
+        self.runner = SubprocessRunner(self.root, environment)
         self.contract = load_contract(self.root / "config/release-contract.json")
 
     def _paths(self, request: ReleaseRequest) -> tuple[Path, Path, Path]:
@@ -502,7 +679,9 @@ class LocalReleaseOperations:
                     "/private/var/tmp/lungfish-release-swiftpm",
                 )
             )
-            / _repository_key(self.runner, self.root)
+            / _repository_identity(
+                self.runner, request.remote, request.github_repository
+            ).repository_key
             / commit
         )
         self.runner.run(
@@ -521,6 +700,10 @@ class LocalReleaseOperations:
                 str(archive),
                 "--derived-data-path",
                 str(derived),
+                "--remote",
+                request.remote,
+                "--github-repository",
+                request.github_repository,
             ]
         )
 
@@ -563,6 +746,10 @@ class LocalReleaseOperations:
             str(derived),
             "--sparkle-public-ed-key",
             request.sparkle_public_ed_key,
+            "--remote",
+            request.remote,
+            "--github-repository",
+            request.github_repository,
         ]
         self.runner.run(command)
         receipt = release_dir / "unsigned-candidate-receipt.json"
@@ -768,6 +955,10 @@ class LocalReleaseOperations:
             request.sparkle_public_ed_key,
             "--sparkle-generate-appcast",
             str(request.sparkle_generate_appcast),
+            "--remote",
+            request.remote,
+            "--github-repository",
+            request.github_repository,
         ]
         if request.sparkle_ed_key_file is not None:
             command.extend(["--sparkle-ed-key-file", str(request.sparkle_ed_key_file)])
@@ -865,9 +1056,7 @@ class LocalReleaseOperations:
                 "targetCommitish,isPrerelease,isDraft,assets,url",
             ]
         )
-        feed = _verify_mutable_release_identity(
-            feed, identity, "mutable Sparkle feed"
-        )
+        feed = _verify_mutable_release_identity(feed, identity, "mutable Sparkle feed")
         _verify_exact_remote_asset(
             feed, appcast, channel.appcastFilename, "mutable Sparkle feed appcast"
         )
@@ -911,6 +1100,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-dir", type=Path)
     parser.add_argument("--dependency-receipt", type=Path)
     parser.add_argument("--remote", default="origin")
+    parser.add_argument("--github-repository")
     parser.add_argument("--main-branch", default="main")
     parser.add_argument("--signing-identity", default="")
     parser.add_argument("--team-id", default="")
@@ -951,6 +1141,12 @@ def main(argv: list[str] | None = None) -> int:
             raise ReleaseError("CI timeout must be between 1 second and 12 hours")
         if args.prune_prereleases_keep < 1:
             raise ReleaseError("prerelease retention count must be positive")
+        try:
+            repository = resolve_repository_identity(
+                root, args.remote, args.github_repository
+            )
+        except RepositoryIdentityError as error:
+            raise ReleaseError(str(error)) from error
         dependency_receipt = args.dependency_receipt
         if dependency_receipt is None:
             configured = os.environ.get("LUNGFISH_DEPENDENCY_RECEIPT", "")
@@ -994,8 +1190,11 @@ def main(argv: list[str] | None = None) -> int:
             prune_prereleases=args.prune,
             prune_prereleases_keep=args.prune_prereleases_keep,
             sparkle_public_ed_key=args.sparkle_public_ed_key,
+            github_repository=repository.github_repository,
         )
-        identity = ReleaseCoordinator(LocalReleaseOperations(root)).execute(request)
+        identity = ReleaseCoordinator(
+            LocalReleaseOperations(root, repository.github_repository)
+        ).execute(request)
         print(
             f"Release complete: channel={request.channel} tag={identity.tag} commit={identity.commit}"
         )

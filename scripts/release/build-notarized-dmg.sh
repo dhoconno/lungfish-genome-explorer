@@ -28,6 +28,9 @@ Optional:
   --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
   --release-dir       Release directory (default: build/Release)
   --derived-data-path DerivedData path for the Xcode archive (default: <project-root>/.build/release-derived-data)
+  --remote NAME      Selected Git remote used for identity and tag checks (default: origin)
+  --github-repository OWNER/REPO
+                      Require the selected remote to identify this GitHub repository
   --reuse-archive     Retired; use --resume-candidate RECEIPT
   --reuse-built-cli   Retired; use --resume-candidate RECEIPT
   --github-release-tag TAG
@@ -76,6 +79,7 @@ SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-n
 RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
 RELEASE_DOCTOR_SCRIPT="${PROJECT_ROOT}/scripts/release/release-doctor.py"
 RELEASE_TARGET_SECURITY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_target_security.py"
+RELEASE_REPOSITORY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_repository.py"
 CANDIDATE_RECEIPT_SCRIPT="${PROJECT_ROOT}/scripts/release/release-candidate-receipt.py"
 
 SIGNING_IDENTITY=""
@@ -118,6 +122,8 @@ DEFER_REMOTE_PUBLISH=0
 PRERELEASE_PRUNE_ENABLED=0
 PRERELEASE_PRUNE_KEEP=10
 PRERELEASE_PRUNE_REPORT_PATH=""
+GIT_REMOTE="origin"
+GITHUB_REPOSITORY=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -160,6 +166,14 @@ while [ "$#" -gt 0 ]; do
             ;;
         --derived-data-path)
             DERIVED_DATA_PATH="$2"
+            shift 2
+            ;;
+        --remote)
+            GIT_REMOTE="$2"
+            shift 2
+            ;;
+        --github-repository)
+            GITHUB_REPOSITORY="$2"
             shift 2
             ;;
         --reuse-archive)
@@ -494,7 +508,7 @@ if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
 
-SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
+SPARKLE_FEED_URL=""
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
@@ -505,14 +519,41 @@ require_command() {
     fi
 }
 
-for command in git shasum python3; do
+for command in git /usr/bin/shasum python3; do
     require_command "$command"
 done
 if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ] \
-    || [ ! -f "$RELEASE_TARGET_SECURITY_SCRIPT" ]; then
+    || [ ! -f "$RELEASE_TARGET_SECURITY_SCRIPT" ] \
+    || [ ! -f "$RELEASE_REPOSITORY_SCRIPT" ]; then
     echo "release Doctor or candidate receipt helper is missing or not executable" >&2
     exit 69
 fi
+
+repository_args=(
+    --project-root "$PROJECT_ROOT"
+    --remote "$GIT_REMOTE"
+)
+if [ -n "$GITHUB_REPOSITORY" ]; then
+    repository_args+=(--github-repository "$GITHUB_REPOSITORY")
+fi
+repository_output=$(python3 "$RELEASE_REPOSITORY_SCRIPT" "${repository_args[@]}")
+repository_key=""
+resolved_github_repository=""
+while IFS='=' read -r repository_field repository_value; do
+    case "$repository_field" in
+        repositoryKey) repository_key="$repository_value" ;;
+        githubRepository) resolved_github_repository="$repository_value" ;;
+        *) echo "selected Git remote returned malformed identity" >&2; exit 64 ;;
+    esac
+done <<<"$repository_output"
+if ! [[ "$repository_key" =~ ^[0-9a-f]{64}$ ]] \
+    || ! [[ "$resolved_github_repository" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+    echo "selected Git remote returned incomplete identity" >&2
+    exit 64
+fi
+GITHUB_REPOSITORY="$resolved_github_repository"
+export GH_REPO="$GITHUB_REPOSITORY"
+SPARKLE_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
 
 verify_versioned_release_identity() {
     if [ -z "$GITHUB_RELEASE_TAG" ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
@@ -527,7 +568,7 @@ verify_versioned_release_identity() {
     local peeled_count
     local release_exists=0
     head_commit=$(git rev-parse HEAD)
-    remote_lines=$(git ls-remote --tags origin \
+    remote_lines=$(git ls-remote --tags "$GIT_REMOTE" \
         "refs/tags/${GITHUB_RELEASE_TAG}" \
         "refs/tags/${GITHUB_RELEASE_TAG}^{}")
     direct_count=$(printf '%s\n' "$remote_lines" \
@@ -601,8 +642,6 @@ CANDIDATE_RECEIPT_PATH="${RELEASE_DIR}/unsigned-candidate-receipt.json"
 APP_NOTARY_LOG="${RELEASE_DIR}/notary-app-log.json"
 DMG_NOTARY_LOG="${RELEASE_DIR}/notary-dmg-log.json"
 
-repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
-repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
 release_commit=$(git rev-parse --verify HEAD)
 
 refresh_output_paths() {
@@ -633,7 +672,12 @@ fi
 
 run_release_doctor() {
     local mode="$1"
-    local doctor_args=(--mode "$mode" --channel "$CHANNEL")
+    local doctor_args=(
+        --mode "$mode"
+        --channel "$CHANNEL"
+        --remote "$GIT_REMOTE"
+        --github-repository "$GITHUB_REPOSITORY"
+    )
     if [ "$mode" = package ]; then
         doctor_args+=(
             --scratch-path "$SCRATCH_PATH"
@@ -755,7 +799,7 @@ publish_github_release_dmg() {
         existing_digest=$(gh release view "$GITHUB_RELEASE_TAG" --json assets \
             --jq ".assets[] | select(.name == \"$(basename "$DMG_PATH")\") | .digest")
         if [ -n "$existing_digest" ]; then
-            local_digest="sha256:$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+            local_digest="sha256:$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
             if [ "$existing_digest" != "$local_digest" ]; then
                 echo "existing release DMG digest differs; refusing recovery overwrite: $GITHUB_RELEASE_TAG" >&2
                 exit 64
@@ -821,7 +865,7 @@ publish_mutable_asset_if_changed() {
     local expected_size
     local remote_record
     asset_name=$(basename "$local_path")
-    expected_digest="sha256:$(shasum -a 256 "$local_path" | awk '{print $1}')"
+    expected_digest="sha256:$(/usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
     expected_size=$(/usr/bin/stat -f %z "$local_path")
     remote_record=$(gh release view "$release_tag" --json assets \
         --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
@@ -1163,6 +1207,24 @@ APP_NOTARY_ZIP="${RELEASE_DIR}/Lungfish-app-notary.zip"
 SIGNED_APP_PATH="${RELEASE_DIR}/signed/${APP_BUNDLE_FILENAME}"
 DMG_PATH="${RELEASE_DIR}/Lungfish-${SOURCE_VERSION}-arm64.dmg"
 
+validate_signed_output_target() {
+    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-signed-output \
+        --release-dir "$RELEASE_DIR" \
+        --signed-app-path "$SIGNED_APP_PATH" \
+        --repository-key "$repository_key"
+}
+
+prepare_signed_output_parent() {
+    validate_signed_output_target
+    if [ ! -d "$(dirname "$SIGNED_APP_PATH")" ]; then
+        /bin/mkdir "$(dirname "$SIGNED_APP_PATH")"
+        /bin/chmod 700 "$(dirname "$SIGNED_APP_PATH")"
+    fi
+    validate_signed_output_target
+}
+
+validate_signed_output_target
+
 # A verified receipt makes these exact paths safe retry derivatives. Remove
 # only bounded signing/notary outputs; never remove the unsigned app, receipt,
 # package metadata, archive, DerivedData, or deterministic scratch.
@@ -1197,7 +1259,7 @@ clear_verified_retry_artifacts() {
 
 cleanup_release_workdirs() {
     if [ "${RECOVERY_MOUNTED:-0}" -eq 1 ] && [ -n "${RECOVERY_MOUNT_POINT:-}" ]; then
-        /usr/bin/hdiutil detach "$RECOVERY_MOUNT_POINT" >/dev/null 2>&1 || true
+        echo "recovery mount remains attached; preserving private recovery workspace" >&2
     fi
     if [ -n "${SIGNING_WORK_DIR:-}" ]; then
         /bin/rm -rf "$SIGNING_WORK_DIR"
@@ -1205,7 +1267,7 @@ cleanup_release_workdirs() {
     if [ -n "${DMG_STAGING_DIR:-}" ]; then
         /bin/rm -rf "$DMG_STAGING_DIR"
     fi
-    if [ -n "${RECOVERY_WORK_DIR:-}" ]; then
+    if [ "${RECOVERY_MOUNTED:-0}" -eq 0 ] && [ -n "${RECOVERY_WORK_DIR:-}" ]; then
         /bin/rm -rf "$RECOVERY_WORK_DIR"
     fi
 }
@@ -1245,7 +1307,7 @@ verify_file_matches_remote_asset() {
         echo "$label remote digest or size is malformed" >&2
         exit 64
     fi
-    actual_digest="sha256:$(shasum -a 256 "$path" | awk '{print $1}')"
+    actual_digest="sha256:$(/usr/bin/shasum -a 256 "$path" | awk '{print $1}')"
     actual_size=$(/usr/bin/stat -f %z "$path")
     if [ "$actual_digest" != "$expected_digest" ] || [ "$actual_size" != "$expected_size" ]; then
         echo "$label does not match the immutable GitHub release asset" >&2
@@ -1312,10 +1374,13 @@ recover_immutable_release_artifacts() {
         exit 64
     fi
     /usr/bin/ditto "${RECOVERY_MOUNT_POINT}/${APP_BUNDLE_FILENAME}" "$extracted_app"
-    /usr/bin/hdiutil detach "$RECOVERY_MOUNT_POINT" >/dev/null
+    if ! /usr/bin/hdiutil detach "$RECOVERY_MOUNT_POINT" >/dev/null; then
+        echo "recovery DMG detach failed; private recovery workspace retained" >&2
+        exit 81
+    fi
     RECOVERY_MOUNTED=0
     verify_recovered_signed_app "$extracted_app"
-    /bin/mkdir -p "$(dirname "$SIGNED_APP_PATH")"
+    prepare_signed_output_parent
     /bin/mv "$extracted_app" "$SIGNED_APP_PATH"
 }
 
@@ -1436,7 +1501,7 @@ scripts/smoke-test-release-tools.sh "$APP_PATH" \
 /usr/bin/xcrun stapler staple "$APP_PATH"
 
 /bin/rm -rf "$SIGNED_APP_PATH"
-/bin/mkdir -p "$(dirname "$SIGNED_APP_PATH")"
+prepare_signed_output_parent
 /usr/bin/ditto "$APP_PATH" "$SIGNED_APP_PATH"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
@@ -1481,7 +1546,7 @@ fi
 generate_sparkle_appcast
 prune_github_prereleases
 
-DMG_SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+DMG_SHA=$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 COMMIT_SHA=$(git rev-parse HEAD)
 
 cat >"$METADATA_PATH" <<EOF

@@ -79,6 +79,8 @@ class ReleaseDoctorFixture:
             "STUB_GH_AUTH_OK": "1",
             "STUB_GH_API_OK": "1",
             "STUB_GH_CAN_PUSH": "true",
+            "STUB_UPSTREAM_URL": "https://github.com/example/lungfish.git",
+            "STUB_EXPECTED_GH_API": "repos/example/lungfish",
             "STUB_GIT_STATUS": "",
             "STUB_SPARKLE_KEY_OK": "1",
             "STUB_SPARKLE_HELP_OK": "1",
@@ -146,10 +148,21 @@ class ReleaseDoctorFixture:
                       printf '%s' "$STUB_GIT_STATUS"
                     fi
                     ;;
-                  "config --get") printf 'https://github.com/example/lungfish.git\\n' ;;
+                  "config --get")
+                    case "${3:-}" in
+                      remote.upstream.url) printf '%s\\n' "$STUB_UPSTREAM_URL" ;;
+                      *) printf 'https://github.com/example/lungfish.git\\n' ;;
+                    esac
+                    ;;
                   "rev-parse --verify") printf '0123456789abcdef0123456789abcdef01234567\\n' ;;
                   "rev-parse --show-toplevel") printf '%s\\n' "$PWD" ;;
-                  "remote get-url") printf 'https://github.com/example/lungfish.git\\n' ;;
+                  "remote get-url")
+                    if [ "${3:-}" = upstream ]; then
+                      printf '%s\\n' "$STUB_UPSTREAM_URL"
+                    else
+                      printf 'https://github.com/example/lungfish.git\\n'
+                    fi
+                    ;;
                   *) exit 65 ;;
                 esac
                 """
@@ -167,6 +180,7 @@ class ReleaseDoctorFixture:
                   [ "$STUB_GH_AUTH_OK" = 1 ]
                 elif [ "${1:-}" = api ]; then
                   [ "$STUB_GH_API_OK" = 1 ] || exit 1
+                  [ "${2:-}" = "$STUB_EXPECTED_GH_API" ] || exit 89
                   if [[ " $* " == *" .permissions.push "* ]]; then
                     printf '%s\\n' "$STUB_GH_CAN_PUSH"
                   fi
@@ -610,6 +624,46 @@ class ReleaseDoctorTests(unittest.TestCase):
     def test_rejects_read_only_github_release_permission(self):
         env = {**self.fx.env, "STUB_GH_CAN_PUSH": "false"}
         self.assert_failure("GitHub release permission", mode="credentials", env=env)
+
+    def test_selected_remote_binds_doctor_repository_identity_and_github_api(self):
+        result = self.fx.run_doctor(
+            mode="credentials",
+            extra=(
+                "--remote",
+                "upstream",
+                "--github-repository",
+                "right/lungfish",
+            ),
+            env={
+                **self.fx.env,
+                "STUB_UPSTREAM_URL": "git@github.com:right/lungfish.git",
+                "STUB_EXPECTED_GH_API": "repos/right/lungfish",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_rejects_non_github_or_mismatched_selected_remote_without_leaking_url(self):
+        for remote_url, repository in (
+            ("https://gitlab.example/right/lungfish.git", "right/lungfish"),
+            ("https://github.com/wrong/lungfish.git", "right/lungfish"),
+            ("https://secret-token@github.com/right/lungfish.git", "right/lungfish"),
+        ):
+            with self.subTest(remote_url=remote_url):
+                result = self.fx.run_doctor(
+                    mode="credentials",
+                    extra=(
+                        "--remote",
+                        "upstream",
+                        "--github-repository",
+                        repository,
+                    ),
+                    env={**self.fx.env, "STUB_UPSTREAM_URL": remote_url},
+                )
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn("selected Git remote", output)
+                self.assertNotIn("secret-token", output)
 
     def test_rejects_missing_sparkle_tools(self):
         missing = self.fx.root / "missing-sparkle-tools"

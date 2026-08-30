@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +14,7 @@ import sys
 import tempfile
 
 from release_cache_security import CacheSecurityError, validate_ancestor_chain
+from release_repository import RepositoryIdentityError, resolve_repository_identity
 
 
 RELEASE_MARKER = ".lungfish-release-output"
@@ -202,6 +202,54 @@ def validate_release_output_marker(
         expected_uid=uid,
         label="release directory",
     )
+
+
+def validate_signed_app_target(
+    release_dir: Path,
+    signed_app_path: Path,
+    *,
+    repository_key: str,
+    expected_uid: int | None = None,
+) -> None:
+    """Require a canonical signed-app leaf below a private owned parent."""
+    uid = os.geteuid() if expected_uid is None else expected_uid
+    validate_release_output_marker(
+        release_dir, repository_key=repository_key, expected_uid=uid
+    )
+    release = release_dir.resolve(strict=True)
+    expected_parent = release / "signed"
+    if signed_app_path.parent != expected_parent or not signed_app_path.name.endswith(
+        ".app"
+    ):
+        raise TargetSecurityError(
+            "signed app must be an exact child of the marked release signed directory"
+        )
+    canonical = _canonical_target(signed_app_path, label="signed app", expected_uid=uid)
+    if canonical.parent != expected_parent:
+        raise TargetSecurityError("signed app escapes the marked release directory")
+    if expected_parent.exists() or expected_parent.is_symlink():
+        try:
+            parent_metadata = expected_parent.lstat()
+        except OSError as error:
+            raise TargetSecurityError(
+                "signed app parent metadata is unavailable"
+            ) from error
+        if (
+            not stat.S_ISDIR(parent_metadata.st_mode)
+            or stat.S_ISLNK(parent_metadata.st_mode)
+            or parent_metadata.st_uid != uid
+            or stat.S_IMODE(parent_metadata.st_mode) & 0o077
+        ):
+            raise TargetSecurityError(
+                "signed app parent must be a private owner-controlled directory"
+            )
+    if signed_app_path.exists() or signed_app_path.is_symlink():
+        try:
+            app_metadata = signed_app_path.lstat()
+        except OSError as error:
+            raise TargetSecurityError("signed app metadata is unavailable") from error
+        if not stat.S_ISDIR(app_metadata.st_mode) or stat.S_ISLNK(app_metadata.st_mode):
+            raise TargetSecurityError("signed app must be a non-symlink directory")
 
 
 def _write_private_marker(path: Path, payload: dict[str, object]) -> None:
@@ -403,22 +451,8 @@ def validate_release_targets(
         )
 
 
-def repository_identity(project_root: Path) -> tuple[str, str]:
-    remote = subprocess.run(
-        ["git", "-C", str(project_root), "config", "--get", "remote.origin.url"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).stdout.strip()
-    if not remote:
-        remote = subprocess.run(
-            ["git", "-C", str(project_root), "rev-parse", "--show-toplevel"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=True,
-        ).stdout.strip()
+def repository_identity(project_root: Path, remote: str) -> tuple[str, str]:
+    identity = resolve_repository_identity(project_root, remote)
     commit = subprocess.run(
         ["git", "-C", str(project_root), "rev-parse", "--verify", "HEAD"],
         text=True,
@@ -426,7 +460,7 @@ def repository_identity(project_root: Path) -> tuple[str, str]:
         stderr=subprocess.DEVNULL,
         check=True,
     ).stdout.strip()
-    return hashlib.sha256(remote.encode()).hexdigest(), commit
+    return identity.repository_key, commit
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -438,6 +472,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-dir", type=Path, required=True)
     parser.add_argument("--archive-path", type=Path, required=True)
     parser.add_argument("--derived-data-path", type=Path, required=True)
+    parser.add_argument("--remote", default="origin")
     return parser
 
 
@@ -455,7 +490,28 @@ def _release_marker_parser(description: str) -> argparse.ArgumentParser:
     return parser
 
 
+def _signed_output_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=validate_signed_app_target.__doc__)
+    parser.add_argument("--release-dir", type=Path, required=True)
+    parser.add_argument("--signed-app-path", type=Path, required=True)
+    parser.add_argument("--repository-key", required=True)
+    return parser
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "validate-signed-output":
+        args = _signed_output_parser().parse_args(sys.argv[2:])
+        try:
+            validate_signed_app_target(
+                args.release_dir,
+                args.signed_app_path,
+                repository_key=args.repository_key,
+            )
+        except TargetSecurityError as error:
+            print(f"FAIL signed output: {error}")
+            return 1
+        print("PASS signed output: canonical private target verified")
+        return 0
     if len(sys.argv) > 1 and sys.argv[1] == "record-archive":
         args = _record_archive_parser().parse_args(sys.argv[2:])
         try:
@@ -489,7 +545,7 @@ def main() -> int:
         return 0
     args = _parser().parse_args()
     try:
-        repository_key, commit = repository_identity(args.project_root)
+        repository_key, commit = repository_identity(args.project_root, args.remote)
         validate_release_targets(
             project_root=args.project_root,
             home=args.home,
@@ -501,7 +557,12 @@ def main() -> int:
             repository_key=repository_key,
             commit=commit,
         )
-    except (OSError, subprocess.SubprocessError, TargetSecurityError) as error:
+    except (
+        OSError,
+        RepositoryIdentityError,
+        subprocess.SubprocessError,
+        TargetSecurityError,
+    ) as error:
         print(f"FAIL mutation targets: {error}")
         return 1
     print("PASS mutation targets: exact package mutation targets are safe")
