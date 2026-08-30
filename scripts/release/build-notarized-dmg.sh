@@ -39,7 +39,7 @@ Optional:
   --sparkle-appcast-dir PATH
                       Local appcast working directory (default: <release-dir>/sparkle-appcast)
   --sparkle-appcast-filename NAME
-                      Appcast asset filename and feed path (default: appcast-beta.xml)
+                      Override the contract-selected appcast asset filename
   --sparkle-download-url-prefix URL
                       URL prefix for versioned DMG downloads (default: GitHub release v<version>)
   --sparkle-publish-release TAG
@@ -47,12 +47,11 @@ Optional:
   --sparkle-bridge-publish-release TAG
                       Also upload the generated appcast to a legacy Sparkle feed release
   --sparkle-bridge-appcast-filename NAME
-                      Legacy bridge appcast filename (default: appcast-alpha.xml)
+                      Override the contract-selected legacy bridge appcast filename
   --channel preview|stable
-                      Release channel (default: preview). preview publishes a GitHub
-                      prerelease feeding appcast-beta.xml at sparkle-beta; stable
-                      publishes a full release feeding appcast-stable.xml at
-                      sparkle-stable, which triggers CI's heavy validation board
+                      Release channel (default: preview). Application identity,
+                      feeds, prerelease status, and legacy bridge defaults are
+                      loaded from config/release-contract.json
   --prune-prereleases
                       After successful remote publishing, delete old prerelease GitHub Release records while preserving git tags
   --prune-prereleases-keep COUNT
@@ -86,6 +85,7 @@ SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_ED_KEY_FILE="${SPARKLE_ED_KEY_FILE:-}"
 SPARKLE_APPCAST_DIR=""
 CHANNEL="preview"
+SHOW_HELP=0
 DESCRIBE_CHANNEL=""
 SPARKLE_APPCAST_FILENAME_EXPLICIT=0
 SPARKLE_PUBLISH_RELEASE_EXPLICIT=0
@@ -226,8 +226,8 @@ while [ "$#" -gt 0 ]; do
             shift 2
             ;;
         -h|--help)
-            usage
-            exit 0
+            SHOW_HELP=1
+            shift
             ;;
         *)
             echo "unknown argument: $1" >&2
@@ -236,6 +236,20 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+if [ "$SHOW_HELP" -eq 1 ]; then
+    case "$CHANNEL" in
+        preview|stable) ;;
+        *)
+            echo "invalid --channel: ${CHANNEL} (expected preview or stable)" >&2
+            exit 64
+            ;;
+    esac
+    usage
+    printf '\nContract-selected defaults for %s:\n' "$CHANNEL"
+    python3 "$RELEASE_CONTRACT_SCRIPT" describe --channel "$CHANNEL"
+    exit 0
+fi
 
 if [ -n "$DESCRIBE_CHANNEL" ]; then
     case "$DESCRIBE_CHANNEL" in
@@ -335,7 +349,9 @@ case "$CHANNEL" in
         exit 64
         ;;
 esac
-if [ "$CHANNEL" = "stable" ] && [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ]; then
+if [ "$CHANNEL" = "stable" ] \
+    && { [ "$SPARKLE_BRIDGE_PUBLISH_RELEASE_EXPLICIT" -eq 1 ] \
+        || [ "$SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT" -eq 1 ]; }; then
     echo "stable channel does not support a legacy preview-feed bridge" >&2
     exit 64
 fi

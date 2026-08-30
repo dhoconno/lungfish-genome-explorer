@@ -165,21 +165,26 @@ def _parse_toolchain(raw: Any) -> ToolchainContract:
 
 
 def _reject_duplicates(channels: Mapping[str, ChannelContract]) -> None:
-    for field in ("appBundleFilename", "sparkleRelease", "appcastFilename"):
+    for field in ("appBundleFilename", "sparkleRelease"):
         values = [getattr(channel, field) for channel in channels.values()]
         if len(values) != len(set(values)):
             raise ValueError(f"duplicate channel {field}")
 
+    appcast_filenames = []
     feed_paths = []
     for channel in channels.values():
+        appcast_filenames.append(channel.appcastFilename)
         feed_paths.append((channel.sparkleRelease, channel.appcastFilename))
         if channel.legacyBridgeRelease:
+            appcast_filenames.append(channel.legacyBridgeAppcastFilename)
             feed_paths.append(
                 (
                     channel.legacyBridgeRelease,
                     channel.legacyBridgeAppcastFilename,
                 )
             )
+    if len(appcast_filenames) != len(set(appcast_filenames)):
+        raise ValueError("duplicate channel appcast filename")
     if len(feed_paths) != len(set(feed_paths)):
         raise ValueError("duplicate channel feed")
 

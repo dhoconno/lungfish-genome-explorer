@@ -165,6 +165,42 @@ class ReleaseContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "duplicate"):
                     self.module.load_contract(self.write_contract(mutation))
 
+    def test_contract_rejects_duplicate_appcast_filenames_across_primary_and_legacy_feeds(self):
+        mutations = []
+
+        primary_matches_legacy = copy.deepcopy(self.raw_contract)
+        primary_matches_legacy["channels"]["stable"]["appcastFilename"] = (
+            primary_matches_legacy["channels"]["preview"][
+                "legacyBridgeAppcastFilename"
+            ]
+        )
+        mutations.append(("primary matches legacy", primary_matches_legacy))
+
+        legacy_matches_primary = copy.deepcopy(self.raw_contract)
+        legacy_matches_primary["channels"]["stable"]["legacyBridgeRelease"] = (
+            "sparkle-stable-legacy"
+        )
+        legacy_matches_primary["channels"]["stable"][
+            "legacyBridgeAppcastFilename"
+        ] = legacy_matches_primary["channels"]["preview"]["appcastFilename"]
+        mutations.append(("legacy matches primary", legacy_matches_primary))
+
+        duplicate_legacy = copy.deepcopy(self.raw_contract)
+        duplicate_legacy["channels"]["stable"]["legacyBridgeRelease"] = (
+            "sparkle-stable-legacy"
+        )
+        duplicate_legacy["channels"]["stable"]["legacyBridgeAppcastFilename"] = (
+            duplicate_legacy["channels"]["preview"][
+                "legacyBridgeAppcastFilename"
+            ]
+        )
+        mutations.append(("legacy matches legacy", duplicate_legacy))
+
+        for label, mutation in mutations:
+            with self.subTest(duplicate=label):
+                with self.assertRaisesRegex(ValueError, "duplicate.*appcast"):
+                    self.module.load_contract(self.write_contract(mutation))
+
     def test_builder_describe_channel_matches_contract_without_credentials(self):
         for name, expected in EXPECTED_CHANNELS.items():
             with self.subTest(channel=name):

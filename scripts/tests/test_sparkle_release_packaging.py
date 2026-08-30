@@ -76,6 +76,27 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                     self.release_contract["channels"][channel],
                 )
 
+    def test_release_script_help_describes_the_contract_selected_channel(self):
+        cases = (
+            ("preview", ("--help", "--channel", "preview")),
+            ("stable", ("--channel", "stable", "--help")),
+        )
+        for channel, arguments in cases:
+            with self.subTest(channel=channel):
+                result = self._run_builder(*arguments)
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                described = json.loads(result.stdout.rstrip().splitlines()[-1])
+                self.assertEqual(
+                    described,
+                    self.release_contract["channels"][channel],
+                )
+                self.assertIn(
+                    f"Contract-selected defaults for {channel}:", result.stdout
+                )
+                self.assertNotIn("default: appcast-beta.xml", result.stdout)
+                self.assertNotIn("default: appcast-alpha.xml", result.stdout)
+
     def test_release_script_rejects_invalid_channels_behaviorally(self):
         result = self._run_builder("--describe-channel", "nightly")
 
@@ -87,6 +108,11 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             (
                 "--sparkle-bridge-publish-release",
                 "sparkle-alpha",
+                "legacy preview-feed bridge",
+            ),
+            (
+                "--sparkle-bridge-appcast-filename",
+                "appcast-custom.xml",
                 "legacy preview-feed bridge",
             ),
             ("--prune-prereleases", None, "preview-release pruning"),
