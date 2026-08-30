@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import tempfile
 
@@ -269,6 +270,92 @@ def record_tools(
     )
 
 
+def discard_incomplete_resolution(
+    user_root: Path,
+    resolution_root: Path,
+    tools_directory: Path,
+    *,
+    expected_uid: int | None = None,
+) -> None:
+    """Remove one interrupted hash-scoped resolution without following symlinks."""
+    uid = os.geteuid() if expected_uid is None else expected_uid
+    user_root = user_root.absolute()
+    resolution_root = resolution_root.absolute()
+    try:
+        relative = resolution_root.relative_to(user_root)
+    except ValueError as error:
+        raise CacheSecurityError("cache path escapes the private user root") from error
+    if (
+        len(relative.parts) != 2
+        or relative.parts[0] != "sparkle-tools"
+        or len(relative.parts[1]) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in relative.parts[1]
+        )
+    ):
+        raise CacheSecurityError(
+            "only a hash-scoped Sparkle resolution may be discarded"
+        )
+
+    metadata = _validate_descendant(
+        user_root, resolution_root, expected_uid=uid
+    )
+    validate_metadata(metadata, expected_uid=uid, require_directory=True)
+    expected_tools = resolution_root / "build/artifacts/sparkle/Sparkle/bin"
+    if tools_directory.absolute() != expected_tools:
+        raise CacheSecurityError("Sparkle tools path does not match the resolution")
+
+    receipt = _receipt_path(resolution_root)
+    if receipt.exists() or receipt.is_symlink():
+        raise CacheSecurityError("a cache with provenance may not be auto-discarded")
+
+    current = resolution_root
+    incomplete = False
+    for part in Path("build/artifacts/sparkle/Sparkle/bin").parts:
+        current = current / part
+        try:
+            component = _lstat(current)
+        except CacheSecurityError as error:
+            if not current.exists() and not current.is_symlink():
+                incomplete = True
+                break
+            raise error
+        validate_metadata(component, expected_uid=uid, require_directory=True)
+    if not incomplete:
+        for name in TOOL_NAMES:
+            tool = tools_directory / name
+            try:
+                tool_metadata = _lstat(tool)
+            except CacheSecurityError as error:
+                if not tool.exists() and not tool.is_symlink():
+                    incomplete = True
+                    break
+                raise error
+            validate_metadata(tool_metadata, expected_uid=uid, require_regular=True)
+    if not incomplete:
+        raise CacheSecurityError(
+            "a complete unprovenanced cache may not be auto-discarded"
+        )
+
+    parent = resolution_root.parent
+    _validate_descendant(user_root, parent, expected_uid=uid)
+
+    try:
+        descriptor, raw_path = tempfile.mkstemp(
+            prefix=f".{resolution_root.name}.discard-", dir=parent
+        )
+        os.close(descriptor)
+        discarded = Path(raw_path)
+        discarded.unlink()
+        resolution_root.rename(discarded)
+        shutil.rmtree(discarded)
+    except OSError as error:
+        raise CacheSecurityError(
+            "untrusted Sparkle resolution could not be discarded"
+        ) from error
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="operation", required=True)
@@ -280,6 +367,10 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("resolution_root", type=Path)
         command.add_argument("tools_directory", type=Path)
         command.add_argument("lock_hash")
+    discard = subparsers.add_parser("discard-incomplete")
+    discard.add_argument("user_root", type=Path)
+    discard.add_argument("resolution_root", type=Path)
+    discard.add_argument("tools_directory", type=Path)
     return parser
 
 
@@ -295,12 +386,16 @@ def main() -> int:
                 args.tools_directory,
                 args.lock_hash,
             )
-        else:
+        elif args.operation == "record":
             record_tools(
                 args.user_root,
                 args.resolution_root,
                 args.tools_directory,
                 args.lock_hash,
+            )
+        else:
+            discard_incomplete_resolution(
+                args.user_root, args.resolution_root, args.tools_directory
             )
     except CacheSecurityError as error:
         print(f"Sparkle cache safety: {error}", file=os.sys.stderr)

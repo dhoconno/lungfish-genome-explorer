@@ -1244,6 +1244,66 @@ class SparkleResolverTests(unittest.TestCase):
             self.assertIn('exact: "9.9.9"', manifest_log.read_text(encoding="utf-8"))
             self.assertEqual((repo / "Package.resolved").read_bytes(), changed_before)
 
+    def test_resolver_recovers_an_interrupted_private_cache_resolution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp).resolve()
+            repo, resolver = self._copy_resolver_repo(temp_root)
+            scratch = temp_root / "scratch"
+            lock_hash = resolved_lock_hash(repo / "Package.resolved")
+            resolution_root = (
+                scratch
+                / f"uid-{os.getuid()}"
+                / "sparkle-tools"
+                / lock_hash
+            )
+            resolution_root.mkdir(parents=True)
+            interrupted_marker = resolution_root / "interrupted-download"
+            interrupted_marker.write_text("partial", encoding="utf-8")
+            scratch.chmod(0o700)
+            (scratch / f"uid-{os.getuid()}").chmod(0o700)
+
+            bin_dir = temp_root / "bin"
+            bin_dir.mkdir()
+            xcrun = bin_dir / "xcrun"
+            xcrun.write_text(
+                "#!/bin/bash\nset -eu\n"
+                "scratch_path=''\n"
+                "while [ $# -gt 0 ]; do\n"
+                '  case "$1" in\n'
+                "    --scratch-path) scratch_path=$2; shift 2 ;;\n"
+                "    *) shift ;;\n"
+                "  esac\n"
+                "done\n"
+                'tools="$scratch_path/artifacts/sparkle/Sparkle/bin"\n'
+                'mkdir -p "$tools"\n'
+                "for name in generate_appcast sign_update generate_keys; do\n"
+                "  printf '#!/bin/bash\\nexit 0\\n' > \"$tools/$name\"\n"
+                '  chmod +x "$tools/$name"\n'
+                "done\n",
+                encoding="utf-8",
+            )
+            xcrun.chmod(0o755)
+
+            result = subprocess.run(
+                ["/bin/bash", str(resolver)],
+                cwd=repo,
+                env={
+                    **os.environ,
+                    "PATH": f"{bin_dir}:/usr/bin:/bin",
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(interrupted_marker.exists())
+            self.assertIn(
+                f"/uid-{os.getuid()}/sparkle-tools/{lock_hash}/", result.stdout
+            )
+
     def test_resolver_rejects_preseeded_tools_without_private_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
             temp_root = Path(temp).resolve()

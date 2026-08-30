@@ -61,10 +61,16 @@ RESOLVED_TOOLS="${BUILD_ROOT}/artifacts/sparkle/Sparkle/bin"
 
 if [ -e "$RESOLUTION_ROOT" ] || [ -L "$RESOLUTION_ROOT" ]; then
     if ! "$SECURITY_PYTHON" "$SECURITY_HELPER" verify \
-        "$USER_SCRATCH_ROOT" "$RESOLUTION_ROOT" "$RESOLVED_TOOLS" "$LOCK_HASH"; then
-        fail "existing Sparkle cache has no valid pinned provenance"
+        "$USER_SCRATCH_ROOT" "$RESOLUTION_ROOT" "$RESOLVED_TOOLS" "$LOCK_HASH" \
+        >/dev/null 2>&1; then
+        if ! "$SECURITY_PYTHON" "$SECURITY_HELPER" discard-incomplete \
+            "$USER_SCRATCH_ROOT" "$RESOLUTION_ROOT" "$RESOLVED_TOOLS"; then
+            fail "existing Sparkle cache has no valid pinned provenance and could not be discarded"
+        fi
     fi
-else
+fi
+
+if [ ! -e "$RESOLUTION_ROOT" ] && [ ! -L "$RESOLUTION_ROOT" ]; then
     command -v xcrun >/dev/null 2>&1 || fail "xcrun is required to resolve the pinned Sparkle package"
     [ -f "${PROJECT_ROOT}/Package.swift" ] || fail "Package.swift is missing"
 
