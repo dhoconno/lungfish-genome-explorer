@@ -37,8 +37,9 @@ class ReleaseDoctorFixture:
         self.sparkle = self.root / "sparkle" / "bin"
         self.sparkle.mkdir(parents=True)
         self.sparkle_log = self.root / "sparkle.log"
-        self.sentinel = self.root / "release-output" / "keep.txt"
-        self.sentinel.parent.mkdir()
+        self.sentinel_root = self.root / "release-output"
+        self.sentinel = self.sentinel_root / "keep.txt"
+        self.sentinel_root.mkdir()
         self.sentinel.write_text("untouched\n", encoding="utf-8")
         self._install_commands()
         self._install_sparkle_tools()
@@ -61,8 +62,10 @@ class ReleaseDoctorFixture:
             "STUB_NOTARY_OK": "1",
             "STUB_GH_AUTH_OK": "1",
             "STUB_GH_API_OK": "1",
+            "STUB_GH_CAN_PUSH": "true",
             "STUB_GIT_STATUS": "",
             "STUB_SPARKLE_KEY_OK": "1",
+            "STUB_SPARKLE_HELP_OK": "1",
             "STUB_SPARKLE_VERIFY_OK": "1",
             "STUB_SPARKLE_LOG": str(self.sparkle_log),
             "STUB_PYTHON": str(PYTHON),
@@ -141,7 +144,10 @@ class ReleaseDoctorFixture:
                 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
                   [ "$STUB_GH_AUTH_OK" = 1 ]
                 elif [ "${1:-}" = api ]; then
-                  [ "$STUB_GH_API_OK" = 1 ]
+                  [ "$STUB_GH_API_OK" = 1 ] || exit 1
+                  if [[ " $* " == *" .permissions.push "* ]]; then
+                    printf '%s\\n' "$STUB_GH_CAN_PUSH"
+                  fi
                 else
                   exit 65
                 fi
@@ -150,9 +156,13 @@ class ReleaseDoctorFixture:
         )
 
     def _install_sparkle_tools(self) -> None:
-        self._write_executable(self.sparkle / "generate_appcast", "exit 0")
+        self._write_executable(
+            self.sparkle / "generate_appcast",
+            '[ "${1:-}" != --help ] || [ "$STUB_SPARKLE_HELP_OK" = 1 ]',
+        )
         self._write_executable(
             self.sparkle / "generate_keys",
+            'if [ "${1:-}" = --help ]; then [ "$STUB_SPARKLE_HELP_OK" = 1 ]; exit; fi\n'
             '[ "${1:-}" = -p ] || exit 65\n'
             '[ "$STUB_SPARKLE_KEY_OK" = 1 ] || exit 1\n'
             "printf 'public-key-placeholder\\n'",
@@ -162,11 +172,20 @@ class ReleaseDoctorFixture:
             textwrap.dedent(
                 """
                 file=''
+                key_file=''
                 verify=0
+                if [ "${1:-}" = "--help" ]; then
+                  [ "$STUB_SPARKLE_HELP_OK" = 1 ]
+                  exit
+                fi
+                previous=''
                 for arg in "$@"; do
                   [ "$arg" = "--verify" ] && verify=1
+                  [ "$previous" = "--ed-key-file" ] && key_file="$arg"
                   [ -f "$arg" ] && file="$arg"
+                  previous="$arg"
                 done
+                [ -z "$key_file" ] || [ -f "$key_file" ] || exit 1
                 [ -n "$file" ] || exit 65
                 printf '%s\\n' "$file" >> "$STUB_SPARKLE_LOG"
                 if [ "$verify" = 1 ]; then
@@ -178,8 +197,39 @@ class ReleaseDoctorFixture:
             ),
         )
 
+    def sentinel_snapshot(self):
+        snapshot = []
+        paths = (self.sentinel_root, *sorted(self.sentinel_root.rglob("*")))
+        for path in paths:
+            metadata = path.lstat()
+            relative = (
+                "."
+                if path == self.sentinel_root
+                else str(path.relative_to(self.sentinel_root))
+            )
+            if path.is_symlink():
+                payload = ("symlink", os.readlink(path))
+            elif path.is_file():
+                payload = ("file", path.read_bytes())
+            else:
+                payload = ("directory", None)
+            snapshot.append(
+                (
+                    relative,
+                    stat.S_IMODE(metadata.st_mode),
+                    metadata.st_mtime_ns,
+                    payload,
+                )
+            )
+        return snapshot
+
     def run_doctor(
-        self, *, mode: str = "package", env: dict[str, str] | None = None, extra=()
+        self,
+        *,
+        mode: str = "package",
+        env: dict[str, str] | None = None,
+        extra=(),
+        cwd: Path = ROOT,
     ):
         command = [str(PYTHON), str(DOCTOR), "--mode", mode, "--channel", "preview"]
         if mode == "credentials":
@@ -194,9 +244,10 @@ class ReleaseDoctorFixture:
                 ]
             )
         command.extend(extra)
+        sentinel_before = self.sentinel_snapshot()
         result = subprocess.run(
             command,
-            cwd=ROOT,
+            cwd=cwd,
             env=env or self.env,
             text=True,
             stdout=subprocess.PIPE,
@@ -205,9 +256,7 @@ class ReleaseDoctorFixture:
             timeout=30,
         )
         if result.returncode != 0:
-            self.case.assertEqual(
-                self.sentinel.read_text(encoding="utf-8"), "untouched\n"
-            )
+            self.case.assertEqual(self.sentinel_snapshot(), sentinel_before)
         return result
 
 
@@ -262,6 +311,44 @@ class ReleaseDoctorTests(unittest.TestCase):
         env = {**self.fx.env, "LUNGFISH_RELEASE_SCRATCH_ROOT": str(blocked)}
         self.assert_failure("scratch root", env=env)
 
+    def test_rejects_repository_home_and_existing_release_output_as_scratch(self):
+        home = self.fx.root / "home"
+        home.mkdir()
+        empty_release_output = self.fx.root / "empty-release-output"
+        empty_release_output.mkdir()
+        for scratch in (ROOT, home, self.fx.sentinel_root, empty_release_output):
+            with self.subTest(scratch=scratch):
+                before = self.fx.sentinel_snapshot()
+                env = {
+                    **self.fx.env,
+                    "HOME": str(home),
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+                }
+                result = self.fx.run_doctor(env=env)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("scratch root", result.stdout + result.stderr)
+                self.assertEqual(self.fx.sentinel_snapshot(), before)
+
+    def test_earlier_failure_does_not_create_scratch_or_resolver_cache(self):
+        scratch = self.fx.root / "must-not-be-created"
+        env = {
+            **self.fx.env,
+            "DEVELOPER_DIR": str(self.fx.root / "missing-xcode"),
+            "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+        }
+        env.pop("LUNGFISH_SPARKLE_TOOLS_DIR")
+        result = self.fx.run_doctor(env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Xcode selection", result.stdout + result.stderr)
+        self.assertFalse(scratch.exists())
+
+    def test_accepts_existing_pin_keyed_resolver_cache_as_scratch(self):
+        cache = self.fx.scratch / "sparkle-tools" / ("a" * 64)
+        cache.mkdir(parents=True)
+        result = self.fx.run_doctor()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS scratch root", result.stdout)
+
     def test_rejects_untracked_source_files(self):
         env = {**self.fx.env, "STUB_GIT_STATUS": "?? Sources/Unexpected.swift\n"}
         self.assert_failure("clean source tree", env=env)
@@ -300,9 +387,17 @@ class ReleaseDoctorTests(unittest.TestCase):
                 env = {**self.fx.env, variable: "0"}
                 self.assert_failure(expected, mode="credentials", env=env)
 
+    def test_rejects_read_only_github_release_permission(self):
+        env = {**self.fx.env, "STUB_GH_CAN_PUSH": "false"}
+        self.assert_failure("GitHub release permission", mode="credentials", env=env)
+
     def test_rejects_missing_sparkle_tools(self):
         missing = self.fx.root / "missing-sparkle-tools"
         env = {**self.fx.env, "LUNGFISH_SPARKLE_TOOLS_DIR": str(missing)}
+        self.assert_failure("Sparkle tools", env=env)
+
+    def test_rejects_unusable_sparkle_tool_executables(self):
+        env = {**self.fx.env, "STUB_SPARKLE_HELP_OK": "0"}
         self.assert_failure("Sparkle tools", env=env)
 
     def test_rejects_inaccessible_sparkle_keychain_key(self):
@@ -339,6 +434,35 @@ class ReleaseDoctorTests(unittest.TestCase):
             "private-key-material", payload + result.stdout + result.stderr
         )
         self.assertEqual(stat.S_IMODE(report.stat().st_mode), 0o600)
+
+    def test_json_report_refuses_symlink_without_modifying_target(self):
+        target = self.fx.root / "must-not-change.txt"
+        target.write_text("preserve me\n", encoding="utf-8")
+        target.chmod(0o640)
+        report = self.fx.root / "doctor-link.json"
+        report.symlink_to(target)
+        before = (target.read_bytes(), stat.S_IMODE(target.stat().st_mode))
+        result = self.fx.run_doctor(extra=("--json-report", str(report)))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("JSON report", result.stdout + result.stderr)
+        self.assertTrue(report.is_symlink())
+        self.assertEqual(
+            (target.read_bytes(), stat.S_IMODE(target.stat().st_mode)), before
+        )
+
+    def test_relative_private_key_is_resolved_from_invocation_directory(self):
+        caller = self.fx.root / "caller"
+        caller.mkdir()
+        key = caller / "relative-private-key"
+        key.write_text("private-key-material", encoding="utf-8")
+        key.chmod(0o600)
+        result = self.fx.run_doctor(
+            mode="credentials",
+            cwd=caller,
+            extra=("--sparkle-ed-key-file", key.name),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS Sparkle sign/verify probe", result.stdout)
 
 
 class SparkleResolverTests(unittest.TestCase):
@@ -385,6 +509,12 @@ class SparkleResolverTests(unittest.TestCase):
             release_scripts.mkdir(parents=True)
             resolver = release_scripts / "resolve-sparkle-tools.sh"
             shutil.copy2(RESOLVER, resolver)
+            stale_tools = repo / ".build" / "artifacts" / "sparkle" / "Sparkle" / "bin"
+            stale_tools.mkdir(parents=True)
+            for name in ("generate_appcast", "sign_update", "generate_keys"):
+                stale = stale_tools / name
+                stale.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+                stale.chmod(0o755)
             (repo / "Package.swift").write_text(
                 "// swift-tools-version: 6.2\nORIGINAL_MANIFEST_SENTINEL\n",
                 encoding="utf-8",
@@ -433,6 +563,7 @@ class SparkleResolverTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn(str(stale_tools), result.stdout)
             manifest = manifest_log.read_text(encoding="utf-8")
             self.assertNotIn("ORIGINAL_MANIFEST_SENTINEL", manifest)
             self.assertIn("https://github.com/sparkle-project/Sparkle", manifest)

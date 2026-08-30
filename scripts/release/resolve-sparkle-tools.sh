@@ -31,12 +31,6 @@ if [ -n "${LUNGFISH_SPARKLE_TOOLS_DIR:-}" ]; then
     exit 0
 fi
 
-DEFAULT_TOOLS="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/bin"
-if has_all_tools "$DEFAULT_TOOLS"; then
-    emit_tools "$DEFAULT_TOOLS"
-    exit 0
-fi
-
 SCRATCH_ROOT="${LUNGFISH_RELEASE_SCRATCH_ROOT:-/private/var/tmp/lungfish-release-swiftpm}"
 case "$SCRATCH_ROOT" in
     /*) ;;

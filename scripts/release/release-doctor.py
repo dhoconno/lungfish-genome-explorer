@@ -237,6 +237,34 @@ class Doctor:
         ).expanduser()
         if not scratch.is_absolute():
             raise CheckFailure("deterministic scratch root must be absolute")
+        if scratch.is_symlink():
+            raise CheckFailure("deterministic scratch root must not be a symlink")
+        scratch = scratch.resolve(strict=False)
+        repository = ROOT.resolve()
+        home = Path(self.environment.get("HOME", str(Path.home()))).resolve(
+            strict=False
+        )
+        if scratch == repository or repository in scratch.parents:
+            raise CheckFailure("scratch root must be outside the repository")
+        if scratch == home or home in scratch.parents:
+            raise CheckFailure("scratch root must be outside the user home directory")
+        if scratch.exists() and scratch.is_dir():
+            entries = list(scratch.iterdir())
+            cache_root = scratch / "sparkle-tools"
+            cache_children = list(cache_root.iterdir()) if cache_root.is_dir() else []
+            cache_shape_valid = (
+                len(entries) == 1
+                and entries[0] == cache_root
+                and all(
+                    child.is_dir()
+                    and re.fullmatch(r"[0-9a-f]{64}", child.name) is not None
+                    for child in cache_children
+                )
+            )
+            if not entries or not cache_shape_valid:
+                raise CheckFailure(
+                    "existing scratch root is not owned by the Lungfish release cache"
+                )
         return scratch
 
     def _disk_space(self) -> str:
@@ -346,8 +374,11 @@ class Doctor:
             raise CheckFailure(
                 "resolved Sparkle tool paths are not executable absolute files"
             )
+        for key in sorted(required):
+            if self.run_command([str(values[key]), "--help"]).returncode != 0:
+                raise CheckFailure("resolved Sparkle tools are not runnable")
         self.sparkle_tools = values
-        return "generate_appcast, sign_update, and generate_keys are executable"
+        return "generate_appcast, sign_update, and generate_keys are runnable"
 
     def _credential(
         self, flag_value: str | None, environment_name: str, label: str
@@ -423,11 +454,21 @@ class Doctor:
         if match is None:
             raise CheckFailure("GitHub repository API target could not be derived")
         result = self.run_command(
-            ["gh", "api", f"repos/{match.group(1)}/{match.group(2)}"]
+            [
+                "gh",
+                "api",
+                f"repos/{match.group(1)}/{match.group(2)}",
+                "--jq",
+                ".permissions.push",
+            ]
         )
         if result.returncode != 0:
             raise CheckFailure("GitHub repository API read failed")
-        return "GitHub repository API is readable"
+        if result.stdout.strip() != "true":
+            raise CheckFailure(
+                "GitHub release permission is unavailable; repository write access is required"
+            )
+        return "GitHub repository API confirms release write permission"
 
     def _sparkle_key(self) -> str:
         configured = self.args.sparkle_ed_key_file or self.environment.get(
@@ -435,8 +476,8 @@ class Doctor:
         )
         self.sparkle_key_file: Path | None = None
         if configured:
-            candidate = Path(configured).expanduser()
             try:
+                candidate = Path(configured).expanduser().resolve(strict=True)
                 mode = stat.S_IMODE(candidate.stat().st_mode)
             except OSError as error:
                 raise CheckFailure("Sparkle private key file is unavailable") from error
@@ -499,57 +540,41 @@ class Doctor:
         return "disposable payload signed and verified"
 
     def run(self) -> bool:
-        self.check("Xcode selection", self._select_xcode)
-        self.check("required commands", self._required_commands)
-        self.check("Xcode version", self._xcode_version)
-        self.check("Swift version", self._swift_version)
-        self.check("macOS SDK", self._sdk_version)
-        self.check("host architecture", self._host_architecture)
-        self.check("project deployment target", self._deployment_target)
-        self.check("free disk", self._disk_space)
-        self.check("scratch root", self._scratch_write)
-        self.check("clean source tree", self._clean_tree)
-        self.check("source HEAD", self._head)
-        self.check("dependency lockfiles", self._lockfiles)
-        self.check("Sparkle tools", self._resolve_sparkle_tools)
+        package_checks = (
+            ("Xcode selection", self._select_xcode),
+            ("required commands", self._required_commands),
+            ("Xcode version", self._xcode_version),
+            ("Swift version", self._swift_version),
+            ("macOS SDK", self._sdk_version),
+            ("host architecture", self._host_architecture),
+            ("project deployment target", self._deployment_target),
+            ("free disk", self._disk_space),
+            ("scratch root", self._scratch_write),
+            ("clean source tree", self._clean_tree),
+            ("source HEAD", self._head),
+            ("dependency lockfiles", self._lockfiles),
+            ("Sparkle tools", self._resolve_sparkle_tools),
+        )
+        for name, operation in package_checks:
+            if not self.check(name, operation):
+                return False
 
         if self.args.mode == "credentials":
-            inputs_ok = self.check("credential inputs", self._credential_inputs)
-            if inputs_ok:
-                self.check("signing identity", self._signing_identity)
-                self.check("Team ID", self._team_id)
-                self.check("notary profile", self._notary)
-            else:
-                self.results.extend(
-                    [
-                        CheckResult(
-                            "signing identity",
-                            "FAIL",
-                            "credential inputs are incomplete",
-                        ),
-                        CheckResult(
-                            "Team ID", "FAIL", "credential inputs are incomplete"
-                        ),
-                        CheckResult(
-                            "notary profile", "FAIL", "credential inputs are incomplete"
-                        ),
-                    ]
-                )
-            self.check("GitHub authentication", self._github_auth)
-            self.check("GitHub repository API", self._github_repository)
-            key_ok = self.check("Sparkle signing key", self._sparkle_key)
-            if key_ok:
-                self.check("Sparkle sign/verify probe", self._sparkle_probe)
-            else:
-                self.results.append(
-                    CheckResult(
-                        "Sparkle sign/verify probe",
-                        "FAIL",
-                        "Sparkle signing key is unavailable",
-                    )
-                )
+            credential_checks = (
+                ("credential inputs", self._credential_inputs),
+                ("signing identity", self._signing_identity),
+                ("Team ID", self._team_id),
+                ("notary profile", self._notary),
+                ("GitHub authentication", self._github_auth),
+                ("GitHub repository API", self._github_repository),
+                ("Sparkle signing key", self._sparkle_key),
+                ("Sparkle sign/verify probe", self._sparkle_probe),
+            )
+            for name, operation in credential_checks:
+                if not self.check(name, operation):
+                    return False
 
-        return all(result.status == "PASS" for result in self.results)
+        return True
 
     def emit(self) -> None:
         for result in self.results:
@@ -564,15 +589,27 @@ class Doctor:
             "checks": [asdict(result) for result in self.results],
         }
         path = path.expanduser()
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        if path.is_symlink():
+            raise OSError("refusing to replace a symlink report path")
+        temporary_path: Path | None = None
         try:
-            os.fchmod(descriptor, 0o600)
-        except Exception:
-            os.close(descriptor)
-            raise
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, sort_keys=True, indent=2)
-            handle.write("\n")
+            descriptor, raw_temporary_path = tempfile.mkstemp(
+                prefix=f".{path.name}.tmp-", dir=path.parent
+            )
+            temporary_path = Path(raw_temporary_path)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                os.fchmod(handle.fileno(), 0o600)
+                json.dump(payload, handle, sort_keys=True, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            if path.is_symlink():
+                raise OSError("refusing to replace a symlink report path")
+            os.replace(temporary_path, path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
 
 def parser() -> argparse.ArgumentParser:
