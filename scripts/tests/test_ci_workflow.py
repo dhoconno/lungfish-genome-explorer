@@ -306,6 +306,23 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("--notary-profile", runs)
         self.assertNotIn("gh release", runs)
 
+    def test_package_smoke_uses_the_validator_approved_repository_defaults(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["package-smoke"]
+        build = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Build and verify unsigned candidate"
+        )["run"]
+
+        self.assertNotIn("--release-dir", build)
+        self.assertNotIn("--archive-path", build)
+        self.assertNotIn("--derived-data-path", build)
+        self.assertIn(
+            'package_log="$PWD/.build/package-only-${{ matrix.channel }}.log"', build
+        )
+        self.assertNotIn("build/Release/package-only", build)
+
     def test_package_evidence_excludes_apps_archives_and_private_or_signed_payloads(
         self,
     ):
@@ -321,15 +338,15 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
         self.assertIn("package-metadata.txt", paths)
         self.assertIn("unsigned-candidate-receipt.json", paths)
-        self.assertIn("package-only.log", paths)
+        self.assertIn(".build/package-only-${{ matrix.channel }}.log", paths)
         self.assertNotIn("Release/package-only.log", paths)
         build = next(
             step
             for step in job["steps"]
             if step.get("name") == "Build and verify unsigned candidate"
         )["run"]
-        self.assertIn("package-only.log", build)
-        self.assertIn(">\"$package_log\" 2>&1", build)
+        self.assertIn("package-only-${{ matrix.channel }}.log", build)
+        self.assertIn('>"$package_log" 2>&1', build)
         for forbidden in ("*.app", ".xcarchive", "signed/", "*.dmg", "private"):
             self.assertNotIn(forbidden, paths)
 

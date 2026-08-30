@@ -75,11 +75,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "$PROJECT_ROOT"
 PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
-SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-number.py"
 RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
 RELEASE_DOCTOR_SCRIPT="${PROJECT_ROOT}/scripts/release/release-doctor.py"
 RELEASE_TARGET_SECURITY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_target_security.py"
 RELEASE_REPOSITORY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_repository.py"
+RELEASE_XCODE_SCRIPT="${PROJECT_ROOT}/scripts/release/release_xcode.py"
 CANDIDATE_RECEIPT_SCRIPT="${PROJECT_ROOT}/scripts/release/release-candidate-receipt.py"
 
 SIGNING_IDENTITY=""
@@ -114,7 +114,6 @@ SPARKLE_DOWNLOAD_URL_PREFIX=""
 SPARKLE_PUBLISH_RELEASE=""
 SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
-SPARKLE_PREVIEW_FEED_URL=""
 SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
 RECOVER_EXISTING_RELEASE=0
@@ -315,6 +314,10 @@ if ! channel_contract_output=$(python3 "$RELEASE_CONTRACT_SCRIPT" shell --channe
     exit 64
 fi
 
+XCODE_ASSIGNMENT=$(python3 "$RELEASE_XCODE_SCRIPT" --shell)
+eval "$XCODE_ASSIGNMENT"
+export DEVELOPER_DIR
+
 CONTRACT_SPARKLE_APPCAST_FILENAME=""
 CONTRACT_SPARKLE_PUBLISH_RELEASE=""
 CONTRACT_SPARKLE_BRIDGE_PUBLISH_RELEASE=""
@@ -376,7 +379,6 @@ fi
 if [ "$SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
     SPARKLE_BRIDGE_APPCAST_FILENAME="$CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME"
 fi
-SPARKLE_PREVIEW_FEED_URL=""
 
 case "$CHANNEL" in
     preview|stable) ;;
@@ -524,7 +526,8 @@ for command in git /usr/bin/shasum python3; do
 done
 if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ] \
     || [ ! -f "$RELEASE_TARGET_SECURITY_SCRIPT" ] \
-    || [ ! -f "$RELEASE_REPOSITORY_SCRIPT" ]; then
+    || [ ! -f "$RELEASE_REPOSITORY_SCRIPT" ] \
+    || [ ! -f "$RELEASE_XCODE_SCRIPT" ]; then
     echo "release Doctor or candidate receipt helper is missing or not executable" >&2
     exit 69
 fi
@@ -554,7 +557,6 @@ fi
 GITHUB_REPOSITORY="$resolved_github_repository"
 unset GH_HOST
 export GH_REPO="github.com/${GITHUB_REPOSITORY}"
-SPARKLE_PREVIEW_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
 SPARKLE_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
 
 github_cli() {
@@ -1019,6 +1021,9 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     # The coordinator owns the first request-level Doctor gate. The builder
     # repeats Doctor immediately before its own destructive output boundary so
     # direct builder callers cannot bypass the same safety contract.
+    if [ "$PACKAGE_ONLY" -eq 0 ]; then
+        run_release_doctor credentials
+    fi
     run_release_doctor package
 
     for command in rg xcodebuild /usr/bin/xcrun /usr/bin/ditto /usr/bin/mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
@@ -1044,22 +1049,6 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
         SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
     fi
-    if [ "$PACKAGE_ONLY" -eq 0 ] && [ -n "$SPARKLE_GENERATE_APPCAST" ]; then
-        if [ "$CHANNEL" = "stable" ]; then
-            python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-                --planned "$SPARKLE_BUILD_NUMBER" \
-                --appcast-url "$SPARKLE_PREVIEW_FEED_URL"
-            python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-                --planned "$SPARKLE_BUILD_NUMBER" \
-                --appcast-url "$SPARKLE_FEED_URL" \
-                --allow-http-not-found
-        else
-            python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
-                --planned "$SPARKLE_BUILD_NUMBER" \
-                --appcast-url "$SPARKLE_FEED_URL"
-        fi
-    fi
-
     SWIFT_BUILD_PREFIX_MAP_ARGS=(
         -Xswiftc -debug-prefix-map
         -Xswiftc "$SCRATCH_PATH=/swiftpm-build"
@@ -1197,8 +1186,9 @@ EOF
     APP_PATH="$RELEASE_APP_PATH"
 fi
 
-# Credentials are checked only after a complete unsigned candidate exists. The
-# exact receipt is then verified immediately before the first codesign call.
+# Recheck credentials after packaging and immediately before receipt verification
+# and the first Developer ID codesign call. A default credentialed build also ran
+# this Doctor before compilation; resume runs have no compilation to guard.
 run_release_doctor credentials
 "$CANDIDATE_RECEIPT_SCRIPT" verify \
     --app "$APP_PATH" \

@@ -114,6 +114,14 @@ policy. Patch-level Xcode upgrades are accepted within the declared line unless
 the policy explicitly pins an exact build; incompatible major/minor versions
 fail before compilation with the selected `DEVELOPER_DIR` and observed versions.
 
+The Xcode selection is a parent-process boundary, not state local to Doctor.
+One shared resolver canonicalizes a valid explicit `DEVELOPER_DIR`, otherwise
+prefers `/Applications/Xcode.app/Contents/Developer` when it is a full Xcode,
+and only then considers `xcode-select`. The coordinator, direct builder,
+candidate receipt, source gates, Sparkle resolver, and nightly entry point all
+inherit the same exported value. An ambient Command Line Tools selection
+therefore cannot leak back in after Doctor accepts the installed full Xcode.
+
 ### 5. CI coverage
 
 The main-branch gate retains fast structural tests. A package-smoke job also
@@ -149,6 +157,22 @@ when they are absent, rather than requiring a lucky pre-existing DerivedData or
 `.build/artifacts` path. Scheduled-machine credential names and local overrides
 live in an ignored local profile or explicit environment, never in the tracked
 nightly wrapper.
+
+The common coordinator runs credentials Doctor before any source gate,
+compilation, tag creation, or remote mutation, and repeats it after exact-SHA CI
+immediately before signing resume. A direct credentialed builder applies the
+same before-compilation and before-signing checks. Package-only remains
+credential-free.
+
+Before packaging, the coordinator also requires a non-shallow checkout on the
+configured main branch and proves the selected remote main is an ancestor of
+the local release-preparation commit. This permits the intentional unpushed
+release commit while rejecting stale or unrelated history. The coordinator,
+not the phase builder, owns the live Sparkle build-number gate: Preview checks
+its live feed; Stable uses the Preview feed as a strict migration floor and
+also checks the Stable feed, allowing only an as-yet-uninitialized Stable feed.
+Resume rechecks the live feeds against the verified candidate receipt build so
+a standalone package-only run cannot bypass the gate.
 
 ### 7. One release authority
 

@@ -228,6 +228,22 @@ Run: `.ci-python/bin/python -m unittest scripts.tests.test_nightly_prerelease_re
 
 Commit: `feat(release): unify coordination and gate exact release SHA`
 
+#### Post-Task 5 P0 wiring repair
+
+- Resolve and export one canonical full-Xcode `DEVELOPER_DIR` in the parent
+  before nightly Sparkle resolution and every coordinator, Doctor, gate,
+  builder, and receipt child command; cover ambient Command Line Tools with a
+  valid default Xcode.
+- Use the builder's validator-approved defaults (`build/Release`, its nested
+  archive, and `.build/release-derived-data`) from the coordinator and CI;
+  write CI logs outside the unmarked release directory.
+- Require full history, the configured main branch, and remote-main ancestry
+  before packaging. Run credentials Doctor before compilation/tag mutation and
+  again after exact-SHA CI before signing.
+- Own live Sparkle build-number validation in the common coordinator for both
+  prepare and receipt-bound resume. Stable checks the Preview migration floor
+  strictly and permits 404 only for an uninitialized Stable feed.
+
 ### Task 6: Reconcile release authorities and stabilize process-tree regression
 
 **Files:**

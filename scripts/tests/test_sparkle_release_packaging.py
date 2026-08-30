@@ -177,6 +177,10 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                 self.root / "scripts" / "release" / "release_contract.py",
                 script.parent / "release_contract.py",
             )
+            shutil.copy2(
+                self.root / "scripts" / "release" / "release_xcode.py",
+                script.parent / "release_xcode.py",
+            )
             contract = root / "config" / "release-contract.json"
             contract.parent.mkdir(parents=True)
             shutil.copy2(self.root / "config" / "release-contract.json", contract)
@@ -277,32 +281,6 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertGreaterEqual(
             self.release_script.count("verify_versioned_release_identity"), 3
         )
-
-    def test_release_script_enforces_live_sparkle_build_number(self):
-        self.assertIn("check-sparkle-build-number.py", self.release_script)
-        self.assertIn('--planned "$SPARKLE_BUILD_NUMBER"', self.release_script)
-
-    def test_stable_build_gate_uses_preview_feed_as_strict_global_floor(self):
-        preview = json.loads(self._run_builder("--describe-channel", "preview").stdout)
-        stable = json.loads(self._run_builder("--describe-channel", "stable").stdout)
-        self.assertEqual(
-            (preview["sparkleRelease"], preview["appcastFilename"]),
-            ("sparkle-beta", "appcast-beta.xml"),
-        )
-        self.assertEqual(
-            (stable["sparkleRelease"], stable["appcastFilename"]),
-            ("sparkle-stable", "appcast-stable.xml"),
-        )
-        self.assertNotEqual(
-            (preview["sparkleRelease"], preview["appcastFilename"]),
-            (stable["sparkleRelease"], stable["appcastFilename"]),
-        )
-        preview_gate_index = self._line_index(
-            '--appcast-url "$SPARKLE_PREVIEW_FEED_URL"'
-        )
-        optional_stable_gate_index = self._line_index("--allow-http-not-found")
-
-        self.assertLess(preview_gate_index, optional_stable_gate_index)
 
     def test_release_script_can_prune_old_prerelease_releases_without_git_tags(self):
         self.assertIn("--prune-prereleases", self.release_script)

@@ -29,12 +29,12 @@ from release_repository import (
     repository_identity_from_endpoints,
 )
 from release_target_security import TargetSecurityError, validate_release_targets
+from release_xcode import XcodeSelectionError, resolve_developer_dir
 
 
 ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = ROOT / "scripts" / "release" / "resolve-sparkle-tools.sh"
 LOCK_CHECK = ROOT / "scripts" / "check-package-resolved-consistency.sh"
-DEFAULT_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
 DEFAULT_SCRATCH_ROOT = Path("/private/var/tmp/lungfish-release-swiftpm")
 COMMAND_TIMEOUT_SECONDS = 30
 
@@ -94,34 +94,10 @@ class Doctor:
             raise CheckFailure("required command could not be executed") from error
 
     def _select_xcode(self) -> str:
-        configured = self.environment.get("DEVELOPER_DIR")
-        if configured:
-            candidate = Path(configured).expanduser()
-        elif DEFAULT_DEVELOPER_DIR.is_dir():
-            candidate = DEFAULT_DEVELOPER_DIR
-        else:
-            result = self.run_command(["xcode-select", "-p"])
-            if result.returncode != 0 or not result.stdout.strip():
-                raise CheckFailure(
-                    "no full Xcode is selected; install Xcode or set DEVELOPER_DIR"
-                )
-            candidate = Path(result.stdout.strip())
-
-        if "commandlinetools" in str(candidate).lower():
-            raise CheckFailure(
-                "CommandLineTools alone are unsupported; select full Xcode"
-            )
-        xcodebuild = candidate / "usr" / "bin" / "xcodebuild"
-        if (
-            not candidate.is_dir()
-            or not xcodebuild.is_file()
-            or not os.access(xcodebuild, os.X_OK)
-        ):
-            raise CheckFailure(
-                "DEVELOPER_DIR does not identify a full Xcode installation"
-            )
-
-        self.developer_dir = candidate.resolve()
+        try:
+            self.developer_dir = resolve_developer_dir(self.environment)
+        except XcodeSelectionError as error:
+            raise CheckFailure(str(error)) from error
         self.environment["DEVELOPER_DIR"] = str(self.developer_dir)
         return "full Xcode developer directory selected"
 

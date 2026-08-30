@@ -38,6 +38,9 @@ has_flag() {
 }
 
 DEFAULT_ARGS=(--repo "$PROJECT_ROOT")
+XCODE_ASSIGNMENT="$(/usr/bin/env python3 "${SCRIPT_DIR}/release_xcode.py" --shell)"
+eval "$XCODE_ASSIGNMENT"
+export DEVELOPER_DIR
 if ! has_flag --team-id "$@" && [ -n "${LUNGFISH_TEAM_ID:-}" ]; then
   DEFAULT_ARGS+=(--team-id "$LUNGFISH_TEAM_ID")
 fi

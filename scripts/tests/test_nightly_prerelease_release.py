@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import pwd
 import shutil
 import stat
 import subprocess
@@ -1317,6 +1318,15 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         def doctor_package(self, _request, _plan):
             self.events.append("doctor:package")
 
+        def doctor_credentials(self, _request):
+            self.events.append("doctor:credentials")
+
+        def verify_source_history(self, _request):
+            self.events.append("source-history")
+
+        def validate_sparkle_build_number(self, _request, _identity=None):
+            self.events.append("sparkle-build-number")
+
         def verify_dependency_receipt(self, _request):
             self.events.append("dependency-receipt")
 
@@ -1466,16 +1476,48 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
             operations.wait_exact_sha_ci(request, identity)
 
-    def test_release_mutation_targets_do_not_overlap(self):
+    def test_release_defaults_use_the_validator_approved_archive_overlap(self):
         operations = self.coordinator.LocalReleaseOperations(
             Path(__file__).resolve().parents[2]
         )
 
         archive, derived_data, release_dir = operations._paths(self.request())
 
-        self.assertEqual(archive, release_dir.parent / "Lungfish.xcarchive")
-        self.assertFalse(archive.is_relative_to(release_dir))
+        self.assertEqual(archive, release_dir / "Lungfish.xcarchive")
+        self.assertTrue(archive.is_relative_to(release_dir))
         self.assertFalse(derived_data.is_relative_to(release_dir))
+
+    def test_release_defaults_pass_the_real_target_security_validator(self):
+        from scripts.release.release_repository import resolve_repository_identity
+        from scripts.release.release_target_security import validate_release_targets
+
+        root = Path(__file__).resolve().parents[2]
+        request = dataclasses.replace(
+            self.request(), root=root, release_dir=root / "build/Release"
+        )
+        operations = self.coordinator.LocalReleaseOperations(root)
+        archive, derived, release_dir = operations._paths(request)
+        repository = resolve_repository_identity(root, "origin")
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        ).stdout.strip()
+        scratch_root = Path("/private/var/tmp/lungfish-release-swiftpm")
+
+        validate_release_targets(
+            project_root=root,
+            home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
+            scratch_root=scratch_root,
+            scratch_path=scratch_root / repository.repository_key / commit,
+            release_dir=release_dir,
+            archive_path=archive,
+            derived_data_path=derived,
+            repository_key=repository.repository_key,
+            commit=commit,
+        )
 
     def test_prepare_packages_and_verifies_before_tag_and_ci_then_publishes_once(self):
         operations = self.RecordingOperations()
@@ -1486,7 +1528,10 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertEqual(
             operations.events,
             [
+                "source-history",
+                "doctor:credentials",
                 "doctor:package",
+                "sparkle-build-number",
                 "dependency-receipt",
                 "focused-release-tests",
                 "source-gate:unit",
@@ -1495,6 +1540,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                 "verify-candidate-receipt",
                 "annotated-tag-push",
                 "wait-exact-sha-ci",
+                "doctor:credentials",
                 "credentialed-resume-publish",
                 "independent-verify",
             ],
@@ -1507,11 +1553,123 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         transaction.execute(self.request(mode="resume"))
 
+        self.assertEqual(operations.events[0], "doctor:credentials")
         self.assertNotIn("doctor:package", operations.events)
         self.assertNotIn("package-only", operations.events)
         self.assertNotIn("focused-release-tests", operations.events)
-        self.assertEqual(operations.events[0], "verify-candidate-receipt")
+        self.assertEqual(operations.events.count("doctor:credentials"), 2)
+        self.assertLess(
+            operations.events.index("sparkle-build-number"),
+            operations.events.index("annotated-tag-push"),
+        )
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
+
+    def test_source_history_requires_non_shallow_current_remote_main(self):
+        class FakeRunner:
+            def __init__(self, values, ancestor_status=0):
+                self.values = iter(values)
+                self.ancestor_status = ancestor_status
+
+            def text(self, _command):
+                return next(self.values)
+
+            def run(self, _command, **_kwargs):
+                return subprocess.CompletedProcess([], self.ancestor_status)
+
+        operations = object.__new__(self.coordinator.LocalReleaseOperations)
+        request = self.request()
+        cases = (
+            (("true\n",), "shallow"),
+            (("false\n", "feature\n"), "main"),
+            (
+                (
+                    "false\n",
+                    "main\n",
+                    "a" * 40 + "\n",
+                    "b" * 40 + "\trefs/heads/main\n",
+                ),
+                "current",
+            ),
+        )
+        for values, message in cases:
+            with self.subTest(message=message):
+                operations.runner = FakeRunner(
+                    values, ancestor_status=1 if message == "current" else 0
+                )
+                with self.assertRaisesRegex(self.coordinator.ReleaseError, message):
+                    operations.verify_source_history(request)
+
+        operations.runner = FakeRunner(
+            ("false\n", "main\n", "a" * 40 + "\n", "b" * 40 + "\trefs/heads/main\n")
+        )
+        operations.verify_source_history(request)
+
+    def test_stable_live_build_gate_checks_preview_migration_and_stable_feeds(self):
+        class FakeRunner:
+            def __init__(self):
+                self.commands = []
+                self.environment = {"LUNGFISH_BUILD_NUMBER": "321"}
+
+            def run(self, command, **_kwargs):
+                self.commands.append(command)
+
+        operations = object.__new__(self.coordinator.LocalReleaseOperations)
+        operations.root = Path(__file__).resolve().parents[2]
+        operations.contract = self.coordinator.load_contract(
+            operations.root / "config/release-contract.json"
+        )
+        operations.runner = FakeRunner()
+        request = dataclasses.replace(
+            self.request(channel="stable"), github_repository="example/lungfish"
+        )
+
+        operations.validate_sparkle_build_number(request)
+
+        self.assertEqual(len(operations.runner.commands), 2)
+        joined = [" ".join(command) for command in operations.runner.commands]
+        self.assertTrue(any("sparkle-beta/appcast-beta.xml" in item for item in joined))
+        stable = next(
+            item for item in joined if "sparkle-stable/appcast-stable.xml" in item
+        )
+        self.assertIn("--allow-http-not-found", stable)
+        self.assertTrue(all("--planned 321" in item for item in joined))
+
+    def test_resume_live_build_gate_uses_the_verified_receipt_build(self):
+        class FakeRunner:
+            def __init__(self):
+                self.commands = []
+                self.environment = {"LUNGFISH_BUILD_NUMBER": "999"}
+
+            def run(self, command, **_kwargs):
+                self.commands.append(command)
+
+        with tempfile.TemporaryDirectory() as temp:
+            receipt = Path(temp) / "unsigned-candidate-receipt.json"
+            receipt.write_text(
+                json.dumps({"release": {"build": "432"}}), encoding="utf-8"
+            )
+            operations = object.__new__(self.coordinator.LocalReleaseOperations)
+            operations.root = Path(__file__).resolve().parents[2]
+            operations.contract = self.coordinator.load_contract(
+                operations.root / "config/release-contract.json"
+            )
+            operations.runner = FakeRunner()
+            identity = self.coordinator.CandidateIdentity(
+                receipt=receipt,
+                commit="a" * 40,
+                version="2026.8.1",
+                tag="v2026.8.1",
+                scratch_path=Path(temp) / "scratch",
+            )
+            request = dataclasses.replace(
+                self.request(mode="resume"), github_repository="example/lungfish"
+            )
+
+            operations.validate_sparkle_build_number(request, identity)
+
+        command = " ".join(operations.runner.commands[0])
+        self.assertIn("--planned 432", command)
+        self.assertNotIn("999", command)
 
     def test_cli_defers_missing_credential_paths_until_after_exact_sha_gate(self):
         with tempfile.TemporaryDirectory() as temp_dir:

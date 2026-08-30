@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PYTHON = ROOT / ".ci-python" / "bin" / "python"
 DOCTOR = ROOT / "scripts" / "release" / "release-doctor.py"
 RESOLVER = ROOT / "scripts" / "release" / "resolve-sparkle-tools.sh"
+XCODE_RESOLVER = ROOT / "scripts" / "release" / "release_xcode.py"
 NIGHTLY = ROOT / "scripts" / "release" / "run-nightly-prerelease.sh"
 
 
@@ -352,6 +353,28 @@ class ReleaseDoctorTests(unittest.TestCase):
     def test_rejects_missing_or_wrong_xcode_selection(self):
         env = {**self.fx.env, "DEVELOPER_DIR": str(self.fx.root / "missing-xcode")}
         self.assert_failure("Xcode selection", env=env)
+
+    def test_shared_xcode_resolver_prefers_default_full_xcode_over_ambient_clt(self):
+        spec = importlib.util.spec_from_file_location(
+            "release_xcode_test", XCODE_RESOLVER
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        default = self.fx.root / "Applications/Xcode.app/Contents/Developer"
+        (default / "usr/bin").mkdir(parents=True)
+        xcodebuild = default / "usr/bin/xcodebuild"
+        xcodebuild.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        xcodebuild.chmod(0o755)
+
+        selected = module.resolve_developer_dir(
+            {},
+            default_developer_dir=default,
+            xcode_select=lambda: Path("/Library/Developer/CommandLineTools"),
+        )
+
+        self.assertEqual(selected, default)
 
     def test_rejects_developer_directory_with_non_executable_xcodebuild(self):
         selected_xcodebuild = self.fx.developer_dir / "usr" / "bin" / "xcodebuild"
@@ -1285,6 +1308,64 @@ class SparkleResolverTests(unittest.TestCase):
 
 
 class NightlyReleaseProfileTests(unittest.TestCase):
+    def test_wrapper_exports_selected_xcode_before_resolving_sparkle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            release_dir = root / "scripts/release"
+            release_dir.mkdir(parents=True)
+            shutil.copy2(NIGHTLY, release_dir / NIGHTLY.name)
+            selected = root / "Xcode.app/Contents/Developer"
+            (selected / "usr/bin").mkdir(parents=True)
+            xcodebuild = selected / "usr/bin/xcodebuild"
+            xcodebuild.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            xcodebuild.chmod(0o755)
+            (release_dir / "release_xcode.py").write_text(
+                "import shlex\n"
+                f"print('DEVELOPER_DIR=' + shlex.quote({str(selected)!r}))\n",
+                encoding="utf-8",
+            )
+            (release_dir / "resolve-sparkle-tools.sh").write_text(
+                "#!/bin/bash\n"
+                "set -eu\n"
+                f'[ "${{DEVELOPER_DIR:-}}" = {shlex.quote(str(selected))} ]\n'
+                "printf 'SPARKLE_GENERATE_APPCAST=%q\\n' /sparkle/generate_appcast\n",
+                encoding="utf-8",
+            )
+            (release_dir / "resolve-sparkle-tools.sh").chmod(0o755)
+            captured = root / "developer-dir.txt"
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            python_stub = bin_dir / "python3"
+            python_stub.write_text(
+                "#!/bin/bash\n"
+                'if [[ "${1:-}" == */release_xcode.py ]]; then\n'
+                '  exec /usr/bin/python3 "$@"\n'
+                "fi\n"
+                'printf \'%s\\n\' "$DEVELOPER_DIR" >"$CAPTURE_DEVELOPER_DIR"\n',
+                encoding="utf-8",
+            )
+            python_stub.chmod(0o755)
+
+            result = subprocess.run(
+                ["/bin/bash", str(release_dir / NIGHTLY.name)],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": f"{bin_dir}:/usr/bin:/bin",
+                    "HOME": str(root / "home"),
+                    "CAPTURE_DEVELOPER_DIR": str(captured),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                captured.read_text(encoding="utf-8").strip(), str(selected)
+            )
+
     def test_wrapper_never_consumes_preseeded_unproven_cache_tools(self):
         with tempfile.TemporaryDirectory() as temp:
             temp_root = Path(temp).resolve()
@@ -1296,6 +1377,8 @@ class NightlyReleaseProfileTests(unittest.TestCase):
             python_stub = bin_dir / "python3"
             python_stub.write_text(
                 "#!/usr/bin/python3\nimport json, os, sys\n"
+                "if sys.argv[1].endswith('release_xcode.py'):\n"
+                "    os.execv('/usr/bin/python3', ['/usr/bin/python3', *sys.argv[1:]])\n"
                 "open(os.environ['CAPTURE_ARGS'], 'w').write(json.dumps(sys.argv[1:]))\n",
                 encoding="utf-8",
             )
@@ -1356,6 +1439,8 @@ class NightlyReleaseProfileTests(unittest.TestCase):
             python_stub = bin_dir / "python3"
             python_stub.write_text(
                 "#!/usr/bin/python3\nimport json, os, sys\n"
+                "if sys.argv[1].endswith('release_xcode.py'):\n"
+                "    os.execv('/usr/bin/python3', ['/usr/bin/python3', *sys.argv[1:]])\n"
                 "open(os.environ['CAPTURE_ARGS'], 'w').write(json.dumps(sys.argv[1:]))\n",
                 encoding="utf-8",
             )
@@ -1407,6 +1492,8 @@ class NightlyReleaseProfileTests(unittest.TestCase):
             python_stub = bin_dir / "python3"
             python_stub.write_text(
                 "#!/usr/bin/python3\nimport json, os, sys\n"
+                "if sys.argv[1].endswith('release_xcode.py'):\n"
+                "    os.execv('/usr/bin/python3', ['/usr/bin/python3', *sys.argv[1:]])\n"
                 "open(os.environ['CAPTURE_ARGS'], 'w').write(json.dumps(sys.argv[1:]))\n",
                 encoding="utf-8",
             )

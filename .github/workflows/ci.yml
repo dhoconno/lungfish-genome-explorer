@@ -103,22 +103,17 @@ jobs:
           fetch-depth: 0
 
       - name: Select supported Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
+        run: echo "DEVELOPER_DIR=/Applications/Xcode_26.4.1.app/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Build and verify unsigned candidate
         env:
           LUNGFISH_SPARKLE_PUBLIC_ED_KEY: FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c=
         run: |
-          package_root="$PWD/.build/ci-package/${{ matrix.channel }}"
-          release_root="$package_root/Release"
-          package_log="$package_root/package-only.log"
-          mkdir -p "$package_root"
+          package_log="$PWD/.build/package-only-${{ matrix.channel }}.log"
+          mkdir -p "$PWD/.build"
           if bash scripts/release/build-notarized-dmg.sh \
               --package-only \
               --channel ${{ matrix.channel }} \
-              --release-dir "$release_root" \
-              --archive-path "$package_root/Lungfish.xcarchive" \
-              --derived-data-path "$package_root/DerivedData" \
               >"$package_log" 2>&1; then
             :
           else
@@ -133,9 +128,9 @@ jobs:
           name: unsigned-package-${{ matrix.channel }}-evidence
           if-no-files-found: ignore
           path: |
-            .build/ci-package/${{ matrix.channel }}/Release/package-metadata.txt
-            .build/ci-package/${{ matrix.channel }}/Release/unsigned-candidate-receipt.json
-            .build/ci-package/${{ matrix.channel }}/package-only.log
+            build/Release/package-metadata.txt
+            build/Release/unsigned-candidate-receipt.json
+            .build/package-only-${{ matrix.channel }}.log
 
   release-context:
     name: Release context

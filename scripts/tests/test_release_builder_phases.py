@@ -56,6 +56,7 @@ class ReleaseBuilderFixture:
             "scripts/release/release_cache_security.py",
             "scripts/release/release_target_security.py",
             "scripts/release/release_repository.py",
+            "scripts/release/release_xcode.py",
             "scripts/release/release-candidate-receipt.py",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
@@ -232,6 +233,10 @@ class ReleaseBuilderFixture:
             if [ "${1:-}" = -version ]; then
                 printf 'Xcode 26.4.1\nBuild version 17F90\n'
                 exit 0
+            fi
+            if [ -n "${BUILDER_EXPECT_DEVELOPER_DIR:-}" ] \
+                && [ "${DEVELOPER_DIR:-}" != "$BUILDER_EXPECT_DEVELOPER_DIR" ]; then
+                exit 91
             fi
             printf 'xcodebuild:%s\n' "$*" >>"$BUILDER_EVENTS"
             archive=
@@ -786,6 +791,35 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         receipt = next(line for line in events if line.startswith("receipt:create:"))
         self.assertIn(f"--scratch-path {scratch}", receipt)
 
+    def test_builder_exports_the_shared_canonical_xcode_selection(self):
+        default = Path("/Applications/Xcode.app/Contents/Developer")
+        developer_dir = (
+            default.resolve()
+            if default.is_dir()
+            else Path(
+                subprocess.run(
+                    ["xcode-select", "-p"],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    check=True,
+                ).stdout.strip()
+            ).resolve()
+        )
+        alias = self.fixture.root / "selected-developer"
+        alias.symlink_to(developer_dir, target_is_directory=True)
+
+        result = self.fixture.run(
+            "--package-only",
+            "--channel",
+            "stable",
+            extra_env={
+                "DEVELOPER_DIR": str(alias),
+                "BUILDER_EXPECT_DEVELOPER_DIR": str(developer_dir),
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_xcode_archive_cannot_resolve_or_embed_derived_data_path(self):
         result = self.fixture.run("--package-only", "--channel", "stable")
 
@@ -1197,9 +1231,21 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                 and "--sign - --timestamp=none" not in line
             )
         )
+        credential_doctors = [
+            index
+            for index, line in enumerate(events)
+            if line.startswith("doctor:") and "--mode credentials" in line
+        ]
+        archive = events.index(
+            next(line for line in events if line.startswith("xcodebuild:"))
+        )
         self.assertTrue(adhoc_seals)
+        self.assertEqual(len(credential_doctors), 2)
+        self.assertLess(credential_doctors[0], archive)
         self.assertLess(max(adhoc_seals), complete)
         self.assertLess(complete, receipt_create)
+        self.assertLess(receipt_create, credential_doctors[1])
+        self.assertLess(credential_doctors[1], receipt)
         self.assertLess(complete, receipt)
         self.assertLess(receipt, codesign)
         self.assertEqual(sum(line.startswith("xcodebuild:") for line in events), 1)

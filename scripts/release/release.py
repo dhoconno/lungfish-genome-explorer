@@ -29,6 +29,7 @@ from release_repository import (  # noqa: E402
     repository_identity_from_endpoints,
     resolve_repository_identity,
 )
+from release_xcode import XcodeSelectionError, resolve_developer_dir  # noqa: E402
 
 
 MAX_JSON_BYTES = 2 * 1024 * 1024
@@ -89,6 +90,12 @@ class CandidateIdentity:
 
 
 class ReleaseOperations(Protocol):
+    def verify_source_history(self, request: ReleaseRequest) -> None:
+        ...
+
+    def doctor_credentials(self, request: ReleaseRequest) -> None:
+        ...
+
     def doctor_package(self, request: ReleaseRequest, plan: ReleasePlan) -> None:
         ...
 
@@ -104,6 +111,11 @@ class ReleaseOperations(Protocol):
         ...
 
     def package_only(self, request: ReleaseRequest) -> Path:
+        ...
+
+    def validate_sparkle_build_number(
+        self, request: ReleaseRequest, identity: CandidateIdentity | None = None
+    ) -> None:
         ...
 
     def verify_candidate_receipt(self, request: ReleaseRequest) -> CandidateIdentity:
@@ -150,7 +162,10 @@ class ReleaseCoordinator:
         plan = release_plan(request.root, request.channel)
         active = request
         if request.mode == "prepare":
+            self.operations.verify_source_history(active)
+            self.operations.doctor_credentials(active)
             self.operations.doctor_package(active, plan)
+            self.operations.validate_sparkle_build_number(active)
             self.operations.verify_dependency_receipt(active)
             self.operations.run_focused_release_tests(active, plan)
             for gate in plan.source_gates:
@@ -159,10 +174,15 @@ class ReleaseCoordinator:
             active = replace(active, receipt=receipt)
         elif request.mode != "resume":
             raise ReleaseError(f"unknown release mode: {request.mode}")
+        else:
+            self.operations.doctor_credentials(active)
 
         identity = self.operations.verify_candidate_receipt(active)
+        if request.mode == "resume":
+            self.operations.validate_sparkle_build_number(active, identity)
         self.operations.ensure_annotated_tag(active, identity)
         self.operations.wait_exact_sha_ci(active, identity)
+        self.operations.doctor_credentials(active)
         self.operations.resume_publish(active, identity)
         self.operations.independent_verify(active, identity)
         return identity
@@ -688,7 +708,12 @@ def tagged_publication_state(
         repository = resolve_repository_identity(root, remote, expected_repository)
     except RepositoryIdentityError as error:
         raise ReleaseError(str(error)) from error
-    runner = SubprocessRunner(root, {"GH_REPO": repository.github_repository})
+    environment = {"GH_REPO": repository.github_repository}
+    try:
+        environment["DEVELOPER_DIR"] = str(resolve_developer_dir(os.environ))
+    except XcodeSelectionError as error:
+        raise ReleaseError(str(error)) from error
+    runner = SubprocessRunner(root, environment)
     raw = runner.text(
         [
             "git",
@@ -846,19 +871,92 @@ def _verify_mutable_release_identity(
 
 
 class LocalReleaseOperations:
-    def __init__(self, root: Path, github_repository: str = ""):
+    def __init__(
+        self,
+        root: Path,
+        github_repository: str = "",
+        environment: dict[str, str] | None = None,
+    ):
         self.root = root.resolve(strict=True)
-        environment = {"GH_REPO": github_repository} if github_repository else None
-        self.runner = SubprocessRunner(self.root, environment)
+        selected_environment = os.environ.copy()
+        if environment:
+            selected_environment.update(environment)
+        try:
+            developer_dir = resolve_developer_dir(selected_environment)
+        except XcodeSelectionError as error:
+            raise ReleaseError(str(error)) from error
+        selected_environment["DEVELOPER_DIR"] = str(developer_dir)
+        if github_repository:
+            selected_environment["GH_REPO"] = github_repository
+        self.runner = SubprocessRunner(self.root, selected_environment)
         self.contract = load_contract(self.root / "config/release-contract.json")
 
     def _paths(self, request: ReleaseRequest) -> tuple[Path, Path, Path]:
         release_dir = request.release_dir.resolve()
         return (
-            release_dir.parent / "Lungfish.xcarchive",
+            release_dir / "Lungfish.xcarchive",
             self.root / ".build/release-derived-data",
             release_dir,
         )
+
+    def verify_source_history(self, request: ReleaseRequest) -> None:
+        shallow = self.runner.text(
+            ["git", "rev-parse", "--is-shallow-repository"]
+        ).strip()
+        if shallow != "false":
+            raise ReleaseError("release source history is shallow")
+        branch = self.runner.text(["git", "branch", "--show-current"]).strip()
+        if branch != request.main_branch:
+            raise ReleaseError(
+                f"release source must be on {request.main_branch}, not {branch or 'detached HEAD'}"
+            )
+        head = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
+        remote_main = self.runner.text(
+            [
+                "git",
+                "ls-remote",
+                "--heads",
+                request.remote,
+                f"refs/heads/{request.main_branch}",
+            ]
+        )
+        records = [line.split() for line in remote_main.splitlines() if line.strip()]
+        expected_ref = f"refs/heads/{request.main_branch}"
+        if len(records) != 1 or len(records[0]) != 2 or records[0][1] != expected_ref:
+            raise ReleaseError("current remote main identity is unavailable")
+        remote_commit = records[0][0]
+        if HEX_COMMIT.fullmatch(remote_commit) is None:
+            raise ReleaseError("current remote main identity is malformed")
+        ancestor = self.runner.run(
+            ["git", "merge-base", "--is-ancestor", remote_commit, head],
+            capture=True,
+            check=False,
+        )
+        if ancestor.returncode != 0:
+            raise ReleaseError("release checkout is not current with remote main")
+
+    def doctor_credentials(self, request: ReleaseRequest) -> None:
+        command = [
+            sys.executable,
+            str(SCRIPT_DIR / "release-doctor.py"),
+            "--mode",
+            "credentials",
+            "--channel",
+            request.channel,
+            "--signing-identity",
+            request.signing_identity,
+            "--team-id",
+            request.team_id,
+            "--notary-profile",
+            request.notary_profile,
+            "--remote",
+            request.remote,
+            "--github-repository",
+            request.github_repository,
+        ]
+        if request.sparkle_ed_key_file is not None:
+            command.extend(["--sparkle-ed-key-file", str(request.sparkle_ed_key_file)])
+        self.runner.run(command)
 
     def doctor_package(self, request: ReleaseRequest, _plan: ReleasePlan) -> None:
         # This is the coordinator's request-level gate. The builder repeats the
@@ -949,6 +1047,43 @@ class LocalReleaseOperations:
         if not receipt.is_file():
             raise ReleaseError("package phase did not produce a candidate receipt")
         return receipt
+
+    def validate_sparkle_build_number(
+        self, request: ReleaseRequest, identity: CandidateIdentity | None = None
+    ) -> None:
+        if identity is None:
+            planned = self.runner.environment.get("LUNGFISH_BUILD_NUMBER", "")
+            if not planned:
+                planned = self.runner.text(
+                    ["git", "rev-list", "--count", "HEAD"]
+                ).strip()
+        else:
+            receipt = _read_bounded_json(identity.receipt, "unsigned candidate receipt")
+            planned = str(receipt.get("release", {}).get("build", ""))
+        if not planned.isdigit() or int(planned) < 1:
+            raise ReleaseError("planned Sparkle build number is invalid")
+        repository = request.github_repository.removeprefix("github.com/")
+        if not repository:
+            raise ReleaseError("GitHub repository is required for Sparkle validation")
+        preview = self.contract.channel("preview")
+        selected = self.contract.channel(request.channel)
+        feeds = (
+            [(preview, False), (selected, True)]
+            if request.channel == "stable"
+            else [(selected, False)]
+        )
+        for channel, allow_missing in feeds:
+            command = [
+                sys.executable,
+                str(SCRIPT_DIR / "check-sparkle-build-number.py"),
+                "--planned",
+                planned,
+                "--appcast-url",
+                f"https://github.com/{repository}/releases/download/{channel.sparkleRelease}/{channel.appcastFilename}",
+            ]
+            if allow_missing:
+                command.append("--allow-http-not-found")
+            self.runner.run(command)
 
     def verify_candidate_receipt(self, request: ReleaseRequest) -> CandidateIdentity:
         return verify_candidate_receipt_exact(
