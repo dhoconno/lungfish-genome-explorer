@@ -111,9 +111,7 @@ jobs:
         run: |
           package_log="$PWD/.build/package-only-${{ matrix.channel }}.log"
           mkdir -p "$PWD/.build"
-          if bash scripts/release/build-notarized-dmg.sh \
-              --package-only \
-              --channel ${{ matrix.channel }} \
+          if python3 scripts/release/release.py package ${{ matrix.channel }} \
               >"$package_log" 2>&1; then
             :
           else
@@ -128,8 +126,8 @@ jobs:
           name: unsigned-package-${{ matrix.channel }}-evidence
           if-no-files-found: ignore
           path: |
-            build/Release/package-metadata.txt
-            build/Release/unsigned-candidate-receipt.json
+            build/Release/${{ matrix.channel }}/*/package-metadata.txt
+            build/Release/${{ matrix.channel }}/*/unsigned-candidate-receipt.json
             .build/package-only-${{ matrix.channel }}.log
 
   release-context:
@@ -234,7 +232,7 @@ jobs:
           .build/debug/lungfish-cli tools update --apply --yes
 
       - name: Verify dependency receipt
-        run: python3 scripts/release/release.py preview --verify-dependency-receipt "$HOME/.lungfish/dependency-receipt.json"
+        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
 
   release-preview-gates:
     name: Preview source gates
@@ -310,7 +308,7 @@ jobs:
         run: bash scripts/deps/verify.sh --tier 2 --root "$HOME/.lungfish-release-verify"
 
       - name: Verify dependency receipt
-        run: python3 scripts/release/release.py stable --verify-dependency-receipt "$HOME/.lungfish-release-verify/dependency-receipt.json"
+        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish-release-verify/dependency-receipt.json")'
 
       - name: Run Stable conformance source gate
         run: LUNGFISH_STORAGE_ROOT="$HOME/.lungfish-release-verify" bash scripts/full-suite-gate.sh --tier conformance --require-tools

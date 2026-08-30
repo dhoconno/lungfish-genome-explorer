@@ -33,7 +33,6 @@ VERSIONED_FILES = (
 AGENT_BRANCH_PREFIXES = ("codex/", "claude/")
 CLAUDE_WORKTREE_PREFIX = "worktree-"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development"}
-DEFAULT_PRERELEASES_TO_KEEP = 10
 CALVER_PATTERN = re.compile(
     r"^v?(?P<year>\d{4})\.(?P<month>[1-9]|1[0-2])\.(?P<patch>[1-9]\d*)$"
 )
@@ -712,50 +711,33 @@ def run_common_coordinator(
     args: argparse.Namespace,
     resume_receipt: Path | None = None,
 ) -> None:
-    mode = (
-        ["--resume", str(resume_receipt)]
-        if resume_receipt is not None
-        else ["--prepare"]
+    profile = Path(
+        getattr(args, "profile", Path.home() / ".config/lungfish/release.json")
     )
-    command = [
-        sys.executable,
-        str(args.release_coordinator),
-        "preview",
-        *mode,
-        "--repo",
-        str(root),
-        "--remote",
-        args.remote,
-        "--main-branch",
-        args.main_branch,
-        "--dependency-receipt",
-        str(args.dependency_receipt),
-        "--signing-identity",
-        args.signing_identity,
-        "--team-id",
-        args.team_id,
-        "--notary-profile",
-        args.notary_profile,
-        "--sparkle-generate-appcast",
-        str(args.sparkle_generate_appcast),
-        "--sparkle-public-ed-key",
-        args.sparkle_public_ed_key,
-        "--ci-timeout-seconds",
-        str(args.ci_timeout_seconds),
-        "--ci-poll-seconds",
-        str(args.ci_poll_seconds),
-        "--prune-prereleases-keep",
-        str(args.prune_prereleases_keep),
-    ]
-    github_repository = getattr(args, "github_repository", "")
-    if github_repository:
-        command.extend(["--github-repository", github_repository])
-    if args.sparkle_ed_key_file:
-        command.extend(["--sparkle-ed-key-file", str(args.sparkle_ed_key_file)])
-    command.append(
-        "--prune-prereleases" if args.prune_prereleases else "--no-prune-prereleases"
+    common = ["--repo", str(root)]
+    if resume_receipt is None:
+        run(
+            [
+                sys.executable,
+                str(args.release_coordinator),
+                "package",
+                "preview",
+                *common,
+            ],
+            cwd=root,
+        )
+    run(
+        [
+            sys.executable,
+            str(args.release_coordinator),
+            "publish",
+            "preview",
+            "--profile",
+            str(profile),
+            *common,
+        ],
+        cwd=root,
     )
-    run(command, cwd=root)
 
 
 def drop_agent_stashes(root: Path, rescue_dir: Path) -> None:
@@ -840,7 +822,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=PROJECT_ROOT / ".build" / "nightly-release-rescue",
     )
-    parser.add_argument("--rescue-retention-days", type=int, default=2)
     parser.add_argument(
         "--approved-agent-branch",
         action="append",
@@ -852,34 +833,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=PROJECT_ROOT / "scripts" / "release" / "release.py",
     )
-    parser.add_argument("--signing-identity", required=True)
-    parser.add_argument("--team-id", required=True)
-    parser.add_argument("--notary-profile", required=True)
-    parser.add_argument("--sparkle-generate-appcast", required=True)
     parser.add_argument(
-        "--dependency-receipt",
+        "--profile",
         type=Path,
-        default=Path.home() / ".lungfish-verify/dependency-receipt.json",
-    )
-    parser.add_argument("--ci-timeout-seconds", type=int, default=6 * 60 * 60)
-    parser.add_argument("--ci-poll-seconds", type=int, default=30)
-    parser.add_argument(
-        "--sparkle-public-ed-key",
-        default=os.environ.get("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", ""),
-    )
-    parser.add_argument("--sparkle-ed-key-file", default="")
-    prune_group = parser.add_mutually_exclusive_group()
-    prune_group.add_argument(
-        "--prune-prereleases",
-        dest="prune_prereleases",
-        action="store_true",
-        default=True,
-    )
-    prune_group.add_argument(
-        "--no-prune-prereleases", dest="prune_prereleases", action="store_false"
-    )
-    parser.add_argument(
-        "--prune-prereleases-keep", type=int, default=DEFAULT_PRERELEASES_TO_KEEP
+        default=Path.home() / ".config/lungfish/release.json",
     )
     return parser.parse_args(argv)
 
@@ -901,9 +858,8 @@ def main(argv: list[str]) -> int:
         os.environ["GH_REPO"] = f"github.com/{repository.github_repository}"
         lock_path = create_lock(root)
         ensure_rescue_root_is_ignored(root, rescue_root)
-        prune_rescue_archives(rescue_root, retention_days=args.rescue_retention_days)
         ensure_clean_main(root, args.main_branch)
-        git(root, "fetch", "--all", "--tags", "--prune")
+        git(root, "fetch", "--all", "--tags")
         git(root, "pull", "--ff-only", args.remote, args.main_branch)
 
         old_version = current_version(root)
@@ -941,7 +897,6 @@ def main(argv: list[str]) -> int:
             root, release_tag, old_version, new_version, previous_tag
         )
         run_common_coordinator(root, args)
-        cleanup_agent_refs(root, args.remote, candidates, rescue_dir)
         ensure_clean_main(root, args.main_branch)
         print_summary(release_tag, rescue_dir)
         return 0

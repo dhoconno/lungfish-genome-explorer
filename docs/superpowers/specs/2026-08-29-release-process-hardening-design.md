@@ -346,3 +346,33 @@ with no TeamIdentifier. Skill validation rejects semantic, case-insensitive
 contradictions about Debug signing, self-containment, checkout dependence,
 wrapper name, or display name while allowing the accurate statement that Debug
 is distribution-unsigned and not Developer ID signed.
+
+## Supported operator front door
+
+The coordinator exposes only four supported operations: `debug`, `package`,
+`publish`, and `doctor`. `debug` is structurally limited to the focused Debug
+configuration gate, `build-app.sh --debug`, and the relocation smoke. `package`
+is profile-free and credentialless; it sanitizes credential and coordinator
+capability environment values, runs package Doctor and contract-selected gates,
+delegates to the internal package-only builder, and verifies the resulting
+receipt. Candidates live at
+`build/Release/<channel>/<full-commit>/`, with matching channel/commit-scoped
+DerivedData, so Preview and Stable or adjacent commits cannot overwrite one
+another.
+
+`publish` derives that exact current-HEAD/channel receipt and verifies source,
+channel, and payload before credential checks. It then loads only the strict v1
+JSON machine profile at `~/.config/lungfish/release.json` (or an explicit
+`--profile`), repeats the existing source/dependency/feed/CI gates, and resumes
+the existing receipt-bound signing transaction without rebuilding. Re-running
+the same command is the only public recovery interface. No coordinator or
+nightly path invokes release retention or pruning.
+
+The profile schema has exactly `schemaVersion`, `repository`,
+`signingIdentity`, `teamId`, and `notaryProfile`. The file is a current-user
+regular non-symlink at mode `0600` beneath a private current-user directory; v1
+rejects unknown keys and control characters. Sparkle tools are resolved from
+the pinned dependency after Xcode selection, and the private Sparkle key stays
+in Keychain. `doctor` reports package readiness without loading ambient release
+credentials and adds publish readiness only when the JSON profile is present
+and safe.

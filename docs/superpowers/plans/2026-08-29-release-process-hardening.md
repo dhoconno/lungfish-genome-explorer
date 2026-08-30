@@ -394,3 +394,16 @@ Run: `git status --short --branch` in both the worktree and primary checkout. Do
 - [x] **Step 4: Correct current Debug facts in the release skill/catalog and make their validator reject the stale claims**
 - [x] **Step 5: Re-run focused Swift/Python tests and a real build/relocation smoke, then commit the clean correction**
 - [x] **Step 6: Close second-review adjacent-bundle, Resources-root, nested-signature, and semantic-validator gaps with adversarial RED/GREEN tests**
+
+### Core follow-on Task 11: Simplify and harden the supported operator front door
+
+**Files:** `scripts/release/release.py`, target security, nightly wrappers,
+CI, focused release tests, and the minimum authority records needed to prevent
+automation drift.
+
+- [x] **Step 1: RED/GREEN the exact four-command parser and strict v1 JSON profile**
+- [x] **Step 2: RED/GREEN credentialless package ordering, environment sanitization, deterministic channel/commit paths, and exact receipt verification**
+- [x] **Step 3: RED/GREEN publish preflight ordering, profile-only configuration, no-rebuild recovery, repeated credential/feed gates, and no implicit prune**
+- [x] **Step 4: RED/GREEN Debug/Doctor wiring and reject every retired public credential, receipt, resume, and prune option**
+- [x] **Step 5: RED/GREEN CI and nightly delegation through package/publish with one JSON profile and no shell sourcing or implicit cleanup**
+- [x] **Step 6: Run focused and broad release verification, validators, syntax/YAML checks, diff review, and commit the clean slice**

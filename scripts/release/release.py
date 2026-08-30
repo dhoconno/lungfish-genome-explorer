@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import stat
 import subprocess
 import sys
@@ -40,10 +41,145 @@ HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 PUBLIC_SPARKLE_KEY = "FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c="
 COORDINATOR_CAPABILITY_ENV = "LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"
+PROFILE_FIELDS = frozenset(
+    {"schemaVersion", "repository", "signingIdentity", "teamId", "notaryProfile"}
+)
 
 
 class ReleaseError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class ReleaseProfile:
+    repository: str
+    signing_identity: str
+    team_id: str
+    notary_profile: str
+
+
+def _has_control_characters(value: str) -> bool:
+    return any(ord(character) < 32 or ord(character) == 127 for character in value)
+
+
+def _validate_profile_parent(path: Path) -> None:
+    parent = path.parent
+    try:
+        metadata = parent.lstat()
+    except OSError as error:
+        raise ReleaseError(f"release profile parent is unavailable: {parent}") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise ReleaseError("release profile parent must be a non-symlink directory")
+    if metadata.st_uid != os.geteuid():
+        raise ReleaseError("release profile parent must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise ReleaseError("release profile parent must be owner-only mode 0700")
+
+    ancestor = parent.parent
+    while ancestor != ancestor.parent:
+        try:
+            ancestor_metadata = ancestor.lstat()
+        except OSError as error:
+            raise ReleaseError("release profile parent chain is unavailable") from error
+        if ancestor_metadata.st_uid == 0:
+            break
+        if stat.S_ISLNK(ancestor_metadata.st_mode):
+            raise ReleaseError("release profile parent chain contains a symlink")
+        if ancestor_metadata.st_uid != os.geteuid():
+            raise ReleaseError("release profile parent chain has unsafe ownership")
+        if stat.S_IMODE(ancestor_metadata.st_mode) & 0o022:
+            raise ReleaseError("release profile parent chain is group/other writable")
+        ancestor = ancestor.parent
+
+
+def load_release_profile(path: Path) -> ReleaseProfile:
+    """Load an exact, private v1 JSON release-machine profile."""
+    profile_path = path.expanduser().absolute()
+    _validate_profile_parent(profile_path)
+    try:
+        metadata = profile_path.lstat()
+    except OSError as error:
+        raise ReleaseError(f"release profile is unavailable: {profile_path}") from error
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ReleaseError("release profile must not be a symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ReleaseError("release profile must be a regular file")
+    if metadata.st_uid != os.geteuid():
+        raise ReleaseError("release profile must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise ReleaseError("release profile must have mode 0600")
+    if metadata.st_size <= 0 or metadata.st_size > MAX_METADATA_BYTES:
+        raise ReleaseError("release profile has an invalid size")
+    descriptor: int | None = None
+    try:
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(profile_path, flags)
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+            raise ReleaseError("release profile changed while it was being opened")
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_uid != os.geteuid()
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or opened.st_size != metadata.st_size
+        ):
+            raise ReleaseError("release profile metadata changed while opening")
+        raw = b""
+        while len(raw) <= MAX_METADATA_BYTES:
+            chunk = os.read(
+                descriptor,
+                min(64 * 1024, MAX_METADATA_BYTES + 1 - len(raw)),
+            )
+            if not chunk:
+                break
+            raw += chunk
+        if len(raw) > MAX_METADATA_BYTES:
+            raise ReleaseError("release profile has an invalid size")
+        payload = json.loads(raw.decode("utf-8"))
+    except ReleaseError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ReleaseError("release profile is not valid JSON") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if not isinstance(payload, dict):
+        raise ReleaseError("release profile must contain a JSON object")
+    unknown = set(payload) - PROFILE_FIELDS
+    missing = PROFILE_FIELDS - set(payload)
+    if unknown:
+        raise ReleaseError(
+            f"release profile has unknown keys: {', '.join(sorted(unknown))}"
+        )
+    if missing:
+        raise ReleaseError(
+            f"release profile is missing keys: {', '.join(sorted(missing))}"
+        )
+    if payload["schemaVersion"] != 1:
+        raise ReleaseError("release profile schemaVersion must be 1")
+    values = {
+        key: payload[key]
+        for key in ("repository", "signingIdentity", "teamId", "notaryProfile")
+    }
+    for key, value in values.items():
+        if not isinstance(value, str) or not value or _has_control_characters(value):
+            raise ReleaseError(f"release profile {key} contains invalid/control characters")
+    repository = values["repository"]
+    if re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", repository) is None:
+        raise ReleaseError("release profile repository must be OWNER/REPOSITORY")
+    team_id = values["teamId"]
+    if re.fullmatch(r"[A-Z0-9]{10}", team_id) is None:
+        raise ReleaseError("release profile teamId must be a 10-character Team ID")
+    return ReleaseProfile(
+        repository=repository.lower(),
+        signing_identity=values["signingIdentity"],
+        team_id=team_id,
+        notary_profile=values["notaryProfile"],
+    )
 
 
 @dataclass(frozen=True)
@@ -92,6 +228,9 @@ class CandidateIdentity:
 
 
 class ReleaseOperations(Protocol):
+    def verify_package_source(self, request: ReleaseRequest) -> None:
+        ...
+
     def verify_source_history(self, request: ReleaseRequest) -> None:
         ...
 
@@ -159,6 +298,41 @@ def release_plan(root: Path, channel: str) -> ReleasePlan:
 class ReleaseCoordinator:
     def __init__(self, operations: ReleaseOperations):
         self.operations = operations
+
+    def package(self, request: ReleaseRequest) -> CandidateIdentity:
+        plan = release_plan(request.root, request.channel)
+        self.operations.verify_package_source(request)
+        self.operations.doctor_package(request, plan)
+        self.operations.run_focused_release_tests(request, plan)
+        for gate in plan.source_gates:
+            self.operations.run_source_gate(request, gate)
+        receipt = self.operations.package_only(request)
+        active = replace(request, receipt=receipt)
+        return self.operations.verify_candidate_receipt(active)
+
+    def preflight_publish_candidate(
+        self, request: ReleaseRequest
+    ) -> CandidateIdentity:
+        self.operations.verify_source_history(request)
+        return self.operations.verify_candidate_receipt(request)
+
+    def publish_verified(
+        self, request: ReleaseRequest, identity: CandidateIdentity
+    ) -> CandidateIdentity:
+        plan = release_plan(request.root, request.channel)
+        self.operations.doctor_credentials(request)
+        self.operations.validate_sparkle_build_number(request, identity)
+        self.operations.verify_dependency_receipt(request)
+        self.operations.run_focused_release_tests(request, plan)
+        for gate in plan.source_gates:
+            self.operations.run_source_gate(request, gate)
+        self.operations.ensure_annotated_tag(request, identity)
+        self.operations.wait_exact_sha_ci(request, identity)
+        self.operations.doctor_credentials(request)
+        self.operations.validate_sparkle_build_number(request, identity)
+        self.operations.resume_publish(request, identity)
+        self.operations.independent_verify(request, identity)
+        return identity
 
     def execute(self, request: ReleaseRequest) -> CandidateIdentity:
         plan = release_plan(request.root, request.channel)
@@ -326,6 +500,333 @@ def evaluate_actions_runs(
                 f"required GitHub Actions job {name} concluded {job_conclusion}"
             )
     return run_id
+
+
+def sanitized_package_environment(environment: dict[str, str]) -> dict[str, str]:
+    """Return a child environment with credential and release capabilities removed."""
+    exact = {
+        "AC_PASSWORD",
+        "APPLE_ID",
+        "GH_ENTERPRISE_TOKEN",
+        "GH_REPO",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GIT_ASKPASS",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "SSH_ASKPASS",
+        "SSH_ASKPASS_REQUIRE",
+        "SSH_AUTH_SOCK",
+        COORDINATOR_CAPABILITY_ENV,
+    }
+    fragments = (
+        "PASSWORD",
+        "SECRET",
+        "CREDENTIAL",
+        "API_KEY",
+        "ACCESS_KEY",
+        "SIGNING_IDENTITY",
+        "TEAM_ID",
+        "NOTARY_PROFILE",
+        "SPARKLE_ED_KEY",
+    )
+    return {
+        key: value
+        for key, value in environment.items()
+        if key not in exact
+        and not any(fragment in key.upper() for fragment in fragments)
+    }
+
+
+def sanitized_publish_environment(environment: dict[str, str]) -> dict[str, str]:
+    """Keep authentication state while removing ambient release configuration."""
+    forbidden = {
+        "GH_REPO",
+        "NOTARY_PROFILE",
+        "SIGNING_IDENTITY",
+        "SPARKLE_ED_KEY_FILE",
+        "SPARKLE_GENERATE_APPCAST",
+        "TEAM_ID",
+        COORDINATOR_CAPABILITY_ENV,
+    }
+    return {
+        key: value
+        for key, value in environment.items()
+        if key not in forbidden
+        and not key.startswith(
+            (
+                "LUNGFISH_SIGNING_IDENTITY",
+                "LUNGFISH_TEAM_ID",
+                "LUNGFISH_NOTARY_PROFILE",
+                "LUNGFISH_SPARKLE_ED_KEY_FILE",
+            )
+        )
+    }
+
+
+def candidate_release_dir(root: Path, channel: str, commit: str) -> Path:
+    if channel not in ("preview", "stable"):
+        raise ReleaseError(f"unknown release channel: {channel}")
+    if HEX_COMMIT.fullmatch(commit) is None:
+        raise ReleaseError("candidate commit must be a full Git commit")
+    return root / "build" / "Release" / channel / commit
+
+
+def debug_plan(root: Path) -> tuple[list[list[str]], Path]:
+    profile = load_contract(root / "config/release-contract.json").profile("debug")
+    app = root / "build" / "Debug" / profile.appBundleFilename
+    return (
+        [
+            ["swift", "test", "--filter", "ReleaseBuildConfigurationTests"],
+            ["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"],
+            [
+                "/bin/bash",
+                str(root / "scripts/smoke-test-debug-app.sh"),
+                str(app),
+                "--compiling-build-dir",
+                str(root / ".build"),
+            ],
+        ],
+        app,
+    )
+
+
+def _head_commit(root: Path, environment: dict[str, str]) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    commit = result.stdout.strip()
+    if result.returncode != 0 or HEX_COMMIT.fullmatch(commit) is None:
+        raise ReleaseError("current HEAD is unavailable")
+    return commit
+
+
+def _default_profile_path() -> Path:
+    return Path.home() / ".config" / "lungfish" / "release.json"
+
+
+def _base_request(
+    root: Path,
+    channel: str,
+    commit: str,
+    *,
+    github_repository: str = "",
+) -> ReleaseRequest:
+    release_dir = candidate_release_dir(root, channel, commit)
+    return ReleaseRequest(
+        root=root,
+        channel=channel,
+        mode="package",
+        receipt=release_dir / "unsigned-candidate-receipt.json",
+        remote="origin",
+        main_branch="main",
+        signing_identity="",
+        team_id="",
+        notary_profile="",
+        sparkle_generate_appcast=Path("/unresolved/generate_appcast"),
+        sparkle_ed_key_file=None,
+        dependency_receipt=Path.home()
+        / ".lungfish-verify"
+        / "dependency-receipt.json",
+        release_dir=release_dir,
+        ci_timeout_seconds=6 * 60 * 60,
+        ci_poll_seconds=30,
+        prune_prereleases=False,
+        prune_prereleases_keep=10,
+        sparkle_public_ed_key=PUBLIC_SPARKLE_KEY,
+        github_repository=github_repository,
+    )
+
+
+def _resolve_sparkle_generate_appcast(
+    root: Path, environment: dict[str, str]
+) -> Path:
+    result = subprocess.run(
+        ["/bin/bash", str(SCRIPT_DIR / "resolve-sparkle-tools.sh")],
+        cwd=root,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ReleaseError("pinned Sparkle tools could not be resolved")
+    assignments: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        try:
+            fields = shlex.split(line)
+        except ValueError as error:
+            raise ReleaseError("Sparkle resolver returned malformed output") from error
+        if len(fields) != 1 or "=" not in fields[0]:
+            raise ReleaseError("Sparkle resolver returned malformed output")
+        key, value = fields[0].split("=", 1)
+        assignments[key] = value
+    value = assignments.get("SPARKLE_GENERATE_APPCAST", "")
+    path = Path(value)
+    if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
+        raise ReleaseError("pinned Sparkle generate_appcast is unavailable")
+    return path
+
+
+def run_debug(root: Path) -> int:
+    try:
+        developer_dir = resolve_developer_dir(os.environ)
+    except XcodeSelectionError as error:
+        raise ReleaseError(str(error)) from error
+    environment = sanitized_package_environment(os.environ.copy())
+    environment["DEVELOPER_DIR"] = str(developer_dir)
+    runner = SubprocessRunner(root, environment)
+    runner.environment = sanitized_package_environment(runner.environment)
+    commands, app = debug_plan(root)
+    for command in commands:
+        runner.run(command)
+    print(f"Debug app: {app}")
+    return 0
+
+
+def run_package(root: Path, channel: str) -> int:
+    environment = sanitized_package_environment(os.environ.copy())
+    commit = _head_commit(root, environment)
+    try:
+        repository = resolve_repository_identity(root, "origin")
+    except RepositoryIdentityError as error:
+        raise ReleaseError(str(error)) from error
+    request = _base_request(
+        root,
+        channel,
+        commit,
+        github_repository=repository.github_repository,
+    )
+    operations = LocalReleaseOperations(
+        root,
+        repository.github_repository,
+        environment,
+        credentialless=True,
+    )
+    identity = ReleaseCoordinator(operations).package(request)
+    print(f"Package candidate: {identity.receipt}")
+    return 0
+
+
+def run_publish(root: Path, channel: str, profile_path: Path | None) -> int:
+    credentialless_environment = sanitized_package_environment(os.environ.copy())
+    commit = _head_commit(root, credentialless_environment)
+    try:
+        repository = resolve_repository_identity(root, "origin")
+    except RepositoryIdentityError as error:
+        raise ReleaseError(str(error)) from error
+    request = replace(
+        _base_request(
+            root,
+            channel,
+            commit,
+            github_repository=repository.github_repository,
+        ),
+        mode="publish",
+    )
+    preflight_operations = LocalReleaseOperations(
+        root,
+        repository.github_repository,
+        credentialless_environment,
+        credentialless=True,
+    )
+    identity = ReleaseCoordinator(preflight_operations).preflight_publish_candidate(
+        request
+    )
+
+    selected_profile_path = (
+        profile_path.expanduser().absolute()
+        if profile_path is not None
+        else _default_profile_path()
+    )
+    profile = load_release_profile(selected_profile_path)
+    if profile.repository != repository.github_repository:
+        raise ReleaseError("release profile repository does not match selected origin")
+    developer_dir = preflight_operations.runner.environment["DEVELOPER_DIR"]
+    credential_environment = sanitized_publish_environment(os.environ.copy())
+    credential_environment["DEVELOPER_DIR"] = developer_dir
+    sparkle = _resolve_sparkle_generate_appcast(root, credential_environment)
+    operations = LocalReleaseOperations(
+        root,
+        profile.repository,
+        credential_environment,
+    )
+    active = replace(
+        request,
+        signing_identity=profile.signing_identity,
+        team_id=profile.team_id,
+        notary_profile=profile.notary_profile,
+        sparkle_generate_appcast=sparkle,
+        github_repository=profile.repository,
+    )
+    result = ReleaseCoordinator(operations).publish_verified(active, identity)
+    print(
+        f"Release complete: channel={channel} tag={result.tag} commit={result.commit}"
+    )
+    return 0
+
+
+def run_doctor(root: Path, profile_path: Path | None) -> int:
+    environment = sanitized_package_environment(os.environ.copy())
+    commit = _head_commit(root, environment)
+    try:
+        repository = resolve_repository_identity(root, "origin")
+    except RepositoryIdentityError as error:
+        raise ReleaseError(str(error)) from error
+    request = _base_request(
+        root,
+        "preview",
+        commit,
+        github_repository=repository.github_repository,
+    )
+    package_operations = LocalReleaseOperations(
+        root,
+        repository.github_repository,
+        environment,
+        credentialless=True,
+    )
+    package_operations.doctor_package(request, release_plan(root, "preview"))
+    print("Package readiness: READY")
+
+    selected_profile_path = (
+        profile_path.expanduser().absolute()
+        if profile_path is not None
+        else _default_profile_path()
+    )
+    if profile_path is None and not selected_profile_path.exists():
+        print(
+            f"Publish readiness: NOT READY (create private profile {selected_profile_path})"
+        )
+        return 0
+    profile = load_release_profile(selected_profile_path)
+    if profile.repository != repository.github_repository:
+        raise ReleaseError("release profile repository does not match selected origin")
+    developer_dir = package_operations.runner.environment["DEVELOPER_DIR"]
+    credential_environment = sanitized_publish_environment(os.environ.copy())
+    credential_environment["DEVELOPER_DIR"] = developer_dir
+    _resolve_sparkle_generate_appcast(root, credential_environment)
+    credential_operations = LocalReleaseOperations(
+        root,
+        profile.repository,
+        credential_environment,
+    )
+    credential_operations.doctor_credentials(
+        replace(
+            request,
+            signing_identity=profile.signing_identity,
+            team_id=profile.team_id,
+            notary_profile=profile.notary_profile,
+            github_repository=profile.repository,
+        )
+    )
+    print("Publish readiness: READY")
+    return 0
 
 
 class SubprocessRunner:
@@ -880,6 +1381,8 @@ class LocalReleaseOperations:
         root: Path,
         github_repository: str = "",
         environment: dict[str, str] | None = None,
+        *,
+        credentialless: bool = False,
     ):
         self.root = root.resolve(strict=True)
         selected_environment = os.environ.copy()
@@ -892,16 +1395,77 @@ class LocalReleaseOperations:
         selected_environment["DEVELOPER_DIR"] = str(developer_dir)
         if github_repository:
             selected_environment["GH_REPO"] = github_repository
+        if credentialless:
+            selected_environment = sanitized_package_environment(selected_environment)
         self.runner = SubprocessRunner(self.root, selected_environment)
+        if credentialless:
+            self.runner.environment = sanitized_package_environment(
+                self.runner.environment
+            )
         self.contract = load_contract(self.root / "config/release-contract.json")
 
     def _paths(self, request: ReleaseRequest) -> tuple[Path, Path, Path]:
         release_dir = request.release_dir.resolve()
+        commit = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
+        derived_data = self.root / ".build/release-derived-data"
+        if release_dir != self.root / "build/Release":
+            derived_data = derived_data / request.channel / commit
         return (
             release_dir / "Lungfish.xcarchive",
-            self.root / ".build/release-derived-data",
+            derived_data,
             release_dir,
         )
+
+    def verify_package_source(self, request: ReleaseRequest) -> None:
+        shallow = self.runner.text(
+            ["git", "rev-parse", "--is-shallow-repository"]
+        ).strip()
+        if shallow != "false":
+            raise ReleaseError("package source history is shallow")
+        branch = self.runner.text(["git", "branch", "--show-current"]).strip()
+        if branch == request.main_branch:
+            return
+        if branch:
+            raise ReleaseError(
+                f"package source must be on {request.main_branch} or detached at an exact release tag"
+            )
+        head = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
+        remote_main = self.runner.run(
+            [
+                "git",
+                "rev-parse",
+                "--verify",
+                f"refs/remotes/{request.remote}/{request.main_branch}",
+            ],
+            capture=True,
+            check=False,
+        )
+        if remote_main.returncode == 0 and (remote_main.stdout or "").strip() == head:
+            return
+        tags = [
+            line.strip()
+            for line in self.runner.text(
+                ["git", "tag", "--points-at", "HEAD"]
+            ).splitlines()
+            if line.strip()
+        ]
+        versioned = [
+            tag
+            for tag in tags
+            if tag.startswith("v") and CALVER.fullmatch(tag[1:])
+        ]
+        if len(versioned) != 1:
+            raise ReleaseError("detached package source is not an exact release tag")
+        notes = self.root / "docs/release-notes" / f"{versioned[0][1:]}.md"
+        try:
+            text = notes.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ReleaseError("detached release tag has no committed release notes") from error
+        expected = "Preview" if request.channel == "preview" else "Stable"
+        if not re.search(rf"(?m)^Channel: {expected}$", text):
+            raise ReleaseError(
+                "detached release tag channel does not match package channel"
+            )
 
     def verify_source_history(self, request: ReleaseRequest) -> None:
         shallow = self.runner.text(
@@ -1293,14 +1857,6 @@ class LocalReleaseOperations:
             command.extend(["--sparkle-ed-key-file", str(request.sparkle_ed_key_file)])
         if self._versioned_release_exists(identity.tag):
             command.append("--recover-existing-release")
-        if request.channel == "preview" and request.prune_prereleases:
-            command.extend(
-                [
-                    "--prune-prereleases",
-                    "--prune-prereleases-keep",
-                    str(request.prune_prereleases_keep),
-                ]
-            )
         self.validate_sparkle_build_number(request, identity)
         self.runner.run(
             command,
@@ -1424,114 +1980,45 @@ class LocalReleaseOperations:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("channel", choices=("preview", "stable"))
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--prepare", action="store_true")
-    mode.add_argument("--resume", type=Path, metavar="RECEIPT")
-    mode.add_argument("--verify-dependency-receipt", type=Path, metavar="RECEIPT")
-    parser.add_argument("--repo", type=Path, default=PROJECT_ROOT)
-    parser.add_argument("--release-dir", type=Path)
-    parser.add_argument("--dependency-receipt", type=Path)
-    parser.add_argument("--remote", default="origin")
-    parser.add_argument("--github-repository")
-    parser.add_argument("--main-branch", default="main")
-    parser.add_argument("--signing-identity", default="")
-    parser.add_argument("--team-id", default="")
-    parser.add_argument("--notary-profile", default="")
-    parser.add_argument("--sparkle-generate-appcast", type=Path)
-    parser.add_argument("--sparkle-public-ed-key", default=PUBLIC_SPARKLE_KEY)
-    parser.add_argument("--sparkle-ed-key-file", type=Path)
-    parser.add_argument("--ci-timeout-seconds", type=int, default=6 * 60 * 60)
-    parser.add_argument("--ci-poll-seconds", type=int, default=30)
-    prune = parser.add_mutually_exclusive_group()
-    prune.add_argument(
-        "--prune-prereleases", dest="prune", action="store_true", default=True
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    debug = commands.add_parser("debug", help="build and relocate-smoke a local Debug app")
+    debug.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+
+    package = commands.add_parser(
+        "package", help="create a credentialless verified unsigned candidate"
     )
-    prune.add_argument("--no-prune-prereleases", dest="prune", action="store_false")
-    parser.add_argument("--prune-prereleases-keep", type=int, default=10)
+    package.add_argument("channel", choices=("preview", "stable"))
+    package.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+
+    publish = commands.add_parser(
+        "publish", help="publish the verified candidate for current HEAD"
+    )
+    publish.add_argument("channel", choices=("preview", "stable"))
+    publish.add_argument("--profile", type=Path)
+    publish.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+
+    doctor = commands.add_parser(
+        "doctor", help="report package and optional publish readiness"
+    )
+    doctor.add_argument("--profile", type=Path)
+    doctor.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     return parser
-
-
-def _required_path(value: Path | None, label: str) -> Path:
-    if value is None:
-        raise ReleaseError(f"{label} is required")
-    return value.expanduser().absolute()
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         root = args.repo.expanduser().resolve(strict=True)
-        if args.verify_dependency_receipt is not None:
-            verify_dependency_receipt_file(
-                root, args.verify_dependency_receipt.expanduser().absolute()
-            )
-            print("Dependency receipt: PASS")
-            return 0
-        if not 1 <= args.ci_poll_seconds <= 300:
-            raise ReleaseError("CI poll interval must be between 1 and 300 seconds")
-        if not 1 <= args.ci_timeout_seconds <= 12 * 60 * 60:
-            raise ReleaseError("CI timeout must be between 1 second and 12 hours")
-        if args.prune_prereleases_keep < 1:
-            raise ReleaseError("prerelease retention count must be positive")
-        try:
-            repository = resolve_repository_identity(
-                root, args.remote, args.github_repository
-            )
-        except RepositoryIdentityError as error:
-            raise ReleaseError(str(error)) from error
-        dependency_receipt = args.dependency_receipt
-        if dependency_receipt is None:
-            configured = os.environ.get("LUNGFISH_DEPENDENCY_RECEIPT", "")
-            dependency_receipt = (
-                Path(configured)
-                if configured
-                else Path.home() / ".lungfish-verify/dependency-receipt.json"
-            )
-        release_dir = (
-            args.release_dir.expanduser().resolve()
-            if args.release_dir is not None
-            else root / "build/Release"
-        )
-        receipt = (
-            args.resume.expanduser().absolute()
-            if args.resume is not None
-            else release_dir / "unsigned-candidate-receipt.json"
-        )
-        request = ReleaseRequest(
-            root=root,
-            channel=args.channel,
-            mode="resume" if args.resume is not None else "prepare",
-            receipt=receipt,
-            remote=args.remote,
-            main_branch=args.main_branch,
-            signing_identity=args.signing_identity,
-            team_id=args.team_id,
-            notary_profile=args.notary_profile,
-            sparkle_generate_appcast=_required_path(
-                args.sparkle_generate_appcast, "--sparkle-generate-appcast"
-            ),
-            sparkle_ed_key_file=(
-                args.sparkle_ed_key_file.expanduser().absolute()
-                if args.sparkle_ed_key_file is not None
-                else None
-            ),
-            dependency_receipt=dependency_receipt.expanduser().absolute(),
-            release_dir=release_dir,
-            ci_timeout_seconds=args.ci_timeout_seconds,
-            ci_poll_seconds=args.ci_poll_seconds,
-            prune_prereleases=args.prune,
-            prune_prereleases_keep=args.prune_prereleases_keep,
-            sparkle_public_ed_key=args.sparkle_public_ed_key,
-            github_repository=repository.github_repository,
-        )
-        identity = ReleaseCoordinator(
-            LocalReleaseOperations(root, repository.github_repository)
-        ).execute(request)
-        print(
-            f"Release complete: channel={request.channel} tag={identity.tag} commit={identity.commit}"
-        )
-        return 0
+        if args.command == "debug":
+            return run_debug(root)
+        if args.command == "package":
+            return run_package(root, args.channel)
+        if args.command == "publish":
+            return run_publish(root, args.channel, args.profile)
+        if args.command == "doctor":
+            return run_doctor(root, args.profile)
+        raise ReleaseError(f"unknown command: {args.command}")
     except (OSError, ReleaseError, ValueError) as error:
         print(f"release failed: {error}", file=sys.stderr)
         return 1

@@ -1,5 +1,24 @@
 # Stable release recovery: Lungfish 2026.8.5
 
+## Current supported release entry points
+
+Release automation now enters only through:
+
+```text
+python3 scripts/release/release.py debug
+python3 scripts/release/release.py package preview|stable
+python3 scripts/release/release.py publish preview|stable [--profile PATH]
+python3 scripts/release/release.py doctor [--profile PATH]
+```
+
+The default machine profile is strict JSON at
+`~/.config/lungfish/release.json`; the nightly wrapper never sources the retired
+`release.env`. Nightly prepares version/source state, then calls `package` and
+`publish` with the same profile (or `publish` alone for exact recovery). CI
+calls `package` directly and remains read-only and secretless. Neither path
+implicitly prunes releases, tags, worktrees, or rescue archives. Detailed
+operator-authority reconciliation is intentionally a later documentation task.
+
 `v2026.8.4` was published as the first Stable CalVer release, but its
 automatic Toolset conformance job exposed a test-only MEGAHIT invocation that
 bypassed the shipped command builder. The correction is committed on `main`

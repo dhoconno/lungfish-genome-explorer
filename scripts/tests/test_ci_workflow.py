@@ -292,16 +292,18 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(upload_steps[0].get("if"), "always()")
         self.assertEqual(upload_steps[0]["with"]["path"], ".build/gate-logs")
 
-    def test_main_push_packages_both_channels_through_the_unsigned_builder_phase(self):
+    def test_main_push_packages_both_channels_through_the_supported_front_door(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["package-smoke"]
         self.assertEqual(job["strategy"]["matrix"]["channel"], ["preview", "stable"])
         self.assertIn("github.event_name == 'push'", job["if"])
         self.assertIn("refs/heads/main", job["if"])
         runs = "\n".join(step.get("run", "") for step in job["steps"])
-        self.assertIn("scripts/release/build-notarized-dmg.sh", runs)
-        self.assertIn("--package-only", runs)
-        self.assertIn("--channel ${{ matrix.channel }}", runs)
+        self.assertIn(
+            "python3 scripts/release/release.py package ${{ matrix.channel }}", runs
+        )
+        self.assertNotIn("scripts/release/build-notarized-dmg.sh", runs)
+        self.assertNotIn("--package-only", runs)
         self.assertNotIn("--signing-identity", runs)
         self.assertNotIn("--notary-profile", runs)
         self.assertNotIn("gh release", runs)
@@ -336,6 +338,7 @@ class CIWorkflowTests(unittest.TestCase):
         paths = upload["with"]["path"]
         self.assertEqual(upload.get("if"), "always()")
         self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
+        self.assertIn("build/Release/${{ matrix.channel }}/", paths)
         self.assertIn("package-metadata.txt", paths)
         self.assertIn("unsigned-candidate-receipt.json", paths)
         self.assertIn(".build/package-only-${{ matrix.channel }}.log", paths)
@@ -388,7 +391,8 @@ class CIWorkflowTests(unittest.TestCase):
             step.get("run", "") for step in jobs["release-dependency-receipt"]["steps"]
         )
         self.assertIn("dependency-receipt.json", dependency)
-        self.assertIn("verify-dependency-receipt", dependency)
+        self.assertIn("verify_dependency_receipt_file", dependency)
+        self.assertNotIn("--verify-dependency-receipt", dependency)
         for job_name in (
             "release-preview-gates",
             "release-stable-full",

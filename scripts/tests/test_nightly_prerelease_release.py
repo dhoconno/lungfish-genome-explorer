@@ -568,17 +568,8 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                         str(root),
                         "--rescue-root",
                         str(rescue_root),
-                        "--signing-identity",
-                        "Developer ID Application: Example",
-                        "--team-id",
-                        "TEAMID",
-                        "--notary-profile",
-                        "notary",
-                        "--sparkle-generate-appcast",
-                        str(root / "appcast.xml"),
-                        "--dependency-receipt",
-                        str(root / "dependency-receipt.json"),
-                        "--no-prune-prereleases",
+                        "--profile",
+                        str(root / "release.json"),
                     ]
                 )
 
@@ -588,9 +579,8 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 calls.index("prepare_release_commit"),
                 calls.index("run_common_coordinator"),
             )
-            self.assertLess(
-                calls.index("run_common_coordinator"), calls.index("cleanup_agent_refs")
-            )
+            self.assertNotIn("prune_rescue_archives", calls)
+            self.assertNotIn("cleanup_agent_refs", calls)
 
     def test_main_resumes_exact_current_tag_receipt_before_advancing_calver(self):
         fixture = ReleaseBuilderFixture(self)
@@ -684,17 +674,8 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     "master",
                     "--rescue-root",
                     str(rescue),
-                    "--signing-identity",
-                    "Developer ID Application: Example",
-                    "--team-id",
-                    "TEAMID",
-                    "--notary-profile",
-                    "notary",
-                    "--sparkle-generate-appcast",
-                    str(fixture.bin / "generate_appcast"),
-                    "--dependency-receipt",
-                    str(fixture.root / "dependency-receipt.json"),
-                    "--no-prune-prereleases",
+                    "--profile",
+                    str(fixture.root / "release.json"),
                 ]
             )
 
@@ -755,17 +736,8 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                         "master",
                         "--rescue-root",
                         str(rescue),
-                        "--signing-identity",
-                        "Developer ID Application: Example",
-                        "--team-id",
-                        "TEAMID",
-                        "--notary-profile",
-                        "notary",
-                        "--sparkle-generate-appcast",
-                        str(fixture.bin / "generate_appcast"),
-                        "--dependency-receipt",
-                        str(fixture.root / "dependency-receipt.json"),
-                        "--no-prune-prereleases",
+                        "--profile",
+                        str(fixture.root / "release.json"),
                     ]
                 )
 
@@ -1286,17 +1258,8 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     str(rescue),
                     "--approved-agent-branch",
                     candidate.name,
-                    "--signing-identity",
-                    "Developer ID Application: Example",
-                    "--team-id",
-                    "TEAMID",
-                    "--notary-profile",
-                    "notary",
-                    "--sparkle-generate-appcast",
-                    str(fixture.bin / "generate_appcast"),
-                    "--dependency-receipt",
-                    str(fixture.root / "dependency-receipt.json"),
-                    "--no-prune-prereleases",
+                    "--profile",
+                    str(fixture.root / "release.json"),
                 ]
             )
 
@@ -1791,48 +1754,29 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         self.assertNotIn(variable, runner.environment)
 
-    def test_cli_defers_missing_credential_paths_until_after_exact_sha_gate(self):
+    def test_cli_rejects_direct_credential_paths_and_public_resume(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temporary = Path(temp_dir)
             receipt = temporary / "unsigned-candidate-receipt.json"
             receipt.write_text("{}", encoding="utf-8")
             missing_generator = temporary / "missing-generate_appcast"
             missing_private_key = temporary / "missing-private-key"
-            reached_transaction = []
-
-            def execute(_transaction, request):
-                reached_transaction.append(True)
-                self.assertEqual(
-                    request.sparkle_generate_appcast, missing_generator.absolute()
-                )
-                self.assertEqual(
-                    request.sparkle_ed_key_file, missing_private_key.absolute()
-                )
-                raise self.coordinator.ReleaseError(
-                    "credentialed release prerequisites are unavailable"
-                )
-
-            stderr = io.StringIO()
-            with mock.patch.object(
-                self.coordinator.ReleaseCoordinator, "execute", execute
-            ), contextlib.redirect_stderr(stderr):
-                status = self.coordinator.main(
-                    [
-                        "stable",
-                        "--resume",
-                        str(receipt),
-                        "--repo",
-                        str(Path(__file__).resolve().parents[2]),
-                        "--sparkle-generate-appcast",
-                        str(missing_generator),
-                        "--sparkle-ed-key-file",
-                        str(missing_private_key),
-                    ]
-                )
-
-            self.assertEqual(status, 1)
-            self.assertEqual(reached_transaction, [True])
-            self.assertNotIn(str(missing_private_key), stderr.getvalue())
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    self.coordinator._parser().parse_args(
+                        [
+                            "stable",
+                            "--resume",
+                            str(receipt),
+                            "--repo",
+                            str(Path(__file__).resolve().parents[2]),
+                            "--sparkle-generate-appcast",
+                            str(missing_generator),
+                            "--sparkle-ed-key-file",
+                            str(missing_private_key),
+                        ]
+                    )
+            self.assertEqual(raised.exception.code, 2)
 
     def test_any_exact_sha_ci_gate_failure_blocks_credentials_and_publication(self):
         for conclusion in ("failure", "cancelled", "skipped"):
@@ -2249,7 +2193,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                             root, receipt_path
                         )
 
-    def test_nightly_delegates_to_the_common_coordinator_exactly_once(self):
+    def test_nightly_delegates_package_then_publish_with_same_json_profile(self):
         nightly = load_module()
         args = argparse.Namespace(
             release_coordinator=Path("/repo/scripts/release/release.py"),
@@ -2266,6 +2210,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             ci_poll_seconds=10,
             prune_prereleases=True,
             prune_prereleases_keep=10,
+            profile=Path("/machine/release.json"),
         )
         commands = []
         with mock.patch.object(
@@ -2275,16 +2220,22 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         ):
             nightly.run_common_coordinator(Path("/repo"), args)
 
-        self.assertEqual(len(commands), 1)
-        command = commands[0]
+        self.assertEqual(len(commands), 2)
+        package, publish = commands
         self.assertEqual(
-            command[:4],
-            [sys.executable, str(args.release_coordinator), "preview", "--prepare"],
+            package[:4],
+            [sys.executable, str(args.release_coordinator), "package", "preview"],
         )
-        self.assertIn("--dependency-receipt", command)
-        self.assertNotIn("build-notarized-dmg.sh", " ".join(command))
+        self.assertEqual(
+            publish[:4],
+            [sys.executable, str(args.release_coordinator), "publish", "preview"],
+        )
+        self.assertIn("--profile", publish)
+        self.assertIn(str(args.profile), publish)
+        self.assertNotIn("build-notarized-dmg.sh", " ".join(package + publish))
+        self.assertNotIn("--prune-prereleases", package + publish)
 
-    def test_nightly_recovery_delegates_one_resume_without_prepare(self):
+    def test_nightly_recovery_delegates_one_idempotent_publish_without_resume_flag(self):
         nightly = load_module()
         args = argparse.Namespace(
             release_coordinator=Path("/repo/scripts/release/release.py"),
@@ -2301,6 +2252,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             ci_poll_seconds=10,
             prune_prereleases=True,
             prune_prereleases_keep=10,
+            profile=Path("/machine/release.json"),
         )
         receipt = Path("/repo/build/Release/unsigned-candidate-receipt.json")
         commands = []
@@ -2312,9 +2264,10 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             nightly.run_common_coordinator(Path("/repo"), args, resume_receipt=receipt)
 
         self.assertEqual(len(commands), 1)
-        self.assertIn("--resume", commands[0])
-        self.assertIn(str(receipt), commands[0])
-        self.assertNotIn("--prepare", commands[0])
+        self.assertEqual(commands[0][2:4], ["publish", "preview"])
+        self.assertNotIn("--resume", commands[0])
+        self.assertNotIn(str(receipt), commands[0])
+        self.assertIn(str(args.profile), commands[0])
 
 
 if __name__ == "__main__":

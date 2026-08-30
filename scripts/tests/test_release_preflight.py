@@ -1382,7 +1382,7 @@ class NightlyReleaseProfileTests(unittest.TestCase):
                 captured.read_text(encoding="utf-8").strip(), str(selected)
             )
 
-    def test_wrapper_never_consumes_preseeded_unproven_cache_tools(self):
+    def test_wrapper_does_not_resolve_or_consume_sparkle_tools(self):
         with tempfile.TemporaryDirectory() as temp:
             temp_root = Path(temp).resolve()
             home = temp_root / "home"
@@ -1432,23 +1432,21 @@ class NightlyReleaseProfileTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 check=False,
             )
-            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("provenance", result.stderr)
-            self.assertFalse(captured.exists())
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args = json.loads(captured.read_text(encoding="utf-8"))
+            self.assertIn("--profile", args)
+            self.assertNotIn("resolve-sparkle-tools.sh", " ".join(args))
+            self.assertNotIn(str(scratch), " ".join(args))
 
-    def test_wrapper_reads_machine_values_from_ignored_profile_and_explicit_flags_override(
+    def test_wrapper_never_sources_legacy_env_profile_or_merges_ambient_credentials(
         self,
     ):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp) / "home"
             profile = home / ".config" / "lungfish" / "release.env"
             profile.parent.mkdir(parents=True)
-            profile.write_text(
-                "LUNGFISH_SIGNING_IDENTITY='Developer ID Application: Profile Corp (PROFILE123)'\n"
-                "LUNGFISH_TEAM_ID='PROFILE123'\n"
-                "LUNGFISH_NOTARY_PROFILE='profile-notary'\n",
-                encoding="utf-8",
-            )
+            sentinel = Path(temp) / "legacy-env-executed"
+            profile.write_text(f"touch {shlex.quote(str(sentinel))}\n", encoding="utf-8")
             bin_dir = Path(temp) / "bin"
             bin_dir.mkdir()
             captured = Path(temp) / "args.json"
@@ -1471,10 +1469,6 @@ class NightlyReleaseProfileTests(unittest.TestCase):
                 [
                     "/bin/bash",
                     str(NIGHTLY),
-                    "--team-id",
-                    "EXPLICIT99",
-                    "--signing-identity",
-                    "Developer ID Application: Explicit Corp (EXPLICIT99)",
                 ],
                 cwd=ROOT,
                 env={
@@ -1492,13 +1486,12 @@ class NightlyReleaseProfileTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             args = json.loads(captured.read_text(encoding="utf-8"))
-            self.assertIn("environment-notary", args)
-            self.assertNotIn("profile-notary", args)
-            self.assertIn("EXPLICIT99", args)
-            self.assertIn("Developer ID Application: Explicit Corp (EXPLICIT99)", args)
-            self.assertNotIn("PROFILE123", args)
+            self.assertFalse(sentinel.exists())
+            self.assertIn(str(home / ".config/lungfish/release.json"), args)
+            self.assertNotIn("environment-notary", args)
+            self.assertNotIn("LUNGFISH_SIGNING_IDENTITY", " ".join(args))
 
-    def test_explicit_sparkle_tool_does_not_require_automatic_resolution(self):
+    def test_explicit_json_profile_overrides_the_default_path(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp) / "home"
             home.mkdir()
@@ -1514,15 +1507,13 @@ class NightlyReleaseProfileTests(unittest.TestCase):
                 encoding="utf-8",
             )
             python_stub.chmod(0o755)
-            explicit_tool = Path(temp) / "explicit-generate-appcast"
-            explicit_tool.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-            explicit_tool.chmod(0o755)
+            explicit_profile = Path(temp) / "explicit-release.json"
             result = subprocess.run(
                 [
                     "/bin/bash",
                     str(NIGHTLY),
-                    "--sparkle-generate-appcast",
-                    str(explicit_tool),
+                    "--profile",
+                    str(explicit_profile),
                 ],
                 cwd=ROOT,
                 env={
@@ -1538,9 +1529,9 @@ class NightlyReleaseProfileTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertNotIn("Sparkle tools:", result.stderr)
             args = json.loads(captured.read_text(encoding="utf-8"))
-            self.assertIn(str(explicit_tool), args)
+            self.assertIn(str(explicit_profile), args)
+            self.assertNotIn(str(home / ".config/lungfish/release.json"), args)
 
 
 if __name__ == "__main__":

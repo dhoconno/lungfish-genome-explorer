@@ -69,6 +69,7 @@ EXPECTED_TOOLCHAIN = {
 EXPECTED_GATES = {
     "focusedReleaseTests": [
         "scripts.tests.test_release_contract",
+        "scripts.tests.test_release_frontdoor",
         "scripts.tests.test_release_preflight",
         "scripts.tests.test_release_artifact_receipt",
         "scripts.tests.test_release_builder_phases",

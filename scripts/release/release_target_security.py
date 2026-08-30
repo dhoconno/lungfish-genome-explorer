@@ -407,6 +407,39 @@ def validate_release_targets(
         ("archive path", project / "build" / "Release" / "Lungfish.xcarchive"),
         ("DerivedData path", project / ".build" / "release-derived-data"),
     }
+    scoped_repository_targets: set[tuple[str, Path]] = set()
+    scoped_triples: list[tuple[Path, Path, Path]] = []
+    for channel in ("preview", "stable"):
+        scoped_release = project / "build" / "Release" / channel / commit.lower()
+        scoped_archive = scoped_release / "Lungfish.xcarchive"
+        scoped_derived = (
+            project
+            / ".build"
+            / "release-derived-data"
+            / channel
+            / commit.lower()
+        )
+        scoped_triples.append((scoped_release, scoped_archive, scoped_derived))
+        scoped_repository_targets.update(
+            {
+                ("release directory", scoped_release),
+                ("archive path", scoped_archive),
+                ("DerivedData path", scoped_derived),
+            }
+        )
+    recognized_repository_targets.update(scoped_repository_targets)
+    uses_scoped_target = any(
+        (label, target) in scoped_repository_targets
+        for label, target in (
+            ("release directory", release),
+            ("archive path", archive),
+            ("DerivedData path", derived),
+        )
+    )
+    if uses_scoped_target and (release, archive, derived) not in scoped_triples:
+        raise TargetSecurityError(
+            "scoped release outputs must use the same channel and commit"
+        )
     for label, target in targets.items():
         if project in target.parents:
             if (label, target) not in recognized_repository_targets:
@@ -436,7 +469,10 @@ def validate_release_targets(
             continue
         raise TargetSecurityError(f"{left_label} overlaps {right_label}")
 
-    derived_is_default = derived == project / ".build" / "release-derived-data"
+    derived_is_default = (
+        "DerivedData path",
+        derived,
+    ) in recognized_repository_targets
     if release.exists() and any(release.iterdir()):
         validate_release_output_marker(
             release, repository_key=repository_key, expected_uid=uid
