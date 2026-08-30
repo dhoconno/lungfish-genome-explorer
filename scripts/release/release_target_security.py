@@ -5,17 +5,22 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import stat
 import subprocess
+import sys
+import tempfile
 
 from release_cache_security import CacheSecurityError, validate_ancestor_chain
 
 
 RELEASE_MARKER = ".lungfish-release-output"
 DERIVED_MARKER = ".lungfish-derived-data-output"
+ARCHIVE_MARKER = ".lungfish-release-archive.json"
+ARCHIVE_OUTPUT_TYPE = "lungfish-xcarchive"
 
 
 class TargetSecurityError(ValueError):
@@ -85,7 +90,6 @@ def _validate_existing_output(
     *,
     label: str,
     marker: str | None = None,
-    archive: bool = False,
 ) -> None:
     if not path.exists():
         return
@@ -101,16 +105,105 @@ def _validate_existing_output(
         marker_path = path / marker
         if marker_path.is_file() and not marker_path.is_symlink():
             return
-    if archive:
-        applications = path / "Products" / "Applications"
-        if applications.is_dir() and any(
-            candidate.is_dir() and (candidate / "Contents" / "Info.plist").is_file()
-            for candidate in applications.glob("*.app")
-        ):
-            return
     raise TargetSecurityError(
         f"existing {label} is unrelated to a recognized Lungfish release output"
     )
+
+
+def _validate_existing_archive(
+    path: Path, *, repository_key: str, expected_uid: int
+) -> None:
+    if not path.exists():
+        return
+    if not path.is_dir():
+        raise TargetSecurityError("existing archive is not a directory")
+    try:
+        entries = list(path.iterdir())
+    except OSError as error:
+        raise TargetSecurityError("existing archive is unreadable") from error
+    if not entries:
+        return
+
+    marker = path / ARCHIVE_MARKER
+    try:
+        metadata = marker.lstat()
+    except OSError as error:
+        raise TargetSecurityError(
+            "existing archive lacks its private Lungfish ownership marker"
+        ) from error
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != expected_uid
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+    ):
+        raise TargetSecurityError("existing archive ownership marker is unsafe")
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise TargetSecurityError(
+            "existing archive ownership marker is invalid"
+        ) from error
+    expected = {
+        "schemaVersion": 1,
+        "outputType": ARCHIVE_OUTPUT_TYPE,
+        "repositoryKey": repository_key,
+    }
+    if payload != expected:
+        raise TargetSecurityError(
+            "existing archive ownership marker does not match this repository"
+        )
+
+
+def write_archive_marker(
+    archive_path: Path,
+    *,
+    repository_key: str,
+    expected_uid: int | None = None,
+) -> None:
+    """Atomically bind a newly created archive to this repository."""
+    uid = os.geteuid() if expected_uid is None else expected_uid
+    if re.fullmatch(r"[0-9a-f]{64}", repository_key) is None:
+        raise TargetSecurityError("repository archive key is invalid")
+    try:
+        archive_metadata = archive_path.lstat()
+    except OSError as error:
+        raise TargetSecurityError("new archive is unavailable") from error
+    if (
+        not stat.S_ISDIR(archive_metadata.st_mode)
+        or archive_metadata.st_uid != uid
+        or archive_path.is_symlink()
+    ):
+        raise TargetSecurityError("new archive ownership is unsafe")
+
+    marker = archive_path / ARCHIVE_MARKER
+    temporary: Path | None = None
+    payload = {
+        "schemaVersion": 1,
+        "outputType": ARCHIVE_OUTPUT_TYPE,
+        "repositoryKey": repository_key,
+    }
+    try:
+        descriptor, raw_temporary = tempfile.mkstemp(
+            prefix=f".{ARCHIVE_MARKER}.tmp-", dir=archive_path
+        )
+        temporary = Path(raw_temporary)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if marker.is_symlink():
+            raise TargetSecurityError("archive ownership marker must not be a symlink")
+        os.replace(temporary, marker)
+        temporary = None
+    except OSError as error:
+        raise TargetSecurityError(
+            "archive ownership marker could not be written"
+        ) from error
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def validate_release_targets(
@@ -218,7 +311,9 @@ def validate_release_targets(
             derived, label="DerivedData path", marker=DERIVED_MARKER
         )
     if not allowed_release_archive_overlap:
-        _validate_existing_output(archive, label="archive", archive=True)
+        _validate_existing_archive(
+            archive, repository_key=repository_key, expected_uid=uid
+        )
 
 
 def repository_identity(project_root: Path) -> tuple[str, str]:
@@ -259,7 +354,23 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _record_archive_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=write_archive_marker.__doc__)
+    parser.add_argument("--archive-path", type=Path, required=True)
+    parser.add_argument("--repository-key", required=True)
+    return parser
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "record-archive":
+        args = _record_archive_parser().parse_args(sys.argv[2:])
+        try:
+            write_archive_marker(args.archive_path, repository_key=args.repository_key)
+        except TargetSecurityError as error:
+            print(f"FAIL archive marker: {error}")
+            return 1
+        print("PASS archive marker: repository ownership recorded")
+        return 0
     args = _parser().parse_args()
     try:
         repository_key, commit = repository_identity(args.project_root)

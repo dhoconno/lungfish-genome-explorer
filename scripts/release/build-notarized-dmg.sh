@@ -75,6 +75,7 @@ PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prerelease
 SPARKLE_BUILD_GATE_SCRIPT="${PROJECT_ROOT}/scripts/release/check-sparkle-build-number.py"
 RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
 RELEASE_DOCTOR_SCRIPT="${PROJECT_ROOT}/scripts/release/release-doctor.py"
+RELEASE_TARGET_SECURITY_SCRIPT="${PROJECT_ROOT}/scripts/release/release_target_security.py"
 CANDIDATE_RECEIPT_SCRIPT="${PROJECT_ROOT}/scripts/release/release-candidate-receipt.py"
 
 SIGNING_IDENTITY=""
@@ -507,7 +508,8 @@ require_command() {
 for command in git shasum python3; do
     require_command "$command"
 done
-if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ]; then
+if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ] \
+    || [ ! -f "$RELEASE_TARGET_SECURITY_SCRIPT" ]; then
     echo "release Doctor or candidate receipt helper is missing or not executable" >&2
     exit 69
 fi
@@ -916,10 +918,10 @@ resolved_build_timestamp() {
 }
 
 if [ -z "$RESUME_CANDIDATE" ]; then
+    repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
+    repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
+    release_commit=$(git rev-parse --verify HEAD)
     if [ -z "$SCRATCH_PATH" ]; then
-        repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
-        repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
-        release_commit=$(git rev-parse --verify HEAD)
         SCRATCH_PATH="${LUNGFISH_RELEASE_SCRATCH_ROOT:-/private/var/tmp/lungfish-release-swiftpm}/${repository_key}/${release_commit}"
     fi
     case "$SCRATCH_PATH" in
@@ -1033,6 +1035,9 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         echo "archived app not found: $APP_PATH" >&2
         exit 72
     fi
+    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" record-archive \
+        --archive-path "$ARCHIVE_PATH" \
+        --repository-key "$repository_key"
 
     /usr/bin/xcrun swift build \
         --package-path "$PROJECT_ROOT" \
@@ -1111,6 +1116,34 @@ run_release_doctor credentials
     --channel "$CHANNEL" \
     --scratch-path "$SCRATCH_PATH"
 
+APP_NOTARY_ZIP="${RELEASE_DIR}/Lungfish-app-notary.zip"
+SIGNED_APP_PATH="${RELEASE_DIR}/signed/${APP_BUNDLE_FILENAME}"
+DMG_PATH="${RELEASE_DIR}/Lungfish-${SOURCE_VERSION}-arm64.dmg"
+
+# A verified receipt makes these exact paths safe retry derivatives. Remove
+# only bounded signing/notary outputs; never remove the unsigned app, receipt,
+# package metadata, archive, DerivedData, or deterministic scratch.
+clear_verified_retry_artifacts() {
+    local retry_path
+    for retry_path in \
+        "$APP_NOTARY_ZIP" \
+        "$APP_NOTARY_LOG" \
+        "$DMG_NOTARY_LOG" \
+        "$DMG_PATH" \
+        "$METADATA_PATH"
+    do
+        case "$retry_path" in
+            "$RELEASE_DIR"/*) /bin/rm -f "$retry_path" ;;
+            *) echo "refusing retry cleanup outside receipt directory" >&2; exit 64 ;;
+        esac
+    done
+    case "$SIGNED_APP_PATH" in
+        "$RELEASE_DIR"/*) /bin/rm -rf "$(dirname "$SIGNED_APP_PATH")" ;;
+        *) echo "refusing signed-app cleanup outside receipt directory" >&2; exit 64 ;;
+    esac
+}
+clear_verified_retry_artifacts
+
 verify_versioned_release_identity
 
 for command in /usr/bin/codesign /usr/bin/hdiutil /usr/bin/ditto /usr/bin/mktemp /usr/bin/xcrun /usr/bin/file /usr/bin/find; do
@@ -1124,7 +1157,6 @@ SIGNING_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.signing-work.XXXXXX")
 /bin/chmod 700 "$SIGNING_WORK_DIR"
 APP_PATH="${SIGNING_WORK_DIR}/${APP_BUNDLE_FILENAME}"
 /usr/bin/ditto "$RELEASE_APP_PATH" "$APP_PATH"
-SIGNED_APP_PATH="${RELEASE_DIR}/signed/${APP_BUNDLE_FILENAME}"
 
 cleanup_release_workdirs() {
     if [ -n "${SIGNING_WORK_DIR:-}" ]; then
@@ -1219,7 +1251,6 @@ sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 scripts/smoke-test-release-tools.sh "$APP_PATH" \
     --allowed-swiftpm-fallback "$SCRATCH_PATH"
 
-APP_NOTARY_ZIP="${RELEASE_DIR}/Lungfish-app-notary.zip"
 /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$APP_NOTARY_ZIP"
 
 /usr/bin/xcrun notarytool submit "$APP_NOTARY_ZIP" \
@@ -1240,7 +1271,10 @@ if [ "$VERSION" != "$SOURCE_VERSION" ]; then
     echo "archived app version does not match source version: $VERSION != $SOURCE_VERSION" >&2
     exit 65
 fi
-DMG_PATH="${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg"
+if [ "$DMG_PATH" != "${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg" ]; then
+    echo "retry DMG path version does not match signed app version" >&2
+    exit 65
+fi
 DMG_STAGING_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.dmg-staging.XXXXXX")
 
 /usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"

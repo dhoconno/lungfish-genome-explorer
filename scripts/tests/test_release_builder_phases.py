@@ -1,7 +1,9 @@
+import hashlib
 import json
 import os
 import plistlib
 import shutil
+import stat
 import subprocess
 import tempfile
 import textwrap
@@ -261,6 +263,16 @@ class ReleaseBuilderFixture:
                 exit 0
             fi
             printf 'xcrun:%s\n' "$*" >>"$BUILDER_EVENTS"
+            if [ "${1:-}" = notarytool ] && [ "${2:-}" = submit ] \
+                && [[ "${3:-}" = *.dmg ]] \
+                && [ "${BUILDER_FAIL_DMG_PHASE:-}" = notary ]; then
+                exit 78
+            fi
+            if [ "${1:-}" = stapler ] && [ "${2:-}" = staple ] \
+                && [[ "${3:-}" = *.dmg ]] \
+                && [ "${BUILDER_FAIL_DMG_PHASE:-}" = staple ]; then
+                exit 79
+            fi
             exit 0
             """,
         )
@@ -295,7 +307,7 @@ class ReleaseBuilderFixture:
             "security": 'printf \'security:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "file": "echo 'Mach-O 64-bit executable arm64'\n",
             "ditto": 'printf \'ditto:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nif [ "${1:-}" = -c ]; then : >"${@: -1}"; else cp -R "$1" "$2"; fi\n',
-            "hdiutil": 'printf \'hdiutil:%s\\n\' "$*" >>"$BUILDER_EVENTS"\n: >"${@: -1}"\n',
+            "hdiutil": 'printf \'hdiutil:%s\\n\' "$*" >>"$BUILDER_EVENTS"\ntarget="${@: -1}"\n[ ! -e "$target" ] || exit 73\n: >"$target"\n',
         }.items():
             self._write_executable(self.bin / name, f"#!/bin/bash\nset -eu\n{body}")
 
@@ -577,6 +589,89 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             any(line.startswith("xcodebuild:") for line in self.fixture.event_lines())
         )
 
+    def test_unmarked_unrelated_xcode_archive_shape_is_preserved(self):
+        archive = self.fixture.root / "plausible-but-unrelated.xcarchive"
+        other_app = archive / "Products/Applications/Other.app/Contents"
+        other_app.mkdir(parents=True)
+        unrelated_plist = other_app / "Info.plist"
+        unrelated_plist.write_text("not even a plist\n", encoding="utf-8")
+
+        result = self.fixture.run("--package-only", archive=archive)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            unrelated_plist.read_text(encoding="utf-8"), "not even a plist\n"
+        )
+        self.assertFalse(
+            any(line.startswith("xcodebuild:") for line in self.fixture.event_lines())
+        )
+
+    def test_builder_records_private_archive_marker_for_its_own_retry(self):
+        first = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        receipt = json.loads(
+            (self.fixture.release / "unsigned-candidate-receipt.json").read_text()
+        )
+        marker = self.fixture.archive / ".lungfish-release-archive.json"
+        self.assertEqual(
+            json.loads(marker.read_text(encoding="utf-8")),
+            {
+                "outputType": "lungfish-xcarchive",
+                "repositoryKey": Path(receipt["build"]["scratchPath"]).parent.name,
+                "schemaVersion": 1,
+            },
+        )
+        self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+
+        second = self.fixture.run("--package-only", "--channel", "stable")
+
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+
+    def test_archive_marker_must_be_private_exact_and_repository_bound(self):
+        repository_key = hashlib.sha256(str(self.fixture.repo).encode()).hexdigest()
+        valid = {
+            "schemaVersion": 1,
+            "outputType": "lungfish-xcarchive",
+            "repositoryKey": repository_key,
+        }
+        cases = {
+            "wrong schema": {**valid, "schemaVersion": 2},
+            "wrong output type": {**valid, "outputType": "other-xcarchive"},
+            "wrong repository": {**valid, "repositoryKey": "f" * 64},
+            "public mode": valid,
+            "symlink": valid,
+        }
+        for index, (label, payload) in enumerate(cases.items()):
+            with self.subTest(label=label):
+                archive = self.fixture.root / f"forged-{index}.xcarchive"
+                other_app = archive / "Products/Applications/Other.app/Contents"
+                other_app.mkdir(parents=True)
+                unrelated_plist = other_app / "Info.plist"
+                unrelated_plist.write_text("preserve\n", encoding="utf-8")
+                marker = archive / ".lungfish-release-archive.json"
+                marker_payload = json.dumps(payload) + "\n"
+                if label == "symlink":
+                    target = archive / "forged-marker.json"
+                    target.write_text(marker_payload, encoding="utf-8")
+                    target.chmod(0o600)
+                    marker.symlink_to(target)
+                else:
+                    marker.write_text(marker_payload, encoding="utf-8")
+                    marker.chmod(0o644 if label == "public mode" else 0o600)
+
+                result = self.fixture.run("--package-only", archive=archive)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(
+                    unrelated_plist.read_text(encoding="utf-8"), "preserve\n"
+                )
+                self.assertFalse(
+                    any(
+                        line.startswith("xcodebuild:")
+                        for line in self.fixture.event_lines()
+                    )
+                )
+
     def test_existing_unrelated_release_and_derived_targets_fail_closed(self):
         for label, overrides in (
             ("release", {"release": self.fixture.root / "unrelated-release"}),
@@ -814,6 +909,110 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             0,
             verified_after_retry.stdout + verified_after_retry.stderr,
         )
+
+    def test_late_dmg_failures_clean_bounded_artifacts_and_resume_without_rebuild(self):
+        for failed_phase in ("notary", "staple"):
+            with self.subTest(failed_phase=failed_phase):
+                fixture = ReleaseBuilderFixture(self)
+                self.addCleanup(fixture.cleanup)
+                packaged = fixture.run("--package-only", "--channel", "stable")
+                self.assertEqual(
+                    packaged.returncode, 0, packaged.stdout + packaged.stderr
+                )
+                candidate = fixture.release / "Lungfish.app"
+                candidate_before = {
+                    path.relative_to(candidate): path.read_bytes()
+                    for path in candidate.rglob("*")
+                    if path.is_file()
+                }
+                resume_args = (
+                    "--resume-candidate",
+                    str(fixture.release / "unsigned-candidate-receipt.json"),
+                    "--signing-identity",
+                    "Developer ID Application: Test (TEAMID)",
+                    "--team-id",
+                    "TEAMID",
+                    "--notary-profile",
+                    "fixture",
+                    "--defer-remote-publish",
+                    "--channel",
+                    "stable",
+                )
+
+                failed = fixture.run(
+                    *resume_args,
+                    extra_env={
+                        "BUILDER_CODESIGN_MUTATE": "1",
+                        "BUILDER_FAIL_DMG_PHASE": failed_phase,
+                    },
+                )
+
+                self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+                dmg = fixture.release / "Lungfish-2026.8.1-arm64.dmg"
+                self.assertTrue(dmg.is_file())
+                self.assertEqual(
+                    {
+                        path.relative_to(candidate): path.read_bytes()
+                        for path in candidate.rglob("*")
+                        if path.is_file()
+                    },
+                    candidate_before,
+                )
+                self.assertEqual(fixture.verify_receipt().returncode, 0)
+                receipt_path = fixture.release / "unsigned-candidate-receipt.json"
+                package_metadata = fixture.release / "package-metadata.txt"
+                receipt_before = receipt_path.read_bytes()
+                package_metadata_before = package_metadata.read_bytes()
+                bounded_sentinel = fixture.release / "do-not-clean.txt"
+                bounded_sentinel.write_text("preserve\n", encoding="utf-8")
+                signed_sentinel = fixture.release / "signed/do-not-merge.txt"
+                signed_sentinel.write_text("stale\n", encoding="utf-8")
+                (fixture.release / "Lungfish-app-notary.zip").write_text(
+                    "stale\n", encoding="utf-8"
+                )
+                (fixture.release / "release-metadata.txt").write_text(
+                    "stale\n", encoding="utf-8"
+                )
+                before_retry = len(fixture.event_lines())
+
+                retried = fixture.run(
+                    *resume_args,
+                    extra_env={"BUILDER_CODESIGN_MUTATE": "1"},
+                )
+
+                self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+                retry_events = fixture.event_lines()[before_retry:]
+                self.assertFalse(
+                    any(
+                        line.startswith(("xcodebuild:", "swift:"))
+                        for line in retry_events
+                    )
+                )
+                self.assertEqual(
+                    sum(line.startswith("hdiutil:") for line in retry_events), 1
+                )
+                self.assertEqual(
+                    {
+                        path.relative_to(candidate): path.read_bytes()
+                        for path in candidate.rglob("*")
+                        if path.is_file()
+                    },
+                    candidate_before,
+                )
+                self.assertEqual(fixture.verify_receipt().returncode, 0)
+                self.assertEqual(receipt_path.read_bytes(), receipt_before)
+                self.assertEqual(package_metadata.read_bytes(), package_metadata_before)
+                self.assertEqual(
+                    bounded_sentinel.read_text(encoding="utf-8"), "preserve\n"
+                )
+                self.assertFalse(signed_sentinel.exists())
+                self.assertFalse((fixture.release / "Lungfish-app-notary.zip").exists())
+                self.assertNotEqual(
+                    (fixture.release / "release-metadata.txt").read_text(
+                        encoding="utf-8"
+                    ),
+                    "stale\n",
+                )
 
     def test_production_credentialed_apple_tools_are_canonical(self):
         source = (ROOT / "scripts/release/build-notarized-dmg.sh").read_text(
