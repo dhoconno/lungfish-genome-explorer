@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SECURITY_HELPER="${SCRIPT_DIR}/release_cache_security.py"
 
 fail() {
     printf 'Sparkle tools: %s\n' "$1" >&2
@@ -43,22 +44,32 @@ LOCK_HASH="$(/usr/bin/shasum -a 256 "${PROJECT_ROOT}/Package.resolved" | /usr/bi
 case "$LOCK_HASH" in
     *[!0-9a-f]*|'') fail "could not hash Package.resolved" ;;
 esac
-RESOLUTION_ROOT="${SCRATCH_ROOT}/sparkle-tools/${LOCK_HASH}"
+SECURITY_PYTHON="${PROJECT_ROOT}/.ci-python/bin/python"
+if [ ! -x "$SECURITY_PYTHON" ]; then
+    SECURITY_PYTHON="$(command -v python3 || true)"
+fi
+[ -n "$SECURITY_PYTHON" ] || fail "python3 is required to secure the Sparkle tools cache"
+[ -f "$SECURITY_HELPER" ] || fail "Sparkle cache security helper is missing"
+if ! USER_SCRATCH_ROOT="$($SECURITY_PYTHON "$SECURITY_HELPER" prepare "$SCRATCH_ROOT")"; then
+    fail "private per-user Sparkle cache validation failed"
+fi
+
+RESOLUTION_ROOT="${USER_SCRATCH_ROOT}/sparkle-tools/${LOCK_HASH}"
 PACKAGE_COPY="${RESOLUTION_ROOT}/package"
 BUILD_ROOT="${RESOLUTION_ROOT}/build"
 RESOLVED_TOOLS="${BUILD_ROOT}/artifacts/sparkle/Sparkle/bin"
 
-if ! has_all_tools "$RESOLVED_TOOLS"; then
+if [ -e "$RESOLUTION_ROOT" ] || [ -L "$RESOLUTION_ROOT" ]; then
+    if ! "$SECURITY_PYTHON" "$SECURITY_HELPER" verify \
+        "$USER_SCRATCH_ROOT" "$RESOLUTION_ROOT" "$RESOLVED_TOOLS" "$LOCK_HASH"; then
+        fail "existing Sparkle cache has no valid pinned provenance"
+    fi
+else
     command -v xcrun >/dev/null 2>&1 || fail "xcrun is required to resolve the pinned Sparkle package"
     [ -f "${PROJECT_ROOT}/Package.swift" ] || fail "Package.swift is missing"
 
     mkdir -p "$PACKAGE_COPY" "$BUILD_ROOT"
-    MANIFEST_PYTHON="${PROJECT_ROOT}/.ci-python/bin/python"
-    if [ ! -x "$MANIFEST_PYTHON" ]; then
-        MANIFEST_PYTHON="$(command -v python3 || true)"
-    fi
-    [ -n "$MANIFEST_PYTHON" ] || fail "python3 is required to read the pinned Sparkle package"
-    if ! "$MANIFEST_PYTHON" - \
+    if ! "$SECURITY_PYTHON" - \
         "${PROJECT_ROOT}/Package.swift" \
         "${PROJECT_ROOT}/Package.resolved" \
         "${PACKAGE_COPY}/Package.swift" \
@@ -109,8 +120,16 @@ PYEOF
         --scratch-path "$BUILD_ROOT" >&2; then
         fail "SwiftPM could not resolve the pinned Sparkle package"
     fi
+    has_all_tools "$RESOLVED_TOOLS" ||
+        fail "pinned Sparkle package resolved without generate_appcast, sign_update, and generate_keys"
+    if ! "$SECURITY_PYTHON" "$SECURITY_HELPER" record \
+        "$USER_SCRATCH_ROOT" "$RESOLUTION_ROOT" "$RESOLVED_TOOLS" "$LOCK_HASH"; then
+        fail "resolved Sparkle tools could not be assigned pinned provenance"
+    fi
 fi
 
-has_all_tools "$RESOLVED_TOOLS" ||
-    fail "pinned Sparkle package resolved without generate_appcast, sign_update, and generate_keys"
+if ! "$SECURITY_PYTHON" "$SECURITY_HELPER" verify \
+    "$USER_SCRATCH_ROOT" "$RESOLUTION_ROOT" "$RESOLVED_TOOLS" "$LOCK_HASH"; then
+    fail "Sparkle cache provenance changed before use"
+fi
 emit_tools "$RESOLVED_TOOLS"

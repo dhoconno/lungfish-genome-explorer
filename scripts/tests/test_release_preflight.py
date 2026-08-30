@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import shlex
 import stat
 import subprocess
 import shutil
+import sys
 import tempfile
 import textwrap
 import unittest
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +23,18 @@ PYTHON = ROOT / ".ci-python" / "bin" / "python"
 DOCTOR = ROOT / "scripts" / "release" / "release-doctor.py"
 RESOLVER = ROOT / "scripts" / "release" / "resolve-sparkle-tools.sh"
 NIGHTLY = ROOT / "scripts" / "release" / "run-nightly-prerelease.sh"
+
+
+def write_tool_trio(directory: Path, body: str = "exit 0") -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in ("generate_appcast", "sign_update", "generate_keys"):
+        path = directory / name
+        path.write_text(f"#!/bin/bash\n{body}\n", encoding="utf-8")
+        path.chmod(0o755)
+
+
+def resolved_lock_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class ReleaseDoctorFixture:
@@ -343,11 +359,62 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assertFalse(scratch.exists())
 
     def test_accepts_existing_pin_keyed_resolver_cache_as_scratch(self):
-        cache = self.fx.scratch / "sparkle-tools" / ("a" * 64)
+        user_root = self.fx.scratch / f"uid-{os.geteuid()}"
+        cache = user_root / "sparkle-tools" / ("a" * 64)
         cache.mkdir(parents=True)
+        self.fx.scratch.chmod(0o700)
+        user_root.chmod(0o700)
         result = self.fx.run_doctor()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS scratch root", result.stdout)
+
+    def test_rejects_group_or_other_writable_scratch_cache(self):
+        user_root = self.fx.scratch / f"uid-{os.geteuid()}"
+        cache = user_root / "sparkle-tools" / ("a" * 64)
+        cache.mkdir(parents=True)
+        self.fx.scratch.chmod(0o700)
+        user_root.chmod(0o770)
+        result = self.fx.run_doctor()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("permissions", result.stdout + result.stderr)
+
+    def test_rejects_symlinked_scratch_cache_component(self):
+        outside = self.fx.root / "outside-sparkle-tools"
+        (outside / ("a" * 64)).mkdir(parents=True)
+        user_root = self.fx.scratch / f"uid-{os.geteuid()}"
+        user_root.mkdir(parents=True, mode=0o700)
+        self.fx.scratch.chmod(0o700)
+        (user_root / "sparkle-tools").symlink_to(outside)
+        result = self.fx.run_doctor()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("symlink", result.stdout + result.stderr)
+
+    def test_cache_metadata_boundary_rejects_foreign_owner_uid(self):
+        sys.path.insert(0, str(DOCTOR.parent))
+        try:
+            spec = importlib.util.spec_from_file_location("release_doctor_test", DOCTOR)
+            self.assertIsNotNone(spec)
+            self.assertIsNotNone(spec.loader)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                sys.modules.pop(spec.name, None)
+        finally:
+            sys.path.pop(0)
+        self.assertTrue(
+            hasattr(module.Doctor, "_validate_cache_metadata"),
+            "Doctor must expose the ownership/mode validation boundary",
+        )
+        metadata = SimpleNamespace(
+            st_uid=os.getuid() + 1,
+            st_mode=stat.S_IFDIR | 0o700,
+        )
+        with self.assertRaises(module.CheckFailure):
+            module.Doctor._validate_cache_metadata(
+                metadata, expected_uid=os.getuid(), require_private=True
+            )
 
     def test_rejects_untracked_source_files(self):
         env = {**self.fx.env, "STUB_GIT_STATUS": "?? Sources/Unexpected.swift\n"}
@@ -466,6 +533,41 @@ class ReleaseDoctorTests(unittest.TestCase):
 
 
 class SparkleResolverTests(unittest.TestCase):
+    def _copy_resolver_repo(self, root: Path) -> tuple[Path, Path]:
+        repo = root / "repo"
+        release_scripts = repo / "scripts" / "release"
+        release_scripts.mkdir(parents=True)
+        resolver = release_scripts / "resolve-sparkle-tools.sh"
+        shutil.copy2(RESOLVER, resolver)
+        shutil.copy2(
+            ROOT / "scripts" / "release" / "release_cache_security.py",
+            release_scripts / "release_cache_security.py",
+        )
+        shutil.copy2(ROOT / "Package.swift", repo / "Package.swift")
+        shutil.copy2(ROOT / "Package.resolved", repo / "Package.resolved")
+        return repo, resolver
+
+    def _preseed_both_cache_layouts(
+        self, repo: Path, scratch: Path
+    ) -> tuple[Path, Path]:
+        lock_hash = resolved_lock_hash(repo / "Package.resolved")
+        suffix = (
+            Path("sparkle-tools")
+            / lock_hash
+            / "build"
+            / "artifacts"
+            / "sparkle"
+            / "Sparkle"
+            / "bin"
+        )
+        old_tools = scratch / suffix
+        user_tools = scratch / f"uid-{os.getuid()}" / suffix
+        write_tool_trio(old_tools)
+        write_tool_trio(user_tools)
+        scratch.chmod(0o700)
+        (scratch / f"uid-{os.getuid()}").chmod(0o700)
+        return old_tools, user_tools
+
     def test_resolver_emits_absolute_executable_tool_paths_without_touching_lockfile(
         self,
     ):
@@ -509,6 +611,10 @@ class SparkleResolverTests(unittest.TestCase):
             release_scripts.mkdir(parents=True)
             resolver = release_scripts / "resolve-sparkle-tools.sh"
             shutil.copy2(RESOLVER, resolver)
+            shutil.copy2(
+                ROOT / "scripts" / "release" / "release_cache_security.py",
+                release_scripts / "release_cache_security.py",
+            )
             stale_tools = repo / ".build" / "artifacts" / "sparkle" / "Sparkle" / "bin"
             stale_tools.mkdir(parents=True)
             for name in ("generate_appcast", "sign_update", "generate_keys"):
@@ -564,6 +670,7 @@ class SparkleResolverTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertNotIn(str(stale_tools), result.stdout)
+            self.assertIn(f"/uid-{os.getuid()}/", result.stdout)
             manifest = manifest_log.read_text(encoding="utf-8")
             self.assertNotIn("ORIGINAL_MANIFEST_SENTINEL", manifest)
             self.assertIn("https://github.com/sparkle-project/Sparkle", manifest)
@@ -605,8 +712,135 @@ class SparkleResolverTests(unittest.TestCase):
             self.assertIn('exact: "9.9.9"', manifest_log.read_text(encoding="utf-8"))
             self.assertEqual((repo / "Package.resolved").read_bytes(), changed_before)
 
+    def test_resolver_rejects_preseeded_tools_without_private_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, resolver = self._copy_resolver_repo(Path(temp))
+            scratch = Path(temp) / "scratch"
+            old_tools, user_tools = self._preseed_both_cache_layouts(repo, scratch)
+            executed = Path(temp) / "preseeded-executed"
+            for directory in (old_tools, user_tools):
+                write_tool_trio(directory, f'touch "{executed}"; exit 0')
+            result = subprocess.run(
+                ["/bin/bash", str(resolver)],
+                cwd=repo,
+                env={
+                    **os.environ,
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("provenance", result.stderr)
+            self.assertFalse(executed.exists())
+
+    def test_resolver_rejects_group_or_other_writable_user_cache(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, resolver = self._copy_resolver_repo(Path(temp))
+            scratch = Path(temp) / "scratch"
+            self._preseed_both_cache_layouts(repo, scratch)
+            (scratch / f"uid-{os.getuid()}").chmod(0o770)
+            result = subprocess.run(
+                ["/bin/bash", str(resolver)],
+                cwd=repo,
+                env={
+                    **os.environ,
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("permissions", result.stderr)
+
+    def test_resolver_rejects_symlinked_cache_components(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, resolver = self._copy_resolver_repo(Path(temp))
+            scratch = Path(temp) / "scratch"
+            lock_hash = resolved_lock_hash(repo / "Package.resolved")
+            outside = Path(temp) / "outside-build"
+            write_tool_trio(outside / "artifacts" / "sparkle" / "Sparkle" / "bin")
+            for root in (
+                scratch / "sparkle-tools" / lock_hash,
+                scratch / f"uid-{os.getuid()}" / "sparkle-tools" / lock_hash,
+            ):
+                root.mkdir(parents=True)
+                (root / "build").symlink_to(outside)
+            scratch.chmod(0o700)
+            (scratch / f"uid-{os.getuid()}").chmod(0o700)
+            result = subprocess.run(
+                ["/bin/bash", str(resolver)],
+                cwd=repo,
+                env={
+                    **os.environ,
+                    "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("symlink", result.stderr)
+
 
 class NightlyReleaseProfileTests(unittest.TestCase):
+    def test_wrapper_never_consumes_preseeded_unproven_cache_tools(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp)
+            home = temp_root / "home"
+            home.mkdir()
+            bin_dir = temp_root / "bin"
+            bin_dir.mkdir()
+            captured = temp_root / "args.json"
+            python_stub = bin_dir / "python3"
+            python_stub.write_text(
+                "#!/usr/bin/python3\nimport json, os, sys\n"
+                "open(os.environ['CAPTURE_ARGS'], 'w').write(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            python_stub.chmod(0o755)
+
+            scratch = temp_root / "scratch"
+            lock_hash = resolved_lock_hash(ROOT / "Package.resolved")
+            suffix = (
+                Path("sparkle-tools")
+                / lock_hash
+                / "build"
+                / "artifacts"
+                / "sparkle"
+                / "Sparkle"
+                / "bin"
+            )
+            write_tool_trio(scratch / suffix)
+            write_tool_trio(scratch / f"uid-{os.getuid()}" / suffix)
+            scratch.chmod(0o700)
+            (scratch / f"uid-{os.getuid()}").chmod(0o700)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{bin_dir}:/usr/bin:/bin",
+                "CAPTURE_ARGS": str(captured),
+                "LUNGFISH_RELEASE_SCRATCH_ROOT": str(scratch),
+            }
+            env.pop("LUNGFISH_SPARKLE_TOOLS_DIR", None)
+            result = subprocess.run(
+                ["/bin/bash", str(NIGHTLY)],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("provenance", result.stderr)
+            self.assertFalse(captured.exists())
+
     def test_wrapper_reads_machine_values_from_ignored_profile_and_explicit_flags_override(
         self,
     ):

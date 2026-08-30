@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 from typing import Callable
 
+from release_cache_security import CacheSecurityError, validate_metadata
 from release_contract import CONTRACT_PATH, load_contract
 
 
@@ -229,7 +230,25 @@ class Doctor:
             )
         return f"all inspected targets use {self.toolchain.deploymentTarget}"
 
-    def _scratch_root(self) -> Path:
+    @staticmethod
+    def _validate_cache_metadata(
+        metadata: os.stat_result,
+        *,
+        expected_uid: int,
+        require_private: bool = False,
+        require_directory: bool = True,
+    ) -> None:
+        try:
+            validate_metadata(
+                metadata,
+                expected_uid=expected_uid,
+                require_private=require_private,
+                require_directory=require_directory,
+            )
+        except CacheSecurityError as error:
+            raise CheckFailure(str(error)) from error
+
+    def _scratch_base(self) -> Path:
         scratch = Path(
             self.environment.get(
                 "LUNGFISH_RELEASE_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT)
@@ -250,25 +269,51 @@ class Doctor:
             raise CheckFailure("scratch root must be outside the user home directory")
         if scratch.exists() and scratch.is_dir():
             entries = list(scratch.iterdir())
-            cache_root = scratch / "sparkle-tools"
-            cache_children = list(cache_root.iterdir()) if cache_root.is_dir() else []
-            cache_shape_valid = (
-                len(entries) == 1
-                and entries[0] == cache_root
-                and all(
-                    child.is_dir()
-                    and re.fullmatch(r"[0-9a-f]{64}", child.name) is not None
-                    for child in cache_children
-                )
-            )
-            if not entries or not cache_shape_valid:
+            if any(entry.is_symlink() for entry in entries):
+                raise CheckFailure("scratch cache contains a symlink component")
+            if not entries or any(
+                not entry.is_dir() or re.fullmatch(r"uid-[0-9]+", entry.name) is None
+                for entry in entries
+            ):
                 raise CheckFailure(
                     "existing scratch root is not owned by the Lungfish release cache"
                 )
+            self._validate_cache_metadata(
+                scratch.lstat(),
+                expected_uid=os.geteuid(),
+                require_private=True,
+            )
         return scratch
 
+    def _scratch_root(self) -> Path:
+        scratch = self._scratch_base()
+        user_root = scratch / f"uid-{os.geteuid()}"
+        if not user_root.exists():
+            return user_root
+        if user_root.is_symlink():
+            raise CheckFailure("scratch cache contains a symlink component")
+        self._validate_cache_metadata(
+            user_root.lstat(),
+            expected_uid=os.geteuid(),
+            require_private=True,
+        )
+        for directory, directory_names, file_names in os.walk(
+            user_root, followlinks=False
+        ):
+            for name in (*directory_names, *file_names):
+                path = Path(directory) / name
+                metadata = path.lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise CheckFailure("scratch cache contains a symlink component")
+                self._validate_cache_metadata(
+                    metadata,
+                    expected_uid=os.geteuid(),
+                    require_directory=stat.S_ISDIR(metadata.st_mode),
+                )
+        return user_root
+
     def _disk_space(self) -> str:
-        scratch = self._scratch_root()
+        scratch = self._scratch_base()
         probe = scratch
         while not probe.exists() and probe != probe.parent:
             probe = probe.parent
@@ -288,13 +333,22 @@ class Doctor:
         return f"at least {self.toolchain.minimumFreeDiskGiB} GiB is available"
 
     def _scratch_write(self) -> str:
+        scratch_base = self._scratch_base()
+        base_existed = scratch_base.exists()
         scratch = self._scratch_root()
         created = False
         probe_path: Path | None = None
         try:
+            if not scratch_base.exists():
+                scratch_base.mkdir(parents=True, mode=0o700)
             if not scratch.exists():
-                scratch.mkdir(parents=True)
+                scratch.mkdir(mode=0o700)
                 created = True
+            self._validate_cache_metadata(
+                scratch.lstat(),
+                expected_uid=os.geteuid(),
+                require_private=True,
+            )
             if not scratch.is_dir():
                 raise OSError("not a directory")
             descriptor, raw_path = tempfile.mkstemp(
@@ -313,6 +367,11 @@ class Doctor:
             if created:
                 try:
                     scratch.rmdir()
+                except OSError:
+                    pass
+            if not base_existed:
+                try:
+                    scratch_base.rmdir()
                 except OSError:
                     pass
         return "deterministic scratch root accepts disposable writes"
