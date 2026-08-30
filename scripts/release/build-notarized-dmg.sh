@@ -592,6 +592,10 @@ CANDIDATE_RECEIPT_PATH="${RELEASE_DIR}/unsigned-candidate-receipt.json"
 APP_NOTARY_LOG="${RELEASE_DIR}/notary-app-log.json"
 DMG_NOTARY_LOG="${RELEASE_DIR}/notary-dmg-log.json"
 
+repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
+repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
+release_commit=$(git rev-parse --verify HEAD)
+
 refresh_output_paths() {
     RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
     ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
@@ -613,6 +617,9 @@ if [ -n "$RESUME_CANDIDATE" ]; then
         'import json,sys; value=json.load(open(sys.argv[1]))["build"]["scratchPath"]; assert isinstance(value,str) and value.startswith("/"); print(value)' \
         "$CANDIDATE_RECEIPT_PATH")
     APP_PATH="$RELEASE_APP_PATH"
+    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
+        --release-dir "$RELEASE_DIR" \
+        --repository-key "$repository_key"
 fi
 
 run_release_doctor() {
@@ -918,9 +925,6 @@ resolved_build_timestamp() {
 }
 
 if [ -z "$RESUME_CANDIDATE" ]; then
-    repository_identity=$(git config --get remote.origin.url || git rev-parse --show-toplevel)
-    repository_key=$(printf '%s' "$repository_identity" | shasum -a 256 | awk '{print $1}')
-    release_commit=$(git rev-parse --verify HEAD)
     if [ -z "$SCRATCH_PATH" ]; then
         SCRATCH_PATH="${LUNGFISH_RELEASE_SCRATCH_ROOT:-/private/var/tmp/lungfish-release-swiftpm}/${repository_key}/${release_commit}"
     fi
@@ -940,7 +944,9 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     umask 077
     prepare_release_dir
     /bin/mkdir -p "$RELEASE_LOG_DIR" "$DERIVED_DATA_PATH"
-    : >"${RELEASE_DIR}/.lungfish-release-output"
+    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" record-release-output \
+        --release-dir "$RELEASE_DIR" \
+        --repository-key "$repository_key"
     : >"${DERIVED_DATA_PATH}/.lungfish-derived-data-output"
     /bin/rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
     /bin/mkdir -p "$SCRATCH_PATH"
@@ -1115,6 +1121,9 @@ run_release_doctor credentials
     --receipt "$CANDIDATE_RECEIPT_PATH" \
     --channel "$CHANNEL" \
     --scratch-path "$SCRATCH_PATH"
+python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
+    --release-dir "$RELEASE_DIR" \
+    --repository-key "$repository_key"
 
 APP_NOTARY_ZIP="${RELEASE_DIR}/Lungfish-app-notary.zip"
 SIGNED_APP_PATH="${RELEASE_DIR}/signed/${APP_BUNDLE_FILENAME}"
@@ -1125,6 +1134,7 @@ DMG_PATH="${RELEASE_DIR}/Lungfish-${SOURCE_VERSION}-arm64.dmg"
 # package metadata, archive, DerivedData, or deterministic scratch.
 clear_verified_retry_artifacts() {
     local retry_path
+    local signed_parent
     for retry_path in \
         "$APP_NOTARY_ZIP" \
         "$APP_NOTARY_LOG" \
@@ -1138,7 +1148,15 @@ clear_verified_retry_artifacts() {
         esac
     done
     case "$SIGNED_APP_PATH" in
-        "$RELEASE_DIR"/*) /bin/rm -rf "$(dirname "$SIGNED_APP_PATH")" ;;
+        "$RELEASE_DIR"/*)
+            signed_parent=$(dirname "$SIGNED_APP_PATH")
+            if [ -L "$signed_parent" ]; then
+                echo "refusing signed-app cleanup through a symlink" >&2
+                exit 64
+            fi
+            /bin/rm -rf "$SIGNED_APP_PATH"
+            /bin/rmdir "$signed_parent" 2>/dev/null || true
+            ;;
         *) echo "refusing signed-app cleanup outside receipt directory" >&2; exit 64 ;;
     esac
 }
@@ -1262,7 +1280,7 @@ scripts/smoke-test-release-tools.sh "$APP_PATH" \
 
 /usr/bin/xcrun stapler staple "$APP_PATH"
 
-/bin/rm -rf "${RELEASE_DIR}/signed"
+/bin/rm -rf "$SIGNED_APP_PATH"
 /bin/mkdir -p "$(dirname "$SIGNED_APP_PATH")"
 /usr/bin/ditto "$APP_PATH" "$SIGNED_APP_PATH"
 

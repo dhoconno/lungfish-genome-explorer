@@ -21,6 +21,7 @@ RELEASE_MARKER = ".lungfish-release-output"
 DERIVED_MARKER = ".lungfish-derived-data-output"
 ARCHIVE_MARKER = ".lungfish-release-archive.json"
 ARCHIVE_OUTPUT_TYPE = "lungfish-xcarchive"
+RELEASE_OUTPUT_TYPE = "lungfish-release-output"
 
 
 class TargetSecurityError(ValueError):
@@ -124,34 +125,138 @@ def _validate_existing_archive(
     if not entries:
         return
 
-    marker = path / ARCHIVE_MARKER
+    expected = {
+        "schemaVersion": 1,
+        "outputType": ARCHIVE_OUTPUT_TYPE,
+        "repositoryKey": repository_key,
+    }
+    _validate_private_marker(
+        path / ARCHIVE_MARKER,
+        expected=expected,
+        expected_uid=expected_uid,
+        label="archive",
+    )
+
+
+def _validate_private_marker(
+    marker: Path,
+    *,
+    expected: dict[str, object],
+    expected_uid: int,
+    label: str,
+) -> None:
     try:
         metadata = marker.lstat()
     except OSError as error:
         raise TargetSecurityError(
-            "existing archive lacks its private Lungfish ownership marker"
+            f"{label} lacks its private Lungfish ownership marker"
         ) from error
     if (
         not stat.S_ISREG(metadata.st_mode)
         or metadata.st_uid != expected_uid
         or stat.S_IMODE(metadata.st_mode) != 0o600
     ):
-        raise TargetSecurityError("existing archive ownership marker is unsafe")
+        raise TargetSecurityError(f"{label} ownership marker is unsafe")
     try:
         payload = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise TargetSecurityError(
-            "existing archive ownership marker is invalid"
-        ) from error
-    expected = {
-        "schemaVersion": 1,
-        "outputType": ARCHIVE_OUTPUT_TYPE,
-        "repositoryKey": repository_key,
-    }
+        raise TargetSecurityError(f"{label} ownership marker is invalid") from error
     if payload != expected:
         raise TargetSecurityError(
-            "existing archive ownership marker does not match this repository"
+            f"{label} ownership marker does not match this output"
         )
+
+
+def validate_release_output_marker(
+    release_dir: Path,
+    *,
+    repository_key: str,
+    expected_uid: int | None = None,
+) -> None:
+    """Require a private marker bound to this repository and canonical directory."""
+    uid = os.geteuid() if expected_uid is None else expected_uid
+    if re.fullmatch(r"[0-9a-f]{64}", repository_key) is None:
+        raise TargetSecurityError("repository release key is invalid")
+    canonical = _canonical_target(
+        release_dir, label="release directory", expected_uid=uid
+    )
+    try:
+        metadata = canonical.lstat()
+    except OSError as error:
+        raise TargetSecurityError("release directory is unavailable") from error
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != uid
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+    ):
+        raise TargetSecurityError("release directory ownership is unsafe")
+    expected = {
+        "schemaVersion": 1,
+        "outputType": RELEASE_OUTPUT_TYPE,
+        "repositoryKey": repository_key,
+        "releaseDir": str(canonical),
+    }
+    _validate_private_marker(
+        canonical / RELEASE_MARKER,
+        expected=expected,
+        expected_uid=uid,
+        label="release directory",
+    )
+
+
+def _write_private_marker(path: Path, payload: dict[str, object]) -> None:
+    temporary: Path | None = None
+    try:
+        descriptor, raw_temporary = tempfile.mkstemp(
+            prefix=f".{path.name}.tmp-", dir=path.parent
+        )
+        temporary = Path(raw_temporary)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.is_symlink():
+            raise TargetSecurityError("ownership marker must not be a symlink")
+        os.replace(temporary, path)
+        temporary = None
+    except OSError as error:
+        raise TargetSecurityError("ownership marker could not be written") from error
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def write_release_output_marker(
+    release_dir: Path,
+    *,
+    repository_key: str,
+    expected_uid: int | None = None,
+) -> None:
+    """Atomically bind a validated release directory to its exact canonical path."""
+    uid = os.geteuid() if expected_uid is None else expected_uid
+    if re.fullmatch(r"[0-9a-f]{64}", repository_key) is None:
+        raise TargetSecurityError("repository release key is invalid")
+    canonical = _canonical_target(
+        release_dir, label="release directory", expected_uid=uid
+    )
+    try:
+        metadata = canonical.lstat()
+    except OSError as error:
+        raise TargetSecurityError("new release directory is unavailable") from error
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != uid:
+        raise TargetSecurityError("new release directory ownership is unsafe")
+    payload = {
+        "schemaVersion": 1,
+        "outputType": RELEASE_OUTPUT_TYPE,
+        "repositoryKey": repository_key,
+        "releaseDir": str(canonical),
+    }
+    _write_private_marker(canonical / RELEASE_MARKER, payload)
+    validate_release_output_marker(
+        canonical, repository_key=repository_key, expected_uid=uid
+    )
 
 
 def write_archive_marker(
@@ -175,35 +280,18 @@ def write_archive_marker(
     ):
         raise TargetSecurityError("new archive ownership is unsafe")
 
-    marker = archive_path / ARCHIVE_MARKER
-    temporary: Path | None = None
     payload = {
         "schemaVersion": 1,
         "outputType": ARCHIVE_OUTPUT_TYPE,
         "repositoryKey": repository_key,
     }
-    try:
-        descriptor, raw_temporary = tempfile.mkstemp(
-            prefix=f".{ARCHIVE_MARKER}.tmp-", dir=archive_path
-        )
-        temporary = Path(raw_temporary)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            os.fchmod(handle.fileno(), 0o600)
-            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        if marker.is_symlink():
-            raise TargetSecurityError("archive ownership marker must not be a symlink")
-        os.replace(temporary, marker)
-        temporary = None
-    except OSError as error:
-        raise TargetSecurityError(
-            "archive ownership marker could not be written"
-        ) from error
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    _write_private_marker(archive_path / ARCHIVE_MARKER, payload)
+    _validate_private_marker(
+        archive_path / ARCHIVE_MARKER,
+        expected=payload,
+        expected_uid=uid,
+        label="archive",
+    )
 
 
 def validate_release_targets(
@@ -300,11 +388,10 @@ def validate_release_targets(
             continue
         raise TargetSecurityError(f"{left_label} overlaps {right_label}")
 
-    release_is_default = release == project / "build" / "Release"
     derived_is_default = derived == project / ".build" / "release-derived-data"
-    if not release_is_default:
-        _validate_existing_output(
-            release, label="release directory", marker=RELEASE_MARKER
+    if release.exists() and any(release.iterdir()):
+        validate_release_output_marker(
+            release, repository_key=repository_key, expected_uid=uid
         )
     if not derived_is_default:
         _validate_existing_output(
@@ -361,6 +448,13 @@ def _record_archive_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _release_marker_parser(description: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--release-dir", type=Path, required=True)
+    parser.add_argument("--repository-key", required=True)
+    return parser
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "record-archive":
         args = _record_archive_parser().parse_args(sys.argv[2:])
@@ -370,6 +464,28 @@ def main() -> int:
             print(f"FAIL archive marker: {error}")
             return 1
         print("PASS archive marker: repository ownership recorded")
+        return 0
+    if len(sys.argv) > 1 and sys.argv[1] in (
+        "record-release-output",
+        "validate-release-output",
+    ):
+        operation = sys.argv[1]
+        args = _release_marker_parser(
+            "Record or validate a path-bound Lungfish release output marker."
+        ).parse_args(sys.argv[2:])
+        try:
+            if operation == "record-release-output":
+                write_release_output_marker(
+                    args.release_dir, repository_key=args.repository_key
+                )
+            else:
+                validate_release_output_marker(
+                    args.release_dir, repository_key=args.repository_key
+                )
+        except TargetSecurityError as error:
+            print(f"FAIL release marker: {error}")
+            return 1
+        print(f"PASS release marker: {operation} verified")
         return 0
     args = _parser().parse_args()
     try:

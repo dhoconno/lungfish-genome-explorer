@@ -627,6 +627,143 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
 
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
 
+    def test_builder_records_private_path_bound_release_marker(self):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        receipt = json.loads(
+            (self.fixture.release / "unsigned-candidate-receipt.json").read_text()
+        )
+        marker = self.fixture.release / ".lungfish-release-output"
+
+        self.assertEqual(
+            json.loads(marker.read_text(encoding="utf-8")),
+            {
+                "outputType": "lungfish-release-output",
+                "releaseDir": str(self.fixture.release),
+                "repositoryKey": Path(receipt["build"]["scratchPath"]).parent.name,
+                "schemaVersion": 1,
+            },
+        )
+        self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+        self.assertFalse(marker.is_symlink())
+
+    def test_relocated_receipt_and_candidate_never_authorize_sibling_cleanup(self):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        source_receipt = self.fixture.release / "unsigned-candidate-receipt.json"
+        source_app = self.fixture.release / "Lungfish.app"
+        source_marker = self.fixture.release / ".lungfish-release-output"
+
+        for copy_marker in (False, True):
+            with self.subTest(copy_marker=copy_marker):
+                relocated = self.fixture.root / f"relocated-{int(copy_marker)}"
+                relocated.mkdir()
+                shutil.copytree(source_app, relocated / "Lungfish.app")
+                shutil.copy2(source_receipt, relocated / source_receipt.name)
+                if copy_marker:
+                    shutil.copy2(source_marker, relocated / source_marker.name)
+                signed = relocated / "signed"
+                signed.mkdir()
+                sentinel = signed / "valuable-user-data.txt"
+                sentinel.write_text("preserve\n", encoding="utf-8")
+                (self.fixture.root / "codesign-count").unlink(missing_ok=True)
+                events_before = len(self.fixture.event_lines())
+
+                resumed = self.fixture.run(
+                    "--resume-candidate",
+                    str(relocated / source_receipt.name),
+                    "--signing-identity",
+                    "Developer ID Application: Test (TEAMID)",
+                    "--team-id",
+                    "TEAMID",
+                    "--notary-profile",
+                    "fixture",
+                    "--defer-remote-publish",
+                    "--channel",
+                    "stable",
+                    extra_env={
+                        "BUILDER_CODESIGN_MUTATE": "1",
+                        "BUILDER_CODESIGN_FAIL_AT": "1",
+                    },
+                )
+
+                self.assertNotEqual(
+                    resumed.returncode, 0, resumed.stdout + resumed.stderr
+                )
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+                new_events = self.fixture.event_lines()[events_before:]
+                self.assertFalse(
+                    any("--mode credentials" in line for line in new_events)
+                )
+                self.assertFalse(
+                    any(line.startswith("codesign:") for line in new_events)
+                )
+
+    def test_resume_release_marker_must_be_exact_private_and_path_bound(self):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        receipt_path = self.fixture.release / "unsigned-candidate-receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        marker = self.fixture.release / ".lungfish-release-output"
+        valid = {
+            "schemaVersion": 1,
+            "outputType": "lungfish-release-output",
+            "repositoryKey": Path(receipt["build"]["scratchPath"]).parent.name,
+            "releaseDir": str(self.fixture.release),
+        }
+        cases = {
+            "wrong schema": {**valid, "schemaVersion": 2},
+            "wrong output type": {**valid, "outputType": "other-output"},
+            "wrong repository": {**valid, "repositoryKey": "f" * 64},
+            "wrong path": {**valid, "releaseDir": str(self.fixture.root)},
+            "public mode": valid,
+            "symlink": valid,
+        }
+        for label, payload in cases.items():
+            with self.subTest(label=label):
+                marker.unlink(missing_ok=True)
+                target = self.fixture.release / "forged-release-marker.json"
+                target.unlink(missing_ok=True)
+                serialized = json.dumps(payload) + "\n"
+                if label == "symlink":
+                    target.write_text(serialized, encoding="utf-8")
+                    target.chmod(0o600)
+                    marker.symlink_to(target)
+                else:
+                    marker.write_text(serialized, encoding="utf-8")
+                    marker.chmod(0o644 if label == "public mode" else 0o600)
+                signed = self.fixture.release / "signed"
+                signed.mkdir(exist_ok=True)
+                sentinel = signed / "valuable-user-data.txt"
+                sentinel.write_text("preserve\n", encoding="utf-8")
+                events_before = len(self.fixture.event_lines())
+
+                resumed = self.fixture.run(
+                    "--resume-candidate",
+                    str(receipt_path),
+                    "--signing-identity",
+                    "Developer ID Application: Test (TEAMID)",
+                    "--team-id",
+                    "TEAMID",
+                    "--notary-profile",
+                    "fixture",
+                    "--defer-remote-publish",
+                    "--channel",
+                    "stable",
+                )
+
+                self.assertNotEqual(
+                    resumed.returncode, 0, resumed.stdout + resumed.stderr
+                )
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+                new_events = self.fixture.event_lines()[events_before:]
+                self.assertFalse(
+                    any("--mode credentials" in line for line in new_events)
+                )
+                self.assertFalse(
+                    any(line.startswith("codesign:") for line in new_events)
+                )
+
     def test_archive_marker_must_be_private_exact_and_repository_bound(self):
         repository_key = hashlib.sha256(str(self.fixture.repo).encode()).hexdigest()
         valid = {
@@ -1005,7 +1142,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                 self.assertEqual(
                     bounded_sentinel.read_text(encoding="utf-8"), "preserve\n"
                 )
-                self.assertFalse(signed_sentinel.exists())
+                self.assertEqual(signed_sentinel.read_text(encoding="utf-8"), "stale\n")
                 self.assertFalse((fixture.release / "Lungfish-app-notary.zip").exists())
                 self.assertNotEqual(
                     (fixture.release / "release-metadata.txt").read_text(
