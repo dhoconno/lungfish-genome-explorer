@@ -1,6 +1,7 @@
 import argparse
 import copy
 import contextlib
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -792,18 +793,24 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     packaged.returncode, 0, packaged.stdout + packaged.stderr
                 )
                 if failure == "moved tag":
+                    remote_path = fixture._git(
+                        "config", "--get", "lungfish.fixtureRemote.origin"
+                    ).stdout.strip()
                     head = fixture._git("rev-parse", "HEAD").stdout.strip()
                     tree = fixture._git("write-tree").stdout.strip()
                     other = fixture._git(
                         "commit-tree", tree, "-p", head, "-m", "moved tag"
                     ).stdout.strip()
                     fixture._git("tag", "-f", "-a", "v2026.8.1", other, "-m", "moved")
-                    fixture._git("push", "-q", "--force", "origin", "v2026.8.1")
+                    fixture._git("push", "-q", "--force", remote_path, "v2026.8.1")
                 elif failure == "lightweight tag":
-                    fixture._git("push", "-q", "origin", ":refs/tags/v2026.8.1")
+                    remote_path = fixture._git(
+                        "config", "--get", "lungfish.fixtureRemote.origin"
+                    ).stdout.strip()
+                    fixture._git("push", "-q", remote_path, ":refs/tags/v2026.8.1")
                     fixture._git("tag", "-d", "v2026.8.1")
                     fixture._git("tag", "v2026.8.1")
-                    fixture._git("push", "-q", "origin", "v2026.8.1")
+                    fixture._git("push", "-q", remote_path, "v2026.8.1")
                 elif failure == "stale receipt":
                     receipt_path = fixture.release / "unsigned-candidate-receipt.json"
                     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -872,6 +879,133 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
             )
 
         self.assertIsNone(receipt)
+
+    def test_completed_state_requires_receipt_bound_local_mutable_asset_evidence(self):
+        fixture = self._published_preview_fixture()
+        receipt = fixture.release / "unsigned-candidate-receipt.json"
+        metadata_path = fixture.release / "release-metadata.txt"
+        original_metadata = metadata_path.read_text(encoding="utf-8")
+        values = self.release.release_coordinator._metadata(metadata_path)
+
+        def local_path(value):
+            path = Path(value)
+            return path if path.is_absolute() else fixture.repo / path
+
+        appcast = local_path(values["sparkle_appcast_path"])
+        bridge = appcast.parent / "appcast-alpha.xml"
+        original_appcast = appcast.read_bytes()
+        original_bridge = bridge.read_bytes()
+
+        def write_metadata(**updates):
+            current = self.release.release_coordinator._metadata(metadata_path)
+            current.update(updates)
+            metadata_path.write_text(
+                "".join(f"{key}={value}\n" for key, value in current.items()),
+                encoding="utf-8",
+            )
+
+        def classify():
+            with self._publication_state_environment(fixture):
+                return self.release.prepared_release_recovery_receipt(
+                    fixture.repo, "origin", channel="preview"
+                )
+
+        metadata_path.unlink()
+        self.assertEqual(classify(), receipt)
+        metadata_path.write_text(original_metadata, encoding="utf-8")
+
+        appcast.unlink()
+        self.assertEqual(classify(), receipt)
+        appcast.write_bytes(original_appcast)
+
+        stale_replacement = b"new locally generated signed appcast\n"
+        appcast.write_bytes(stale_replacement)
+        bridge.write_bytes(stale_replacement)
+        write_metadata(
+            sparkle_appcast_sha256=hashlib.sha256(stale_replacement).hexdigest(),
+            sparkle_appcast_size=len(stale_replacement),
+            sparkle_bridge_appcast_path=str(bridge.relative_to(fixture.repo)),
+            sparkle_bridge_appcast_sha256=hashlib.sha256(stale_replacement).hexdigest(),
+            sparkle_bridge_appcast_size=len(stale_replacement),
+        )
+        self.assertEqual(classify(), receipt)
+
+        appcast.write_bytes(original_appcast)
+        bridge.write_bytes(original_bridge)
+        metadata_path.write_text(original_metadata, encoding="utf-8")
+        for label, updates in (
+            ("wrong commit", {"git_commit": "f" * 40}),
+            (
+                "escaping appcast",
+                {"sparkle_appcast_path": str(fixture.root / "outside.xml")},
+            ),
+        ):
+            with self.subTest(conflict=label):
+                write_metadata(**updates)
+                with self.assertRaises(self.release.NightlyReleaseError):
+                    classify()
+                metadata_path.write_text(original_metadata, encoding="utf-8")
+
+    def test_crash_after_mutable_target_edit_before_upload_remains_resumable(self):
+        fixture = ReleaseBuilderFixture(self)
+        self.addCleanup(fixture.cleanup)
+        fixture.prepare_remote_tag()
+        packaged = fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        stale = {
+            "name": "appcast-stable.xml",
+            "digest": "sha256:" + "0" * 64,
+            "size": 1,
+        }
+        fixture.gh_state.write_text(
+            json.dumps(
+                {
+                    "releases": {
+                        "sparkle-stable": {
+                            "targetCommitish": "b" * 40,
+                            "isPrerelease": True,
+                            "isDraft": False,
+                            "assets": [stale],
+                        }
+                    }
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        failed = fixture.run(
+            "--resume-candidate",
+            str(fixture.release / "unsigned-candidate-receipt.json"),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--channel",
+            "stable",
+            "--github-release-tag",
+            "v2026.8.1",
+            "--sparkle-generate-appcast",
+            str(fixture.bin / "generate_appcast"),
+            extra_env={"BUILDER_FAIL_FEED_UPLOAD": "1"},
+        )
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        state = json.loads(fixture.gh_state.read_text(encoding="utf-8"))
+        commit = fixture._git("rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(state["releases"]["sparkle-stable"]["targetCommitish"], commit)
+        self.assertEqual(state["releases"]["sparkle-stable"]["assets"], [stale])
+        receipt = fixture.release / "unsigned-candidate-receipt.json"
+        identity = self.release.release_coordinator._candidate_receipt_identity(
+            fixture.repo, receipt, "stable"
+        )
+        with self._publication_state_environment(fixture):
+            publication_state = (
+                self.release.release_coordinator.tagged_publication_state(
+                    fixture.repo, "origin", "stable", identity
+                )
+            )
+        self.assertEqual(publication_state, "incomplete")
 
     def test_partial_publication_resumes_and_conflicting_state_fails_closed(self):
         fixture = self._published_preview_fixture()
@@ -1131,6 +1265,70 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertTrue(stable.source_gates[1].require_tools)
         self.assertTrue(preview.focused_release_tests)
         self.assertTrue(preview.requires_dependency_receipt)
+
+    def test_exact_sha_ci_uses_selected_github_com_repository_under_hostile_host(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bin_dir = Path(temp_dir)
+            jobs = [
+                {
+                    "name": name,
+                    "status": "completed",
+                    "conclusion": "success",
+                }
+                for name in self.coordinator.required_ci_jobs("preview")
+            ]
+            run_payload = [
+                {
+                    "databaseId": 77,
+                    "headSha": "a" * 40,
+                    "headBranch": "v2026.8.1",
+                    "status": "completed",
+                    "conclusion": "success",
+                }
+            ]
+            gh = bin_dir / "gh"
+            gh.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os, sys\n"
+                "args = sys.argv[1:]\n"
+                "if os.environ.get('GH_HOST') or os.environ.get('GH_REPO') != 'github.com/right/lungfish':\n"
+                "    raise SystemExit(89)\n"
+                "if args[:2] != ['--repo', 'github.com/right/lungfish']:\n"
+                "    raise SystemExit(90)\n"
+                "args = args[2:]\n"
+                f"runs = {run_payload!r}\n"
+                f"jobs = {jobs!r}\n"
+                "if args[:2] == ['run', 'list']:\n"
+                "    print(json.dumps(runs))\n"
+                "elif args[:2] == ['run', 'view']:\n"
+                "    print(json.dumps({'jobs': jobs}))\n"
+                "else:\n"
+                "    raise SystemExit(64)\n",
+                encoding="utf-8",
+            )
+            gh.chmod(0o755)
+            root = Path(__file__).resolve().parents[2]
+            environment = {
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "GH_HOST": "mirror.example.test",
+            }
+            with mock.patch.dict(os.environ, environment):
+                operations = self.coordinator.LocalReleaseOperations(
+                    root, "right/lungfish"
+                )
+            request = dataclasses.replace(
+                self.request(channel="preview", mode="resume"),
+                github_repository="right/lungfish",
+            )
+            identity = self.coordinator.CandidateIdentity(
+                receipt=request.receipt,
+                tag="v2026.8.1",
+                commit="a" * 40,
+                version="2026.8.1",
+                scratch_path=Path("/scratch"),
+            )
+
+            operations.wait_exact_sha_ci(request, identity)
 
     def test_release_mutation_targets_do_not_overlap(self):
         operations = self.coordinator.LocalReleaseOperations(

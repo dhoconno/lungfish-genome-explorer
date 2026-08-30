@@ -622,10 +622,17 @@ def prepare_or_resume_release(
         )
 
 
+def _github_command(*arguments: str) -> list[str]:
+    repository = os.environ.get("GH_REPO", "")
+    if not re.fullmatch(r"github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+", repository):
+        raise NightlyReleaseError("selected GitHub repository identity is unavailable")
+    return ["gh", "--repo", repository, *arguments]
+
+
 def github_release_exists(root: Path, release_tag: str) -> bool:
     return (
         subprocess.run(
-            ["gh", "release", "view", release_tag],
+            _github_command("release", "view", release_tag),
             cwd=root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -637,7 +644,7 @@ def github_release_exists(root: Path, release_tag: str) -> bool:
 
 def github_release_tags(root: Path) -> list[str]:
     raw = output(
-        ["gh", "release", "list", "--limit", "1000", "--json", "tagName"],
+        _github_command("release", "list", "--limit", "1000", "--json", "tagName"),
         cwd=root,
     )
     releases = json.loads(raw)
@@ -950,7 +957,8 @@ def main(argv: list[str]) -> int:
         except release_coordinator.RepositoryIdentityError as error:
             raise NightlyReleaseError(str(error)) from error
         args.github_repository = repository.github_repository
-        os.environ["GH_REPO"] = repository.github_repository
+        os.environ.pop("GH_HOST", None)
+        os.environ["GH_REPO"] = f"github.com/{repository.github_repository}"
         lock_path = create_lock(root)
         ensure_rescue_root_is_ignored(root, rescue_root)
         prune_rescue_archives(rescue_root, retention_days=args.rescue_retention_days)

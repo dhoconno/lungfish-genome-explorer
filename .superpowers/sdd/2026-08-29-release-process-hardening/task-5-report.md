@@ -235,3 +235,57 @@ Round-2 verification:
   formatting, `git diff --check`, and the release-skill validator passed.
 - No live tag/push, GitHub mutation/publication, credential access, signing,
   notarization, or remote mutation was performed.
+
+## Independent-review correction round 3
+
+The third review found one Critical GitHub-host binding gap and three Important
+repository/publication identity gaps. Behavioral REDs were captured before
+production changes:
+
+- With inherited `GH_HOST=mirror.example.test`, Doctor, exact-SHA CI polling,
+  and builder publication did not explicitly select github.com.
+- The selected remote helper accepted divergent or multiple push endpoints,
+  credentialed endpoints, and effective non-GitHub URL rewrites; its scratch
+  key also varied with the remote spelling.
+- An otherwise well-shaped remote mutable feed was classified complete when
+  local completion metadata/appcasts were missing or contained newer bytes.
+- The selected-upstream builder fixture exposed hard-coded original-repository
+  Sparkle download and release-note URL prefixes.
+
+The correction binds one validated github.com repository end to end. The
+selected remote must expose exactly one effective fetch endpoint and one
+effective push endpoint through `git remote get-url --all` and `--all --push`;
+both must be credential-free github.com URLs for the same owner/repository.
+`insteadOf` and `pushInsteadOf` rewrites are therefore evaluated, and the
+repository key is the canonical hash of `github.com/owner/repository`, stable
+across HTTPS/SSH syntax and remote renames. Error paths never echo endpoints.
+
+Doctor explicitly authenticates and queries `--hostname github.com`.
+Coordinator, nightly, and builder remove inherited `GH_HOST`, export a
+host-qualified `GH_REPO=github.com/owner/repository`, and pass that exact
+repository to every direct `gh` invocation. The builder derives Preview,
+Stable, bridge, versioned-download, and release-note URL prefixes from the same
+validated selected repository; no original owner/path constant remains in the
+release transaction.
+
+The tagged-publication classifier now requires receipt-bound, size-bounded
+local completion metadata for the exact commit/channel/version and exact local
+primary/bridge appcast paths, hashes, and sizes beneath the marked release
+directory. Remote mutable assets must match those local bytes. Missing local
+completion evidence is safely incomplete and resumes; conflicting metadata or
+unsafe paths fail closed. A failure-injection test proves that a crash after a
+mutable target edit but before upload cannot misclassify a stale canonical
+asset as complete.
+
+Round-3 verification:
+
+- Strict focused regressions: 30 passed after formatting, including hostile
+  `GH_HOST`, selected-upstream URL derivation, effective fetch/push endpoint
+  validation, stale mutable bytes, and crash recovery.
+- Builder suite: 30 passed; nightly/coordinator suite: 41 passed; Doctor suite:
+  50 passed; workflow/packaging/prune static suite: 48 passed.
+- Broader release discovery: 193 passed in 263.981 seconds.
+- Python compilation, Bash syntax, PyYAML/Ruby workflow parsing, Black format,
+  `git diff --check`, and the release-skill validator passed.
+- No live tag/push, GitHub query or mutation, credential access, signing,
+  notarization, or remote publication was performed.

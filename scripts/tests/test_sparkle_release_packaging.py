@@ -67,7 +67,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn(
             'download_url_prefix="${download_url_prefix}/"', self.release_script
         )
-        self.assertIn("gh release upload", self.release_script)
+        self.assertIn("github_cli release upload", self.release_script)
         self.assertIn('release create "$GITHUB_RELEASE_TAG"', self.release_script)
         self.assertIn('"$DMG_PATH"', self.release_script)
         self.assertIn("Lungfish-${VERSION}-arm64.md", self.release_script)
@@ -343,7 +343,7 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             self.release_script,
         )
         self.assertIn(
-            'gh release upload "$release_tag" "$local_path" --clobber',
+            'github_cli release upload "$release_tag" "$local_path" --clobber',
             self.release_script,
         )
 

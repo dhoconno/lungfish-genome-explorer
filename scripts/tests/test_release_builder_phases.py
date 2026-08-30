@@ -210,6 +210,21 @@ class ReleaseBuilderFixture:
 
     def _install_external_tools(self):
         self._write_executable(
+            self.bin / "git",
+            r"""
+            #!/bin/bash
+            set -eu
+            if [ "${1:-}" = ls-remote ] && [ "${2:-}" = --tags ]; then
+                fixture_remote=$(/usr/bin/git config --get "lungfish.fixtureRemote.${3:-}" || true)
+                if [ -n "$fixture_remote" ]; then
+                    shift 3
+                    exec /usr/bin/git ls-remote --tags "$fixture_remote" "$@"
+                fi
+            fi
+            exec /usr/bin/git "$@"
+            """,
+        )
+        self._write_executable(
             self.bin / "xcodebuild",
             r"""
             #!/bin/bash
@@ -383,6 +398,7 @@ class ReleaseBuilderFixture:
             r"""
             #!/bin/bash
             set -eu
+            original_args="$*"
             output=
             directory="${@: -1}"
             while [ "$#" -gt 0 ]; do
@@ -392,7 +408,7 @@ class ReleaseBuilderFixture:
             dmg=$(find "$directory" -maxdepth 1 -name '*.dmg' -type f -print -quit)
             digest=$(shasum -a 256 "$dmg" | awk '{print $1}')
             printf 'fixture-appcast:%s\n' "$digest" >"$output"
-            printf 'generate_appcast:%s\n' "$output" >>"$BUILDER_EVENTS"
+            printf 'generate_appcast:%s\n' "$original_args" >>"$BUILDER_EVENTS"
             """,
         )
         self._write_executable(
@@ -408,6 +424,14 @@ class ReleaseBuilderFixture:
             import sys
 
             arguments = sys.argv[1:]
+            expected_repository = os.environ.get("BUILDER_EXPECTED_GH_REPO")
+            require_explicit_repository = os.environ.get("BUILDER_REQUIRE_EXPLICIT_GH_REPO") == "1"
+            if arguments[:1] == ["--repo"]:
+                if len(arguments) < 3 or expected_repository and arguments[1] != expected_repository:
+                    raise SystemExit(89)
+                arguments = arguments[2:]
+            elif require_explicit_repository:
+                raise SystemExit(90)
             with Path(os.environ["BUILDER_EVENTS"]).open("a", encoding="utf-8") as handle:
                 handle.write("gh:" + " ".join(arguments) + "\n")
             state_path = Path(os.environ["BUILDER_GH_STATE"])
@@ -435,9 +459,10 @@ class ReleaseBuilderFixture:
                     and arguments[:2] != ["release", "edit"] and arguments[:2] != ["release", "upload"] \
                     and arguments[:2] != ["release", "download"]:
                 raise SystemExit(64)
-            expected_repository = os.environ.get("BUILDER_EXPECTED_GH_REPO")
             if expected_repository and os.environ.get("GH_REPO") != expected_repository:
                 raise SystemExit(89)
+            if os.environ.get("BUILDER_REJECT_GH_HOST") == "1" and os.environ.get("GH_HOST"):
+                raise SystemExit(91)
             action = arguments[1]
             tag = arguments[2]
             if action == "view":
@@ -489,6 +514,8 @@ class ReleaseBuilderFixture:
                 save()
                 raise SystemExit(0)
             if action == "upload":
+                if tag.startswith("sparkle-") and os.environ.get("BUILDER_FAIL_FEED_UPLOAD") == "1":
+                    raise SystemExit(92)
                 replacement = asset(arguments[3])
                 existing = [item for item in release["assets"] if item["name"] == replacement["name"]]
                 if existing and "--clobber" not in arguments:
@@ -621,14 +648,14 @@ class ReleaseBuilderFixture:
     ):
         remote = self.root / f"{remote_name}.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
-        self._git("config", f"url.{remote}.insteadOf", github_url)
+        self._git("config", f"lungfish.fixtureRemote.{remote_name}", str(remote))
         existing = self._git("remote").stdout.splitlines()
         if remote_name in existing:
             self._git("remote", "set-url", remote_name, github_url)
         else:
             self._git("remote", "add", remote_name, github_url)
         self._git("tag", "-a", tag, "-m", f"fixture {tag}")
-        self._git("push", "-q", remote_name, tag)
+        self._git("push", "-q", str(remote), tag)
 
     def _git(self, *arguments):
         return subprocess.run(
@@ -1683,9 +1710,20 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         completed = self.fixture.run(
             *self._stable_resume_args(),
             *remote_args,
-            extra_env={"BUILDER_EXPECTED_GH_REPO": "right/lungfish"},
+            extra_env={
+                "GH_HOST": "mirror.example.test",
+                "BUILDER_EXPECTED_GH_REPO": "github.com/right/lungfish",
+                "BUILDER_REQUIRE_EXPLICIT_GH_REPO": "1",
+                "BUILDER_REJECT_GH_HOST": "1",
+            },
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        events = "\n".join(self.fixture.event_lines())
+        expected_prefix = "https://github.com/right/lungfish/releases/download/"
+        self.assertIn(f"{expected_prefix}v2026.8.1/", events)
+        self.assertIn(f"{expected_prefix}sparkle-stable/", events)
+        self.assertNotIn("dhoconno/lungfish-genome-explorer", events)
+        self.assertNotIn("mirror.example.test", events)
 
     def test_production_credentialed_apple_tools_are_canonical(self):
         source = (ROOT / "scripts/release/build-notarized-dmg.sh").read_text(

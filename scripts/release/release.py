@@ -26,7 +26,7 @@ from release_contract import load_contract  # noqa: E402
 from release_repository import (  # noqa: E402
     RepositoryIdentity,
     RepositoryIdentityError,
-    repository_identity_from_url,
+    repository_identity_from_endpoints,
     resolve_repository_identity,
 )
 
@@ -309,8 +309,18 @@ class SubprocessRunner:
     def __init__(self, root: Path, environment: dict[str, str] | None = None):
         self.root = root
         self.environment = os.environ.copy()
+        self.github_repository = ""
         if environment:
             self.environment.update(environment)
+            configured_repository = environment.get("GH_REPO", "")
+            if configured_repository:
+                self.github_repository = (
+                    configured_repository
+                    if configured_repository.startswith("github.com/")
+                    else f"github.com/{configured_repository}"
+                )
+                self.environment["GH_REPO"] = self.github_repository
+                self.environment.pop("GH_HOST", None)
 
     def run(
         self,
@@ -320,11 +330,19 @@ class SubprocessRunner:
         env: dict[str, str] | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        effective_command = command
+        if command and command[0] == "gh" and self.github_repository:
+            effective_command = [
+                "gh",
+                "--repo",
+                self.github_repository,
+                *command[1:],
+            ]
         command_environment = self.environment.copy()
         if env:
             command_environment.update(env)
         result = subprocess.run(
-            command,
+            effective_command,
             cwd=self.root,
             env=command_environment,
             text=True,
@@ -358,16 +376,25 @@ def _repository_identity(
     remote: str,
     expected_repository: str | None = None,
 ) -> RepositoryIdentity:
-    result = runner.run(
-        ["git", "config", "--get", f"remote.{remote}.url"],
+    fetch = runner.run(
+        ["git", "remote", "get-url", "--all", remote],
         capture=True,
         check=False,
     )
-    url = (result.stdout or "").strip() if result.returncode == 0 else ""
-    if not url:
+    push = runner.run(
+        ["git", "remote", "get-url", "--all", "--push", remote],
+        capture=True,
+        check=False,
+    )
+    if fetch.returncode != 0 or push.returncode != 0:
         raise ReleaseError("selected Git remote is unavailable")
     try:
-        return repository_identity_from_url(remote, url, expected_repository)
+        return repository_identity_from_endpoints(
+            remote,
+            [line for line in (fetch.stdout or "").splitlines() if line.strip()],
+            [line for line in (push.stdout or "").splitlines() if line.strip()],
+            expected_repository,
+        )
     except RepositoryIdentityError as error:
         raise ReleaseError(str(error)) from error
 
@@ -455,7 +482,12 @@ def _remote_release_payload(
 
 
 def _publication_asset_state(
-    payload: dict[str, Any], expected_name: str, label: str
+    payload: dict[str, Any],
+    expected_name: str,
+    label: str,
+    local_identity: tuple[str, int] | None = None,
+    *,
+    require_local_identity: bool = False,
 ) -> str:
     assets = payload.get("assets")
     if not isinstance(assets, list):
@@ -480,6 +512,12 @@ def _publication_asset_state(
         or size <= 0
     ):
         raise ReleaseError(f"{label} asset digest or size is malformed")
+    if require_local_identity:
+        if local_identity is None:
+            return "incomplete"
+        local_digest, local_size = local_identity
+        if digest != f"sha256:{local_digest}" or size != local_size:
+            return "incomplete"
     return "complete"
 
 
@@ -490,6 +528,8 @@ def _publication_release_state(
     prerelease: bool,
     asset_name: str,
     label: str,
+    local_identity: tuple[str, int] | None = None,
+    require_local_identity: bool = False,
 ) -> str:
     if payload is None:
         return "incomplete"
@@ -499,7 +539,95 @@ def _publication_release_state(
         raise ReleaseError(f"{label} is a draft")
     if payload.get("isPrerelease") is not prerelease:
         raise ReleaseError(f"{label} channel state is wrong")
-    return _publication_asset_state(payload, asset_name, label)
+    return _publication_asset_state(
+        payload,
+        asset_name,
+        label,
+        local_identity,
+        require_local_identity=require_local_identity,
+    )
+
+
+def _optional_local_mutable_identities(
+    root: Path,
+    channel_name: str,
+    identity: CandidateIdentity,
+    *,
+    bridge_required: bool,
+) -> tuple[tuple[str, int] | None, tuple[str, int] | None]:
+    receipt_path = identity.receipt
+    if not receipt_path.exists() and not receipt_path.is_symlink():
+        return None, None
+    receipt_identity = _candidate_receipt_identity(root, receipt_path, channel_name)
+    if (
+        receipt_identity.commit != identity.commit
+        or receipt_identity.version != identity.version
+        or receipt_identity.tag != identity.tag
+    ):
+        raise ReleaseError("local completion receipt conflicts with the candidate")
+
+    metadata_path = receipt_path.parent / "release-metadata.txt"
+    if not metadata_path.exists() and not metadata_path.is_symlink():
+        return None, None
+    metadata = _metadata(metadata_path)
+    if metadata.get("version") != identity.version:
+        raise ReleaseError("local completion metadata version conflicts with candidate")
+    if metadata.get("channel") != channel_name:
+        raise ReleaseError("local completion metadata channel conflicts with candidate")
+    if metadata.get("git_commit") != identity.commit:
+        raise ReleaseError("local completion metadata commit conflicts with candidate")
+
+    release_dir = receipt_path.parent.resolve(strict=True)
+
+    def local_identity_for(
+        path_key: str, digest_key: str, size_key: str, label: str
+    ) -> tuple[str, int] | None:
+        value = metadata.get(path_key, "")
+        digest = metadata.get(digest_key, "")
+        size_value = metadata.get(size_key, "")
+        if not value or not digest or not size_value:
+            return None
+        if HEX_SHA256.fullmatch(digest) is None or not size_value.isdigit():
+            raise ReleaseError(f"{label} local completion identity is malformed")
+        size = int(size_value)
+        if size <= 0:
+            raise ReleaseError(f"{label} local completion size is malformed")
+        raw_path = Path(value)
+        path = raw_path if raw_path.is_absolute() else root / raw_path
+        resolved = path.resolve(strict=False)
+        try:
+            resolved.relative_to(release_dir)
+        except ValueError as error:
+            raise ReleaseError(
+                f"{label} local completion path escapes the release directory"
+            ) from error
+        if not path.exists() and not path.is_symlink():
+            return None
+        contained = _contained_artifact(release_dir, str(path), label)
+        info = contained.lstat()
+        if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            raise ReleaseError(f"{label} local completion artifact is unsafe")
+        if info.st_size != size or _sha256_file(contained) != digest:
+            raise ReleaseError(
+                f"{label} local completion identity conflicts with bytes"
+            )
+        return digest, size
+
+    primary = local_identity_for(
+        "sparkle_appcast_path",
+        "sparkle_appcast_sha256",
+        "sparkle_appcast_size",
+        "primary appcast",
+    )
+    bridge = None
+    if bridge_required:
+        bridge = local_identity_for(
+            "sparkle_bridge_appcast_path",
+            "sparkle_bridge_appcast_sha256",
+            "sparkle_bridge_appcast_size",
+            "legacy bridge appcast",
+        )
+    return primary, bridge
 
 
 def tagged_publication_state(
@@ -538,6 +666,12 @@ def tagged_publication_state(
 
     contract = load_contract(root / "config/release-contract.json")
     channel = contract.channel(channel_name)
+    local_primary, local_bridge = _optional_local_mutable_identities(
+        root,
+        channel_name,
+        identity,
+        bridge_required=bool(channel.legacyBridgeRelease),
+    )
     checks = [
         _publication_release_state(
             _remote_release_payload(runner, identity.tag, "immutable release"),
@@ -554,6 +688,8 @@ def tagged_publication_state(
             prerelease=True,
             asset_name=channel.appcastFilename,
             label="mutable Sparkle feed",
+            local_identity=local_primary,
+            require_local_identity=True,
         ),
     ]
     if channel.legacyBridgeRelease:
@@ -568,6 +704,8 @@ def tagged_publication_state(
                 prerelease=True,
                 asset_name=channel.legacyBridgeAppcastFilename,
                 label="legacy Sparkle bridge",
+                local_identity=local_bridge,
+                require_local_identity=True,
             )
         )
     return "complete" if all(state == "complete" for state in checks) else "incomplete"

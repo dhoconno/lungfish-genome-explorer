@@ -60,8 +60,45 @@ def repository_identity_from_url(
     return RepositoryIdentity(
         remote=remote,
         github_repository=repository,
-        repository_key=hashlib.sha256(url.strip().encode()).hexdigest(),
+        repository_key=hashlib.sha256(f"github.com/{repository}".encode()).hexdigest(),
     )
+
+
+def repository_identity_from_endpoints(
+    remote: str,
+    fetch_urls: list[str],
+    push_urls: list[str],
+    expected_repository: str | None = None,
+) -> RepositoryIdentity:
+    if len(fetch_urls) != 1 or len(push_urls) != 1:
+        raise RepositoryIdentityError(
+            "selected Git remote must have one fetch and one push endpoint"
+        )
+    fetch = repository_identity_from_url(remote, fetch_urls[0], expected_repository)
+    push = repository_identity_from_url(remote, push_urls[0], expected_repository)
+    if fetch.github_repository != push.github_repository:
+        raise RepositoryIdentityError(
+            "selected Git remote fetch and push repositories do not match"
+        )
+    return fetch
+
+
+def _effective_urls(project_root: Path, remote: str, *, push: bool) -> list[str]:
+    command = ["git", "-C", str(project_root), "remote", "get-url", "--all"]
+    if push:
+        command.append("--push")
+    command.append(remote)
+    result = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    raw = result.stdout or ""
+    if result.returncode != 0 or not raw.strip() or len(raw.encode()) > 16 * 1024:
+        raise RepositoryIdentityError("selected Git remote is unavailable")
+    return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
 def resolve_repository_identity(
@@ -69,16 +106,12 @@ def resolve_repository_identity(
 ) -> RepositoryIdentity:
     if REMOTE_NAME.fullmatch(remote) is None:
         raise RepositoryIdentityError("selected Git remote name is invalid")
-    result = subprocess.run(
-        ["git", "-C", str(project_root), "config", "--get", f"remote.{remote}.url"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
+    return repository_identity_from_endpoints(
+        remote,
+        _effective_urls(project_root, remote, push=False),
+        _effective_urls(project_root, remote, push=True),
+        expected_repository,
     )
-    if result.returncode != 0 or not result.stdout.strip():
-        raise RepositoryIdentityError("selected Git remote is unavailable")
-    return repository_identity_from_url(remote, result.stdout, expected_repository)
 
 
 def main() -> int:

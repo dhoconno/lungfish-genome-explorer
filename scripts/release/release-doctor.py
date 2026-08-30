@@ -26,7 +26,7 @@ from release_contract import CONTRACT_PATH, load_contract
 from release_repository import (
     RepositoryIdentity,
     RepositoryIdentityError,
-    repository_identity_from_url,
+    repository_identity_from_endpoints,
 )
 from release_target_security import TargetSecurityError, validate_release_targets
 
@@ -56,6 +56,7 @@ class Doctor:
         self.contract = load_contract(CONTRACT_PATH)
         self.toolchain = self.contract.toolchain
         self.environment = os.environ.copy()
+        self.environment.pop("GH_HOST", None)
         self.results: list[CheckResult] = []
         self.developer_dir: Path | None = None
         self.sparkle_tools: dict[str, Path] = {}
@@ -453,20 +454,30 @@ class Doctor:
     def _selected_repository_identity(self) -> RepositoryIdentity:
         if self.repository_identity is not None:
             return self.repository_identity
-        result = self.run_command(
-            ["git", "config", "--get", f"remote.{self.args.remote}.url"]
+        fetch = self.run_command(
+            ["git", "remote", "get-url", "--all", self.args.remote]
         )
-        if result.returncode != 0 or not result.stdout.strip():
+        push = self.run_command(
+            ["git", "remote", "get-url", "--all", "--push", self.args.remote]
+        )
+        if (
+            fetch.returncode != 0
+            or push.returncode != 0
+            or not fetch.stdout.strip()
+            or not push.stdout.strip()
+        ):
             raise CheckFailure("selected Git remote is unavailable")
         try:
-            identity = repository_identity_from_url(
+            identity = repository_identity_from_endpoints(
                 self.args.remote,
-                result.stdout,
+                [line for line in fetch.stdout.splitlines() if line.strip()],
+                [line for line in push.stdout.splitlines() if line.strip()],
                 self.args.github_repository,
             )
         except RepositoryIdentityError as error:
             raise CheckFailure(str(error)) from error
         self.repository_identity = identity
+        self.environment["GH_REPO"] = f"github.com/{identity.github_repository}"
         return identity
 
     def _selected_repository(self) -> str:
@@ -643,7 +654,7 @@ class Doctor:
         return "notary profile credentials are usable"
 
     def _github_auth(self) -> str:
-        result = self.run_command(["gh", "auth", "status"])
+        result = self.run_command(["gh", "auth", "status", "--hostname", "github.com"])
         if result.returncode != 0:
             raise CheckFailure("GitHub authentication is unavailable")
         return "GitHub authentication is usable"
@@ -654,6 +665,8 @@ class Doctor:
             [
                 "gh",
                 "api",
+                "--hostname",
+                "github.com",
                 f"repos/{identity.github_repository}",
                 "--jq",
                 ".permissions.push",

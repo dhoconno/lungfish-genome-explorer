@@ -17,6 +17,11 @@ import textwrap
 import unittest
 from types import SimpleNamespace
 
+from scripts.release.release_repository import (
+    RepositoryIdentityError,
+    resolve_repository_identity,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PYTHON = ROOT / ".ci-python" / "bin" / "python"
@@ -80,6 +85,7 @@ class ReleaseDoctorFixture:
             "STUB_GH_API_OK": "1",
             "STUB_GH_CAN_PUSH": "true",
             "STUB_UPSTREAM_URL": "https://github.com/example/lungfish.git",
+            "STUB_UPSTREAM_PUSH_URL": "https://github.com/example/lungfish.git",
             "STUB_EXPECTED_GH_API": "repos/example/lungfish",
             "STUB_GIT_STATUS": "",
             "STUB_SPARKLE_KEY_OK": "1",
@@ -157,8 +163,13 @@ class ReleaseDoctorFixture:
                   "rev-parse --verify") printf '0123456789abcdef0123456789abcdef01234567\\n' ;;
                   "rev-parse --show-toplevel") printf '%s\\n' "$PWD" ;;
                   "remote get-url")
-                    if [ "${3:-}" = upstream ]; then
-                      printf '%s\\n' "$STUB_UPSTREAM_URL"
+                    remote="${@: -1}"
+                    if [ "$remote" = upstream ]; then
+                      if [[ " $* " == *" --push "* ]]; then
+                        printf '%s\\n' "$STUB_UPSTREAM_PUSH_URL"
+                      else
+                        printf '%s\\n' "$STUB_UPSTREAM_URL"
+                      fi
                     else
                       printf 'https://github.com/example/lungfish.git\\n'
                     fi
@@ -177,10 +188,18 @@ class ReleaseDoctorFixture:
             textwrap.dedent(
                 """
                 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+                  if [ "${STUB_REQUIRE_GITHUB_HOST:-0}" = 1 ]; then
+                    [[ " $* " == *" --hostname github.com "* ]] || exit 90
+                    [ -z "${GH_HOST:-}" ] || exit 91
+                  fi
                   [ "$STUB_GH_AUTH_OK" = 1 ]
                 elif [ "${1:-}" = api ]; then
                   [ "$STUB_GH_API_OK" = 1 ] || exit 1
-                  [ "${2:-}" = "$STUB_EXPECTED_GH_API" ] || exit 89
+                  if [ "${STUB_REQUIRE_GITHUB_HOST:-0}" = 1 ]; then
+                    [[ " $* " == *" --hostname github.com "* ]] || exit 90
+                    [ -z "${GH_HOST:-}" ] || exit 91
+                  fi
+                  [[ " $* " == *" $STUB_EXPECTED_GH_API "* ]] || exit 89
                   if [[ " $* " == *" .permissions.push "* ]]; then
                     printf '%s\\n' "$STUB_GH_CAN_PUSH"
                   fi
@@ -296,9 +315,7 @@ class ReleaseDoctorFixture:
         return result
 
     def target_args(self, **overrides) -> tuple[str, ...]:
-        repository_key = hashlib.sha256(
-            b"https://github.com/example/lungfish.git"
-        ).hexdigest()
+        repository_key = hashlib.sha256(b"github.com/example/lungfish").hexdigest()
         values = {
             "scratch": self.scratch
             / repository_key
@@ -636,7 +653,10 @@ class ReleaseDoctorTests(unittest.TestCase):
             ),
             env={
                 **self.fx.env,
+                "GH_HOST": "mirror.example.test",
+                "STUB_REQUIRE_GITHUB_HOST": "1",
                 "STUB_UPSTREAM_URL": "git@github.com:right/lungfish.git",
+                "STUB_UPSTREAM_PUSH_URL": "https://github.com/right/lungfish.git",
                 "STUB_EXPECTED_GH_API": "repos/right/lungfish",
             },
         )
@@ -677,6 +697,157 @@ class ReleaseDoctorTests(unittest.TestCase):
     def test_rejects_inaccessible_sparkle_keychain_key(self):
         env = {**self.fx.env, "STUB_SPARKLE_KEY_OK": "0"}
         self.assert_failure("Sparkle Keychain key", mode="credentials", env=env)
+
+
+class ReleaseRepositoryIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.fx = ReleaseDoctorFixture(self)
+        self.addCleanup(self.fx.cleanup)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.repo = Path(self.temporary.name) / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+
+    def git(self, *arguments):
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=self.repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+
+    def test_fetch_and_push_endpoints_must_be_unique_same_github_repository(self):
+        cases = {
+            "divergent push repository": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                    (
+                        "remote",
+                        "set-url",
+                        "--push",
+                        "upstream",
+                        "https://github.com/wrong/lungfish.git",
+                    ),
+                ],
+                "",
+            ),
+            "multiple push endpoints": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                    (
+                        "remote",
+                        "set-url",
+                        "--add",
+                        "--push",
+                        "upstream",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                    (
+                        "remote",
+                        "set-url",
+                        "--add",
+                        "--push",
+                        "upstream",
+                        "git@github.com:right/lungfish.git",
+                    ),
+                ],
+                "",
+            ),
+            "effective non-GitHub rewrite": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                    (
+                        "config",
+                        "url.https://mirror.example.test/right/lungfish.git.insteadOf",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                ],
+                "",
+            ),
+            "effective non-GitHub push rewrite": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                    (
+                        "config",
+                        "url.https://mirror.example.test/right/lungfish.git.pushInsteadOf",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                ],
+                "",
+            ),
+            "credentialed push endpoint": (
+                [
+                    (
+                        "remote",
+                        "add",
+                        "upstream",
+                        "https://github.com/right/lungfish.git",
+                    ),
+                    (
+                        "remote",
+                        "set-url",
+                        "--push",
+                        "upstream",
+                        "https://secret-token@github.com/right/lungfish.git",
+                    ),
+                ],
+                "secret-token",
+            ),
+        }
+        for index, (label, (commands, secret)) in enumerate(cases.items()):
+            with self.subTest(label=label):
+                repo = Path(self.temporary.name) / f"case-{index}"
+                repo.mkdir()
+                subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                for command in commands:
+                    subprocess.run(
+                        ["git", *command], cwd=repo, check=True, capture_output=True
+                    )
+                with self.assertRaises(RepositoryIdentityError) as raised:
+                    resolve_repository_identity(repo, "upstream")
+                if secret:
+                    self.assertNotIn(secret, str(raised.exception))
+
+    def test_repository_key_is_canonical_across_remote_name_and_url_syntax(self):
+        self.git("remote", "add", "upstream", "https://github.com/right/lungfish.git")
+        self.git(
+            "remote",
+            "set-url",
+            "--push",
+            "upstream",
+            "git@github.com:right/lungfish.git",
+        )
+        first = resolve_repository_identity(self.repo, "upstream")
+        self.git("remote", "rename", "upstream", "shipping")
+        second = resolve_repository_identity(self.repo, "shipping")
+
+        expected_key = hashlib.sha256(b"github.com/right/lungfish").hexdigest()
+        self.assertEqual(first.github_repository, "right/lungfish")
+        self.assertEqual(first.repository_key, expected_key)
+        self.assertEqual(second.repository_key, expected_key)
 
     def test_keychain_probe_signs_verifies_and_removes_disposable_file(self):
         result = self.fx.run_doctor(mode="credentials")

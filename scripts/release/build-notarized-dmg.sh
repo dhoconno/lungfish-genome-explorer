@@ -376,7 +376,7 @@ fi
 if [ "$SPARKLE_BRIDGE_APPCAST_FILENAME_EXPLICIT" -eq 0 ]; then
     SPARKLE_BRIDGE_APPCAST_FILENAME="$CONTRACT_SPARKLE_BRIDGE_APPCAST_FILENAME"
 fi
-SPARKLE_PREVIEW_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
+SPARKLE_PREVIEW_FEED_URL=""
 
 case "$CHANNEL" in
     preview|stable) ;;
@@ -552,8 +552,14 @@ if ! [[ "$repository_key" =~ ^[0-9a-f]{64}$ ]] \
     exit 64
 fi
 GITHUB_REPOSITORY="$resolved_github_repository"
-export GH_REPO="$GITHUB_REPOSITORY"
+unset GH_HOST
+export GH_REPO="github.com/${GITHUB_REPOSITORY}"
+SPARKLE_PREVIEW_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
 SPARKLE_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
+
+github_cli() {
+    command gh --repo "$GH_REPO" "$@"
+}
 
 verify_versioned_release_identity() {
     if [ -z "$GITHUB_RELEASE_TAG" ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
@@ -589,7 +595,7 @@ verify_versioned_release_identity() {
         exit 64
     fi
 
-    if gh release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
+    if github_cli release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
         release_exists=1
     fi
     if [ "$release_exists" -eq 1 ] && [ "$RECOVER_EXISTING_RELEASE" -ne 1 ]; then
@@ -604,17 +610,17 @@ verify_versioned_release_identity() {
         local release_target
         local release_is_draft
         local release_is_prerelease
-        release_target=$(gh release view "$GITHUB_RELEASE_TAG" --json targetCommitish --jq .targetCommitish)
+        release_target=$(github_cli release view "$GITHUB_RELEASE_TAG" --json targetCommitish --jq .targetCommitish)
         if [ "$release_target" != "$head_commit" ]; then
             echo "existing GitHub release target does not match HEAD: $release_target != $head_commit" >&2
             exit 64
         fi
-        release_is_prerelease=$(gh release view "$GITHUB_RELEASE_TAG" --json isPrerelease --jq .isPrerelease)
+        release_is_prerelease=$(github_cli release view "$GITHUB_RELEASE_TAG" --json isPrerelease --jq .isPrerelease)
         if [ "$release_is_prerelease" != "$GITHUB_PRERELEASE" ]; then
             echo "existing GitHub release channel does not match --channel ${CHANNEL}: $GITHUB_RELEASE_TAG" >&2
             exit 64
         fi
-        release_is_draft=$(gh release view "$GITHUB_RELEASE_TAG" --json isDraft --jq .isDraft)
+        release_is_draft=$(github_cli release view "$GITHUB_RELEASE_TAG" --json isDraft --jq .isDraft)
         if [ "$release_is_draft" != "false" ]; then
             echo "recovery requires a published, non-draft release: $GITHUB_RELEASE_TAG" >&2
             exit 64
@@ -793,10 +799,10 @@ publish_github_release_dmg() {
     notes_source="$(sparkle_release_notes_source)"
     target_commit="$(git rev-parse HEAD)"
 
-    if gh release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
+    if github_cli release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
         local existing_digest
         local local_digest
-        existing_digest=$(gh release view "$GITHUB_RELEASE_TAG" --json assets \
+        existing_digest=$(github_cli release view "$GITHUB_RELEASE_TAG" --json assets \
             --jq ".assets[] | select(.name == \"$(basename "$DMG_PATH")\") | .digest")
         if [ -n "$existing_digest" ]; then
             local_digest="sha256:$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
@@ -807,7 +813,7 @@ publish_github_release_dmg() {
             printf 'Existing release DMG already matches local artifact; keeping it: %s\n' "$DMG_PATH"
             return
         fi
-        gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH"
+        github_cli release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH"
         return
     fi
 
@@ -825,7 +831,7 @@ publish_github_release_dmg() {
         create_args+=(--latest)
     fi
     create_args+=(--notes-file "$notes_source")
-    gh "${create_args[@]}"
+    github_cli "${create_args[@]}"
 }
 
 ensure_mutable_release() {
@@ -834,8 +840,8 @@ ensure_mutable_release() {
     local notes="$3"
     local target_commit
     target_commit="$(git rev-parse HEAD)"
-    if ! gh release view "$release_tag" >/dev/null 2>&1; then
-        gh release create "$release_tag" \
+    if ! github_cli release view "$release_tag" >/dev/null 2>&1; then
+        github_cli release create "$release_tag" \
             --title "$title" \
             --notes "$notes" \
             --prerelease \
@@ -845,15 +851,15 @@ ensure_mutable_release() {
     local actual_target
     local actual_draft
     local actual_prerelease
-    actual_target=$(gh release view "$release_tag" --json targetCommitish --jq .targetCommitish)
-    actual_draft=$(gh release view "$release_tag" --json isDraft --jq .isDraft)
-    actual_prerelease=$(gh release view "$release_tag" --json isPrerelease --jq .isPrerelease)
+    actual_target=$(github_cli release view "$release_tag" --json targetCommitish --jq .targetCommitish)
+    actual_draft=$(github_cli release view "$release_tag" --json isDraft --jq .isDraft)
+    actual_prerelease=$(github_cli release view "$release_tag" --json isPrerelease --jq .isPrerelease)
     if [ "$actual_draft" != false ] || [ "$actual_prerelease" != true ]; then
         echo "mutable Sparkle release has unsafe draft/channel state: $release_tag" >&2
         exit 64
     fi
     if [ "$actual_target" != "$target_commit" ]; then
-        gh release edit "$release_tag" --target "$target_commit"
+        github_cli release edit "$release_tag" --target "$target_commit"
     fi
 }
 
@@ -867,12 +873,12 @@ publish_mutable_asset_if_changed() {
     asset_name=$(basename "$local_path")
     expected_digest="sha256:$(/usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
     expected_size=$(/usr/bin/stat -f %z "$local_path")
-    remote_record=$(gh release view "$release_tag" --json assets \
+    remote_record=$(github_cli release view "$release_tag" --json assets \
         --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
     if [ "$remote_record" = "${expected_digest}"$'\t'"${expected_size}" ]; then
         return
     fi
-    gh release upload "$release_tag" "$local_path" --clobber
+    github_cli release upload "$release_tag" "$local_path" --clobber
 }
 
 generate_sparkle_appcast() {
@@ -893,7 +899,7 @@ generate_sparkle_appcast() {
 
     notes_source="$(sparkle_release_notes_source)"
     if [ -z "$download_url_prefix" ]; then
-        download_url_prefix="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${GITHUB_RELEASE_TAG:-v${VERSION}}"
+        download_url_prefix="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_RELEASE_TAG:-v${VERSION}}"
     fi
     case "$download_url_prefix" in
         */) ;;
@@ -901,7 +907,7 @@ generate_sparkle_appcast() {
     esac
     release_notes_url_prefix="$download_url_prefix"
     if [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
-        release_notes_url_prefix="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE}/"
+        release_notes_url_prefix="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/"
     fi
 
     mkdir -p "$SPARKLE_APPCAST_DIR"
@@ -1278,7 +1284,7 @@ remote_asset_record() {
     local asset_name="$2"
     local record
     local line_count
-    record=$(gh release view "$release_tag" --json assets \
+    record=$(github_cli release view "$release_tag" --json assets \
         --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
     line_count=$(printf '%s\n' "$record" | awk 'NF { count += 1 } END { print count + 0 }')
     if [ "$line_count" -ne 1 ]; then
@@ -1341,7 +1347,7 @@ recover_immutable_release_artifacts() {
     else
         RECOVERY_WORK_DIR=$(/usr/bin/mktemp -d "${RELEASE_DIR}/.immutable-recovery.XXXXXX")
         /bin/chmod 700 "$RECOVERY_WORK_DIR"
-        gh release download "$GITHUB_RELEASE_TAG" \
+        github_cli release download "$GITHUB_RELEASE_TAG" \
             --pattern "$(basename "$DMG_PATH")" \
             --dir "$RECOVERY_WORK_DIR"
         downloaded_dmg="${RECOVERY_WORK_DIR}/$(basename "$DMG_PATH")"
@@ -1548,6 +1554,24 @@ prune_github_prereleases
 
 DMG_SHA=$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 COMMIT_SHA=$(git rev-parse HEAD)
+SPARKLE_APPCAST_SHA=""
+SPARKLE_APPCAST_SIZE=""
+SPARKLE_BRIDGE_APPCAST_PATH=""
+SPARKLE_BRIDGE_APPCAST_SHA=""
+SPARKLE_BRIDGE_APPCAST_SIZE=""
+if [ -n "${SPARKLE_APPCAST_PATH:-}" ] && [ -f "$SPARKLE_APPCAST_PATH" ]; then
+    SPARKLE_APPCAST_SHA=$(/usr/bin/shasum -a 256 "$SPARKLE_APPCAST_PATH" | awk '{print $1}')
+    SPARKLE_APPCAST_SIZE=$(/usr/bin/stat -f %z "$SPARKLE_APPCAST_PATH")
+fi
+if [ -n "$SPARKLE_BRIDGE_APPCAST_FILENAME" ]; then
+    SPARKLE_BRIDGE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"
+    if [ -f "$SPARKLE_BRIDGE_APPCAST_PATH" ]; then
+        SPARKLE_BRIDGE_APPCAST_SHA=$(/usr/bin/shasum -a 256 "$SPARKLE_BRIDGE_APPCAST_PATH" | awk '{print $1}')
+        SPARKLE_BRIDGE_APPCAST_SIZE=$(/usr/bin/stat -f %z "$SPARKLE_BRIDGE_APPCAST_PATH")
+    else
+        SPARKLE_BRIDGE_APPCAST_PATH=""
+    fi
+fi
 
 cat >"$METADATA_PATH" <<EOF
 version=${VERSION}
@@ -1572,6 +1596,11 @@ release_app_path=$(relative_to_project_root "$RELEASE_APP_PATH")
 DMG_PATH=$(relative_to_project_root "$DMG_PATH")
 dmg_sha256=${DMG_SHA}
 sparkle_appcast_path=$(relative_to_project_root "${SPARKLE_APPCAST_PATH:-}")
+sparkle_appcast_sha256=${SPARKLE_APPCAST_SHA}
+sparkle_appcast_size=${SPARKLE_APPCAST_SIZE}
+sparkle_bridge_appcast_path=$(relative_to_project_root "${SPARKLE_BRIDGE_APPCAST_PATH}")
+sparkle_bridge_appcast_sha256=${SPARKLE_BRIDGE_APPCAST_SHA}
+sparkle_bridge_appcast_size=${SPARKLE_BRIDGE_APPCAST_SIZE}
 app_notary_log=$(relative_to_project_root "$APP_NOTARY_LOG")
 dmg_notary_log=$(relative_to_project_root "$DMG_NOTARY_LOG")
 EOF
