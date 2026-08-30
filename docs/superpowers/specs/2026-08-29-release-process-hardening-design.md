@@ -16,6 +16,13 @@ Preview and Stable are intentionally distinct applications on disk:
 - Both retain bundle identifier `com.lungfish.browser` for Sparkle update
   compatibility. Their different filenames permit side-by-side installation.
 
+Debug is a third build profile, but it is deliberately not a release channel.
+It ships only as a local, ad-hoc-signed `Lungfish Debug.app`, displays
+“Lungfish Genome Explorer Debug,” uses bundle name `Lungfish Debug`, bundle
+identifier `com.lungfish.browser.debug`, and metadata channel `debug`. It has
+no Sparkle feed or public key and cannot be signed, notarized, tagged, uploaded,
+or published through the release transaction.
+
 ## Problems to Correct
 
 1. The release builder defaults to a SwiftPM scratch path that its own
@@ -37,6 +44,33 @@ Preview and Stable are intentionally distinct applications on disk:
    a release defect but cannot prevent one.
 
 ## Architecture
+
+### 0. A first-class non-release Debug profile
+
+The strict release contract has separate `channels` and `buildProfiles`
+namespaces. Preview and Stable remain the only release channels. Debug is the
+only non-release profile, and its contract requires `isRelease`, `publishable`,
+and `updaterEnabled` to be false. Extra feed, public-key, GitHub, tag, DMG, or
+publication fields fail schema validation rather than being ignored.
+
+`scripts/build-app.sh` consumes that profile and the shared selected-Xcode
+resolver. Its former public `--release` mode fails with migration guidance to
+the package-only release builder. It may apply only a local `codesign -`
+signature, and the produced plist contains no Sparkle update or public-key
+keys. This keeps the local helper structurally outside Developer ID, notary,
+tag, GitHub, and Sparkle publication paths.
+
+Runtime app identity is exact and closed: Debug, Preview, and Stable metadata
+map to explicit cases, while unknown app metadata is rejected. Debug derives
+separate managed-storage configuration and default roots, Application Support
+and window-state paths, caches or temporary roots where present, and Keychain
+service names. Preview and Stable retain their existing state behavior, and
+explicitly injected paths/services remain authoritative for tests and callers.
+
+The Debug bundle includes every SwiftPM/runtime resource at a path the generated
+`Bundle.module` accessors can resolve relative to the moved wrapper. Relocation
+smoke copies the real app, makes the compiling checkout and `.build` unavailable,
+and exercises resources without launching user UI or reading production state.
 
 ### 1. Three explicit phases
 
@@ -218,6 +252,10 @@ All behavior changes follow red/green TDD.
 3. Archive command tests execute the command-construction interface and assert
    unsigned Xcode settings from observable arguments, rather than grepping the
    script.
+4. Debug tests validate the exact non-release contract and plist identity,
+   reject unknown runtime metadata, prove all default state roots and Keychain
+   service are isolated, and run a real relocated resource smoke from an
+   isolated home/storage root with the compiling `.build` unavailable.
 4. Coordinator tests prove package verification precedes tag/push/publication
    and that recovery never rebuilds a verified candidate.
 5. CI contract tests prove the package-smoke job invokes the repository package

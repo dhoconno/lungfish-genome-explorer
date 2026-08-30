@@ -33,18 +33,17 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
             encoding: .utf8
         )
 
-        // The debug bundle's distinct Launch Services identity.
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_ID=\"com.lungfish.browser.debug\""))
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_NAME=\"Lungfish Debug\""))
-        XCTAssertTrue(script.contains("BUNDLE_DISPLAY_NAME=\"Lungfish Genome Explorer\""))
-        XCTAssertTrue(script.contains("DEBUG_BUNDLE_DISPLAY_NAME=\"Lungfish Debug\""))
+        // The debug bundle's distinct Launch Services identity comes from the
+        // single strict contract rather than a second shell constant matrix.
+        XCTAssertTrue(script.contains("shell-profile --profile debug"))
+        XCTAssertTrue(script.contains("APP_BUNDLE_FILENAME"))
         // build-app.sh now copies the shared source Info.plist and substitutes the
         // identity fields via plutil (it no longer embeds an inline plist heredoc).
         XCTAssertTrue(script.contains("Lungfish-Info.plist"))
-        XCTAssertTrue(script.contains("plutil -replace CFBundleIdentifier -string \"$BUNDLE_ID\""))
-        XCTAssertTrue(script.contains("plutil -replace CFBundleName -string \"$BUNDLE_NAME\""))
-        XCTAssertTrue(script.contains("plutil -replace CFBundleDisplayName -string \"$BUNDLE_DISPLAY_NAME\""))
-        XCTAssertTrue(script.contains("plutil -replace LungfishReleaseChannel -string \"development\""))
+        XCTAssertTrue(script.contains("plutil -replace CFBundleIdentifier -string \"$APP_BUNDLE_IDENTIFIER\""))
+        XCTAssertTrue(script.contains("plutil -replace CFBundleName -string \"$APP_SHORT_NAME\""))
+        XCTAssertTrue(script.contains("plutil -replace CFBundleDisplayName -string \"$APP_DISPLAY_NAME\""))
+        XCTAssertTrue(script.contains("plutil -replace LungfishReleaseChannel -string \"$RELEASE_CHANNEL\""))
     }
 
     func testBuildAppRequiresBundledCLIExecutable() throws {

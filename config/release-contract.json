@@ -28,6 +28,18 @@
       "legacyBridgeAppcastFilename": ""
     }
   },
+  "buildProfiles": {
+    "debug": {
+      "appBundleFilename": "Lungfish Debug.app",
+      "displayName": "Lungfish Genome Explorer Debug",
+      "bundleName": "Lungfish Debug",
+      "bundleIdentifier": "com.lungfish.browser.debug",
+      "releaseChannel": "debug",
+      "isRelease": false,
+      "publishable": false,
+      "updaterEnabled": false
+    }
+  },
   "toolchain": {
     "xcodeMinimum": "26.4.1",
     "xcodeMaximumExclusive": "27.0",

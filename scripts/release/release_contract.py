@@ -12,6 +12,7 @@ from typing import Any, Mapping, NoReturn
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "config" / "release-contract.json"
 CHANNEL_NAMES = frozenset({"preview", "stable"})
+BUILD_PROFILE_NAMES = frozenset({"debug"})
 CHANNEL_FIELDS = frozenset(
     {
         "appBundleFilename",
@@ -25,6 +26,18 @@ CHANNEL_FIELDS = frozenset(
         "dmgVolumeName",
         "legacyBridgeRelease",
         "legacyBridgeAppcastFilename",
+    }
+)
+BUILD_PROFILE_FIELDS = frozenset(
+    {
+        "appBundleFilename",
+        "displayName",
+        "bundleName",
+        "bundleIdentifier",
+        "releaseChannel",
+        "isRelease",
+        "publishable",
+        "updaterEnabled",
     }
 )
 TOOLCHAIN_FIELDS = frozenset(
@@ -59,6 +72,21 @@ class ChannelContract:
 
     def to_dict(self) -> dict[str, Any]:
         return {field: getattr(self, field) for field in CHANNEL_FIELDS}
+
+
+@dataclass(frozen=True)
+class BuildProfileContract:
+    appBundleFilename: str
+    displayName: str
+    bundleName: str
+    bundleIdentifier: str
+    releaseChannel: str
+    isRelease: bool
+    publishable: bool
+    updaterEnabled: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {field: getattr(self, field) for field in BUILD_PROFILE_FIELDS}
 
 
 @dataclass(frozen=True)
@@ -110,6 +138,7 @@ class GateContract:
 class ReleaseContract:
     schemaVersion: int
     channels: Mapping[str, ChannelContract]
+    buildProfiles: Mapping[str, BuildProfileContract]
     toolchain: ToolchainContract
     gates: GateContract
 
@@ -119,11 +148,20 @@ class ReleaseContract:
         except KeyError as error:
             raise ValueError(f"unknown release channel: {name}") from error
 
+    def profile(self, name: str) -> BuildProfileContract:
+        try:
+            return self.buildProfiles[name]
+        except KeyError as error:
+            raise ValueError(f"unknown build profile: {name}") from error
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "schemaVersion": self.schemaVersion,
             "channels": {
                 name: channel.to_dict() for name, channel in self.channels.items()
+            },
+            "buildProfiles": {
+                name: profile.to_dict() for name, profile in self.buildProfiles.items()
             },
             "toolchain": self.toolchain.to_dict(),
             "gates": self.gates.to_dict(),
@@ -179,6 +217,26 @@ def _parse_channel(name: str, raw: Any) -> ChannelContract:
             f"channel {name} legacy bridge release and filename must both be set or empty"
         )
     return ChannelContract(**value)
+
+
+def _parse_build_profile(name: str, raw: Any) -> BuildProfileContract:
+    value = _require_object(raw, f"build profile {name}")
+    _require_fields(value, BUILD_PROFILE_FIELDS, f"build profile {name}")
+    for field in BUILD_PROFILE_FIELDS - {"isRelease", "publishable", "updaterEnabled"}:
+        _require_type(value[field], str, f"build profile {name}.{field}")
+        if not value[field]:
+            raise ValueError(f"build profile {name}.{field} must not be empty")
+        if "\n" in value[field] or "\r" in value[field]:
+            raise ValueError(f"build profile {name}.{field} must be one line")
+    for field in ("isRelease", "publishable", "updaterEnabled"):
+        _require_type(value[field], bool, f"build profile {name}.{field}")
+        if value[field]:
+            raise ValueError(f"build profile {name}.{field} must be false")
+    if value["releaseChannel"] != name:
+        raise ValueError(
+            f"build profile {name}.releaseChannel must equal its profile name"
+        )
+    return BuildProfileContract(**value)
 
 
 def _parse_toolchain(raw: Any) -> ToolchainContract:
@@ -271,7 +329,7 @@ def load_contract(path: Path) -> ReleaseContract:
     root = _require_object(raw, "release contract")
     _require_fields(
         root,
-        frozenset({"schemaVersion", "channels", "toolchain", "gates"}),
+        frozenset({"schemaVersion", "channels", "buildProfiles", "toolchain", "gates"}),
         "top-level",
     )
     _require_type(root["schemaVersion"], int, "schemaVersion")
@@ -287,10 +345,25 @@ def load_contract(path: Path) -> ReleaseContract:
     channels = {
         name: _parse_channel(name, raw_channels[name]) for name in sorted(CHANNEL_NAMES)
     }
+    raw_profiles = _require_object(root["buildProfiles"], "buildProfiles")
+    actual_profiles = set(raw_profiles)
+    if actual_profiles != BUILD_PROFILE_NAMES:
+        missing = sorted(BUILD_PROFILE_NAMES - actual_profiles)
+        extra = sorted(actual_profiles - BUILD_PROFILE_NAMES)
+        raise ValueError(f"invalid build profiles: missing {missing}, extra {extra}")
+    profiles = {
+        name: _parse_build_profile(name, raw_profiles[name])
+        for name in sorted(BUILD_PROFILE_NAMES)
+    }
     _reject_duplicates(channels)
+    channel_wrappers = {channel.appBundleFilename for channel in channels.values()}
+    profile_wrappers = {profile.appBundleFilename for profile in profiles.values()}
+    if channel_wrappers & profile_wrappers:
+        raise ValueError("duplicate build profile appBundleFilename")
     return ReleaseContract(
         schemaVersion=root["schemaVersion"],
         channels=MappingProxyType(channels),
+        buildProfiles=MappingProxyType(profiles),
         toolchain=_parse_toolchain(root["toolchain"]),
         gates=_parse_gates(root["gates"]),
     )
@@ -299,6 +372,11 @@ def load_contract(path: Path) -> ReleaseContract:
 def channel(name: str) -> ChannelContract:
     """Load and return a channel from the repository release contract."""
     return load_contract(CONTRACT_PATH).channel(name)
+
+
+def profile(name: str) -> BuildProfileContract:
+    """Load and return a non-release build profile from the repository contract."""
+    return load_contract(CONTRACT_PATH).profile(name)
 
 
 def _render_scalar(value: Any) -> str:
@@ -329,6 +407,22 @@ def _shell_values(contract: ReleaseContract, name: str) -> list[tuple[str, Any]]
     ]
 
 
+def _profile_shell_values(
+    contract: ReleaseContract, name: str
+) -> list[tuple[str, Any]]:
+    selected = contract.profile(name)
+    return [
+        ("APP_BUNDLE_FILENAME", selected.appBundleFilename),
+        ("APP_DISPLAY_NAME", selected.displayName),
+        ("APP_SHORT_NAME", selected.bundleName),
+        ("APP_BUNDLE_IDENTIFIER", selected.bundleIdentifier),
+        ("RELEASE_CHANNEL", selected.releaseChannel),
+        ("IS_RELEASE", selected.isRelease),
+        ("PUBLISHABLE", selected.publishable),
+        ("UPDATER_ENABLED", selected.updaterEnabled),
+    ]
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract", type=Path, default=CONTRACT_PATH)
@@ -340,6 +434,10 @@ def _parser() -> argparse.ArgumentParser:
     describe_parser.add_argument("--channel", required=True)
     shell_parser = subparsers.add_parser("shell")
     shell_parser.add_argument("--channel", required=True)
+    describe_profile_parser = subparsers.add_parser("describe-profile")
+    describe_profile_parser.add_argument("--profile", required=True)
+    shell_profile_parser = subparsers.add_parser("shell-profile")
+    shell_profile_parser.add_argument("--profile", required=True)
     return parser
 
 
@@ -351,7 +449,10 @@ def main() -> int:
     args = _parser().parse_args()
     try:
         contract = load_contract(args.contract)
-        selected = contract.channel(args.channel)
+        if args.command in {"describe-profile", "shell-profile"}:
+            selected = contract.profile(args.profile)
+        else:
+            selected = contract.channel(args.channel)
     except ValueError as error:
         _fail(str(error))
 
@@ -361,6 +462,14 @@ def main() -> int:
         print(json.dumps(selected.to_dict(), sort_keys=True, separators=(",", ":")))
     elif args.command == "shell":
         for key, value in _shell_values(contract, args.channel):
+            rendered = _render_scalar(value)
+            if "\n" in rendered or "\r" in rendered:
+                _fail(f"contract field for {key} is not shell-safe")
+            print(f"{key}={rendered}")
+    elif args.command == "describe-profile":
+        print(json.dumps(selected.to_dict(), sort_keys=True, separators=(",", ":")))
+    elif args.command == "shell-profile":
+        for key, value in _profile_shell_values(contract, args.profile):
             rendered = _render_scalar(value)
             if "\n" in rendered or "\r" in rendered:
                 _fail(f"contract field for {key} is not shell-safe")

@@ -343,3 +343,45 @@ Review against the spec, plan, branch diff, and test evidence. Resolve all Criti
 - [ ] **Step 6: Verify the primary checkout remains clean and present integration options**
 
 Run: `git status --short --branch` in both the worktree and primary checkout. Do not push, publish, sign, notarize, or remove the existing 2026.8.14 release artifacts as part of this implementation.
+
+### Core follow-on Task 8: Add a strict non-release Debug build profile
+
+**Files:**
+- Modify: `config/release-contract.json`
+- Modify: `scripts/release/release_contract.py`
+- Modify: `scripts/build-app.sh`
+- Modify: `Lungfish-Info.plist`
+- Modify: `Lungfish.xcodeproj/project.pbxproj`
+- Modify: focused Python and Swift build-configuration tests
+
+**Interfaces:**
+- `buildProfiles.debug` is separate from the Preview/Stable `channels` map and
+  exposes only exact identity plus false release/publication/updater booleans.
+- `build-app.sh` produces `build/Debug/Lungfish Debug.app` through the shared
+  Xcode resolver and refuses its former release mode.
+
+- [x] **Step 1: Write failing strict-contract, version-range, identity, and retired-mode tests**
+- [x] **Step 2: Implement the closed Debug profile and strict loader/CLI**
+- [x] **Step 3: Make plist/Xcode/build-app identity exact and updater-free**
+- [x] **Step 4: Verify focused Python and Swift tests, syntax, and diff checks**
+
+### Core follow-on Task 9: Isolate and relocate the self-contained Debug app
+
+**Files:**
+- Modify: App identity and state-path implementations/tests
+- Modify: Keychain service selection/tests
+- Modify: Debug resource packaging
+- Add: a non-UI Debug relocation/resource smoke helper and tests
+
+**Interfaces:**
+- Runtime metadata maps exactly to Debug, Preview, or Stable and rejects unknown
+  app metadata instead of defaulting to Stable.
+- Every Debug default state namespace is distinct while injected overrides and
+  Preview/Stable defaults remain unchanged.
+- A moved Debug wrapper resolves all runtime resources with the checkout and
+  compiling `.build` unavailable.
+
+- [ ] **Step 1: Write failing identity and default-state isolation tests**
+- [ ] **Step 2: Implement explicit Debug identity and derived state namespaces**
+- [ ] **Step 3: Write failing relocated-resource smoke and implement bundle layout**
+- [ ] **Step 4: Run real Debug build/relocation smoke and focused verification**

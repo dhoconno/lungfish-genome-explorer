@@ -385,9 +385,25 @@ class ReleaseDoctorTests(unittest.TestCase):
         env = {**self.fx.env, "STUB_XCODE_VERSION": "27.0"}
         self.assert_failure("Xcode version", env=env)
 
+    def test_accepts_later_compatible_xcode_patch(self):
+        env = {**self.fx.env, "STUB_XCODE_VERSION": "26.99.7"}
+
+        result = self.fx.run_doctor(env=env)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS Xcode version", result.stdout)
+
     def test_rejects_swift_outside_contract_range(self):
         env = {**self.fx.env, "STUB_SWIFT_VERSION": "7.0"}
         self.assert_failure("Swift version", env=env)
+
+    def test_accepts_later_compatible_swift_minor(self):
+        env = {**self.fx.env, "STUB_SWIFT_VERSION": "6.99.4"}
+
+        result = self.fx.run_doctor(env=env)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS Swift version", result.stdout)
 
     def test_rejects_sdk_major_mismatch(self):
         env = {**self.fx.env, "STUB_SDK_VERSION": "25.4"}

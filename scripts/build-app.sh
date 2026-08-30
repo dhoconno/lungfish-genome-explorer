@@ -1,24 +1,18 @@
 #!/bin/bash
-# build-app.sh - Builds Lungfish.app bundle from SPM executable
+# build-app.sh - Builds the local, non-publishable Lungfish Debug.app bundle
 # Copyright (c) 2024 Lungfish Contributors
 # SPDX-License-Identifier: MIT
 
-set -e
+set -euo pipefail
 
 # Configuration
 APP_NAME="Lungfish"
-BUNDLE_ID="com.lungfish.browser"
-DEBUG_BUNDLE_ID="com.lungfish.browser.debug"
-BUNDLE_NAME="Lungfish"
-DEBUG_BUNDLE_NAME="Lungfish Debug"
-BUNDLE_DISPLAY_NAME="Lungfish Genome Explorer"
-DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Debug"
 # VERSION is sourced from Lungfish.xcodeproj's MARKETING_VERSION below (after
 # PROJECT_ROOT is resolved) so the debug bundle and the notarized build share a
 # single version source of truth.
 VERSION=""
 BUILD_NUMBER="1"
-CONFIGURATION="release"
+CONFIGURATION="debug"
 SKIP_BUILD=0
 LOG_DIR=""
 
@@ -29,6 +23,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Shared source Info.plist (consumed by both this script and Lungfish.xcodeproj)
 SHARED_INFO_PLIST="$PROJECT_ROOT/Lungfish-Info.plist"
 CLI_ENTITLEMENTS="$PROJECT_ROOT/lungfish-cli.entitlements"
+RELEASE_CONTRACT_SCRIPT="$PROJECT_ROOT/scripts/release/release_contract.py"
+XCODE_RESOLVER="$PROJECT_ROOT/scripts/release/release_xcode.py"
 
 # Single source of truth for the version + minimum OS: the xcodeproj settings,
 # so the debug bundle and the notarized build never diverge.
@@ -50,7 +46,11 @@ NC='\033[0m' # No Color
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--configuration release|debug] [--skip-build] [--log-dir PATH]
+Usage: $(basename "$0") [--debug] [--skip-build] [--log-dir PATH]
+
+Builds only the contract-defined, local Lungfish Debug.app profile.
+For unsigned release packaging, use:
+  bash scripts/release/build-notarized-dmg.sh --package-only --channel preview|stable
 EOF
 }
 
@@ -63,6 +63,10 @@ while [ "$#" -gt 0 ]; do
                 exit 64
             fi
             CONFIGURATION="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+            if [ "$CONFIGURATION" != "debug" ]; then
+                echo "The public --release mode is retired; use build-notarized-dmg.sh --package-only with --channel preview or stable." >&2
+                exit 64
+            fi
             shift 2
             ;;
         --debug)
@@ -70,8 +74,8 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         --release)
-            CONFIGURATION="release"
-            shift
+            echo "The public --release mode is retired; use build-notarized-dmg.sh --package-only with --channel preview or stable." >&2
+            exit 64
             ;;
         --skip-build)
             SKIP_BUILD=1
@@ -98,6 +102,48 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ "$CONFIGURATION" != "debug" ]; then
+    echo "Only the debug build profile is supported by build-app.sh." >&2
+    exit 64
+fi
+
+APP_BUNDLE_FILENAME=""
+APP_DISPLAY_NAME=""
+APP_SHORT_NAME=""
+APP_BUNDLE_IDENTIFIER=""
+RELEASE_CHANNEL=""
+IS_RELEASE=""
+PUBLISHABLE=""
+UPDATER_ENABLED=""
+PROFILE_CONTRACT_OUTPUT="$(python3 "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)"
+while IFS='=' read -r contract_key contract_value; do
+    case "$contract_key" in
+        APP_BUNDLE_FILENAME) APP_BUNDLE_FILENAME="$contract_value" ;;
+        APP_DISPLAY_NAME) APP_DISPLAY_NAME="$contract_value" ;;
+        APP_SHORT_NAME) APP_SHORT_NAME="$contract_value" ;;
+        APP_BUNDLE_IDENTIFIER) APP_BUNDLE_IDENTIFIER="$contract_value" ;;
+        RELEASE_CHANNEL) RELEASE_CHANNEL="$contract_value" ;;
+        IS_RELEASE) IS_RELEASE="$contract_value" ;;
+        PUBLISHABLE) PUBLISHABLE="$contract_value" ;;
+        UPDATER_ENABLED) UPDATER_ENABLED="$contract_value" ;;
+        *)
+            echo "Unexpected debug contract key: $contract_key" >&2
+            exit 1
+            ;;
+    esac
+done <<< "$PROFILE_CONTRACT_OUTPUT"
+
+if [ -z "$APP_BUNDLE_FILENAME" ] || [ -z "$APP_DISPLAY_NAME" ] \
+    || [ -z "$APP_SHORT_NAME" ] || [ -z "$APP_BUNDLE_IDENTIFIER" ] \
+    || [ "$RELEASE_CHANNEL" != "debug" ] || [ "$IS_RELEASE" != "false" ] \
+    || [ "$PUBLISHABLE" != "false" ] || [ "$UPDATER_ENABLED" != "false" ]; then
+    echo "Debug contract is incomplete or permits release, publication, or updates." >&2
+    exit 1
+fi
+
+DEVELOPER_DIR="$(python3 "$XCODE_RESOLVER")"
+export DEVELOPER_DIR
+
 if [ -n "$LOG_DIR" ]; then
     mkdir -p "$LOG_DIR"
     LOG_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -106,29 +152,9 @@ if [ -n "$LOG_DIR" ]; then
     echo "Writing build log to $LOG_FILE"
 fi
 
-case "$CONFIGURATION" in
-    release)
-        BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/release"
-        APP_DIR="$PROJECT_ROOT/build/$APP_NAME.app"
-        BUILD_LABEL="release"
-        ;;
-    debug)
-        BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/debug"
-        APP_DIR="$PROJECT_ROOT/build/Debug/$APP_NAME.app"
-        BUILD_LABEL="debug"
-        ;;
-    *)
-        echo "Unsupported configuration: $CONFIGURATION" >&2
-        usage >&2
-        exit 64
-        ;;
-esac
-
-if [ "$CONFIGURATION" = "debug" ]; then
-    BUNDLE_ID="$DEBUG_BUNDLE_ID"
-    BUNDLE_NAME="$DEBUG_BUNDLE_NAME"
-    BUNDLE_DISPLAY_NAME="$DEBUG_BUNDLE_DISPLAY_NAME"
-fi
+BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/debug"
+APP_DIR="$PROJECT_ROOT/build/Debug/$APP_BUNDLE_FILENAME"
+BUILD_LABEL="debug"
 
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -138,7 +164,8 @@ FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 echo -e "${GREEN}Building Lungfish Genome Explorer${NC}"
 echo "=================================="
 echo "Configuration: $BUILD_LABEL"
-echo "Bundle identifier: $BUNDLE_ID"
+echo "Bundle identifier: $APP_BUNDLE_IDENTIFIER"
+echo "Selected Xcode: $DEVELOPER_DIR"
 
 # Clean previous build
 if [ -d "$APP_DIR" ]; then
@@ -152,11 +179,7 @@ if [ "$SKIP_BUILD" -eq 1 ]; then
     echo -e "${YELLOW}Reusing existing Apple Silicon ${BUILD_LABEL} executable...${NC}"
 else
     echo -e "${GREEN}Building Apple Silicon ${BUILD_LABEL} executable...${NC}"
-    if [ "$CONFIGURATION" = "release" ]; then
-        swift build -c release --arch arm64
-    else
-        swift build --arch arm64
-    fi
+    xcrun swift build --configuration debug --arch arm64
 fi
 
 if [ ! -f "$BUILD_DIR/Lungfish" ]; then
@@ -196,6 +219,7 @@ while IFS= read -r -d '' bundle; do
             ;;
     esac
     cp -R "$bundle" "$RESOURCES_DIR/"
+    ln -s "Contents/Resources/$bundle_name" "$APP_DIR/$bundle_name"
 done < <(/usr/bin/find "$BUILD_DIR" -maxdepth 1 -type d -name '*.bundle' -print0)
 
 SPARKLE_FRAMEWORK_SOURCE="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
@@ -230,18 +254,14 @@ fi
 cp "$SHARED_INFO_PLIST" "$CONTENTS_DIR/Info.plist"
 
 # Substitute the fields the xcodeproj would otherwise expand from build settings.
-/usr/bin/plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$CONTENTS_DIR/Info.plist"
-/usr/bin/plutil -replace CFBundleName -string "$BUNDLE_NAME" "$CONTENTS_DIR/Info.plist"
-/usr/bin/plutil -replace CFBundleDisplayName -string "$BUNDLE_DISPLAY_NAME" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleIdentifier -string "$APP_BUNDLE_IDENTIFIER" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleName -string "$APP_SHORT_NAME" "$CONTENTS_DIR/Info.plist"
+/usr/bin/plutil -replace CFBundleDisplayName -string "$APP_DISPLAY_NAME" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace CFBundleExecutable -string "$APP_NAME" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace CFBundleShortVersionString -string "$VERSION" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$CONTENTS_DIR/Info.plist"
 /usr/bin/plutil -replace LSMinimumSystemVersion -string "$MINIMUM_SYSTEM_VERSION" "$CONTENTS_DIR/Info.plist"
-if [ "$CONFIGURATION" = "debug" ]; then
-    /usr/bin/plutil -replace LungfishReleaseChannel -string "development" "$CONTENTS_DIR/Info.plist"
-else
-    /usr/bin/plutil -replace LungfishReleaseChannel -string "stable" "$CONTENTS_DIR/Info.plist"
-fi
+/usr/bin/plutil -replace LungfishReleaseChannel -string "$RELEASE_CHANNEL" "$CONTENTS_DIR/Info.plist"
 
 # The debug/local bundle does not ship Sparkle auto-update (no signing key here);
 # remove the feed/key so SparkleUpdaterBridge stays disabled.
@@ -297,13 +317,8 @@ if [ ! -d "$WORKFLOW_TOOLS_DIR" ]; then
     WORKFLOW_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/Tools"
 fi
 if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
-    if [ "$CONFIGURATION" = "release" ]; then
-        echo -e "${GREEN}Sanitizing bundled executables and workflow tools...${NC}"
-        /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" "$MACOS_DIR" "$WORKFLOW_TOOLS_DIR"
-    else
-        echo -e "${GREEN}Sanitizing bundled workflow tools...${NC}"
-        /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR"
-    fi
+    echo -e "${GREEN}Sanitizing bundled workflow tools...${NC}"
+    /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR"
 fi
 
 # The sanitizer rewrites embedded build paths inside the bundled Mach-O tools,
@@ -350,9 +365,4 @@ echo "Location: $APP_DIR"
 echo ""
 echo "To run the app:"
 echo "  open \"$APP_DIR\""
-echo ""
-echo "To code sign for distribution (requires Apple Developer ID):"
-echo "  codesign --force --sign \"Developer ID Application: Your Name\" --options runtime \"$APP_DIR\""
-echo ""
-echo "To create a DMG for distribution:"
-echo "  hdiutil create -volname \"Lungfish\" -srcfolder \"$APP_DIR\" -ov -format UDZO \"build/Lungfish.dmg\""
+echo "Local ad-hoc signature only; this Debug app cannot be published."

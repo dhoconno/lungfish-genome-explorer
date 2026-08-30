@@ -398,10 +398,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "-";
 				"CODE_SIGN_ENTITLEMENTS[sdk=*]" = "lungfish-cli.entitlements";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 29G3WN2GSA;
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Lungfish-Info.plist";
@@ -409,12 +409,15 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LUNGFISH_SPARKLE_PUBLIC_ED_KEY = "";
+				EXECUTABLE_NAME = Lungfish;
+				LUNGFISH_BUNDLE_NAME = "Lungfish Debug";
+				LUNGFISH_DISPLAY_NAME = "Lungfish Genome Explorer Debug";
+				LUNGFISH_RELEASE_CHANNEL = debug;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = "2026.8.14";
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser.debug;
+				PRODUCT_NAME = "Lungfish Debug";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
@@ -438,11 +441,14 @@
 					"@executable_path/../Frameworks",
 				);
 				LUNGFISH_SPARKLE_PUBLIC_ED_KEY = "";
+				LUNGFISH_BUNDLE_NAME = Lungfish;
+				LUNGFISH_DISPLAY_NAME = "Lungfish Genome Explorer";
+				LUNGFISH_RELEASE_CHANNEL = stable;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = "2026.8.14";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Lungfish;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
@@ -513,7 +519,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = Lungfish;
-				UITargetAppPath = "$(BUILT_PRODUCTS_DIR)/Lungfish.app";
+				UITargetAppPath = "$(BUILT_PRODUCTS_DIR)/Lungfish Debug.app";
 			};
 			name = Debug;
 		};

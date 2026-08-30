@@ -22,11 +22,11 @@
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>
-    <string>Lungfish</string>
+    <string>$(LUNGFISH_BUNDLE_NAME)</string>
     <key>CFBundleDisplayName</key>
-    <string>Lungfish Genome Explorer</string>
+    <string>$(LUNGFISH_DISPLAY_NAME)</string>
     <key>LungfishReleaseChannel</key>
-    <string>stable</string>
+    <string>$(LUNGFISH_RELEASE_CHANNEL)</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundlePackageType</key>
@@ -60,14 +60,8 @@
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
 
-    <!-- Sparkle auto-update (overwritten authoritatively by the release script's
-         configure_sparkle_info_plist; absent/disabled in the debug build) -->
-    <key>SUFeedURL</key>
-    <string>https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-beta/appcast-beta.xml</string>
-    <key>SUPublicEDKey</key>
-    <string>$(LUNGFISH_SPARKLE_PUBLIC_ED_KEY)</string>
-    <key>SUVerifyUpdateBeforeExtraction</key>
-    <true/>
+    <!-- Sparkle keys are absent here. The release builder injects them only
+         into Preview/Stable candidates; Debug structurally has no updater. -->
 
     <!-- Document Types -->
     <key>CFBundleDocumentTypes</key>

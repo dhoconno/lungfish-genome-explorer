@@ -24,7 +24,7 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseBlock.contains("ENABLE_HARDENED_RUNTIME = YES;"))
     }
 
-    @Test("Release identity uses canonical CalVer and the preview Sparkle channel")
+    @Test("Release identity uses canonical CalVer and release builder injects Sparkle")
     func releaseIdentityUsesCanonicalCalVerAndPreviewSparkleChannel() throws {
         let repositoryRoot = Self.repositoryRoot()
         let project = try String(
@@ -42,28 +42,54 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(project.contains(#"MARKETING_VERSION = "\#(LungfishAppVersion.short)";"#))
         #expect(project.contains("0.5.0-alpha") == false)
-        #expect(infoPlist.contains("sparkle-beta/appcast-beta.xml"))
-        #expect(infoPlist.contains("sparkle-alpha") == false)
-        #expect(releaseScript.contains("${SPARKLE_PUBLISH_RELEASE:-sparkle-beta}/${SPARKLE_APPCAST_FILENAME}"))
-        #expect(releaseScript.contains("appcast-alpha.xml"))
+        #expect(infoPlist.contains("<key>SUFeedURL</key>") == false)
+        #expect(infoPlist.contains("<key>SUPublicEDKey</key>") == false)
+        #expect(releaseScript.contains("configure_sparkle_info_plist"))
+        #expect(releaseScript.contains("plutil -replace SUFeedURL"))
+        #expect(releaseScript.contains("plutil -replace SUPublicEDKey"))
     }
 
-    @Test("Shared and local release builds use the Stable bundle identity")
-    func sharedAndLocalReleaseBuildsUseStableBundleIdentity() throws {
+    @Test("Xcode Debug and Release use explicit profile identities")
+    func xcodeBuildsUseExplicitProfileIdentities() throws {
         let repositoryRoot = Self.repositoryRoot()
         let infoPlist = try String(
             contentsOf: repositoryRoot.appendingPathComponent("Lungfish-Info.plist"),
             encoding: .utf8
         )
-        let buildScript = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"),
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
             encoding: .utf8
         )
+        let debugBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665558 /* Debug */",
+            in: project
+        )
+        let releaseBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665559 /* Release */",
+            in: project
+        )
+        let uiTestDebugBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665584 /* Debug */",
+            in: project
+        )
 
-        #expect(infoPlist.contains("<key>CFBundleName</key>\n    <string>Lungfish</string>"))
-        #expect(infoPlist.contains("<key>CFBundleDisplayName</key>\n    <string>Lungfish Genome Explorer</string>"))
-        #expect(infoPlist.contains("<key>LungfishReleaseChannel</key>\n    <string>stable</string>"))
-        #expect(buildScript.contains("plutil -replace LungfishReleaseChannel -string \"stable\""))
+        #expect(infoPlist.contains("$(LUNGFISH_BUNDLE_NAME)"))
+        #expect(infoPlist.contains("$(LUNGFISH_DISPLAY_NAME)"))
+        #expect(infoPlist.contains("$(LUNGFISH_RELEASE_CHANNEL)"))
+        #expect(debugBlock.contains("PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser.debug;"))
+        #expect(debugBlock.contains("PRODUCT_NAME = \"Lungfish Debug\";"))
+        #expect(debugBlock.contains("LUNGFISH_BUNDLE_NAME = \"Lungfish Debug\";"))
+        #expect(debugBlock.contains("LUNGFISH_DISPLAY_NAME = \"Lungfish Genome Explorer Debug\";"))
+        #expect(debugBlock.contains("LUNGFISH_RELEASE_CHANNEL = debug;"))
+        #expect(debugBlock.contains("CODE_SIGN_IDENTITY = \"-\";"))
+        #expect(debugBlock.contains("CODE_SIGN_STYLE = Manual;"))
+        #expect(debugBlock.contains("DEVELOPMENT_TEAM") == false)
+        #expect(uiTestDebugBlock.contains(#"UITargetAppPath = "$(BUILT_PRODUCTS_DIR)/Lungfish Debug.app";"#))
+        #expect(releaseBlock.contains("PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;"))
+        #expect(releaseBlock.contains("PRODUCT_NAME = Lungfish;"))
+        #expect(releaseBlock.contains("LUNGFISH_BUNDLE_NAME = Lungfish;"))
+        #expect(releaseBlock.contains("LUNGFISH_DISPLAY_NAME = \"Lungfish Genome Explorer\";"))
+        #expect(releaseBlock.contains("LUNGFISH_RELEASE_CHANNEL = stable;"))
     }
 
     @Test("Xcode Swift language mode stays on Swift 6 while SwiftPM pins the 6.2 toolchain")
@@ -116,16 +142,19 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
-    @Test("Fallback build-app script builds arm64 release binary")
-    func buildAppScriptBuildsArm64ReleaseBinary() throws {
+    @Test("Debug build-app uses the shared Xcode resolver and selected Swift")
+    func buildAppScriptUsesSharedXcodeResolver() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/build-app.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("swift build -c release --arch arm64"))
-        #expect(script.contains(".build/arm64-apple-macosx/release"))
+        #expect(script.contains("release_xcode.py"))
+        #expect(script.contains("export DEVELOPER_DIR"))
+        #expect(script.contains(#"PROFILE_CONTRACT_OUTPUT="$(python3 "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)""#))
+        #expect(script.contains("xcrun swift build --configuration debug --arch arm64"))
+        #expect(script.contains("swift build -c release") == false)
     }
 
     @Test("Fallback build-app script uses the Xcode app bundle identifiers")
@@ -145,8 +174,8 @@ struct ReleaseBuildConfigurationTests {
         )
 
         #expect(releaseBlock.contains("PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;"))
-        #expect(script.contains(#"BUNDLE_ID="com.lungfish.browser""#))
-        #expect(script.contains(#"DEBUG_BUNDLE_ID="com.lungfish.browser.debug""#))
+        #expect(script.contains("shell-profile --profile debug"))
+        #expect(script.contains(#"DEBUG_BUNDLE_ID="com.lungfish.browser.debug""#) == false)
         #expect(script.contains("org.lungfish.genome-browser") == false)
     }
 
@@ -159,9 +188,9 @@ struct ReleaseBuildConfigurationTests {
         )
 
         #expect(script.contains("--configuration"))
-        #expect(script.contains(".build/arm64-apple-macosx/debug"))
-        #expect(script.contains("build/Debug/$APP_NAME.app"))
-        #expect(script.contains("swift build --arch arm64"))
+        #expect(script.contains("APP_DIR=\"$PROJECT_ROOT/build/Debug/$APP_BUNDLE_FILENAME\""))
+        #expect(script.contains("xcrun swift build --configuration debug --arch arm64"))
+        #expect(script.contains("LungfishReleaseChannel -string \"$RELEASE_CHANNEL\""))
     }
 
     @Test("Fallback build-app script can reuse an existing SwiftPM build")
@@ -188,6 +217,7 @@ struct ReleaseBuildConfigurationTests {
         )
 
         #expect(script.contains("find \"$BUILD_DIR\" -maxdepth 1 -type d -name '*.bundle'"))
+        #expect(script.contains("ln -s \"Contents/Resources/$bundle_name\""))
         #expect(script.contains("sanitize-bundled-tools.sh"))
         #expect(script.contains("lungfish-cli"))
     }
@@ -257,16 +287,16 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("sanitize-bundled-tools.sh"))
     }
 
-    @Test("Fallback build-app script sanitizes release MacOS executables and workflow tools")
-    func buildAppScriptSanitizesReleaseMacOSExecutablesAndWorkflowTools() throws {
+    @Test("Debug build-app cannot sanitize or build a release payload")
+    func buildAppScriptCannotBuildReleasePayload() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/build-app.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains(#"if [ "$CONFIGURATION" = "release" ]"#))
-        #expect(script.contains(#"sanitize-bundled-tools.sh" "$MACOS_DIR" "$WORKFLOW_TOOLS_DIR""#))
+        #expect(script.contains("public --release mode is retired"))
+        #expect(script.contains(#"sanitize-bundled-tools.sh" "$MACOS_DIR" "$WORKFLOW_TOOLS_DIR""#) == false)
         #expect(script.contains(#"sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR""#))
     }
 

@@ -42,6 +42,19 @@ EXPECTED_CHANNELS = {
     },
 }
 
+EXPECTED_BUILD_PROFILES = {
+    "debug": {
+        "appBundleFilename": "Lungfish Debug.app",
+        "displayName": "Lungfish Genome Explorer Debug",
+        "bundleName": "Lungfish Debug",
+        "bundleIdentifier": "com.lungfish.browser.debug",
+        "releaseChannel": "debug",
+        "isRelease": False,
+        "publishable": False,
+        "updaterEnabled": False,
+    }
+}
+
 EXPECTED_TOOLCHAIN = {
     "xcodeMinimum": "26.4.1",
     "xcodeMaximumExclusive": "27.0",
@@ -96,6 +109,11 @@ class ReleaseContractTests(unittest.TestCase):
         data["gates"] = copy.deepcopy(EXPECTED_GATES)
         return data
 
+    def contract_with_expected_profiles(self):
+        data = copy.deepcopy(self.raw_contract)
+        data["buildProfiles"] = copy.deepcopy(EXPECTED_BUILD_PROFILES)
+        return data
+
     def write_contract(self, data):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -107,6 +125,9 @@ class ReleaseContractTests(unittest.TestCase):
         contract = self.module.load_contract(CONTRACT_PATH)
 
         self.assertEqual(contract.to_dict()["channels"], EXPECTED_CHANNELS)
+        rendered = contract.to_dict()
+        self.assertIn("buildProfiles", rendered)
+        self.assertEqual(rendered["buildProfiles"], EXPECTED_BUILD_PROFILES)
         self.assertEqual(contract.to_dict()["toolchain"], EXPECTED_TOOLCHAIN)
         self.assertEqual(contract.to_dict()["gates"], EXPECTED_GATES)
         for name, expected in EXPECTED_CHANNELS.items():
@@ -116,6 +137,40 @@ class ReleaseContractTests(unittest.TestCase):
                     contract.channel(name).githubPrerelease,
                     expected["githubPrerelease"],
                 )
+        self.assertEqual(
+            contract.profile("debug").to_dict(), EXPECTED_BUILD_PROFILES["debug"]
+        )
+
+    def test_debug_profile_is_not_a_release_channel(self):
+        contract = self.module.load_contract(CONTRACT_PATH)
+
+        with self.assertRaisesRegex(ValueError, "unknown release channel"):
+            contract.channel("debug")
+        self.assertTrue(
+            hasattr(contract, "profile"), "contract has no build profile API"
+        )
+        with self.assertRaisesRegex(ValueError, "unknown build profile"):
+            contract.profile("preview")
+
+    def test_debug_profile_rejects_release_updater_and_publication_fields(self):
+        forbidden_fields = {
+            "sparkleRelease": "sparkle-debug",
+            "appcastFilename": "appcast-debug.xml",
+            "sparklePublicKey": "public-key",
+            "githubPrerelease": True,
+            "dmgVolumeName": "Lungfish Debug",
+            "legacyBridgeRelease": "sparkle-alpha",
+            "legacyBridgeAppcastFilename": "appcast-alpha.xml",
+            "githubRepository": "example/lungfish",
+            "publicationTag": "debug",
+        }
+
+        for field, value in forbidden_fields.items():
+            with self.subTest(field=field):
+                mutated = self.contract_with_expected_profiles()
+                mutated["buildProfiles"]["debug"][field] = value
+                with self.assertRaisesRegex(ValueError, "build profile debug fields"):
+                    self.module.load_contract(self.write_contract(mutated))
 
     def test_unknown_channel_is_rejected(self):
         contract = self.module.load_contract(CONTRACT_PATH)
@@ -133,6 +188,16 @@ class ReleaseContractTests(unittest.TestCase):
         extra_top = copy.deepcopy(self.raw_contract)
         extra_top["unexpected"] = True
         mutations.append(("extra top-level", extra_top))
+
+        missing_profile = self.contract_with_expected_profiles()
+        del missing_profile["buildProfiles"]["debug"]
+        mutations.append(("missing debug profile", missing_profile))
+
+        unknown_profile = self.contract_with_expected_profiles()
+        unknown_profile["buildProfiles"]["nightly"] = copy.deepcopy(
+            unknown_profile["buildProfiles"]["debug"]
+        )
+        mutations.append(("unknown build profile", unknown_profile))
 
         missing_channel = copy.deepcopy(self.raw_contract)
         del missing_channel["channels"]["preview"]["bundleName"]
@@ -166,7 +231,7 @@ class ReleaseContractTests(unittest.TestCase):
 
         for label, mutation in mutations:
             with self.subTest(mutation=label):
-                with self.assertRaisesRegex(ValueError, "fields|channels"):
+                with self.assertRaisesRegex(ValueError, "fields|channels|profiles"):
                     self.module.load_contract(self.write_contract(mutation))
 
     def test_contract_rejects_missing_duplicate_or_unsafe_release_gates(self):
@@ -277,6 +342,40 @@ class ReleaseContractTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), expected)
+
+    def test_debug_profile_cli_matches_contract(self):
+        result = subprocess.run(
+            [
+                "python3",
+                str(LOADER_PATH),
+                "describe-profile",
+                "--profile",
+                "debug",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), EXPECTED_BUILD_PROFILES["debug"])
+
+    def test_public_build_app_release_mode_is_retired_before_build(self):
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "build-app.sh"), "--release"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        self.assertIn("retired", result.stdout + result.stderr)
+        self.assertIn(
+            "build-notarized-dmg.sh --package-only", result.stdout + result.stderr
+        )
 
     def test_contract_cli_get_preserves_json_boolean_values(self):
         result = subprocess.run(
