@@ -58,8 +58,21 @@ REQUIRED_SKILL_MARKERS = (
     "--tier full",
     "--tier conformance --require-tools",
     "run-macos-xcui.sh",  # named as an attended diagnostic, not a gate
-    "build-app.sh --debug",  # debug test builds are unsigned and never released
+    "build-app.sh --debug",  # debug test builds are ad-hoc signed and never released
     "com.lungfish.browser.debug",
+)
+
+REQUIRED_DEBUG_MARKERS = (
+    "build/Debug/Lungfish Debug.app",
+    "Lungfish Genome Explorer Debug",
+    "ad-hoc",
+    "self-contained",
+)
+
+STALE_DEBUG_MARKERS = (
+    "build/Debug/Lungfish.app",
+    "NOT self-contained",
+    "build is unsigned and for local testing only",
 )
 
 SECRET_PATTERNS = (
@@ -122,6 +135,23 @@ def main() -> int:
         for marker in REQUIRED_SKILL_MARKERS:
             if marker not in skill_text:
                 errors.append(f"Release skill is missing required CalVer policy: {marker}")
+
+        for marker in REQUIRED_DEBUG_MARKERS:
+            if marker not in skill_text:
+                errors.append(f"Release skill is missing current Debug guidance: {marker}")
+        for marker in STALE_DEBUG_MARKERS:
+            if marker in skill_text:
+                errors.append(f"Release skill contains stale Debug guidance: {marker}")
+
+    catalog_file = repo_root / "SKILLS.md"
+    if catalog_file.is_file():
+        catalog_text = catalog_file.read_text(errors="replace")
+        for marker in REQUIRED_DEBUG_MARKERS:
+            if marker not in catalog_text:
+                errors.append(f"SKILLS.md is missing current Debug guidance: {marker}")
+        for marker in STALE_DEBUG_MARKERS:
+            if marker in catalog_text:
+                errors.append(f"SKILLS.md contains stale Debug guidance: {marker}")
 
     for path in skill_root.rglob("*") if skill_root.is_dir() else ():
         if not path.is_file() or path.suffix in {".pyc", ".png", ".jpg"}:

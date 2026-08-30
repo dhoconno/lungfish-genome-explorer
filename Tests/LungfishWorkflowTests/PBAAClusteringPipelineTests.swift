@@ -3,6 +3,28 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class PBAAClusteringPipelineTests: XCTestCase {
+    func testProcessRunnerUsesIdentityAwareNextflowHome() {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+        let executable = URL(fileURLWithPath: "/tmp/nextflow")
+
+        let stable = ProcessPBAANextflowRunner(
+            homeDirectoryProvider: { home },
+            appIdentity: .stable
+        ).nextflowExecutionEnvironment(for: executable)
+        let preview = ProcessPBAANextflowRunner(
+            homeDirectoryProvider: { home },
+            appIdentity: .preview
+        ).nextflowExecutionEnvironment(for: executable)
+        let debug = ProcessPBAANextflowRunner(
+            homeDirectoryProvider: { home },
+            appIdentity: .debug
+        ).nextflowExecutionEnvironment(for: executable)
+
+        XCTAssertEqual(stable["NXF_HOME"], "/Users/example/.nextflow")
+        XCTAssertEqual(preview["NXF_HOME"], "/Users/example/.nextflow")
+        XCTAssertEqual(debug["NXF_HOME"], "/Users/example/Library/Caches/com.lungfish.debug/nextflow")
+    }
+
     func testProcessRunnerUsesManagedNextflowWhenPATHDoesNotContainNextflow() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pbaa-managed-nextflow-\(UUID().uuidString)", isDirectory: true)

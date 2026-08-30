@@ -442,15 +442,18 @@ public struct PBAAClusteringPipeline: Sendable {
 public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
     private let condaManager: CondaManager
     private let homeDirectoryProvider: @Sendable () -> URL
+    private let appIdentity: LungfishAppIdentity
 
     public init(
         condaManager: CondaManager = .shared,
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
-        }
+        },
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.condaManager = condaManager
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.appIdentity = appIdentity
     }
 
     public func run(request: PBAAClusteringRunRequest, workflowDirectory: URL) async throws -> PBAANextflowRunResult {
@@ -560,7 +563,7 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         return URL(fileURLWithPath: path)
     }
 
-    private func nextflowExecutionEnvironment(for executableURL: URL) -> [String: String] {
+    func nextflowExecutionEnvironment(for executableURL: URL) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let home = homeDirectoryProvider()
         let condaRoot = CoreToolLocator.condaRoot(homeDirectory: home)
@@ -581,7 +584,7 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         environment["PATH"] = mergedPaths.joined(separator: ":")
         environment["HOME"] = home.path
         environment["MAMBA_ROOT_PREFIX"] = condaRoot.path
-        environment["NXF_HOME"] = home.appendingPathComponent(".nextflow", isDirectory: true).path
+        environment["NXF_HOME"] = appIdentity.nextflowHomeURL(homeDirectory: home).path
         return environment
     }
 

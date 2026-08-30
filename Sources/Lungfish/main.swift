@@ -7,6 +7,11 @@ import AppKit
 import LungfishApp
 import Sparkle
 
+if let smokeOutput = DebugRelocationSmoke.outputIfRequested(arguments: CommandLine.arguments) {
+    print(smokeOutput)
+    exit(0)
+}
+
 @MainActor
 private final class SparkleUpdaterBridge {
     private let updaterController: SPUStandardUpdaterController?

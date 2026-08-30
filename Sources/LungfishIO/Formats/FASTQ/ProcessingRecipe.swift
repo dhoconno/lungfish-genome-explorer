@@ -20,7 +20,7 @@ private let logger = Logger(subsystem: "com.lungfish.io", category: "ProcessingR
 /// // → 3 steps: Quality Trim → Adapter Trim → PE Merge
 /// ```
 ///
-/// Recipes are stored as JSON in `~/Library/Application Support/Lungfish/recipes/`.
+/// App-wide recipes are stored under the runtime identity's Application Support directory.
 public struct ProcessingRecipe: Codable, Sendable, Identifiable, Equatable {
     public static let fileExtension = "recipe.json"
 
@@ -439,4 +439,3 @@ public struct FASTQComparisonResult: Sendable, Equatable {
         """
     }
 }
-

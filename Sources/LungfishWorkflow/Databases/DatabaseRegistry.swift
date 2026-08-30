@@ -188,7 +188,7 @@ public enum ManagedStorageAvailability: Sendable, Equatable {
 /// Resolves the runtime path of reference databases.
 ///
 /// Resolution priority:
-/// 1. User-installed copy in `~/Library/Application Support/Lungfish/databases/<id>/`
+/// 1. User-installed copy in the runtime identity's managed database root
 /// 2. Bundled payload in the app's `Resources/Databases/<id>/` directory, but only
 ///    for databases that actually ship a bundled payload
 ///

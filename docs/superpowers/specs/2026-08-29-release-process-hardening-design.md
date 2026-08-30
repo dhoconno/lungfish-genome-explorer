@@ -311,3 +311,27 @@ All behavior changes follow red/green TDD.
 - Publishing a new release while implementing this hardening.
 - Replacing Apple notarization or GitHub Releases with another distribution
   system.
+
+## Debug independent-review hardening
+
+The relocated Debug smoke owns an exclusive repository-scoped lock before it
+hides the compiling `.build`. Its exit trap restores only into an absent
+destination; if another process recreates `.build`, both trees are preserved
+and the smoke fails with the original tree's manual recovery path. The smoke
+requires regular app and CLI executables, deeply verifies a valid exact ad-hoc
+signature with no TeamIdentifier, and executes both binaries without opening
+the UI.
+
+Production resource lookup accepts only nonempty relative paths without dot
+components. It resolves roots and candidates through symlinks and requires
+exact containment beneath the case-exact `Contents/Resources` root when inside
+an app. Source-tree fallback is an explicit test-only injection; standalone
+production CLI processes must use packaged resource bundles or fail.
+
+Debug Nextflow state lives beneath
+`~/Library/Caches/com.lungfish.debug/nextflow`; Preview and Stable retain
+`~/.nextflow`. Metadata presets and the legacy `AppSettings` database default
+derive from the identity-aware managed-storage root. Remaining `.lungfish` and
+`.nextflow` literals are project/bundle format markers, per-run output names,
+container examples, or deliberate legacy migration detection rather than
+cross-profile user defaults.

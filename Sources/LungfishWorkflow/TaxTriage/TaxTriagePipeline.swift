@@ -164,6 +164,7 @@ public actor TaxTriagePipeline {
     private let condaManager: CondaManager
 
     private let homeDirectoryProvider: @Sendable () -> URL
+    private let appIdentity: LungfishAppIdentity
 
     /// Creates a TaxTriage pipeline.
     ///
@@ -173,11 +174,13 @@ public actor TaxTriagePipeline {
         condaManager: CondaManager = .shared,
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
-        }
+        },
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.processManager = processManager
         self.condaManager = condaManager
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.appIdentity = appIdentity
     }
 
     // MARK: - Prerequisite Checks
@@ -1079,9 +1082,9 @@ public actor TaxTriagePipeline {
         }
     }
 
-    private func cachedTaxTriageRepositoryURL() -> URL {
-        homeDirectoryProvider()
-            .appendingPathComponent(".nextflow/assets/jhuapl-bio/taxtriage", isDirectory: true)
+    func cachedTaxTriageRepositoryURL() -> URL {
+        appIdentity.nextflowHomeURL(homeDirectory: homeDirectoryProvider())
+            .appendingPathComponent("assets/jhuapl-bio/taxtriage", isDirectory: true)
     }
 
     /// Patches the TaxTriage download_fastas.py script to fix a bug where
@@ -1429,8 +1432,7 @@ public actor TaxTriagePipeline {
         environment["PATH"] = mergedPaths.joined(separator: ":")
 
         // Keep Nextflow cache in a stable, user-space location.
-        let nxfHome = homeDirectoryProvider()
-            .appendingPathComponent(".nextflow")
+        let nxfHome = appIdentity.nextflowHomeURL(homeDirectory: homeDirectoryProvider())
         environment["NXF_HOME"] = nxfHome.path
         return environment
     }

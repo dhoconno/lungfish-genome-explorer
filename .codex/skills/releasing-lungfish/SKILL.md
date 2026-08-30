@@ -27,17 +27,17 @@ Preview notes describe the delta from the previous versioned release. Stable not
 
 ## Debug Test Builds
 
-A debug test build is NOT a release and must never be signed, notarized, tagged, uploaded, or attached to a GitHub release. Produce one whenever the user asks to "try", "test", or "smoke" a fix before release, and do it from the feature branch, not `main`.
+A debug test build is NOT a release and must never receive a Developer ID signature, notarization, tag, upload, Sparkle publication, or GitHub release attachment. It receives only a local ad-hoc signature so macOS can launch it. Produce one whenever the user asks to "try", "test", or "smoke" a fix before release, and do it from the feature branch, not `main`.
 
 1. Run the unit tier first: `bash scripts/full-suite-gate.sh --tier unit` must print PASS (serialize it with any other `swift` invocation; SwiftPM holds one `.build/.lock` per checkout).
 2. Build the bundle with `bash scripts/build-app.sh --debug` (add `--skip-build` only when `.build/arm64-apple-macosx/debug/Lungfish` is already current for the exact commit under test). The script reads the version from `Lungfish.xcodeproj` so the debug bundle and the notarized build never diverge.
-3. The result is `build/Debug/Lungfish.app` with bundle id `com.lungfish.browser.debug`, `CFBundleName` `Lungfish Debug`, and display name `Lungfish Debug`. It registers as a separate app from the installed release copy, so Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the debug id explicitly.
-4. Launch it with `open build/Debug/Lungfish.app` for the user, or run `build/Debug/Lungfish.app/Contents/MacOS/Lungfish` from a shell when `LUNGFISH_*` environment overrides are needed (environment variables only reach the app from a direct shell launch). Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
-5. Report the commit hash, the branch, the absolute `.app` path, and the unit-tier PASS line. Say plainly that the build is unsigned and for local testing only.
+3. The result is `build/Debug/Lungfish Debug.app` with bundle id `com.lungfish.browser.debug`, `CFBundleName` `Lungfish Debug`, and display name `Lungfish Genome Explorer Debug`. It registers as a separate app from the installed release copy, so Computer Use, screen-capture, and Accessibility grants for the release app do not cover it; request them for the debug id explicitly.
+4. Launch it with `open "build/Debug/Lungfish Debug.app"` for the user, or run `build/Debug/Lungfish\ Debug.app/Contents/MacOS/Lungfish` from a shell when `LUNGFISH_*` environment overrides are needed (environment variables only reach the app from a direct shell launch). Never point `LUNGFISH_STORAGE_ROOT` at the real `~/.lungfish` in a throwaway smoke run.
+5. Report the commit hash, the branch, the absolute `.app` path, and the unit-tier PASS line. Say plainly that the build is ad-hoc signed and for local testing only.
 
-6. A SwiftPM debug bundle is NOT self-contained: the generated `Bundle.module` accessors resolve each module's resource bundle either at the `.app` root or at the absolute `.build/arm64-apple-macosx/debug/<name>.bundle` path of the checkout that compiled it, never under `Contents/Resources`. The app therefore crashes at first use of a bundled resource (`NSBundle.module` assertion, seen 2026-08-23 as a `lungfishTeal` palette crash) if that `.build` directory is deleted or the app is copied away from a checkout whose `.build` is gone. Build debug apps from the primary checkout when they must outlive a worktree, never delete a worktree or its `.build` while a debug app built from it is installed or running, and rebuild `/Applications/Lungfish Debug.app` from the primary checkout after removing a worktree.
+6. The Debug app is self-contained: runtime SwiftPM resources are copied beneath `Contents/Resources`, and production resource lookup cannot fall back into the compiling checkout. Prove relocation and checkout independence with `bash scripts/smoke-test-debug-app.sh "build/Debug/Lungfish Debug.app" --compiling-build-dir "$PWD/.build"`; the smoke verifies the exact ad-hoc signature, executes both packaged executables, and restores `.build` under an exclusive lock.
 
-Do not reuse `build/Release/` or `build-notarized-dmg.sh` for a debug build, and do not delete `build/Debug/Lungfish.app` when cleaning up a release run unless the user asks.
+Do not reuse `build/Release/` or `build-notarized-dmg.sh` for a debug build, and do not delete `build/Debug/Lungfish Debug.app` when cleaning up a release run unless the user asks.
 
 ## Load Current Authority
 

@@ -58,7 +58,8 @@ public enum RuntimeResourceLocator {
             mainResourceURL: Bundle.main.resourceURL,
             executableURL: defaultExecutableURL(),
             currentWorkingDirectoryURL: defaultCurrentWorkingDirectoryURL(fileManager: .default),
-            fileManager: .default
+            fileManager: .default,
+            allowSourceFallback: false
         )
     }
 
@@ -68,7 +69,8 @@ public enum RuntimeResourceLocator {
             mainResourceURL: Bundle.main.resourceURL,
             executableURL: defaultExecutableURL(),
             currentWorkingDirectoryURL: defaultCurrentWorkingDirectoryURL(fileManager: .default),
-            fileManager: .default
+            fileManager: .default,
+            allowSourceFallback: false
         )
     }
 
@@ -78,17 +80,26 @@ public enum RuntimeResourceLocator {
         mainResourceURL: URL?,
         executableURL: URL?,
         currentWorkingDirectoryURL: URL?,
-        fileManager: FileManager
+        fileManager: FileManager,
+        allowSourceFallback: Bool = false
     ) -> URL? {
+        guard isSafeRelativePath(relativePath) else { return nil }
+
         for resourceRoot in resourceRoots(
             for: target,
             mainResourceURL: mainResourceURL,
             executableURL: executableURL,
             currentWorkingDirectoryURL: currentWorkingDirectoryURL,
-            fileManager: fileManager
+            fileManager: fileManager,
+            allowSourceFallback: allowSourceFallback
         ) {
-            let candidate = resourceRoot.appendingPathComponent(relativePath)
-            if fileManager.fileExists(atPath: candidate.path) {
+            let canonicalRoot = resourceRoot.resolvingSymlinksInPath().standardizedFileURL
+            let candidate = canonicalRoot
+                .appendingPathComponent(relativePath)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            if isStrictDescendant(candidate, of: canonicalRoot),
+               fileManager.fileExists(atPath: candidate.path) {
                 return candidate
             }
         }
@@ -100,18 +111,36 @@ public enum RuntimeResourceLocator {
         mainResourceURL: URL?,
         executableURL: URL?,
         currentWorkingDirectoryURL: URL?,
-        fileManager: FileManager
+        fileManager: FileManager,
+        allowSourceFallback: Bool = false
     ) -> [URL] {
         var roots: [URL] = []
         var seenPaths = Set<String>()
-        let allowSourceFallback = shouldAllowSourceFallback(
-            mainResourceURL: mainResourceURL,
-            executableURL: executableURL
-        )
+        if !allowSourceFallback,
+           containsCaseAliasedAppBundle(mainResourceURL) || containsCaseAliasedAppBundle(executableURL) {
+            return []
+        }
+        let appBundleURL = allowSourceFallback
+            ? nil
+            : (containingAppBundle(mainResourceURL) ?? containingAppBundle(executableURL))
+        let rawAppResourcesURL = appBundleURL?
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .standardizedFileURL
+        let canonicalAppResourcesURL = rawAppResourcesURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
 
         func appendIfExists(_ url: URL?) {
             guard let url else { return }
+            let rawURL = url.standardizedFileURL
             let normalized = url.resolvingSymlinksInPath().standardizedFileURL
+            if let rawAppResourcesURL, let canonicalAppResourcesURL {
+                guard isContained(rawURL, in: rawAppResourcesURL),
+                      isContained(normalized, in: canonicalAppResourcesURL) else {
+                    return
+                }
+            }
             guard fileManager.fileExists(atPath: normalized.path) else { return }
             if seenPaths.insert(normalized.path).inserted {
                 roots.append(normalized)
@@ -187,61 +216,53 @@ public enum RuntimeResourceLocator {
         return roots
     }
 
-    private static func shouldAllowSourceFallback(
-        mainResourceURL: URL?,
-        executableURL: URL?
-    ) -> Bool {
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return true
-        }
-        if let executableName = executableURL?.lastPathComponent,
-           executableName == "xctest" || executableName == "swiftpm-testing-helper" {
-            return true
-        }
-        if isInsideXCTestBundle(mainResourceURL) || isInsideXCTestBundle(executableURL) {
-            return true
-        }
-        return !isInsideAppBundle(mainResourceURL) && !isInsideAppBundle(executableURL)
-    }
-
-    private static func isInsideAppBundle(_ url: URL?) -> Bool {
-        guard var current = url?.resolvingSymlinksInPath().standardizedFileURL else {
-            return false
+    private static func containingAppBundle(_ url: URL?) -> URL? {
+        guard var current = url?.standardizedFileURL else {
+            return nil
         }
 
         for _ in 0..<12 {
             if current.pathExtension == "app" {
-                return true
+                return current
             }
 
             let parent = current.deletingLastPathComponent()
             if parent.path == current.path {
-                return false
+                return nil
             }
             current = parent
         }
 
+        return nil
+    }
+
+    private static func containsCaseAliasedAppBundle(_ url: URL?) -> Bool {
+        guard var current = url?.standardizedFileURL else { return false }
+
+        for _ in 0..<12 {
+            let pathExtension = current.pathExtension
+            if pathExtension.lowercased() == "app" {
+                return pathExtension != "app"
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path { return false }
+            current = parent
+        }
         return false
     }
 
-    private static func isInsideXCTestBundle(_ url: URL?) -> Bool {
-        guard var current = url?.resolvingSymlinksInPath().standardizedFileURL else {
-            return false
-        }
+    private static func isSafeRelativePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !(path as NSString).isAbsolutePath else { return false }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        return components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
 
-        for _ in 0..<12 {
-            if current.pathExtension == "xctest" {
-                return true
-            }
+    private static func isContained(_ candidate: URL, in root: URL) -> Bool {
+        candidate.path == root.path || isStrictDescendant(candidate, of: root)
+    }
 
-            let parent = current.deletingLastPathComponent()
-            if parent.path == current.path {
-                return false
-            }
-            current = parent
-        }
-
-        return false
+    private static func isStrictDescendant(_ candidate: URL, of root: URL) -> Bool {
+        candidate.path.hasPrefix(root.path + "/")
     }
 
     private static func defaultExecutableURL() -> URL? {

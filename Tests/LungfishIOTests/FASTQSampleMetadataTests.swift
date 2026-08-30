@@ -328,6 +328,23 @@ final class MetadataTemplateTests: XCTestCase {
 
 final class MetadataPresetStoreTests: XCTestCase {
 
+    func testUserPresetsDirectoryUsesIdentityAwareManagedStorage() {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+
+        XCTAssertEqual(
+            MetadataPresetStore.userPresetsDirectory(homeDirectory: home, appIdentity: .stable).path,
+            "/Users/example/.lungfish"
+        )
+        XCTAssertEqual(
+            MetadataPresetStore.userPresetsDirectory(homeDirectory: home, appIdentity: .preview).path,
+            "/Users/example/.lungfish"
+        )
+        XCTAssertEqual(
+            MetadataPresetStore.userPresetsDirectory(homeDirectory: home, appIdentity: .debug).path,
+            "/Users/example/.lungfish-debug"
+        )
+    }
+
     func testBuiltInPresetsExist() {
         let store = MetadataPresetStore()
 

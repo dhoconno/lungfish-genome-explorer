@@ -52,6 +52,16 @@ public struct LungfishAppIdentity: Equatable, Sendable {
     public var managedStorageDirectoryName: String { isDebug ? ".lungfish-debug" : ".lungfish" }
     public var keychainService: String { isDebug ? "com.lungfish.secrets.debug" : "com.lungfish.secrets" }
 
+    public func nextflowHomeURL(homeDirectory: URL) -> URL {
+        guard isDebug else {
+            return homeDirectory.appendingPathComponent(".nextflow", isDirectory: true)
+        }
+        return homeDirectory
+            .appendingPathComponent("Library/Caches", isDirectory: true)
+            .appendingPathComponent(cacheDirectoryName, isDirectory: true)
+            .appendingPathComponent("nextflow", isDirectory: true)
+    }
+
     /// The runtime identity for an app bundle. Command-line and test processes
     /// have no app plist and retain the historical Stable defaults.
     public static var current: Self {

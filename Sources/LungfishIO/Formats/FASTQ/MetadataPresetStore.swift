@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.io", category: "MetadataPresetStore")
@@ -13,7 +14,7 @@ private let logger = Logger(subsystem: "com.lungfish.io", category: "MetadataPre
 ///
 /// Presets are merged from three tiers:
 /// 1. **Built-in**: Common values shipped with the app (e.g., common organisms, hosts).
-/// 2. **User-level**: Persisted in `~/.lungfish/metadata-presets.json`.
+/// 2. **User-level**: Persisted in the identity-aware managed storage root.
 /// 3. **Project-level**: Persisted as `.lungfish-metadata-presets.json` in the project folder.
 ///
 /// Higher tiers override lower ones. Suggestions are deduped and sorted.
@@ -226,18 +227,30 @@ public struct MetadataPresetStore: Sendable {
 
     // MARK: - File I/O
 
-    /// URL for the user-level presets directory (`~/.lungfish/`).
-    private static var userPresetsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".lungfish")
+    /// URL for the user-level presets directory for a home and app identity.
+    public static func userPresetsDirectory(
+        homeDirectory: URL,
+        appIdentity: LungfishAppIdentity
+    ) -> URL {
+        ManagedStorageLocation.defaultLocation(
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
+        ).rootURL
+    }
+
+    private static var defaultUserPresetsDirectory: URL {
+        userPresetsDirectory(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            appIdentity: .current
+        )
     }
 
     /// URL for the user-level presets file.
     private static var userPresetsURL: URL {
-        userPresetsDirectory.appendingPathComponent(userPresetsFilename)
+        defaultUserPresetsDirectory.appendingPathComponent(userPresetsFilename)
     }
 
-    /// Loads user-level presets from `~/.lungfish/metadata-presets.json`.
+    /// Loads user-level presets from the runtime identity's managed storage root.
     private static func loadUserPresets() -> [String: [String]]? {
         loadPresetsFile(at: userPresetsURL)
     }
@@ -274,7 +287,7 @@ public struct MetadataPresetStore: Sendable {
 
         do {
             try FileManager.default.createDirectory(
-                at: userPresetsDirectory,
+                at: defaultUserPresetsDirectory,
                 withIntermediateDirectories: true
             )
             let data = try JSONEncoder().encode(existing)

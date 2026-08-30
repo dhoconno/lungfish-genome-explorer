@@ -73,6 +73,24 @@ final class AppSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testLegacyDatabaseDefaultUsesIdentityAwareManagedStorage() {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+
+        XCTAssertEqual(
+            AppSettings.databaseStorageDefaultURL(homeDirectory: home, appIdentity: .stable).path,
+            "/Users/example/.lungfish/databases"
+        )
+        XCTAssertEqual(
+            AppSettings.databaseStorageDefaultURL(homeDirectory: home, appIdentity: .preview).path,
+            "/Users/example/.lungfish/databases"
+        )
+        XCTAssertEqual(
+            AppSettings.databaseStorageDefaultURL(homeDirectory: home, appIdentity: .debug).path,
+            "/Users/example/.lungfish-debug/databases"
+        )
+    }
+
+    @MainActor
     func testAnalystIdentityOverrideUsesTrimmedValueOrFallback() {
         let settings = AppSettings.shared
 

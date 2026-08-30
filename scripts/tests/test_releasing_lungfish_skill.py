@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -78,6 +79,36 @@ fi
             "CFBundleName",
         ):
             self.assertIn(marker, skill)
+
+    def test_debug_guidance_matches_current_local_artifact(self):
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        catalog = (REPO_ROOT / "SKILLS.md").read_text(encoding="utf-8")
+
+        for contents in (skill, catalog):
+            self.assertIn("build/Debug/Lungfish Debug.app", contents)
+            self.assertIn("Lungfish Genome Explorer Debug", contents)
+            self.assertIn("ad-hoc", contents)
+            self.assertIn("self-contained", contents)
+            self.assertNotIn("build/Debug/Lungfish.app", contents)
+            self.assertNotIn("NOT self-contained", contents)
+
+    def test_validator_rejects_stale_debug_artifact_claims(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skill = Path(temporary) / "skill"
+            shutil.copytree(SKILL_ROOT, skill)
+            skill_file = skill / "SKILL.md"
+            skill_file.write_text(
+                skill_file.read_text(encoding="utf-8").replace(
+                    "build/Debug/Lungfish Debug.app",
+                    "build/Debug/Lungfish.app",
+                ),
+                encoding="utf-8",
+            )
+
+            result = self.run_validator(REPO_ROOT, skill)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Debug", result.stdout + result.stderr)
 
     def test_skill_tracks_preview_deltas_for_aggregate_stable_notes(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")

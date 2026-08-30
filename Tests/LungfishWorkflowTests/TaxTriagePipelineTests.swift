@@ -1181,6 +1181,40 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
     }
 
+    func testBuildLaunchEnvironmentIsolatesDebugNextflowHome() async {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+        let debugPipeline = TaxTriagePipeline(
+            homeDirectoryProvider: { home },
+            appIdentity: .debug
+        )
+        let previewPipeline = TaxTriagePipeline(
+            homeDirectoryProvider: { home },
+            appIdentity: .preview
+        )
+
+        let debugEnvironment = await debugPipeline.buildLaunchEnvironment(useNextflowConda: false)
+        let previewEnvironment = await previewPipeline.buildLaunchEnvironment(useNextflowConda: false)
+        let debugRepository = await debugPipeline.cachedTaxTriageRepositoryURL()
+        let previewRepository = await previewPipeline.cachedTaxTriageRepositoryURL()
+
+        XCTAssertEqual(
+            debugEnvironment["NXF_HOME"],
+            "/Users/example/Library/Caches/com.lungfish.debug/nextflow"
+        )
+        XCTAssertEqual(
+            previewEnvironment["NXF_HOME"],
+            "/Users/example/.nextflow"
+        )
+        XCTAssertEqual(
+            debugRepository.path,
+            "/Users/example/Library/Caches/com.lungfish.debug/nextflow/assets/jhuapl-bio/taxtriage"
+        )
+        XCTAssertEqual(
+            previewRepository.path,
+            "/Users/example/.nextflow/assets/jhuapl-bio/taxtriage"
+        )
+    }
+
     func testPrepareExecutionConfigRedirectsSpaceSensitivePathsIntoSystemTemp() throws {
         let workspace = FileManager.default.temporaryDirectory
             .appendingPathComponent("taxtriage space redirect \(UUID().uuidString)", isDirectory: true)

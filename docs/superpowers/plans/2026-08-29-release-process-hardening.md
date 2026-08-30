@@ -385,3 +385,11 @@ Run: `git status --short --branch` in both the worktree and primary checkout. Do
 - [x] **Step 2: Implement explicit Debug identity and derived state namespaces**
 - [x] **Step 3: Write failing relocated-resource smoke and implement bundle layout**
 - [x] **Step 4: Run real Debug build/relocation smoke and focused verification**
+
+### Core follow-on Task 10: Correct independent Debug review findings
+
+- [x] **Step 1: Write adversarial smoke tests for signatures, executable probing, locking, restoration, and recovery conflicts**
+- [x] **Step 2: Write traversal, symlink, case-alias, and standalone-CLI resource lookup tests and harden exact containment**
+- [x] **Step 3: Isolate PBAA/TaxTriage Nextflow homes, preset storage, and the legacy database default while preserving Preview/Stable**
+- [x] **Step 4: Correct current Debug facts in the release skill/catalog and make their validator reject the stale claims**
+- [x] **Step 5: Re-run focused Swift/Python tests and a real build/relocation smoke, then commit the clean correction**

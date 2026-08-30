@@ -56,6 +56,18 @@ struct AppIdentityTests {
         #expect(identity.keychainService == "com.lungfish.secrets.debug")
     }
 
+    @Test("Nextflow state is isolated only for Debug")
+    func nextflowHomeIdentity() {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+
+        #expect(LungfishAppIdentity.stable.nextflowHomeURL(homeDirectory: home).path == "/Users/example/.nextflow")
+        #expect(LungfishAppIdentity.preview.nextflowHomeURL(homeDirectory: home).path == "/Users/example/.nextflow")
+        #expect(
+            LungfishAppIdentity.debug.nextflowHomeURL(homeDirectory: home).path
+                == "/Users/example/Library/Caches/com.lungfish.debug/nextflow"
+        )
+    }
+
     @Test("Missing bundle metadata is rejected instead of becoming Stable")
     func missingMetadataIsRejected() {
         #expect(throws: LungfishAppIdentityError.self) {

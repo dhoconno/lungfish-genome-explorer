@@ -70,7 +70,7 @@ public enum CollectionTier: String, Sendable, Codable, CaseIterable {
 ///
 /// Collections exist at three levels:
 /// - **Built-in**: Pre-defined, read-only, shipped with the app
-/// - **App-wide**: User-created, stored in `~/Library/Application Support/Lungfish/`
+/// - **App-wide**: User-created, stored under the runtime identity's Application Support directory
 /// - **Project-specific**: Stored in the `.lungfish` project directory
 ///
 /// ## Usage

@@ -274,10 +274,22 @@ public final class AppSettings {
     /// Shared managed storage key used by the bootstrap config store.
     public static let managedStorageLocationKey = "ManagedStorageLocation"
 
-    /// The default database storage directory (`~/.lungfish/databases/`).
+    /// The default database storage directory for the runtime app identity.
     public static var defaultDatabaseStorageURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".lungfish/databases")
+        databaseStorageDefaultURL(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            appIdentity: .current
+        )
+    }
+
+    public static func databaseStorageDefaultURL(
+        homeDirectory: URL,
+        appIdentity: LungfishAppIdentity
+    ) -> URL {
+        ManagedStorageLocation.defaultLocation(
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
+        ).databaseRootURL
     }
 
     /// The configured database storage directory.

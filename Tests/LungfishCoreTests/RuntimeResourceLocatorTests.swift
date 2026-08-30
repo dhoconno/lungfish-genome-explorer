@@ -5,10 +5,18 @@ import Testing
 struct RuntimeResourceLocatorTests {
 
     @Test
-    func defaultLocatorResolvesSwiftPMTestResources() {
+    func explicitTestFallbackResolvesSwiftPMTestResources() {
         let resolved = RuntimeResourceLocator.path(
             "Tools/tool-versions.json",
-            in: .workflow
+            in: .workflow,
+            mainResourceURL: Bundle.main.resourceURL,
+            executableURL: Bundle.main.executableURL,
+            currentWorkingDirectoryURL: URL(
+                fileURLWithPath: FileManager.default.currentDirectoryPath,
+                isDirectory: true
+            ),
+            fileManager: .default,
+            allowSourceFallback: true
         )
 
         #expect(resolved != nil)
@@ -69,10 +77,181 @@ struct RuntimeResourceLocatorTests {
             mainResourceURL: nil,
             executableURL: nil,
             currentWorkingDirectoryURL: workingDirectory,
-            fileManager: .default
+            fileManager: .default,
+            allowSourceFallback: true
         )
 
         #expect(resolved?.standardizedFileURL.path == expected.standardizedFileURL.path)
+    }
+
+    @Test
+    func standaloneCLIHasNoImplicitCheckoutFallback() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-cli-\(UUID().uuidString)", isDirectory: true)
+        let repositoryRoot = tempRoot.appendingPathComponent("repo", isDirectory: true)
+        let executable = repositoryRoot.appendingPathComponent(".build/debug/lungfish-cli")
+        let expected = repositoryRoot
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/tool-versions.json")
+        try FileManager.default.createDirectory(
+            at: executable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: expected.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: expected)
+        try Data("// swift-tools-version: 6.2\n".utf8).write(
+            to: repositoryRoot.appendingPathComponent("Package.swift")
+        )
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow,
+            mainResourceURL: nil,
+            executableURL: executable,
+            currentWorkingDirectoryURL: repositoryRoot,
+            fileManager: .default
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func rejectsUnsafeRelativeResourcePaths() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-path-\(UUID().uuidString)", isDirectory: true)
+        let appResources = tempRoot.appendingPathComponent(
+            "Lungfish Debug.app/Contents/Resources",
+            isDirectory: true
+        )
+        let appExecutable = tempRoot.appendingPathComponent(
+            "Lungfish Debug.app/Contents/MacOS/Lungfish"
+        )
+        try FileManager.default.createDirectory(at: appResources, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: appExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let outside = tempRoot.appendingPathComponent("outside.json")
+        let contentsOutside = appResources.deletingLastPathComponent().appendingPathComponent("outside.json")
+        try Data("outside".utf8).write(to: outside)
+        try Data("outside".utf8).write(to: contentsOutside)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        for relativePath in ["", outside.path, "../outside.json", "Tools/../../outside.json"] {
+            let resolved = RuntimeResourceLocator.path(
+                relativePath,
+                in: .workflow,
+                mainResourceURL: appResources,
+                executableURL: appExecutable,
+                currentWorkingDirectoryURL: nil,
+                fileManager: .default
+            )
+
+            #expect(resolved == nil)
+        }
+    }
+
+    @Test
+    func appResourceLookupRejectsSymlinkEscape() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-symlink-\(UUID().uuidString)", isDirectory: true)
+        let appResources = tempRoot.appendingPathComponent(
+            "Lungfish Debug.app/Contents/Resources",
+            isDirectory: true
+        )
+        let appExecutable = tempRoot.appendingPathComponent(
+            "Lungfish Debug.app/Contents/MacOS/Lungfish"
+        )
+        let outside = tempRoot.appendingPathComponent("outside.json")
+        try FileManager.default.createDirectory(at: appResources, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: appExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("outside".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(
+            at: appResources.appendingPathComponent("escape.json"),
+            withDestinationURL: outside
+        )
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "escape.json",
+            in: .workflow,
+            mainResourceURL: appResources,
+            executableURL: appExecutable,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func appResourceLookupRequiresExactContentsResourcesRoot() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-case-\(UUID().uuidString)", isDirectory: true)
+        let aliasedResources = tempRoot.appendingPathComponent(
+            "Lungfish Debug.app/contents/resources",
+            isDirectory: true
+        )
+        let aliasedExecutable = tempRoot.appendingPathComponent(
+            "Lungfish Debug.app/contents/MacOS/Lungfish"
+        )
+        let resource = aliasedResources.appendingPathComponent("escape.json")
+        try FileManager.default.createDirectory(
+            at: aliasedExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: aliasedResources, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: resource)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "escape.json",
+            in: .workflow,
+            mainResourceURL: aliasedResources,
+            executableURL: aliasedExecutable,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func appResourceLookupRejectsWrapperCaseAlias() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-wrapper-case-\(UUID().uuidString)", isDirectory: true)
+        let appResources = tempRoot.appendingPathComponent(
+            "Lungfish Debug.APP/Contents/Resources",
+            isDirectory: true
+        )
+        let appExecutable = tempRoot.appendingPathComponent(
+            "Lungfish Debug.APP/Contents/MacOS/Lungfish"
+        )
+        let resource = appResources.appendingPathComponent("escape.json")
+        try FileManager.default.createDirectory(
+            at: appExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: appResources, withIntermediateDirectories: true)
+        try Data("outside".utf8).write(to: resource)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "escape.json",
+            in: .workflow,
+            mainResourceURL: appResources,
+            executableURL: appExecutable,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default
+        )
+
+        #expect(resolved == nil)
     }
 
     @Test
