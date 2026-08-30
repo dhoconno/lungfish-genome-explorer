@@ -5,6 +5,7 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 from types import MappingProxyType
 from typing import Any, Mapping, NoReturn
 
@@ -38,6 +39,8 @@ TOOLCHAIN_FIELDS = frozenset(
         "minimumFreeDiskGiB",
     }
 )
+GATE_FIELDS = frozenset({"focusedReleaseTests", "channels"})
+GATE_STEP_FIELDS = frozenset({"tier", "requireTools"})
 
 
 @dataclass(frozen=True)
@@ -74,10 +77,41 @@ class ToolchainContract:
 
 
 @dataclass(frozen=True)
+class GateStep:
+    tier: str
+    requireTools: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"tier": self.tier, "requireTools": self.requireTools}
+
+
+@dataclass(frozen=True)
+class GateContract:
+    focusedReleaseTests: tuple[str, ...]
+    channels: Mapping[str, tuple[GateStep, ...]]
+
+    def for_channel(self, name: str) -> tuple[GateStep, ...]:
+        try:
+            return self.channels[name]
+        except KeyError as error:
+            raise ValueError(f"unknown release gate channel: {name}") from error
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "focusedReleaseTests": list(self.focusedReleaseTests),
+            "channels": {
+                name: [step.to_dict() for step in steps]
+                for name, steps in self.channels.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
 class ReleaseContract:
     schemaVersion: int
     channels: Mapping[str, ChannelContract]
     toolchain: ToolchainContract
+    gates: GateContract
 
     def channel(self, name: str) -> ChannelContract:
         try:
@@ -92,6 +126,7 @@ class ReleaseContract:
                 name: channel.to_dict() for name, channel in self.channels.items()
             },
             "toolchain": self.toolchain.to_dict(),
+            "gates": self.gates.to_dict(),
         }
 
 
@@ -138,12 +173,8 @@ def _parse_channel(name: str, raw: Any) -> ChannelContract:
         if "\n" in value[field] or "\r" in value[field]:
             raise ValueError(f"channel {name}.{field} must be one line")
     if value["releaseChannel"] != name:
-        raise ValueError(
-            f"channel {name}.releaseChannel must equal its channel name"
-        )
-    if bool(value["legacyBridgeRelease"]) != bool(
-        value["legacyBridgeAppcastFilename"]
-    ):
+        raise ValueError(f"channel {name}.releaseChannel must equal its channel name")
+    if bool(value["legacyBridgeRelease"]) != bool(value["legacyBridgeAppcastFilename"]):
         raise ValueError(
             f"channel {name} legacy bridge release and filename must both be set or empty"
         )
@@ -162,6 +193,49 @@ def _parse_toolchain(raw: Any) -> ToolchainContract:
         if value[field] <= 0:
             raise ValueError(f"toolchain.{field} must be positive")
     return ToolchainContract(**value)
+
+
+def _parse_gates(raw: Any) -> GateContract:
+    value = _require_object(raw, "gates")
+    _require_fields(value, GATE_FIELDS, "gates")
+    modules = value["focusedReleaseTests"]
+    if not isinstance(modules, list) or not modules:
+        raise ValueError("gates.focusedReleaseTests must be a nonempty array")
+    focused: list[str] = []
+    for index, module in enumerate(modules):
+        _require_type(module, str, f"gates.focusedReleaseTests[{index}]")
+        if re.fullmatch(r"scripts\.tests\.test_[a-z0-9_]+", module) is None:
+            raise ValueError("focused release test module is unsafe")
+        focused.append(module)
+    if len(focused) != len(set(focused)):
+        raise ValueError("duplicate focused release test module")
+
+    raw_channels = _require_object(value["channels"], "gates.channels")
+    if set(raw_channels) != CHANNEL_NAMES:
+        raise ValueError("invalid release gate channels")
+    channels: dict[str, tuple[GateStep, ...]] = {}
+    for name in sorted(CHANNEL_NAMES):
+        raw_steps = raw_channels[name]
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError(f"release gate channel {name} must be nonempty")
+        steps: list[GateStep] = []
+        for index, raw_step in enumerate(raw_steps):
+            step = _require_object(raw_step, f"gate {name}[{index}]")
+            _require_fields(step, GATE_STEP_FIELDS, f"gate {name}[{index}]")
+            _require_type(step["tier"], str, f"gate {name}[{index}].tier")
+            _require_type(
+                step["requireTools"], bool, f"gate {name}[{index}].requireTools"
+            )
+            if step["tier"] not in {"unit", "integration", "full", "conformance"}:
+                raise ValueError(f"unknown release gate tier: {step['tier']}")
+            if step["tier"] == "conformance" and not step["requireTools"]:
+                raise ValueError("conformance release gate must set requireTools")
+            steps.append(GateStep(**step))
+        tiers = [step.tier for step in steps]
+        if len(tiers) != len(set(tiers)):
+            raise ValueError(f"duplicate release gate tier for {name}")
+        channels[name] = tuple(steps)
+    return GateContract(tuple(focused), MappingProxyType(channels))
 
 
 def _reject_duplicates(channels: Mapping[str, ChannelContract]) -> None:
@@ -196,7 +270,9 @@ def load_contract(path: Path) -> ReleaseContract:
         raise ValueError(f"cannot load release contract {path}: {error}") from error
     root = _require_object(raw, "release contract")
     _require_fields(
-        root, frozenset({"schemaVersion", "channels", "toolchain"}), "top-level"
+        root,
+        frozenset({"schemaVersion", "channels", "toolchain", "gates"}),
+        "top-level",
     )
     _require_type(root["schemaVersion"], int, "schemaVersion")
     if root["schemaVersion"] != 1:
@@ -207,9 +283,7 @@ def load_contract(path: Path) -> ReleaseContract:
     if actual_channels != CHANNEL_NAMES:
         missing = sorted(CHANNEL_NAMES - actual_channels)
         extra = sorted(actual_channels - CHANNEL_NAMES)
-        raise ValueError(
-            f"invalid channels: missing {missing}, extra {extra}"
-        )
+        raise ValueError(f"invalid channels: missing {missing}, extra {extra}")
     channels = {
         name: _parse_channel(name, raw_channels[name]) for name in sorted(CHANNEL_NAMES)
     }
@@ -218,6 +292,7 @@ def load_contract(path: Path) -> ReleaseContract:
         schemaVersion=root["schemaVersion"],
         channels=MappingProxyType(channels),
         toolchain=_parse_toolchain(root["toolchain"]),
+        gates=_parse_gates(root["gates"]),
     )
 
 

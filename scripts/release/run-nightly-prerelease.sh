@@ -14,6 +14,7 @@ if [ -f "$RELEASE_PROFILE" ]; then
   ENV_TEAM_ID="${LUNGFISH_TEAM_ID:-}"
   ENV_NOTARY_PROFILE="${LUNGFISH_NOTARY_PROFILE:-}"
   ENV_SPARKLE_ED_KEY_FILE="${LUNGFISH_SPARKLE_ED_KEY_FILE:-}"
+  ENV_DEPENDENCY_RECEIPT="${LUNGFISH_DEPENDENCY_RECEIPT:-}"
   # This user-owned, ignored profile contains shell assignments only.
   # shellcheck disable=SC1090
   source "$RELEASE_PROFILE"
@@ -21,6 +22,7 @@ if [ -f "$RELEASE_PROFILE" ]; then
   [ -z "$ENV_TEAM_ID" ] || LUNGFISH_TEAM_ID="$ENV_TEAM_ID"
   [ -z "$ENV_NOTARY_PROFILE" ] || LUNGFISH_NOTARY_PROFILE="$ENV_NOTARY_PROFILE"
   [ -z "$ENV_SPARKLE_ED_KEY_FILE" ] || LUNGFISH_SPARKLE_ED_KEY_FILE="$ENV_SPARKLE_ED_KEY_FILE"
+  [ -z "$ENV_DEPENDENCY_RECEIPT" ] || LUNGFISH_DEPENDENCY_RECEIPT="$ENV_DEPENDENCY_RECEIPT"
 fi
 
 has_flag() {
@@ -35,14 +37,6 @@ has_flag() {
   return 1
 }
 
-CONTRACT_PYTHON="${PROJECT_ROOT}/.ci-python/bin/python"
-if [ ! -x "$CONTRACT_PYTHON" ]; then
-  CONTRACT_PYTHON="/usr/bin/python3"
-fi
-SPARKLE_PUBLISH_RELEASE="$($CONTRACT_PYTHON "${SCRIPT_DIR}/release_contract.py" get --channel preview --field sparkleRelease)"
-SPARKLE_BRIDGE_PUBLISH_RELEASE="$($CONTRACT_PYTHON "${SCRIPT_DIR}/release_contract.py" get --channel preview --field legacyBridgeRelease)"
-SPARKLE_BRIDGE_APPCAST_FILENAME="$($CONTRACT_PYTHON "${SCRIPT_DIR}/release_contract.py" get --channel preview --field legacyBridgeAppcastFilename)"
-
 DEFAULT_ARGS=(--repo "$PROJECT_ROOT")
 if ! has_flag --team-id "$@" && [ -n "${LUNGFISH_TEAM_ID:-}" ]; then
   DEFAULT_ARGS+=(--team-id "$LUNGFISH_TEAM_ID")
@@ -56,21 +50,14 @@ fi
 if ! has_flag --sparkle-ed-key-file "$@" && [ -n "${LUNGFISH_SPARKLE_ED_KEY_FILE:-}" ]; then
   DEFAULT_ARGS+=(--sparkle-ed-key-file "$LUNGFISH_SPARKLE_ED_KEY_FILE")
 fi
+if ! has_flag --dependency-receipt "$@" && [ -n "${LUNGFISH_DEPENDENCY_RECEIPT:-}" ]; then
+  DEFAULT_ARGS+=(--dependency-receipt "$LUNGFISH_DEPENDENCY_RECEIPT")
+fi
 if ! has_flag --sparkle-generate-appcast "$@"; then
   SPARKLE_TOOL_ASSIGNMENTS="$("${SCRIPT_DIR}/resolve-sparkle-tools.sh")"
   eval "$SPARKLE_TOOL_ASSIGNMENTS"
   DEFAULT_ARGS+=(--sparkle-generate-appcast "$SPARKLE_GENERATE_APPCAST")
 fi
-if ! has_flag --sparkle-publish-release "$@"; then
-  DEFAULT_ARGS+=(--sparkle-publish-release "$SPARKLE_PUBLISH_RELEASE")
-fi
-if ! has_flag --sparkle-bridge-publish-release "$@"; then
-  DEFAULT_ARGS+=(--sparkle-bridge-publish-release "$SPARKLE_BRIDGE_PUBLISH_RELEASE")
-fi
-if ! has_flag --sparkle-bridge-appcast-filename "$@"; then
-  DEFAULT_ARGS+=(--sparkle-bridge-appcast-filename "$SPARKLE_BRIDGE_APPCAST_FILENAME")
-fi
-
 export LUNGFISH_SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c=}"
 
 exec /usr/bin/env python3 "${SCRIPT_DIR}/nightly_prerelease_release.py" \

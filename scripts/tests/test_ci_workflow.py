@@ -13,7 +13,9 @@ def yaml_load(path):
 class CIWorkflowTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[2]
-        self.workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.workflow = (root / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
 
     def test_script_test_environments_install_pyyaml(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -25,7 +27,9 @@ class CIWorkflowTests(unittest.TestCase):
             )
             self.assertIn("PyYAML", install.get("run", ""), job_name)
 
-    def test_fast_gate_repairs_xcode_lockfile_before_and_after_xcodebuild_then_checks_afterward(self):
+    def test_fast_gate_repairs_xcode_lockfile_before_and_after_xcodebuild_then_checks_afterward(
+        self,
+    ):
         repair = "bash scripts/check-package-resolved-consistency.sh --repair"
         xcodebuild = "xcodebuild -project Lungfish.xcodeproj -scheme Lungfish"
         check = "bash scripts/check-package-resolved-consistency.sh"
@@ -55,12 +59,22 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn(htslib_link, self.workflow)
         self.assertIn(samtools_link, self.workflow)
         self.assertIn(seqkit_link, self.workflow)
-        self.assertLess(self.workflow.index(install_tools), self.workflow.index(htslib_link))
-        self.assertLess(self.workflow.index(htslib_link), self.workflow.index(smoke_tests))
-        self.assertLess(self.workflow.index(samtools_link), self.workflow.index(smoke_tests))
-        self.assertLess(self.workflow.index(seqkit_link), self.workflow.index(smoke_tests))
+        self.assertLess(
+            self.workflow.index(install_tools), self.workflow.index(htslib_link)
+        )
+        self.assertLess(
+            self.workflow.index(htslib_link), self.workflow.index(smoke_tests)
+        )
+        self.assertLess(
+            self.workflow.index(samtools_link), self.workflow.index(smoke_tests)
+        )
+        self.assertLess(
+            self.workflow.index(seqkit_link), self.workflow.index(smoke_tests)
+        )
 
-    def test_full_suite_provisions_the_manifest_toolset_and_python_used_by_unfiltered_tests(self):
+    def test_full_suite_provisions_the_manifest_toolset_and_python_used_by_unfiltered_tests(
+        self,
+    ):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["full"]
         steps = "\n".join(step.get("run", "") for step in job["steps"])
@@ -72,7 +86,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("GITHUB_PATH", steps)
 
         cache_steps = [
-            step for step in job["steps"]
+            step
+            for step in job["steps"]
             if step.get("uses", "").startswith("actions/cache")
         ]
         self.assertEqual(len(cache_steps), 1)
@@ -80,11 +95,13 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("manifest.outputs.hash", cache_steps[0]["with"]["key"])
 
         full_suite = next(
-            index for index, step in enumerate(job["steps"])
+            index
+            for index, step in enumerate(job["steps"])
             if step.get("name") == "Run full package tests"
         )
         provisioning = next(
-            index for index, step in enumerate(job["steps"])
+            index
+            for index, step in enumerate(job["steps"])
             if step.get("name") == "Provision required tools"
         )
         self.assertLess(provisioning, full_suite)
@@ -144,7 +161,9 @@ class CIWorkflowTests(unittest.TestCase):
         # Class names the allowlist regex enumerates, minus the generic
         # ".*Conformance.*" alternative that the filter spells "Conformance".
         allowlist_line = next(
-            line for line in gate.splitlines() if line.startswith("CONFORMANCE_ALLOWLIST=")
+            line
+            for line in gate.splitlines()
+            if line.startswith("CONFORMANCE_ALLOWLIST=")
         )
         allowlist_names = {
             name
@@ -203,7 +222,9 @@ class CIWorkflowTests(unittest.TestCase):
         job = wf["jobs"]["toolset-conformance"]
         runs = [step.get("run", "") for step in job["steps"]]
         gate_index = next(
-            index for index, run in enumerate(runs) if "full-suite-gate.sh --require-tools" in run
+            index
+            for index, run in enumerate(runs)
+            if "full-suite-gate.sh --require-tools" in run
         )
         for needle in (
             "conda install --pack variant-calling",
@@ -229,7 +250,11 @@ class CIWorkflowTests(unittest.TestCase):
     def test_toolset_conformance_caches_managed_tools_by_manifest_hash(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
-        cache_steps = [step for step in job["steps"] if step.get("uses", "").startswith("actions/cache")]
+        cache_steps = [
+            step
+            for step in job["steps"]
+            if step.get("uses", "").startswith("actions/cache")
+        ]
         self.assertEqual(len(cache_steps), 1)
         cache_step = cache_steps[0]
         self.assertIn("~/.lungfish/conda", cache_step["with"]["path"])
@@ -239,24 +264,128 @@ class CIWorkflowTests(unittest.TestCase):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
         receipt_step = next(
-            step for step in job["steps"]
+            step
+            for step in job["steps"]
             if step.get("name") == "Verify dependency receipt"
         )
         script = receipt_step.get("run", "")
         self.assertIn("dependency-receipt.json", script)
-        self.assertIn('receipt.get("dependencySet") != manifest.get("dependencySet")', script)
+        self.assertIn(
+            'receipt.get("dependencySet") != manifest.get("dependencySet")', script
+        )
         self.assertIn('receipt.get("synthesized")', script)
-        self.assertIn('required_environments', script)
-        self.assertIn('receipt_environments.get(name, {}).get("state") != "installed"', script)
+        self.assertIn("required_environments", script)
+        self.assertIn(
+            'receipt_environments.get(name, {}).get("state") != "installed"', script
+        )
         self.assertIn('receipt.get("manifestHash") != canonical_manifest_hash', script)
 
     def test_toolset_conformance_uploads_gate_logs_even_on_failure(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
-        upload_steps = [step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact")]
+        upload_steps = [
+            step
+            for step in job["steps"]
+            if step.get("uses", "").startswith("actions/upload-artifact")
+        ]
         self.assertEqual(len(upload_steps), 1)
         self.assertEqual(upload_steps[0].get("if"), "always()")
         self.assertEqual(upload_steps[0]["with"]["path"], ".build/gate-logs")
+
+    def test_main_push_packages_both_channels_through_the_unsigned_builder_phase(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["package-smoke"]
+        self.assertEqual(job["strategy"]["matrix"]["channel"], ["preview", "stable"])
+        self.assertIn("github.event_name == 'push'", job["if"])
+        self.assertIn("refs/heads/main", job["if"])
+        runs = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("scripts/release/build-notarized-dmg.sh", runs)
+        self.assertIn("--package-only", runs)
+        self.assertIn("--channel ${{ matrix.channel }}", runs)
+        self.assertNotIn("--signing-identity", runs)
+        self.assertNotIn("--notary-profile", runs)
+        self.assertNotIn("gh release", runs)
+
+    def test_package_evidence_excludes_apps_archives_and_private_or_signed_payloads(
+        self,
+    ):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["package-smoke"]
+        upload = next(
+            step
+            for step in job["steps"]
+            if step.get("uses", "").startswith("actions/upload-artifact")
+        )
+        paths = upload["with"]["path"]
+        self.assertIn("package-metadata.txt", paths)
+        self.assertIn("unsigned-candidate-receipt.json", paths)
+        for forbidden in ("*.app", ".xcarchive", "signed/", "*.dmg", "private"):
+            self.assertNotIn(forbidden, paths)
+
+    def test_tag_candidate_context_parses_exact_committed_channel_field(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        push = wf[True]["push"]
+        self.assertEqual(push["tags"], ["v*"])
+        context = wf["jobs"]["release-context"]
+        runs = "\n".join(step.get("run", "") for step in context["steps"])
+        self.assertIn("docs/release-notes/${version}.md", runs)
+        self.assertIn("^Channel: Preview$", runs)
+        self.assertIn("^Channel: Stable$", runs)
+        self.assertIn("channel=preview", runs)
+        self.assertIn("channel=stable", runs)
+
+    def test_tag_candidate_has_mandatory_focused_dependency_and_channel_gates(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        jobs = wf["jobs"]
+        self.assertIn("release-focused", jobs)
+        self.assertIn("release-dependency-receipt", jobs)
+        self.assertEqual(
+            jobs["release-dependency-receipt"]["if"],
+            "${{ needs.release-context.result == 'success' }}",
+        )
+        preview = "\n".join(
+            step.get("run", "") for step in jobs["release-preview-gates"]["steps"]
+        )
+        self.assertIn("--tier unit", preview)
+        self.assertIn("--tier integration", preview)
+        stable_full = "\n".join(
+            step.get("run", "") for step in jobs["release-stable-full"]["steps"]
+        )
+        stable_conformance = "\n".join(
+            step.get("run", "") for step in jobs["release-stable-conformance"]["steps"]
+        )
+        self.assertIn("--tier full", stable_full)
+        self.assertIn("--tier conformance --require-tools", stable_conformance)
+        dependency = "\n".join(
+            step.get("run", "") for step in jobs["release-dependency-receipt"]["steps"]
+        )
+        self.assertIn("dependency-receipt.json", dependency)
+        self.assertIn("verify-dependency-receipt", dependency)
+        for job_name in (
+            "release-preview-gates",
+            "release-stable-full",
+            "release-stable-conformance",
+        ):
+            self.assertIn("release-dependency-receipt", jobs[job_name]["needs"])
+
+    def test_release_jobs_are_read_only_secretless_and_release_event_is_defense_only(
+        self,
+    ):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        self.assertEqual(wf["permissions"], {"contents": "read"})
+        release_jobs = {
+            name: job
+            for name, job in wf["jobs"].items()
+            if name.startswith("release-") or name == "package-smoke"
+        }
+        serialized = yaml.safe_dump(release_jobs)
+        self.assertNotIn("secrets.", serialized)
+        for job in release_jobs.values():
+            self.assertNotIn("permissions", job)
+        defense = wf["jobs"]["stable-release-defense"]
+        self.assertIn("github.event_name == 'release'", defense["if"])
+        self.assertIn("release-stable-full", wf["jobs"])
+        self.assertIn("release-stable-conformance", wf["jobs"])
 
 
 if __name__ == "__main__":

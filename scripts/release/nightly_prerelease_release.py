@@ -12,8 +12,6 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -30,12 +28,7 @@ VERSIONED_FILES = (
 AGENT_BRANCH_PREFIXES = ("codex/", "claude/")
 CLAUDE_WORKTREE_PREFIX = "worktree-"
 PROTECTED_BRANCHES = {"main", "master", "develop", "development"}
-DEFAULT_TEST_COMMAND = "swift test"
-DEFAULT_SPARKLE_RELEASE = "sparkle-beta"
-DEFAULT_SPARKLE_BRIDGE_RELEASE = "sparkle-alpha"
-DEFAULT_SPARKLE_BRIDGE_APPCAST_FILENAME = "appcast-alpha.xml"
 DEFAULT_PRERELEASES_TO_KEEP = 10
-SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 CALVER_PATTERN = re.compile(
     r"^v?(?P<year>\d{4})\.(?P<month>[1-9]|1[0-2])\.(?P<patch>[1-9]\d*)$"
 )
@@ -69,7 +62,9 @@ def is_agent_branch(branch: str) -> bool:
         branch = branch.removeprefix("origin/")
     if branch in PROTECTED_BRANCHES:
         return False
-    return branch.startswith(AGENT_BRANCH_PREFIXES) or branch.startswith(CLAUDE_WORKTREE_PREFIX)
+    return branch.startswith(AGENT_BRANCH_PREFIXES) or branch.startswith(
+        CLAUDE_WORKTREE_PREFIX
+    )
 
 
 def is_agent_worktree_path(path: Path, root: Path) -> bool:
@@ -94,8 +89,14 @@ def parse_calver_tag(tag: str) -> tuple[int, int, int] | None:
 
 
 def next_calver_version(version_tags: list[str], release_date: dt.date) -> str:
-    parsed_versions = [parsed for tag in version_tags if (parsed := parse_calver_tag(tag)) is not None]
-    future_versions = [parsed for parsed in parsed_versions if parsed[:2] > (release_date.year, release_date.month)]
+    parsed_versions = [
+        parsed for tag in version_tags if (parsed := parse_calver_tag(tag)) is not None
+    ]
+    future_versions = [
+        parsed
+        for parsed in parsed_versions
+        if parsed[:2] > (release_date.year, release_date.month)
+    ]
     if future_versions:
         newest = max(future_versions)
         raise NightlyReleaseError(
@@ -128,11 +129,17 @@ def previous_release_tag(current_version: str, tags: list[str]) -> str:
     if exact_tag in tags:
         return exact_tag
 
-    calver_tags = [(parsed, tag) for tag in tags if (parsed := parse_calver_tag(tag)) is not None]
+    calver_tags = [
+        (parsed, tag) for tag in tags if (parsed := parse_calver_tag(tag)) is not None
+    ]
     if calver_tags:
         return max(calver_tags)[1]
 
-    legacy_tags = [(parsed, tag) for tag in tags if (parsed := legacy_prerelease_sort_key(tag)) is not None]
+    legacy_tags = [
+        (parsed, tag)
+        for tag in tags
+        if (parsed := legacy_prerelease_sort_key(tag)) is not None
+    ]
     if legacy_tags:
         return max(legacy_tags)[1]
     raise NightlyReleaseError(f"no previous versioned tag found for {current_version}")
@@ -152,7 +159,9 @@ def update_versioned_files(root: Path, old_version: str, new_version: str) -> li
     return changed
 
 
-def prune_rescue_archives(rescue_root: Path, retention_days: int = 2, now: float | None = None) -> list[Path]:
+def prune_rescue_archives(
+    rescue_root: Path, retention_days: int = 2, now: float | None = None
+) -> list[Path]:
     if not rescue_root.exists():
         return []
     cutoff = (time.time() if now is None else now) - (retention_days * 24 * 60 * 60)
@@ -213,7 +222,11 @@ def ensure_clean_main(root: Path, main_branch: str) -> None:
 
 
 def ensure_rescue_root_is_ignored(root: Path, rescue_root: Path) -> None:
-    relative = rescue_root.relative_to(root) if rescue_root.is_relative_to(root) else rescue_root
+    relative = (
+        rescue_root.relative_to(root)
+        if rescue_root.is_relative_to(root)
+        else rescue_root
+    )
     result = subprocess.run(["git", "check-ignore", "-q", str(relative)], cwd=root)
     if result.returncode != 0:
         raise NightlyReleaseError(f"rescue path is not ignored by git: {relative}")
@@ -225,7 +238,9 @@ def create_lock(root: Path) -> Path:
     try:
         lock_path.mkdir()
     except FileExistsError as exc:
-        raise NightlyReleaseError(f"nightly release lock already exists: {lock_path}") from exc
+        raise NightlyReleaseError(
+            f"nightly release lock already exists: {lock_path}"
+        ) from exc
     (lock_path / "pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
     return lock_path
 
@@ -252,7 +267,9 @@ def local_branches(root: Path) -> set[str]:
 
 
 def remote_branches(root: Path, remote: str) -> set[str]:
-    text = git_output(root, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote}")
+    text = git_output(
+        root, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{remote}"
+    )
     branches: set[str] = set()
     for line in text.splitlines():
         line = line.strip()
@@ -340,11 +357,15 @@ def create_rescue_dir(root: Path, rescue_root: Path, release_tag: str) -> Path:
         "createdAt": timestamp,
         "commit": git_output(root, "rev-parse", "HEAD").strip(),
     }
-    (candidate / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    (candidate / "metadata.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
     return candidate
 
 
-def write_command_snapshot(root: Path, rescue_dir: Path, name: str, command: list[str]) -> None:
+def write_command_snapshot(
+    root: Path, rescue_dir: Path, name: str, command: list[str]
+) -> None:
     path = rescue_dir / f"{name}.txt"
     try:
         path.write_text(output(command, cwd=root), encoding="utf-8")
@@ -367,7 +388,9 @@ def archive_branch(root: Path, rescue_dir: Path, candidate: BranchCandidate) -> 
     if result.returncode != 0:
         bundle.unlink(missing_ok=True)
         detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
-        raise NightlyReleaseError(f"failed to create rescue bundle for {candidate.name}: {detail}")
+        raise NightlyReleaseError(
+            f"failed to create rescue bundle for {candidate.name}: {detail}"
+        )
 
 
 def archive_dirty_worktree(rescue_dir: Path, candidate: BranchCandidate) -> None:
@@ -381,8 +404,12 @@ def archive_dirty_worktree(rescue_dir: Path, candidate: BranchCandidate) -> None
         "unstaged.diff": ["git", "diff", "--binary"],
         "staged.diff": ["git", "diff", "--cached", "--binary"],
     }.items():
-        result = subprocess.run(command, cwd=path, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        (worktree_dir / name).write_text(result.stdout + result.stderr, encoding="utf-8")
+        result = subprocess.run(
+            command, cwd=path, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        (worktree_dir / name).write_text(
+            result.stdout + result.stderr, encoding="utf-8"
+        )
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard", "-z"],
@@ -402,7 +429,9 @@ def archive_dirty_worktree(rescue_dir: Path, candidate: BranchCandidate) -> None
             shutil.copy2(source, destination, follow_symlinks=False)
 
 
-def write_rescue_archive(root: Path, rescue_dir: Path, candidates: list[BranchCandidate]) -> None:
+def write_rescue_archive(
+    root: Path, rescue_dir: Path, candidates: list[BranchCandidate]
+) -> None:
     snapshots = {
         "status-main": ["git", "status", "--porcelain=v1"],
         "worktrees": ["git", "worktree", "list", "--porcelain"],
@@ -421,13 +450,22 @@ def commit_dirty_worktrees(candidates: list[BranchCandidate]) -> None:
     for candidate in candidates:
         if candidate.worktree_path is None:
             continue
-        status = output(["git", "status", "--porcelain=v1"], cwd=candidate.worktree_path)
+        status = output(
+            ["git", "status", "--porcelain=v1"], cwd=candidate.worktree_path
+        )
         if has_unmerged_status(status):
-            raise NightlyReleaseError(f"unresolved merge conflicts in {candidate.worktree_path}")
+            raise NightlyReleaseError(
+                f"unresolved merge conflicts in {candidate.worktree_path}"
+            )
         if status.strip():
             run(["git", "add", "-A"], cwd=candidate.worktree_path)
             run(
-                ["git", "commit", "-m", f"chore(nightly): capture {candidate.name} work before prerelease"],
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    f"chore(nightly): capture {candidate.name} work before prerelease",
+                ],
                 cwd=candidate.worktree_path,
             )
 
@@ -441,20 +479,35 @@ def merge_agent_branches(root: Path, candidates: list[BranchCandidate]) -> None:
         if already_merged.returncode == 0:
             continue
         try:
-            git(root, "merge", "--no-ff", "--no-edit", "-m", f"merge: nightly integrate {candidate.name}", candidate.ref)
+            git(
+                root,
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                "-m",
+                f"merge: nightly integrate {candidate.name}",
+                candidate.ref,
+            )
         except subprocess.CalledProcessError as exc:
-            raise NightlyReleaseError(f"merge failed for {candidate.name}; resolve conflicts before releasing") from exc
+            raise NightlyReleaseError(
+                f"merge failed for {candidate.name}; resolve conflicts before releasing"
+            ) from exc
 
 
 def current_version(root: Path) -> str:
     version_file = root / "Sources" / "LungfishCore" / "AppVersion.swift"
-    match = re.search(r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"', version_file.read_text(encoding="utf-8"))
+    match = re.search(
+        r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"',
+        version_file.read_text(encoding="utf-8"),
+    )
     if not match:
         raise NightlyReleaseError("could not read LungfishAppVersion.short")
     return match.group(1)
 
 
-def write_release_notes(root: Path, old_version: str, new_version: str, previous_tag: str) -> Path:
+def write_release_notes(
+    root: Path, old_version: str, new_version: str, previous_tag: str
+) -> Path:
     notes_dir = root / "docs" / "release-notes"
     notes_path = notes_dir / f"{new_version}.md"
     if not notes_path.is_file():
@@ -462,7 +515,14 @@ def write_release_notes(root: Path, old_version: str, new_version: str, previous
             f"detailed release notes must be written before automation runs: {notes_path}"
         )
     notes = notes_path.read_text(encoding="utf-8")
-    manifest_path = root / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+    manifest_path = (
+        root
+        / "Sources"
+        / "LungfishWorkflow"
+        / "Resources"
+        / "ManagedTools"
+        / "third-party-tools-lock.json"
+    )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     dependency_set = str(manifest.get("dependencySet", "")).strip()
     required_markers = (
@@ -475,11 +535,15 @@ def write_release_notes(root: Path, old_version: str, new_version: str, previous
     )
     for marker in required_markers:
         if marker not in notes:
-            raise NightlyReleaseError(f"release notes are missing required content: {marker}")
+            raise NightlyReleaseError(
+                f"release notes are missing required content: {marker}"
+            )
     return notes_path
 
 
-def prepare_release_commit(root: Path, release_tag: str, old_version: str, new_version: str, previous_tag: str) -> None:
+def prepare_release_commit(
+    root: Path, release_tag: str, old_version: str, new_version: str, previous_tag: str
+) -> None:
     changed = update_versioned_files(root, old_version, new_version)
     notes_path = write_release_notes(root, old_version, new_version, previous_tag)
     git(root, "add", *changed, str(notes_path.relative_to(root)))
@@ -487,31 +551,53 @@ def prepare_release_commit(root: Path, release_tag: str, old_version: str, new_v
 
 
 def verify_prepared_release(root: Path, version: str, previous_tag: str) -> None:
-    app_version_text = (root / "Sources/LungfishCore/AppVersion.swift").read_text(encoding="utf-8")
-    app_match = re.search(r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"', app_version_text)
+    app_version_text = (root / "Sources/LungfishCore/AppVersion.swift").read_text(
+        encoding="utf-8"
+    )
+    app_match = re.search(
+        r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"', app_version_text
+    )
     if app_match is None or app_match.group(1) != version:
         raise NightlyReleaseError("prepared release has the wrong AppVersion.short")
 
-    project_text = (root / "Lungfish.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
-    marketing_versions = re.findall(r"MARKETING_VERSION\s*=\s*\"?([^;\"\s]+)\"?\s*;", project_text)
+    project_text = (root / "Lungfish.xcodeproj/project.pbxproj").read_text(
+        encoding="utf-8"
+    )
+    marketing_versions = re.findall(
+        r"MARKETING_VERSION\s*=\s*\"?([^;\"\s]+)\"?\s*;", project_text
+    )
     if not marketing_versions or set(marketing_versions) != {version}:
-        raise NightlyReleaseError("prepared release has inconsistent MARKETING_VERSION entries")
+        raise NightlyReleaseError(
+            "prepared release has inconsistent MARKETING_VERSION entries"
+        )
 
-    help_plist = root / "Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist"
+    help_plist = (
+        root
+        / "Sources/LungfishApp/Resources/HelpBook/Lungfish.help/Contents/Info.plist"
+    )
     with help_plist.open("rb") as handle:
         help_version = plistlib.load(handle).get("CFBundleShortVersionString")
     if help_version != version:
         raise NightlyReleaseError("prepared release has the wrong HelpBook version")
 
-    manifest_path = root / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+    manifest_path = (
+        root
+        / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+    )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("version") != version:
-        raise NightlyReleaseError("prepared release has the wrong manifest top-level version")
+        raise NightlyReleaseError(
+            "prepared release has the wrong manifest top-level version"
+        )
 
-    tests_text = (root / "Tests/LungfishCoreTests/AppVersionTests.swift").read_text(encoding="utf-8")
+    tests_text = (root / "Tests/LungfishCoreTests/AppVersionTests.swift").read_text(
+        encoding="utf-8"
+    )
     expected_test_literals = (f'"{version}"', f'"lungfish-cli {version}"')
     if any(literal not in tests_text for literal in expected_test_literals):
-        raise NightlyReleaseError("prepared release has stale AppVersion test expectations")
+        raise NightlyReleaseError(
+            "prepared release has stale AppVersion test expectations"
+        )
     write_release_notes(root, version, version, previous_tag)
 
 
@@ -525,101 +611,22 @@ def prepare_or_resume_release(
     if old_version == new_version:
         verify_prepared_release(root, new_version, previous_tag)
     else:
-        prepare_release_commit(root, release_tag, old_version, new_version, previous_tag)
-
-
-def run_tests(root: Path, test_command: str) -> None:
-    run(["/bin/bash", "-lc", test_command], cwd=root)
-
-
-def build_release(
-    root: Path,
-    args: argparse.Namespace,
-    release_tag: str,
-    *,
-    defer_remote_publish: bool = False,
-) -> None:
-    command = [
-        "/bin/bash",
-        str(args.release_script),
-        "--team-id",
-        args.team_id,
-        "--notary-profile",
-        args.notary_profile,
-        "--signing-identity",
-        args.signing_identity,
-        "--channel",
-        "preview",
-        "--github-release-tag",
-        release_tag,
-        "--sparkle-generate-appcast",
-        args.sparkle_generate_appcast,
-        "--sparkle-publish-release",
-        args.sparkle_publish_release,
-        "--sparkle-bridge-publish-release",
-        args.sparkle_bridge_publish_release,
-        "--sparkle-bridge-appcast-filename",
-        args.sparkle_bridge_appcast_filename,
-    ]
-    if args.sparkle_public_ed_key:
-        command.extend(["--sparkle-public-ed-key", args.sparkle_public_ed_key])
-    if args.sparkle_ed_key_file:
-        command.extend(["--sparkle-ed-key-file", args.sparkle_ed_key_file])
-    if args.prune_prereleases and not defer_remote_publish:
-        command.extend(["--prune-prereleases", "--prune-prereleases-keep", str(args.prune_prereleases_keep)])
-    if defer_remote_publish:
-        command.append("--defer-remote-publish")
-    env = os.environ.copy()
-    if args.sparkle_public_ed_key:
-        env["LUNGFISH_SPARKLE_PUBLIC_ED_KEY"] = args.sparkle_public_ed_key
-    run(command, cwd=root, env=env)
-
-
-def parse_metadata(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        key, sep, value = line.partition("=")
-        if sep:
-            values[key] = value
-    return values
-
-
-def release_artifact_path(root: Path, metadata: dict[str, str], key: str) -> Path:
-    value = metadata.get(key, "")
-    if not value:
-        raise NightlyReleaseError(f"release metadata missing {key}")
-    path = Path(value)
-    return path if path.is_absolute() else root / path
-
-
-def verify_release_artifacts(root: Path) -> dict[str, str]:
-    metadata_path = root / "build" / "Release" / "release-metadata.txt"
-    if not metadata_path.is_file():
-        raise NightlyReleaseError("release metadata was not written")
-    metadata = parse_metadata(metadata_path)
-    dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
-    app_path = release_artifact_path(root, metadata, "release_app_path")
-    expected_sha = metadata["dmg_sha256"]
-    actual_sha = output(["shasum", "-a", "256", str(dmg_path)], cwd=root).split()[0]
-    if actual_sha != expected_sha:
-        raise NightlyReleaseError(f"DMG checksum mismatch: {actual_sha} != {expected_sha}")
-
-    run(["codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app_path)], cwd=root)
-    run(["xcrun", "stapler", "validate", str(app_path)], cwd=root)
-    run(["xcrun", "stapler", "validate", str(dmg_path)], cwd=root)
-    run(["spctl", "-a", "-vv", "-t", "open", "--context", "context:primary-signature", str(dmg_path)], cwd=root)
-    run(["scripts/smoke-test-release-tools.sh", str(app_path)], cwd=root)
-    return metadata
+        prepare_release_commit(
+            root, release_tag, old_version, new_version, previous_tag
+        )
 
 
 def github_release_exists(root: Path, release_tag: str) -> bool:
-    return subprocess.run(
-        ["gh", "release", "view", release_tag],
-        cwd=root,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            ["gh", "release", "view", release_tag],
+            cwd=root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def github_release_tags(root: Path) -> list[str]:
@@ -628,7 +635,11 @@ def github_release_tags(root: Path) -> list[str]:
         cwd=root,
     )
     releases = json.loads(raw)
-    return [str(release.get("tagName", "")) for release in releases if release.get("tagName")]
+    return [
+        str(release.get("tagName", ""))
+        for release in releases
+        if release.get("tagName")
+    ]
 
 
 def remote_release_tags(root: Path, remote: str) -> list[str]:
@@ -636,280 +647,62 @@ def remote_release_tags(root: Path, remote: str) -> list[str]:
     tags: set[str] = set()
     for line in raw.splitlines():
         fields = line.split()
-        if len(fields) != 2 or not fields[1].startswith("refs/tags/") or fields[1].endswith("^{}"):
+        if (
+            len(fields) != 2
+            or not fields[1].startswith("refs/tags/")
+            or fields[1].endswith("^{}")
+        ):
             continue
         tags.add(fields[1].removeprefix("refs/tags/"))
     return sorted(tags)
 
 
 def ensure_release_collision_free(root: Path, remote: str, release_tag: str) -> None:
-    remote_match = git_output(root, "ls-remote", "--tags", remote, f"refs/tags/{release_tag}").strip()
+    remote_match = git_output(
+        root, "ls-remote", "--tags", remote, f"refs/tags/{release_tag}"
+    ).strip()
     if remote_match or github_release_exists(root, release_tag):
         raise NightlyReleaseError(
             f"release version collision for {release_tag}; fetch current tags and releases, then recompute CalVer"
         )
 
 
-def remote_tag_commit(root: Path, remote: str, release_tag: str) -> str:
-    raw = git_output(
-        root,
-        "ls-remote",
-        "--tags",
-        remote,
-        f"refs/tags/{release_tag}",
-        f"refs/tags/{release_tag}^{{}}",
-    )
-    direct = ""
-    for line in raw.splitlines():
-        fields = line.split()
-        if len(fields) != 2:
-            continue
-        if fields[1] == f"refs/tags/{release_tag}^{{}}":
-            return fields[0]
-        if fields[1] == f"refs/tags/{release_tag}":
-            direct = fields[0]
-    return direct
-
-
-def ensure_remote_tag_points_to_head(root: Path, remote: str, release_tag: str) -> None:
-    expected = git_output(root, "rev-parse", "HEAD").strip()
-    actual = remote_tag_commit(root, remote, release_tag)
-    if not actual:
-        raise NightlyReleaseError(f"release tag is missing from {remote}: {release_tag}")
-    if actual != expected:
-        raise NightlyReleaseError(
-            f"remote release tag does not point to HEAD: {release_tag} ({actual} != {expected})"
-        )
-
-
-def publish_release(root: Path, args: argparse.Namespace, release_tag: str, metadata: dict[str, str]) -> None:
-    target_commit = git_output(root, "rev-parse", "HEAD").strip()
-    dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
-    notes_source = root / "docs" / "release-notes" / f"{release_tag.removeprefix('v')}.md"
-
-    if github_release_exists(root, release_tag):
-        raise NightlyReleaseError(f"GitHub release already exists: {release_tag}")
-
-    create_args = [
-        "gh",
-        "release",
-        "create",
-        release_tag,
-        str(dmg_path),
-        "--title",
-        release_tag,
-        "--prerelease",
-        "--target",
-        target_commit,
-    ]
-    if notes_source.is_file():
-        create_args.extend(["--notes-file", str(notes_source)])
-    else:
-        create_args.extend(["--notes", f"Lungfish {metadata.get('version', release_tag)} preview release."])
-    run(create_args, cwd=root)
-
-    sparkle_release = args.sparkle_publish_release
-    if not sparkle_release:
-        return
-
-    appcast_path = release_artifact_path(root, metadata, "sparkle_appcast_path")
-    version = metadata.get("version")
-    if not version:
-        raise NightlyReleaseError("release metadata missing version")
-    notes_dest = appcast_path.parent / f"Lungfish-{version}-arm64.md"
-
-    if github_release_exists(root, sparkle_release):
-        run(["gh", "release", "edit", sparkle_release, "--target", target_commit], cwd=root)
-    else:
-        run(
-            [
-                "gh",
-                "release",
-                "create",
-                sparkle_release,
-                "--title",
-                "Lungfish Sparkle Preview Appcast",
-                "--notes",
-                "Mutable Sparkle preview appcast feed for Lungfish Genome Explorer.",
-                "--prerelease",
-                "--target",
-                target_commit,
-            ],
-            cwd=root,
-        )
-
-    run(["gh", "release", "upload", sparkle_release, str(appcast_path), "--clobber"], cwd=root)
-    if notes_dest.is_file():
-        run(["gh", "release", "upload", sparkle_release, str(notes_dest), "--clobber"], cwd=root)
-    for signed_feed_asset in sorted(appcast_path.parent.glob(f"{appcast_path.name}.*")):
-        if signed_feed_asset.is_file():
-            run(["gh", "release", "upload", sparkle_release, str(signed_feed_asset), "--clobber"], cwd=root)
-    for signed_notes_asset in sorted(notes_dest.parent.glob(f"{notes_dest.name}.*")):
-        if signed_notes_asset.is_file():
-            run(["gh", "release", "upload", sparkle_release, str(signed_notes_asset), "--clobber"], cwd=root)
-
-    bridge_release = args.sparkle_bridge_publish_release
-    if bridge_release:
-        bridge_path = appcast_path.parent / args.sparkle_bridge_appcast_filename
-        shutil.copy2(appcast_path, bridge_path)
-        if github_release_exists(root, bridge_release):
-            run(["gh", "release", "edit", bridge_release, "--target", target_commit], cwd=root)
-        else:
-            run(
-                [
-                    "gh",
-                    "release",
-                    "create",
-                    bridge_release,
-                    "--title",
-                    "Lungfish Sparkle Legacy Bridge Appcast",
-                    "--notes",
-                    "Mutable Sparkle bridge for legacy Lungfish update feeds.",
-                    "--prerelease",
-                    "--target",
-                    target_commit,
-                ],
-                cwd=root,
-            )
-        run(["gh", "release", "upload", bridge_release, str(bridge_path), "--clobber"], cwd=root)
-
-
-def asset_named(release: dict[str, object], name: str) -> dict[str, object]:
-    for asset in release.get("assets", []):
-        if isinstance(asset, dict) and asset.get("name") == name:
-            return asset
-    raise NightlyReleaseError(f"published release is missing asset: {name}")
-
-
-def download_asset(asset: dict[str, object]) -> bytes:
-    url = str(asset.get("url", ""))
-    if not url:
-        raise NightlyReleaseError(f"published asset has no download URL: {asset.get('name', '')}")
-    try:
-        request = urllib.request.Request(url, headers={"User-Agent": "Lungfish release verification"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read()
-    except OSError as exc:
-        raise NightlyReleaseError(f"could not download published asset {asset.get('name', '')}: {exc}") from exc
-
-
-def validate_published_appcast(
-    appcast: bytes,
-    *,
-    version: str,
-    build_number: str,
-    release_tag: str,
-    dmg_name: str,
-) -> None:
-    try:
-        root = ET.fromstring(appcast)
-    except ET.ParseError as exc:
-        raise NightlyReleaseError(f"published Sparkle appcast is not valid XML: {exc}") from exc
-    version_element = f"{{{SPARKLE_NAMESPACE}}}version"
-    short_version_element = f"{{{SPARKLE_NAMESPACE}}}shortVersionString"
-    signature_attribute = f"{{{SPARKLE_NAMESPACE}}}edSignature"
-    for item in root.findall(".//item"):
-        short_version = item.findtext(short_version_element, default="").strip()
-        if short_version != version:
-            continue
-        actual_build = item.findtext(version_element, default="").strip()
-        if actual_build != build_number:
-            raise NightlyReleaseError(
-                f"published Sparkle build number mismatch: {actual_build} != {build_number}"
-            )
-        enclosure = item.find("enclosure")
-        if enclosure is None:
-            raise NightlyReleaseError("published Sparkle item has no enclosure")
-        expected_path = f"/releases/download/{release_tag}/{dmg_name}"
-        if expected_path not in enclosure.attrib.get("url", ""):
-            raise NightlyReleaseError("published Sparkle enclosure does not point at the versioned DMG")
-        if not enclosure.attrib.get(signature_attribute, ""):
-            raise NightlyReleaseError("published Sparkle enclosure has no EdDSA signature")
-        return
-    raise NightlyReleaseError(f"published Sparkle appcast has no item for {version}")
-
-
-def verify_published_release(
-    root: Path,
-    release_tag: str,
-    sparkle_release: str,
-    bridge_release: str,
-    bridge_appcast_filename: str,
-    metadata: dict[str, str],
-) -> dict[str, str]:
-    target_commit = git_output(root, "rev-parse", "HEAD").strip()
-    release = json.loads(
-        output(
-            [
-                "gh", "release", "view", release_tag,
-                "--json", "url,targetCommitish,isPrerelease,isDraft,assets",
-            ],
-            cwd=root,
-        )
-    )
-    sparkle = json.loads(
-        output(["gh", "release", "view", sparkle_release, "--json", "url,assets"], cwd=root)
-    )
-    if release.get("targetCommitish") != target_commit:
-        raise NightlyReleaseError("published GitHub release target does not match HEAD")
-    if release.get("isDraft") is not False or release.get("isPrerelease") is not True:
-        raise NightlyReleaseError("published versioned release is not a non-draft preview release")
-
-    dmg_path = release_artifact_path(root, metadata, "DMG_PATH")
-    dmg_asset = asset_named(release, dmg_path.name)
-    expected_digest = f"sha256:{metadata.get('dmg_sha256', '')}"
-    if dmg_asset.get("digest") and dmg_asset.get("digest") != expected_digest:
-        raise NightlyReleaseError("published DMG digest does not match the verified local artifact")
-    if dmg_asset.get("size") and int(dmg_asset["size"]) != dmg_path.stat().st_size:
-        raise NightlyReleaseError("published DMG size does not match the verified local artifact")
-
-    appcast_path = release_artifact_path(root, metadata, "sparkle_appcast_path")
-    appcast_asset = asset_named(sparkle, appcast_path.name)
-    published_appcast = download_asset(appcast_asset)
-    local_appcast = appcast_path.read_bytes()
-    if published_appcast != local_appcast:
-        raise NightlyReleaseError("published preview appcast differs from the verified local appcast")
-    version = metadata.get("version", "")
-    build_number = metadata.get("build_number", "")
-    validate_published_appcast(
-        published_appcast,
-        version=version,
-        build_number=build_number,
-        release_tag=release_tag,
-        dmg_name=dmg_path.name,
-    )
-    notes_path = appcast_path.parent / f"Lungfish-{version}-arm64.md"
-    if notes_path.is_file():
-        asset_named(sparkle, notes_path.name)
-
-    metadata["github_release"] = str(release["url"])
-    metadata["sparkle_release"] = str(sparkle["url"])
-    if bridge_release:
-        bridge_json = output(["gh", "release", "view", bridge_release, "--json", "url,assets"], cwd=root)
-        bridge = json.loads(bridge_json)
-        bridge_asset = asset_named(bridge, bridge_appcast_filename)
-        if download_asset(bridge_asset) != published_appcast:
-            raise NightlyReleaseError("published legacy bridge differs from the preview appcast")
-        metadata["sparkle_bridge_release"] = str(bridge["url"])
-    return metadata
-
-
-def prune_github_prereleases(root: Path, args: argparse.Namespace, release_tag: str) -> None:
-    if not args.prune_prereleases:
-        return
+def run_common_coordinator(root: Path, args: argparse.Namespace) -> None:
     command = [
         sys.executable,
-        str(root / "scripts" / "release" / "prune-github-prereleases.py"),
-        "--current-tag",
-        release_tag,
-        "--keep",
+        str(args.release_coordinator),
+        "preview",
+        "--prepare",
+        "--repo",
+        str(root),
+        "--remote",
+        args.remote,
+        "--main-branch",
+        args.main_branch,
+        "--dependency-receipt",
+        str(args.dependency_receipt),
+        "--signing-identity",
+        args.signing_identity,
+        "--team-id",
+        args.team_id,
+        "--notary-profile",
+        args.notary_profile,
+        "--sparkle-generate-appcast",
+        str(args.sparkle_generate_appcast),
+        "--sparkle-public-ed-key",
+        args.sparkle_public_ed_key,
+        "--ci-timeout-seconds",
+        str(args.ci_timeout_seconds),
+        "--ci-poll-seconds",
+        str(args.ci_poll_seconds),
+        "--prune-prereleases-keep",
         str(args.prune_prereleases_keep),
-        "--sparkle-release",
-        args.sparkle_publish_release,
-        "--notes-root",
-        str(root / "docs" / "release-notes"),
-        "--apply",
     ]
+    if args.sparkle_ed_key_file:
+        command.extend(["--sparkle-ed-key-file", str(args.sparkle_ed_key_file)])
+    command.append(
+        "--prune-prereleases" if args.prune_prereleases else "--no-prune-prereleases"
+    )
     run(command, cwd=root)
 
 
@@ -930,26 +723,39 @@ def drop_agent_stashes(root: Path, rescue_dir: Path) -> None:
             stderr=subprocess.PIPE,
             check=False,
         )
-        (stash_dir / f"{safe}.patch").write_text(patch.stdout + patch.stderr, encoding="utf-8")
-    for match in sorted(matches, key=lambda item: int(re.search(r"\d+", item.ref).group(0)), reverse=True):
+        (stash_dir / f"{safe}.patch").write_text(
+            patch.stdout + patch.stderr, encoding="utf-8"
+        )
+    for match in sorted(
+        matches,
+        key=lambda item: int(re.search(r"\d+", item.ref).group(0)),
+        reverse=True,
+    ):
         git(root, "stash", "drop", match.ref)
 
 
-def cleanup_agent_refs(root: Path, remote: str, candidates: list[BranchCandidate], rescue_dir: Path) -> None:
+def cleanup_agent_refs(
+    root: Path, remote: str, candidates: list[BranchCandidate], rescue_dir: Path
+) -> None:
     for candidate in candidates:
         if candidate.worktree_path is not None and candidate.worktree_path.exists():
-            status = output(["git", "status", "--porcelain=v1"], cwd=candidate.worktree_path)
+            status = output(
+                ["git", "status", "--porcelain=v1"], cwd=candidate.worktree_path
+            )
             if status.strip():
                 print(
                     f"Preserving agent worktree changed during release: {candidate.worktree_path}",
                     file=sys.stderr,
                 )
                 continue
-            merged = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", candidate.name, "HEAD"],
-                cwd=root,
-                check=False,
-            ).returncode == 0
+            merged = (
+                subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", candidate.name, "HEAD"],
+                    cwd=root,
+                    check=False,
+                ).returncode
+                == 0
+            )
             if not merged:
                 print(
                     f"Preserving agent worktree whose tip is not merged: {candidate.worktree_path}",
@@ -959,25 +765,29 @@ def cleanup_agent_refs(root: Path, remote: str, candidates: list[BranchCandidate
             git(root, "worktree", "remove", str(candidate.worktree_path))
     for candidate in candidates:
         if candidate.name in local_branches(root):
-            subprocess.run(["git", "branch", "-d", candidate.name], cwd=root, check=False)
+            subprocess.run(
+                ["git", "branch", "-d", candidate.name], cwd=root, check=False
+            )
 
 
-def print_summary(metadata: dict[str, str], release_tag: str, rescue_dir: Path) -> None:
+def print_summary(release_tag: str, rescue_dir: Path) -> None:
     print("Nightly preview release complete:")
     print(f"  Release: {release_tag}")
-    print(f"  GitHub: {metadata.get('github_release', '')}")
-    print(f"  Sparkle: {metadata.get('sparkle_release', '')}")
-    print(f"  DMG: {metadata.get('DMG_PATH', '')}")
-    print(f"  SHA-256: {metadata.get('dmg_sha256', '')}")
     print(f"  Rescue archive: {rescue_dir}")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge agent worktrees and publish a nightly Lungfish preview release.")
+    parser = argparse.ArgumentParser(
+        description="Merge agent worktrees and publish a nightly Lungfish preview release."
+    )
     parser.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--main-branch", default="main")
     parser.add_argument("--remote", default="origin")
-    parser.add_argument("--rescue-root", type=Path, default=PROJECT_ROOT / ".build" / "nightly-release-rescue")
+    parser.add_argument(
+        "--rescue-root",
+        type=Path,
+        default=PROJECT_ROOT / ".build" / "nightly-release-rescue",
+    )
     parser.add_argument("--rescue-retention-days", type=int, default=2)
     parser.add_argument(
         "--approved-agent-branch",
@@ -985,24 +795,40 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="Agent branch already classified as release work; repeat for each approved branch",
     )
-    parser.add_argument("--test-command", default=DEFAULT_TEST_COMMAND)
-    parser.add_argument("--release-script", type=Path, default=PROJECT_ROOT / "scripts" / "release" / "build-notarized-dmg.sh")
+    parser.add_argument(
+        "--release-coordinator",
+        type=Path,
+        default=PROJECT_ROOT / "scripts" / "release" / "release.py",
+    )
     parser.add_argument("--signing-identity", required=True)
     parser.add_argument("--team-id", required=True)
     parser.add_argument("--notary-profile", required=True)
     parser.add_argument("--sparkle-generate-appcast", required=True)
-    parser.add_argument("--sparkle-publish-release", default=DEFAULT_SPARKLE_RELEASE)
-    parser.add_argument("--sparkle-bridge-publish-release", default=DEFAULT_SPARKLE_BRIDGE_RELEASE)
     parser.add_argument(
-        "--sparkle-bridge-appcast-filename",
-        default=DEFAULT_SPARKLE_BRIDGE_APPCAST_FILENAME,
+        "--dependency-receipt",
+        type=Path,
+        default=Path.home() / ".lungfish-verify/dependency-receipt.json",
     )
-    parser.add_argument("--sparkle-public-ed-key", default=os.environ.get("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", ""))
+    parser.add_argument("--ci-timeout-seconds", type=int, default=6 * 60 * 60)
+    parser.add_argument("--ci-poll-seconds", type=int, default=30)
+    parser.add_argument(
+        "--sparkle-public-ed-key",
+        default=os.environ.get("LUNGFISH_SPARKLE_PUBLIC_ED_KEY", ""),
+    )
     parser.add_argument("--sparkle-ed-key-file", default="")
     prune_group = parser.add_mutually_exclusive_group()
-    prune_group.add_argument("--prune-prereleases", dest="prune_prereleases", action="store_true", default=True)
-    prune_group.add_argument("--no-prune-prereleases", dest="prune_prereleases", action="store_false")
-    parser.add_argument("--prune-prereleases-keep", type=int, default=DEFAULT_PRERELEASES_TO_KEEP)
+    prune_group.add_argument(
+        "--prune-prereleases",
+        dest="prune_prereleases",
+        action="store_true",
+        default=True,
+    )
+    prune_group.add_argument(
+        "--no-prune-prereleases", dest="prune_prereleases", action="store_false"
+    )
+    parser.add_argument(
+        "--prune-prereleases-keep", type=int, default=DEFAULT_PRERELEASES_TO_KEEP
+    )
     return parser.parse_args(argv)
 
 
@@ -1021,7 +847,9 @@ def main(argv: list[str]) -> int:
 
         old_version = current_version(root)
         tags = git_output(root, "tag", "--list").splitlines()
-        release_versions = sorted(set(remote_release_tags(root, args.remote)) | set(github_release_tags(root)))
+        release_versions = sorted(
+            set(remote_release_tags(root, args.remote)) | set(github_release_tags(root))
+        )
         release_date = dt.date.today()
         new_version = next_calver_version(release_versions, release_date)
         release_tag = f"v{new_version}"
@@ -1037,32 +865,13 @@ def main(argv: list[str]) -> int:
         commit_dirty_worktrees(candidates)
         merge_agent_branches(root, candidates)
         previous_tag = previous_release_tag(old_version, tags)
-        prepare_or_resume_release(root, release_tag, old_version, new_version, previous_tag)
-        run_tests(root, args.test_command)
-        ensure_release_collision_free(root, args.remote, release_tag)
-        build_release(root, args, release_tag, defer_remote_publish=True)
-        metadata = verify_release_artifacts(root)
-        ensure_release_collision_free(root, args.remote, release_tag)
-        git(root, "tag", "-a", release_tag, "-m", f"Lungfish {release_tag}")
-        try:
-            git(root, "push", "--atomic", args.remote, args.main_branch, release_tag)
-        except subprocess.CalledProcessError:
-            git(root, "tag", "-d", release_tag)
-            raise
-        ensure_remote_tag_points_to_head(root, args.remote, release_tag)
-        publish_release(root, args, release_tag, metadata)
-        metadata = verify_published_release(
-            root,
-            release_tag,
-            args.sparkle_publish_release,
-            args.sparkle_bridge_publish_release,
-            args.sparkle_bridge_appcast_filename,
-            metadata,
+        prepare_or_resume_release(
+            root, release_tag, old_version, new_version, previous_tag
         )
-        prune_github_prereleases(root, args, release_tag)
+        run_common_coordinator(root, args)
         cleanup_agent_refs(root, args.remote, candidates, rescue_dir)
         ensure_clean_main(root, args.main_branch)
-        print_summary(metadata, release_tag, rescue_dir)
+        print_summary(release_tag, rescue_dir)
         return 0
     except (NightlyReleaseError, subprocess.CalledProcessError) as exc:
         print(f"nightly preview release failed: {exc}", file=sys.stderr)
