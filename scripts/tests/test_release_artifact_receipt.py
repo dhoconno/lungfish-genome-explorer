@@ -14,13 +14,25 @@ ROOT = Path(__file__).resolve().parents[2]
 TRUSTED_SCRATCH = Path(
     "/private/var/tmp/lungfish-release-swiftpm/uid-test/repository/commit"
 )
+SWIFTPM_RESOURCE_SUFFIX = Path(
+    "arm64-apple-macosx/release/" "LungfishGenomeBrowser_LungfishWorkflow.bundle"
+)
 
 
 class ReleasePortabilityScannerTests(unittest.TestCase):
     def setUp(self):
         self.scanner = ROOT / "scripts" / "release" / "scan-release-portability.py"
 
-    def run_scanner(self, app: Path, scratch: Path | str):
+    def run_scanner(
+        self,
+        app: Path,
+        scratch: Path | str,
+        *,
+        scratch_root: Path | str | None = None,
+    ):
+        environment = os.environ.copy()
+        if scratch_root is not None:
+            environment["LUNGFISH_RELEASE_SCRATCH_ROOT"] = str(scratch_root)
         return subprocess.run(
             [
                 str(ROOT / ".ci-python" / "bin" / "python"),
@@ -29,6 +41,7 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
                 "--allowed-swiftpm-fallback",
                 str(scratch),
             ],
+            env=environment,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -142,6 +155,118 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
                 self.assertIn("scratch path is not trusted", result.stderr)
                 self.assertNotIn(str(scratch), result.stdout + result.stderr)
 
+    def test_swiftpm_fallback_rejects_case_alias_of_home_scratch_root(self):
+        home = Path.home().resolve()
+        alias_home = self._case_alias(home)
+        if alias_home is None:
+            self.skipTest("requires a case-insensitive filesystem")
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-scanner-home-", dir=home
+        ) as scratch_dir, tempfile.TemporaryDirectory() as app_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            alias_root = Path(str(scratch_root).replace(str(home), str(alias_home), 1))
+            alias_scratch = Path(str(scratch).replace(str(home), str(alias_home), 1))
+            self.assertTrue(os.path.samefile(alias_root, scratch_root))
+            self.assertTrue(os.path.samefile(alias_scratch, scratch))
+            app = self._make_app(Path(app_dir))
+
+            result = self.run_scanner(app, alias_scratch, scratch_root=alias_root)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("scratch path is not trusted", result.stderr)
+            self.assertNotIn(str(alias_scratch), result.stdout + result.stderr)
+
+    def test_custom_root_requires_one_exact_cli_only_fallback(self):
+        with tempfile.TemporaryDirectory(
+            prefix="safe-release-root-", dir="/private/var/tmp"
+        ) as scratch_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            alias_root = self._case_alias(scratch_root)
+            if alias_root is None:
+                self.skipTest("requires a case-insensitive filesystem")
+            alias_scratch = Path(
+                str(scratch).replace(str(scratch_root), str(alias_root), 1)
+            )
+            fallback = (
+                alias_scratch
+                / "arm64-apple-macosx"
+                / "release"
+                / "LungfishGenomeBrowser_LungfishWorkflow.bundle"
+            )
+            cases = {
+                "duplicate": (
+                    "Contents/MacOS/lungfish-cli",
+                    b"mach-o\x00"
+                    + os.fsencode(fallback)
+                    + b"\x00"
+                    + os.fsencode(fallback)
+                    + b"\x00",
+                ),
+                "extended": (
+                    "Contents/MacOS/lungfish-cli",
+                    b"mach-o\x00" + os.fsencode(fallback) + b"/extra\x00",
+                ),
+                "wrong file": (
+                    "Contents/Resources/value.bin",
+                    b"data\x00" + os.fsencode(fallback) + b"\x00",
+                ),
+            }
+            for label, (relative, contents) in cases.items():
+                with self.subTest(
+                    label=label
+                ), tempfile.TemporaryDirectory() as app_dir:
+                    app = self._make_app(Path(app_dir))
+                    target = app / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(contents)
+
+                    result = self.run_scanner(
+                        app, alias_scratch, scratch_root=alias_root
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("swiftpm-fallback", result.stdout)
+
+    def test_custom_private_var_tmp_root_allows_exact_cli_fallback(self):
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-custom-", dir="/private/var/tmp"
+        ) as scratch_dir, tempfile.TemporaryDirectory() as app_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            fallback = scratch / SWIFTPM_RESOURCE_SUFFIX
+            app = self._make_app(Path(app_dir))
+            cli = app / "Contents" / "MacOS" / "lungfish-cli"
+            cli.write_bytes(b"mach-o\x00" + os.fsencode(fallback) + b"\x00")
+
+            result = self.run_scanner(app, scratch, scratch_root=scratch_root)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "PASS portability\n")
+
+    def test_exact_custom_fallback_suppression_survives_a_chunk_boundary(self):
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-custom-", dir="/private/var/tmp"
+        ) as scratch_dir, tempfile.TemporaryDirectory() as app_dir:
+            scratch_root = Path(scratch_dir)
+            scratch = scratch_root / "repository" / "commit"
+            scratch.mkdir(parents=True)
+            fallback = os.fsencode(scratch / SWIFTPM_RESOURCE_SUFFIX)
+            overlap = (len(fallback) + 1) * 2
+            prefix = b"x" * (1024 * 1024 - overlap - 1)
+            app = self._make_app(Path(app_dir))
+            cli = app / "Contents" / "MacOS" / "lungfish-cli"
+            cli.write_bytes(prefix + fallback + b"\x00" + b"z" * overlap)
+
+            result = self.run_scanner(app, scratch, scratch_root=scratch_root)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "PASS portability\n")
+
     def test_private_var_tmp_is_rejected_outside_the_exact_cli_fallback(self):
         cases = {
             "wrong file": (
@@ -206,6 +331,20 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
         (app / "Contents" / "MacOS").mkdir(parents=True)
         (app / "Contents" / "Resources").mkdir(parents=True)
         return app
+
+    @staticmethod
+    def _case_alias(path: Path) -> Path | None:
+        raw = str(path)
+        for index, character in enumerate(raw):
+            if not character.isalpha():
+                continue
+            alias = Path(raw[:index] + character.swapcase() + raw[index + 1 :])
+            try:
+                if os.path.samefile(alias, path):
+                    return alias
+            except OSError:
+                continue
+        return None
 
 
 class ReleaseCandidateReceiptTests(unittest.TestCase):

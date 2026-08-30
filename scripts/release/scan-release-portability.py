@@ -76,6 +76,20 @@ def _regular_files(app: Path):
 
 
 def _is_same_or_descendant(path: Path, root: Path) -> bool:
+    current = path
+    while True:
+        try:
+            if os.path.samefile(current, root):
+                return True
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            raise ScanError(
+                "allowed SwiftPM fallback scratch path is not trusted"
+            ) from error
+        if current == current.parent:
+            break
+        current = current.parent
     return path == root or root in path.parents
 
 
@@ -103,6 +117,8 @@ def _trusted_scratch_path(path: Path) -> Path:
     forbidden_roots = (
         home,
         repository,
+        Path("/private/tmp"),
+        Path("/var/folders"),
         Path("/opt/homebrew"),
         Path("/usr/local/Homebrew"),
         Path("/usr/local/Cellar"),
@@ -118,10 +134,6 @@ def _trusted_scratch_path(path: Path) -> Path:
         not _is_same_or_descendant(normalized, configured_root)
         or any(_is_same_or_descendant(normalized, root) for root in forbidden_roots)
         or any(pattern in encoded for pattern in forbidden_scratch_patterns)
-        or (
-            b"/tmp/lungfish" in encoded
-            and not _is_same_or_descendant(normalized, DEFAULT_SCRATCH_ROOT)
-        )
     ):
         raise ScanError("allowed SwiftPM fallback scratch path is not trusted")
     return normalized
@@ -154,6 +166,7 @@ def _scan_file(
     total_read = 0
     next_scan_offset = 0
     findings = 0
+    validated_fallback_range: tuple[int, int] | None = None
 
     try:
         before = path.lstat()
@@ -181,6 +194,32 @@ def _scan_file(
                     total_read if final else max(data_start, total_read - overlap)
                 )
 
+                search_at = max(0, next_scan_offset - data_start)
+                while True:
+                    index = data.find(allowed_fallback, search_at)
+                    if index < 0:
+                        break
+                    absolute_offset = data_start + index
+                    if absolute_offset >= safe_end:
+                        break
+                    exact = (
+                        relative == CLI_RELATIVE_PATH.as_posix()
+                        and _is_exact_fallback(data, index, allowed_fallback)
+                    )
+                    if exact and fallback_count == 0:
+                        fallback_count += 1
+                        validated_fallback_range = (
+                            absolute_offset,
+                            absolute_offset + len(allowed_fallback),
+                        )
+                    else:
+                        findings += 1
+                        if len(evidence) < MAX_EVIDENCE:
+                            evidence.append(
+                                (relative, absolute_offset, "swiftpm-fallback")
+                            )
+                    search_at = index + 1
+
                 for pattern, label in FORBIDDEN_PATTERNS:
                     search_at = max(0, next_scan_offset - data_start)
                     while True:
@@ -190,38 +229,17 @@ def _scan_file(
                         absolute_offset = data_start + index
                         if absolute_offset >= safe_end:
                             break
-                        finding_label = label
-                        if pattern == b"/private/var/tmp":
-                            exact = (
-                                relative == CLI_RELATIVE_PATH.as_posix()
-                                and _is_exact_fallback(data, index, allowed_fallback)
-                            )
-                            if exact and fallback_count == 0:
-                                fallback_count += 1
-                                search_at = index + 1
-                                continue
-                            if exact:
-                                finding_label = "swiftpm-fallback"
-                        elif relative == CLI_RELATIVE_PATH.as_posix():
-                            fallback_start = data.find(
-                                allowed_fallback,
-                                max(0, index - len(allowed_fallback)),
-                                min(len(data), index + len(allowed_fallback)),
-                            )
-                            if (
-                                fallback_start >= 0
-                                and fallback_start <= index
-                                and index + len(pattern)
-                                <= fallback_start + len(allowed_fallback)
-                                and _is_exact_fallback(
-                                    data, fallback_start, allowed_fallback
-                                )
-                            ):
-                                search_at = index + 1
-                                continue
+                        pattern_end = absolute_offset + len(pattern)
+                        if (
+                            validated_fallback_range is not None
+                            and validated_fallback_range[0] <= absolute_offset
+                            and pattern_end <= validated_fallback_range[1]
+                        ):
+                            search_at = index + 1
+                            continue
                         findings += 1
                         if len(evidence) < MAX_EVIDENCE:
-                            evidence.append((relative, absolute_offset, finding_label))
+                            evidence.append((relative, absolute_offset, label))
                         search_at = index + 1
 
                 if final:
