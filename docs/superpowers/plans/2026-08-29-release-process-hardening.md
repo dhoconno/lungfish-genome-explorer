@@ -418,3 +418,11 @@ receipt/Doctor integration, contract gate, focused tests, and authority records.
 - [x] **Step 3: RED/GREEN shared coordinator/builder paths and receipt recomputation without treating cache state as authority**
 - [x] **Step 4: RED/GREEN fresh-Mac package readiness, compatible Xcode 26.x behavior, bounded cache/output probes, and explicit profile exit semantics**
 - [x] **Step 5: Run focused/broad release verification, validator/static/syntax/diff checks, safe credentialless real Doctor, and commit the clean slice**
+
+### Core follow-on Task 13: Close independent cache-boundary review
+
+- [x] **Step 1: RED/GREEN canonical configured-root receipt path derivation and disposable-cache-independent verification**
+- [x] **Step 2: RED/GREEN unique exclusive readiness tokens, blocked-holder serialization, and cleanup before unlock**
+- [x] **Step 3: RED/GREEN exact namespace contents and reject release artifacts without deleting unknown entries**
+- [x] **Step 4: RED/GREEN exact channel/commit release outputs, scoped archive defaults, broad legacy rejection, and sibling preservation**
+- [x] **Step 5: Re-run focused receipt/cache/builder/target/front-door/Doctor suites and static authority checks**

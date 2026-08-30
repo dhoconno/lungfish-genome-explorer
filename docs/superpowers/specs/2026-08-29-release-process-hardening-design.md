@@ -408,3 +408,21 @@ zero; an explicitly requested missing/unsafe profile or failed credential
 probe is publish NOT READY and nonzero. Doctor neither installs nor repairs
 software and credential mode remains the existing signing/notary/GitHub/
 Sparkle verification boundary.
+
+Independent cache-boundary review tightened four details without expanding the
+public workflow. Receipt create and verify derive the SwiftPM path from the
+configured cache root, canonical repository key, and freshly recomputed
+fingerprint; only creation requires the disposable namespace to remain on
+disk. The lock helper uses a unique owner-private, exclusive-create readiness
+channel containing an unguessable token, writes it only after `flock`, and
+removes it before unlocking. A reusable namespace has an exact top-level
+allowlist: its two compiler directories, canonical marker and lock, plus only
+the current holder's readiness channel.
+
+Repository-owned release output is likewise exact and scoped:
+`build/Release/<preview|stable>/<40-hex-commit>/`, with its archive nested
+there. Broad legacy release roots and archives are never recognized as owned
+targets and are rejected before cleanup; direct internal builder defaults are
+derived from the selected channel and current commit. These constraints keep
+receipt paths from becoming authority, prevent stale readiness from bypassing
+serialization, and preserve every sibling fingerprint and release candidate.

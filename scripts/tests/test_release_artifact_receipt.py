@@ -572,7 +572,22 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             )
             self.assertEqual(self._verify(fixture).returncode, 0)
 
-    def test_create_derives_changed_build_and_scratch_from_real_inputs(self):
+    def test_receipt_fallback_is_derived_from_the_bound_tool_architecture(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            fixture["toolchain"].write_text(
+                "XCODE_VERSION=26.4.1\nXCODE_BUILD=17F90\n"
+                "SWIFT_VERSION=6.2\nSWIFT_BUILD=swiftlang-a\n"
+                "SDK_VERSION=26.0\nSDK_BUILD=25A100\nARCH=x86_64\n",
+                encoding="utf-8",
+            )
+
+            result = self._create(fixture)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("architecture", result.stderr)
+
+    def test_create_derives_changed_build_and_rejects_alternate_scratch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture = self._make_fixture(Path(temp_dir))
             with fixture["info_plist"].open("rb") as handle:
@@ -585,12 +600,13 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
 
             result = self._create(fixture, scratch=other_scratch.resolve())
 
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("canonical cache", result.stderr)
+
+            canonical = self._create(fixture)
+            self.assertEqual(canonical.returncode, 0, canonical.stderr)
             receipt = json.loads(fixture["receipt"].read_text())
             self.assertEqual(receipt["release"]["build"], "43")
-            self.assertEqual(
-                receipt["build"]["scratchPath"], str(other_scratch.resolve())
-            )
 
     def test_verify_detects_each_real_provenance_input_mutation(self):
         tracked_mutations = {
@@ -645,17 +661,6 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
 
             self.assertEqual(changed_build.returncode, 1)
             self.assertIn("receipt does not match", changed_build.stderr)
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            fixture = self._make_fixture(Path(temp_dir))
-            self.assertEqual(self._create(fixture).returncode, 0)
-            other_scratch = fixture["scratch"].with_name("other-scratch")
-            other_scratch.mkdir(mode=0o700)
-
-            changed_scratch = self._verify(fixture, scratch=other_scratch.resolve())
-
-            self.assertEqual(changed_scratch.returncode, 1)
-            self.assertIn("receipt does not match", changed_scratch.stderr)
 
     def test_verify_detects_each_payload_or_toolchain_mutation(self):
         mutations = {
@@ -752,6 +757,26 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("cache fingerprint", result.stderr)
 
+    def test_verify_rejects_self_fulfilling_alternate_private_scratch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            self.assertEqual(self._create(fixture).returncode, 0)
+            alternate = fixture["scratch"].with_name("alternate-private-cache")
+            alternate.mkdir(mode=0o700)
+            receipt = json.loads(fixture["receipt"].read_text())
+            receipt["build"]["scratchPath"] = str(alternate.resolve())
+            receipt["build"]["swiftPMResourceFallback"] = str(
+                alternate.resolve() / SWIFTPM_RESOURCE_SUFFIX
+            )
+            fixture["receipt"].write_text(
+                json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+
+            result = self._verify(fixture)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("canonical cache", result.stderr)
+
     def test_receipt_rejects_symlink_escape_and_detects_contained_target_change(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture = self._make_fixture(Path(temp_dir), include_symlink=True)
@@ -819,10 +844,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         root = root.resolve()
         repo = root / "repo"
         release = root / "release"
-        scratch = root / "scratch"
         repo.mkdir()
         release.mkdir()
-        scratch.mkdir(mode=0o700)
 
         (repo / "scripts" / "release").mkdir(parents=True)
         recipe_paths = (
@@ -955,6 +978,43 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "https://github.com/example/lungfish.git",
         )
         commit = self._git(repo, "rev-parse", "HEAD").stdout.strip()
+        cache_root = root / "release-cache"
+        cache_environment = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "RECEIPT_TOOLCHAIN_FIXTURE": str(toolchain),
+        }
+        prepared = subprocess.run(
+            [
+                str(self.python),
+                str(repo / "scripts/release/release_cache_fingerprint.py"),
+                "prepare",
+                "--project-root",
+                str(repo),
+                "--repository",
+                "github.com/example/lungfish",
+                "--repository-key",
+                hashlib.sha256(b"github.com/example/lungfish").hexdigest(),
+                "--deployment-target",
+                "26.0",
+                "--cache-root",
+                str(cache_root),
+            ],
+            cwd=repo,
+            env=cache_environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        ).stdout
+        scratch = Path(
+            next(
+                line.split("=", 1)[1]
+                for line in prepared.splitlines()
+                if line.startswith("CACHE_SWIFTPM=")
+            )
+        )
         receipt = release / "candidate.json"
         return {
             "repo": repo,
@@ -965,6 +1025,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "micromamba": micromamba,
             "link": link,
             "scratch": scratch.resolve(),
+            "cache_root": cache_root.resolve(),
             "receipt": receipt,
             "script": repo / "scripts" / "release" / "release-candidate-receipt.py",
             "bin": bin_dir,
@@ -991,7 +1052,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             str(scratch if scratch is not None else fixture["scratch"]),
         )
 
-    def _verify(self, fixture, channel="stable", scratch=None):
+    def _verify(self, fixture, channel="stable"):
         return self._run(
             fixture,
             "verify",
@@ -1001,8 +1062,6 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             str(fixture["receipt"]),
             "--channel",
             channel,
-            "--scratch-path",
-            str(scratch if scratch is not None else fixture["scratch"]),
         )
 
     def _run(self, fixture, *arguments):
@@ -1010,6 +1069,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         environment["PATH"] = f"{fixture['bin']}:{environment['PATH']}"
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         environment["RECEIPT_TOOLCHAIN_FIXTURE"] = str(fixture["toolchain"])
+        environment["LUNGFISH_RELEASE_CACHE_ROOT"] = str(fixture["cache_root"])
         return subprocess.run(
             [str(self.python), str(fixture["script"]), *arguments],
             cwd=fixture["repo"],

@@ -23,6 +23,7 @@ from release_cache_security import (
     validate_metadata,
 )
 from release_cache_fingerprint import (
+    cache_paths,
     collect_fingerprint_document,
     fingerprint as cache_fingerprint,
 )
@@ -51,12 +52,19 @@ MICROMAMBA_RELATIVE_PATHS = (
         "Contents/Resources/Tools/micromamba"
     ),
 )
-SWIFTPM_RESOURCE_SUFFIX = Path(
-    "arm64-apple-macosx/release/" "LungfishGenomeBrowser_LungfishWorkflow.bundle"
-)
+
+
+def _swiftpm_resource_suffix(architecture: str) -> Path:
+    return Path(
+        f"{architecture}-apple-macosx/release/"
+        "LungfishGenomeBrowser_LungfishWorkflow.bundle"
+    )
+
+
 COMMAND_TIMEOUT_SECONDS = 30
 MAX_RECEIPT_BYTES = 1024 * 1024
 MAX_PLIST_BYTES = 4 * 1024 * 1024
+DEFAULT_CACHE_ROOT = Path("/private/var/tmp/lungfish-release-cache")
 RECEIPT_FIELDS = frozenset(
     {
         "schemaVersion",
@@ -411,8 +419,13 @@ def _toolchain_identity() -> dict[str, Any]:
     xcode_version, xcode_build = _parse_xcode_identity(_run(["xcodebuild", "-version"]))
     contract = load_contract(CONTRACT_PATH)
     swift_identity = _run(["xcrun", "swift", "--version"])
+    architecture = _run(["uname", "-m"])
+    if architecture != contract.toolchain.architecture:
+        raise ReceiptError(
+            "tool architecture does not match the release contract architecture"
+        )
     return {
-        "architecture": _run(["uname", "-m"]),
+        "architecture": architecture,
         "deploymentTarget": contract.toolchain.deploymentTarget,
         "sdkVersion": _parse_version(
             _run(["xcrun", "--sdk", "macosx", "--show-sdk-version"]),
@@ -449,13 +462,13 @@ def _micromamba_upstream_hash(architecture: str) -> str:
 def _build_receipt(
     app_path: Path,
     channel: str,
-    scratch_path: Path,
+    scratch_path: Path | None,
+    cache_root: Path,
     remote: str,
     github_repository: str | None,
 ) -> dict[str, Any]:
     source = _source_identity()
     app = _normalize_app(app_path)
-    scratch = _normalize_existing_directory(scratch_path, "scratch path")
     identities, _ = _bundle_identity(app, channel)
     toolchain = _toolchain_identity()
     try:
@@ -468,6 +481,20 @@ def _build_receipt(
         repository_key=repository.repository_key,
         deployment_target=toolchain["deploymentTarget"],
     )
+    expected_cache = cache_paths(
+        cache_root, repository.repository_key, cache_fields
+    )
+    if scratch_path is None:
+        # Verification derives this identity from configured authority and
+        # current inputs. Cached intermediates are disposable and need not
+        # remain present in order to verify a candidate.
+        scratch = expected_cache.swiftpm
+    else:
+        scratch = _normalize_existing_directory(scratch_path, "scratch path")
+        if scratch != expected_cache.swiftpm:
+            raise ReceiptError(
+                "scratch path does not match the canonical cache fingerprint"
+            )
     executable = Path("Contents/MacOS") / identities["wrapper"]["executable"]
     inputs = {
         "builderSha256": _input_hash(BUILDER_PATH),
@@ -492,7 +519,9 @@ def _build_receipt(
         "toolchain": toolchain,
         "build": {
             "scratchPath": str(scratch),
-            "swiftPMResourceFallback": str(scratch / SWIFTPM_RESOURCE_SUFFIX),
+            "swiftPMResourceFallback": str(
+                scratch / _swiftpm_resource_suffix(toolchain["architecture"])
+            ),
         },
         "artifacts": artifacts,
         "cache": {
@@ -592,13 +621,17 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--output", required=True, type=Path)
     create.add_argument("--channel", required=True, choices=("preview", "stable"))
     create.add_argument("--scratch-path", required=True, type=Path)
+    configured_cache_root = Path(
+        os.environ.get("LUNGFISH_RELEASE_CACHE_ROOT", str(DEFAULT_CACHE_ROOT))
+    )
+    create.add_argument("--cache-root", type=Path, default=configured_cache_root)
     create.add_argument("--remote", default="origin")
     create.add_argument("--github-repository")
     verify = subparsers.add_parser("verify")
     verify.add_argument("--app", required=True, type=Path)
     verify.add_argument("--receipt", required=True, type=Path)
     verify.add_argument("--channel", required=True, choices=("preview", "stable"))
-    verify.add_argument("--scratch-path", required=True, type=Path)
+    verify.add_argument("--cache-root", type=Path, default=configured_cache_root)
     verify.add_argument("--remote", default="origin")
     verify.add_argument("--github-repository")
     return parser
@@ -612,6 +645,7 @@ def main() -> int:
                 args.app,
                 args.channel,
                 args.scratch_path,
+                args.cache_root,
                 args.remote,
                 args.github_repository,
             )
@@ -622,10 +656,18 @@ def main() -> int:
             observed = _build_receipt(
                 args.app,
                 args.channel,
-                args.scratch_path,
+                None,
+                args.cache_root,
                 args.remote,
                 args.github_repository,
             )
+            if (
+                receipt.get("build") != observed["build"]
+                and receipt.get("cache") == observed["cache"]
+            ):
+                raise ReceiptError(
+                    "receipt build paths do not match the canonical cache"
+                )
             if receipt != observed:
                 raise ReceiptError("unsigned candidate receipt does not match")
             print("PASS unsigned candidate receipt")

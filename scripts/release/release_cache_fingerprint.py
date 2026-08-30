@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import subprocess
 import tempfile
@@ -280,7 +281,9 @@ def _mkdir_private(path: Path, uid: int) -> None:
     _metadata(path, uid, private_directory=True)
 
 
-def _validate_cache_entries(namespace: Path, uid: int) -> None:
+def _validate_cache_entries(
+    namespace: Path, uid: int, *, active_ready_file: Path | None = None
+) -> None:
     root = namespace.resolve(strict=True)
     stack = [namespace]
     while stack:
@@ -297,6 +300,24 @@ def _validate_cache_entries(namespace: Path, uid: int) -> None:
                 raise CacheFingerprintError("cache entry metadata is unavailable") from error
             if metadata.st_uid != uid:
                 raise CacheFingerprintError("cache entry has a foreign owner")
+            if directory == namespace:
+                expected_directory = entry.name in ("swiftpm", "derived-data")
+                expected_regular = entry.name in (CACHE_MARKER, CACHE_LOCK) or (
+                    active_ready_file is not None and path == active_ready_file
+                )
+                if not expected_directory and not expected_regular:
+                    raise CacheFingerprintError(
+                        "cache namespace contains an unsupported top-level entry"
+                    )
+                expected_mode = 0o700 if expected_directory else 0o600
+                if (
+                    (expected_directory and not stat.S_ISDIR(metadata.st_mode))
+                    or (expected_regular and not stat.S_ISREG(metadata.st_mode))
+                    or stat.S_IMODE(metadata.st_mode) != expected_mode
+                ):
+                    raise CacheFingerprintError(
+                        "cache namespace top-level entry metadata is unsafe"
+                    )
             if stat.S_ISLNK(metadata.st_mode):
                 try:
                     resolved = path.resolve(strict=True)
@@ -419,32 +440,37 @@ def cache_paths(
     )
 
 
-def _write_ready_file(path: Path) -> None:
-    temporary: Path | None = None
+def _write_ready_file(path: Path, token: str) -> None:
+    if HEX_SHA256.fullmatch(token) is None:
+        raise CacheFingerprintError("cache lock readiness token is invalid")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     try:
-        descriptor, raw = tempfile.mkstemp(prefix=".lock-ready-", dir=path.parent)
-        temporary = Path(raw)
+        descriptor = os.open(path, flags, 0o600)
         with os.fdopen(descriptor, "wb", buffering=0) as handle:
             os.fchmod(handle.fileno(), 0o600)
-            handle.write(b"ready\n")
+            handle.write((token + "\n").encode("ascii"))
             os.fsync(handle.fileno())
-        if path.is_symlink():
-            raise CacheFingerprintError("cache lock readiness path is a symlink")
-        os.replace(temporary, path)
-        temporary = None
+    except FileExistsError as error:
+        raise CacheFingerprintError(
+            "cache lock readiness channel already exists"
+        ) from error
     except OSError as error:
         raise CacheFingerprintError("cache lock readiness could not be recorded") from error
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
 
 
-def hold_namespace_lock(namespace: Path, ready_file: Path, parent_pid: int) -> None:
+def hold_namespace_lock(
+    namespace: Path, ready_file: Path, ready_token: str, parent_pid: int
+) -> None:
     """Hold the namespace lock until the invoking builder exits or stops us."""
     uid = os.geteuid()
     namespace = namespace.resolve(strict=True)
     _metadata(namespace, uid, private_directory=True)
-    if ready_file.parent != namespace or not ready_file.name.startswith(".ready-"):
+    if (
+        ready_file.parent != namespace
+        or re.fullmatch(r"\.lock-ready\.[0-9a-f]{48}", ready_file.name) is None
+    ):
         raise CacheFingerprintError("cache lock readiness path is outside namespace")
     lock_path = namespace / CACHE_LOCK
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
@@ -454,20 +480,42 @@ def hold_namespace_lock(namespace: Path, ready_file: Path, parent_pid: int) -> N
         descriptor = os.open(lock_path, flags, 0o600)
     except OSError as error:
         raise CacheFingerprintError("cache lock could not be opened") from error
-    with os.fdopen(descriptor, "r+b", buffering=0) as handle:
-        metadata = os.fstat(handle.fileno())
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != uid
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-        ):
-            raise CacheFingerprintError("cache lock metadata is unsafe")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        _validate_cache_entries(namespace, uid)
-        _write_ready_file(ready_file)
-        while os.getppid() == parent_pid:
-            time.sleep(0.1)
-    ready_file.unlink(missing_ok=True)
+    stop_requested = False
+
+    def request_stop(_signal: int, _frame: Any) -> None:
+        nonlocal stop_requested
+        stop_requested = True
+
+    previous_term = signal.signal(signal.SIGTERM, request_stop)
+    previous_int = signal.signal(signal.SIGINT, request_stop)
+    try:
+        with os.fdopen(descriptor, "r+b", buffering=0) as handle:
+            metadata = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid != uid
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+            ):
+                raise CacheFingerprintError("cache lock metadata is unsafe")
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                _validate_cache_entries(namespace, uid)
+                _write_ready_file(ready_file, ready_token)
+                _validate_cache_entries(
+                    namespace, uid, active_ready_file=ready_file
+                )
+                while not stop_requested and os.getppid() == parent_pid:
+                    time.sleep(0.1)
+            finally:
+                # Remove readiness while the lock is still held. A queued helper
+                # must never validate or signal readiness while the prior
+                # holder's channel remains in the namespace.
+                ready_file.unlink(missing_ok=True)
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
+        signal.signal(signal.SIGINT, previous_int)
+
+
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description=__doc__)
     commands = value.add_subparsers(dest="operation", required=True)
@@ -481,6 +529,7 @@ def parser() -> argparse.ArgumentParser:
     lock = commands.add_parser("hold-lock")
     lock.add_argument("--namespace", type=Path, required=True)
     lock.add_argument("--ready-file", type=Path, required=True)
+    lock.add_argument("--ready-token", required=True)
     lock.add_argument("--parent-pid", type=int, required=True)
     return value
 
@@ -507,7 +556,9 @@ def main() -> int:
         else:
             if args.parent_pid <= 1:
                 raise CacheFingerprintError("cache lock parent PID is invalid")
-            hold_namespace_lock(args.namespace, args.ready_file, args.parent_pid)
+            hold_namespace_lock(
+                args.namespace, args.ready_file, args.ready_token, args.parent_pid
+            )
     except CacheFingerprintError as error:
         print(f"release cache: {error}", file=os.sys.stderr)
         return 1

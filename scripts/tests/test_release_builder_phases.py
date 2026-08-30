@@ -600,6 +600,7 @@ class ReleaseBuilderFixture:
         derived=None,
         extra_env=None,
         coordinated=True,
+        include_output_paths=True,
     ):
         environment = os.environ.copy()
         environment.update(
@@ -624,15 +625,17 @@ class ReleaseBuilderFixture:
             environment.update(extra_env)
         if coordinated:
             environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"] = "a" * 64
-        command = [
-            "/bin/bash",
-            str(self.builder),
-            "--release-dir",
-            str(release or self.release),
-            "--archive-path",
-            str(archive or self.archive),
-            *arguments,
-        ]
+        command = ["/bin/bash", str(self.builder)]
+        if include_output_paths:
+            command.extend(
+                [
+                    "--release-dir",
+                    str(release or self.release),
+                    "--archive-path",
+                    str(archive or self.archive),
+                ]
+            )
+        command.extend(arguments)
         if derived is not None:
             command[2:2] = ["--derived-data-path", str(derived)]
         return subprocess.run(
@@ -660,12 +663,8 @@ class ReleaseBuilderFixture:
                 str(self.release / "unsigned-candidate-receipt.json"),
                 "--channel",
                 channel,
-                "--scratch-path",
-                str(
-                    json.loads(
-                        (self.release / "unsigned-candidate-receipt.json").read_text()
-                    )["build"]["scratchPath"]
-                ),
+                "--cache-root",
+                str(self.scratch_root),
             ],
             cwd=self.repo,
             env={
@@ -674,6 +673,7 @@ class ReleaseBuilderFixture:
                 "BUILDER_EVENTS": str(self.events),
                 "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
                 "PYTHONDONTWRITEBYTECODE": "1",
+                "LUNGFISH_RELEASE_CACHE_ROOT": str(self.scratch_root),
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -870,6 +870,90 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             (self.fixture.release / "unsigned-candidate-receipt.json").read_text()
         )
         self.assertEqual(payload["cache"]["fingerprint"], Path(scratch).parent.name)
+
+    def test_direct_builder_defaults_to_scoped_output_and_preserves_siblings(self):
+        other = self.fixture.repo / "build/Release/stable" / ("f" * 40)
+        other.mkdir(parents=True)
+        sentinel = other / "preserve.txt"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.fixture.repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        ).stdout.strip()
+
+        result = self.fixture.run(
+            "--package-only",
+            "--channel",
+            "stable",
+            include_output_paths=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        scoped = self.fixture.repo / "build/Release/stable" / commit
+        self.assertTrue((scoped / "unsigned-candidate-receipt.json").is_file())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+
+    def test_explicit_broad_legacy_release_root_is_rejected_without_cleanup(self):
+        broad = self.fixture.repo / "build/Release"
+        broad.mkdir(parents=True, exist_ok=True)
+        sentinel = broad / "legacy-preserve.txt"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+
+        result = self.fixture.run(
+            "--package-only",
+            "--channel",
+            "stable",
+            release=broad,
+            archive=broad / "Lungfish.xcarchive",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized repository output", result.stdout + result.stderr)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
+
+    def test_resume_rejects_broad_legacy_marker_before_signing(self):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        broad = self.fixture.repo / "build/Release"
+        shutil.copytree(self.fixture.release, broad, dirs_exist_ok=True)
+        receipt_path = broad / "unsigned-candidate-receipt.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        marker = broad / ".lungfish-release-output"
+        marker.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "outputType": "lungfish-release-output",
+                    "repositoryKey": receipt["cache"]["fields"]["repository"]["key"],
+                    "releaseDir": str(broad),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        marker.chmod(0o600)
+        sentinel = broad / "preserve.txt"
+        sentinel.write_text("preserve\n", encoding="utf-8")
+        self.fixture.events.write_text("", encoding="utf-8")
+        arguments = list(self._stable_resume_args())
+        arguments[1] = str(receipt_path)
+
+        result = self.fixture.run(*arguments)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exact channel/commit", result.stdout + result.stderr)
+        self.assertFalse(
+            any(
+                line.startswith("codesign:")
+                for line in self.fixture.event_lines()
+            )
+        )
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve\n")
 
     def test_builder_exports_the_shared_canonical_xcode_selection(self):
         default = Path("/Applications/Xcode.app/Contents/Developer")

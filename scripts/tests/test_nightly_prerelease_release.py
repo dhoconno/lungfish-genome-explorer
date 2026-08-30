@@ -639,6 +639,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                             Path(__file__).resolve().parents[2]
                             / ".ci-python/bin/python"
                         ),
+                        "LUNGFISH_RELEASE_CACHE_ROOT": str(fixture.scratch_root),
                     },
                 )
             )
@@ -881,6 +882,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 "BUILDER_PYTHON": str(
                     Path(__file__).resolve().parents[2] / ".ci-python/bin/python"
                 ),
+                "LUNGFISH_RELEASE_CACHE_ROOT": str(fixture.scratch_root),
             },
         )
 
@@ -1508,9 +1510,12 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertTrue(archive.is_relative_to(release_dir))
         self.assertFalse(derived_data.is_relative_to(release_dir))
 
-    def test_release_defaults_pass_the_real_target_security_validator(self):
+    def test_target_security_rejects_broad_release_root_and_accepts_scoped_output(self):
         from scripts.release.release_repository import resolve_repository_identity
-        from scripts.release.release_target_security import validate_release_targets
+        from scripts.release.release_target_security import (
+            TargetSecurityError,
+            validate_release_targets,
+        )
 
         root = Path(__file__).resolve().parents[2]
         request = dataclasses.replace(
@@ -1529,16 +1534,27 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         namespace = derived.parent
         scratch_root = namespace.parents[2]
 
+        validation = {
+            "project_root": root,
+            "home": Path(pwd.getpwuid(os.geteuid()).pw_dir),
+            "scratch_root": scratch_root,
+            "scratch_path": namespace / "swiftpm",
+            "derived_data_path": derived,
+            "repository_key": repository.repository_key,
+            "commit": commit,
+        }
+        with self.assertRaisesRegex(TargetSecurityError, "unrecognized"):
+            validate_release_targets(
+                **validation,
+                release_dir=release_dir,
+                archive_path=archive,
+            )
+
+        scoped_release = root / "build/Release/preview" / commit
         validate_release_targets(
-            project_root=root,
-            home=Path(pwd.getpwuid(os.geteuid()).pw_dir),
-            scratch_root=scratch_root,
-            scratch_path=namespace / "swiftpm",
-            release_dir=release_dir,
-            archive_path=archive,
-            derived_data_path=derived,
-            repository_key=repository.repository_key,
-            commit=commit,
+            **validation,
+            release_dir=scoped_release,
+            archive_path=scoped_release / "Lungfish.xcarchive",
         )
 
     def test_prepare_packages_and_verifies_before_tag_and_ci_then_publishes_once(self):

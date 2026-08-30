@@ -32,6 +32,17 @@ an explicit missing/unsafe profile returns nonzero. Doctor does not install,
 repair, sign, notarize, publish, or contact credential services in package
 mode.
 
+Compiler-cache review ledger: round 1 found three Important trust-boundary
+defects and one Minor namespace-content gap in the initial cache slice
+(`eeb02c38`). They are closed. Receipt verification now derives canonical
+cache paths solely from configured authority and recomputed inputs; an
+alternate private directory cannot make its own receipt valid. Lock readiness
+uses a unique exclusive-create token written only after `flock` and removed
+before unlock. Cache namespaces reject unknown top-level artifacts without
+deleting them. Repository release output is restricted to
+`build/Release/<channel>/<40-hex-commit>/`; broad legacy roots/archives are
+rejected before cleanup and scoped siblings are preserved.
+
 Front-door review ledger: round 1 found one Important recovery-path defect in
 the initial four-command implementation (`b29a194d`). It is closed: nightly now
 resolves the exact current-version tag commit and uses the same deterministic

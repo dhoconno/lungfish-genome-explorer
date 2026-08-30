@@ -327,6 +327,30 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                     expected_uid=os.geteuid() + 1,
                 )
 
+    def test_cache_reuse_rejects_release_artifacts_at_namespace_top_level(self):
+        helper = load_helper()
+        document = helper.build_fingerprint_document(**fixture_fields())
+        for name, directory in (
+            ("candidate-receipt.json", False),
+            ("Lungfish.dmg", False),
+            ("Lungfish.app", True),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw).resolve() / "cache"
+                paths = helper.prepare_cache_namespace(root, "a" * 64, document)
+                unexpected = paths.namespace / name
+                if directory:
+                    unexpected.mkdir(mode=0o700)
+                else:
+                    unexpected.write_bytes(b"must remain\n")
+
+                with self.assertRaisesRegex(
+                    helper.CacheFingerprintError, "top-level"
+                ):
+                    helper.prepare_cache_namespace(root, "a" * 64, document)
+
+                self.assertTrue(unexpected.exists())
+
     def test_same_namespace_lock_serializes_builders(self):
         helper = load_helper()
         document = helper.build_fingerprint_document(**fixture_fields())
@@ -334,8 +358,10 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
             paths = helper.prepare_cache_namespace(
                 Path(raw).resolve() / "cache", "a" * 64, document
             )
-            first_ready = paths.namespace / ".ready-first"
-            second_ready = paths.namespace / ".ready-second"
+            first_ready = paths.namespace / (".lock-ready." + "a" * 48)
+            second_ready = paths.namespace / (".lock-ready." + "b" * 48)
+            first_token = "1" * 64
+            second_token = "2" * 64
             common = [
                 sys.executable,
                 str(HELPER),
@@ -346,16 +372,28 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                 str(os.getpid()),
             ]
             first = subprocess.Popen(
-                [*common, "--ready-file", str(first_ready)],
+                [
+                    *common,
+                    "--ready-file",
+                    str(first_ready),
+                    "--ready-token",
+                    first_token,
+                ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 text=True,
             )
             second = None
             try:
-                self.assertTrue(self._wait_for(first_ready, 3.0))
+                self.assertTrue(self._wait_for_token(first_ready, first_token, 3.0))
                 second = subprocess.Popen(
-                    [*common, "--ready-file", str(second_ready)],
+                    [
+                        *common,
+                        "--ready-file",
+                        str(second_ready),
+                        "--ready-token",
+                        second_token,
+                    ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     text=True,
@@ -364,7 +402,9 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                 self.assertFalse(second_ready.exists())
                 first.terminate()
                 first.wait(timeout=3)
-                self.assertTrue(self._wait_for(second_ready, 3.0))
+                self.assertTrue(
+                    self._wait_for_token(second_ready, second_token, 3.0)
+                )
             finally:
                 if first.poll() is None:
                     first.terminate()
@@ -373,12 +413,58 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                     second.terminate()
                     second.wait(timeout=3)
 
+    def test_lock_rejects_a_precreated_readiness_channel(self):
+        helper = load_helper()
+        document = helper.build_fingerprint_document(**fixture_fields())
+        with tempfile.TemporaryDirectory() as raw:
+            paths = helper.prepare_cache_namespace(
+                Path(raw).resolve() / "cache", "a" * 64, document
+            )
+            ready = paths.namespace / (".lock-ready." + "c" * 48)
+            ready.write_text("3" * 64 + "\n", encoding="utf-8")
+            ready.chmod(0o600)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(HELPER),
+                    "hold-lock",
+                    "--namespace",
+                    str(paths.namespace),
+                    "--ready-file",
+                    str(ready),
+                    "--ready-token",
+                    "3" * 64,
+                    "--parent-pid",
+                    str(os.getpid()),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("top-level", result.stderr)
+
     @staticmethod
     def _wait_for(path: Path, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if path.exists():
                 return True
+            time.sleep(0.02)
+        return False
+
+    @staticmethod
+    def _wait_for_token(path: Path, token: str, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if path.read_text(encoding="utf-8") == token + "\n":
+                    return True
+            except OSError:
+                pass
             time.sleep(0.02)
         return False
 

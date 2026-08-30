@@ -25,8 +25,8 @@ Optional:
                       Print the contract-backed channel JSON and exit
   --scratch-path      Explicit canonical SwiftPM scratch path for packaging;
                       must match the canonical cache fingerprint
-  --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
-  --release-dir       Release directory (default: build/Release)
+  --archive-path      Archive output path (default: <release-dir>/Lungfish.xcarchive)
+  --release-dir       Release directory (default: build/Release/<channel>/<HEAD>)
   --derived-data-path DerivedData path for the Xcode archive; must match the canonical cache fingerprint
   --remote NAME      Selected Git remote used for identity and tag checks (default: origin)
   --github-repository OWNER/REPO
@@ -89,8 +89,10 @@ TEAM_ID=""
 NOTARY_PROFILE=""
 SCRATCH_PATH=""
 SCRATCH_PATH_EXPLICIT=0
-RELEASE_DIR="${PROJECT_ROOT}/build/Release"
-ARCHIVE_PATH="${RELEASE_DIR}/Lungfish.xcarchive"
+RELEASE_DIR=""
+RELEASE_DIR_EXPLICIT=0
+ARCHIVE_PATH=""
+ARCHIVE_PATH_EXPLICIT=0
 DERIVED_DATA_PATH=""
 DERIVED_DATA_PATH_EXPLICIT=0
 REUSE_ARCHIVE=0
@@ -160,10 +162,12 @@ while [ "$#" -gt 0 ]; do
             ;;
         --archive-path)
             ARCHIVE_PATH="$2"
+            ARCHIVE_PATH_EXPLICIT=1
             shift 2
             ;;
         --release-dir)
             RELEASE_DIR="$2"
+            RELEASE_DIR_EXPLICIT=1
             shift 2
             ;;
         --derived-data-path)
@@ -708,15 +712,33 @@ refresh_output_paths() {
     DMG_NOTARY_LOG="${RELEASE_DIR}/notary-dmg-log.json"
 }
 
+if [ -z "$RESUME_CANDIDATE" ]; then
+    if [ "$RELEASE_DIR_EXPLICIT" -eq 0 ]; then
+        RELEASE_DIR="${PROJECT_ROOT}/build/Release/${CHANNEL}/${release_commit}"
+    fi
+    if [ "$ARCHIVE_PATH_EXPLICIT" -eq 0 ]; then
+        ARCHIVE_PATH="${RELEASE_DIR}/Lungfish.xcarchive"
+    fi
+    refresh_output_paths
+    APP_PATH="${ARCHIVE_PATH}/Products/Applications/Lungfish.app"
+    APP_ICON_DEST="${APP_PATH}/Contents/Resources/AppIcon.icns"
+fi
+
 if [ -n "$RESUME_CANDIDATE" ]; then
     CANDIDATE_RECEIPT_PATH=$(python3 -c \
         'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve(strict=True))' \
         "$RESUME_CANDIDATE")
     RELEASE_DIR=$(dirname "$CANDIDATE_RECEIPT_PATH")
+    case "$RELEASE_DIR" in
+        "$PROJECT_ROOT"/*)
+            expected_release_dir="${PROJECT_ROOT}/build/Release/${CHANNEL}/${release_commit}"
+            if [ "$RELEASE_DIR" != "$expected_release_dir" ]; then
+                echo "repository release output must use the exact channel/commit path" >&2
+                exit 64
+            fi
+            ;;
+    esac
     refresh_output_paths
-    SCRATCH_PATH=$(python3 -c \
-        'import json,sys; value=json.load(open(sys.argv[1]))["build"]["scratchPath"]; assert isinstance(value,str) and value.startswith("/"); print(value)' \
-        "$CANDIDATE_RECEIPT_PATH")
     APP_PATH="$RELEASE_APP_PATH"
     python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
         --release-dir "$RELEASE_DIR" \
@@ -1104,10 +1126,12 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         --deployment-target "$DEPLOYMENT_TARGET" \
         --cache-root "$CACHE_ROOT" >/dev/null
 
-    CACHE_LOCK_READY="${CACHE_NAMESPACE}/.ready-$$"
+    CACHE_LOCK_READY="${CACHE_NAMESPACE}/.lock-ready.$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+    CACHE_LOCK_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
     python3 "$CACHE_FINGERPRINT_SCRIPT" hold-lock \
         --namespace "$CACHE_NAMESPACE" \
         --ready-file "$CACHE_LOCK_READY" \
+        --ready-token "$CACHE_LOCK_TOKEN" \
         --parent-pid "$$" &
     CACHE_LOCK_PID=$!
     release_cache_lock() {
@@ -1122,7 +1146,14 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     }
     trap release_cache_lock EXIT
     lock_wait=0
-    while [ ! -f "$CACHE_LOCK_READY" ]; do
+    while true; do
+        lock_ready_token=""
+        if [ -f "$CACHE_LOCK_READY" ]; then
+            IFS= read -r lock_ready_token <"$CACHE_LOCK_READY" || true
+        fi
+        if [ "$lock_ready_token" = "$CACHE_LOCK_TOKEN" ]; then
+            break
+        fi
         if ! /bin/kill -0 "$CACHE_LOCK_PID" 2>/dev/null; then
             wait "$CACHE_LOCK_PID" || true
             echo "release cache namespace lock failed" >&2
@@ -1270,6 +1301,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         --output "$CANDIDATE_RECEIPT_PATH" \
         --channel "$CHANNEL" \
         --scratch-path "$SCRATCH_PATH" \
+        --cache-root "$CACHE_ROOT" \
         --remote "$GIT_REMOTE" \
         --github-repository "$GITHUB_REPOSITORY"
 
@@ -1307,7 +1339,7 @@ run_release_doctor credentials
     --app "$APP_PATH" \
     --receipt "$CANDIDATE_RECEIPT_PATH" \
     --channel "$CHANNEL" \
-    --scratch-path "$SCRATCH_PATH" \
+    --cache-root "$CACHE_ROOT" \
     --remote "$GIT_REMOTE" \
     --github-repository "$GITHUB_REPOSITORY"
 VERIFIED_SPARKLE_BUILD_NUMBER=$(python3 -c \

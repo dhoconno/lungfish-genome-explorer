@@ -1004,8 +1004,11 @@ def verify_candidate_receipt_exact(
         str(identity.receipt),
         "--channel",
         channel_name,
-        "--scratch-path",
-        str(identity.scratch_path),
+        "--cache-root",
+        runner.environment.get(
+            "LUNGFISH_RELEASE_CACHE_ROOT",
+            "/private/var/tmp/lungfish-release-cache",
+        ),
         "--remote",
         remote,
     ]

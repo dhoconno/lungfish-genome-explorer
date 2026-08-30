@@ -410,10 +410,6 @@ def validate_release_targets(
                 f"{label} must not be root, home, repository, or their ancestor"
             )
 
-    recognized_repository_targets = {
-        ("release directory", project / "build" / "Release"),
-        ("archive path", project / "build" / "Release" / "Lungfish.xcarchive"),
-    }
     scoped_repository_targets: set[tuple[str, Path]] = set()
     scoped_triples: list[tuple[Path, Path, Path]] = []
     for channel in ("preview", "stable"):
@@ -428,7 +424,6 @@ def validate_release_targets(
                 ("DerivedData path", scoped_derived),
             }
         )
-    recognized_repository_targets.update(scoped_repository_targets)
     uses_scoped_target = any(
         (label, target) in scoped_repository_targets
         for label, target in (
@@ -442,7 +437,7 @@ def validate_release_targets(
         )
     for label, target in targets.items():
         if project in target.parents:
-            if (label, target) not in recognized_repository_targets:
+            if (label, target) not in scoped_repository_targets:
                 raise TargetSecurityError(
                     f"{label} is an unrecognized repository output path"
                 )
