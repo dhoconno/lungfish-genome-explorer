@@ -328,11 +328,6 @@ def _validate_cache_entries(
                 if resolved != root and root not in resolved.parents:
                     raise CacheFingerprintError("cache symlink escapes its namespace")
                 continue
-            mode = stat.S_IMODE(metadata.st_mode)
-            if mode & 0o022:
-                raise CacheFingerprintError(
-                    "cache entry permissions allow group or other writes"
-                )
             if stat.S_ISDIR(metadata.st_mode):
                 stack.append(path)
             elif not stat.S_ISREG(metadata.st_mode):

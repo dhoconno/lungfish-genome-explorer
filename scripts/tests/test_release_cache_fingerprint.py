@@ -313,6 +313,27 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
             with self.assertRaisesRegex(helper.CacheFingerprintError, "symlink"):
                 helper.prepare_cache_namespace(root, "a" * 64, document)
 
+    def test_cache_reuse_accepts_generated_nested_writable_directory(self):
+        helper = load_helper()
+        document = helper.build_fingerprint_document(**fixture_fields())
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve() / "cache"
+            paths = helper.prepare_cache_namespace(root, "a" * 64, document)
+            generated = (
+                paths.derived_data
+                / "SourcePackages"
+                / "checkouts"
+                / "dependency"
+                / ".swiftpm"
+            )
+            generated.mkdir(parents=True)
+            generated.chmod(0o777)
+
+            reused = helper.prepare_cache_namespace(root, "a" * 64, document)
+
+            self.assertEqual(reused, paths)
+            self.assertEqual(generated.stat().st_mode & 0o777, 0o777)
+
     def test_cache_reuse_accepts_dangling_symlink_inside_namespace(self):
         helper = load_helper()
         document = helper.build_fingerprint_document(**fixture_fields())
