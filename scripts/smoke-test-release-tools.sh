@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"
+
 usage() {
     cat <<'EOF'
 Usage: smoke-test-release-tools.sh <Lungfish.app> [--portability-only] [--allowed-swiftpm-fallback ABSOLUTE_PATH]
@@ -87,7 +89,7 @@ if [ -z "$RG_BIN" ]; then
     exit 69
 fi
 
-if [ ! -x "$PORTABILITY_SCANNER" ]; then
+if [ ! -f "$PORTABILITY_SCANNER" ]; then
     echo "portability scanner missing or not executable" >&2
     exit 69
 fi
@@ -225,7 +227,7 @@ if [ ! -f "$LOCK_MANIFEST" ]; then
     exit 66
 fi
 
-BOOTSTRAP_VERSION=$(/usr/bin/python3 -c '
+BOOTSTRAP_VERSION=$("$RELEASE_PYTHON" -c '
 import json, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
@@ -237,7 +239,7 @@ if [ -z "$BOOTSTRAP_VERSION" ]; then
     exit 66
 fi
 
-TOOL_VERSIONS_MICROMAMBA_VERSION=$(/usr/bin/python3 -c '
+TOOL_VERSIONS_MICROMAMBA_VERSION=$("$RELEASE_PYTHON" -c '
 import json, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
@@ -272,7 +274,7 @@ run_test() {
     fi
 }
 
-if "$PORTABILITY_SCANNER" "$APP_PATH" \
+if "$RELEASE_PYTHON" "$PORTABILITY_SCANNER" "$APP_PATH" \
     --allowed-swiftpm-fallback "$ALLOWED_SWIFTPM_FALLBACK"; then
     :
 else

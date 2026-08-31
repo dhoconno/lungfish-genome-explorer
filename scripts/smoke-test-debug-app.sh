@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"
 CONTRACT_SCRIPT="$PROJECT_ROOT/scripts/release/release_contract.py"
 CODESIGN_IDENTITY_VALIDATOR="$PROJECT_ROOT/scripts/release/validate_debug_codesign_identity.py"
 
@@ -47,7 +48,7 @@ if [ ! -x /usr/bin/codesign ]; then
     exit 1
 fi
 
-PROFILE_OUTPUT="$(python3 "$CONTRACT_SCRIPT" shell-profile --profile debug)"
+PROFILE_OUTPUT="$("$RELEASE_PYTHON" "$CONTRACT_SCRIPT" shell-profile --profile debug)"
 APP_BUNDLE_FILENAME=""
 APP_DISPLAY_NAME=""
 APP_SHORT_NAME=""
@@ -170,7 +171,7 @@ verify_ad_hoc_signature_details() {
     signed_path="$1"
     signature_details="$2"
     if ! printf '%s\n' "$signature_details" \
-        | /usr/bin/python3 "$CODESIGN_IDENTITY_VALIDATOR" "$signed_path"; then
+        | "$RELEASE_PYTHON" "$CODESIGN_IDENTITY_VALIDATOR" "$signed_path"; then
         exit 1
     fi
 }

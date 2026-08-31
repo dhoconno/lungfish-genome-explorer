@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -164,17 +165,11 @@ class FrontDoorTransactionTests(unittest.TestCase):
         def verify_source_history(self, _request):
             self.events.append("publish-source")
 
-        def doctor_package(self, _request, _plan):
+        def doctor_package(self, _request):
             self.events.append("doctor-package")
 
         def doctor_credentials(self, _request):
             self.events.append("doctor-credentials")
-
-        def run_focused_release_tests(self, _request, _plan):
-            self.events.append("focused-tests")
-
-        def run_source_gate(self, _request, gate):
-            self.events.append(f"gate-{gate.tier}")
 
         def package_only(self, request):
             self.events.append("builder-package-only")
@@ -192,9 +187,6 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
         def validate_sparkle_build_number(self, _request, _identity=None):
             self.events.append("live-feed")
-
-        def verify_dependency_receipt(self, _request):
-            self.events.append("dependency-receipt")
 
         def ensure_annotated_tag(self, _request, _identity):
             self.events.append("tag-push")
@@ -233,11 +225,14 @@ class FrontDoorTransactionTests(unittest.TestCase):
             github_repository="example/lungfish",
         )
 
-    def test_package_runs_credentialless_gates_builder_and_exact_verifier(self):
+    def test_package_runs_source_doctor_builder_and_exact_verifier_without_ci_python(self):
         operations = self.RecordingOperations(self.release)
-        identity = self.release.ReleaseCoordinator(operations).package(
-            self.request("package")
-        )
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture_root = Path(temporary)
+            self.assertFalse((fixture_root / ".ci-python").exists())
+            identity = self.release.ReleaseCoordinator(operations).package(
+                replace(self.request("package"), root=fixture_root)
+            )
 
         self.assertEqual(identity.commit, "a" * 40)
         self.assertEqual(
@@ -245,22 +240,12 @@ class FrontDoorTransactionTests(unittest.TestCase):
             [
                 "package-source",
                 "doctor-package",
-                "focused-tests",
-                "gate-unit",
-                "gate-integration",
                 "builder-package-only",
                 "verify-candidate",
             ],
         )
         self.assertNotIn("doctor-credentials", operations.events)
         self.assertNotIn("tag-push", operations.events)
-
-    def test_front_door_tests_are_part_of_the_contract_focused_gate(self):
-        plan = self.release.release_plan(ROOT, "preview")
-
-        self.assertIn(
-            "scripts.tests.test_release_frontdoor", plan.focused_release_tests
-        )
 
     def test_publish_verifies_candidate_then_credentials_and_never_rebuilds(self):
         operations = self.RecordingOperations(self.release)
@@ -277,10 +262,6 @@ class FrontDoorTransactionTests(unittest.TestCase):
                 "verify-candidate",
                 "doctor-credentials",
                 "live-feed",
-                "dependency-receipt",
-                "focused-tests",
-                "gate-unit",
-                "gate-integration",
                 "tag-push",
                 "exact-sha-ci",
                 "doctor-credentials",
@@ -290,6 +271,10 @@ class FrontDoorTransactionTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("builder-package-only", operations.events)
+        self.assertLess(
+            operations.events.index("exact-sha-ci"),
+            operations.events.index("sign-notarize-publish"),
+        )
 
     def test_package_environment_removes_credential_and_capability_values(self):
         poisoned = {
@@ -314,6 +299,7 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
         self.assertEqual(sanitized["PATH"], poisoned["PATH"])
         self.assertEqual(sanitized["HOME"], poisoned["HOME"])
+        self.assertEqual(sanitized["LUNGFISH_RELEASE_PYTHON"], sys.executable)
         for key in set(poisoned) - {"PATH", "HOME"}:
             self.assertNotIn(key, sanitized)
 
@@ -336,6 +322,7 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
         self.assertEqual(sanitized["GH_TOKEN"], poisoned["GH_TOKEN"])
         self.assertEqual(sanitized["PATH"], poisoned["PATH"])
+        self.assertEqual(sanitized["LUNGFISH_RELEASE_PYTHON"], sys.executable)
         for key in set(poisoned) - {"PATH", "GH_TOKEN"}:
             self.assertNotIn(key, sanitized)
 
@@ -416,7 +403,9 @@ class DebugPlanTests(unittest.TestCase):
 
         self.assertIn("scripts/build-app.sh --debug", flattened)
         self.assertIn("scripts/smoke-test-debug-app.sh", flattened)
-        self.assertIn("ReleaseBuildConfigurationTests", flattened)
+        self.assertEqual(len(commands), 2)
+        self.assertNotIn("swift test", flattened)
+        self.assertNotIn("ReleaseBuildConfigurationTests", flattened)
         self.assertNotIn("build-notarized-dmg.sh", flattened)
         for forbidden in ("notarytool", "Developer ID", "gh release", "git tag"):
             self.assertNotIn(forbidden, flattened)
@@ -435,7 +424,7 @@ class DoctorFrontDoorTests(unittest.TestCase):
                 )
                 self.package_calls = 0
 
-            def doctor_package(self, _request, _plan):
+            def doctor_package(self, _request):
                 self.package_calls += 1
 
         package = PackageOperations()
@@ -466,7 +455,7 @@ class DoctorFrontDoorTests(unittest.TestCase):
                     environment={"DEVELOPER_DIR": "/Applications/Xcode.app"}
                 )
 
-            def doctor_package(self, _request, _plan):
+            def doctor_package(self, _request):
                 pass
 
         output = []

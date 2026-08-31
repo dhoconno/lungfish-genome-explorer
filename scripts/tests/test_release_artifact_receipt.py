@@ -5,6 +5,7 @@ import plistlib
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,7 +36,7 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             environment["LUNGFISH_RELEASE_SCRATCH_ROOT"] = str(scratch_root)
         return subprocess.run(
             [
-                str(ROOT / ".ci-python" / "bin" / "python"),
+                sys.executable,
                 str(self.scanner),
                 str(app),
                 "--allowed-swiftpm-fallback",
@@ -80,7 +81,11 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
                 f"Contents/MacOS/fixture:{payload.index(markers[1])}:repository-root",
                 evidence,
             )
-            self.assertIn("FAIL portability findings=8 shown=8", evidence[-1])
+            expected_findings = 7 + int(b".worktrees/" in os.fsencode(ROOT))
+            self.assertIn(
+                f"FAIL portability findings={expected_findings} shown={expected_findings}",
+                evidence[-1],
+            )
             self.assertNotIn("TOP-SECRET", result.stdout + result.stderr)
             self.assertNotIn("alice", result.stdout + result.stderr)
             self.assertLess(len(result.stdout), 4096)
@@ -443,7 +448,7 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
 
 class ReleaseCandidateReceiptTests(unittest.TestCase):
     def setUp(self):
-        self.python = ROOT / ".ci-python" / "bin" / "python"
+        self.python = Path(sys.executable)
 
     def test_create_writes_canonical_receipt_with_all_bound_identities(self):
         with tempfile.TemporaryDirectory() as temp_dir:

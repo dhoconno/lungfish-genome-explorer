@@ -3,6 +3,7 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -204,7 +205,7 @@ exit 99
 
     def test_identity_parser_rejects_team_signed_nested_code(self):
         result = subprocess.run(
-            ["python3", str(IDENTITY_PARSER), "NestedHelper"],
+            [sys.executable, str(IDENTITY_PARSER), "NestedHelper"],
             input=(
                 "Executable=/tmp/NestedHelper\n"
                 "Identifier=com.example.helper\n"
@@ -222,7 +223,7 @@ exit 99
 
     def test_identity_parser_accepts_exact_ad_hoc_identity(self):
         result = subprocess.run(
-            ["python3", str(IDENTITY_PARSER), "NestedHelper"],
+            [sys.executable, str(IDENTITY_PARSER), "NestedHelper"],
             input=(
                 "Executable=/tmp/NestedHelper\n"
                 "Identifier=com.example.helper\n"

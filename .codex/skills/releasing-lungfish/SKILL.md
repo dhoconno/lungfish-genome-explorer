@@ -45,13 +45,12 @@ The signed metadata is `CFBundleDisplayName=Lungfish Genome Explorer Preview`,
 Preview; Stable uses `CFBundleDisplayName=Lungfish Genome Explorer`,
 `CFBundleName=Lungfish`, and `LungfishReleaseChannel=stable`.
 
-Both retain bundle identifier `com.lungfish.browser` for Sparkle continuity.
-Their distinct wrapper names, feeds, and updater hosts permit side-by-side
-installation, but the shared identifier means Launch Services, defaults, TCC,
-and other identifier-keyed state are not fully independent; simultaneous
-execution is not promised. A Preview copy installed before the wrapper rename
-as `Lungfish.app` keeps updating at that path until the user manually installs a
-current Preview DMG.
+Preview uses bundle identifier `com.lungfish.browser.preview`; Stable retains
+`com.lungfish.browser`. Their distinct identifiers, wrapper names, feeds, and
+updater hosts make installation, launch, updates, and identifier-keyed state
+independent during side-by-side use. Because older Preview builds used the Stable identifier, they need
+a one-time manual reinstall from a current Preview DMG; migrate any desired
+Preview settings manually rather than expecting an in-place Sparkle update.
 
 Preview notes and About text carry: “Preview builds are under rapid iterative
 development. Features may be incomplete, change quickly, or require additional
@@ -67,10 +66,8 @@ releases`. Git tags, GitHub release state, and committed notes are the ledger.
 ## Debug build
 
 Use only `python3 scripts/release/release.py debug`. The coordinator selects the
-supported Xcode, sanitizes release credentials, runs the focused
-`ReleaseBuildConfigurationTests` static gate, performs internal Debug assembly,
-and then validates relocation and self-containment. It does not run the whole
-unit tier.
+supported Xcode, sanitizes release credentials, performs internal Debug
+assembly, and then validates the actual app's relocation and self-containment.
 
 - App path: `build/Debug/Lungfish Debug.app`
 - Display name: `Lungfish Genome Explorer Debug`
@@ -83,7 +80,7 @@ unit tier.
 
 Debug is not a release, has no updater or publication path, and must never
 receive a tag, upload, Sparkle publication, or GitHub release attachment. Report
-the commit, branch, absolute app path, focused static-gate result, exact identity,
+the commit, branch, absolute app path, exact identity,
 signature, and relocation result. Do not expose the internal assembly or smoke
 helpers as operator commands.
 
@@ -95,10 +92,8 @@ publication; the repository does not provide an installer:
 1. Install full Xcode `>=26.4.1,<27`, launch it once, accept its license, and let
    first-launch components finish. Do not use a manual `xcode-select` workaround.
 2. Install Git, Bash, ripgrep, Python 3.11 or newer, and GitHub CLI; authenticate
-   `gh` for the selected repository. Provision `.ci-python` with Pillow,
-   openpyxl, and PyYAML for focused/script gates plus numpy, biopython, scipy,
-   and pandas for full/conformance gates, following CI as the dependency
-   authority. macOS supplies the remaining Apple tools.
+   `gh` for the selected repository. The release runtime uses only the Python
+   standard library; macOS supplies the remaining Apple tools.
 3. Import the Developer ID Application certificate and its private key into the
    login Keychain, and configure a usable `notarytool` Keychain profile.
 4. Resolve the repository-pinned Sparkle tools and keep the Sparkle EdDSA private
@@ -121,18 +116,17 @@ The contract requires Swift `>=6.2,<7`, macOS SDK major 26, deployment target
 
 ## Package, publish, and recovery
 
-`package` is credentialless. It sanitizes credential/capability environment
-values, runs package Doctor, focused release tests, and the channel gates, then
-creates and verifies an unsigned candidate receipt at
+`package` is credentialless. It verifies the source checkout, runs package
+Doctor, assembles the unsigned app, validates the actual artifact's portability
+and smoke behavior, then creates and verifies a candidate receipt at
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json`.
-Preview gates are unit plus integration. Stable gates are full plus conformance
-with required tools. CI calls the same `package` command for both channels and
+CI calls the same `package` command for both channels and
 never signs, notarizes, tags, publishes, loads profiles, or uses secrets.
 
 `publish` first derives and verifies that exact channel/current-HEAD receipt,
-then loads the strict profile and pinned Keychain/tool inputs. It repeats source,
-dependency-receipt, focused, channel, credential, and live-feed build-floor
-checks; creates and pushes the annotated tag; waits for the required CI jobs on
+then loads the strict profile and pinned Keychain/tool inputs. It checks
+credentials and live-feed build floors, creates and pushes the annotated tag,
+waits for the required source/test jobs on
 the exact tagged SHA; repeats credential and feed checks; then signs, notarizes,
 staples, publishes the immutable versioned release, updates mutable feeds, and
 independently verifies remote and local artifacts. Stable requires the strict
@@ -165,11 +159,11 @@ relevant release tests. Run:
 python3 .codex/skills/releasing-lungfish/scripts/validate.py --repo-root "$PWD"
 ```
 
-For a release, also run `git diff --check`, the focused release tests, the
-contract-selected gate tiers, dependency verification, and old-version scans.
-Report only evidence actually verified: channel, tag/commit and URL, candidate
+For a release, also run `git diff --check` and old-version scans. Report only
+evidence actually verified: channel, tag/commit and URL, candidate
 receipt, archive/app/DMG paths, SHA-256, signature/notary/staple results, feeds
-and legacy bridge, exact-SHA CI, local gates, cleanup, and residual blockers.
+and legacy bridge, exact-SHA CI, artifact smoke/portability, cleanup, and
+residual blockers.
 
 ## Install and maintain
 

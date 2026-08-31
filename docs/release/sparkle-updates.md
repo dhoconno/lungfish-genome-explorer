@@ -41,14 +41,13 @@ Preview also publishes the same signed item to the legacy
 `sparkle-alpha/appcast-alpha.xml` bridge so older Alpha installations can move
 onto the Beta feed.
 
-Both channels retain bundle identifier `com.lungfish.browser`; Sparkle rejects
-an update whose identifier differs from the installed app. The distinct wrapper
-paths, names, feeds, and updater hosts allow Preview and Stable side-by-side
-installation. The shared identifier also means Launch Services, defaults, TCC,
-and other identifier-keyed state are not fully independent, and simultaneous
-execution is not promised. A Preview copy installed before the rename keeps its
-existing `Lungfish.app` path during in-place Sparkle updates. Manually install a
-current Preview DMG to obtain `Lungfish Preview.app`.
+Preview uses bundle identifier `com.lungfish.browser.preview`; Stable retains
+`com.lungfish.browser`. The distinct identifiers, wrapper paths, names, feeds,
+and updater hosts make side-by-side installation, launch, updates, and
+identifier-keyed state independent. Older Preview builds used the Stable
+identifier and therefore require a one-time manual reinstall from a current
+Preview DMG. Manually migrate any desired Preview settings; no compatibility
+shim is part of the release process.
 
 Preview releases and About text include: “Preview builds are under rapid
 iterative development. Features may be incomplete, change quickly, or require
@@ -86,11 +85,9 @@ an installer:
    finish first-launch components. The coordinator selects a compatible full
    Xcode; do not use a manual `xcode-select` workaround.
 2. Install Git, Bash, ripgrep, Python 3.11 or newer, and GitHub CLI. Authenticate
-   `gh` for the selected repository. Provision `.ci-python` with Pillow,
-   openpyxl, and PyYAML for focused/script gates plus numpy, biopython, scipy,
-   and pandas for full/conformance gates; CI remains the dependency authority.
-   Xcode/macOS provide the Apple build, signing, notarization, plist, archive,
-   and disk-image commands.
+   `gh` for the selected repository. Release scripts use only the Python
+   standard library. Xcode/macOS provide the Apple build, signing, notarization,
+   plist, archive, and disk-image commands.
 3. Import the Developer ID Application certificate with its private key into
    the login Keychain.
 4. Configure a usable `notarytool` Keychain profile.
@@ -123,22 +120,21 @@ volumes.
 ## Package and publish semantics
 
 `package` is credentialless. It sanitizes credential/capability environment
-values, runs package Doctor, the focused release module list, dependency/source
-gates selected by `config/release-contract.json`, internal unsigned assembly,
-portability and smoke checks, then exact receipt verification. Its output is
+values, checks the source checkout, runs package Doctor, performs internal
+unsigned assembly, validates the actual artifact with portability and smoke
+checks, then performs exact receipt verification. Its output is
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json` plus
-the bound candidate. Preview runs unit+integration; Stable runs
-full+conformance with required tools.
+the bound candidate.
 
 CI invokes `release.py package` for both channels on main without profiles,
 secrets, Developer ID signing, notarization, tags, GitHub publication, or feed
 mutation. Tag CI reads the exact committed `Channel:` field and runs the
 contract-selected gates on that exact tagged SHA.
 
-`publish` verifies the expected channel/current-HEAD receipt before it reads the
-strict profile. It then repeats source history, dependency receipt, focused
-tests, channel gates, credential Doctor, and live Sparkle build floors; creates
-and atomically pushes the annotated tag; waits for the required exact-SHA CI;
+`publish` verifies current source history and the expected channel/current-HEAD
+receipt before it reads the strict profile. It then runs credential Doctor and
+live Sparkle build floors, creates and atomically pushes the annotated tag, and
+waits for the required source/test jobs on the exact tagged SHA;
 repeats credentials and receipt-bound live floors; and only then gives the
 candidate to the internal signer. There is no rebuild between package receipt
 and Developer ID signing.

@@ -5,7 +5,7 @@
       "appBundleFilename": "Lungfish Preview.app",
       "displayName": "Lungfish Genome Explorer Preview",
       "bundleName": "Lungfish Preview",
-      "bundleIdentifier": "com.lungfish.browser",
+      "bundleIdentifier": "com.lungfish.browser.preview",
       "releaseChannel": "preview",
       "sparkleRelease": "sparkle-beta",
       "appcastFilename": "appcast-beta.xml",

@@ -73,6 +73,7 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"
 cd "$PROJECT_ROOT"
 PRERELEASE_PRUNE_SCRIPT="${PROJECT_ROOT}/scripts/release/prune-github-prereleases.py"
 RELEASE_CONTRACT_SCRIPT="${PROJECT_ROOT}/scripts/release/release_contract.py"
@@ -295,7 +296,7 @@ if [ "$SHOW_HELP" -eq 1 ]; then
     esac
     usage
     printf '\nContract-selected defaults for %s:\n' "$CHANNEL"
-    python3 "$RELEASE_CONTRACT_SCRIPT" describe --channel "$CHANNEL"
+    "$RELEASE_PYTHON" "$RELEASE_CONTRACT_SCRIPT" describe --channel "$CHANNEL"
     exit 0
 fi
 
@@ -307,7 +308,7 @@ if [ -n "$DESCRIBE_CHANNEL" ]; then
             exit 64
             ;;
     esac
-    exec python3 "$RELEASE_CONTRACT_SCRIPT" describe --channel "$DESCRIBE_CHANNEL"
+    exec "$RELEASE_PYTHON" "$RELEASE_CONTRACT_SCRIPT" describe --channel "$DESCRIBE_CHANNEL"
 fi
 
 if [ "$PACKAGE_ONLY" -eq 0 ]; then
@@ -318,7 +319,7 @@ if [ "$PACKAGE_ONLY" -eq 0 ]; then
     unset LUNGFISH_RELEASE_COORDINATOR_CAPABILITY
 fi
 
-if ! channel_contract_output=$(python3 "$RELEASE_CONTRACT_SCRIPT" shell --channel "$CHANNEL"); then
+if ! channel_contract_output=$("$RELEASE_PYTHON" "$RELEASE_CONTRACT_SCRIPT" shell --channel "$CHANNEL"); then
     case "$CHANNEL" in
         preview|stable)
             echo "failed to load release contract for channel: ${CHANNEL}" >&2
@@ -330,7 +331,7 @@ if ! channel_contract_output=$(python3 "$RELEASE_CONTRACT_SCRIPT" shell --channe
     exit 64
 fi
 
-XCODE_ASSIGNMENT=$(python3 "$RELEASE_XCODE_SCRIPT" --shell)
+XCODE_ASSIGNMENT=$("$RELEASE_PYTHON" "$RELEASE_XCODE_SCRIPT" --shell)
 eval "$XCODE_ASSIGNMENT"
 export DEVELOPER_DIR
 unset CC CXX SDKROOT SWIFT_EXEC TOOLCHAINS
@@ -483,7 +484,7 @@ if [ -n "$GITHUB_RELEASE_TAG" ]; then
             exit 64
             ;;
     esac
-    manifest_dependency_set=$(python3 -c \
+    manifest_dependency_set=$("$RELEASE_PYTHON" -c \
         'import json,sys; print(json.load(open(sys.argv[1]))["dependencySet"])' \
         "${PROJECT_ROOT}/Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json")
     if ! /usr/bin/grep -Fqx "Channel: ${expected_channel_label}" "$RELEASE_NOTES_PREFLIGHT_PATH" \
@@ -544,7 +545,7 @@ require_command() {
     fi
 }
 
-for command in git /usr/bin/shasum python3; do
+for command in git /usr/bin/shasum "$RELEASE_PYTHON"; do
     require_command "$command"
 done
 if [ ! -x "$RELEASE_DOCTOR_SCRIPT" ] || [ ! -x "$CANDIDATE_RECEIPT_SCRIPT" ] \
@@ -564,7 +565,7 @@ repository_args=(
 if [ -n "$GITHUB_REPOSITORY" ]; then
     repository_args+=(--github-repository "$GITHUB_REPOSITORY")
 fi
-repository_output=$(python3 "$RELEASE_REPOSITORY_SCRIPT" "${repository_args[@]}")
+repository_output=$("$RELEASE_PYTHON" "$RELEASE_REPOSITORY_SCRIPT" "${repository_args[@]}")
 repository_key=""
 resolved_github_repository=""
 while IFS='=' read -r repository_field repository_value; do
@@ -587,19 +588,19 @@ SPARKLE_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SP
 run_live_sparkle_build_gates() {
     local planned="$1"
     local feed_root="https://github.com/${GITHUB_REPOSITORY}/releases/download"
-    python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+    "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
         --planned "$planned" \
         --appcast-url "${feed_root}/${PREVIEW_LEGACY_SPARKLE_RELEASE}/${PREVIEW_LEGACY_APPCAST_FILENAME}"
     if [ "$CHANNEL" = stable ]; then
-        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
             --planned "$planned" \
             --appcast-url "${feed_root}/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}"
-        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
             --planned "$planned" \
             --appcast-url "${feed_root}/${CONTRACT_SPARKLE_PUBLISH_RELEASE}/${CONTRACT_SPARKLE_APPCAST_FILENAME}" \
             --allow-http-not-found
     else
-        python3 "$SPARKLE_BUILD_GATE_SCRIPT" \
+        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
             --planned "$planned" \
             --appcast-url "${feed_root}/${CONTRACT_SPARKLE_PUBLISH_RELEASE}/${CONTRACT_SPARKLE_APPCAST_FILENAME}"
     fi
@@ -725,7 +726,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
 fi
 
 if [ -n "$RESUME_CANDIDATE" ]; then
-    CANDIDATE_RECEIPT_PATH=$(python3 -c \
+    CANDIDATE_RECEIPT_PATH=$("$RELEASE_PYTHON" -c \
         'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve(strict=True))' \
         "$RESUME_CANDIDATE")
     RELEASE_DIR=$(dirname "$CANDIDATE_RECEIPT_PATH")
@@ -740,7 +741,7 @@ if [ -n "$RESUME_CANDIDATE" ]; then
     esac
     refresh_output_paths
     APP_PATH="$RELEASE_APP_PATH"
-    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
+    "$RELEASE_PYTHON" "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
         --release-dir "$RELEASE_DIR" \
         --repository-key "$repository_key"
 fi
@@ -773,7 +774,7 @@ run_release_doctor() {
             doctor_args+=(--sparkle-ed-key-file "$SPARKLE_ED_KEY_FILE")
         fi
     fi
-    "$RELEASE_DOCTOR_SCRIPT" "${doctor_args[@]}"
+    "$RELEASE_PYTHON" "$RELEASE_DOCTOR_SCRIPT" "${doctor_args[@]}"
 }
 
 relative_to_project_root() {
@@ -1045,7 +1046,7 @@ prune_github_prereleases() {
         exit 64
     fi
     PRERELEASE_PRUNE_REPORT_PATH="${RELEASE_DIR}/prerelease-prune-plan.json"
-    python3 "$PRERELEASE_PRUNE_SCRIPT" \
+    "$RELEASE_PYTHON" "$PRERELEASE_PRUNE_SCRIPT" \
         --current-tag "$GITHUB_RELEASE_TAG" \
         --keep "$PRERELEASE_PRUNE_KEEP" \
         --sparkle-release "$SPARKLE_PUBLISH_RELEASE" \
@@ -1081,7 +1082,7 @@ resolved_build_timestamp() {
 if [ -z "$RESUME_CANDIDATE" ]; then
     requested_scratch="$SCRATCH_PATH"
     requested_derived="$DERIVED_DATA_PATH"
-    cache_output=$(python3 "$CACHE_FINGERPRINT_SCRIPT" derive \
+    cache_output=$("$RELEASE_PYTHON" "$CACHE_FINGERPRINT_SCRIPT" derive \
         --project-root "$PROJECT_ROOT" \
         --repository "github.com/${GITHUB_REPOSITORY}" \
         --repository-key "$repository_key" \
@@ -1119,16 +1120,16 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     fi
     run_release_doctor package
 
-    python3 "$CACHE_FINGERPRINT_SCRIPT" prepare \
+    "$RELEASE_PYTHON" "$CACHE_FINGERPRINT_SCRIPT" prepare \
         --project-root "$PROJECT_ROOT" \
         --repository "github.com/${GITHUB_REPOSITORY}" \
         --repository-key "$repository_key" \
         --deployment-target "$DEPLOYMENT_TARGET" \
         --cache-root "$CACHE_ROOT" >/dev/null
 
-    CACHE_LOCK_READY="${CACHE_NAMESPACE}/.lock-ready.$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
-    CACHE_LOCK_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
-    python3 "$CACHE_FINGERPRINT_SCRIPT" hold-lock \
+    CACHE_LOCK_READY="${CACHE_NAMESPACE}/.lock-ready.$("$RELEASE_PYTHON" -c 'import secrets; print(secrets.token_hex(24))')"
+    CACHE_LOCK_TOKEN=$("$RELEASE_PYTHON" -c 'import secrets; print(secrets.token_hex(32))')
+    "$RELEASE_PYTHON" "$CACHE_FINGERPRINT_SCRIPT" hold-lock \
         --namespace "$CACHE_NAMESPACE" \
         --ready-file "$CACHE_LOCK_READY" \
         --ready-token "$CACHE_LOCK_TOKEN" \
@@ -1174,7 +1175,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     umask 077
     prepare_release_dir
     /bin/mkdir -p "$RELEASE_LOG_DIR"
-    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" record-release-output \
+    "$RELEASE_PYTHON" "$RELEASE_TARGET_SECURITY_SCRIPT" record-release-output \
         --release-dir "$RELEASE_DIR" \
         --repository-key "$repository_key"
     /bin/rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
@@ -1253,7 +1254,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         echo "archived app not found: $APP_PATH" >&2
         exit 72
     fi
-    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" record-archive \
+    "$RELEASE_PYTHON" "$RELEASE_TARGET_SECURITY_SCRIPT" record-archive \
         --archive-path "$ARCHIVE_PATH" \
         --repository-key "$repository_key"
 
@@ -1296,7 +1297,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         exit 65
     fi
 
-    "$CANDIDATE_RECEIPT_SCRIPT" create \
+    "$RELEASE_PYTHON" "$CANDIDATE_RECEIPT_SCRIPT" create \
         --app "$RELEASE_APP_PATH" \
         --output "$CANDIDATE_RECEIPT_PATH" \
         --channel "$CHANNEL" \
@@ -1335,17 +1336,17 @@ fi
 # and the first Developer ID codesign call. A default credentialed build also ran
 # this Doctor before compilation; resume runs have no compilation to guard.
 run_release_doctor credentials
-"$CANDIDATE_RECEIPT_SCRIPT" verify \
+"$RELEASE_PYTHON" "$CANDIDATE_RECEIPT_SCRIPT" verify \
     --app "$APP_PATH" \
     --receipt "$CANDIDATE_RECEIPT_PATH" \
     --channel "$CHANNEL" \
     --cache-root "$CACHE_ROOT" \
     --remote "$GIT_REMOTE" \
     --github-repository "$GITHUB_REPOSITORY"
-VERIFIED_SPARKLE_BUILD_NUMBER=$(python3 -c \
+VERIFIED_SPARKLE_BUILD_NUMBER=$("$RELEASE_PYTHON" -c \
     'import json,sys; value=json.load(open(sys.argv[1]))["release"]["build"]; assert isinstance(value,str) and value.isdigit() and int(value) > 0; print(value)' \
     "$CANDIDATE_RECEIPT_PATH")
-python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
+"$RELEASE_PYTHON" "$RELEASE_TARGET_SECURITY_SCRIPT" validate-release-output \
     --release-dir "$RELEASE_DIR" \
     --repository-key "$repository_key"
 
@@ -1354,7 +1355,7 @@ SIGNED_APP_PATH="${RELEASE_DIR}/signed/${APP_BUNDLE_FILENAME}"
 DMG_PATH="${RELEASE_DIR}/Lungfish-${SOURCE_VERSION}-arm64.dmg"
 
 validate_signed_output_target() {
-    python3 "$RELEASE_TARGET_SECURITY_SCRIPT" validate-signed-output \
+    "$RELEASE_PYTHON" "$RELEASE_TARGET_SECURITY_SCRIPT" validate-signed-output \
         --release-dir "$RELEASE_DIR" \
         --signed-app-path "$SIGNED_APP_PATH" \
         --repository-key "$repository_key"

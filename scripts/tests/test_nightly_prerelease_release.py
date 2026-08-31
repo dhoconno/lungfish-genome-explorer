@@ -635,10 +635,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                     {
                         "PATH": f"{fixture.bin}:{os.environ['PATH']}",
                         "BUILDER_EVENTS": str(fixture.events),
-                        "BUILDER_PYTHON": str(
-                            Path(__file__).resolve().parents[2]
-                            / ".ci-python/bin/python"
-                        ),
+                        "BUILDER_PYTHON": sys.executable,
                         "LUNGFISH_RELEASE_CACHE_ROOT": str(fixture.scratch_root),
                     },
                 )
@@ -879,9 +876,7 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
                 "PATH": f"{fixture.bin}:{os.environ['PATH']}",
                 "BUILDER_EVENTS": str(fixture.events),
                 "BUILDER_GH_STATE": str(fixture.gh_state),
-                "BUILDER_PYTHON": str(
-                    Path(__file__).resolve().parents[2] / ".ci-python/bin/python"
-                ),
+                "BUILDER_PYTHON": sys.executable,
                 "LUNGFISH_RELEASE_CACHE_ROOT": str(fixture.scratch_root),
             },
         )
@@ -1331,7 +1326,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             self.sparkle_error_on_call = sparkle_error_on_call
             self.sparkle_calls = 0
 
-        def doctor_package(self, _request, _plan):
+        def doctor_package(self, _request):
             self.events.append("doctor:package")
 
         def doctor_credentials(self, _request):
@@ -1339,6 +1334,9 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         def verify_source_history(self, _request):
             self.events.append("source-history")
+
+        def verify_package_source(self, _request):
+            self.events.append("package-source")
 
         def validate_sparkle_build_number(self, _request, _identity=None):
             self.events.append("sparkle-build-number")
@@ -1349,15 +1347,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         @staticmethod
         def coordinator_error(message):
             return RuntimeError(message)
-
-        def verify_dependency_receipt(self, _request):
-            self.events.append("dependency-receipt")
-
-        def run_focused_release_tests(self, _request, _plan):
-            self.events.append("focused-release-tests")
-
-        def run_source_gate(self, _request, gate):
-            self.events.append(f"source-gate:{gate.tier}")
 
         def package_only(self, request):
             self.events.append("package-only")
@@ -1394,7 +1383,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         def independent_verify(self, _request, _identity):
             self.events.append("independent-verify")
 
-    def request(self, channel="preview", mode="prepare"):
+    def request(self, channel="preview", mode="package"):
         root = Path(__file__).resolve().parents[2]
         return self.coordinator.ReleaseRequest(
             root=root,
@@ -1415,25 +1404,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             prune_prereleases=True,
             prune_prereleases_keep=10,
         )
-
-    def test_channel_plan_comes_from_contract_and_keeps_mandatory_local_gates(self):
-        preview = self.coordinator.release_plan(
-            Path(__file__).resolve().parents[2], "preview"
-        )
-        stable = self.coordinator.release_plan(
-            Path(__file__).resolve().parents[2], "stable"
-        )
-
-        self.assertEqual(
-            [gate.tier for gate in preview.source_gates], ["unit", "integration"]
-        )
-        self.assertEqual(
-            [gate.tier for gate in stable.source_gates], ["full", "conformance"]
-        )
-        self.assertFalse(preview.source_gates[0].require_tools)
-        self.assertTrue(stable.source_gates[1].require_tools)
-        self.assertTrue(preview.focused_release_tests)
-        self.assertTrue(preview.requires_dependency_receipt)
 
     def test_exact_sha_ci_uses_selected_github_com_repository_under_hostile_host(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1557,25 +1527,26 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             archive_path=scoped_release / "Lungfish.xcarchive",
         )
 
-    def test_prepare_packages_and_verifies_before_tag_and_ci_then_publishes_once(self):
+    def test_package_then_publish_uses_artifact_and_exact_sha_ci_without_local_gates(self):
         operations = self.RecordingOperations()
         transaction = self.coordinator.ReleaseCoordinator(operations)
 
-        transaction.execute(self.request())
+        transaction.package(self.request())
+        publish_request = self.request(mode="publish")
+        identity = transaction.preflight_publish_candidate(publish_request)
+        transaction.publish_verified(publish_request, identity)
 
         self.assertEqual(
             operations.events,
             [
-                "source-history",
-                "doctor:credentials",
+                "package-source",
                 "doctor:package",
-                "sparkle-build-number",
-                "dependency-receipt",
-                "focused-release-tests",
-                "source-gate:unit",
-                "source-gate:integration",
                 "package-only",
                 "verify-candidate-receipt",
+                "source-history",
+                "verify-candidate-receipt",
+                "doctor:credentials",
+                "sparkle-build-number",
                 "annotated-tag-push",
                 "wait-exact-sha-ci",
                 "doctor:credentials",
@@ -1586,11 +1557,13 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
 
-    def test_resume_verifies_receipt_and_never_rebuilds(self):
+    def test_publish_verifies_receipt_and_never_rebuilds(self):
         operations = self.RecordingOperations()
         transaction = self.coordinator.ReleaseCoordinator(operations)
+        request = self.request(mode="publish")
 
-        transaction.execute(self.request(mode="resume"))
+        identity = transaction.preflight_publish_candidate(request)
+        transaction.publish_verified(request, identity)
 
         self.assertEqual(operations.events[0], "source-history")
         self.assertNotIn("doctor:package", operations.events)
@@ -1604,22 +1577,18 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
 
-    def test_feed_advance_after_exact_sha_ci_blocks_prepare_and_resume_publication(
-        self,
-    ):
-        for mode, failing_call in (("prepare", 2), ("resume", 2)):
-            with self.subTest(mode=mode):
-                operations = self.RecordingOperations(
-                    sparkle_error_on_call=failing_call
-                )
-                transaction = self.coordinator.ReleaseCoordinator(operations)
+    def test_feed_advance_after_exact_sha_ci_blocks_publication(self):
+        operations = self.RecordingOperations(sparkle_error_on_call=2)
+        transaction = self.coordinator.ReleaseCoordinator(operations)
+        request = self.request(mode="publish")
+        identity = transaction.preflight_publish_candidate(request)
 
-                with self.assertRaisesRegex(RuntimeError, "feed advanced"):
-                    transaction.execute(self.request(mode=mode))
+        with self.assertRaisesRegex(RuntimeError, "feed advanced"):
+            transaction.publish_verified(request, identity)
 
-                self.assertIn("wait-exact-sha-ci", operations.events)
-                self.assertNotIn("credentialed-resume-publish", operations.events)
-                self.assertEqual(operations.events[-1], "sparkle-build-number")
+        self.assertIn("wait-exact-sha-ci", operations.events)
+        self.assertNotIn("credentialed-resume-publish", operations.events)
+        self.assertEqual(operations.events[-1], "sparkle-build-number")
 
     def test_source_history_requires_non_shallow_current_remote_main(self):
         class FakeRunner:
@@ -1853,9 +1822,10 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                     )
                 )
                 with self.assertRaises(self.coordinator.ReleaseError):
-                    self.coordinator.ReleaseCoordinator(operations).execute(
-                        self.request()
-                    )
+                    transaction = self.coordinator.ReleaseCoordinator(operations)
+                    request = self.request(mode="publish")
+                    identity = transaction.preflight_publish_candidate(request)
+                    transaction.publish_verified(request, identity)
                 self.assertNotIn("credentialed-resume-publish", operations.events)
 
     def test_wait_for_actions_requires_tag_sha_and_every_channel_job_success(self):

@@ -24,7 +24,7 @@ from scripts.release.release_repository import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PYTHON = ROOT / ".ci-python" / "bin" / "python"
+PYTHON = Path(sys.executable)
 DOCTOR = ROOT / "scripts" / "release" / "release-doctor.py"
 RESOLVER = ROOT / "scripts" / "release" / "resolve-sparkle-tools.sh"
 XCODE_RESOLVER = ROOT / "scripts" / "release" / "release_xcode.py"

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SECURITY_HELPER="${SCRIPT_DIR}/release_cache_security.py"
+SECURITY_PYTHON="${LUNGFISH_RELEASE_PYTHON:-}"
 
 fail() {
     printf 'Sparkle tools: %s\n' "$1" >&2
@@ -44,8 +45,7 @@ LOCK_HASH="$(/usr/bin/shasum -a 256 "${PROJECT_ROOT}/Package.resolved" | /usr/bi
 case "$LOCK_HASH" in
     *[!0-9a-f]*|'') fail "could not hash Package.resolved" ;;
 esac
-SECURITY_PYTHON="${PROJECT_ROOT}/.ci-python/bin/python"
-if [ ! -x "$SECURITY_PYTHON" ]; then
+if [ -z "$SECURITY_PYTHON" ]; then
     SECURITY_PYTHON="$(command -v python3 || true)"
 fi
 [ -n "$SECURITY_PYTHON" ] || fail "python3 is required to secure the Sparkle tools cache"

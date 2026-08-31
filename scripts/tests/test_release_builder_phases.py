@@ -5,6 +5,7 @@ import plistlib
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -12,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PYTHON = ROOT / ".ci-python" / "bin" / "python"
+PYTHON = Path(sys.executable)
 
 
 class ReleaseBuilderFixture:
@@ -582,6 +583,17 @@ class ReleaseBuilderFixture:
     def _adapt_canonical_tools_for_fixture(self):
         """Redirect only this disposable builder copy to explicit test doubles."""
         source = self.builder.read_text(encoding="utf-8")
+        # Production Python helpers are bound to the front-door interpreter.
+        # These two fixture doubles are intentionally Bash scripts, so retain
+        # their executable shebangs in the disposable copy.
+        source = source.replace(
+            '"$RELEASE_PYTHON" "$RELEASE_DOCTOR_SCRIPT"',
+            '"$RELEASE_DOCTOR_SCRIPT"',
+        )
+        source = source.replace(
+            '"$RELEASE_PYTHON" "$CANDIDATE_RECEIPT_SCRIPT"',
+            '"$CANDIDATE_RECEIPT_SCRIPT"',
+        )
         for canonical, replacement in {
             "/usr/bin/codesign": self.bin / "codesign",
             "/usr/bin/ditto": self.bin / "ditto",
@@ -614,6 +626,7 @@ class ReleaseBuilderFixture:
                 ),
                 "LUNGFISH_RELEASE_CACHE_ROOT": str(self.scratch_root),
                 "LUNGFISH_RELEASE_SCRATCH_ROOT": str(self.scratch_root),
+                "LUNGFISH_RELEASE_PYTHON": str(PYTHON),
                 "LUNGFISH_SPARKLE_PUBLIC_ED_KEY": "public-test-key",
                 "BUILDER_DOCTOR_FAIL": "1" if doctor_fail else "0",
                 "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
@@ -786,7 +799,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertTrue(metadata.is_file())
         with (app / "Contents/Info.plist").open("rb") as handle:
             info = plistlib.load(handle)
-        self.assertEqual(info["CFBundleIdentifier"], "com.lungfish.browser")
+        self.assertEqual(info["CFBundleIdentifier"], "com.lungfish.browser.preview")
         self.assertEqual(info["LungfishReleaseChannel"], "preview")
         self.assertEqual(info["SUPublicEDKey"], "public-test-key")
         self.assertTrue(info["SUFeedURL"].endswith("/sparkle-beta/appcast-beta.xml"))

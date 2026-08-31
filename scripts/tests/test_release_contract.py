@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -18,7 +19,7 @@ EXPECTED_CHANNELS = {
         "appBundleFilename": "Lungfish Preview.app",
         "displayName": "Lungfish Genome Explorer Preview",
         "bundleName": "Lungfish Preview",
-        "bundleIdentifier": "com.lungfish.browser",
+        "bundleIdentifier": "com.lungfish.browser.preview",
         "releaseChannel": "preview",
         "sparkleRelease": "sparkle-beta",
         "appcastFilename": "appcast-beta.xml",
@@ -348,7 +349,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_debug_profile_cli_matches_contract(self):
         result = subprocess.run(
             [
-                "python3",
+                sys.executable,
                 str(LOADER_PATH),
                 "describe-profile",
                 "--profile",
@@ -382,7 +383,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_contract_cli_get_preserves_json_boolean_values(self):
         result = subprocess.run(
             [
-                "python3",
+                sys.executable,
                 str(LOADER_PATH),
                 "get",
                 "--channel",

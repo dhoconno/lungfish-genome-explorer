@@ -19,6 +19,7 @@ LOG_DIR=""
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"
 
 # Shared source Info.plist (consumed by both this script and Lungfish.xcodeproj)
 SHARED_INFO_PLIST="$PROJECT_ROOT/Lungfish-Info.plist"
@@ -115,7 +116,7 @@ RELEASE_CHANNEL=""
 IS_RELEASE=""
 PUBLISHABLE=""
 UPDATER_ENABLED=""
-PROFILE_CONTRACT_OUTPUT="$(python3 "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)"
+PROFILE_CONTRACT_OUTPUT="$("$RELEASE_PYTHON" "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)"
 while IFS='=' read -r contract_key contract_value; do
     case "$contract_key" in
         APP_BUNDLE_FILENAME) APP_BUNDLE_FILENAME="$contract_value" ;;
@@ -141,7 +142,7 @@ if [ -z "$APP_BUNDLE_FILENAME" ] || [ -z "$APP_DISPLAY_NAME" ] \
     exit 1
 fi
 
-DEVELOPER_DIR="$(python3 "$XCODE_RESOLVER")"
+DEVELOPER_DIR="$("$RELEASE_PYTHON" "$XCODE_RESOLVER")"
 export DEVELOPER_DIR
 
 if [ -n "$LOG_DIR" ]; then

@@ -152,7 +152,8 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(script.contains("release_xcode.py"))
         #expect(script.contains("export DEVELOPER_DIR"))
-        #expect(script.contains(#"PROFILE_CONTRACT_OUTPUT="$(python3 "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)""#))
+        #expect(script.contains(#"RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}""#))
+        #expect(script.contains(#"PROFILE_CONTRACT_OUTPUT="$("$RELEASE_PYTHON" "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)""#))
         #expect(script.contains("xcrun swift build --configuration debug --arch arm64"))
         #expect(script.contains("swift build -c release") == false)
     }
@@ -773,11 +774,12 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        #expect(doctor.contains(#""python3", "rg""#))
-        #expect(coordinator.contains("self.operations.doctor_package(request, plan)"))
+        #expect(doctor.contains(#""plutil", "rg""#))
+        #expect(doctor.contains(#""python3", "rg""#) == false)
+        #expect(coordinator.contains("self.operations.doctor_package(request)"))
         #expect(coordinator.contains("self.operations.package_only(request)"))
         #expect(
-            coordinator.range(of: "self.operations.doctor_package(request, plan)")!.lowerBound
+            coordinator.range(of: "self.operations.doctor_package(request)")!.lowerBound
                 < coordinator.range(of: "self.operations.package_only(request)")!.lowerBound
         )
     }
@@ -964,7 +966,7 @@ struct ReleaseBuildConfigurationTests {
         )
 
         #expect(script.contains("${RELEASE_DIR}/DerivedData") == false)
-        #expect(script.contains("python3 \"$CACHE_FINGERPRINT_SCRIPT\" derive"))
+        #expect(script.contains("\"$RELEASE_PYTHON\" \"$CACHE_FINGERPRINT_SCRIPT\" derive"))
         #expect(script.contains("CACHE_SWIFTPM) SCRATCH_PATH=\"$cache_value\""))
         #expect(script.contains("CACHE_DERIVED_DATA) DERIVED_DATA_PATH=\"$cache_value\""))
         #expect(script.contains("canonical cache fingerprint"))
@@ -1159,8 +1161,8 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
-    @Test("Release agent documents channel identity and shared bundle caveat")
-    func releaseAgentDocumentsChannelIdentityAndSharedBundleCaveat() throws {
+    @Test("Release agent documents independent Preview and Stable identities")
+    func releaseAgentDocumentsIndependentPreviewAndStableIdentities() throws {
         let agent = try Self.releaseAgentCanonicalContents()
         let normalizedAgent = agent.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let requiredPhrases = [
@@ -1168,9 +1170,9 @@ struct ReleaseBuildConfigurationTests {
             "Lungfish.app",
             "sparkle-beta/appcast-beta.xml",
             "sparkle-stable/appcast-stable.xml",
+            "com.lungfish.browser.preview",
             "com.lungfish.browser",
-            "not fully independent",
-            "simultaneous execution is not promised"
+            "independent"
         ]
 
         for phrase in requiredPhrases {

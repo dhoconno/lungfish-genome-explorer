@@ -15,6 +15,7 @@ fi
 ROOT_LOCKFILE="$REPO_ROOT/Package.resolved"
 XCODE_LOCKFILE="$REPO_ROOT/Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 PBXPROJ="$REPO_ROOT/Lungfish.xcodeproj/project.pbxproj"
+RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"
 
 # The Xcode project declares its own package requirements (XCRemoteSwiftPackageReference),
 # and an exactVersion there that disagrees with the version the root Package.resolved
@@ -24,7 +25,7 @@ PBXPROJ="$REPO_ROOT/Lungfish.xcodeproj/project.pbxproj"
 # pbxproj still demanded 2.9.1, and only the CI xcodebuild step noticed. --repair does
 # not rewrite the pbxproj; drift here is a hard failure to fix in the project file.
 if [ -f "$PBXPROJ" ] && [ -f "$ROOT_LOCKFILE" ]; then
-    mismatches=$(python3 - "$PBXPROJ" "$ROOT_LOCKFILE" <<'PYEOF'
+    mismatches=$("$RELEASE_PYTHON" - "$PBXPROJ" "$ROOT_LOCKFILE" <<'PYEOF'
 import json, re, sys
 pbx = open(sys.argv[1]).read()
 resolved = {p["identity"].lower(): p["state"].get("version")

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -23,7 +24,7 @@ def insert_into_skill_debug_section(contents: str, addition: str) -> str:
 class ReleasingLungfishSkillTests(unittest.TestCase):
     def run_validator(self, repo_root: Path, skill_root: Path = SKILL_ROOT):
         return subprocess.run(
-            ["python3", str(VALIDATOR), "--repo-root", str(repo_root), "--skill-root", str(skill_root)],
+            [sys.executable, str(VALIDATOR), "--repo-root", str(repo_root), "--skill-root", str(skill_root)],
             text=True,
             capture_output=True,
             check=False,
@@ -169,13 +170,13 @@ fi
             "prune",
         )
 
-    def test_validator_rejects_wrong_channel_wrapper_feed_and_bundle_caveat(self):
+    def test_validator_rejects_wrong_channel_wrapper_feed_and_bundle_identity(self):
         mutations = (
             ("Lungfish Preview.app", "Lungfish Beta.app", "wrapper"),
             ("appcast-beta.xml", "appcast-preview.xml", "appcast"),
             (
-                "## Channel identity",
-                "## Channel identity\n\nLaunch Services/defaults/TCC/state are fully independent.",
+                "com.lungfish.browser.preview",
+                "com.lungfish.browser",
                 "bundle identifier",
             ),
         )
@@ -279,8 +280,25 @@ fi
             "Lungfish.app",
             "CFBundleDisplayName",
             "CFBundleName",
+            "com.lungfish.browser.preview",
+            "com.lungfish.browser",
+            "independent",
         ):
             self.assertIn(marker, semantic_text)
+
+    def test_release_machine_guidance_requires_only_stdlib_python(self):
+        for relative in (
+            ".codex/skills/releasing-lungfish/SKILL.md",
+            ".codex/agents/release-agent.md",
+            "agents/definitions/codex/release-agent.md",
+            "docs/release/sparkle-updates.md",
+            "docs/release/NEXT-RELEASE-HANDOFF.md",
+        ):
+            with self.subTest(authority=relative):
+                contents = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn(".ci-python", contents)
+                self.assertNotIn("Pillow", contents)
+                self.assertNotIn("openpyxl", contents)
 
     def test_debug_guidance_matches_current_local_artifact(self):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -333,8 +351,8 @@ fi
         self.assert_authority_mutation_fails(
             "scripts/release/release.py",
             lambda text: text.replace(
-                '["swift", "test", "--filter", "ReleaseBuildConfigurationTests"],',
-                '["swift", "test", "--filter", "DifferentStaticGateTests"],',
+                '["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"],',
+                '["/bin/bash", str(root / "scripts/smoke-test-debug-app.sh"), "--debug"],',
                 1,
             ),
             "debug plan",
@@ -353,8 +371,8 @@ fi
             replacement = """## Debug build
 
 Use only `python3 scripts/release/release.py debug`. The coordinator runs the
-focused `ReleaseBuildConfigurationTests` static gate, performs internal Debug
-assembly, and then performs relocation and self-containment validation.
+internal Debug assembly, and then performs relocation and self-containment
+validation.
 
 - App path: `build/Debug/Lungfish Debug.app`
 - Visible title: `Lungfish Genome Explorer Debug`

@@ -48,6 +48,7 @@ HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 PUBLIC_SPARKLE_KEY = "FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c="
 COORDINATOR_CAPABILITY_ENV = "LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"
+RELEASE_PYTHON_ENV = "LUNGFISH_RELEASE_PYTHON"
 PROFILE_FIELDS = frozenset(
     {"schemaVersion", "repository", "signingIdentity", "teamId", "notaryProfile"}
 )
@@ -190,19 +191,6 @@ def load_release_profile(path: Path) -> ReleaseProfile:
 
 
 @dataclass(frozen=True)
-class SourceGate:
-    tier: str
-    require_tools: bool
-
-
-@dataclass(frozen=True)
-class ReleasePlan:
-    focused_release_tests: tuple[str, ...]
-    source_gates: tuple[SourceGate, ...]
-    requires_dependency_receipt: bool = True
-
-
-@dataclass(frozen=True)
 class ReleaseRequest:
     root: Path
     channel: str
@@ -244,18 +232,7 @@ class ReleaseOperations(Protocol):
     def doctor_credentials(self, request: ReleaseRequest) -> None:
         ...
 
-    def doctor_package(self, request: ReleaseRequest, plan: ReleasePlan) -> None:
-        ...
-
-    def verify_dependency_receipt(self, request: ReleaseRequest) -> None:
-        ...
-
-    def run_focused_release_tests(
-        self, request: ReleaseRequest, plan: ReleasePlan
-    ) -> None:
-        ...
-
-    def run_source_gate(self, request: ReleaseRequest, gate: SourceGate) -> None:
+    def doctor_package(self, request: ReleaseRequest) -> None:
         ...
 
     def package_only(self, request: ReleaseRequest) -> Path:
@@ -290,29 +267,13 @@ class ReleaseOperations(Protocol):
         ...
 
 
-def release_plan(root: Path, channel: str) -> ReleasePlan:
-    contract = load_contract(root / "config" / "release-contract.json")
-    contract.channel(channel)
-    return ReleasePlan(
-        focused_release_tests=contract.gates.focusedReleaseTests,
-        source_gates=tuple(
-            SourceGate(tier=step.tier, require_tools=step.requireTools)
-            for step in contract.gates.for_channel(channel)
-        ),
-    )
-
-
 class ReleaseCoordinator:
     def __init__(self, operations: ReleaseOperations):
         self.operations = operations
 
     def package(self, request: ReleaseRequest) -> CandidateIdentity:
-        plan = release_plan(request.root, request.channel)
         self.operations.verify_package_source(request)
-        self.operations.doctor_package(request, plan)
-        self.operations.run_focused_release_tests(request, plan)
-        for gate in plan.source_gates:
-            self.operations.run_source_gate(request, gate)
+        self.operations.doctor_package(request)
         receipt = self.operations.package_only(request)
         active = replace(request, receipt=receipt)
         return self.operations.verify_candidate_receipt(active)
@@ -326,13 +287,8 @@ class ReleaseCoordinator:
     def publish_verified(
         self, request: ReleaseRequest, identity: CandidateIdentity
     ) -> CandidateIdentity:
-        plan = release_plan(request.root, request.channel)
         self.operations.doctor_credentials(request)
         self.operations.validate_sparkle_build_number(request, identity)
-        self.operations.verify_dependency_receipt(request)
-        self.operations.run_focused_release_tests(request, plan)
-        for gate in plan.source_gates:
-            self.operations.run_source_gate(request, gate)
         self.operations.ensure_annotated_tag(request, identity)
         self.operations.wait_exact_sha_ci(request, identity)
         self.operations.doctor_credentials(request)
@@ -340,37 +296,6 @@ class ReleaseCoordinator:
         self.operations.resume_publish(request, identity)
         self.operations.independent_verify(request, identity)
         return identity
-
-    def execute(self, request: ReleaseRequest) -> CandidateIdentity:
-        plan = release_plan(request.root, request.channel)
-        active = request
-        self.operations.verify_source_history(active)
-        if request.mode == "prepare":
-            self.operations.doctor_credentials(active)
-            self.operations.doctor_package(active, plan)
-            self.operations.validate_sparkle_build_number(active)
-            self.operations.verify_dependency_receipt(active)
-            self.operations.run_focused_release_tests(active, plan)
-            for gate in plan.source_gates:
-                self.operations.run_source_gate(active, gate)
-            receipt = self.operations.package_only(active)
-            active = replace(active, receipt=receipt)
-        elif request.mode != "resume":
-            raise ReleaseError(f"unknown release mode: {request.mode}")
-        else:
-            self.operations.doctor_credentials(active)
-
-        identity = self.operations.verify_candidate_receipt(active)
-        if request.mode == "resume":
-            self.operations.validate_sparkle_build_number(active, identity)
-        self.operations.ensure_annotated_tag(active, identity)
-        self.operations.wait_exact_sha_ci(active, identity)
-        self.operations.doctor_credentials(active)
-        self.operations.validate_sparkle_build_number(active, identity)
-        self.operations.resume_publish(active, identity)
-        self.operations.independent_verify(active, identity)
-        return identity
-
 
 def _read_bounded_json(path: Path, label: str) -> dict[str, Any]:
     try:
@@ -536,12 +461,14 @@ def sanitized_package_environment(environment: dict[str, str]) -> dict[str, str]
         "NOTARY_PROFILE",
         "SPARKLE_ED_KEY",
     )
-    return {
+    sanitized = {
         key: value
         for key, value in environment.items()
         if key not in exact
         and not any(fragment in key.upper() for fragment in fragments)
     }
+    sanitized[RELEASE_PYTHON_ENV] = sys.executable
+    return sanitized
 
 
 def sanitized_publish_environment(environment: dict[str, str]) -> dict[str, str]:
@@ -555,7 +482,7 @@ def sanitized_publish_environment(environment: dict[str, str]) -> dict[str, str]
         "TEAM_ID",
         COORDINATOR_CAPABILITY_ENV,
     }
-    return {
+    sanitized = {
         key: value
         for key, value in environment.items()
         if key not in forbidden
@@ -568,6 +495,8 @@ def sanitized_publish_environment(environment: dict[str, str]) -> dict[str, str]
             )
         )
     }
+    sanitized[RELEASE_PYTHON_ENV] = sys.executable
+    return sanitized
 
 
 def candidate_release_dir(root: Path, channel: str, commit: str) -> Path:
@@ -590,7 +519,6 @@ def debug_plan(root: Path) -> tuple[list[list[str]], Path]:
     app = root / "build" / "Debug" / profile.appBundleFilename
     return (
         [
-            ["swift", "test", "--filter", "ReleaseBuildConfigurationTests"],
             ["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"],
             [
                 "/bin/bash",
@@ -805,7 +733,7 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
         environment,
         credentialless=True,
     )
-    package_operations.doctor_package(request, release_plan(root, "preview"))
+    package_operations.doctor_package(request)
     print("Package readiness: READY")
 
     selected_profile_path = (
@@ -1611,7 +1539,7 @@ class LocalReleaseOperations:
             command.extend(["--sparkle-ed-key-file", str(request.sparkle_ed_key_file)])
         self.runner.run(command)
 
-    def doctor_package(self, request: ReleaseRequest, _plan: ReleasePlan) -> None:
+    def doctor_package(self, request: ReleaseRequest) -> None:
         # This is the coordinator's request-level gate. The builder repeats the
         # Doctor at its destructive mutation boundary as defense for direct use.
         archive, derived, release_dir = self._paths(request)
@@ -1643,29 +1571,6 @@ class LocalReleaseOperations:
                 request.github_repository,
             ]
         )
-
-    def verify_dependency_receipt(self, request: ReleaseRequest) -> None:
-        verify_dependency_receipt_file(self.root, request.dependency_receipt)
-
-    def run_focused_release_tests(
-        self, _request: ReleaseRequest, plan: ReleasePlan
-    ) -> None:
-        python = self.root / ".ci-python/bin/python"
-        executable = str(python if python.is_file() else Path(sys.executable))
-        self.runner.run(
-            [executable, "-B", "-m", "unittest", *plan.focused_release_tests]
-        )
-
-    def run_source_gate(self, _request: ReleaseRequest, gate: SourceGate) -> None:
-        command = [
-            "/bin/bash",
-            str(self.root / "scripts/full-suite-gate.sh"),
-            "--tier",
-            gate.tier,
-        ]
-        if gate.require_tools:
-            command.append("--require-tools")
-        self.runner.run(command)
 
     def package_only(self, request: ReleaseRequest) -> Path:
         archive, derived, release_dir = self._paths(request)

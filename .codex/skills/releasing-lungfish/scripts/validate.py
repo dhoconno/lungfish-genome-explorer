@@ -29,9 +29,6 @@ REQUIRED_FILES = (
     ".github/workflows/ci.yml",
     "scripts/tests/test_sparkle_release_packaging.py",
     "scripts/tests/test_release_smoke.py",
-    "scripts/full-suite-gate.sh",
-    "scripts/testing/run-macos-xcui.sh",
-    "scripts/tests/test_full_suite_gate_tiers.py",
 )
 
 PUBLIC_COMMANDS = ("debug", "doctor", "package", "publish")
@@ -168,28 +165,22 @@ def validate_debug_plan(
     contract: dict[str, object],
     repo_root: Path,
     errors: list[str],
-) -> str:
+) -> None:
     if plan is None:
-        return ""
+        return
     commands, app = plan
     profiles = contract.get("buildProfiles", {})
     debug = profiles.get("debug", {}) if isinstance(profiles, dict) else {}
     filename = debug.get("appBundleFilename") if isinstance(debug, dict) else None
     expected_app = repo_root / "build/Debug" / str(filename)
     valid = (
-        len(commands) == 3
+        len(commands) == 2
         and commands[0] == [
-            "swift",
-            "test",
-            "--filter",
-            "ReleaseBuildConfigurationTests",
-        ]
-        and commands[1] == [
             "/bin/bash",
             str(repo_root / "scripts/build-app.sh"),
             "--debug",
         ]
-        and commands[2] == [
+        and commands[1] == [
             "/bin/bash",
             str(repo_root / "scripts/smoke-test-debug-app.sh"),
             str(expected_app),
@@ -200,16 +191,13 @@ def validate_debug_plan(
     )
     if not valid:
         errors.append(
-            "release.py Debug plan must run the focused static gate, internal Debug assembly, then relocation smoke"
+            "release.py Debug plan must run internal Debug assembly then relocation smoke"
         )
-        return ""
-    return commands[0][-1]
 
 
 def validate_debug_authorities(
     texts: dict[str, str],
     contract: dict[str, object],
-    static_gate: str,
     errors: list[str],
 ) -> None:
     profiles = contract.get("buildProfiles", {})
@@ -223,7 +211,6 @@ def validate_debug_authorities(
         str(debug.get("bundleName", "")),
         str(debug.get("bundleIdentifier", "")),
         str(debug.get("releaseChannel", "")),
-        static_gate,
     )
     contradiction_patterns = (
         r"(?:carries\s+no\s+signature|signature\s*:\s*none)",
@@ -285,7 +272,7 @@ def validate_contract(repo_root: Path, errors: list[str]) -> dict[str, object]:
             "appBundleFilename": "Lungfish Preview.app",
             "displayName": "Lungfish Genome Explorer Preview",
             "bundleName": "Lungfish Preview",
-            "bundleIdentifier": "com.lungfish.browser",
+            "bundleIdentifier": "com.lungfish.browser.preview",
             "releaseChannel": "preview",
             "sparkleRelease": "sparkle-beta",
             "appcastFilename": "appcast-beta.xml",
@@ -384,7 +371,6 @@ def validate_authority_texts(
     repo_root: Path,
     skill_root: Path,
     contract: dict[str, object],
-    static_gate: str,
     errors: list[str],
 ) -> None:
     texts: dict[str, str] = {}
@@ -412,6 +398,8 @@ def validate_authority_texts(
                 break
         if re.search(r"(?:exactly|requires?|pin(?:ned)? to|select)\s+Xcode\s+26\.4\.1", text, re.IGNORECASE):
             errors.append(f"{relative} incorrectly exact-pins Xcode instead of using the supported range")
+        if ".ci-python" in text:
+            errors.append(f"{relative} incorrectly requires a test virtualenv on a release Mac")
 
     skill_text = texts[".codex/skills/releasing-lungfish/SKILL.md"]
     for marker in ("YYYY.M.PATCH", "docs/release-notes/<version>.md"):
@@ -432,23 +420,24 @@ def validate_authority_texts(
             ("appcast-stable.xml", "Stable appcast"),
             ("sparkle-alpha", "legacy Alpha bridge"),
             ("appcast-alpha.xml", "legacy Alpha appcast"),
-            ("com.lungfish.browser", "shared bundle identifier"),
+            ("com.lungfish.browser.preview", "Preview bundle identifier"),
+            ("com.lungfish.browser", "Stable bundle identifier"),
             ("side-by-side", "side-by-side installation"),
-            ("not fully independent", "shared bundle identifier caveat"),
-            ("simultaneous execution is not promised", "simultaneous execution caveat"),
+            ("independent", "independent bundle identity semantics"),
+            ("one-time manual reinstall", "old Preview reinstall migration"),
         ):
             if marker.lower() not in normalized.lower():
                 errors.append(f"{relative} omits canonical {label} semantics")
         if re.search(r"(?:both|preview and stable)[^\n.]{0,120}Lungfish\.app[^\n.]{0,120}(?:replace|cannot|no side-by-side)", text, re.IGNORECASE):
             errors.append(f"{relative} contains the old same-name replacement claim; Preview and Stable are side-by-side by wrapper path")
-        if "Launch Services/defaults/TCC/state are fully independent" in normalized:
-            errors.append(f"{relative} falsely claims the shared bundle identifier makes state fully independent")
+        if re.search(r"(?:both|preview and stable)[^\n.]{0,120}(?:retain|use)[^\n.]{0,40}com\.lungfish\.browser(?:`|\s|;)", text, re.IGNORECASE):
+            errors.append(f"{relative} falsely claims Preview and Stable share a bundle identifier")
 
     agent = texts[".codex/agents/release-agent.md"]
     mirror = texts["agents/definitions/codex/release-agent.md"]
     if agent != mirror:
         errors.append("Release agent copies must be byte-identical")
-    validate_debug_authorities(texts, contract, static_gate, errors)
+    validate_debug_authorities(texts, contract, errors)
 
 
 def workflow_job(text: str, name: str) -> str:
@@ -582,13 +571,12 @@ def main() -> int:
 
     contract = validate_contract(repo_root, errors)
     debug_plan = load_debug_plan(repo_root, errors)
-    static_gate = validate_debug_plan(debug_plan, contract, repo_root, errors)
+    validate_debug_plan(debug_plan, contract, repo_root, errors)
     validate_frontdoor(repo_root, errors)
     validate_authority_texts(
         repo_root,
         skill_root,
         contract,
-        static_gate,
         errors,
     )
     validate_ci_and_nightly(repo_root, errors)

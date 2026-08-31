@@ -26,9 +26,9 @@ from the pinned package dependency.
 Doctor reports package and publish readiness separately. A fresh Mac needs full
 Xcode `>=26.4.1,<27` with first launch complete, Swift `>=6.2,<7`, SDK 26,
 deployment target 26.0, arm64, 20 GiB free on cache and output volumes, Git,
-Bash, ripgrep, Python 3.11+, `gh`, a `.ci-python` containing the CI-listed
-focused/full gate dependencies, the Developer ID certificate/private key, a
+Bash, ripgrep, Python 3.11+, `gh`, the Developer ID certificate/private key, a
 notary Keychain profile, the Sparkle Keychain key, and the strict JSON profile.
+The release runtime uses only the Python standard library.
 Doctor does not install or repair these inputs and no manual `xcode-select`
 workaround is part of the release procedure.
 
@@ -40,19 +40,18 @@ workaround is part of the release procedure.
 - Stable: `Lungfish.app`, `Lungfish Genome Explorer`,
   `sparkle-stable/appcast-stable.xml`, full GitHub release.
 
-Both retain `com.lungfish.browser` for Sparkle continuity. Distinct wrapper
-paths, names, feeds, and updater hosts permit side-by-side installation, but
-Launch Services, defaults, TCC, and other identifier-keyed state are not fully
-independent; simultaneous execution is not promised. A Preview copy already
-installed as `Lungfish.app` updates in place until manually reinstalled from a
-current Preview DMG.
+Preview uses `com.lungfish.browser.preview`; Stable retains
+`com.lungfish.browser`. Distinct identifiers, wrapper paths, names, feeds, and
+updater hosts make installation, launch, updates, and identifier-keyed state
+independent during side-by-side use. Older Preview builds require a one-time manual reinstall from a
+current Preview DMG and manual migration of any desired Preview settings.
 
 ## Transaction and cache ledger
 
-Package is credentialless. It runs package Doctor, focused tests and
-contract-selected channel gates, then writes and verifies the candidate under
+Package is credentialless. It checks source and package Doctor, assembles and
+smoke/portability-checks the actual artifact, then writes and verifies it under
 `build/Release/<channel>/<40-hex-commit>/`. Publish verifies that receipt before
-loading credentials, repeats dependency/source/channel/credential/feed gates,
+loading credentials, checks credentials and feed floors,
 pushes the annotated tag, waits for the required exact-SHA CI jobs, repeats
 live readiness, signs without rebuilding, notarizes, staples, publishes, and
 independently verifies. Preview uses strict Alpha/Beta live floors; Stable also

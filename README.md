@@ -148,9 +148,8 @@ python3 scripts/release/release.py publish preview|stable [--profile PATH]
 
 ### Debug build
 
-Run only `python3 scripts/release/release.py debug`. It runs the focused
-`ReleaseBuildConfigurationTests` static gate, internal
-assembly, and relocation/self-containment validation. It produces the locally
+Run only `python3 scripts/release/release.py debug`. It performs internal
+assembly and relocation/self-containment validation of the actual app. It produces the locally
 ad-hoc-signed, not notarized `build/Debug/Lungfish Debug.app` with display name
 `Lungfish Genome Explorer Debug`, bundle name `Lungfish Debug`, identifier
 `com.lungfish.browser.debug`, and channel `debug`. It is not a release, is not

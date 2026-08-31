@@ -1,5 +1,6 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import threading
@@ -46,7 +47,7 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
                 encoding="utf-8",
             )
             return subprocess.run(
-                ["python3", str(SCRIPT), "--planned", planned, "--appcast", str(appcast)],
+                [sys.executable, str(SCRIPT), "--planned", planned, "--appcast", str(appcast)],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -60,7 +61,7 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
             url = f"http://127.0.0.1:{server.server_port}{path}"
             return subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     str(SCRIPT),
                     "--planned",
                     "4025",

@@ -31,9 +31,8 @@ board remains defense-in-depth after publication. See
 
 ## Debug build
 
-Run only `python3 scripts/release/release.py debug`. It runs the focused
-`ReleaseBuildConfigurationTests` static gate, internal Debug assembly, and
-relocation/self-containment validation; it does not claim a whole unit-tier run.
+Run only `python3 scripts/release/release.py debug`. It performs internal Debug
+assembly and relocation/self-containment validation of the actual app.
 The result is the locally ad-hoc-signed, non-notarized
 `build/Debug/Lungfish Debug.app`, displaying `Lungfish Genome Explorer Debug`
 with bundle name `Lungfish Debug`, identifier `com.lungfish.browser.debug`, and

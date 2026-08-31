@@ -38,13 +38,12 @@ fresh command evidence.
   `sparkle-alpha/appcast-alpha.xml`, GitHub prerelease.
 - Stable: `Lungfish.app`, `Lungfish Genome Explorer`, bundle name `Lungfish`,
   `sparkle-stable/appcast-stable.xml`, full GitHub release.
-- Both retain `com.lungfish.browser` for Sparkle continuity. Distinct wrapper
-  paths, names, feeds, and updater hosts permit side-by-side installation, but
-  Launch Services, defaults, TCC, and other identifier-keyed state are not fully
-  independent, and simultaneous execution is not promised.
-- A Preview installation created before the wrapper rename remains at
-  `Lungfish.app` through in-place Sparkle updates until manually reinstalled
-  from a current Preview DMG.
+- Preview uses `com.lungfish.browser.preview`; Stable retains
+  `com.lungfish.browser`. Distinct identifiers, wrapper paths, feeds, and updater
+  hosts make installation, launch, updates, and identifier-keyed state
+  independent during side-by-side use.
+- Older Preview installations require a one-time manual reinstall from a
+  current Preview DMG and manual migration of any desired Preview settings.
 
 Preview notes and About text require: “Preview builds are under rapid iterative
 development. Features may be incomplete, change quickly, or require additional
@@ -71,8 +70,8 @@ Use full Xcode `>=26.4.1,<27`, Swift `>=6.2,<7`, macOS SDK major 26, deployment
 target 26.0, arm64, and 20 GiB free on cache and output volumes. Do not prescribe
 an exact Xcode patch or manual `xcode-select` workaround.
 
-Fresh Macs also need Git, Bash, ripgrep, Python 3.11+, `gh`, and `.ci-python`
-with CI's focused/full gate packages; the certificate/private key, notary
+Fresh Macs also need Git, Bash, ripgrep, Python 3.11+, and `gh`; the release
+runtime uses only the Python standard library. The certificate/private key, notary
 profile, Sparkle Keychain key, and strict JSON profile must be provisioned
 before publish Doctor. The repository does not install these prerequisites.
 
@@ -87,13 +86,12 @@ and never installs or repairs prerequisites.
 ## Transaction
 
 Run `package` before `publish`. Package is credentialless: it runs package
-Doctor, focused tests, the contract-selected gates, internal unsigned assembly,
+Doctor, internal unsigned assembly, actual-artifact portability/smoke checks,
 and exact receipt verification. The candidate lives at
-`build/Release/<channel>/<40-hex-commit>/`; Preview gates are unit+integration,
-and Stable gates are full+conformance with required tools.
+`build/Release/<channel>/<40-hex-commit>/`.
 
-Publish verifies that exact receipt before loading the profile, then repeats
-source/dependency/focused/channel/credential/feed checks. It creates and pushes
+Publish verifies current source history and that exact receipt before loading
+the profile, then checks credentials and feed floors. It creates and pushes
 the annotated tag, waits for the required CI jobs on the exact tagged SHA,
 rechecks credentials and live feed floors, signs without rebuilding, notarizes,
 staples, publishes the immutable versioned DMG, updates the selected mutable
@@ -114,10 +112,9 @@ deletes cache namespaces or candidates.
 
 ## Evidence
 
-Before release mutation run the authority validator, `git diff --check`, focused
-release tests, old-version scans, dependency receipt verification, and channel
-gate tiers. Final evidence names the channel, version/tag/commit and GitHub URL,
+Before release mutation run the authority validator, `git diff --check`, and
+old-version scans. Final evidence names the channel, version/tag/commit and GitHub URL,
 candidate receipt, archive/app/DMG absolute paths, SHA-256, signature/notary/
 staple results, exact bundle metadata and feed URL, selected Sparkle feed and
-Preview bridge, exact-SHA CI jobs, every local gate and PASS line, repository
+Preview bridge, exact-SHA CI jobs, artifact smoke/portability, repository
 cleanliness, retained work, and unresolved blockers.
