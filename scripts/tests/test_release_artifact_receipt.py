@@ -253,6 +253,41 @@ class ReleasePortabilityScannerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(result.stdout, "PASS portability\n")
 
+    def test_default_release_cache_root_allows_exact_cli_fallback(self):
+        with tempfile.TemporaryDirectory(
+            prefix="lungfish-release-cache-test-", dir="/private/var/tmp"
+        ) as cache_dir, tempfile.TemporaryDirectory() as app_dir:
+            cache_root = Path(cache_dir)
+            scratch = cache_root / "v1" / "fingerprint" / "namespace" / "swiftpm"
+            scratch.mkdir(parents=True)
+            fallback = scratch / SWIFTPM_RESOURCE_SUFFIX
+            app = self._make_app(Path(app_dir))
+            cli = app / "Contents" / "MacOS" / "lungfish-cli"
+            cli.write_bytes(b"mach-o\x00" + os.fsencode(fallback) + b"\x00")
+
+            environment = os.environ.copy()
+            environment["LUNGFISH_RELEASE_SCRATCH_ROOT"] = str(
+                Path("/private/var/tmp/lungfish-release-swiftpm")
+            )
+            environment["LUNGFISH_RELEASE_CACHE_ROOT"] = str(cache_root)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(self.scanner),
+                    str(app),
+                    "--allowed-swiftpm-fallback",
+                    str(scratch),
+                ],
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "PASS portability\n")
+
     def test_custom_fallback_rejects_non_record_boundaries(self):
         with tempfile.TemporaryDirectory(
             prefix="lungfish-custom-", dir="/private/var/tmp"

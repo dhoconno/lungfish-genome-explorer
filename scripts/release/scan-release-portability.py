@@ -15,6 +15,7 @@ from release_cache_security import CacheSecurityError, validate_ancestor_chain
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCRATCH_ROOT = Path("/private/var/tmp/lungfish-release-swiftpm")
+DEFAULT_CACHE_ROOT = Path("/private/var/tmp/lungfish-release-cache")
 CHUNK_SIZE = 1024 * 1024
 MAX_EVIDENCE = 20
 CLI_RELATIVE_PATH = Path("Contents/MacOS/lungfish-cli")
@@ -94,15 +95,37 @@ def _trusted_scratch_path(path: Path) -> Path:
     if not path.is_absolute():
         raise ScanError("allowed SwiftPM fallback scratch path must be absolute")
     normalized = Path(os.path.abspath(path))
-    configured_root = Path(
-        os.environ.get("LUNGFISH_RELEASE_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT))
-    ).expanduser()
-    if not configured_root.is_absolute():
+    configured_roots = (
+        Path(
+            os.environ.get(
+                "LUNGFISH_RELEASE_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT)
+            )
+        ).expanduser(),
+        Path(
+            os.environ.get(
+                "LUNGFISH_RELEASE_CACHE_ROOT", str(DEFAULT_CACHE_ROOT)
+            )
+        ).expanduser(),
+    )
+    if any(not root.is_absolute() for root in configured_roots):
         raise ScanError("configured release scratch root is not trusted")
-    configured_root = Path(os.path.abspath(configured_root))
+    configured_roots = tuple(
+        Path(os.path.abspath(root)) for root in configured_roots
+    )
+
+    matching_root = next(
+        (
+            root
+            for root in configured_roots
+            if _is_same_or_descendant(normalized, root)
+        ),
+        None,
+    )
+    if matching_root is None:
+        raise ScanError("allowed SwiftPM fallback scratch path is not trusted")
 
     try:
-        validate_ancestor_chain(configured_root, expected_uid=os.geteuid())
+        validate_ancestor_chain(matching_root, expected_uid=os.geteuid())
         validate_ancestor_chain(normalized, expected_uid=os.geteuid())
     except CacheSecurityError as error:
         raise ScanError(
@@ -128,8 +151,7 @@ def _trusted_scratch_path(path: Path) -> Path:
     )
     encoded = os.fsencode(normalized)
     if (
-        not _is_same_or_descendant(normalized, configured_root)
-        or any(_is_same_or_descendant(normalized, root) for root in forbidden_roots)
+        any(_is_same_or_descendant(normalized, root) for root in forbidden_roots)
         or any(pattern in encoded for pattern in forbidden_scratch_patterns)
     ):
         raise ScanError("allowed SwiftPM fallback scratch path is not trusted")
