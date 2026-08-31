@@ -773,6 +773,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--channel",
             "preview",
             extra_env={
+                "PATH": f"{self.fixture.bin}:/usr/bin:/bin:/usr/sbin:/sbin",
                 "SPARKLE_GENERATE_APPCAST": str(self.fixture.bin / "must-not-run"),
                 "SPARKLE_ED_KEY_FILE": str(self.fixture.root / "private-key"),
             },

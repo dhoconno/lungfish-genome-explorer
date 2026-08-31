@@ -64,7 +64,7 @@ LEGACY_MANAGED_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/ManagedTools"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 APP_ICON_PATH="$APP_PATH/Contents/Resources/AppIcon.icns"
 CLI_BIN="$APP_PATH/Contents/MacOS/lungfish-cli"
-RG_BIN="$(command -v rg || true)"
+GREP_BIN="/usr/bin/grep"
 
 if [ ! -d "$TOOLS_DIR" ] && [ -d "$LEGACY_TOOLS_DIR" ]; then
     TOOLS_DIR="$LEGACY_TOOLS_DIR"
@@ -84,8 +84,8 @@ if [ ! -d "$MANAGED_TOOLS_DIR" ]; then
     exit 66
 fi
 
-if [ -z "$RG_BIN" ]; then
-    echo "missing required command: rg" >&2
+if [ ! -x "$GREP_BIN" ]; then
+    echo "missing required command: $GREP_BIN" >&2
     exit 69
 fi
 
@@ -183,7 +183,7 @@ for retired_tool in \
     '"name": "sra-human-scrubber"' \
     '"name": "sra-tools"'
 do
-    if "$RG_BIN" -F -q "$retired_tool" "$TOOLS_DIR/tool-versions.json"; then
+    if "$GREP_BIN" -F -q -- "$retired_tool" "$TOOLS_DIR/tool-versions.json"; then
         echo "tool metadata still references retired tool: $retired_tool" >&2
         exit 66
     fi
@@ -204,18 +204,18 @@ for retired_tool in \
     prefetch \
     aligns_to
 do
-    if "$RG_BIN" -F -q "$retired_tool" "$TOOLS_DIR/VERSIONS.txt"; then
+    if "$GREP_BIN" -F -q -- "$retired_tool" "$TOOLS_DIR/VERSIONS.txt"; then
         echo "version summary still references retired tool: $retired_tool" >&2
         exit 66
     fi
 done
 
-if ! "$RG_BIN" -F -q '"name": "micromamba"' "$TOOLS_DIR/tool-versions.json"; then
+if ! "$GREP_BIN" -F -q -- '"name": "micromamba"' "$TOOLS_DIR/tool-versions.json"; then
     echo "tool metadata missing micromamba entry" >&2
     exit 66
 fi
 
-if ! "$RG_BIN" -F -q -- "- micromamba:" "$TOOLS_DIR/VERSIONS.txt"; then
+if ! "$GREP_BIN" -F -q -- "- micromamba:" "$TOOLS_DIR/VERSIONS.txt"; then
     echo "version summary missing micromamba entry" >&2
     exit 66
 fi
@@ -320,7 +320,7 @@ if [ ! -s "$TMP_DIR/.lungfish-provenance.json" ]; then
     exit 66
 fi
 
-if ! "$RG_BIN" -F -q "lungfish fastq qc-summary" "$QC_OUTPUT.lungfish-provenance.json"; then
+if ! "$GREP_BIN" -F -q -- "lungfish fastq qc-summary" "$QC_OUTPUT.lungfish-provenance.json"; then
     echo "CLI QC smoke provenance does not identify qc-summary workflow" >&2
     exit 66
 fi

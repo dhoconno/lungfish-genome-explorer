@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -966,6 +967,15 @@ class RunnerAndCITests(unittest.TestCase):
             encoding="utf-8"
         )
 
+    def workflow_job(self, name):
+        match = re.search(
+            rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+            self.workflow,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(match, f"missing workflow job: {name}")
+        return match.group("body")
+
     def test_runner_has_exact_suites_pipe_statuses_and_same_worktree(self):
         self.assertIn("ci-focused)", self.runner)
         self.assertIn("focused)", self.runner)
@@ -991,11 +1001,17 @@ class RunnerAndCITests(unittest.TestCase):
         )
 
     def test_ci_uses_full_history_exact_block_and_always_uploads(self):
-        # fast, build-smoke, full, and toolset-conformance jobs each check out
-        # with full history (fetch-depth: 0). The project-storage comparison
-        # itself lives in the dispatch-only build-smoke job, which needs the
-        # full history to check out the baseline sha.
-        self.assertEqual(self.workflow.count("fetch-depth: 0"), 4)
+        checkout_count = self.workflow.count("uses: actions/checkout@")
+        full_history_checkout_count = len(
+            re.findall(
+                r"uses: actions/checkout@[^\n]+\n"
+                r"\s+with:\n"
+                r"\s+fetch-depth: 0(?:\n|$)",
+                self.workflow,
+            )
+        )
+        self.assertGreater(checkout_count, 0)
+        self.assertEqual(full_history_checkout_count, checkout_count)
         self.assertIn(
             'task9_implementation_sha="$(git log --diff-filter=A '
             "--format=%H -1 -- scripts/verification/"
@@ -1012,6 +1028,17 @@ class RunnerAndCITests(unittest.TestCase):
             "report.json",
         ]:
             self.assertIn(f"ci-focused-{suffix}", self.workflow)
+
+    def test_dependency_receipt_job_installs_pinned_bootstrap_before_reconcile(self):
+        job = self.workflow_job("release-dependency-receipt")
+        self.assertIn("- name: Install pinned micromamba bootstrap", job)
+        install_index = job.index("- name: Install pinned micromamba bootstrap")
+        reconcile_index = job.index("- name: Reconcile dependency receipt")
+        self.assertLess(install_index, reconcile_index)
+        command = job[install_index:reconcile_index]
+        self.assertIn("third-party-tools-lock.json", command)
+        self.assertIn("Sources/LungfishWorkflow/Resources/Tools/micromamba", command)
+        self.assertIn("$HOME/.lungfish/conda/bin/micromamba", command)
 
     def test_ci_runs_current_head_ci_focused_storage_gate_separately(self):
         current_head_filter = (

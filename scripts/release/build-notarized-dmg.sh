@@ -1168,7 +1168,7 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         /bin/sleep 0.1
     done
 
-    for command in rg xcodebuild /usr/bin/xcrun /usr/bin/ditto /usr/bin/mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
+    for command in xcodebuild /usr/bin/xcrun /usr/bin/ditto /usr/bin/mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
         require_command "$command"
     done
 

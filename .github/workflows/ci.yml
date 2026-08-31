@@ -226,6 +226,17 @@ jobs:
             ~/.lungfish/dependency-receipt.json
           key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
 
+      - name: Install pinned micromamba bootstrap
+        run: |
+          source="Sources/LungfishWorkflow/Resources/Tools/micromamba"
+          destination="$HOME/.lungfish/conda/bin/micromamba"
+          expected="$(python3 -c 'import json; print(json.load(open("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"))["bootstrap"]["micromamba"]["sha256"]["osx-arm64"])')"
+          actual="$(shasum -a 256 "$source" | awk '{print $1}')"
+          test "$actual" = "$expected"
+          mkdir -p "$(dirname "$destination")"
+          install -m 0755 "$source" "$destination"
+          "$destination" --version
+
       - name: Reconcile dependency receipt
         run: |
           .build/debug/lungfish-cli tools update --apply --yes --required-only

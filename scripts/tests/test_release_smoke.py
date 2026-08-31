@@ -67,10 +67,12 @@ class ReleaseSmokeTests(unittest.TestCase):
 
             result = subprocess.run(
                 ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
+                timeout=30,
             )
 
             self.assertNotEqual(result.returncode, 0)
@@ -82,10 +84,12 @@ class ReleaseSmokeTests(unittest.TestCase):
 
             result = subprocess.run(
                 ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
+                timeout=30,
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)

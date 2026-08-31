@@ -112,7 +112,7 @@ class Doctor:
 
     def _required_commands(self) -> str:
         names = [
-            "bash", "df", "ditto", "git", "mktemp", "plutil", "rg",
+            "bash", "df", "ditto", "git", "mktemp", "plutil",
             "uname", "xcodebuild", "xcrun",
         ]
         if self.args.mode == "credentials":

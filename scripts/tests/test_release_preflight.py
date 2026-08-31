@@ -390,6 +390,14 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(expected, result.stdout + result.stderr)
 
+    def test_package_preflight_needs_only_system_text_search(self):
+        (self.fx.bin / "rg").unlink()
+
+        result = self.fx.run_doctor()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS required commands", result.stdout)
+
     def test_rejects_missing_or_wrong_xcode_selection(self):
         env = {**self.fx.env, "DEVELOPER_DIR": str(self.fx.root / "missing-xcode")}
         self.assert_failure("Xcode selection", env=env)
