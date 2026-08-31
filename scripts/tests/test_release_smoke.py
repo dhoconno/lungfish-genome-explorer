@@ -244,6 +244,44 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Package.resolved divergence", result.stderr)
 
+    def test_package_resolved_guard_requires_xcode_lockfile(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self._write_package_resolved(repo / "Package.resolved", revision="root")
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.lockfile_script), str(repo)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Xcode workspace Package.resolved missing", result.stderr)
+
+    def test_package_resolved_repair_creates_missing_xcode_lockfile(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            root_lockfile = repo / "Package.resolved"
+            xcode_lockfile = (
+                repo
+                / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+            )
+            self._write_package_resolved(root_lockfile, revision="root")
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.lockfile_script), "--repair", str(repo)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(xcode_lockfile.is_file())
+            self.assertEqual(xcode_lockfile.read_bytes(), root_lockfile.read_bytes())
+
     def test_package_resolved_guard_accepts_matching_xcode_lockfile(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)

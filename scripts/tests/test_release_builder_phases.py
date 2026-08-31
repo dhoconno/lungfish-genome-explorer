@@ -102,7 +102,13 @@ class ReleaseBuilderFixture:
             )
             + "\n",
         )
-        self._write(self.repo / "Package.resolved", '{"pins":[],"version":2}\n')
+        fixture_package_resolved = '{"pins":[],"version":2}\n'
+        self._write(self.repo / "Package.resolved", fixture_package_resolved)
+        self._write(
+            self.repo
+            / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+            fixture_package_resolved,
+        )
         self._write(self.repo / "Lungfish.xcodeproj/project.pbxproj", "// fixture\n")
         self._write(self.repo / "lungfish-cli.entitlements", "<plist/>\n")
         self._write(self.repo / ".gitignore", "build/\n")
@@ -1021,7 +1027,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             self.fixture.repo
             / "Lungfish.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
         )
-        xcode_lock.parent.mkdir(parents=True)
+        xcode_lock.parent.mkdir(parents=True, exist_ok=True)
         xcode_lock.write_text('{"pins":[{"identity":"different"}],"version":2}\n')
         original = xcode_lock.read_bytes()
 

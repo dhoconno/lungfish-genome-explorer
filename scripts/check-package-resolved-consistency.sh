@@ -20,10 +20,11 @@ RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"
 # The Xcode project declares its own package requirements (XCRemoteSwiftPackageReference),
 # and an exactVersion there that disagrees with the version the root Package.resolved
 # actually pinned makes xcodebuild fail resolution ("root depends on X a.b.c"). The
-# workspace lockfile is gitignored and reseeded, so this pbxproj drift was the one copy
-# of a pin this script did not check: Sparkle 2.9.6 landed in Package.swift while the
-# pbxproj still demanded 2.9.1, and only the CI xcodebuild step noticed. --repair does
-# not rewrite the pbxproj; drift here is a hard failure to fix in the project file.
+# workspace lockfile is a required tracked release input, so this pbxproj drift was the
+# one copy of a pin this script did not check: Sparkle 2.9.6 landed in Package.swift
+# while the pbxproj still demanded 2.9.1, and only the CI xcodebuild step noticed.
+# --repair does not rewrite the pbxproj; drift here is a hard failure to fix in the
+# project file.
 if [ -f "$PBXPROJ" ] && [ -f "$ROOT_LOCKFILE" ]; then
     mismatches=$("$RELEASE_PYTHON" - "$PBXPROJ" "$ROOT_LOCKFILE" <<'PYEOF'
 import json, re, sys
@@ -55,8 +56,15 @@ if [ ! -f "$ROOT_LOCKFILE" ]; then
 fi
 
 if [ ! -e "$XCODE_LOCKFILE" ]; then
-    printf 'PASS Package.resolved consistency (no Xcode workspace lockfile)\n'
-    exit 0
+    if [ "$REPAIR" -eq 1 ]; then
+        mkdir -p "$(dirname "$XCODE_LOCKFILE")"
+        cp "$ROOT_LOCKFILE" "$XCODE_LOCKFILE"
+        printf 'PASS Package.resolved consistency (created Xcode workspace lockfile)\n'
+        exit 0
+    fi
+    echo "Xcode workspace Package.resolved missing: $XCODE_LOCKFILE" >&2
+    echo "Run scripts/check-package-resolved-consistency.sh --repair to create it from the tracked root lockfile." >&2
+    exit 66
 fi
 
 if [ ! -f "$XCODE_LOCKFILE" ]; then
