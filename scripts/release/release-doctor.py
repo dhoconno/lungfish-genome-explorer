@@ -318,32 +318,37 @@ class Doctor:
         return f"host is {self.toolchain.architecture}"
 
     def _deployment_target(self) -> str:
-        result = self.run_command(
-            [
-                "xcodebuild",
-                "-project",
-                str(ROOT / "Lungfish.xcodeproj"),
-                "-scheme",
-                "Lungfish",
-                "-disableAutomaticPackageResolution",
-                "-showBuildSettings",
-            ]
+        project_file = ROOT / "Lungfish.xcodeproj" / "project.pbxproj"
+        try:
+            project = project_file.read_text(encoding="utf-8")
+        except OSError as error:
+            raise CheckFailure("could not inspect Xcode project build settings") from error
+        return self._deployment_targets_from_project(
+            project,
+            expected=self.toolchain.deploymentTarget,
         )
-        if result.returncode != 0:
-            raise CheckFailure("could not inspect Xcode project build settings")
-        targets = re.findall(
-            r"^\s*MACOSX_DEPLOYMENT_TARGET\s*=\s*(\S+)\s*$", result.stdout, re.MULTILINE
+
+    @staticmethod
+    def _deployment_targets_from_project(project: str, *, expected: str) -> str:
+        setting_pattern = re.compile(
+            r'^[ \t]*(?:"MACOSX_DEPLOYMENT_TARGET(?:\[[^"\]\r\n]+\])?"'
+            r'|MACOSX_DEPLOYMENT_TARGET(?:\[[^\]\r\n]+\])?)'
+            r"\s*=\s*([^;\r\n]+);",
+            re.MULTILINE,
         )
-        if not targets:
+        targets = [
+            value.strip().strip('"')
+            for value in setting_pattern.findall(project)
+        ]
+        occurrence_count = project.count("MACOSX_DEPLOYMENT_TARGET")
+        if not targets or len(targets) != occurrence_count:
             raise CheckFailure("project did not report MACOSX_DEPLOYMENT_TARGET")
-        unexpected = sorted(
-            {value for value in targets if value != self.toolchain.deploymentTarget}
-        )
+        unexpected = sorted({value for value in targets if value != expected})
         if unexpected:
             raise CheckFailure(
-                f"expected {self.toolchain.deploymentTarget} for every inspected target"
+                f"expected {expected} for every inspected target"
             )
-        return f"all inspected targets use {self.toolchain.deploymentTarget}"
+        return f"all committed project build configurations use {expected}"
 
     @staticmethod
     def _validate_cache_metadata(

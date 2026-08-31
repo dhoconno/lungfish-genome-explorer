@@ -120,6 +120,7 @@ class ReleaseDoctorFixture:
                 elif [[ " $* " == *" -checkFirstLaunchStatus "* ]]; then
                   [ "$STUB_FIRST_LAUNCH_OK" = 1 ]
                 elif [[ " $* " == *" -showBuildSettings "* ]]; then
+                  [ "${STUB_REJECT_SHOW_BUILD_SETTINGS:-0}" != 1 ] || exit 86
                   if [ -n "${STUB_PACKAGE_LOCK_SENTINEL:-}" ] \
                     && [[ " $* " != *" -disableAutomaticPackageResolution "* ]]; then
                     printf 'mutated\\n' >"$STUB_PACKAGE_LOCK_SENTINEL"
@@ -390,6 +391,22 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(expected, result.stdout + result.stderr)
 
+    def load_doctor_module(self):
+        sys.path.insert(0, str(DOCTOR.parent))
+        try:
+            spec = importlib.util.spec_from_file_location("release_doctor_unit", DOCTOR)
+            self.assertIsNotNone(spec)
+            self.assertIsNotNone(spec.loader)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                sys.modules.pop(spec.name, None)
+            return module
+        finally:
+            sys.path.pop(0)
+
     def test_package_preflight_needs_only_system_text_search(self):
         (self.fx.bin / "rg").unlink()
 
@@ -475,15 +492,37 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assert_failure("host architecture", env=env)
 
     def test_rejects_project_deployment_target_mismatch(self):
-        env = {**self.fx.env, "STUB_DEPLOYMENT_TARGET": "15.0"}
-        self.assert_failure("deployment target", env=env)
+        module = self.load_doctor_module()
+        self.assertTrue(hasattr(module.Doctor, "_deployment_targets_from_project"))
+        with self.assertRaises(module.CheckFailure):
+            module.Doctor._deployment_targets_from_project(
+                """
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                "MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 15.0;
+                """,
+                expected="26.0",
+            )
 
-    def test_deployment_inspection_cannot_mutate_package_lock_state(self):
+    def test_rejects_non_setting_deployment_target_occurrences(self):
+        module = self.load_doctor_module()
+        for project in (
+            "// MACOSX_DEPLOYMENT_TARGET = 26.0;",
+            "FOOMACOSX_DEPLOYMENT_TARGET = 26.0;",
+        ):
+            with self.subTest(project=project):
+                with self.assertRaises(module.CheckFailure):
+                    module.Doctor._deployment_targets_from_project(
+                        project,
+                        expected="26.0",
+                    )
+
+    def test_deployment_inspection_does_not_resolve_packages(self):
         lock_sentinel = self.fx.root / "workspace-Package.resolved"
         lock_sentinel.write_text("original\n", encoding="utf-8")
         env = {
             **self.fx.env,
             "STUB_PACKAGE_LOCK_SENTINEL": str(lock_sentinel),
+            "STUB_REJECT_SHOW_BUILD_SETTINGS": "1",
         }
 
         result = self.fx.run_doctor(env=env)
