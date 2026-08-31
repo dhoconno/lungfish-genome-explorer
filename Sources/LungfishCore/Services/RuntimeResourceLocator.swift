@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import MachO
 
 public enum RuntimeResourceTarget: String, Sendable {
     case app
@@ -52,25 +53,27 @@ public enum RuntimeResourceTarget: String, Sendable {
 public enum RuntimeResourceLocator {
 
     public static func path(_ relativePath: String, in target: RuntimeResourceTarget) -> URL? {
-        path(
+        return path(
             relativePath,
             in: target,
             mainResourceURL: Bundle.main.resourceURL,
             executableURL: defaultExecutableURL(),
             currentWorkingDirectoryURL: defaultCurrentWorkingDirectoryURL(fileManager: .default),
             fileManager: .default,
-            allowSourceFallback: false
+            allowSourceFallback: false,
+            testBundleURLs: loadedTestBundleURLs()
         )
     }
 
     public static func resourceRoots(for target: RuntimeResourceTarget) -> [URL] {
-        resourceRoots(
+        return resourceRoots(
             for: target,
             mainResourceURL: Bundle.main.resourceURL,
             executableURL: defaultExecutableURL(),
             currentWorkingDirectoryURL: defaultCurrentWorkingDirectoryURL(fileManager: .default),
             fileManager: .default,
-            allowSourceFallback: false
+            allowSourceFallback: false,
+            testBundleURLs: loadedTestBundleURLs()
         )
     }
 
@@ -81,7 +84,8 @@ public enum RuntimeResourceLocator {
         executableURL: URL?,
         currentWorkingDirectoryURL: URL?,
         fileManager: FileManager,
-        allowSourceFallback: Bool = false
+        allowSourceFallback: Bool = false,
+        testBundleURLs: [URL] = []
     ) -> URL? {
         guard isSafeRelativePath(relativePath) else { return nil }
 
@@ -91,7 +95,8 @@ public enum RuntimeResourceLocator {
             executableURL: executableURL,
             currentWorkingDirectoryURL: currentWorkingDirectoryURL,
             fileManager: fileManager,
-            allowSourceFallback: allowSourceFallback
+            allowSourceFallback: allowSourceFallback,
+            testBundleURLs: testBundleURLs
         ) {
             let canonicalRoot = resourceRoot.resolvingSymlinksInPath().standardizedFileURL
             let candidate = canonicalRoot
@@ -112,7 +117,8 @@ public enum RuntimeResourceLocator {
         executableURL: URL?,
         currentWorkingDirectoryURL: URL?,
         fileManager: FileManager,
-        allowSourceFallback: Bool = false
+        allowSourceFallback: Bool = false,
+        testBundleURLs: [URL] = []
     ) -> [URL] {
         var roots: [URL] = []
         var seenPaths = Set<String>()
@@ -120,7 +126,7 @@ public enum RuntimeResourceLocator {
            containsCaseAliasedAppBundle(mainResourceURL) || containsCaseAliasedAppBundle(executableURL) {
             return []
         }
-        let appBundleURL = allowSourceFallback
+        let appBundleURL = allowSourceFallback || !testBundleURLs.isEmpty
             ? nil
             : (containingAppBundle(mainResourceURL) ?? containingAppBundle(executableURL))
         let rawAppResourcesURL = appBundleURL?
@@ -187,6 +193,73 @@ public enum RuntimeResourceLocator {
             }
         }
 
+        func appendTestBundleRoots(for testBundleURL: URL) {
+            let rawTestBundleURL = testBundleURL.standardizedFileURL
+            guard rawTestBundleURL.pathExtension == "xctest",
+                  let testBundleAttributes = try? fileManager.attributesOfItem(
+                    atPath: rawTestBundleURL.path
+                  ),
+                  testBundleAttributes[.type] as? FileAttributeType == .typeDirectory else {
+                return
+            }
+
+            let rawProductsURL = rawTestBundleURL.deletingLastPathComponent()
+            guard let productsAttributes = try? fileManager.attributesOfItem(
+                atPath: rawProductsURL.path
+            ),
+            productsAttributes[.type] as? FileAttributeType == .typeDirectory else {
+                return
+            }
+
+            let canonicalProductsURL = rawProductsURL
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            let canonicalTestBundleURL = rawTestBundleURL
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            guard canonicalTestBundleURL.deletingLastPathComponent().path
+                    == canonicalProductsURL.path else {
+                return
+            }
+
+            for bundleName in target.bundleNameHints {
+                let rawBundleURL = rawProductsURL.appendingPathComponent(
+                    bundleName,
+                    isDirectory: true
+                )
+                guard let bundleAttributes = try? fileManager.attributesOfItem(
+                    atPath: rawBundleURL.path
+                ),
+                bundleAttributes[.type] as? FileAttributeType == .typeDirectory else {
+                    continue
+                }
+
+                let canonicalBundleURL = rawBundleURL
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+                guard canonicalBundleURL.deletingLastPathComponent().path
+                        == canonicalProductsURL.path else {
+                    continue
+                }
+
+                let rawNestedResourcesURL = rawBundleURL
+                    .appendingPathComponent("Contents", isDirectory: true)
+                    .appendingPathComponent("Resources", isDirectory: true)
+                if let resourceAttributes = try? fileManager.attributesOfItem(
+                    atPath: rawNestedResourcesURL.path
+                ),
+                resourceAttributes[.type] as? FileAttributeType == .typeDirectory {
+                    let canonicalNestedResourcesURL = rawNestedResourcesURL
+                        .resolvingSymlinksInPath()
+                        .standardizedFileURL
+                    if isStrictDescendant(canonicalNestedResourcesURL, of: canonicalBundleURL) {
+                        appendIfExists(rawNestedResourcesURL)
+                    }
+                }
+                appendIfExists(rawBundleURL)
+            }
+        }
+
         func appendSourceResources(from start: URL?) {
             guard var current = start?.resolvingSymlinksInPath().standardizedFileURL else { return }
 
@@ -228,6 +301,12 @@ public enum RuntimeResourceLocator {
             appendIfExists(executableDirectory.appendingPathComponent("Resources"))
             appendIfExists(executableDirectory)
             if allowSourceFallback { appendSourceResources(from: executableDirectory) }
+        }
+
+        if appBundleURL == nil && !allowSourceFallback {
+            for testBundleURL in testBundleURLs {
+                appendTestBundleRoots(for: testBundleURL)
+            }
         }
 
         if allowSourceFallback {
@@ -283,6 +362,31 @@ public enum RuntimeResourceLocator {
 
     private static func isStrictDescendant(_ candidate: URL, of root: URL) -> Bool {
         candidate.path.hasPrefix(root.path + "/")
+    }
+
+    private static func loadedTestBundleURLs() -> [URL] {
+        var bundleURLs = Bundle.allBundles.compactMap { bundle in
+            let bundleURL = bundle.bundleURL.standardizedFileURL
+            return bundleURL.pathExtension == "xctest" ? bundleURL : nil
+        }
+        var seenPaths = Set(bundleURLs.map(\.path))
+
+        for index in 0..<_dyld_image_count() {
+            guard let imageName = _dyld_get_image_name(index) else { continue }
+            var current = URL(fileURLWithPath: String(cString: imageName)).standardizedFileURL
+            for _ in 0..<12 {
+                if current.pathExtension == "xctest" {
+                    if seenPaths.insert(current.path).inserted {
+                        bundleURLs.append(current)
+                    }
+                    break
+                }
+                let parent = current.deletingLastPathComponent()
+                if parent.path == current.path { break }
+                current = parent
+            }
+        }
+        return bundleURLs
     }
 
     private static func defaultExecutableURL() -> URL? {

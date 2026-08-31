@@ -5,6 +5,16 @@ import Testing
 struct RuntimeResourceLocatorTests {
 
     @Test
+    func defaultLocatorResolvesSwiftPMTestResourcesWithoutProductionFallback() {
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow
+        )
+
+        #expect(resolved != nil)
+    }
+
+    @Test
     func explicitTestFallbackResolvesSwiftPMTestResources() {
         let resolved = RuntimeResourceLocator.path(
             "Tools/tool-versions.json",
@@ -20,6 +30,176 @@ struct RuntimeResourceLocatorTests {
         )
 
         #expect(resolved != nil)
+    }
+
+    @Test
+    func resolvesOnlyKnownResourceBundleBesideInjectedXCTestBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-xctest-\(UUID().uuidString)", isDirectory: true)
+        let products = tempRoot.appendingPathComponent("debug", isDirectory: true)
+        let testBundle = products.appendingPathComponent("LungfishPackageTests.xctest", isDirectory: true)
+        let expected = products
+            .appendingPathComponent("LungfishGenomeBrowser_LungfishWorkflow.bundle", isDirectory: true)
+            .appendingPathComponent("Tools/tool-versions.json")
+        try FileManager.default.createDirectory(at: testBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: expected.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: expected)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow,
+            mainResourceURL: nil,
+            executableURL: nil,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default,
+            testBundleURLs: [testBundle]
+        )
+
+        #expect(resolved?.standardizedFileURL.path == expected.standardizedFileURL.path)
+    }
+
+    @Test
+    func rejectsCaseAliasedXCTestBundleAndUnknownSiblingBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-xctest-case-\(UUID().uuidString)", isDirectory: true)
+        let products = tempRoot.appendingPathComponent("debug", isDirectory: true)
+        let testBundle = products.appendingPathComponent("LungfishPackageTests.XCTEST", isDirectory: true)
+        let unexpected = products
+            .appendingPathComponent("Unexpected_LungfishWorkflow.bundle", isDirectory: true)
+            .appendingPathComponent("Tools/tool-versions.json")
+        try FileManager.default.createDirectory(at: testBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: unexpected.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: unexpected)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow,
+            mainResourceURL: nil,
+            executableURL: nil,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default,
+            testBundleURLs: [testBundle]
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func rejectsSymlinkedXCTestProductRoot() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-xctest-root-link-\(UUID().uuidString)", isDirectory: true)
+        let realProducts = tempRoot.appendingPathComponent("real-debug", isDirectory: true)
+        let linkedProducts = tempRoot.appendingPathComponent("linked-debug", isDirectory: true)
+        let testBundle = linkedProducts.appendingPathComponent("LungfishPackageTests.xctest", isDirectory: true)
+        let resource = realProducts
+            .appendingPathComponent("LungfishGenomeBrowser_LungfishWorkflow.bundle", isDirectory: true)
+            .appendingPathComponent("Tools/tool-versions.json")
+        try FileManager.default.createDirectory(
+            at: realProducts.appendingPathComponent("LungfishPackageTests.xctest", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: resource.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: resource)
+        try FileManager.default.createSymbolicLink(at: linkedProducts, withDestinationURL: realProducts)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow,
+            mainResourceURL: nil,
+            executableURL: nil,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default,
+            testBundleURLs: [testBundle]
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func rejectsSymlinkedXCTestSiblingResourceBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-xctest-bundle-link-\(UUID().uuidString)", isDirectory: true)
+        let products = tempRoot.appendingPathComponent("debug", isDirectory: true)
+        let testBundle = products.appendingPathComponent("LungfishPackageTests.xctest", isDirectory: true)
+        let outsideBundle = tempRoot.appendingPathComponent("outside.bundle", isDirectory: true)
+        let outsideResource = outsideBundle.appendingPathComponent("Tools/tool-versions.json")
+        let linkedBundle = products.appendingPathComponent(
+            "LungfishGenomeBrowser_LungfishWorkflow.bundle",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: testBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: outsideResource.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: outsideResource)
+        try FileManager.default.createSymbolicLink(at: linkedBundle, withDestinationURL: outsideBundle)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let resolved = RuntimeResourceLocator.path(
+            "Tools/tool-versions.json",
+            in: .workflow,
+            mainResourceURL: nil,
+            executableURL: nil,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default,
+            testBundleURLs: [testBundle]
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test
+    func processMarkersDoNotEnableCheckoutFallback() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-marker-spoof-\(UUID().uuidString)", isDirectory: true)
+        let resource = tempRoot.appendingPathComponent(
+            "Sources/LungfishWorkflow/Resources/Tools/tool-versions.json"
+        )
+        try FileManager.default.createDirectory(
+            at: resource.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("// swift-tools-version: 6.2\n".utf8).write(
+            to: tempRoot.appendingPathComponent("Package.swift")
+        )
+        try Data("{}".utf8).write(to: resource)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        for executableName in ["xctest", "swiftpm-testing-helper"] {
+            let resolved = RuntimeResourceLocator.path(
+                "Tools/tool-versions.json",
+                in: .workflow,
+                mainResourceURL: nil,
+                executableURL: tempRoot.appendingPathComponent(executableName),
+                currentWorkingDirectoryURL: tempRoot,
+                fileManager: .default,
+                testBundleURLs: []
+            )
+            #expect(resolved == nil)
+        }
+
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/LungfishCore/Services/RuntimeResourceLocator.swift"),
+            encoding: .utf8
+        )
+        #expect(source.contains("XCTestConfigurationFilePath") == false)
     }
 
     @Test

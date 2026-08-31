@@ -761,8 +761,8 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("fastp") == false)
     }
 
-    @Test("Release Doctor requires ripgrep before package mutation")
-    func releaseDoctorRequiresRipgrepBeforePackageMutation() throws {
+    @Test("Release Doctor runs before package mutation without requiring ripgrep")
+    func releaseDoctorRunsBeforePackageMutationWithoutRipgrep() throws {
         let doctor = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/release/release-doctor.py"),
@@ -774,7 +774,8 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        #expect(doctor.contains(#""plutil", "rg""#))
+        #expect(doctor.contains(#""mktemp", "plutil""#))
+        #expect(doctor.contains(#""plutil", "rg""#) == false)
         #expect(doctor.contains(#""python3", "rg""#) == false)
         #expect(coordinator.contains("self.operations.doctor_package(request)"))
         #expect(coordinator.contains("self.operations.package_only(request)"))
@@ -784,15 +785,16 @@ struct ReleaseBuildConfigurationTests {
         )
     }
 
-    @Test("Release smoke test resolves ripgrep from PATH instead of /usr/bin")
-    func releaseSmokeTestResolvesRipgrepFromPath() throws {
+    @Test("Release smoke test uses the macOS system grep without requiring ripgrep")
+    func releaseSmokeTestUsesSystemGrepWithoutRipgrep() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/smoke-test-release-tools.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("command -v rg"))
+        #expect(script.contains(#"GREP_BIN="/usr/bin/grep""#))
+        #expect(script.contains("command -v rg") == false)
         #expect(script.contains("/usr/bin/rg") == false)
     }
 
