@@ -205,6 +205,11 @@ run_swift_test() {
     wait "$swift_pid"
 }
 
+count_xctest_failures() {
+    grep -E "with [1-9][0-9]* failure|' failed \(|: error:" "$1" 2>/dev/null \
+        | grep -cv "^CoreData: error:"
+}
+
 run_gate() {
     {
         echo "Full-suite gate starting at $(date) for $SHA"
@@ -242,7 +247,7 @@ run_gate() {
     # two otherwise fully-green overnight runs; the suite itself uses no
     # CoreData, and real failures always also produce "' failed (" or a
     # nonzero "with N failures" count, so exclude the whole family.
-    xctest_fail=$(grep -E "with [1-9][0-9]* failure|' failed \(|: error:" "$LOG" 2>/dev/null | grep -cv "^CoreData: error:")
+    xctest_fail=$(count_xctest_failures "$LOG")
     local swifttesting_fail
     swifttesting_fail=$(grep -cE "✘ Test run|✘ Suite|recorded an issue" "$LOG" 2>/dev/null)
 
@@ -267,24 +272,51 @@ run_gate() {
         local class_count
         class_count=$(printf '%s\n' "$failing_classes" | grep -c . 2>/dev/null)
         if [ "$class_count" -ge 1 ] && [ "$class_count" -le 12 ]; then
-            local retry_filter
-            retry_filter="^($(printf '%s\n' "$failing_classes" | sed 's/\./\\./' | paste -sd '|' -))(/|$)"
             local retry_log="$LOG_DIR/gate-${STAMP}-${SHA}.retry.log"
-            echo "Run had $class_count failing class(es); isolated serial retry: $retry_filter" >&2
+            : > "$retry_log"
+            echo "Run had $class_count failing class(es); retrying each in its own process" >&2
             # Let the machine settle before re-measuring: big runs leave fseventsd
             # digesting .build churn at ~100% CPU for a while, which is exactly the
             # load that makes timing-bounded tests fail. Retrying at peak churn
             # re-fails genuine load flakes and mislabels them deterministic.
             sleep 30
-            local retry_args=(test --skip-update --filter "$retry_filter")
-            if [ "$SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1 ]; then
-                retry_args+=(-Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types)
-            fi
-            run_swift_test "$retry_log" swift "${retry_args[@]}"
-            local retry_status=$?
-            local retry_fail
-            retry_fail=$(grep -cE "with [1-9][0-9]* failure|' failed \(|: error:" "$retry_log" 2>/dev/null)
-            if [ "$retry_status" -eq 0 ] && [ "$retry_fail" -eq 0 ]; then
+            local retry_status=0
+            local retry_index=0
+            local failing_class escaped_class retry_filter class_log class_status class_fail
+            while IFS= read -r failing_class; do
+                [ -n "$failing_class" ] || continue
+                escaped_class="${failing_class//./\\.}"
+                retry_filter="^${escaped_class}(/|$)"
+                class_log="${retry_log%.log}.${retry_index}.log"
+                echo "Isolated serial retry: $retry_filter" >&2
+                local retry_args=(test --skip-update --filter "$retry_filter")
+                if [ "$SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1 ]; then
+                    retry_args+=(-Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types)
+                fi
+                if [ "$REQUIRE_TOOLS" -eq 1 ]; then
+                    if run_swift_test "$class_log" env LUNGFISH_REQUIRE_TOOLS=1 swift "${retry_args[@]}"; then
+                        class_status=0
+                    else
+                        class_status=$?
+                    fi
+                else
+                    if run_swift_test "$class_log" swift "${retry_args[@]}"; then
+                        class_status=0
+                    else
+                        class_status=$?
+                    fi
+                fi
+                {
+                    echo "===== $failing_class ====="
+                    cat "$class_log"
+                } >> "$retry_log"
+                class_fail=$(count_xctest_failures "$class_log")
+                if [ "$class_status" -ne 0 ] || [ "$class_fail" -ne 0 ]; then
+                    retry_status=1
+                fi
+                retry_index=$((retry_index + 1))
+            done <<< "$failing_classes"
+            if [ "$retry_status" -eq 0 ]; then
                 RETRIED_CLASSES=$(printf '%s\n' "$failing_classes" | paste -sd ',' -)
                 xctest_fail=0
                 status=0

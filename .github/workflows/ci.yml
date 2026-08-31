@@ -261,6 +261,22 @@ jobs:
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
 
+      # release-dependency-receipt runs on a different GitHub runner. Restore
+      # the exact cache that job just provisioned before executing tests that
+      # resolve managed tools and Python runtimes from ~/.lungfish.
+      - name: Restore provisioned dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.lungfish/conda
+            ~/.lungfish/databases
+            ~/.lungfish/dependency-receipt.json
+          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
+          fail-on-cache-miss: true
+
+      - name: Verify restored dependency receipt
+        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
+
       - name: Run Preview source gates
         run: |
           bash scripts/full-suite-gate.sh --tier unit
@@ -288,6 +304,22 @@ jobs:
 
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
+
+      # release-dependency-receipt runs on a different GitHub runner. Restore
+      # the exact cache that job just provisioned before executing tests that
+      # resolve managed tools and Python runtimes from ~/.lungfish.
+      - name: Restore provisioned dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.lungfish/conda
+            ~/.lungfish/databases
+            ~/.lungfish/dependency-receipt.json
+          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
+          fail-on-cache-miss: true
+
+      - name: Verify restored dependency receipt
+        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
 
       - name: Run Stable full source gate
         run: bash scripts/full-suite-gate.sh --tier full

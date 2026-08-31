@@ -425,6 +425,43 @@ class CIWorkflowTests(unittest.TestCase):
         ):
             self.assertIn("release-dependency-receipt", jobs[job_name]["needs"])
 
+    def test_release_source_gates_restore_and_verify_provisioned_dependencies(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        jobs = wf["jobs"]
+        dependency_cache = next(
+            step
+            for step in jobs["release-dependency-receipt"]["steps"]
+            if step.get("name") == "Restore managed dependencies"
+        )
+
+        for job_name in ("release-preview-gates", "release-stable-full"):
+            steps = jobs[job_name]["steps"]
+            restore = next(
+                step
+                for step in steps
+                if step.get("name") == "Restore provisioned dependencies"
+            )
+            self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+            self.assertEqual(restore["with"]["path"], dependency_cache["with"]["path"])
+            self.assertEqual(restore["with"]["key"], dependency_cache["with"]["key"])
+            self.assertTrue(restore["with"]["fail-on-cache-miss"])
+            self.assertNotIn("restore-keys", restore["with"])
+
+            verify = next(
+                step
+                for step in steps
+                if step.get("name") == "Verify restored dependency receipt"
+            )
+            self.assertIn("verify_dependency_receipt_file", verify["run"])
+            self.assertIn(".lungfish/dependency-receipt.json", verify["run"])
+            gate_index = next(
+                index
+                for index, step in enumerate(steps)
+                if step.get("name", "").startswith("Run ")
+            )
+            self.assertLess(steps.index(restore), steps.index(verify))
+            self.assertLess(steps.index(verify), gate_index)
+
     def test_release_jobs_are_read_only_secretless_and_release_event_is_defense_only(
         self,
     ):

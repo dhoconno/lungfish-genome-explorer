@@ -130,6 +130,37 @@ class FullSuiteGateTierTests(unittest.TestCase):
             gate,
             "more than 12 failing classes means real breakage and must not retry",
         )
+        self.assertIn(
+            'while IFS= read -r failing_class; do',
+            gate,
+            "each failing class must run in its own swift-test process so global "
+            "test state cannot leak between retried classes",
+        )
+        self.assertIn(
+            'retry_filter="^${escaped_class}(/|$)"',
+            gate,
+            "the retry process must select exactly one failing class",
+        )
+        self.assertNotIn(
+            'retry_filter="^($(printf',
+            gate,
+            "combining every failing class into one retry process is not isolated",
+        )
+        self.assertIn(
+            'run_swift_test "$class_log" env LUNGFISH_REQUIRE_TOOLS=1 swift',
+            gate,
+            "isolated retries must retain --require-tools fail-closed behavior",
+        )
+        self.assertIn("count_xctest_failures()", gate)
+        classifier = gate.split("count_xctest_failures()", 1)[1].split(
+            "run_gate()", 1
+        )[0]
+        self.assertIn('grep -cv "^CoreData: error:"', classifier)
+        self.assertEqual(
+            gate.count('count_xctest_failures "'),
+            2,
+            "primary and retry logs must use the same XCTest failure classifier",
+        )
 
     def test_parallel_is_rejected_for_storage_bearing_selections(self):
         self.assertIn(
@@ -150,7 +181,7 @@ class FullSuiteGateTierTests(unittest.TestCase):
         self.assertIn('state" == Z*', gate)
         self.assertIn("Test Suite '(All tests|Selected tests)' passed", gate)
         self.assertIn("Test run .* passed", gate)
-        self.assertEqual(gate.count('run_swift_test "$'), 3)
+        self.assertEqual(gate.count('run_swift_test "$'), 4)
 
 
 if __name__ == "__main__":
