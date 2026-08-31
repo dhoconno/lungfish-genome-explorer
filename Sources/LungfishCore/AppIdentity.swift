@@ -22,7 +22,7 @@ public struct LungfishAppIdentity: Equatable, Sendable {
     public static let preview = Self(
         fullName: "Lungfish Genome Explorer Preview",
         shortName: "Lungfish Preview",
-        bundleIdentifier: "com.lungfish.browser",
+        bundleIdentifier: "com.lungfish.browser.preview",
         releaseChannel: .preview
     )
     public static let stable = Self(

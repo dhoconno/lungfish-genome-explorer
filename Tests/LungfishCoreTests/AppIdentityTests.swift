@@ -8,11 +8,12 @@ struct AppIdentityTests {
         let identity = try LungfishAppIdentity.from(infoDictionary: [
             "CFBundleDisplayName": "Lungfish Genome Explorer Preview",
             "CFBundleName": "Lungfish Preview",
-            "CFBundleIdentifier": "com.lungfish.browser",
+            "CFBundleIdentifier": "com.lungfish.browser.preview",
             "LungfishReleaseChannel": "preview",
         ])
 
         #expect(identity == .preview)
+        #expect(identity.bundleIdentifier == "com.lungfish.browser.preview")
         #expect(identity.previewCaveat == LungfishAppIdentity.previewCaveatText)
         #expect(identity.applicationSupportDirectoryName == "Lungfish")
         #expect(identity.managedStorageDirectoryName == ".lungfish")
