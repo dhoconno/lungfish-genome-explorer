@@ -321,7 +321,9 @@ def _validate_cache_entries(
             if stat.S_ISLNK(metadata.st_mode):
                 try:
                     resolved = path.resolve(strict=True)
-                except OSError as error:
+                except FileNotFoundError:
+                    resolved = path.resolve(strict=False)
+                except (OSError, RuntimeError) as error:
                     raise CacheFingerprintError("cache contains an invalid symlink") from error
                 if resolved != root and root not in resolved.parents:
                     raise CacheFingerprintError("cache symlink escapes its namespace")

@@ -313,6 +313,44 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
             with self.assertRaisesRegex(helper.CacheFingerprintError, "symlink"):
                 helper.prepare_cache_namespace(root, "a" * 64, document)
 
+    def test_cache_reuse_accepts_dangling_symlink_inside_namespace(self):
+        helper = load_helper()
+        document = helper.build_fingerprint_document(**fixture_fields())
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve() / "cache"
+            paths = helper.prepare_cache_namespace(root, "a" * 64, document)
+            products = paths.derived_data / "BuildProductsPath" / "Release"
+            products.mkdir(parents=True)
+            (products / "Lungfish.app").symlink_to("Missing-Lungfish.app")
+
+            reused = helper.prepare_cache_namespace(root, "a" * 64, document)
+
+            self.assertEqual(reused, paths)
+
+    def test_cache_reuse_rejects_dangling_symlink_outside_namespace(self):
+        helper = load_helper()
+        document = helper.build_fingerprint_document(**fixture_fields())
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve() / "cache"
+            paths = helper.prepare_cache_namespace(root, "a" * 64, document)
+            outside = Path(raw).resolve() / "missing-outside"
+            (paths.swiftpm / "escape").symlink_to(outside)
+
+            with self.assertRaisesRegex(helper.CacheFingerprintError, "symlink"):
+                helper.prepare_cache_namespace(root, "a" * 64, document)
+
+    def test_cache_reuse_rejects_symlink_loop(self):
+        helper = load_helper()
+        document = helper.build_fingerprint_document(**fixture_fields())
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve() / "cache"
+            paths = helper.prepare_cache_namespace(root, "a" * 64, document)
+            (paths.swiftpm / "loop-a").symlink_to("loop-b")
+            (paths.swiftpm / "loop-b").symlink_to("loop-a")
+
+            with self.assertRaisesRegex(helper.CacheFingerprintError, "symlink"):
+                helper.prepare_cache_namespace(root, "a" * 64, document)
+
     def test_cache_reuse_rejects_foreign_owner_at_the_security_boundary(self):
         helper = load_helper()
         document = helper.build_fingerprint_document(**fixture_fields())
