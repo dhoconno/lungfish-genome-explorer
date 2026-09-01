@@ -22,6 +22,32 @@ enum ViralReconWorkflowTestFixtures {
         return url
     }
 
+    /// Writes a bgzip-compressed reference FASTA, mimicking the `sequence.fa.gz`
+    /// found inside a downloaded `.lungfishref` genome bundle.
+    static func writeGzippedReferenceFASTA(
+        in directory: URL,
+        named name: String = "sequence.fa.gz",
+        contents: String? = nil
+    ) throws -> URL {
+        let plain = contents ?? ">MN908947.3\n\(String(repeating: "ACGT", count: 20))"
+        let plainURL = directory.appendingPathComponent("bgzip-source-\(UUID().uuidString).fasta")
+        try (plain.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+            .write(to: plainURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: plainURL) }
+
+        let destination = directory.appendingPathComponent(name)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", plainURL.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try data.write(to: destination)
+        return destination
+    }
+
     static func writePrimerBundleWithoutFasta(in directory: URL) throws -> URL {
         let bed = """
         MN908947.3\t0\t8\tamplicon_1_LEFT\t1\t+

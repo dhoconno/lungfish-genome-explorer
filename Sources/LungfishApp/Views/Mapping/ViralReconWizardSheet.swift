@@ -616,13 +616,8 @@ struct ViralReconWizardSheet: View {
         return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
     }
 
-    private static func referenceName(from fastaURL: URL, fallback: String) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: fastaURL) else {
-            return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: 4096)) ?? Data()
-        guard let text = String(data: data, encoding: .utf8),
+    static func referenceName(from fastaURL: URL, fallback: String) -> String {
+        guard let text = firstFASTAChunk(of: fastaURL),
               let header = text.split(separator: "\n").first(where: { $0.hasPrefix(">") }) else {
             return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -632,6 +627,23 @@ struct ViralReconWizardSheet: View {
             .first
             .map(String.init)
             ?? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Returns the leading text of a FASTA, decompressing gzip/bgzip input first.
+    ///
+    /// A compressed reference read with a raw `FileHandle` yields binary bytes,
+    /// so the header sniff would silently fall back to the accession field.
+    private static func firstFASTAChunk(of fastaURL: URL) -> String? {
+        if fastaURL.isGzipCompressed {
+            guard let contents = try? ViralReconPrimerStager.readFASTAText(at: fastaURL) else {
+                return nil
+            }
+            return contents
+        }
+        guard let handle = try? FileHandle(forReadingFrom: fastaURL) else { return nil }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        return String(data: data, encoding: .utf8)
     }
 
     private static func describeInputError(_ error: Error) -> String {
@@ -759,7 +771,9 @@ enum ViralReconWizardPrimerCompatibility {
     ) throws {
         let requested = accession.trimmingCharacters(in: .whitespacesAndNewlines)
         let known = knownAccessions(for: manifest)
-        guard known.contains(requested) else {
+        // Version-tolerant: a bundle may name its sequence `NC_045512` while the
+        // manifest declares `NC_045512.2`. Matches PrimerSchemeResolver.
+        guard known.contains(where: { PrimerSchemeResolver.accessionsMatch($0, requested) }) else {
             throw ValidationError.unknownAccession(requested: requested, known: known)
         }
     }
@@ -814,9 +828,11 @@ enum ViralReconWizardPrimerStaging {
         referenceName: String,
         destinationDirectory: URL
     ) throws -> URL {
-        let contents = try String(contentsOf: sourceURL, encoding: .utf8)
+        let contents = try ViralReconPrimerStager.readFASTAText(at: sourceURL)
         let rewritten = rewriteFirstFASTAHeader(in: contents, referenceName: referenceName)
-        guard rewritten != contents else { return sourceURL }
+        // A compressed source must still be staged as plain text even when the
+        // header needs no rewrite: downstream primer derivation reads text.
+        guard rewritten != contents || sourceURL.isGzipCompressed else { return sourceURL }
 
         let primersDirectory = destinationDirectory.appendingPathComponent("primers", isDirectory: true)
         try FileManager.default.createDirectory(at: primersDirectory, withIntermediateDirectories: true)

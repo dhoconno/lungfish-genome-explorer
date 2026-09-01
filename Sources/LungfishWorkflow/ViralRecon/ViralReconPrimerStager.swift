@@ -90,8 +90,20 @@ public enum ViralReconPrimerStager {
         try (records.joined(separator: "\n") + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
+    /// Reads a FASTA as text, transparently decompressing gzip/bgzip input.
+    ///
+    /// Reference FASTAs inside downloaded `.lungfishref` genome bundles are
+    /// stored bgzip-compressed (`sequence.fa.gz`). Reading those as UTF-8 text
+    /// fails with `NSFileReadCorruptFileError`, so decompress by extension.
+    public static func readFASTAText(at url: URL) throws -> String {
+        guard url.isGzipCompressed else {
+            return try String(contentsOf: url, encoding: .utf8)
+        }
+        return try GzipInputStream(url: url).readAllSync()
+    }
+
     private static func loadReferenceSequences(from url: URL) throws -> [String: String] {
-        let contents = try String(contentsOf: url, encoding: .utf8)
+        let contents = try readFASTAText(at: url)
         var sequences: [String: String] = [:]
         var currentID: String?
         var currentSequence = ""

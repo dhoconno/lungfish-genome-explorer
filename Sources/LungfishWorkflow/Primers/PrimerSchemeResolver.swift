@@ -88,7 +88,8 @@ public enum PrimerSchemeResolver {
             return Resolved(bedURL: bundle.bedURL, isRewritten: false)
         }
 
-        if equivalents.contains(targetReferenceName) {
+        if equivalents.contains(targetReferenceName)
+            || known.contains(where: { accessionsMatch($0, targetReferenceName) }) {
             do {
                 let rewritten = try rewriteBED(
                     source: bundle.bedURL,
@@ -106,6 +107,27 @@ public enum PrimerSchemeResolver {
             requested: targetReferenceName,
             known: known
         )
+    }
+
+    /// Compares two accessions ignoring a trailing GenBank version suffix.
+    ///
+    /// Downloaded genome bundles name their sequence without the version
+    /// (`NC_045512`) while primer manifests declare the versioned accession
+    /// (`NC_045512.2`). These denote the same reference, so treat them as equal.
+    /// Matching is case-insensitive because BAM headers vary in case.
+    public static func accessionsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return stripVersion(lhs).caseInsensitiveCompare(stripVersion(rhs)) == .orderedSame
+    }
+
+    /// Drops a trailing `.<digits>` version suffix, leaving other dots intact.
+    private static func stripVersion(_ accession: String) -> String {
+        guard let dot = accession.lastIndex(of: "."), dot != accession.startIndex else {
+            return accession
+        }
+        let suffix = accession[accession.index(after: dot)...]
+        guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else { return accession }
+        return String(accession[..<dot])
     }
 
     /// Rewrites column 1 of the BED at `source` from `from` to `newName`,

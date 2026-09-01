@@ -2,6 +2,37 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class ViralReconPrimerStagerTests: XCTestCase {
+    func testPrimerStagerDerivesPrimerFastaFromGzippedReference() throws {
+        let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let referenceFASTA = try ViralReconWorkflowTestFixtures.writeGzippedReferenceFASTA(
+            in: tempDirectory,
+            contents: """
+            >MN908947.3
+            AAAACCCCGGGGTTTT
+            """
+        )
+        let primerBundle = try ViralReconWorkflowTestFixtures.writePrimerBundleWithoutFasta(
+            in: tempDirectory,
+            bed: """
+            MN908947.3\t4\t8\tamplicon_1_LEFT\t1\t+
+            MN908947.3\t8\t12\tamplicon_1_RIGHT\t1\t-
+            """
+        )
+
+        let staged = try ViralReconPrimerStager.stage(
+            primerBundleURL: primerBundle,
+            referenceFASTAURL: referenceFASTA,
+            referenceName: "MN908947.3",
+            destinationDirectory: tempDirectory
+        )
+
+        XCTAssertTrue(staged.derivedFasta)
+        let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+        XCTAssertTrue(fasta.contains(">amplicon_1_LEFT\nCCCC"), fasta)
+        XCTAssertTrue(fasta.contains(">amplicon_1_RIGHT\nCCCC"), fasta)
+    }
+
     func testPrimerStagerDerivesPrimerFastaWhenBundleHasOnlyBed() throws {
         let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
         let fixtureReferenceFASTA = try ViralReconWorkflowTestFixtures.writeReferenceFASTA(in: tempDirectory)
