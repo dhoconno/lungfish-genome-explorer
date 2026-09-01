@@ -56,6 +56,27 @@ final class NFCoreRunRequestTests: XCTestCase {
         XCTAssertTrue(request.nextflowArguments.contains(workflow.pinnedVersion))
     }
 
+    func testRequestLaunchEnvironmentFollowsRequestedRevision() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let pinned = NFCoreRunRequest(
+            workflow: workflow,
+            version: "3.0.0",
+            executor: .docker,
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/results")
+        )
+        let newer = NFCoreRunRequest(
+            workflow: workflow,
+            version: "3.1.0",
+            executor: .docker,
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/results")
+        )
+
+        XCTAssertEqual(pinned.launchEnvironment, ["NXF_SYNTAX_PARSER": "v1"])
+        XCTAssertEqual(newer.launchEnvironment, [:])
+    }
+
     func testCLICommandPreviewQuotesEmptyExecutableAndShellMetacharacters() throws {
         let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
         let request = NFCoreRunRequest(

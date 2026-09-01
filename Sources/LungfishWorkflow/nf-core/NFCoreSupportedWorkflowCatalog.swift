@@ -114,6 +114,31 @@ public struct NFCoreWorkflowParameter: Codable, Sendable, Equatable, Identifiabl
     }
 }
 
+extension NFCoreSupportedWorkflow {
+    /// Environment overrides the workflow engine needs to launch a given
+    /// release of this pipeline.
+    ///
+    /// The overrides are keyed on the release because they paper over defects
+    /// in a specific tag; bumping the pin in the managed-tool lock is the cue
+    /// to re-check whether an override is still needed. An empty revision
+    /// means the pinned release.
+    public func launchEnvironment(forVersion version: String) -> [String: String] {
+        let effectiveVersion = version.isEmpty ? pinnedVersion : version
+        switch (name, effectiveVersion) {
+        case ("viralrecon", "3.0.0"):
+            // Tag 3.0.0's nextflow.config includes conf/test_full_sispa.config,
+            // which the tag does not ship. Nextflow 25+ parses every
+            // includeConfig eagerly with the strict syntax parser and aborts
+            // with "Invalid include source" before the run starts
+            // (nf-core/viralrecon#606). The legacy parser resolves profile
+            // includes lazily, as the Nextflow releases the tag was tested with did.
+            return ["NXF_SYNTAX_PARSER": "v1"]
+        default:
+            return [:]
+        }
+    }
+}
+
 public enum NFCoreSupportedWorkflowCatalog {
     public static let supportedWorkflows: [NFCoreSupportedWorkflow] = [
         NFCoreSupportedWorkflow(

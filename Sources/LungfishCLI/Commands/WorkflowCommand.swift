@@ -547,7 +547,12 @@ struct RunSubcommand: AsyncParsableCommand {
         )
         if processResult.exitCode != 0 {
             throw CLIError.workflowFailed(
-                reason: "\(request.engine.displayName) exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)"
+                reason: Self.engineFailureReason(
+                    engineName: request.engine.displayName,
+                    exitCode: processResult.exitCode,
+                    stderr: processResult.standardError,
+                    runBundleURL: runBundleURL
+                )
             )
         }
         print(runBundleURL.path)
@@ -632,13 +637,32 @@ struct RunSubcommand: AsyncParsableCommand {
         defer { try? FileManager.default.removeItem(at: launchScratch) }
         let scratchWorkDirectory = launchScratch.appendingPathComponent("work", isDirectory: true)
         try FileManager.default.createDirectory(at: scratchWorkDirectory, withIntermediateDirectories: true)
-        var launchArguments = request.nextflowArguments
-        if request.workDirectory == nil {
+        // nf-core schemas reject path parameters containing whitespace, and a
+        // Lungfish project directory routinely has spaces in its name, so the
+        // engine gets whitespace-free copies under the launch scratch. Only the
+        // engine's view changes: the manifest and provenance written above and
+        // below still record the caller's real paths.
+        // The scratch itself may carry the project's whitespace, in which case
+        // the staged copies go to a system temp directory of their own.
+        let stagingRoot = try NFCoreLaunchStaging.stagingRoot(preferring: launchScratch)
+        defer {
+            if stagingRoot.isFallback {
+                try? FileManager.default.removeItem(at: stagingRoot.root)
+            }
+        }
+        let stagedRequest = try NFCoreLaunchStaging.stage(request, in: stagingRoot.root)
+        // Newer nf-core releases express resource caps as Nextflow's
+        // process.resourceLimits instead of --max_cpus / --max_memory.
+        let resourcePlan = try NFCoreResourceLimits.plan(for: stagedRequest, in: launchScratch)
+        let launchRequest = resourcePlan.request
+        var launchArguments = resourcePlan.nextflowArguments(base: launchRequest.nextflowArguments)
+        if launchRequest.workDirectory == nil {
             launchArguments += ["-work-dir", scratchWorkDirectory.path]
         }
         let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(
             arguments: launchArguments,
-            workingDirectory: launchScratch
+            workingDirectory: launchScratch,
+            environment: launchRequest.launchEnvironment
         )
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
         let processCompletedAt = Date()
@@ -665,7 +689,14 @@ struct RunSubcommand: AsyncParsableCommand {
             stderr: processResult.standardError
         )
         if processResult.exitCode != 0 {
-            throw CLIError.workflowFailed(reason: "Nextflow exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)")
+            throw CLIError.workflowFailed(
+                reason: Self.engineFailureReason(
+                    engineName: "Nextflow",
+                    exitCode: processResult.exitCode,
+                    stderr: processResult.standardError,
+                    runBundleURL: runBundleURL
+                )
+            )
         }
         print(runBundleURL.path)
     }
@@ -709,6 +740,31 @@ struct RunSubcommand: AsyncParsableCommand {
             }
         }
         throw CLIError.outputWriteFailed(path: base.path, reason: "Could not allocate a unique run bundle path")
+    }
+
+    /// Builds the failure reason for a non-zero engine exit.
+    ///
+    /// The app overwrites `logs/stderr.log` with the CLI's own stderr once the
+    /// command returns, so pointing at that file is not enough: the engine's
+    /// last stderr lines ride along in the reason so the operation report shows
+    /// the actual cause (for example a launcher that could not be found).
+    static func engineFailureReason(
+        engineName: String,
+        exitCode: Int32,
+        stderr: String,
+        runBundleURL: URL,
+        maxLines: Int = 20
+    ) -> String {
+        var reason = "\(engineName) exited with status \(exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)"
+        let tail = stderr
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .suffix(maxLines)
+        if !tail.isEmpty {
+            reason += "\n" + tail.joined(separator: "\n")
+        }
+        return reason
     }
 
     private func writeProcessLogs(_ result: NFCoreWorkflowProcessResult, to logsURL: URL) throws {
@@ -899,15 +955,28 @@ struct NFCoreWorkflowProcessResult: Sendable, Equatable {
 }
 
 protocol NFCoreWorkflowProcessRunning: Sendable {
+    /// Runs Nextflow with `arguments`; `environment` overlays the launch environment.
     func runNextflow(
         arguments: [String],
-        workingDirectory: URL
+        workingDirectory: URL,
+        environment: [String: String]
     ) async throws -> NFCoreWorkflowProcessResult
 }
 
 struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
-    func runNextflow(arguments: [String], workingDirectory: URL) async throws -> NFCoreWorkflowProcessResult {
-        try await withCheckedThrowingContinuation { continuation in
+    var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+
+    func runNextflow(
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String]
+    ) async throws -> NFCoreWorkflowProcessResult {
+        let launch = WorkflowEngineLaunch.resolve(executableName: "nextflow", homeDirectory: homeDirectory)
+        let processEnvironment = launch.environment.merging(environment) { _, override in override }
+        if launch.usesManagedExecutable {
+            await CondaManager.shared.repairManagedLaunchers(environment: "nextflow")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
             do {
                 try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
                 let stdoutURL = workingDirectory.appendingPathComponent(".nextflow-stdout.log")
@@ -918,8 +987,9 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
                 let stderrHandle = try FileHandle(forWritingTo: stderrURL)
 
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = ["nextflow"] + arguments
+                process.executableURL = launch.executableURL
+                process.arguments = launch.arguments(arguments)
+                process.environment = processEnvironment
                 process.currentDirectoryURL = workingDirectory
                 process.standardOutput = stdoutHandle
                 process.standardError = stderrHandle
@@ -959,12 +1029,18 @@ protocol LocalWorkflowProcessRunning: Sendable {
 }
 
 struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
+    var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+
     func runWorkflow(
         executableName: String,
         arguments: [String],
         workingDirectory: URL
     ) async throws -> LocalWorkflowProcessResult {
-        try await withCheckedThrowingContinuation { continuation in
+        let launch = WorkflowEngineLaunch.resolve(executableName: executableName, homeDirectory: homeDirectory)
+        if launch.usesManagedExecutable {
+            await CondaManager.shared.repairManagedLaunchers(environment: executableName)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
             do {
                 try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
                 let stdoutURL = workingDirectory.appendingPathComponent(".lungfish-workflow-stdout.log")
@@ -975,8 +1051,9 @@ struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
                 let stderrHandle = try FileHandle(forWritingTo: stderrURL)
 
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = [executableName] + arguments
+                process.executableURL = launch.executableURL
+                process.arguments = launch.arguments(arguments)
+                process.environment = launch.environment
                 process.currentDirectoryURL = workingDirectory
                 process.standardOutput = stdoutHandle
                 process.standardError = stderrHandle
