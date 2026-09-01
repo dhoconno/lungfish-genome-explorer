@@ -31,7 +31,7 @@ struct ViralReconWizardSheet: View {
     @State private var maxMemory: String = "8.GB"
     @State private var variantCaller: ViralReconVariantCaller = .ivar
     @State private var consensusCaller: ViralReconConsensusCaller = .bcftools
-    @State private var skipOptions: Set<ViralReconSkipOption> = [.assembly, .kraken2]
+    @State private var skipOptions: Set<ViralReconSkipOption> = ViralReconSkipOption.defaultSelection
     @State private var buildError: String?
 
     private var selectedPrimerOption: PrimerOption? {
@@ -1123,6 +1123,10 @@ private extension ViralReconSkipOption {
             return "iVar trim"
         case .multiQC:
             return "MultiQC"
+        case .freyja:
+            return "Freyja lineage abundance"
+        case .freyjaBoot:
+            return "Freyja bootstrap (fails on Apple Silicon)"
         }
     }
 }

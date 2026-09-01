@@ -58,6 +58,60 @@ final class ViralReconRunRequestTests: XCTestCase {
         XCTAssertTrue(args.contains(output.path))
     }
 
+    func testFreyjaSkipOptionsEmitTheirPipelineParameters() throws {
+        // Freyja's bootstrap step runs an amd64-only container whose parallel
+        // workers are killed under Apple Silicon emulation, failing the whole
+        // run after every scientific output has already been published. The
+        // pipeline can skip the bootstrap alone, or Freyja entirely, but only
+        // if the request can express it.
+        XCTAssertEqual(ViralReconSkipOption.freyja.rawValue, "skip_freyja")
+        XCTAssertEqual(ViralReconSkipOption.freyjaBoot.rawValue, "skip_freyja_boot")
+
+        let request = try ViralReconRunRequest(
+            samples: [
+                ViralReconSample(
+                    sampleName: "SARS2_A",
+                    sourceBundleURL: URL(fileURLWithPath: "/tmp/A.lungfishfastq"),
+                    fastqURLs: [URL(fileURLWithPath: "/tmp/A_R1.fastq.gz")],
+                    barcode: nil,
+                    sequencingSummaryURL: nil
+                )
+            ],
+            platform: .illumina,
+            protocol: .amplicon,
+            samplesheetURL: URL(fileURLWithPath: "/tmp/run/inputs/samplesheet.csv"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/run/outputs"),
+            executor: .docker,
+            version: "3.0.0",
+            reference: .genome("MN908947.3"),
+            primer: ViralReconPrimerSelection(
+                bundleURL: URL(fileURLWithPath: "/tmp/ARTIC.lungfishprimers"),
+                displayName: "ARTIC SARS-CoV-2 V3",
+                bedURL: URL(fileURLWithPath: "/tmp/primers.bed"),
+                fastaURL: URL(fileURLWithPath: "/tmp/primers.fasta"),
+                leftSuffix: "_LEFT",
+                rightSuffix: "_RIGHT",
+                derivedFasta: true
+            ),
+            minimumMappedReads: 1000,
+            variantCaller: .ivar,
+            consensusCaller: .bcftools,
+            skipOptions: [.freyjaBoot],
+            advancedParams: [:]
+        )
+
+        let args = request.cliArguments(bundlePath: URL(fileURLWithPath: "/tmp/run/viralrecon.lungfishrun"))
+
+        XCTAssertTrue(args.contains("skip_freyja_boot=true"))
+        XCTAssertFalse(args.contains("skip_freyja=true"))
+    }
+
+    func testFreyjaBootIsSkippedByDefaultOnAppleSilicon() {
+        // The default set the wizard opens with must not include a step that
+        // cannot succeed on this architecture.
+        XCTAssertTrue(ViralReconSkipOption.defaultSelection.contains(.freyjaBoot))
+    }
+
     func testAdvancedParamsRejectGeneratedKeys() {
         XCTAssertThrowsError(
             try ViralReconRunRequest.validateAdvancedParams(["input": "manual.csv"])
