@@ -1975,6 +1975,29 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertEqual(Path(codesign[-1]), signed_app.resolve())
         self.assertNotEqual(Path(codesign[-1]), unsigned_app.resolve())
 
+    def test_independent_artifact_path_resolves_project_relative_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            release_dir = (
+                root
+                / "build"
+                / "Release"
+                / "preview"
+                / ("a" * 40)
+            )
+            artifact = release_dir / "Lungfish-2026.9.1-arm64.dmg"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"dmg")
+
+            resolved = self.coordinator._contained_artifact(
+                root,
+                release_dir,
+                str(artifact.relative_to(root)),
+                "DMG_PATH",
+            )
+
+            self.assertEqual(resolved, artifact.resolve())
+
     def test_independent_verification_requires_exact_remote_digests_sizes_and_state(
         self,
     ):

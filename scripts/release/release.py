@@ -1308,12 +1308,14 @@ def _metadata(path: Path) -> dict[str, str]:
     return values
 
 
-def _contained_artifact(release_dir: Path, value: str, label: str) -> Path:
+def _contained_artifact(
+    root: Path, release_dir: Path, value: str, label: str
+) -> Path:
     if not value:
         raise ReleaseError(f"release metadata is missing {label}")
     path = Path(value)
     if not path.is_absolute():
-        path = release_dir.parents[1] / path
+        path = root / path
     resolved = path.resolve(strict=True)
     try:
         resolved.relative_to(release_dir.resolve(strict=True))
@@ -1862,8 +1864,11 @@ class LocalReleaseOperations:
         if metadata.get("git_commit") != identity.commit:
             raise ReleaseError("release metadata commit does not match the candidate")
         release_dir = identity.receipt.parent
-        dmg = _contained_artifact(release_dir, metadata.get("DMG_PATH", ""), "DMG_PATH")
+        dmg = _contained_artifact(
+            self.root, release_dir, metadata.get("DMG_PATH", ""), "DMG_PATH"
+        )
         signed_app = _contained_artifact(
+            self.root,
             release_dir,
             metadata.get("app_path", ""),
             "app_path",
@@ -1918,6 +1923,7 @@ class LocalReleaseOperations:
         )
 
         appcast = _contained_artifact(
+            self.root,
             release_dir,
             metadata.get("sparkle_appcast_path", ""),
             "sparkle_appcast_path",
@@ -1941,6 +1947,7 @@ class LocalReleaseOperations:
             if not channel.legacyBridgeAppcastFilename:
                 raise ReleaseError("legacy Sparkle bridge filename is unavailable")
             bridge_appcast = _contained_artifact(
+                self.root,
                 release_dir,
                 str(appcast.parent / channel.legacyBridgeAppcastFilename),
                 "legacy Sparkle bridge appcast",
