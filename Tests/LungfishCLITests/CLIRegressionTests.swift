@@ -2512,6 +2512,64 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.path))
     }
 
+    func testNFCoreExecutionFailureReasonIncludesNextflowStderrTail() async throws {
+        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
+        let runner = StubNFCoreWorkflowProcessRunner(result: .init(
+            exitCode: 127,
+            standardOutput: "",
+            standardError: "env: nextflow: No such file or directory\n"
+        ))
+        RunSubcommand.nfCoreWorkflowProcessRunner = runner
+        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nfcore-launch-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheetURL = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,R1.fastq.gz,R2.fastq.gz\n".write(
+            to: samplesheetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let resultsURL = tempDirectory.appendingPathComponent("results", isDirectory: true)
+        let expectedOutputURL = resultsURL.appendingPathComponent("consensus.lungfishref", isDirectory: true)
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--input", samplesheetURL.path,
+            "--expected-output", expectedOutputURL.path,
+            "--results-dir", resultsURL.path,
+            "--bundle-path", bundleURL.path,
+            "--executor", "local",
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected a non-zero Nextflow exit to fail the command")
+        } catch let error as CLIError {
+            XCTAssertEqual(error.exitCode, .workflowError)
+            XCTAssertTrue(
+                error.localizedDescription.contains("exited with status 127"),
+                error.localizedDescription
+            )
+            // The GUI overwrites logs/stderr.log with the CLI's own stderr, so the
+            // engine's stderr tail must ride along in the failure reason or the
+            // operation report only ever says "see stderr.log".
+            XCTAssertTrue(
+                error.localizedDescription.contains("env: nextflow: No such file or directory"),
+                error.localizedDescription
+            )
+        }
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(
+            try String(contentsOf: bundleURL.appendingPathComponent("logs/stderr.log"), encoding: .utf8),
+            "env: nextflow: No such file or directory\n"
+        )
+    }
+
     func testNFCoreExecutionWritesExpectedOutputProvenance() async throws {
         let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let tempDirectory = FileManager.default.temporaryDirectory
@@ -2562,6 +2620,10 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertEqual(invocation.arguments.first, "run")
         XCTAssertTrue(invocation.arguments.contains("nf-core/viralrecon"))
+        XCTAssertEqual(
+            invocation.environment["NXF_SYNTAX_PARSER"], "v1",
+            "viralrecon 3.0.0 only parses under Nextflow's legacy syntax parser"
+        )
         // Nextflow needs POSIX file locks for `.nextflow/` cache + history and for
         // its work tree; project volumes are frequently exFAT/SMB, which do not
         // provide them. The launch must therefore happen from local scratch, with
@@ -2721,6 +2783,7 @@ private final class StubNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunnin
     struct Invocation: Equatable {
         let arguments: [String]
         let workingDirectory: URL
+        let environment: [String: String]
     }
 
     private(set) var invocations: [Invocation] = []
@@ -2737,9 +2800,14 @@ private final class StubNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunnin
 
     func runNextflow(
         arguments: [String],
-        workingDirectory: URL
+        workingDirectory: URL,
+        environment: [String: String]
     ) async throws -> NFCoreWorkflowProcessResult {
-        let invocation = Invocation(arguments: arguments, workingDirectory: workingDirectory)
+        let invocation = Invocation(
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
         invocations.append(invocation)
         try onRun?(invocation)
         return result

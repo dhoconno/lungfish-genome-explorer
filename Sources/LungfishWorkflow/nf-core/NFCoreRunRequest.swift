@@ -31,6 +31,11 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         return merged
     }
 
+    /// Environment overrides the engine needs for the requested pipeline release.
+    public var launchEnvironment: [String: String] {
+        workflow.launchEnvironment(forVersion: version)
+    }
+
     public var nextflowArguments: [String] {
         var args = ["run", workflow.fullName]
         if !version.isEmpty {

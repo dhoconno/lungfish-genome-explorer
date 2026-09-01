@@ -1,0 +1,96 @@
+// NFCoreResourceLimits.swift - Translate resource caps for nf-core releases
+// Copyright (c) 2024 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishWorkflow
+
+/// Translates Lungfish's CPU and memory caps into whatever a given nf-core
+/// release understands.
+///
+/// Pipelines built on nf-core template 3.x (viralrecon 3.0.0 among them)
+/// dropped the `--max_cpus` / `--max_memory` parameters in favour of
+/// Nextflow's own `process.resourceLimits`. On such a release the old flags
+/// are not merely ignored: the schema rejects unknown parameters, and every
+/// process keeps its unclamped default, so a `process_high` step asks for
+/// 72 GB and Nextflow aborts the run with "Process requirement exceeds
+/// available memory" on any ordinary laptop. For those releases the caps are
+/// written into a small config passed with `-c` instead.
+enum NFCoreResourceLimits {
+    /// The launch adjustments needed for one request.
+    struct Plan {
+        /// The request with unsupported parameters removed.
+        let request: NFCoreRunRequest
+        /// Config file carrying `process.resourceLimits`, when one is needed.
+        let configURL: URL?
+
+        /// Appends the `-c` flag for the generated config, if any.
+        func nextflowArguments(base: [String]) -> [String] {
+            guard let configURL else { return base }
+            return base + ["-c", configURL.path]
+        }
+    }
+
+    static let maxCPUsParameter = "max_cpus"
+    static let maxMemoryParameter = "max_memory"
+
+    /// Builds the plan, writing a config into `directory` when required.
+    static func plan(for request: NFCoreRunRequest, in directory: URL) throws -> Plan {
+        guard usesResourceLimits(workflow: request.workflow.name, version: request.version) else {
+            return Plan(request: request, configURL: nil)
+        }
+
+        let cpus = request.params[maxCPUsParameter]?.trimmingCharacters(in: .whitespaces)
+        let memory = request.params[maxMemoryParameter]?.trimmingCharacters(in: .whitespaces)
+        var limits: [String] = []
+        if let cpus, !cpus.isEmpty {
+            limits.append("cpus: \(cpus)")
+        }
+        if let memory, !memory.isEmpty {
+            limits.append("memory: \(memory)")
+        }
+        guard !limits.isEmpty else {
+            return Plan(request: request, configURL: nil)
+        }
+
+        var params = request.params
+        params.removeValue(forKey: maxCPUsParameter)
+        params.removeValue(forKey: maxMemoryParameter)
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("lungfish-resource-limits.config")
+        let contents = """
+        // Written by Lungfish. This pipeline release expects Nextflow's
+        // process.resourceLimits rather than --max_cpus / --max_memory.
+        process {
+            resourceLimits = [ \(limits.joined(separator: ", ")) ]
+        }
+
+        """
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let adjusted = NFCoreRunRequest(
+            workflow: request.workflow,
+            version: request.version,
+            executor: request.executor,
+            inputURLs: request.inputURLs,
+            outputDirectory: request.outputDirectory,
+            expectedOutputURLs: request.expectedOutputURLs,
+            params: params,
+            resume: request.resume,
+            workDirectory: request.workDirectory,
+            presentationMode: request.presentationMode
+        )
+        return Plan(request: adjusted, configURL: configURL.standardizedFileURL)
+    }
+
+    /// Whether a release expects `process.resourceLimits` instead of the
+    /// `--max_*` parameters. viralrecon adopted the nf-core 3.x template in 3.0.0.
+    private static func usesResourceLimits(workflow: String, version: String) -> Bool {
+        guard workflow == "viralrecon" else { return false }
+        guard let major = Int(version.split(separator: ".").first.map(String.init) ?? "") else {
+            return false
+        }
+        return major >= 3
+    }
+}
