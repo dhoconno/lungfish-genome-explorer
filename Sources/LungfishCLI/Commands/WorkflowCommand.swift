@@ -642,10 +642,15 @@ struct RunSubcommand: AsyncParsableCommand {
         // engine gets whitespace-free copies under the launch scratch. Only the
         // engine's view changes: the manifest and provenance written above and
         // below still record the caller's real paths.
-        let stagedRequest = try NFCoreLaunchStaging.stage(
-            request,
-            in: launchScratch.appendingPathComponent("inputs", isDirectory: true)
-        )
+        // The scratch itself may carry the project's whitespace, in which case
+        // the staged copies go to a system temp directory of their own.
+        let stagingRoot = try NFCoreLaunchStaging.stagingRoot(preferring: launchScratch)
+        defer {
+            if stagingRoot.isFallback {
+                try? FileManager.default.removeItem(at: stagingRoot.root)
+            }
+        }
+        let stagedRequest = try NFCoreLaunchStaging.stage(request, in: stagingRoot.root)
         // Newer nf-core releases express resource caps as Nextflow's
         // process.resourceLimits instead of --max_cpus / --max_memory.
         let resourcePlan = try NFCoreResourceLimits.plan(for: stagedRequest, in: launchScratch)

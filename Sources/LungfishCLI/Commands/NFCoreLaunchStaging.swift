@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 /// Copies file-valued nf-core inputs onto whitespace-free paths before launch.
@@ -39,6 +40,43 @@ enum NFCoreLaunchStaging {
         "additional_annotation",
         "sequencing_summary",
     ]
+
+    /// Where staged copies go, and whether that place had to leave the launch scratch.
+    struct StagingRoot: Equatable {
+        /// Directory that `stage(_:in:)` will copy inputs into.
+        let root: URL
+        /// True when `root` is a system temp directory the caller must remove
+        /// itself; false when it sits under the launch scratch and is cleaned
+        /// up with it.
+        let isFallback: Bool
+    }
+
+    /// Chooses a whitespace-free directory for staged inputs.
+    ///
+    /// The launch scratch normally lives in the project's `.tmp` (see
+    /// `ProjectTempDirectory`), and a project named "My Genome Project" puts a
+    /// space into every path below it. Staging copies there would fail the same
+    /// schema check they exist to satisfy, so when the scratch itself contains
+    /// whitespace the copies go to a fresh system temp directory instead. Only
+    /// the staged inputs move: Nextflow's scratch and work tree stay on the
+    /// volume the caller picked for them.
+    static func stagingRoot(preferring launchScratch: URL) throws -> StagingRoot {
+        let preferred = launchScratch
+            .appendingPathComponent("inputs", isDirectory: true)
+            .standardizedFileURL
+        guard containsWhitespace(preferred) else {
+            return StagingRoot(root: preferred, isFallback: false)
+        }
+        let fallback = try ProjectTempDirectory.create(
+            prefix: "nfcore-inputs-",
+            contextURL: nil,
+            policy: .systemOnly
+        ).standardizedFileURL
+        guard !containsWhitespace(fallback) else {
+            throw StagingError.stagingRootContainsWhitespace(fallback)
+        }
+        return StagingRoot(root: fallback, isFallback: true)
+    }
 
     /// Returns a request whose engine-facing file paths contain no whitespace.
     ///

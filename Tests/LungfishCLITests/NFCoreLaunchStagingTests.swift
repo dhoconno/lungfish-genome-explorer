@@ -120,6 +120,32 @@ final class NFCoreLaunchStagingTests: XCTestCase {
         XCTAssertEqual(staged.params["fastq_dir"], fastqPass.path)
     }
 
+    func testStagingRootPrefersWhitespaceFreeScratch() throws {
+        let scratch = tempRoot.appendingPathComponent("nfcore-run-abc", isDirectory: true)
+
+        let root = try NFCoreLaunchStaging.stagingRoot(preferring: scratch)
+
+        XCTAssertEqual(root.root, scratch.appendingPathComponent("inputs", isDirectory: true).standardizedFileURL)
+        XCTAssertFalse(root.isFallback)
+        // Nothing is created until an input actually needs staging.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.root.path))
+    }
+
+    func testStagingRootFallsBackToSystemTempWhenScratchContainsWhitespace() throws {
+        // The launch scratch lives in the project's .tmp when the volume supports
+        // Nextflow's cache, so "My Genome Project.lungfish/.tmp/nfcore-run-..."
+        // is the normal case. Inputs must still be staged somewhere the schema accepts.
+        let scratch = tempRoot.appendingPathComponent("My Genome Project.lungfish/.tmp/nfcore-run-abc", isDirectory: true)
+
+        let root = try NFCoreLaunchStaging.stagingRoot(preferring: scratch)
+        defer { try? FileManager.default.removeItem(at: root.root) }
+
+        XCTAssertTrue(root.isFallback)
+        XCTAssertNil(root.root.path.rangeOfCharacter(from: .whitespacesAndNewlines), root.root.path)
+        XCTAssertFalse(root.root.path.hasPrefix(scratch.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.root.path))
+    }
+
     func testRejectsStagingRootThatContainsWhitespace() throws {
         let inputs = tempRoot.appendingPathComponent("My Inputs", isDirectory: true)
         let samplesheet = try write("sample,fastq_1,fastq_2\n", to: inputs.appendingPathComponent("samplesheet.csv"))
