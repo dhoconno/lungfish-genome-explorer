@@ -131,7 +131,6 @@ private final class ProcessPipeDrain: @unchecked Sendable {
     private let group = DispatchGroup()
     private let lock = NSLock()
     private var started = false
-    private var handlesClosed = false
 
     init(
         stdoutHandle: FileHandle,
@@ -160,19 +159,11 @@ private final class ProcessPipeDrain: @unchecked Sendable {
 
     func waitUntilFinished() {
         group.wait()
-    }
-
-    func closeHandles() {
-        lock.lock()
-        guard !handlesClosed else {
-            lock.unlock()
-            return
-        }
-        handlesClosed = true
-        lock.unlock()
-
-        try? stdoutHandle.close()
-        try? stderrHandle.close()
+        // The Pipe objects attached to Process own these handles. Closing the
+        // handles here lets a delayed Pipe deinitializer close a descriptor
+        // after the kernel has already reused it, which is an EXC_GUARD crash
+        // under concurrent process churn. EOF is sufficient; ownership closes
+        // each descriptor when Process releases its pipes.
     }
 
     private func startReader(
@@ -938,7 +929,6 @@ public actor NativeToolRunner {
                 process.terminationHandler = { terminatedProcess in
                     pipeDrain.start()
                     pipeDrain.waitUntilFinished()
-                    pipeDrain.closeHandles()
 
                     if cancellationState.didTimeOut {
                         finish(.failure(NativeToolError.timeout(name, actualTimeout)))
@@ -976,14 +966,12 @@ public actor NativeToolRunner {
                     try process.run()
                     pipeDrain.start()
                 } catch is CancellationError {
-                    pipeDrain.closeHandles()
                     if cancellationState.didTimeOut {
                         finish(.failure(NativeToolError.timeout(name, actualTimeout)))
                     } else {
                         finish(.failure(CancellationError()))
                     }
                 } catch {
-                    pipeDrain.closeHandles()
                     if cancellationState.isCancelled {
                         if cancellationState.didTimeOut {
                             finish(.failure(NativeToolError.timeout(name, actualTimeout)))
