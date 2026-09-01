@@ -172,6 +172,12 @@ if [[ ${dry_run} -eq 1 ]]; then
     exit 0
 fi
 
+# Use the same full-Xcode selection as Doctor and release builds. A release Mac
+# may intentionally leave the system-wide xcode-select pointed at Command Line
+# Tools, whose Swift can be older than the package's tools version.
+DEVELOPER_DIR="$(python3 "${repo_root}/scripts/release/release_xcode.py")"
+export DEVELOPER_DIR
+
 mkdir -p "${storage_root}"
 # Fully resolve the root (symlinks included) so registry rewriting compares like
 # with like: seed_root realpaths the source, and a storage root reached through

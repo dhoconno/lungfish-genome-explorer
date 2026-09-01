@@ -198,6 +198,68 @@ class FilterSyncTests(unittest.TestCase):
 
 
 class Tier1FailurePropagationTests(unittest.TestCase):
+    def test_cli_build_uses_the_canonical_full_xcode_selection(self):
+        """A global CommandLineTools selection must not choose release Swift.
+
+        A configured Xcode path may itself be an alias. The shared release
+        resolver canonicalizes it before child processes run; the verifier must
+        export that result before invoking Swift rather than inheriting the
+        machine-global developer-tool selection.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            repo = root / "repo"
+            verify = repo / "scripts" / "deps" / "verify.sh"
+            resolver = repo / "scripts" / "release" / "release_xcode.py"
+            verify.parent.mkdir(parents=True)
+            resolver.parent.mkdir(parents=True)
+            shutil.copy2(VERIFY, verify)
+            shutil.copy2(ROOT / "scripts" / "release" / "release_xcode.py", resolver)
+
+            manifest = repo / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"dependencySet":"test"}\n', encoding="utf-8")
+
+            developer_dir = root / "Full Xcode" / "Contents" / "Developer"
+            xcodebuild = developer_dir / "usr" / "bin" / "xcodebuild"
+            xcodebuild.parent.mkdir(parents=True)
+            xcodebuild.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            xcodebuild.chmod(0o755)
+            xcode_alias = root / "Selected Xcode"
+            xcode_alias.symlink_to(developer_dir)
+
+            command_bin = root / "bin"
+            command_bin.mkdir()
+            captured = root / "captured-developer-dir"
+            swift = command_bin / "swift"
+            swift.write_text(
+                "#!/bin/bash\n"
+                f"printf '%s\\n' \"${{DEVELOPER_DIR:-unset}}\" >{shlex.quote(str(captured))}\n"
+                "exit 42\n",
+                encoding="utf-8",
+            )
+            swift.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment["DEVELOPER_DIR"] = str(xcode_alias)
+            environment["PATH"] = f"{command_bin}{os.pathsep}{environment['PATH']}"
+            result = subprocess.run(
+                ["/bin/bash", str(verify), "--tier", "1", "--root", str(root / "storage")],
+                cwd=str(repo),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=20,
+                env=environment,
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                captured.read_text(encoding="utf-8").strip(),
+                str(developer_dir.resolve()),
+            )
+
     def test_failed_parity_python_provisioning_does_not_launch_the_suite_gate(self):
         """A failed oracle setup must not be masked by the gate's final status.
 
@@ -211,8 +273,11 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             root = pathlib.Path(temporary)
             repo = root / "repo"
             verify = repo / "scripts" / "deps" / "verify.sh"
+            resolver = repo / "scripts" / "release" / "release_xcode.py"
             verify.parent.mkdir(parents=True)
+            resolver.parent.mkdir(parents=True)
             shutil.copy2(VERIFY, verify)
+            shutil.copy2(ROOT / "scripts" / "release" / "release_xcode.py", resolver)
             verify.chmod(0o755)
 
             manifest = repo / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
@@ -262,7 +327,13 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             environment = os.environ.copy()
             home = root / "home"
             home.mkdir()
+            developer_dir = root / "Xcode.app" / "Contents" / "Developer"
+            xcodebuild = developer_dir / "usr" / "bin" / "xcodebuild"
+            xcodebuild.parent.mkdir(parents=True)
+            xcodebuild.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            xcodebuild.chmod(0o755)
             environment["HOME"] = str(home)
+            environment["DEVELOPER_DIR"] = str(developer_dir)
             environment["PATH"] = f"{command_bin}{os.pathsep}{environment['PATH']}"
             result = subprocess.run(
                 ["/bin/bash", str(verify), "--tier", "1", "--root", str(root / "storage")],
