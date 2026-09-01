@@ -24,9 +24,9 @@ side-by-side caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
 ## Dependency Sweep
 
 The coordinator requires the reconciled dependency receipt to match the
-manifest dependency set and canonical hash, and gates the exact tagged SHA
-before publication. Do not manually dispatch CI. The full Stable release event
-board remains defense-in-depth after publication. See
+manifest dependency set and canonical hash, then runs the channel's blocking
+gates locally before creating the candidate receipt. GitHub Actions is advisory
+and never authorizes or blocks publication. See
 `docs/release/dependency-sweep.md` for the semiannual sweep checklist.
 
 ## Debug build

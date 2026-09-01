@@ -1029,17 +1029,6 @@ class RunnerAndCITests(unittest.TestCase):
         ]:
             self.assertIn(f"ci-focused-{suffix}", self.workflow)
 
-    def test_dependency_receipt_job_installs_pinned_bootstrap_before_reconcile(self):
-        job = self.workflow_job("release-dependency-receipt")
-        self.assertIn("- name: Install pinned micromamba bootstrap", job)
-        install_index = job.index("- name: Install pinned micromamba bootstrap")
-        reconcile_index = job.index("- name: Reconcile dependency receipt")
-        self.assertLess(install_index, reconcile_index)
-        command = job[install_index:reconcile_index]
-        self.assertIn("third-party-tools-lock.json", command)
-        self.assertIn("Sources/LungfishWorkflow/Resources/Tools/micromamba", command)
-        self.assertIn("$HOME/.lungfish/conda/bin/micromamba", command)
-
     def test_ci_runs_current_head_ci_focused_storage_gate_separately(self):
         current_head_filter = (
             "'ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|"

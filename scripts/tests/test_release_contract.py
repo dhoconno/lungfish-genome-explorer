@@ -77,7 +77,6 @@ EXPECTED_GATES = {
         "scripts.tests.test_release_builder_phases",
         "scripts.tests.test_release_smoke",
         "scripts.tests.test_sparkle_release_packaging",
-        "scripts.tests.test_ci_workflow",
         "scripts.tests.test_nightly_prerelease_release",
     ],
     "channels": {

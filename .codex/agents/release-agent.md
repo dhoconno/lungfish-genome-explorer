@@ -83,24 +83,32 @@ key, notary profile, authenticated `gh`, pinned Sparkle tools, and the Sparkle
 private key in Keychain. Doctor reports package and publish readiness separately
 and never installs or repairs prerequisites.
 
+Package readiness requires the pinned verification root at
+`~/.lungfish-verify`, including its canonical `dependency-receipt.json` and
+isolated `parity-python` runtime. Provision or refresh it with
+`bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify`; Doctor only
+verifies this state.
+
 ## Transaction
 
 Run `package` before `publish`. Package is credentialless: it runs package
-Doctor, internal unsigned assembly, actual-artifact portability/smoke checks,
-and exact receipt verification. The candidate lives at
+Doctor, verifies the reconciled dependency receipt, runs the contract-defined
+focused and channel gates locally, performs internal unsigned assembly and
+actual-artifact portability/smoke checks, and verifies the exact receipt. The candidate lives at
 `build/Release/<channel>/<40-hex-commit>/`.
 
 Publish verifies current source history and that exact receipt before loading
 the profile, then checks credentials and feed floors. It creates and pushes
-the annotated tag, waits for the required CI jobs on the exact tagged SHA,
-rechecks credentials and live feed floors, signs without rebuilding, notarizes,
+the annotated tag, rechecks credentials and live feed floors, signs without
+rebuilding, notarizes,
 staples, publishes the immutable versioned DMG, updates the selected mutable
 feed and Preview bridge, and independently verifies local and remote state.
 Preview requires strict Alpha and Beta build floors. Stable also requires Beta
 as a migration floor and permits absence only for an uninitialized Stable feed.
 
-CI uses the same `release.py package` command for Preview and Stable without a
-profile, secrets, signing, notarization, tagging, or publication. Nightly
+GitHub Actions is advisory: main and pull requests run fast structural tests,
+tag pushes do not start release gates, and no Actions result authorizes or
+blocks publication. Nightly
 prepares version/source state and calls `package` then `publish`; partial recovery
 calls `publish` only. Neither path prunes anything.
 
@@ -116,5 +124,5 @@ Before release mutation run the authority validator, `git diff --check`, and
 old-version scans. Final evidence names the channel, version/tag/commit and GitHub URL,
 candidate receipt, archive/app/DMG absolute paths, SHA-256, signature/notary/
 staple results, exact bundle metadata and feed URL, selected Sparkle feed and
-Preview bridge, exact-SHA CI jobs, artifact smoke/portability, repository
+Preview bridge, local contract gates, optional advisory CI status, artifact smoke/portability, repository
 cleanliness, retained work, and unresolved blockers.

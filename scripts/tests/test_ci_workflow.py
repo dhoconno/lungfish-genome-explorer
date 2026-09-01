@@ -292,30 +292,19 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(upload_steps[0].get("if"), "always()")
         self.assertEqual(upload_steps[0]["with"]["path"], ".build/gate-logs")
 
-    def test_main_push_packages_both_channels_through_the_supported_front_door(self):
+    def test_main_push_is_fast_and_release_tags_do_not_start_blocking_ci(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        job = wf["jobs"]["package-smoke"]
-        self.assertEqual(job["strategy"]["matrix"]["channel"], ["preview", "stable"])
-        self.assertIn("github.event_name == 'push'", job["if"])
-        self.assertIn("refs/heads/main", job["if"])
-        runs = "\n".join(step.get("run", "") for step in job["steps"])
-        self.assertIn(
-            "python3 scripts/release/release.py package ${{ matrix.channel }}", runs
+        push = wf[True]["push"]
+        self.assertEqual(push, {"branches": ["main"]})
+        self.assertNotIn("release", wf[True])
+        self.assertNotIn("package-smoke", wf["jobs"])
+        self.assertFalse(
+            any(name.startswith("release-") for name in wf["jobs"]), wf["jobs"]
         )
-        self.assertNotIn("scripts/release/build-notarized-dmg.sh", runs)
-        self.assertNotIn("--package-only", runs)
-        self.assertNotIn("--signing-identity", runs)
-        self.assertNotIn("--notary-profile", runs)
-        self.assertNotIn("gh release", runs)
 
-    def test_build_and_release_jobs_resolve_the_supported_xcode_range(self):
+    def test_advisory_build_jobs_resolve_the_supported_xcode_range(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         expected_jobs = {
-            "package-smoke",
-            "release-dependency-receipt",
-            "release-preview-gates",
-            "release-stable-full",
-            "release-stable-conformance",
             "build-smoke",
             "full",
             "toolset-conformance",
@@ -333,204 +322,16 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("xcode-select -s", self.workflow)
         self.assertNotIn("Xcode_26.4.1", self.workflow)
 
-    def test_package_smoke_uses_the_validator_approved_repository_defaults(self):
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        job = wf["jobs"]["package-smoke"]
-        build = next(
-            step
-            for step in job["steps"]
-            if step.get("name") == "Build and verify unsigned candidate"
-        )["run"]
-
-        self.assertNotIn("--release-dir", build)
-        self.assertNotIn("--archive-path", build)
-        self.assertNotIn("--derived-data-path", build)
-        self.assertIn(
-            'package_log="$PWD/.build/package-only-${{ matrix.channel }}.log"', build
-        )
-        self.assertNotIn("build/Release/package-only", build)
-
-    def test_package_evidence_excludes_apps_archives_and_private_or_signed_payloads(
-        self,
-    ):
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        job = wf["jobs"]["package-smoke"]
-        upload = next(
-            step
-            for step in job["steps"]
-            if step.get("uses", "").startswith("actions/upload-artifact")
-        )
-        paths = upload["with"]["path"]
-        self.assertEqual(upload.get("if"), "always()")
-        self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
-        self.assertIn("build/Release/${{ matrix.channel }}/", paths)
-        self.assertIn("package-metadata.txt", paths)
-        self.assertIn("unsigned-candidate-receipt.json", paths)
-        self.assertIn(".build/package-only-${{ matrix.channel }}.log", paths)
-        self.assertNotIn("Release/package-only.log", paths)
-        build = next(
-            step
-            for step in job["steps"]
-            if step.get("name") == "Build and verify unsigned candidate"
-        )["run"]
-        self.assertIn("package-only-${{ matrix.channel }}.log", build)
-        self.assertIn('>"$package_log" 2>&1', build)
-        for forbidden in ("*.app", ".xcarchive", "signed/", "*.dmg", "private"):
-            self.assertNotIn(forbidden, paths)
-
-    def test_tag_candidate_context_parses_exact_committed_channel_field(self):
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        push = wf[True]["push"]
-        self.assertEqual(push["tags"], ["v*"])
-        context = wf["jobs"]["release-context"]
-        runs = "\n".join(step.get("run", "") for step in context["steps"])
-        self.assertIn("docs/release-notes/${version}.md", runs)
-        self.assertIn("^Channel: Preview$", runs)
-        self.assertIn("^Channel: Stable$", runs)
-        self.assertIn("channel=preview", runs)
-        self.assertIn("channel=stable", runs)
-
-    def test_tag_candidate_has_mandatory_focused_dependency_and_channel_gates(self):
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        jobs = wf["jobs"]
-        self.assertIn("release-focused", jobs)
-        self.assertIn("release-dependency-receipt", jobs)
-        self.assertEqual(
-            jobs["release-dependency-receipt"]["if"],
-            "${{ needs.release-context.result == 'success' }}",
-        )
-        preview = "\n".join(
-            step.get("run", "") for step in jobs["release-preview-gates"]["steps"]
-        )
-        self.assertIn("--tier unit", preview)
-        self.assertIn("--tier integration", preview)
-        stable_full = "\n".join(
-            step.get("run", "") for step in jobs["release-stable-full"]["steps"]
-        )
-        stable_conformance = "\n".join(
-            step.get("run", "") for step in jobs["release-stable-conformance"]["steps"]
-        )
-        self.assertIn("--tier full", stable_full)
-        self.assertIn("--tier conformance --require-tools", stable_conformance)
-        dependency = "\n".join(
-            step.get("run", "") for step in jobs["release-dependency-receipt"]["steps"]
-        )
-        self.assertIn("dependency-receipt.json", dependency)
-        self.assertIn("verify_dependency_receipt_file", dependency)
-        self.assertNotIn("--verify-dependency-receipt", dependency)
-        for job_name in (
-            "release-preview-gates",
-            "release-stable-full",
-            "release-stable-conformance",
-        ):
-            self.assertIn("release-dependency-receipt", jobs[job_name]["needs"])
-
-    def test_release_source_gates_restore_and_verify_provisioned_dependencies(self):
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        jobs = wf["jobs"]
-        dependency_cache = next(
-            step
-            for step in jobs["release-dependency-receipt"]["steps"]
-            if step.get("name") == "Restore managed dependencies"
-        )
-
-        for job_name in ("release-preview-gates", "release-stable-full"):
-            steps = jobs[job_name]["steps"]
-            restore = next(
-                step
-                for step in steps
-                if step.get("name") == "Restore provisioned dependencies"
-            )
-            self.assertEqual(restore["uses"], "actions/cache/restore@v4")
-            self.assertEqual(restore["with"]["path"], dependency_cache["with"]["path"])
-            self.assertEqual(restore["with"]["key"], dependency_cache["with"]["key"])
-            self.assertTrue(restore["with"]["fail-on-cache-miss"])
-            self.assertNotIn("restore-keys", restore["with"])
-
-            verify = next(
-                step
-                for step in steps
-                if step.get("name") == "Verify restored dependency receipt"
-            )
-            self.assertIn("verify_dependency_receipt_file", verify["run"])
-            self.assertIn(".lungfish/dependency-receipt.json", verify["run"])
-            gate_index = next(
-                index
-                for index, step in enumerate(steps)
-                if step.get("name", "").startswith("Run ")
-            )
-            self.assertLess(steps.index(restore), steps.index(verify))
-            self.assertLess(steps.index(verify), gate_index)
-
-    def test_stable_conformance_seeds_from_the_verified_dependency_handoff(self):
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        jobs = wf["jobs"]
-        dependency_cache = next(
-            step
-            for step in jobs["release-dependency-receipt"]["steps"]
-            if step.get("name") == "Restore managed dependencies"
-        )
-        steps = jobs["release-stable-conformance"]["steps"]
-        restore = next(
-            step
-            for step in steps
-            if step.get("name") == "Restore provisioned dependencies"
-        )
-        verify = next(
-            step
-            for step in steps
-            if step.get("name") == "Verify restored dependency receipt"
-        )
-        provision = next(
-            step
-            for step in steps
-            if step.get("name") == "Provision exact dependency set"
-        )
-        isolated_verify = next(
-            step
-            for step in steps
-            if step.get("name") == "Verify dependency receipt"
-        )
-        gate = next(
-            step
-            for step in steps
-            if step.get("name") == "Run Stable conformance source gate"
-        )
-
-        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
-        self.assertEqual(restore["with"]["path"], dependency_cache["with"]["path"])
-        self.assertEqual(restore["with"]["key"], dependency_cache["with"]["key"])
-        self.assertTrue(restore["with"]["fail-on-cache-miss"])
-        self.assertNotIn("restore-keys", restore["with"])
-        self.assertIn("verify_dependency_receipt_file", verify["run"])
-        self.assertIn(".lungfish/dependency-receipt.json", verify["run"])
-        self.assertIn('--seed-from "$HOME/.lungfish"', provision["run"])
-        self.assertIn('--root "$HOME/.lungfish-release-verify"', provision["run"])
-        self.assertIn(".lungfish-release-verify/dependency-receipt.json", isolated_verify["run"])
-        self.assertIn('LUNGFISH_STORAGE_ROOT="$HOME/.lungfish-release-verify"', gate["run"])
-        self.assertLess(steps.index(restore), steps.index(verify))
-        self.assertLess(steps.index(verify), steps.index(provision))
-        self.assertLess(steps.index(provision), steps.index(isolated_verify))
-        self.assertLess(steps.index(isolated_verify), steps.index(gate))
-
-    def test_release_jobs_are_read_only_secretless_and_release_event_is_defense_only(
-        self,
-    ):
+    def test_github_actions_is_read_only_advisory_and_never_publishes(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         self.assertEqual(wf["permissions"], {"contents": "read"})
-        release_jobs = {
-            name: job
-            for name, job in wf["jobs"].items()
-            if name.startswith("release-") or name == "package-smoke"
-        }
-        serialized = yaml.safe_dump(release_jobs)
+        serialized = yaml.safe_dump(wf["jobs"])
         self.assertNotIn("secrets.", serialized)
-        for job in release_jobs.values():
+        self.assertNotIn("release.py publish", serialized)
+        self.assertNotIn("gh release create", serialized)
+        for job in wf["jobs"].values():
             self.assertNotIn("permissions", job)
-        defense = wf["jobs"]["stable-release-defense"]
-        self.assertIn("github.event_name == 'release'", defense["if"])
-        self.assertIn("release-stable-full", wf["jobs"])
-        self.assertIn("release-stable-conformance", wf["jobs"])
+        self.assertNotIn("release", wf[True])
 
 
 if __name__ == "__main__":

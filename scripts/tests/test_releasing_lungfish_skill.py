@@ -212,11 +212,8 @@ fi
         mutations = (
             (
                 ".github/workflows/ci.yml",
-                lambda text: text.replace(
-                    "python3 scripts/release/release.py package ${{ matrix.channel }}",
-                    "bash scripts/release/build-notarized-dmg.sh --package-only --channel ${{ matrix.channel }}",
-                    1,
-                ),
+                lambda text: text
+                + "\n# forbidden\nrun: bash scripts/release/build-notarized-dmg.sh --package-only --channel preview\n",
                 "ci",
             ),
             (
@@ -263,7 +260,8 @@ fi
         self.assertNotIn("release.py preview --prepare", skill)
         self.assertNotIn("release.py stable --resume", skill)
         self.assertIn("Do not give operators, CI, or nightly direct helper", skill)
-        self.assertIn("exact tagged SHA", skill)
+        self.assertIn("contract-defined focused and channel gates locally", skill)
+        self.assertIn("Actions never authorizes or blocks publication", skill)
         self.assertIn("appcast-beta.xml", skill)
         self.assertIn("appcast-stable.xml", skill)
 

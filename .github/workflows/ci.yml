@@ -4,14 +4,8 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   pull_request:
   workflow_dispatch:
-  # Defense-in-depth after publication. The coordinator's binding gate is the
-  # exact-SHA v* push above, with its channel read from committed release notes.
-  release:
-    types: [released]
 
 concurrency:
   # Keyed by event so a push never cancels a long release or ad hoc validation:
@@ -86,301 +80,11 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: .ci-python/bin/python -B -m unittest discover -s scripts/tests
 
-  package-smoke:
-    name: Unsigned package (${{ matrix.channel }})
-    runs-on: macos-26
-    timeout-minutes: 120
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        channel: [preview, stable]
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Select supported Xcode
-        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      - name: Build and verify unsigned candidate
-        env:
-          LUNGFISH_SPARKLE_PUBLIC_ED_KEY: FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c=
-        run: |
-          package_log="$PWD/.build/package-only-${{ matrix.channel }}.log"
-          mkdir -p "$PWD/.build"
-          if python3 scripts/release/release.py package ${{ matrix.channel }} \
-              >"$package_log" 2>&1; then
-            :
-          else
-            status=$?
-            exit "$status"
-          fi
-
-      - name: Upload unsigned package evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-package-${{ matrix.channel }}-evidence
-          if-no-files-found: ignore
-          path: |
-            build/Release/${{ matrix.channel }}/*/package-metadata.txt
-            build/Release/${{ matrix.channel }}/*/unsigned-candidate-receipt.json
-            .build/package-only-${{ matrix.channel }}.log
-
-  release-context:
-    name: Release context
-    runs-on: macos-26
-    timeout-minutes: 5
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    outputs:
-      channel: ${{ steps.release.outputs.channel }}
-      version: ${{ steps.release.outputs.version }}
-
-    steps:
-      - name: Check out exact tag
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Parse exact committed Channel field
-        id: release
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
-            echo "release tag is not canonical CalVer: $tag" >&2
-            exit 64
-          fi
-          version="${tag#v}"
-          notes="docs/release-notes/${version}.md"
-          test -f "$notes"
-          preview_count="$(grep -c '^Channel: Preview$' "$notes" || true)"
-          stable_count="$(grep -c '^Channel: Stable$' "$notes" || true)"
-          if [ "$preview_count" -eq 1 ] && [ "$stable_count" -eq 0 ]; then
-            echo "channel=preview" >> "$GITHUB_OUTPUT"
-          elif [ "$preview_count" -eq 0 ] && [ "$stable_count" -eq 1 ]; then
-            echo "channel=stable" >> "$GITHUB_OUTPUT"
-          else
-            echo "release notes must contain exactly one exact Channel field" >&2
-            exit 65
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-  release-focused:
-    name: Focused release tests
-    runs-on: macos-26
-    timeout-minutes: 30
-    needs: [release-context]
-    if: ${{ needs.release-context.result == 'success' }}
-
-    steps:
-      - name: Check out exact tag
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install focused test dependencies
-        run: |
-          brew install ripgrep
-          python3 -m venv .ci-python
-          .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow openpyxl PyYAML
-
-      - name: Run contract-defined focused release tests
-        run: |
-          modules="$(python3 - <<'PYTHON'
-          import json
-          print(" ".join(json.load(open("config/release-contract.json"))["gates"]["focusedReleaseTests"]))
-          PYTHON
-          )"
-          # Contract validation rejects option-like or shell-bearing module names.
-          .ci-python/bin/python -B -m unittest $modules
-
-  release-dependency-receipt:
-    name: Dependency receipt
-    runs-on: macos-26
-    timeout-minutes: 120
-    needs: [release-context]
-    if: ${{ needs.release-context.result == 'success' }}
-
-    steps:
-      - name: Check out exact tag
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Select supported Xcode
-        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      - name: Build dependency manager
-        run: swift build --product lungfish-cli
-
-      - name: Restore managed dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.lungfish/conda
-            ~/.lungfish/databases
-            ~/.lungfish/dependency-receipt.json
-          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
-
-      - name: Install pinned micromamba bootstrap
-        run: |
-          source="Sources/LungfishWorkflow/Resources/Tools/micromamba"
-          destination="$HOME/.lungfish/conda/bin/micromamba"
-          expected="$(python3 -c 'import json; print(json.load(open("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"))["bootstrap"]["micromamba"]["sha256"]["osx-arm64"])')"
-          actual="$(shasum -a 256 "$source" | awk '{print $1}')"
-          test "$actual" = "$expected"
-          mkdir -p "$(dirname "$destination")"
-          install -m 0755 "$source" "$destination"
-          "$destination" --version
-
-      - name: Reconcile dependency receipt
-        run: |
-          .build/debug/lungfish-cli tools update --apply --yes --required-only
-          .build/debug/lungfish-cli tools update --apply --yes
-
-      - name: Verify dependency receipt
-        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
-
-  release-preview-gates:
-    name: Preview source gates
-    runs-on: macos-26
-    timeout-minutes: 180
-    needs: [release-context, release-focused, release-dependency-receipt, fast]
-    if: ${{ needs.release-context.outputs.channel == 'preview' }}
-
-    steps:
-      - name: Check out exact tag
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Select supported Xcode
-        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      # release-dependency-receipt runs on a different GitHub runner. Restore
-      # the exact cache that job just provisioned before executing tests that
-      # resolve managed tools and Python runtimes from ~/.lungfish.
-      - name: Restore provisioned dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.lungfish/conda
-            ~/.lungfish/databases
-            ~/.lungfish/dependency-receipt.json
-          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
-          fail-on-cache-miss: true
-
-      - name: Verify restored dependency receipt
-        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
-
-      - name: Run Preview source gates
-        run: |
-          bash scripts/full-suite-gate.sh --tier unit
-          bash scripts/full-suite-gate.sh --tier integration
-
-      - name: Upload gate logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: preview-tag-gate-logs
-          path: .build/gate-logs
-
-  release-stable-full:
-    name: Stable full gate
-    runs-on: macos-26
-    timeout-minutes: 180
-    needs: [release-context, release-focused, release-dependency-receipt, fast]
-    if: ${{ needs.release-context.outputs.channel == 'stable' }}
-
-    steps:
-      - name: Check out exact tag
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Select supported Xcode
-        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      # release-dependency-receipt runs on a different GitHub runner. Restore
-      # the exact cache that job just provisioned before executing tests that
-      # resolve managed tools and Python runtimes from ~/.lungfish.
-      - name: Restore provisioned dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.lungfish/conda
-            ~/.lungfish/databases
-            ~/.lungfish/dependency-receipt.json
-          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
-          fail-on-cache-miss: true
-
-      - name: Verify restored dependency receipt
-        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
-
-      - name: Run Stable full source gate
-        run: bash scripts/full-suite-gate.sh --tier full
-
-      - name: Upload gate logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stable-full-tag-gate-logs
-          path: .build/gate-logs
-
-  release-stable-conformance:
-    name: Stable conformance gate
-    runs-on: macos-26
-    timeout-minutes: 180
-    needs: [release-context, release-focused, release-dependency-receipt, fast]
-    if: ${{ needs.release-context.outputs.channel == 'stable' }}
-
-    steps:
-      - name: Check out exact tag
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Select supported Xcode
-        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      - name: Restore provisioned dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.lungfish/conda
-            ~/.lungfish/databases
-            ~/.lungfish/dependency-receipt.json
-          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
-          fail-on-cache-miss: true
-
-      - name: Verify restored dependency receipt
-        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
-
-      - name: Provision exact dependency set
-        run: bash scripts/deps/verify.sh --tier 2 --root "$HOME/.lungfish-release-verify" --seed-from "$HOME/.lungfish"
-
-      - name: Verify dependency receipt
-        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish-release-verify/dependency-receipt.json")'
-
-      - name: Run Stable conformance source gate
-        run: LUNGFISH_STORAGE_ROOT="$HOME/.lungfish-release-verify" bash scripts/full-suite-gate.sh --tier conformance --require-tools
-
-      - name: Upload gate logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stable-conformance-tag-gate-logs
-          path: .build/gate-logs
-
   build-smoke:
     name: Build and smoke tests
     runs-on: macos-26
     timeout-minutes: 90
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Check out repository
@@ -493,11 +197,8 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     needs: [fast, toolset-conformance]
-    # Dispatch-only, deliberately NOT tag-triggered: the full suite is exactly
-    # what the local release gate already ran before the tag existed, so on a
-    # release it duplicates a stronger local check on a slower, flakier machine.
-    # The tag board keeps what only CI can provide: the Xcode project build and
-    # the fresh-machine toolset provisioning + conformance.
+    # Optional full-suite diagnostic. Release packaging already runs the
+    # channel's blocking local gates before a candidate receipt can exist.
     if: ${{ github.event_name == 'workflow_dispatch' }}
 
     steps:
@@ -551,7 +252,7 @@ jobs:
     name: Toolset conformance
     runs-on: macos-26
     timeout-minutes: 120
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Check out repository
@@ -684,19 +385,3 @@ jobs:
         with:
           name: toolset-conformance-logs
           path: .build/gate-logs
-
-  stable-release-defense:
-    name: Stable release defense
-    runs-on: macos-26
-    timeout-minutes: 5
-    needs: [build-smoke, toolset-conformance]
-    # This board starts only after publication. It is defense in depth; the
-    # coordinator already required the Stable full and conformance tag-push
-    # jobs for the exact tag SHA before it allowed the public release.
-    if: ${{ github.event_name == 'release' && needs.build-smoke.result == 'success' && needs.toolset-conformance.result == 'success' }}
-
-    steps:
-      - name: Confirm released tag identity
-        run: |
-          test "${{ github.event.release.tag_name }}" = "${GITHUB_REF_NAME}"
-          test -n "${GITHUB_SHA}"

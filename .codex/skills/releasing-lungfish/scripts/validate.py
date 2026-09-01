@@ -510,23 +510,12 @@ def validate_nightly_command_ast(tree: ast.AST, errors: list[str]) -> None:
 def validate_ci_and_nightly(repo_root: Path, errors: list[str]) -> None:
     ci_path = repo_root / ".github/workflows/ci.yml"
     ci = read_text(ci_path, errors, ".github/workflows/ci.yml")
-    package = workflow_job(ci, "package-smoke")
-    if not package:
-        errors.append("CI is missing the package-smoke job")
-    else:
-        if "matrix:\n        channel: [preview, stable]" not in package:
-            errors.append("CI package-smoke must parse both contract channels")
-        if "python3 scripts/release/release.py package ${{ matrix.channel }}" not in package:
-            errors.append("CI package-smoke must use the supported release.py package front door")
-        if "build-notarized-dmg.sh" in package or "--package-only" in package:
-            errors.append("CI bypasses the supported front door with a direct builder package path")
-        for forbidden in ("--profile", "--signing-identity", "--notary-profile", "gh release"):
-            if forbidden in package:
-                errors.append(f"CI credentialless package-smoke contains forbidden publication input {forbidden}")
-    if "tags:\n      - 'v*'" not in ci or "release-context:" not in ci:
-        errors.append("CI must parse release context and gate the exact v* tagged SHA")
-    if "release.py package" in ci and "scripts/release/release_xcode.py --shell" not in ci:
-        errors.append("CI must resolve the supported Xcode range through release_xcode.py")
+    if "release.py package" in ci or "build-notarized-dmg.sh" in ci:
+        errors.append("CI must not run the local release packaging transaction")
+    if "tags:\n      - 'v*'" in ci:
+        errors.append("CI must not gate publication from version-tag pushes")
+    if "release.py publish" in ci:
+        errors.append("CI must not publish releases")
     if re.search(r"Xcode_26\.4\.1|Select Xcode 26\.4\.1|xcode-select\s+-s", ci, re.IGNORECASE):
         errors.append("CI exact-pins Xcode 26.4.1 instead of using the contract range and shared resolver")
     if re.search(r"CI requires exactly Xcode 26\.4\.1", ci, re.IGNORECASE):

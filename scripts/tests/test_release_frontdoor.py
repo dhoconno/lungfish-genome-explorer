@@ -171,6 +171,9 @@ class FrontDoorTransactionTests(unittest.TestCase):
         def doctor_credentials(self, _request):
             self.events.append("doctor-credentials")
 
+        def run_local_gates(self, _request):
+            self.events.append("local-release-gates")
+
         def package_only(self, request):
             self.events.append("builder-package-only")
             return request.receipt
@@ -190,9 +193,6 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
         def ensure_annotated_tag(self, _request, _identity):
             self.events.append("tag-push")
-
-        def wait_exact_sha_ci(self, _request, _identity):
-            self.events.append("exact-sha-ci")
 
         def resume_publish(self, _request, _identity):
             self.events.append("sign-notarize-publish")
@@ -218,14 +218,12 @@ class FrontDoorTransactionTests(unittest.TestCase):
             sparkle_ed_key_file=None,
             dependency_receipt=Path("/verify/dependency-receipt.json"),
             release_dir=ROOT / "build/Release/preview" / ("a" * 40),
-            ci_timeout_seconds=600,
-            ci_poll_seconds=1,
             prune_prereleases=False,
             prune_prereleases_keep=10,
             github_repository="example/lungfish",
         )
 
-    def test_package_runs_source_doctor_builder_and_exact_verifier_without_ci_python(self):
+    def test_package_runs_local_gates_before_builder_and_exact_verifier(self):
         operations = self.RecordingOperations(self.release)
         with tempfile.TemporaryDirectory() as temporary:
             fixture_root = Path(temporary)
@@ -240,12 +238,163 @@ class FrontDoorTransactionTests(unittest.TestCase):
             [
                 "package-source",
                 "doctor-package",
+                "local-release-gates",
                 "builder-package-only",
                 "verify-candidate",
             ],
         )
         self.assertNotIn("doctor-credentials", operations.events)
         self.assertNotIn("tag-push", operations.events)
+
+    def test_local_release_gates_follow_the_channel_contract_on_the_release_mac(self):
+        class RecordingRunner:
+            def __init__(self):
+                self.commands = []
+                self.environments = []
+                self.environment = {"PATH": "/usr/bin:/bin"}
+
+            def run(self, command, **kwargs):
+                self.commands.append(command)
+                self.environments.append(kwargs.get("env"))
+                return subprocess.CompletedProcess(command, 0)
+
+        operations = object.__new__(self.release.LocalReleaseOperations)
+        operations.root = ROOT
+        operations.contract = self.release.load_contract(
+            ROOT / "config/release-contract.json"
+        )
+        operations.runner = RecordingRunner()
+        request = self.request("package")
+
+        gate_python = Path("/managed/python3")
+        with (
+            mock.patch.object(
+                self.release, "verify_dependency_receipt_file"
+            ) as verify_receipt,
+            mock.patch.object(
+                operations, "_managed_gate_python", return_value=gate_python
+            ),
+        ):
+            operations.run_local_gates(request)
+
+        verify_receipt.assert_called_once_with(ROOT, request.dependency_receipt)
+        self.assertEqual(
+            operations.runner.commands[0],
+            [
+                str(gate_python),
+                "-B",
+                "-m",
+                "unittest",
+                *operations.contract.gates.focusedReleaseTests,
+            ],
+        )
+        self.assertEqual(
+            operations.runner.commands[1:],
+            [
+                ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", "unit"],
+                [
+                    "/bin/bash",
+                    str(ROOT / "scripts/full-suite-gate.sh"),
+                    "--tier",
+                    "integration",
+                ],
+            ],
+        )
+        self.assertEqual(
+            operations.runner.environments,
+            [
+                {"PATH": "/managed:/usr/bin:/bin"},
+                {"PATH": "/managed:/usr/bin:/bin"},
+                {"PATH": "/managed:/usr/bin:/bin"},
+            ],
+        )
+
+        operations.runner.commands.clear()
+        operations.runner.environments.clear()
+        with (
+            mock.patch.object(self.release, "verify_dependency_receipt_file"),
+            mock.patch.object(
+                operations, "_managed_gate_python", return_value=gate_python
+            ),
+        ):
+            operations.run_local_gates(replace(request, channel="stable"))
+        self.assertEqual(
+            operations.runner.commands[1:],
+            [
+                ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", "full"],
+                [
+                    "/bin/bash",
+                    str(ROOT / "scripts/full-suite-gate.sh"),
+                    "--tier",
+                    "conformance",
+                    "--require-tools",
+                ],
+            ],
+        )
+        self.assertEqual(
+            operations.runner.environments,
+            [
+                {"PATH": "/managed:/usr/bin:/bin"},
+                {"PATH": "/managed:/usr/bin:/bin"},
+                {
+                    "PATH": "/managed:/usr/bin:/bin",
+                    "LUNGFISH_STORAGE_ROOT": str(request.dependency_receipt.parent),
+                },
+            ],
+        )
+
+    def test_release_test_python_is_the_exact_isolated_runtime_not_an_ambient_env(self):
+        class RecordingRunner:
+            def __init__(self):
+                self.commands = []
+
+            def run(self, command, **_kwargs):
+                self.commands.append(command)
+                return subprocess.CompletedProcess(command, 0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            storage = Path(temporary)
+            selected = storage / "parity-python/bin/python3"
+            selected.parent.mkdir(parents=True)
+            selected.write_text("#!/bin/sh\n", encoding="utf-8")
+            selected.chmod(0o700)
+            incidental = storage / "conda/envs/ambient/bin/python3"
+            incidental.parent.mkdir(parents=True)
+            incidental.write_text("#!/bin/sh\n", encoding="utf-8")
+            incidental.chmod(0o700)
+            operations = object.__new__(self.release.LocalReleaseOperations)
+            operations.runner = RecordingRunner()
+            request = replace(
+                self.request("package"),
+                dependency_receipt=storage / "dependency-receipt.json",
+            )
+
+            observed = operations._managed_gate_python(request)
+
+        self.assertEqual(observed, selected)
+        self.assertEqual(
+            operations.runner.commands[0],
+            [str(selected), "-c", "import numpy, Bio, scipy, pandas"],
+        )
+        self.assertNotIn(str(incidental), operations.runner.commands[0])
+
+        with tempfile.TemporaryDirectory() as failing_temporary:
+            failing_storage = Path(failing_temporary)
+            failing_python = failing_storage / "parity-python/bin/python3"
+            failing_python.parent.mkdir(parents=True)
+            failing_python.write_text("#!/bin/sh\n", encoding="utf-8")
+            failing_python.chmod(0o700)
+            failing_request = replace(
+                request,
+                dependency_receipt=failing_storage / "dependency-receipt.json",
+            )
+            operations.runner.run = (
+                lambda command, **_kwargs: subprocess.CompletedProcess(command, 1)
+            )
+            with self.assertRaisesRegex(
+                self.release.ReleaseError, "isolated release-test Python"
+            ):
+                operations._managed_gate_python(failing_request)
 
     def test_publish_verifies_candidate_then_credentials_and_never_rebuilds(self):
         operations = self.RecordingOperations(self.release)
@@ -263,7 +412,6 @@ class FrontDoorTransactionTests(unittest.TestCase):
                 "doctor-credentials",
                 "live-feed",
                 "tag-push",
-                "exact-sha-ci",
                 "doctor-credentials",
                 "live-feed",
                 "sign-notarize-publish",
@@ -271,10 +419,7 @@ class FrontDoorTransactionTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("builder-package-only", operations.events)
-        self.assertLess(
-            operations.events.index("exact-sha-ci"),
-            operations.events.index("sign-notarize-publish"),
-        )
+        self.assertNotIn("exact-sha-ci", operations.events)
 
     def test_package_environment_removes_credential_and_capability_values(self):
         poisoned = {

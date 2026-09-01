@@ -1335,6 +1335,9 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         def doctor_credentials(self, _request):
             self.events.append("doctor:credentials")
 
+        def run_local_gates(self, _request):
+            self.events.append("local-release-gates")
+
         def verify_source_history(self, _request):
             self.events.append("source-history")
 
@@ -1375,11 +1378,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         def ensure_annotated_tag(self, _request, _identity):
             self.events.append("annotated-tag-push")
 
-        def wait_exact_sha_ci(self, _request, _identity):
-            self.events.append("wait-exact-sha-ci")
-            if self.ci_error is not None:
-                raise self.ci_error
-
         def resume_publish(self, _request, _identity):
             self.events.append("credentialed-resume-publish")
 
@@ -1402,75 +1400,9 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             sparkle_ed_key_file=None,
             dependency_receipt=Path("/verify/dependency-receipt.json"),
             release_dir=Path("/repo/build/Release"),
-            ci_timeout_seconds=600,
-            ci_poll_seconds=1,
             prune_prereleases=True,
             prune_prereleases_keep=10,
         )
-
-    def test_exact_sha_ci_uses_selected_github_com_repository_under_hostile_host(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            bin_dir = Path(temp_dir)
-            jobs = [
-                {
-                    "name": name,
-                    "status": "completed",
-                    "conclusion": "success",
-                }
-                for name in self.coordinator.required_ci_jobs("preview")
-            ]
-            run_payload = [
-                {
-                    "databaseId": 77,
-                    "headSha": "a" * 40,
-                    "headBranch": "v2026.8.1",
-                    "status": "completed",
-                    "conclusion": "success",
-                }
-            ]
-            gh = bin_dir / "gh"
-            gh.write_text(
-                "#!/usr/bin/env python3\n"
-                "import json, os, sys\n"
-                "args = sys.argv[1:]\n"
-                "if os.environ.get('GH_HOST') or os.environ.get('GH_REPO') != 'github.com/right/lungfish':\n"
-                "    raise SystemExit(89)\n"
-                "if args[:2] != ['--repo', 'github.com/right/lungfish']:\n"
-                "    raise SystemExit(90)\n"
-                "args = args[2:]\n"
-                f"runs = {run_payload!r}\n"
-                f"jobs = {jobs!r}\n"
-                "if args[:2] == ['run', 'list']:\n"
-                "    print(json.dumps(runs))\n"
-                "elif args[:2] == ['run', 'view']:\n"
-                "    print(json.dumps({'jobs': jobs}))\n"
-                "else:\n"
-                "    raise SystemExit(64)\n",
-                encoding="utf-8",
-            )
-            gh.chmod(0o755)
-            root = Path(__file__).resolve().parents[2]
-            environment = {
-                "PATH": f"{bin_dir}:{os.environ['PATH']}",
-                "GH_HOST": "mirror.example.test",
-            }
-            with mock.patch.dict(os.environ, environment):
-                operations = self.coordinator.LocalReleaseOperations(
-                    root, "right/lungfish"
-                )
-            request = dataclasses.replace(
-                self.request(channel="preview", mode="resume"),
-                github_repository="right/lungfish",
-            )
-            identity = self.coordinator.CandidateIdentity(
-                receipt=request.receipt,
-                tag="v2026.8.1",
-                commit="a" * 40,
-                version="2026.8.1",
-                scratch_path=Path("/scratch"),
-            )
-
-            operations.wait_exact_sha_ci(request, identity)
 
     def test_release_defaults_use_the_validator_approved_archive_overlap(self):
         operations = self.coordinator.LocalReleaseOperations(
@@ -1530,7 +1462,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             archive_path=scoped_release / "Lungfish.xcarchive",
         )
 
-    def test_package_then_publish_uses_artifact_and_exact_sha_ci_without_local_gates(self):
+    def test_package_then_publish_uses_local_gates_and_never_waits_for_ci(self):
         operations = self.RecordingOperations()
         transaction = self.coordinator.ReleaseCoordinator(operations)
 
@@ -1544,6 +1476,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             [
                 "package-source",
                 "doctor:package",
+                "local-release-gates",
                 "package-only",
                 "verify-candidate-receipt",
                 "source-history",
@@ -1551,7 +1484,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                 "doctor:credentials",
                 "sparkle-build-number",
                 "annotated-tag-push",
-                "wait-exact-sha-ci",
                 "doctor:credentials",
                 "sparkle-build-number",
                 "credentialed-resume-publish",
@@ -1580,7 +1512,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
 
-    def test_feed_advance_after_exact_sha_ci_blocks_publication(self):
+    def test_feed_advance_after_tag_push_blocks_publication(self):
         operations = self.RecordingOperations(sparkle_error_on_call=2)
         transaction = self.coordinator.ReleaseCoordinator(operations)
         request = self.request(mode="publish")
@@ -1589,7 +1521,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "feed advanced"):
             transaction.publish_verified(request, identity)
 
-        self.assertIn("wait-exact-sha-ci", operations.events)
+        self.assertNotIn("wait-exact-sha-ci", operations.events)
         self.assertNotIn("credentialed-resume-publish", operations.events)
         self.assertEqual(operations.events[-1], "sparkle-build-number")
 
@@ -1815,75 +1747,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                         ]
                     )
             self.assertEqual(raised.exception.code, 2)
-
-    def test_any_exact_sha_ci_gate_failure_blocks_credentials_and_publication(self):
-        for conclusion in ("failure", "cancelled", "skipped"):
-            with self.subTest(conclusion=conclusion):
-                operations = self.RecordingOperations(
-                    ci_error=self.coordinator.ReleaseError(
-                        f"required GitHub Actions job concluded {conclusion}"
-                    )
-                )
-                with self.assertRaises(self.coordinator.ReleaseError):
-                    transaction = self.coordinator.ReleaseCoordinator(operations)
-                    request = self.request(mode="publish")
-                    identity = transaction.preflight_publish_candidate(request)
-                    transaction.publish_verified(request, identity)
-                self.assertNotIn("credentialed-resume-publish", operations.events)
-
-    def test_wait_for_actions_requires_tag_sha_and_every_channel_job_success(self):
-        sha = "a" * 40
-        tag = "v2026.8.1"
-        success_run = {
-            "databaseId": 41,
-            "headSha": sha,
-            "headBranch": tag,
-            "status": "completed",
-            "conclusion": "success",
-        }
-        stable_jobs = [
-            {"name": name, "status": "completed", "conclusion": "success"}
-            for name in self.coordinator.required_ci_jobs("stable")
-        ]
-
-        self.coordinator.evaluate_actions_runs(
-            [success_run], stable_jobs, channel="stable", tag=tag, expected_sha=sha
-        )
-
-        with self.assertRaisesRegex(self.coordinator.ReleaseError, "exact tagged SHA"):
-            self.coordinator.evaluate_actions_runs(
-                [{**success_run, "headSha": "b" * 40}],
-                stable_jobs,
-                channel="stable",
-                tag=tag,
-                expected_sha=sha,
-            )
-        for conclusion in ("failure", "cancelled", "skipped"):
-            jobs = [dict(job) for job in stable_jobs]
-            jobs[-1]["conclusion"] = conclusion
-            with self.assertRaisesRegex(self.coordinator.ReleaseError, conclusion):
-                self.coordinator.evaluate_actions_runs(
-                    [success_run], jobs, channel="stable", tag=tag, expected_sha=sha
-                )
-
-        duplicate_failure = {
-            "name": stable_jobs[-1]["name"],
-            "status": "completed",
-            "conclusion": "failure",
-        }
-        for duplicate_jobs in (
-            [*stable_jobs, duplicate_failure],
-            [*stable_jobs[:-1], duplicate_failure, stable_jobs[-1]],
-        ):
-            with self.subTest(order=[job["conclusion"] for job in duplicate_jobs[-2:]]):
-                with self.assertRaisesRegex(self.coordinator.ReleaseError, "ambiguous"):
-                    self.coordinator.evaluate_actions_runs(
-                        [success_run],
-                        duplicate_jobs,
-                        channel="stable",
-                        tag=tag,
-                        expected_sha=sha,
-                    )
 
     def test_independent_verification_uses_the_published_release_app(self):
         class VerificationRunner:
@@ -2268,8 +2131,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             sparkle_public_ed_key="public",
             sparkle_ed_key_file="",
             dependency_receipt=Path("/verify/dependency-receipt.json"),
-            ci_timeout_seconds=600,
-            ci_poll_seconds=10,
             prune_prereleases=True,
             prune_prereleases_keep=10,
             profile=Path("/machine/release.json"),
@@ -2310,8 +2171,6 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             sparkle_public_ed_key="public",
             sparkle_ed_key_file="",
             dependency_receipt=Path("/verify/dependency-receipt.json"),
-            ci_timeout_seconds=600,
-            ci_poll_seconds=10,
             prune_prereleases=True,
             prune_prereleases_keep=10,
             profile=Path("/machine/release.json"),

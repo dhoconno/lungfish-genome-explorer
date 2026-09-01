@@ -113,29 +113,38 @@ an installer:
    unsafe profile, or a failed credential probe, exits nonzero. Doctor is
    read-only apart from disposable probes and never installs or repairs tools.
 
+The release Mac must also have the pinned verification root at
+`~/.lungfish-verify`. Provision or refresh it with
+`bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify`. Doctor verifies
+its canonical `dependency-receipt.json` and isolated `parity-python` runtime; it
+does not install or update dependencies.
+
 The release contract also requires Swift `>=6.2,<7`, macOS SDK major 26,
 deployment target 26.0, arm64, and at least 20 GiB free on both cache and output
 volumes.
 
 ## Package and publish semantics
 
-`package` is credentialless. It sanitizes credential/capability environment
-values, checks the source checkout, runs package Doctor, performs internal
-unsigned assembly, validates the actual artifact with portability and smoke
-checks, then performs exact receipt verification. Its output is
+`package` is credentialless and locally authoritative. It sanitizes
+credential/capability environment values, checks the source checkout, runs
+package Doctor, verifies the reconciled dependency receipt, and runs the
+contract-defined focused tests plus the selected channel gates on the release
+Mac. Preview runs unit and integration; Stable runs full and conformance with
+tools required. Only after those gates pass does it perform internal unsigned
+assembly, validate the actual artifact with portability and smoke checks, and
+perform exact receipt verification. Its output is
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json` plus
 the bound candidate.
 
-CI invokes `release.py package` for both channels on main without profiles,
-secrets, Developer ID signing, notarization, tags, GitHub publication, or feed
-mutation. Tag CI reads the exact committed `Channel:` field and runs the
-contract-selected gates on that exact tagged SHA.
+GitHub Actions is advisory. Main and pull requests run the fast structural
+gate; manually dispatched diagnostics can exercise additional builds. Tag
+pushes do not start release gates, and no Actions result authorizes or blocks a
+publication.
 
 `publish` verifies current source history and the expected channel/current-HEAD
 receipt before it reads the strict profile. It then runs credential Doctor and
 live Sparkle build floors, creates and atomically pushes the annotated tag, and
-waits for the required source/test jobs on the exact tagged SHA;
-repeats credentials and receipt-bound live floors; and only then gives the
+repeats credentials and receipt-bound live floors; then gives the
 candidate to the internal signer. There is no rebuild between package receipt
 and Developer ID signing.
 

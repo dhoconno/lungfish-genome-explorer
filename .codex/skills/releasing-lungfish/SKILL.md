@@ -5,8 +5,8 @@ description: Use when asked to prepare, package, publish, recover, promote, or v
 
 # Releasing Lungfish
 
-Use the coordinator for every operator action. Missing provenance, signature,
-notarization, receipt, CI, or remote-verification evidence is a blocker.
+Use the coordinator for every operator action. Missing provenance, local gate,
+signature, notarization, receipt, or remote-verification evidence is a blocker.
 
 ## Supported operator front door
 
@@ -111,29 +111,40 @@ publication; the repository does not provide an installer:
    requested missing/unsafe profile or failed credential probe exits nonzero.
    Doctor checks only and does not install or repair prerequisites.
 
+The release Mac also needs the pinned verification root at
+`~/.lungfish-verify`. Provision or refresh it with
+`bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify`. Doctor verifies
+its canonical `dependency-receipt.json` and isolated `parity-python` runtime; it
+does not install or update them.
+
 The contract requires Swift `>=6.2,<7`, macOS SDK major 26, deployment target
 26.0, arm64, and at least 20 GiB free on cache and output volumes.
 
 ## Package, publish, and recovery
 
-`package` is credentialless. It verifies the source checkout, runs package
-Doctor, assembles the unsigned app, validates the actual artifact's portability
-and smoke behavior, then creates and verifies a candidate receipt at
+`package` is credentialless and is the blocking release gate. It verifies the
+source checkout, runs package Doctor, verifies the reconciled dependency
+receipt, and runs the contract-defined focused and channel gates locally.
+Preview runs unit and integration; Stable runs full and conformance with tools
+required. Only after those gates pass does it assemble the unsigned app,
+validate the actual artifact's portability and smoke behavior, and create and
+verify a candidate receipt at
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json`.
-CI calls the same `package` command for both channels and
-never signs, notarizes, tags, publishes, loads profiles, or uses secrets.
+
+GitHub Actions is advisory only. Main and pull requests run the fast structural
+gate, and explicitly dispatched diagnostic jobs may do more work. Tag pushes do
+not start release gates, and Actions never authorizes or blocks publication.
 
 `publish` first derives and verifies that exact channel/current-HEAD receipt,
 then loads the strict profile and pinned Keychain/tool inputs. It checks
 credentials and live-feed build floors, creates and pushes the annotated tag,
-waits for the required source/test jobs on
-the exact tagged SHA; repeats credential and feed checks; then signs, notarizes,
+repeats credential and feed checks, then signs, notarizes,
 staples, publishes the immutable versioned release, updates mutable feeds, and
 independently verifies remote and local artifacts. Stable requires the strict
 Alpha and Beta migration floors plus its Stable floor; only an uninitialized
 Stable feed may be absent. Preview requires strict Alpha and Beta floors.
 
-If signing, notarization, CI, or publication stops, preserve the candidate and
+If signing, notarization, or publication stops, preserve the candidate and
 run the identical `publish` command again. Receipt verification precedes every
 credentialed continuation. Recovery uses the same candidate and never rebuilds.
 
@@ -162,8 +173,8 @@ python3 .codex/skills/releasing-lungfish/scripts/validate.py --repo-root "$PWD"
 For a release, also run `git diff --check` and old-version scans. Report only
 evidence actually verified: channel, tag/commit and URL, candidate
 receipt, archive/app/DMG paths, SHA-256, signature/notary/staple results, feeds
-and legacy bridge, exact-SHA CI, artifact smoke/portability, cleanup, and
-residual blockers.
+and legacy bridge, local contract gates, optional advisory CI status, artifact
+smoke/portability, cleanup, and residual blockers.
 
 ## Install and maintain
 

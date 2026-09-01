@@ -298,11 +298,12 @@ results and reconciled receipt from step 4 as the pre-publication dependency
 evidence for both channels. A preview release also requires the normal main-push
 Fast gate and deliberately triggers no heavy board.
 
-Publishing a full stable GitHub release fires the workflow's `released` event.
-That automatically provisions the manifest on a clean macOS runner, validates
-the receipt, repeats tier 1 and the golden diff, and runs build/smoke. Require
-both Toolset conformance and Build/smoke to pass on the released tag before the
-stable release is considered complete. Expect 60 to 100 minutes of CI time.
+Stable publication does not fire a blocking CI board. The local `package`
+transaction verifies the reconciled receipt and runs the Stable full and
+toolset-conformance gates before creating the candidate. Optional Build/smoke,
+Full suite, and Toolset conformance workflow dispatches remain useful for
+diagnosis on a clean GitHub runner, but their results neither authorize nor
+block publication.
 
 ### 7. Release notes
 
@@ -341,10 +342,10 @@ carry taxonomy ids.
 Bump the app version and run the release skill
 (`.codex/skills/releasing-lungfish/SKILL.md`). Every release gate validates the
 isolated verification receipt against the manifest's exact dependency set and
-canonical hash, then runs the complete local package test suite. A preview uses
-the normal `main`-push Fast gate. Publishing a full stable release triggers the
-heavy build-smoke and toolset-conformance board automatically through GitHub's
-`released` event; never dispatch that board manually as part of a release.
+canonical hash, then runs the channel's blocking gates locally before creating
+the candidate receipt. GitHub Actions is advisory: main and pull requests run
+the Fast gate, while build, full-suite, and toolset-conformance diagnostics are
+available only by explicit dispatch and never authorize or block publication.
 
 Remember that the app version itself is restated in roughly eight source
 locations plus two test expectations, which all move together.

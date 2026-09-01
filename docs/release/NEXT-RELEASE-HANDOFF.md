@@ -14,8 +14,9 @@ python3 scripts/release/release.py publish preview|stable [--profile PATH]
 Re-run `publish` for partial-release recovery. It derives the exact
 current-HEAD/channel receipt and continues without rebuilding. Direct builder
 commands, public prepare/resume/status modes, shell `release.env`, and implicit
-release pruning are retired. CI and nightly use the same front door. Retention
-is a separate explicit maintenance task.
+release pruning are retired. Nightly uses the same front door; GitHub Actions
+is advisory and never authorizes or blocks publication. Retention is a separate
+explicit maintenance task.
 
 The strict default profile is `~/.config/lungfish/release.json`, a current-user
 regular non-symlink at mode 0600 beneath an owner-only directory. Schema v1 has
@@ -31,6 +32,11 @@ notary Keychain profile, the Sparkle Keychain key, and the strict JSON profile.
 The release runtime uses only the Python standard library.
 Doctor does not install or repair these inputs and no manual `xcode-select`
 workaround is part of the release procedure.
+
+The release Mac also needs the pinned dependency verification root at
+`~/.lungfish-verify`, including its canonical `dependency-receipt.json` and
+isolated `parity-python` runtime. Doctor checks both before reporting package
+readiness.
 
 ## Channel and installation ledger
 
@@ -48,12 +54,14 @@ current Preview DMG and manual migration of any desired Preview settings.
 
 ## Transaction and cache ledger
 
-Package is credentialless. It checks source and package Doctor, assembles and
-smoke/portability-checks the actual artifact, then writes and verifies it under
+Package is credentialless and authoritative. It checks source and package
+Doctor, verifies the dependency receipt, runs the contract-defined focused and
+channel gates locally, assembles and smoke/portability-checks the actual
+artifact, then writes and verifies it under
 `build/Release/<channel>/<40-hex-commit>/`. Publish verifies that receipt before
 loading credentials, checks credentials and feed floors,
-pushes the annotated tag, waits for the required exact-SHA CI jobs, repeats
-live readiness, signs without rebuilding, notarizes, staples, publishes, and
+pushes the annotated tag, repeats live readiness, signs without rebuilding,
+notarizes, staples, publishes, and
 independently verifies. Preview uses strict Alpha/Beta live floors; Stable also
 checks Stable and permits absence only before that feed exists.
 

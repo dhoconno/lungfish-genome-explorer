@@ -16,7 +16,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 from typing import Any, Protocol
 
 
@@ -205,8 +204,6 @@ class ReleaseRequest:
     sparkle_ed_key_file: Path | None
     dependency_receipt: Path
     release_dir: Path
-    ci_timeout_seconds: int
-    ci_poll_seconds: int
     prune_prereleases: bool
     prune_prereleases_keep: int
     sparkle_public_ed_key: str = PUBLIC_SPARKLE_KEY
@@ -238,6 +235,9 @@ class ReleaseOperations(Protocol):
     def package_only(self, request: ReleaseRequest) -> Path:
         ...
 
+    def run_local_gates(self, request: ReleaseRequest) -> None:
+        ...
+
     def validate_sparkle_build_number(
         self, request: ReleaseRequest, identity: CandidateIdentity | None = None
     ) -> None:
@@ -247,11 +247,6 @@ class ReleaseOperations(Protocol):
         ...
 
     def ensure_annotated_tag(
-        self, request: ReleaseRequest, identity: CandidateIdentity
-    ) -> None:
-        ...
-
-    def wait_exact_sha_ci(
         self, request: ReleaseRequest, identity: CandidateIdentity
     ) -> None:
         ...
@@ -274,6 +269,7 @@ class ReleaseCoordinator:
     def package(self, request: ReleaseRequest) -> CandidateIdentity:
         self.operations.verify_package_source(request)
         self.operations.doctor_package(request)
+        self.operations.run_local_gates(request)
         receipt = self.operations.package_only(request)
         active = replace(request, receipt=receipt)
         return self.operations.verify_candidate_receipt(active)
@@ -290,7 +286,6 @@ class ReleaseCoordinator:
         self.operations.doctor_credentials(request)
         self.operations.validate_sparkle_build_number(request, identity)
         self.operations.ensure_annotated_tag(request, identity)
-        self.operations.wait_exact_sha_ci(request, identity)
         self.operations.doctor_credentials(request)
         self.operations.validate_sparkle_build_number(request, identity)
         self.operations.resume_publish(request, identity)
@@ -370,68 +365,6 @@ def verify_dependency_receipt_file(root: Path, receipt_path: Path) -> None:
         raise ReleaseError(
             f"dependency receipt has {len(incomplete)} incomplete environments"
         )
-
-
-def required_ci_jobs(channel: str) -> tuple[str, ...]:
-    common = (
-        "Release context",
-        "Fast gate",
-        "Focused release tests",
-        "Dependency receipt",
-    )
-    if channel == "preview":
-        return (*common, "Preview source gates")
-    if channel == "stable":
-        return (*common, "Stable full gate", "Stable conformance gate")
-    raise ReleaseError(f"unknown release channel: {channel}")
-
-
-def evaluate_actions_runs(
-    runs: list[dict[str, Any]],
-    jobs: list[dict[str, Any]],
-    *,
-    channel: str,
-    tag: str,
-    expected_sha: str,
-) -> int:
-    exact = [
-        run
-        for run in runs
-        if run.get("headSha") == expected_sha and run.get("headBranch") == tag
-    ]
-    if not exact:
-        raise ReleaseError("GitHub Actions returned no run for the exact tagged SHA")
-    if len(exact) != 1:
-        raise ReleaseError(
-            "GitHub Actions returned ambiguous runs for the exact tagged SHA"
-        )
-    run = exact[0]
-    status = run.get("status")
-    conclusion = run.get("conclusion")
-    if status != "completed":
-        raise ReleaseError(f"exact-SHA GitHub Actions run is not complete: {status}")
-    if conclusion != "success":
-        raise ReleaseError(f"exact-SHA GitHub Actions run concluded {conclusion}")
-    run_id = run.get("databaseId")
-    if type(run_id) is not int or run_id <= 0:
-        raise ReleaseError("exact-SHA GitHub Actions run has no valid database id")
-
-    for name in required_ci_jobs(channel):
-        matches = [job for job in jobs if job.get("name") == name]
-        if not matches:
-            raise ReleaseError(f"required GitHub Actions job is missing: {name}")
-        if len(matches) != 1:
-            raise ReleaseError(f"required GitHub Actions job is ambiguous: {name}")
-        job = matches[0]
-        job_status = job.get("status")
-        job_conclusion = job.get("conclusion")
-        if job_status != "completed":
-            raise ReleaseError(f"required GitHub Actions job is incomplete: {name}")
-        if job_conclusion != "success":
-            raise ReleaseError(
-                f"required GitHub Actions job {name} concluded {job_conclusion}"
-            )
-    return run_id
 
 
 def sanitized_package_environment(environment: dict[str, str]) -> dict[str, str]:
@@ -576,8 +509,6 @@ def _base_request(
         / ".lungfish-verify"
         / "dependency-receipt.json",
         release_dir=release_dir,
-        ci_timeout_seconds=6 * 60 * 60,
-        ci_poll_seconds=30,
         prune_prereleases=False,
         prune_prereleases_keep=10,
         sparkle_public_ed_key=PUBLIC_SPARKLE_KEY,
@@ -1573,6 +1504,50 @@ class LocalReleaseOperations:
                 request.github_repository,
             ]
         )
+        verify_dependency_receipt_file(self.root, request.dependency_receipt)
+        self._managed_gate_python(request)
+
+    def _managed_gate_python(self, request: ReleaseRequest) -> Path:
+        candidate = request.dependency_receipt.parent / "parity-python" / "bin" / "python3"
+        probe = "import numpy, Bio, scipy, pandas"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            result = self.runner.run(
+                [str(candidate), "-c", probe], capture=True, check=False
+            )
+            if result.returncode == 0:
+                return candidate
+        raise ReleaseError(
+            "isolated release-test Python is unavailable; run the pinned "
+            "dependency verification before packaging"
+        )
+
+    def run_local_gates(self, request: ReleaseRequest) -> None:
+        verify_dependency_receipt_file(self.root, request.dependency_receipt)
+        gate_python = self._managed_gate_python(request)
+        gate_environment = {
+            "PATH": f"{gate_python.parent}:{self.runner.environment.get('PATH', '')}"
+        }
+        self.runner.run(
+            [
+                str(gate_python),
+                "-B",
+                "-m",
+                "unittest",
+                *self.contract.gates.focusedReleaseTests,
+            ],
+            env=gate_environment,
+        )
+        gate_script = str(self.root / "scripts/full-suite-gate.sh")
+        for step in self.contract.gates.for_channel(request.channel):
+            command = ["/bin/bash", gate_script, "--tier", step.tier]
+            if step.requireTools:
+                command.append("--require-tools")
+            step_environment = gate_environment.copy()
+            if step.requireTools:
+                step_environment["LUNGFISH_STORAGE_ROOT"] = str(
+                    request.dependency_receipt.parent
+                )
+            self.runner.run(command, env=step_environment)
 
     def package_only(self, request: ReleaseRequest) -> Path:
         archive, derived, release_dir = self._paths(request)
@@ -1738,69 +1713,6 @@ class LocalReleaseOperations:
         direct, peeled = self._remote_tag(request, identity)
         if not direct or peeled != identity.commit:
             raise ReleaseError("pushed annotated tag failed exact commit verification")
-
-    def _gh_runs(self, identity: CandidateIdentity) -> list[dict[str, Any]]:
-        value = self.runner.json(
-            [
-                "gh",
-                "run",
-                "list",
-                "--workflow",
-                "ci.yml",
-                "--event",
-                "push",
-                "--commit",
-                identity.commit,
-                "--limit",
-                "20",
-                "--json",
-                "databaseId,headSha,headBranch,status,conclusion",
-            ]
-        )
-        if not isinstance(value, list) or not all(
-            isinstance(item, dict) for item in value
-        ):
-            raise ReleaseError("GitHub Actions run response is malformed")
-        return value
-
-    def wait_exact_sha_ci(
-        self, request: ReleaseRequest, identity: CandidateIdentity
-    ) -> None:
-        deadline = time.monotonic() + request.ci_timeout_seconds
-        while True:
-            runs = self._gh_runs(identity)
-            exact = [
-                run
-                for run in runs
-                if run.get("headSha") == identity.commit
-                and run.get("headBranch") == identity.tag
-            ]
-            wrong = [run for run in runs if run.get("headSha") != identity.commit]
-            if wrong:
-                raise ReleaseError("GitHub Actions returned a run for the wrong SHA")
-            if exact and exact[0].get("status") == "completed":
-                run_id = exact[0].get("databaseId")
-                jobs_value = self.runner.json(
-                    ["gh", "run", "view", str(run_id), "--json", "jobs"]
-                )
-                jobs = jobs_value.get("jobs") if isinstance(jobs_value, dict) else None
-                if not isinstance(jobs, list) or not all(
-                    isinstance(item, dict) for item in jobs
-                ):
-                    raise ReleaseError("GitHub Actions jobs response is malformed")
-                evaluate_actions_runs(
-                    runs,
-                    jobs,
-                    channel=request.channel,
-                    tag=identity.tag,
-                    expected_sha=identity.commit,
-                )
-                return
-            if time.monotonic() >= deadline:
-                raise ReleaseError(
-                    "timed out waiting for exact tagged SHA GitHub Actions gates"
-                )
-            time.sleep(request.ci_poll_seconds)
 
     def _versioned_release_exists(self, tag: str) -> bool:
         return (
@@ -1981,13 +1893,14 @@ def _parser() -> argparse.ArgumentParser:
     debug.add_argument("--repo", type=Path, default=PROJECT_ROOT)
 
     package = commands.add_parser(
-        "package", help="create a credentialless verified unsigned candidate"
+        "package",
+        help="run local release gates and create a verified unsigned candidate",
     )
     package.add_argument("channel", choices=("preview", "stable"))
     package.add_argument("--repo", type=Path, default=PROJECT_ROOT)
 
     publish = commands.add_parser(
-        "publish", help="publish the verified candidate for current HEAD"
+        "publish", help="sign, notarize, and publish the verified candidate"
     )
     publish.add_argument("channel", choices=("preview", "stable"))
     publish.add_argument("--profile", type=Path)
