@@ -78,6 +78,30 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.normalizedVCFURL.path))
     }
 
+    func testCallerVCFIsReheaderedFromStagedReferenceBeforeSorting() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(
+            caller: .lofreq,
+            advancedArguments: ["--call-indels"],
+            toolRunner: toolRunner
+        )
+
+        let result = try await pipeline.run()
+
+        let reheaderStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "bcftools" && step.command.contains("reheader")
+        })
+        XCTAssertTrue(reheaderStep.command.contains("-f"))
+        XCTAssertTrue(reheaderStep.inputs.contains { $0.path.hasSuffix("reference.fa.fai") })
+
+        let normalizedVCF = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        XCTAssertTrue(normalizedVCF.contains("##contig=<ID=chr1,length=20>"))
+        let sortStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "bcftools" && step.command.contains("sort")
+        })
+        XCTAssertTrue(sortStep.inputs.contains { $0.path.hasSuffix("caller-with-reference-contigs.vcf") })
+    }
+
     func testIVarCommandLineIncludesAdvancedArguments() throws {
         let pipeline = try makePipeline(caller: .ivar, advancedArguments: ["-g", "primers.gff"])
 
@@ -561,7 +585,6 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
           esac
           cat > "$output" <<'EOF'
         ##fileformat=VCFv4.3
-        ##contig=<ID=chr1,length=20>
         #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
         chr1	5	lofreq-1	A	G	80	PASS	.
         EOF
@@ -600,6 +623,16 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
         chr1	5	bcftools-1	A	G	80	PASS	.
         EOF
+          exit 0
+        fi
+        if [ "$1" = "reheader" ]; then
+          output=""
+          input=""
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" = "-o" ]; then shift; output="$1"; else input="$1"; fi
+            shift
+          done
+          awk 'BEGIN { added=0 } /^##fileformat=/ { print; print "##contig=<ID=chr1,length=20>"; added=1; next } { print }' "$input" > "$output"
           exit 0
         fi
         output=""

@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import LungfishWorkflow
 
@@ -17,6 +18,26 @@ final class ViralReconPrimerStagerTests: XCTestCase {
         XCTAssertTrue(staged.derivedFasta)
         XCTAssertTrue(FileManager.default.fileExists(atPath: staged.fastaURL.path))
         XCTAssertTrue(try String(contentsOf: staged.fastaURL, encoding: .utf8).contains(">"))
+    }
+
+    func testPrimerStagerReadsGzippedReference() throws {
+        let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let plainReference = try ViralReconWorkflowTestFixtures.writeReferenceFASTA(in: tempDirectory)
+        let compressedReference = tempDirectory.appendingPathComponent("sequence.fa.gz")
+        try ViralReconWorkflowTestFixtures.gzip(plainReference, to: compressedReference)
+        let primerBundle = try ViralReconWorkflowTestFixtures.writePrimerBundleWithoutFasta(in: tempDirectory)
+
+        let staged = try ViralReconPrimerStager.stage(
+            primerBundleURL: primerBundle,
+            referenceFASTAURL: compressedReference,
+            referenceName: "MN908947.3",
+            destinationDirectory: tempDirectory
+        )
+
+        XCTAssertTrue(staged.derivedFasta)
+        let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+        XCTAssertTrue(fasta.contains(">amplicon_1_LEFT\nACGTACGT"))
     }
 
     func testPrimerStagerDerivesPrimerFastaFromBedContigColumn() throws {

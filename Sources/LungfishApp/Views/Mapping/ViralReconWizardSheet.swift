@@ -204,9 +204,15 @@ struct ViralReconWizardSheet: View {
                     labeledTextField("Genome", text: $genomeAccession)
                         .accessibilityIdentifier(ViralReconAccessibilityID.genomeField)
                     if primerRequiresLocalReference {
-                        Text("Select a local SARS-CoV-2 FASTA below to derive primer sequences for this scheme.")
-                            .font(.caption)
-                            .foregroundStyle(Color.lungfishOrangeFallback)
+                        if let selectedLocalReferenceURL {
+                            Text("Using \(displayPath(for: selectedLocalReferenceURL)) to derive primer sequences.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Select a local SARS-CoV-2 FASTA below to derive primer sequences for this scheme.")
+                                .font(.caption)
+                                .foregroundStyle(Color.lungfishOrangeFallback)
+                        }
                     }
                     localReferencePicker
                 } else {
@@ -616,13 +622,18 @@ struct ViralReconWizardSheet: View {
         return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
     }
 
-    private static func referenceName(from fastaURL: URL, fallback: String) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: fastaURL) else {
-            return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func referenceName(from fastaURL: URL, fallback: String) -> String {
+        let text: String?
+        if ["gz", "bgz", "gzip"].contains(fastaURL.pathExtension.lowercased()) {
+            text = try? GzipInputStream(url: fastaURL).readAllSync()
+        } else if let handle = try? FileHandle(forReadingFrom: fastaURL) {
+            defer { try? handle.close() }
+            let data = (try? handle.read(upToCount: 4096)) ?? Data()
+            text = String(data: data, encoding: .utf8)
+        } else {
+            text = nil
         }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: 4096)) ?? Data()
-        guard let text = String(data: data, encoding: .utf8),
+        guard let text,
               let header = text.split(separator: "\n").first(where: { $0.hasPrefix(">") }) else {
             return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -814,9 +825,15 @@ enum ViralReconWizardPrimerStaging {
         referenceName: String,
         destinationDirectory: URL
     ) throws -> URL {
-        let contents = try String(contentsOf: sourceURL, encoding: .utf8)
+        let isCompressed = ["gz", "bgz", "gzip"].contains(sourceURL.pathExtension.lowercased())
+        let contents: String
+        if isCompressed {
+            contents = try GzipInputStream(url: sourceURL).readAllSync()
+        } else {
+            contents = try String(contentsOf: sourceURL, encoding: .utf8)
+        }
         let rewritten = rewriteFirstFASTAHeader(in: contents, referenceName: referenceName)
-        guard rewritten != contents else { return sourceURL }
+        guard isCompressed || rewritten != contents else { return sourceURL }
 
         let primersDirectory = destinationDirectory.appendingPathComponent("primers", isDirectory: true)
         try FileManager.default.createDirectory(at: primersDirectory, withIntermediateDirectories: true)

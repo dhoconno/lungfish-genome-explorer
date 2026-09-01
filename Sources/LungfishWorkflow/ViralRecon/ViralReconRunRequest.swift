@@ -244,6 +244,8 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
             samplesheetURL.path,
         ]
 
+        args += ["--expected-output", outputDirectory.path]
+
         for key in effectiveParams.keys.sorted() where key != "input" && key != "outdir" {
             guard let value = effectiveParams[key], !value.isEmpty else { continue }
             args += ["--param", "\(key)=\(value)"]

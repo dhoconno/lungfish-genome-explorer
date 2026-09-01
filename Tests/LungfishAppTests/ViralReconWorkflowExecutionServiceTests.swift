@@ -1,11 +1,129 @@
 import LungfishKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCore
+@testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
 @MainActor
 final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
+    func testServiceCompletesAfterWizardDerivesPrimersFromGzippedReference() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-gzipped-reference-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        try FileManager.default.removeItem(at: request.primer.fastaURL)
+        try """
+        {
+          "schema_version": 1,
+          "name": "qiaseq-direct-sars2",
+          "display_name": "QIASeq DIRECT SARS-CoV-2",
+          "description": "Viral Recon test fixture",
+          "organism": "SARS-CoV-2",
+          "reference_accessions": [
+            { "accession": "MN908947.3", "canonical": true },
+            { "accession": "NC_045512.2", "equivalent": true }
+          ],
+          "primer_count": 2,
+          "amplicon_count": 1
+        }
+        """.write(
+            to: request.primer.bundleURL.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Test primer scheme\n".write(
+            to: request.primer.bundleURL.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "MN908947.3\t0\t4\tSARS2_1_LEFT\nMN908947.3\t4\t8\tSARS2_1_RIGHT\n".write(
+            to: request.primer.bundleURL.appendingPathComponent("primers.bed"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let importedBundle = temp
+            .appendingPathComponent("Downloads", isDirectory: true)
+            .appendingPathComponent("NC_045512.lungfishref", isDirectory: true)
+        let genomeDirectory = importedBundle.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        let importedReference = genomeDirectory.appendingPathComponent("sequence.fa.gz")
+        try writeGzipFixture(
+            ">NC_045512.2 imported SARS-CoV-2 reference\nAAAACCCCGGGGTTTT\n",
+            to: importedReference
+        )
+        try "NC_045512.2\t16\t0\t16\t17\n".write(
+            to: importedReference.appendingPathExtension("fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try BundleManifest(
+            name: "NC_045512",
+            identifier: "org.lungfish.NC_045512",
+            source: SourceInfo(organism: "SARS-CoV-2", assembly: "NC_045512.2"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                totalLength: 16,
+                chromosomes: []
+            )
+        ).save(to: importedBundle)
+        let importedCandidate = try XCTUnwrap(
+            ReferenceSequenceScanner.scanAll(in: temp).first {
+                $0.fastaURL.standardizedFileURL == importedReference.standardizedFileURL
+            }
+        )
+        let derivedPrimer = try ViralReconPrimerStager.stage(
+            primerBundleURL: request.primer.bundleURL,
+            referenceFASTAURL: importedCandidate.fastaURL,
+            referenceName: ViralReconWizardSheet.referenceName(
+                from: importedCandidate.fastaURL,
+                fallback: "MN908947.3"
+            ),
+            destinationDirectory: temp.appendingPathComponent("wizard-staging", isDirectory: true)
+        )
+        let preparedRequest = try ViralReconRunRequest(
+            samples: request.samples,
+            platform: request.platform,
+            protocol: request.protocol,
+            samplesheetURL: request.samplesheetURL,
+            outputDirectory: request.outputDirectory,
+            executor: request.executor,
+            version: request.version,
+            reference: .local(fastaURL: importedCandidate.fastaURL, gffURL: nil),
+            primer: derivedPrimer,
+            minimumMappedReads: request.minimumMappedReads,
+            variantCaller: request.variantCaller,
+            consensusCaller: request.consensusCaller,
+            skipOptions: request.skipOptions,
+            advancedParams: request.advancedParams
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubViralReconProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "viralrecon completed",
+            standardError: ""
+        ))
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        let result = try await service.run(
+            preparedRequest,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed)
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertTrue(invocation.arguments.contains { $0.contains("primer_fasta=") })
+        XCTAssertTrue(invocation.arguments.contains("fasta=\(importedCandidate.fastaURL.path)"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.bundleURL.appendingPathComponent("inputs/primers/primers.fasta").path))
+    }
+
     func testServiceCreatesRunBundleAndLogsPreparation() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
@@ -53,6 +171,8 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertTrue(invocation.arguments.contains(persistedSamplesheet.path))
+        XCTAssertTrue(invocation.arguments.contains("--expected-output"))
+        XCTAssertTrue(invocation.arguments.contains(request.outputDirectory.path))
         XCTAssertTrue(invocation.arguments.contains("primer_bed=\(persistedPrimerBED.path)"))
         XCTAssertTrue(invocation.arguments.contains("primer_fasta=\(persistedPrimerFASTA.path)"))
         XCTAssertFalse(invocation.arguments.contains(request.samplesheetURL.path))
@@ -460,6 +580,34 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return URL(fileURLWithPath: try XCTUnwrap(output), isDirectory: true)
     }
+}
+
+private func writeGzipFixture(_ content: String, to gzipURL: URL) throws {
+    let sourceURL = gzipURL.deletingLastPathComponent()
+        .appendingPathComponent("reference-source-\(UUID().uuidString).fa")
+    try content.write(to: sourceURL, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = ["-c", sourceURL.path]
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+    try process.run()
+    let compressed = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        let message = String(data: stderr, encoding: .utf8) ?? "gzip failed"
+        throw NSError(
+            domain: "ViralReconWorkflowExecutionServiceTests.GzipFixture",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+    }
+    try compressed.write(to: gzipURL)
 }
 
 final class PipelineCancelCallbackRegressionTests: XCTestCase {

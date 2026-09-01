@@ -1393,6 +1393,49 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")
     }
 
+    func testViralReconGenomePrimerDerivationAcceptsGzippedImportedReference() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconGzippedGenomePrimerDerivation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let primerBundle = root.appendingPathComponent("sars2.lungfishprimers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primerBundle, withIntermediateDirectories: true)
+        try JSONEncoder().encode(Self.sarsCoV2PrimerManifest())
+            .write(to: primerBundle.appendingPathComponent("manifest.json"))
+        try "Test primer scheme\n".write(
+            to: primerBundle.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        MN908947.3\t0\t4\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
+        """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
+
+        let compressedReference = root.appendingPathComponent("sequence.fa.gz")
+        try writeGzipFixture(
+            ">NC_045512.2 imported SARS-CoV-2 reference\nAAAACCCCGGGGTTTT\n",
+            to: compressedReference
+        )
+        XCTAssertEqual(
+            ViralReconWizardSheet.referenceName(from: compressedReference, fallback: "MN908947.3"),
+            "NC_045512.2"
+        )
+
+        let selection = try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
+            primerBundleURL: primerBundle,
+            sourceReferenceFASTAURL: compressedReference,
+            genomeAccession: "MN908947.3",
+            destinationDirectory: root
+        )
+
+        XCTAssertTrue(selection.derivedFasta)
+        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
+    }
+
     func testViralReconBundledPrimerFastaKeepsBedAlignedToEquivalentGenomeAccession() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ViralReconBundledPrimerFasta-\(UUID().uuidString)", isDirectory: true)
@@ -2273,6 +2316,34 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data(fastqContents.utf8).write(to: bundleURL.appendingPathComponent(fastqName))
         return bundleURL
+    }
+
+    private func writeGzipFixture(_ content: String, to gzipURL: URL) throws {
+        let sourceURL = gzipURL.deletingLastPathComponent()
+            .appendingPathComponent("reference-source-\(UUID().uuidString).fa")
+        try content.write(to: sourceURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", sourceURL.path]
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        let compressed = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let message = String(data: stderr, encoding: .utf8) ?? "gzip failed"
+            throw NSError(
+                domain: "FASTQOperationDialogRoutingTests.GzipFixture",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+        try compressed.write(to: gzipURL)
     }
 }
 

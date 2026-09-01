@@ -54,6 +54,8 @@ final class ViralReconRunRequestTests: XCTestCase {
         XCTAssertTrue(args.contains("primer_fasta=/tmp/primers.fasta"))
         XCTAssertTrue(args.contains("skip_assembly=true"))
         XCTAssertTrue(args.contains("skip_kraken2=true"))
+        XCTAssertTrue(args.contains("--expected-output"))
+        XCTAssertTrue(args.contains(output.path))
     }
 
     func testAdvancedParamsRejectGeneratedKeys() {

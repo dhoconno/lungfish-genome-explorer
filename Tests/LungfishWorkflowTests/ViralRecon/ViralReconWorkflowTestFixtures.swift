@@ -56,6 +56,28 @@ enum ViralReconWorkflowTestFixtures {
         return bundleURL
     }
 
+    static func gzip(_ sourceURL: URL, to destinationURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", sourceURL.path]
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        let compressed = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "ViralReconWorkflowTestFixtures.Gzip",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: String(data: stderr, encoding: .utf8) ?? "gzip failed"]
+            )
+        }
+        try compressed.write(to: destinationURL)
+    }
+
     static func writeFastqBundle(
         named name: String,
         in directory: URL,

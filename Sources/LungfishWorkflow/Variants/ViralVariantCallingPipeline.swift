@@ -306,12 +306,53 @@ public struct ViralVariantCallingPipeline: Sendable {
             throw ViralVariantCallingPipelineError.missingCallerOutput(plan.rawVCFURL.path)
         }
 
+        let callerVCFWithReferenceContigsURL = plan.rawVCFURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("caller-with-reference-contigs.vcf")
+        progress?(0.64, "Normalizing VCF headers")
+        let reheaderArguments = [
+            "reheader",
+            "-f", plan.referenceIndexURL.path,
+            "-o", callerVCFWithReferenceContigsURL.path,
+            plan.rawVCFURL.path,
+        ]
+        let reheaderStartedAt = Date()
+        let reheaderResult = try await toolRunner.run(
+            .bcftools,
+            arguments: reheaderArguments,
+            workingDirectory: plan.workingDirectory,
+            timeout: 600
+        )
+        let reheaderCompletedAt = Date()
+        provenanceSteps.append(
+            VariantCallingProvenanceStep(
+                toolName: "bcftools",
+                toolVersion: await nativeToolVersion(for: .bcftools),
+                command: await nativeCommand(for: .bcftools, arguments: reheaderArguments),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .input),
+                    ProvenanceRecorder.fileRecord(url: plan.referenceIndexURL, role: .reference),
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: callerVCFWithReferenceContigsURL, format: .vcf, role: .output),
+                ],
+                exitCode: reheaderResult.exitCode,
+                wallTime: reheaderCompletedAt.timeIntervalSince(reheaderStartedAt),
+                stderr: reheaderResult.stderr,
+                startedAt: reheaderStartedAt,
+                completedAt: reheaderCompletedAt
+            )
+        )
+        guard reheaderResult.isSuccess else {
+            throw ViralVariantCallingPipelineError.normalizationFailed(reheaderResult.combinedOutput)
+        }
+
         progress?(0.70, "Sorting VCF")
         let sortArguments = [
             "sort",
             "-O", "v",
             "-o", plan.normalizedVCFURL.path,
-            plan.rawVCFURL.path,
+            callerVCFWithReferenceContigsURL.path,
         ]
         let sortStartedAt = Date()
         let sortResult = try await toolRunner.run(
@@ -326,7 +367,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     toolName: "bcftools",
                     toolVersion: await nativeToolVersion(for: .bcftools),
                     command: await nativeCommand(for: .bcftools, arguments: sortArguments),
-                inputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .input)],
+                inputs: [ProvenanceRecorder.fileRecord(url: callerVCFWithReferenceContigsURL, format: .vcf, role: .input)],
                 outputs: [ProvenanceRecorder.fileRecord(url: plan.normalizedVCFURL, format: .vcf, role: .output)],
                 exitCode: sortResult.exitCode,
                 wallTime: sortCompletedAt.timeIntervalSince(sortStartedAt),

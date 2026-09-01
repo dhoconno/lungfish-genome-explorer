@@ -91,7 +91,12 @@ public enum ViralReconPrimerStager {
     }
 
     private static func loadReferenceSequences(from url: URL) throws -> [String: String] {
-        let contents = try String(contentsOf: url, encoding: .utf8)
+        let contents: String
+        if ["gz", "bgz", "gzip"].contains(url.pathExtension.lowercased()) {
+            contents = try GzipInputStream(url: url).readAllSync()
+        } else {
+            contents = try String(contentsOf: url, encoding: .utf8)
+        }
         var sequences: [String: String] = [:]
         var currentID: String?
         var currentSequence = ""
