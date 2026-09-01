@@ -216,20 +216,43 @@ func validateAndCountBED(path: String, canonicalChrom: String) throws -> BEDStat
 /// variant tag from a primer name. e.g. `QIAseq_221-2_LEFT` → `QIAseq_221`.
 func ampliconName(from primerName: String) -> String {
     var name = primerName
-    if name.hasSuffix("_LEFT") {
-        name.removeLast("_LEFT".count)
-    } else if name.hasSuffix("_RIGHT") {
-        name.removeLast("_RIGHT".count)
-    }
-    // Strip a trailing `-N` variant tag (digits only).
-    if let dashIndex = name.lastIndex(of: "-") {
-        let afterDash = name.index(after: dashIndex)
-        let suffix = name[afterDash...]
-        if !suffix.isEmpty && suffix.allSatisfy({ $0.isASCII && $0.isNumber }) {
-            name.removeSubrange(dashIndex..<name.endIndex)
+    // Drop a trailing alt-primer index (`_1` in `SARS-CoV-2_400_1_LEFT_1`)
+    // before looking for the orientation token.
+    name = droppingTrailingAltTag(name)
+    name = droppingTrailingNumericTag(name, separators: ["_"])
+    for token in ["_LEFT", "_RIGHT", "-LEFT", "-RIGHT", "_FORWARD", "_REVERSE", "_F", "_R", "-F", "-R"] {
+        if name.uppercased().hasSuffix(token) {
+            name.removeLast(token.count)
+            break
         }
     }
+    // Strip a trailing `-N` variant tag (digits only).
+    name = droppingTrailingNumericTag(name, separators: ["-"])
     return name
+}
+
+/// Removes a trailing `_alt<N>` group, e.g. `nCoV-2019_7_LEFT_alt0` -> `nCoV-2019_7_LEFT`.
+///
+/// ARTIC V3 and V4.1 name their spike-in alternates this way; without stripping
+/// it, each alternate would be counted as a separate amplicon.
+func droppingTrailingAltTag(_ name: String) -> String {
+    guard let index = name.lastIndex(of: "_"), index != name.startIndex else { return name }
+    let tail = name[name.index(after: index)...].lowercased()
+    guard tail.hasPrefix("alt") else { return name }
+    let digits = tail.dropFirst(3)
+    guard digits.isEmpty || digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return name }
+    return String(name[..<index])
+}
+
+/// Removes a trailing `<separator><digits>` group, e.g. `QIAseq_221-2` -> `QIAseq_221`.
+func droppingTrailingNumericTag(_ name: String, separators: [Character]) -> String {
+    guard let index = name.lastIndex(where: { separators.contains($0) }),
+          index != name.startIndex else {
+        return name
+    }
+    let tail = name[name.index(after: index)...]
+    guard !tail.isEmpty, tail.allSatisfy({ $0.isASCII && $0.isNumber }) else { return name }
+    return String(name[..<index])
 }
 
 // MARK: - NCBI fetch

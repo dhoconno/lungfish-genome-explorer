@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "ARTIC-nCoV-2019-V3",
+  "display_name": "ARTIC SARS-CoV-2 V3",
+  "description": "ARTIC Network nCoV-2019 400 bp amplicon scheme, version 3. The most widely used SARS-CoV-2 tiling scheme.",
+  "organism": "Severe acute respiratory syndrome coronavirus 2",
+  "reference_accessions": [
+    {
+      "accession": "MN908947.3",
+      "canonical": true
+    },
+    {
+      "accession": "NC_045512.2",
+      "equivalent": true
+    }
+  ],
+  "primer_count": 218,
+  "amplicon_count": 98,
+  "source": "built-in",
+  "source_url": "https://github.com/artic-network/artic-ncov2019/tree/master/primer_schemes/nCoV-2019/V3",
+  "version": "1.0.0",
+  "created": "2026-09-01T22:12:54Z"
+}

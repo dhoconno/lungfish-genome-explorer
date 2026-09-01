@@ -2,6 +2,55 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class ViralReconPrimerStagerTests: XCTestCase {
+    /// The atoplex scheme names primers `200BP-nCoV000-F` / `-R`.
+    func testPrimerStagerInfersDashForwardReverseSuffixes() throws {
+        let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let referenceFASTA = try ViralReconWorkflowTestFixtures.writeReferenceFASTA(in: tempDirectory)
+        let primerBundle = try ViralReconWorkflowTestFixtures.writePrimerBundleWithoutFasta(
+            in: tempDirectory,
+            bed: """
+            MN908947.3\t0\t8\t200BP-nCoV001-F\t1\t+
+            MN908947.3\t12\t20\t200BP-nCoV001-R\t1\t-
+            """
+        )
+
+        let staged = try ViralReconPrimerStager.stage(
+            primerBundleURL: primerBundle,
+            referenceFASTAURL: referenceFASTA,
+            referenceName: "MN908947.3",
+            destinationDirectory: tempDirectory
+        )
+
+        XCTAssertEqual(staged.leftSuffix, "-F")
+        XCTAssertEqual(staged.rightSuffix, "-R")
+    }
+
+    /// ARTIC V5.3.2 names primers `SARS-CoV-2_400_1_LEFT_1`, with a trailing
+    /// alt-primer index after the orientation token.
+    func testPrimerStagerInfersSuffixesForArticV5NamesWithAltIndex() throws {
+        let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let referenceFASTA = try ViralReconWorkflowTestFixtures.writeReferenceFASTA(in: tempDirectory)
+        let primerBundle = try ViralReconWorkflowTestFixtures.writePrimerBundleWithoutFasta(
+            in: tempDirectory,
+            bed: """
+            MN908947.3\t0\t8\tSARS-CoV-2_400_1_LEFT_1\t1\t+
+            MN908947.3\t12\t20\tSARS-CoV-2_400_1_RIGHT_0\t1\t-
+            """
+        )
+
+        let staged = try ViralReconPrimerStager.stage(
+            primerBundleURL: primerBundle,
+            referenceFASTAURL: referenceFASTA,
+            referenceName: "MN908947.3",
+            destinationDirectory: tempDirectory
+        )
+
+        XCTAssertEqual(staged.leftSuffix, "_LEFT")
+        XCTAssertEqual(staged.rightSuffix, "_RIGHT")
+    }
+
     func testPrimerStagerDerivesPrimerFastaFromGzippedReference() throws {
         let tempDirectory = try ViralReconWorkflowTestFixtures.makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
