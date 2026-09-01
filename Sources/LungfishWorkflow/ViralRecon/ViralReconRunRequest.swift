@@ -29,6 +29,21 @@ public enum ViralReconSkipOption: String, Codable, Sendable, Equatable, CaseIter
     case cutadapt = "skip_cutadapt"
     case ivarTrim = "skip_ivar_trim"
     case multiQC = "skip_multiqc"
+    case freyja = "skip_freyja"
+    case freyjaBoot = "skip_freyja_boot"
+
+    /// The skips a new run starts with.
+    ///
+    /// Freyja's bootstrap is skipped by default: it runs an amd64-only
+    /// container whose parallel workers are killed under Apple Silicon
+    /// emulation, which fails the whole pipeline after every scientific output
+    /// has already been written. Freyja's own lineage call (`demix`) runs in
+    /// the same container and succeeds, so only the bootstrap is dropped.
+    public static let defaultSelection: Set<ViralReconSkipOption> = [
+        .assembly,
+        .kraken2,
+        .freyjaBoot,
+    ]
 }
 
 public struct ViralReconSample: Codable, Sendable, Equatable {
