@@ -1236,8 +1236,11 @@ stash@{3}: WIP on claude/fix-release-flow: 456def work
         def coordinator(_root, _args, resume_receipt=None):
             events.append(("coordinator", resume_receipt))
 
+        fixed_datetime = mock.Mock(wraps=self.release.dt)
+        fixed_datetime.date.today.return_value = self.release.dt.date(2026, 8, 31)
         with contextlib.ExitStack() as stack:
             stack.enter_context(self._publication_state_environment(fixture))
+            stack.enter_context(mock.patch.object(self.release, "dt", fixed_datetime))
             stack.enter_context(
                 mock.patch.object(self.release, "create_lock", create_lock)
             )
