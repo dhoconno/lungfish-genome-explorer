@@ -347,8 +347,21 @@ jobs:
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
 
+      - name: Restore provisioned dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.lungfish/conda
+            ~/.lungfish/databases
+            ~/.lungfish/dependency-receipt.json
+          key: release-dependencies-${{ runner.os }}-${{ hashFiles('Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json') }}
+          fail-on-cache-miss: true
+
+      - name: Verify restored dependency receipt
+        run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish/dependency-receipt.json")'
+
       - name: Provision exact dependency set
-        run: bash scripts/deps/verify.sh --tier 2 --root "$HOME/.lungfish-release-verify"
+        run: bash scripts/deps/verify.sh --tier 2 --root "$HOME/.lungfish-release-verify" --seed-from "$HOME/.lungfish"
 
       - name: Verify dependency receipt
         run: python3 -c 'from pathlib import Path; from scripts.release.release import verify_dependency_receipt_file; verify_dependency_receipt_file(Path.cwd(), Path.home() / ".lungfish-release-verify/dependency-receipt.json")'

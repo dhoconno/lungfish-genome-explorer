@@ -462,6 +462,57 @@ class CIWorkflowTests(unittest.TestCase):
             self.assertLess(steps.index(restore), steps.index(verify))
             self.assertLess(steps.index(verify), gate_index)
 
+    def test_stable_conformance_seeds_from_the_verified_dependency_handoff(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        jobs = wf["jobs"]
+        dependency_cache = next(
+            step
+            for step in jobs["release-dependency-receipt"]["steps"]
+            if step.get("name") == "Restore managed dependencies"
+        )
+        steps = jobs["release-stable-conformance"]["steps"]
+        restore = next(
+            step
+            for step in steps
+            if step.get("name") == "Restore provisioned dependencies"
+        )
+        verify = next(
+            step
+            for step in steps
+            if step.get("name") == "Verify restored dependency receipt"
+        )
+        provision = next(
+            step
+            for step in steps
+            if step.get("name") == "Provision exact dependency set"
+        )
+        isolated_verify = next(
+            step
+            for step in steps
+            if step.get("name") == "Verify dependency receipt"
+        )
+        gate = next(
+            step
+            for step in steps
+            if step.get("name") == "Run Stable conformance source gate"
+        )
+
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertEqual(restore["with"]["path"], dependency_cache["with"]["path"])
+        self.assertEqual(restore["with"]["key"], dependency_cache["with"]["key"])
+        self.assertTrue(restore["with"]["fail-on-cache-miss"])
+        self.assertNotIn("restore-keys", restore["with"])
+        self.assertIn("verify_dependency_receipt_file", verify["run"])
+        self.assertIn(".lungfish/dependency-receipt.json", verify["run"])
+        self.assertIn('--seed-from "$HOME/.lungfish"', provision["run"])
+        self.assertIn('--root "$HOME/.lungfish-release-verify"', provision["run"])
+        self.assertIn(".lungfish-release-verify/dependency-receipt.json", isolated_verify["run"])
+        self.assertIn('LUNGFISH_STORAGE_ROOT="$HOME/.lungfish-release-verify"', gate["run"])
+        self.assertLess(steps.index(restore), steps.index(verify))
+        self.assertLess(steps.index(verify), steps.index(provision))
+        self.assertLess(steps.index(provision), steps.index(isolated_verify))
+        self.assertLess(steps.index(isolated_verify), steps.index(gate))
+
     def test_release_jobs_are_read_only_secretless_and_release_event_is_defense_only(
         self,
     ):
