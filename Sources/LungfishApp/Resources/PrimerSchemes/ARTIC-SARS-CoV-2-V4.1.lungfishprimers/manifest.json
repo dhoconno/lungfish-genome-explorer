@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "ARTIC-SARS-CoV-2-V4.1",
+  "display_name": "ARTIC SARS-CoV-2 V4.1",
+  "description": "ARTIC Network SARS-CoV-2 400 bp amplicon scheme, version 4.1. Adds spike-in primers restoring Omicron coverage.",
+  "organism": "Severe acute respiratory syndrome coronavirus 2",
+  "reference_accessions": [
+    {
+      "accession": "MN908947.3",
+      "canonical": true
+    },
+    {
+      "accession": "NC_045512.2",
+      "equivalent": true
+    }
+  ],
+  "primer_count": 209,
+  "amplicon_count": 99,
+  "source": "built-in",
+  "source_url": "https://github.com/artic-network/artic-ncov2019/tree/master/primer_schemes/nCoV-2019/V4.1",
+  "version": "1.0.0",
+  "created": "2026-09-01T22:12:57Z"
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "NEB-VarSkip-vss1",
+  "display_name": "NEB VarSkip Short v1",
+  "description": "New England Biolabs VarSkip short-amplicon scheme for SARS-CoV-2, designed to tolerate variant-driven primer mismatches.",
+  "organism": "Severe acute respiratory syndrome coronavirus 2",
+  "reference_accessions": [
+    {
+      "accession": "MN908947.3",
+      "canonical": true
+    },
+    {
+      "accession": "NC_045512.2",
+      "equivalent": true
+    }
+  ],
+  "primer_count": 148,
+  "amplicon_count": 74,
+  "source": "built-in",
+  "source_url": "https://github.com/nf-core/test-datasets/tree/viralrecon/genome/MN908947.3/primer_schemes/NEB/nCov-2019/vss1",
+  "version": "1.0.0",
+  "created": "2026-09-01T22:13:12Z"
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "Midnight-1200-V1",
+  "display_name": "Midnight 1200 bp V1",
+  "description": "Freed/Silander Midnight 1200 bp amplicon scheme for SARS-CoV-2, designed for Oxford Nanopore rapid-barcoding workflows.",
+  "organism": "Severe acute respiratory syndrome coronavirus 2",
+  "reference_accessions": [
+    {
+      "accession": "MN908947.3",
+      "canonical": true
+    },
+    {
+      "accession": "NC_045512.2",
+      "equivalent": true
+    }
+  ],
+  "primer_count": 58,
+  "amplicon_count": 29,
+  "source": "built-in",
+  "source_url": "https://github.com/nf-core/test-datasets/tree/viralrecon/genome/MN908947.3/primer_schemes/artic/nCoV-2019/V1200",
+  "version": "1.0.0",
+  "created": "2026-09-01T22:13:11Z"
+}

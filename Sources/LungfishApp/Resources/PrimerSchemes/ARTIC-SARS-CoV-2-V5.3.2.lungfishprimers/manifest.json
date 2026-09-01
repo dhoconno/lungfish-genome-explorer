@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "ARTIC-SARS-CoV-2-V5.3.2",
+  "display_name": "ARTIC SARS-CoV-2 V5.3.2",
+  "description": "ARTIC Network SARS-CoV-2 400 bp amplicon scheme, version 5.3.2. The current ARTIC recommendation.",
+  "organism": "Severe acute respiratory syndrome coronavirus 2",
+  "reference_accessions": [
+    {
+      "accession": "MN908947.3",
+      "canonical": true
+    },
+    {
+      "accession": "NC_045512.2",
+      "equivalent": true
+    }
+  ],
+  "primer_count": 192,
+  "amplicon_count": 96,
+  "source": "built-in",
+  "source_url": "https://github.com/artic-network/artic-ncov2019/tree/master/primer_schemes/nCoV-2019/V5.3.2",
+  "version": "1.0.0",
+  "created": "2026-09-01T22:12:59Z"
+}

@@ -623,17 +623,7 @@ struct ViralReconWizardSheet: View {
     }
 
     static func referenceName(from fastaURL: URL, fallback: String) -> String {
-        let text: String?
-        if ["gz", "bgz", "gzip"].contains(fastaURL.pathExtension.lowercased()) {
-            text = try? GzipInputStream(url: fastaURL).readAllSync()
-        } else if let handle = try? FileHandle(forReadingFrom: fastaURL) {
-            defer { try? handle.close() }
-            let data = (try? handle.read(upToCount: 4096)) ?? Data()
-            text = String(data: data, encoding: .utf8)
-        } else {
-            text = nil
-        }
-        guard let text,
+        guard let text = firstFASTAChunk(of: fastaURL),
               let header = text.split(separator: "\n").first(where: { $0.hasPrefix(">") }) else {
             return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -643,6 +633,20 @@ struct ViralReconWizardSheet: View {
             .first
             .map(String.init)
             ?? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Returns the leading text of a FASTA, decompressing gzip/bgzip input first.
+    ///
+    /// A compressed reference read with a raw `FileHandle` yields binary bytes,
+    /// so the header sniff would silently fall back to the accession field.
+    private static func firstFASTAChunk(of fastaURL: URL) -> String? {
+        if ViralReconPrimerStager.isCompressedFASTA(fastaURL) {
+            return try? ViralReconPrimerStager.readFASTAText(at: fastaURL)
+        }
+        guard let handle = try? FileHandle(forReadingFrom: fastaURL) else { return nil }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        return String(data: data, encoding: .utf8)
     }
 
     private static func describeInputError(_ error: Error) -> String {
@@ -770,7 +774,9 @@ enum ViralReconWizardPrimerCompatibility {
     ) throws {
         let requested = accession.trimmingCharacters(in: .whitespacesAndNewlines)
         let known = knownAccessions(for: manifest)
-        guard known.contains(requested) else {
+        // Version-tolerant: a bundle may name its sequence `NC_045512` while the
+        // manifest declares `NC_045512.2`. Matches PrimerSchemeResolver.
+        guard known.contains(where: { PrimerSchemeResolver.accessionsMatch($0, requested) }) else {
             throw ValidationError.unknownAccession(requested: requested, known: known)
         }
     }
@@ -825,15 +831,13 @@ enum ViralReconWizardPrimerStaging {
         referenceName: String,
         destinationDirectory: URL
     ) throws -> URL {
-        let isCompressed = ["gz", "bgz", "gzip"].contains(sourceURL.pathExtension.lowercased())
-        let contents: String
-        if isCompressed {
-            contents = try GzipInputStream(url: sourceURL).readAllSync()
-        } else {
-            contents = try String(contentsOf: sourceURL, encoding: .utf8)
-        }
+        let contents = try ViralReconPrimerStager.readFASTAText(at: sourceURL)
         let rewritten = rewriteFirstFASTAHeader(in: contents, referenceName: referenceName)
-        guard isCompressed || rewritten != contents else { return sourceURL }
+        // A compressed source must still be staged as plain text even when the
+        // header needs no rewrite: downstream primer derivation reads text.
+        guard rewritten != contents || ViralReconPrimerStager.isCompressedFASTA(sourceURL) else {
+            return sourceURL
+        }
 
         let primersDirectory = destinationDirectory.appendingPathComponent("primers", isDirectory: true)
         try FileManager.default.createDirectory(at: primersDirectory, withIntermediateDirectories: true)

@@ -47,6 +47,49 @@ final class PrimerSchemeResolverTests: XCTestCase {
         }
     }
 
+    /// Downloaded `.lungfishref` genome bundles name their sequence without the
+    /// version suffix (`NC_045512`), while manifests declare `NC_045512.2`.
+    func testUnversionedAccessionMatchesVersionedEquivalent() throws {
+        let bundleURL = testBundleURL()
+        let bundle = try PrimerSchemeBundle.load(from: bundleURL)
+
+        let resolved = try PrimerSchemeResolver.resolve(
+            bundle: bundle,
+            targetReferenceName: "NC_045512"
+        )
+        addTeardownBlock {
+            if resolved.isRewritten {
+                try? FileManager.default.removeItem(at: resolved.bedURL)
+            }
+        }
+
+        XCTAssertTrue(resolved.isRewritten)
+        let content = try String(contentsOf: resolved.bedURL, encoding: .utf8)
+        for line in content.split(separator: "\n") {
+            XCTAssertEqual(String(line.split(separator: "\t")[0]), "NC_045512")
+        }
+    }
+
+    func testUnversionedAccessionMatchesVersionedCanonical() throws {
+        let bundleURL = testBundleURL()
+        let bundle = try PrimerSchemeBundle.load(from: bundleURL)
+
+        let resolved = try PrimerSchemeResolver.resolve(
+            bundle: bundle,
+            targetReferenceName: "MN908947"
+        )
+        addTeardownBlock {
+            if resolved.isRewritten {
+                try? FileManager.default.removeItem(at: resolved.bedURL)
+            }
+        }
+
+        let content = try String(contentsOf: resolved.bedURL, encoding: .utf8)
+        for line in content.split(separator: "\n") {
+            XCTAssertEqual(String(line.split(separator: "\t")[0]), "MN908947")
+        }
+    }
+
     func testNoMatchThrowsUnknownAccession() throws {
         let bundleURL = testBundleURL()
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)

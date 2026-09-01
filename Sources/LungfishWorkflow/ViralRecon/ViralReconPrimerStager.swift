@@ -90,13 +90,28 @@ public enum ViralReconPrimerStager {
         try (records.joined(separator: "\n") + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
-    private static func loadReferenceSequences(from url: URL) throws -> [String: String] {
-        let contents: String
-        if ["gz", "bgz", "gzip"].contains(url.pathExtension.lowercased()) {
-            contents = try GzipInputStream(url: url).readAllSync()
-        } else {
-            contents = try String(contentsOf: url, encoding: .utf8)
+    /// Reads a FASTA as text, transparently decompressing gzip/bgzip input.
+    ///
+    /// Reference FASTAs inside downloaded `.lungfishref` genome bundles are
+    /// stored bgzip-compressed (`sequence.fa.gz`). Reading those as UTF-8 text
+    /// fails with `NSFileReadCorruptFileError`, so decompress by extension.
+    public static func readFASTAText(at url: URL) throws -> String {
+        guard isCompressedFASTA(url) else {
+            return try String(contentsOf: url, encoding: .utf8)
         }
+        return try GzipInputStream(url: url).readAllSync()
+    }
+
+    /// Whether `url` names a gzip-compressed FASTA.
+    ///
+    /// Broader than `URL.isGzipCompressed`, which only recognises `.gz`:
+    /// references in the wild also arrive as `.bgz` and `.gzip`.
+    public static func isCompressedFASTA(_ url: URL) -> Bool {
+        ["gz", "bgz", "gzip"].contains(url.pathExtension.lowercased())
+    }
+
+    private static func loadReferenceSequences(from url: URL) throws -> [String: String] {
+        let contents = try readFASTAText(at: url)
         var sequences: [String: String] = [:]
         var currentID: String?
         var currentSequence = ""
@@ -150,22 +165,51 @@ public enum ViralReconPrimerStager {
             return String(columns[3])
         }
 
-        for pair in [("_LEFT", "_RIGHT"), ("_F", "_R"), ("_FORWARD", "_REVERSE")] {
-            if let left = suffix(pair.0, in: names),
-               let right = suffix(pair.1, in: names) {
-                return (left, right)
+        // Ordered most- to least-specific so `_LEFT` is not shadowed by `_L`.
+        let orientations: [(left: String, right: String)] = [
+            ("LEFT", "RIGHT"),
+            ("FORWARD", "REVERSE"),
+            ("FWD", "REV"),
+            ("F", "R")
+        ]
+        for separator in ["_", "-"] {
+            for orientation in orientations {
+                let left = separator + orientation.left
+                let right = separator + orientation.right
+                if let matchedLeft = suffix(left, in: names),
+                   let matchedRight = suffix(right, in: names) {
+                    return (matchedLeft, matchedRight)
+                }
             }
         }
         return ("_LEFT", "_RIGHT")
     }
 
+    /// Finds the orientation token `candidate` at, or near, the end of a primer name.
+    ///
+    /// Schemes append an alt-primer index after the orientation token
+    /// (ARTIC V5.3.2 uses `SARS-CoV-2_400_1_LEFT_1`), so a trailing
+    /// `<separator><digits>` group is tolerated and excluded from the result.
+    /// The returned suffix preserves the source casing so it can be passed to
+    /// iVar verbatim.
     private static func suffix(_ candidate: String, in names: [String]) -> String? {
         for name in names {
-            if name.uppercased().hasSuffix(candidate),
-               let range = name.range(of: candidate, options: [.caseInsensitive, .backwards]) {
-                return String(name[range.lowerBound...])
-            }
+            let trimmed = droppingTrailingIndex(name)
+            guard trimmed.uppercased().hasSuffix(candidate.uppercased()) else { continue }
+            let start = trimmed.index(trimmed.endIndex, offsetBy: -candidate.count)
+            return String(trimmed[start...])
         }
         return nil
+    }
+
+    /// Drops a trailing `_<digits>` or `-<digits>` alt-primer index.
+    private static func droppingTrailingIndex(_ name: String) -> String {
+        guard let separator = name.lastIndex(where: { $0 == "_" || $0 == "-" }),
+              separator != name.startIndex else {
+            return name
+        }
+        let tail = name[name.index(after: separator)...]
+        guard !tail.isEmpty, tail.allSatisfy(\.isNumber) else { return name }
+        return String(name[..<separator])
     }
 }
