@@ -1500,6 +1500,40 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         )
         self.assertTrue(any(line.startswith("receipt:verify:") for line in new_events))
 
+    def test_resume_uses_receipt_bound_scratch_for_signed_portability_scan(self):
+        packaged = self.fixture.run("--package-only", "--channel", "stable")
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        receipt_path = self.fixture.release / "unsigned-candidate-receipt.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        expected_scratch = receipt["build"]["scratchPath"]
+        events_before_resume = len(self.fixture.event_lines())
+
+        resumed = self.fixture.run(
+            "--resume-candidate",
+            str(receipt_path),
+            "--signing-identity",
+            "Developer ID Application: Test (TEAMID)",
+            "--team-id",
+            "TEAMID",
+            "--notary-profile",
+            "fixture",
+            "--defer-remote-publish",
+            "--channel",
+            "stable",
+        )
+
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        resume_smokes = [
+            line
+            for line in self.fixture.event_lines()[events_before_resume:]
+            if line.startswith("smoke:")
+        ]
+        self.assertTrue(resume_smokes)
+        self.assertTrue(
+            all(line.endswith(f":{expected_scratch}") for line in resume_smokes),
+            resume_smokes,
+        )
+
     def test_failed_mutating_codesign_preserves_receipt_candidate_and_retry_succeeds(
         self,
     ):

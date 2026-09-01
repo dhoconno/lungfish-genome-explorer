@@ -1343,6 +1343,11 @@ run_release_doctor credentials
     --cache-root "$CACHE_ROOT" \
     --remote "$GIT_REMOTE" \
     --github-repository "$GITHUB_REPOSITORY"
+if [ -n "$RESUME_CANDIDATE" ]; then
+    SCRATCH_PATH=$("$RELEASE_PYTHON" -c \
+        'import json,sys; value=json.load(open(sys.argv[1]))["build"]["scratchPath"]; assert isinstance(value,str) and value; print(value)' \
+        "$CANDIDATE_RECEIPT_PATH")
+fi
 VERIFIED_SPARKLE_BUILD_NUMBER=$("$RELEASE_PYTHON" -c \
     'import json,sys; value=json.load(open(sys.argv[1]))["release"]["build"]; assert isinstance(value,str) and value.isdigit() and int(value) > 0; print(value)' \
     "$CANDIDATE_RECEIPT_PATH")
