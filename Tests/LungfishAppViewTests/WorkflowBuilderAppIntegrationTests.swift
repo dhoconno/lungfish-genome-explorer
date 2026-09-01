@@ -22,8 +22,11 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         delegate.showWorkflowBuilder(nil)
         let firstWindow = try XCTUnwrap(workflowBuilderWindow())
         XCTAssertEqual(firstWindow.accessibilityIdentifier(), "WorkflowBuilderWindow")
-        XCTAssertEqual(firstWindow.frame.width, 1024, accuracy: 1)
-        XCTAssertEqual(firstWindow.frame.height, 720, accuracy: 1)
+        XCTAssertTrue(firstWindow.contentViewController is WorkflowBuilderViewController)
+        XCTAssertTrue(firstWindow.styleMask.contains(.resizable))
+        let visibleFrame = try XCTUnwrap(firstWindow.screen?.visibleFrame)
+        XCTAssertEqual(firstWindow.frame.width, min(1024, visibleFrame.width), accuracy: 1)
+        XCTAssertEqual(firstWindow.frame.height, min(720, visibleFrame.height), accuracy: 1)
 
         firstWindow.performClose(nil)
         delegate.showWorkflowBuilder(nil)
@@ -216,7 +219,7 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
 
         XCTAssertEqual(contentTypes.count, 1)
         XCTAssertFalse(contentTypes.contains(.json))
-        XCTAssertTrue(contentTypes.allSatisfy { $0.conforms(to: .package) })
+        XCTAssertEqual(contentTypes.map(\.identifier), ["org.lungfish.workflow"])
     }
 
     func testWorkflowBuilderNativeSaveNormalizesJSONPathToBundle() throws {

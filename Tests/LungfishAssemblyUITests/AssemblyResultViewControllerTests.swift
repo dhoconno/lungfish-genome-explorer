@@ -236,6 +236,7 @@ final class AssemblyResultViewControllerTests: XCTestCase {
     }
 
     func testRerunBlastButtonReRunsBlastForCurrentSelection() async throws {
+        _ = NSApplication.shared
         let records = [
             AssemblyContigRecord(
                 rank: 1,

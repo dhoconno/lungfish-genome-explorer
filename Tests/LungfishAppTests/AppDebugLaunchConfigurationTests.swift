@@ -96,11 +96,12 @@ final class AppDebugLaunchConfigurationTests: XCTestCase {
         let docTypes = try XCTUnwrap(plist["CFBundleDocumentTypes"] as? [[String: Any]])
         let declaredContentTypes = Set(docTypes.flatMap { ($0["LSItemContentTypes"] as? [String]) ?? [] })
 
-        // The four directory reference/alignment/tree bundles this work cares about,
+        // The five directory reference/alignment/tree/workflow bundles this work cares about,
         // keyed UTI -> expected filename extension.
         let requiredBundleUTIs: [String: String] = [
             "org.lungfish.reference-bundle": "lungfishref",
             "org.lungfish.mhc-reference-bundle": "lungfishmhcref",
+            "org.lungfish.workflow": "lungfishflow",
             "org.lungfish.msa-bundle": "lungfishmsa",
             "org.lungfish.tree-bundle": "lungfishtree",
         ]
