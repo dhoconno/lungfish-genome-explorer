@@ -427,3 +427,58 @@ final class AnalysesFolderTests: XCTestCase {
         }
     }
 }
+
+/// Viral Recon must be a first-class analysis tool: without it in
+/// `knownTools`, `analysisInfo(for:)` returns nil for a directory named
+/// `viralrecon-<timestamp>` and the sidebar can never render the node no
+/// matter what the ingest step writes.
+final class AnalysesFolderViralReconTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("analyses-viralrecon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testViralReconIsAKnownTool() {
+        XCTAssertTrue(AnalysesFolder.knownTools.contains("viralrecon"))
+    }
+
+    func testViralReconHasADisplayName() {
+        XCTAssertEqual(AnalysesFolder.displayName(for: "viralrecon"), "Viral Recon")
+    }
+
+    func testTimestampedViralReconDirectoryIsRecognisedWithoutMetadata() throws {
+        let directory = root.appendingPathComponent("viralrecon-2026-09-02T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: directory))
+        XCTAssertEqual(info.tool, "viralrecon")
+        XCTAssertFalse(info.isBatch)
+    }
+
+    func testCreatedViralReconDirectoryIsDiscoverableByListing() throws {
+        let project = root.appendingPathComponent("P.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: project)
+
+        let analyses = try AnalysesFolder.listAnalyses(in: project)
+        XCTAssertEqual(analyses.map(\.tool), ["viralrecon"])
+    }
+}
+
+extension AnalysesFolderViralReconTests {
+    func testRenamedViralReconDirectoryIsRecognisedByItsResultSidecar() throws {
+        let directory = root.appendingPathComponent("My SARS-CoV-2 Run", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("viralrecon-result.json"))
+
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: directory))
+        XCTAssertEqual(info.tool, "viralrecon")
+    }
+}

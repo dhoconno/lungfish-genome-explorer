@@ -152,4 +152,38 @@ final class NFCoreRunRequestTests: XCTestCase {
         XCTAssertTrue(NFCoreRunRequest.unsupportedStepParameters(forWorkflow: "taxtriage").isEmpty)
         XCTAssertTrue(NFCoreRunRequest.unsupportedStepParameters(forWorkflow: "sarek").isEmpty)
     }
+
+    func testCondaAndLocalExecutorsAreRefused() throws {
+        // viralrecon 3.0.0 defines no `local` profile at all, and Lungfish never
+        // enables Nextflow's conda support for this workflow, so both abort
+        // after the user has waited. Refuse them at the point of launch instead.
+        for executor in [NFCoreExecutor.conda, NFCoreExecutor.local] {
+            let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+            let request = NFCoreRunRequest(
+                workflow: workflow,
+                version: "3.0.0",
+                executor: executor,
+                inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+                outputDirectory: URL(fileURLWithPath: "/tmp/results"),
+                params: [:]
+            )
+            XCTAssertThrowsError(try request.validateExecutorSupported()) { error in
+                XCTAssertEqual(error as? NFCoreRunRequest.UnsupportedExecutorError,
+                               .unsupported(executor))
+            }
+        }
+    }
+
+    func testDockerExecutorIsAccepted() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let request = NFCoreRunRequest(
+            workflow: workflow,
+            version: "3.0.0",
+            executor: .docker,
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/results"),
+            params: [:]
+        )
+        XCTAssertNoThrow(try request.validateExecutorSupported())
+    }
 }

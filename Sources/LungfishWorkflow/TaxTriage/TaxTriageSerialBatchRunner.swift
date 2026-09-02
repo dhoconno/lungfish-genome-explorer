@@ -168,8 +168,18 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         return candidate
     }
 
-    private func uniqueDirectoryName(for sampleID: String, usedNames: inout Set<String>) -> String {
-        let base = Self.sanitizedDirectoryName(for: sampleID)
+    /// A sanitized directory name that no earlier sample in this batch took.
+    ///
+    /// Sanitization is lossy: "S 1" and "S_1" both collapse to "S_1". Without
+    /// this the second sample writes into the first sample's directory and
+    /// silently inherits its results, which attributes one sample's data to
+    /// another. Every batch runner that lays out per-sample directories must
+    /// use this, not `sanitizedDirectoryName` on its own.
+    public static func uniqueDirectoryName(
+        for sampleID: String,
+        usedNames: inout Set<String>
+    ) -> String {
+        let base = sanitizedDirectoryName(for: sampleID)
         var candidate = base
         var suffix = 2
         while usedNames.contains(candidate) {
@@ -178,6 +188,10 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         }
         usedNames.insert(candidate)
         return candidate
+    }
+
+    private func uniqueDirectoryName(for sampleID: String, usedNames: inout Set<String>) -> String {
+        Self.uniqueDirectoryName(for: sampleID, usedNames: &usedNames)
     }
 
     private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {

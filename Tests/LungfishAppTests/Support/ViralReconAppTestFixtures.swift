@@ -2,7 +2,10 @@ import Foundation
 @testable import LungfishWorkflow
 
 enum ViralReconAppTestFixtures {
-    static func illuminaRequest(root: URL) throws -> ViralReconRunRequest {
+    static func illuminaRequest(
+        root: URL,
+        executor: NFCoreExecutor = .docker
+    ) throws -> ViralReconRunRequest {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let inputs = root.appendingPathComponent("inputs", isDirectory: true)
         let outputs = root.appendingPathComponent("outputs", isDirectory: true)
@@ -40,7 +43,7 @@ enum ViralReconAppTestFixtures {
             protocol: .amplicon,
             samplesheetURL: samplesheet,
             outputDirectory: outputs,
-            executor: .docker,
+            executor: executor,
             version: "3.0.0",
             reference: .genome("MN908947.3"),
             primer: ViralReconPrimerSelection(

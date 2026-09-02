@@ -358,8 +358,30 @@ enum SidebarProjectScanner {
         if context == .regularDirectory, isMetagenomicsResultDirectory(url) {
             return false
         }
+        if isDirectory, isWorkflowInternalDirectory(url) {
+            return false
+        }
 
         return true
+    }
+
+    /// Returns true for the pipeline's own working artefacts, which are never
+    /// shown even though they sit in `Analyses/` beside the real analysis.
+    ///
+    /// A Viral Recon run leaves the raw nf-core output tree and a
+    /// `.lungfishrun` run bundle next to the ingested analysis it produced.
+    /// Neither has an `analysisInfo`, so the scanner fell through to
+    /// `scanTree(from:)` and walked the raw tree with no depth limit: the user
+    /// saw the intended node plus thousands of files of pipeline internals.
+    ///
+    /// The raw tree is matched on the wizard's own `viralrecon-results-<token>`
+    /// naming, so a user folder merely named after the tool stays visible.
+    static func isWorkflowInternalDirectory(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        if url.pathExtension == NFCoreRunBundleStore.directoryExtension {
+            return true
+        }
+        return name.hasPrefix("viralrecon-results-")
     }
 
     /// Detects the file type and appropriate icon for a URL, via the unified
@@ -414,6 +436,7 @@ enum SidebarProjectScanner {
             "source-files.json",
             "taxtriage-batch-manifest.json",
             "taxtriage-result.json",
+            "viralrecon-result.json",
         ]
         return internalJSONFilenames.contains(name)
     }
@@ -842,6 +865,7 @@ enum SidebarProjectScanner {
         case "naomgs": return "n.circle"
         case "cz-id": return "c.circle"
         case "ont-genotyping": return "tablecells.badge.ellipsis"
+        case "viralrecon": return "v.circle"
         default: return "circle"
         }
     }
@@ -865,6 +889,10 @@ enum SidebarProjectScanner {
         case "nvd": return .nvdResult
         case "cz-id": return .czIdResult
         case "ont-genotyping": return .genotypeResultBundle
+        // Viral Recon publishes its alignment and variants into a reference
+        // bundle inside the analysis directory, so it routes through the
+        // generic analysis-result path like the mapping tools do.
+        case "viralrecon": return .analysisResult
         default: return .analysisResult
         }
     }

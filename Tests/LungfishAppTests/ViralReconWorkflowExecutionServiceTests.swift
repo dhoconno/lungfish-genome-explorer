@@ -14,7 +14,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
-        try FileManager.default.removeItem(at: request.primer.fastaURL)
+        try FileManager.default.removeItem(at: XCTUnwrap(request.primer.fastaURL))
         try """
         {
           "schema_version": 1,
@@ -166,7 +166,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
         XCTAssertEqual(
             try String(contentsOf: persistedPrimerFASTA, encoding: .utf8),
-            try String(contentsOf: request.primer.fastaURL, encoding: .utf8)
+            try String(contentsOf: XCTUnwrap(request.primer.fastaURL), encoding: .utf8)
         )
 
         let invocation = try XCTUnwrap(runner.invocations.first)
@@ -209,6 +209,170 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.bundleURLs, [result.bundleURL])
     }
 
+    // A visualisation problem must never present as a lost analysis. The
+    // pipeline did its work; failing to build a viewer bundle from that work is
+    // a reduced result, not a failed run.
+    func testIngestFailureStillReportsTheRunAsCompleted() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-ingest-fail-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let marker = request.outputDirectory.appendingPathComponent("raw-output.txt")
+        try FileManager.default.createDirectory(at: request.outputDirectory,
+                                                withIntermediateDirectories: true)
+        try "pipeline output".write(to: marker, atomically: true, encoding: .utf8)
+
+        let operationCenter = OperationCenter()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in },
+            resultIngest: { _ in
+                throw ViralReconResultIngest.IngestError.referenceBundleMissing
+            }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed, "ingest failure must not fail the run")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: marker.path),
+            "raw pipeline output must be left intact"
+        )
+        XCTAssertTrue(
+            item.logEntries.contains { $0.level == .warning && $0.message.contains("results") },
+            "the ingest failure must be recorded for the Inspector"
+        )
+    }
+
+    // A run with no project has nowhere to put an analysis bundle. Returning
+    // early reported a completed, viewable result while producing nothing at
+    // all, which is the one failure mode a user cannot detect.
+    func testIngestWithoutAProjectIsAVisibleFailureNotASilentNoOp() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-no-project-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+            projectURL: nil
+        )
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed, "the pipeline still succeeded")
+        XCTAssertTrue(
+            item.logEntries.contains { $0.level == .warning && $0.message.contains("results") },
+            "a run with no project must report that no bundle could be built"
+        )
+    }
+
+    // `stageBEDOnly` leaves the primer FASTA to be derived by the launch path.
+    // When the launch path cannot derive one (no project, so no reference), the
+    // run used to die in `persistGeneratedInputs` copying a file that was never
+    // created, before its operation row even existed.
+    func testRunWithoutADerivablePrimerFASTAFailsWithAClearReason() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-primer-gap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let base = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let request = try ViralReconRunRequest(
+            samples: base.samples,
+            platform: base.platform,
+            protocol: base.protocol,
+            samplesheetURL: base.samplesheetURL,
+            outputDirectory: base.outputDirectory,
+            executor: base.executor,
+            version: base.version,
+            reference: base.reference,
+            primer: ViralReconPrimerSelection(
+                bundleURL: base.primer.bundleURL,
+                displayName: base.primer.displayName,
+                bedURL: base.primer.bedURL,
+                fastaURL: nil,
+                leftSuffix: base.primer.leftSuffix,
+                rightSuffix: base.primer.rightSuffix,
+                derivedFasta: true
+            ),
+            minimumMappedReads: base.minimumMappedReads,
+            variantCaller: base.variantCaller,
+            consensusCaller: base.consensusCaller,
+            skipOptions: base.skipOptions
+        )
+
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in }
+        )
+
+        do {
+            _ = try await service.run(
+                request,
+                bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+                projectURL: nil
+            )
+            XCTFail("a run with no derivable primer FASTA must not start")
+        } catch let error as ViralReconWorkflowExecutionError {
+            XCTAssertEqual(error, .primerFASTAUnavailable)
+        }
+    }
+
+    func testNoProjectForResultsHasAUserFacingDescription() {
+        let message = ViralReconWorkflowExecutionError.noProjectForResults.localizedDescription
+        XCTAssertFalse(message.isEmpty)
+        XCTAssertTrue(message.lowercased().contains("project"))
+    }
+
+    func testSuccessfulIngestIsReportedAndDoesNotDisturbCompletion() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-ingest-ok-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let ingested = IngestRecorder()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in },
+            resultIngest: { context in
+                ingested.record(context.resultsDirectory)
+            }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        XCTAssertEqual(ingested.directories.count, 1, "ingest runs once on completion")
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed)
+    }
+
     func testServiceFailsWithExitCodeAndStderrTail() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
@@ -231,7 +395,10 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             )
             XCTFail("Expected Viral Recon service to throw for a non-zero CLI exit")
         } catch {
-            XCTAssertEqual(error as? ViralReconWorkflowExecutionError, .nonZeroExit(2))
+            XCTAssertEqual(
+                error.viralReconUnderlyingFailure as? ViralReconWorkflowExecutionError,
+                .nonZeroExit(2)
+            )
         }
 
         let item = try XCTUnwrap(operationCenter.items.first)
@@ -242,6 +409,277 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.errorDetail?.contains("bad params") == true)
         XCTAssertFalse(item.errorDetail?.components(separatedBy: .newlines).contains("stderr line 1") == true)
         XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("bad params") })
+    }
+
+    // H-1: a run that fails AFTER registering its own operation row has already
+    // reported that failure on the row, with the stderr tail attached. The
+    // caller must be able to tell, or it adds a second, less informative failed
+    // row for the same run and the user sees the run fail twice.
+    func testPostRegistrationFailureIsMarkedAsAlreadyReported() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let runner = StubViralReconProcessRunner(result: .init(
+            exitCode: 2,
+            standardOutput: "",
+            standardError: "bad params"
+        ))
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        do {
+            _ = try await service.run(
+                request,
+                bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+            )
+            XCTFail("Expected Viral Recon service to throw for a non-zero CLI exit")
+        } catch {
+            XCTAssertTrue(
+                ViralReconWorkflowExecutionService.failureWasReportedOnItsOperationRow(error),
+                "a post-registration failure must tell the caller it is already on a row"
+            )
+        }
+
+        XCTAssertEqual(operationCenter.items.count, 1)
+    }
+
+    // A failure BEFORE the row exists carries no such marker, so the caller
+    // still has to report it or the user sees nothing happen at all.
+    func testPreRegistrationFailureIsNotMarkedAsAlreadyReported() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp, executor: .conda)
+        let operationCenter = OperationCenter()
+        let runner = StubViralReconProcessRunner(
+            result: .init(exitCode: 0, standardOutput: "", standardError: "")
+        )
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        do {
+            _ = try await service.run(
+                request,
+                bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+            )
+            XCTFail("Expected an unsupported executor to be refused")
+        } catch {
+            XCTAssertFalse(
+                ViralReconWorkflowExecutionService.failureWasReportedOnItsOperationRow(error)
+            )
+        }
+
+        XCTAssertTrue(operationCenter.items.isEmpty)
+    }
+
+    // conda and local reach no working run, so they must be refused before any
+    // pipeline work starts rather than several minutes into one.
+    func testServiceRefusesUnsupportedExecutorsBeforeAnyPipelineWork() async throws {
+        for executor in [NFCoreExecutor.conda, .local] {
+            let temp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("viral-recon-executor-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: temp) }
+
+            let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp, executor: executor)
+            let runner = StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            )
+            let operationCenter = OperationCenter()
+            let service = ViralReconWorkflowExecutionService(
+                operationCenter: operationCenter,
+                processRunner: runner,
+                referenceDownloader: { _, _ in XCTFail("must not download for a refused executor") }
+            )
+            let bundleRoot = temp.appendingPathComponent("Analyses", isDirectory: true)
+
+            do {
+                _ = try await service.run(request, bundleRoot: bundleRoot, projectURL: temp)
+                XCTFail("expected \(executor.rawValue) to be refused")
+            } catch let error as NFCoreRunRequest.UnsupportedExecutorError {
+                XCTAssertEqual(error, .unsupported(executor))
+            }
+
+            XCTAssertTrue(runner.invocations.isEmpty)
+            XCTAssertTrue(operationCenter.items.isEmpty)
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: bundleRoot.path),
+                "no run bundle root should exist for a run refused up front"
+            )
+        }
+    }
+
+    // A project without the canonical bundle must download it exactly once, and
+    // the acquired bundle is what the pipeline aligns against.
+    func testServiceAcquiresTheReferenceWhenTheProjectLacksIt() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-acquire-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let project = temp.appendingPathComponent("Project", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let downloads = DownloadRecorder()
+        let runner = StubViralReconProcessRunner(
+            result: .init(exitCode: 0, standardOutput: "", standardError: "")
+        )
+        let operationCenter = OperationCenter()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            referenceDownloader: { accession, destination in
+                downloads.record(accession)
+                let bundle = destination.appendingPathComponent(
+                    ViralReconReferenceCatalog.bundleFilename, isDirectory: true)
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                try ">\(ViralReconReferenceCatalog.canonicalAccession) SARS-CoV-2\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n"
+                    .write(
+                        to: bundle.appendingPathComponent("sequence.fasta"),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+            }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+            projectURL: project
+        )
+
+        XCTAssertEqual(downloads.accessions, [ViralReconReferenceCatalog.canonicalAccession])
+
+        let acquiredFASTA = ViralReconReferenceCatalog.bundleURL(inProject: project)
+            .appendingPathComponent("sequence.fasta")
+        let manifest = try NFCoreRunBundleStore.read(from: result.bundleURL)
+        let recordedFASTA = try XCTUnwrap(manifest.params["fasta"])
+        XCTAssertEqual(
+            URL(fileURLWithPath: recordedFASTA).resolvingSymlinksInPath(),
+            acquiredFASTA.resolvingSymlinksInPath()
+        )
+        XCTAssertNil(manifest.params["genome"], "the pipeline must not resolve the reference itself")
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertTrue(invocation.arguments.contains("fasta=\(recordedFASTA)"))
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertTrue(
+            item.logEntries.map(\.message).contains {
+                $0.contains(ViralReconReferenceCatalog.canonicalAccession)
+            }
+        )
+    }
+
+    func testServiceReusesAnAlreadyPresentReferenceWithoutDownloading() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-reuse-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let project = temp.appendingPathComponent("Project", isDirectory: true)
+        let bundle = ViralReconReferenceCatalog.bundleURL(inProject: project)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let presentFASTA = bundle.appendingPathComponent("sequence.fasta")
+        try ">\(ViralReconReferenceCatalog.canonicalAccession) SARS-CoV-2\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n"
+            .write(to: presentFASTA, atomically: true, encoding: .utf8)
+        let expectedFASTA = presentFASTA
+
+        let runner = StubViralReconProcessRunner(
+            result: .init(exitCode: 0, standardOutput: "", standardError: "")
+        )
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: runner,
+            referenceDownloader: { _, _ in XCTFail("must not download an already present reference") }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+            projectURL: project
+        )
+
+        let manifest = try NFCoreRunBundleStore.read(from: result.bundleURL)
+        let recordedFASTA = try XCTUnwrap(manifest.params["fasta"])
+        XCTAssertEqual(
+            URL(fileURLWithPath: recordedFASTA).resolvingSymlinksInPath(),
+            expectedFASTA.resolvingSymlinksInPath()
+        )
+    }
+
+    // The wizard stages only the BED when the reference is not on disk yet, so
+    // the launch path has to cut the primer sequences once it has one.
+    func testServiceDerivesTheDeferredPrimerFASTAAfterAcquiringTheReference() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-deferred-primers-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        // The wizard leaves no primers.fasta behind when it could not derive one.
+        try FileManager.default.removeItem(at: XCTUnwrap(request.primer.fastaURL))
+        try "MN908947.3\t0\t4\tSARS2_1_LEFT\t1\t+\nMN908947.3\t4\t8\tSARS2_1_RIGHT\t1\t-\n"
+            .write(to: request.primer.bedURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "schema_version": 1,
+          "name": "qiaseq-direct-sars2",
+          "display_name": "QIASeq DIRECT SARS-CoV-2",
+          "description": "Viral Recon test fixture",
+          "organism": "SARS-CoV-2",
+          "reference_accessions": [
+            { "accession": "MN908947.3", "canonical": true }
+          ],
+          "primer_count": 2,
+          "amplicon_count": 1
+        }
+        """.write(
+            to: request.primer.bundleURL.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Test primer scheme\n".write(
+            to: request.primer.bundleURL.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let project = temp.appendingPathComponent("Project", isDirectory: true)
+        let bundle = ViralReconReferenceCatalog.bundleURL(inProject: project)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try ">\(ViralReconReferenceCatalog.canonicalAccession) SARS-CoV-2\nAAAACCCCGGGGTTTT\n"
+            .write(
+                to: bundle.appendingPathComponent("sequence.fasta"),
+                atomically: true,
+                encoding: .utf8
+            )
+
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in XCTFail("reference is already present") }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+            projectURL: project
+        )
+
+        let persistedPrimerFASTA = result.bundleURL.appendingPathComponent("inputs/primers/primers.fasta")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: persistedPrimerFASTA.path))
+        let staged = try String(contentsOf: persistedPrimerFASTA, encoding: .utf8)
+        XCTAssertTrue(staged.contains(">SARS2_1_LEFT\nAAAA"), staged)
+        XCTAssertTrue(staged.contains(">SARS2_1_RIGHT\nGGGG"), staged)
     }
 
     func testServiceAllocatesUniqueBundleNames() async throws {
@@ -697,6 +1135,21 @@ final class PipelineCancelCallbackRegressionTests: XCTestCase {
 }
 
 @MainActor
+/// Records downloader calls from a `@Sendable` closure without touching the
+/// main actor, which the acquisition step runs off.
+private final class DownloadRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    func record(_ accession: String) {
+        lock.withLock { recorded.append(accession) }
+    }
+
+    var accessions: [String] {
+        lock.withLock { recorded }
+    }
+}
+
 private final class StubViralReconProcessRunner: ViralReconWorkflowProcessRunning {
     struct Invocation: Equatable {
         let arguments: [String]
@@ -857,4 +1310,19 @@ private func readPID(_ url: URL) throws -> Int32 {
     let text = try String(contentsOf: url, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
+}
+
+private final class IngestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [URL] = []
+
+    var directories: [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return storage
+    }
+
+    func record(_ url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        storage.append(url)
+    }
 }

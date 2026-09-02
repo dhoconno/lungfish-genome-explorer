@@ -92,7 +92,13 @@ public struct ViralReconPrimerSelection: Codable, Sendable, Equatable {
     public let bundleURL: URL
     public let displayName: String
     public let bedURL: URL
-    public let fastaURL: URL
+    /// The staged primer FASTA, or nil when the scheme ships none and it has
+    /// not been derived yet.
+    ///
+    /// Optional on purpose: naming a file that was never written is what let a
+    /// non-existent `primer_fasta` path reach the pipeline. A selection either
+    /// has a FASTA on disk or admits it does not.
+    public let fastaURL: URL?
     public let leftSuffix: String
     public let rightSuffix: String
     public let derivedFasta: Bool
@@ -101,7 +107,7 @@ public struct ViralReconPrimerSelection: Codable, Sendable, Equatable {
         bundleURL: URL,
         displayName: String,
         bedURL: URL,
-        fastaURL: URL,
+        fastaURL: URL?,
         leftSuffix: String,
         rightSuffix: String,
         derivedFasta: Bool
@@ -136,6 +142,10 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
     public let consensusCaller: ViralReconConsensusCaller
     public let skipOptions: [ViralReconSkipOption]
     public let advancedParams: [String: String]
+    /// A GFF3 annotation chosen in the wizard, overriding the one the reference
+    /// bundle carries. Kept out of `advancedParams` because `gff` is structural
+    /// there and would be refused.
+    public let gffURL: URL?
     public let fastqPassDirectoryURL: URL?
     public let sequencingSummaryURL: URL?
 
@@ -146,13 +156,20 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
             "platform": platform.rawValue,
             "protocol": `protocol`.rawValue,
             "primer_bed": primer.bedURL.path,
-            "primer_fasta": primer.fastaURL.path,
             "primer_left_suffix": primer.leftSuffix,
             "primer_right_suffix": primer.rightSuffix,
             "min_mapped_reads": String(minimumMappedReads),
             "variant_caller": variantCaller.rawValue,
             "consensus_caller": consensusCaller.rawValue,
         ]
+
+        // Emitted only when the file exists. Passing a path the pipeline
+        // cannot open makes the run start and then die inside Nextflow;
+        // omitting it lets viralrecon's own schema validation reject it up
+        // front, with a message about the parameter rather than about a file.
+        if let primerFASTAURL = primer.fastaURL {
+            params["primer_fasta"] = primerFASTAURL.path
+        }
 
         if platform == .nanopore, let fastqPassDirectoryURL {
             params["fastq_dir"] = fastqPassDirectoryURL.path
@@ -164,11 +181,14 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         switch reference {
         case .genome(let genome):
             params["genome"] = genome
-        case .local(let fastaURL, let gffURL):
+        case .local(let fastaURL, let referenceGFFURL):
             params["fasta"] = fastaURL.path
-            if let gffURL {
-                params["gff"] = gffURL.path
+            if let referenceGFFURL {
+                params["gff"] = referenceGFFURL.path
             }
+        }
+        if let gffURL {
+            params["gff"] = gffURL.path
         }
 
         for option in Set(skipOptions).union(ViralReconSkipOption.alwaysSkipped) {
@@ -195,6 +215,7 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         consensusCaller: ViralReconConsensusCaller,
         skipOptions: [ViralReconSkipOption],
         advancedParams: [String: String] = [:],
+        gffURL: URL? = nil,
         fastqPassDirectoryURL: URL? = nil,
         sequencingSummaryURL: URL? = nil
     ) throws {
@@ -218,19 +239,38 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         self.consensusCaller = consensusCaller
         self.skipOptions = skipOptions
         self.advancedParams = advancedParams
+        self.gffURL = gffURL
         self.fastqPassDirectoryURL = fastqPassDirectoryURL
         self.sequencingSummaryURL = resolvedSequencingSummaryURL
     }
 
-    public static func validateAdvancedParams(_ params: [String: String]) throws {
-        let generatedKeys = Set([
-            "input", "outdir", "platform", "protocol", "genome", "fasta", "gff",
-            "fastq_dir", "sequencing_summary",
-            "primer_bed", "primer_fasta", "primer_left_suffix", "primer_right_suffix",
-            "min_mapped_reads", "variant_caller", "consensus_caller",
-        ] + ViralReconSkipOption.allCases.map(\.rawValue))
+    /// Keys an advanced user may override. These change how the pipeline runs
+    /// without changing what the wizard is describing.
+    public static var overridableAdvancedKeys: Set<String> {
+        var keys: Set<String> = ["variant_caller", "consensus_caller", "min_mapped_reads",
+                                 "max_cpus", "max_memory"]
+        for option in ViralReconSkipOption.allCases
+        where !ViralReconSkipOption.alwaysSkipped.contains(option) {
+            keys.insert(option.rawValue)
+        }
+        return keys
+    }
 
-        for key in params.keys.sorted() where generatedKeys.contains(key) {
+    /// Keys the wizard owns. Overriding these would contradict the inputs the
+    /// user selected, so they are refused with the owning control named.
+    public static var structuralAdvancedKeys: Set<String> {
+        var keys: Set<String> = ["input", "outdir", "platform", "protocol",
+                                 "primer_bed", "primer_fasta", "primer_left_suffix",
+                                 "primer_right_suffix", "genome", "fasta", "gff",
+                                 "fastq_dir", "sequencing_summary"]
+        for option in ViralReconSkipOption.alwaysSkipped {
+            keys.insert(option.rawValue)
+        }
+        return keys
+    }
+
+    public static func validateAdvancedParams(_ params: [String: String]) throws {
+        for key in params.keys.sorted() where structuralAdvancedKeys.contains(key) {
             throw ValidationError.conflictingAdvancedParam(key)
         }
     }

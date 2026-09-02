@@ -196,4 +196,38 @@ final class ViralReconRunRequestTests: XCTestCase {
             XCTAssertEqual(error as? ViralReconRunRequest.ValidationError, .conflictingAdvancedParam("sequencing_summary"))
         }
     }
+
+    func testTuningKeysAreAcceptedAsOverrides() throws {
+        for key in ["variant_caller", "consensus_caller", "min_mapped_reads",
+                    "skip_assembly", "skip_kraken2", "skip_fastqc"] {
+            XCTAssertNoThrow(
+                try ViralReconRunRequest.validateAdvancedParams([key: "true"]),
+                "expected \(key) to be overridable")
+        }
+    }
+
+    func testStructuralKeysRemainRefused() throws {
+        for key in ["input", "outdir", "platform", "protocol", "primer_bed",
+                    "primer_fasta", "genome", "fasta"] {
+            XCTAssertThrowsError(
+                try ViralReconRunRequest.validateAdvancedParams([key: "x"]),
+                "expected \(key) to be refused") { error in
+                XCTAssertEqual(error as? ViralReconRunRequest.ValidationError,
+                               .conflictingAdvancedParam(key))
+            }
+        }
+    }
+
+    func testForcedFreyjaSkipsRemainRefused() throws {
+        // These are forced because viralrecon pins Freyja to an amd64-only
+        // container whose bootstrap workers are killed under Rosetta. No user
+        // input may re-enable them.
+        for key in ["skip_freyja", "skip_freyja_boot"] {
+            XCTAssertThrowsError(
+                try ViralReconRunRequest.validateAdvancedParams([key: "false"])) { error in
+                XCTAssertEqual(error as? ViralReconRunRequest.ValidationError,
+                               .conflictingAdvancedParam(key))
+            }
+        }
+    }
 }

@@ -7,6 +7,7 @@ enum AnalysisResultDisplayRoute: Equatable {
     case naoMgs
     case nvd
     case czId
+    case viralRecon
     case unknown
 
     static func route(forToolID toolID: String) -> AnalysisResultDisplayRoute {
@@ -20,6 +21,11 @@ enum AnalysisResultDisplayRoute: Equatable {
         }
         if normalized.hasPrefix("cz-id") {
             return .czId
+        }
+        // Checked before the assembly and mapping prefixes so a Viral Recon
+        // run cannot be mistaken for either.
+        if normalized.hasPrefix("viralrecon") {
+            return .viralRecon
         }
         if AssemblyTool.allCases.contains(where: { normalized.hasPrefix($0.rawValue) }) {
             return .assembly

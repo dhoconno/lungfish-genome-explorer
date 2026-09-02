@@ -49,6 +49,52 @@ public enum ViralReconPrimerStager {
         )
     }
 
+    /// Stages the primer BED without deriving the primer FASTA.
+    ///
+    /// No bundled SARS-CoV-2 scheme ships `primers.fasta`, so the sequences have
+    /// to be cut out of the reference. The wizard has no reference to cut from
+    /// until the launch path has acquired one, so it stages the BED here and the
+    /// launch path completes the selection with `stage`.
+    public static func stageBEDOnly(
+        primerBundleURL: URL,
+        referenceName: String,
+        destinationDirectory: URL
+    ) throws -> ViralReconPrimerSelection {
+        let bundle = try PrimerSchemeBundle.load(from: primerBundleURL)
+        let resolved = try PrimerSchemeResolver.resolve(bundle: bundle, targetReferenceName: referenceName)
+
+        let primersDirectory = destinationDirectory.appendingPathComponent("primers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primersDirectory, withIntermediateDirectories: true)
+
+        let stagedBEDURL = primersDirectory.appendingPathComponent("primers.bed")
+        try replaceItem(at: stagedBEDURL, withCopyOf: resolved.bedURL)
+
+        // Returns nil rather than a path to a file it did not write: the launch
+        // path completes the selection once it has a reference to cut from, and
+        // a placeholder path would be indistinguishable from a real one.
+        var stagedFASTAURL: URL?
+        let derivedFasta: Bool
+        if let bundledFASTAURL = bundle.fastaURL {
+            let destination = primersDirectory.appendingPathComponent("primers.fasta")
+            try replaceItem(at: destination, withCopyOf: bundledFASTAURL)
+            stagedFASTAURL = destination
+            derivedFasta = false
+        } else {
+            derivedFasta = true
+        }
+
+        let suffixes = inferSuffixes(in: stagedBEDURL)
+        return ViralReconPrimerSelection(
+            bundleURL: primerBundleURL,
+            displayName: bundle.manifest.displayName,
+            bedURL: stagedBEDURL,
+            fastaURL: stagedFASTAURL,
+            leftSuffix: suffixes.left,
+            rightSuffix: suffixes.right,
+            derivedFasta: derivedFasta
+        )
+    }
+
     private static func replaceItem(at destination: URL, withCopyOf source: URL) throws {
         if FileManager.default.fileExists(atPath: destination.path) {
             try FileManager.default.removeItem(at: destination)

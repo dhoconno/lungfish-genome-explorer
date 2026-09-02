@@ -323,6 +323,9 @@ extension MainSplitViewController {
         case .mapping:
             displayMappingAnalysisFromSidebar(at: batchURL)
             return
+        case .viralRecon:
+            displayViralReconAnalysisFromSidebar(at: batchURL)
+            return
         case .naoMgs, .nvd, .czId, .unknown:
             break
         }

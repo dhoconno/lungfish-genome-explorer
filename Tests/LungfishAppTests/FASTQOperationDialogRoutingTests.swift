@@ -1349,7 +1349,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         }
     }
 
-    func testViralReconGenomePrimerDerivationKeepsBedAlignedToGenomeAccession() throws {
+    func testViralReconPrimerDerivationUsesTheProjectCanonicalReference() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ViralReconGenomePrimerDerivation-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1369,16 +1369,15 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
         """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
 
-        let referenceFASTA = root.appendingPathComponent("local-reference.fasta")
-        try """
-        >NC_045512.2 local SARS-CoV-2 sequence source
-        AAAACCCCGGGGTTTT
-        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        let project = root.appendingPathComponent("Project", isDirectory: true)
+        try Self.writeCanonicalReferenceBundle(
+            inProject: project,
+            sequence: "AAAACCCCGGGGTTTT"
+        )
 
-        let selection = try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
+        let selection = try ViralReconWizardPrimerStaging.stageForCanonicalReference(
             primerBundleURL: primerBundle,
-            sourceReferenceFASTAURL: referenceFASTA,
-            genomeAccession: "  MN908947.3  ",
+            projectURL: project,
             destinationDirectory: root
         )
 
@@ -1386,14 +1385,51 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
         XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
         XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
-        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
 
         XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")
     }
 
-    func testViralReconGenomePrimerDerivationAcceptsGzippedImportedReference() throws {
+    // With no reference bundle in the project the wizard cannot cut primer
+    // sequences yet, so it stages the BED and leaves the FASTA to the launch
+    // path, which is the only place that downloads the reference.
+    func testViralReconPrimerStagingDefersFASTAWhenReferenceIsNotYetPresent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconDeferredPrimerFASTA-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let primerBundle = root.appendingPathComponent("sars2.lungfishprimers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primerBundle, withIntermediateDirectories: true)
+        try JSONEncoder().encode(Self.sarsCoV2PrimerManifest())
+            .write(to: primerBundle.appendingPathComponent("manifest.json"))
+        try "Test primer scheme\n".write(
+            to: primerBundle.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        MN908947.3\t0\t4\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
+        """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
+
+        let selection = try ViralReconWizardPrimerStaging.stageForCanonicalReference(
+            primerBundleURL: primerBundle,
+            projectURL: root.appendingPathComponent("EmptyProject", isDirectory: true),
+            destinationDirectory: root
+        )
+
+        XCTAssertTrue(selection.derivedFasta)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: selection.bedURL.path))
+        XCTAssertNil(selection.fastaURL,
+                     "the selection must not name a FASTA the wizard could not write")
+        XCTAssertEqual(selection.leftSuffix, "_LEFT")
+        XCTAssertEqual(selection.rightSuffix, "_RIGHT")
+    }
+
+    func testViralReconPrimerDerivationAcceptsGzippedCanonicalReference() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ViralReconGzippedGenomePrimerDerivation-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1413,30 +1449,32 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
         """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
 
-        let compressedReference = root.appendingPathComponent("sequence.fa.gz")
+        let project = root.appendingPathComponent("Project", isDirectory: true)
+        let referenceBundle = ViralReconReferenceCatalog.bundleURL(inProject: project)
+        try FileManager.default.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
+        let compressedReference = referenceBundle.appendingPathComponent("sequence.fa.gz")
         try writeGzipFixture(
-            ">NC_045512.2 imported SARS-CoV-2 reference\nAAAACCCCGGGGTTTT\n",
+            ">MN908947.3 downloaded SARS-CoV-2 reference\nAAAACCCCGGGGTTTT\n",
             to: compressedReference
         )
         XCTAssertEqual(
-            ViralReconWizardSheet.referenceName(from: compressedReference, fallback: "MN908947.3"),
-            "NC_045512.2"
+            ViralReconWizardSheet.referenceName(from: compressedReference, fallback: "NC_045512.2"),
+            "MN908947.3"
         )
 
-        let selection = try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
+        let selection = try ViralReconWizardPrimerStaging.stageForCanonicalReference(
             primerBundleURL: primerBundle,
-            sourceReferenceFASTAURL: compressedReference,
-            genomeAccession: "MN908947.3",
+            projectURL: project,
             destinationDirectory: root
         )
 
         XCTAssertTrue(selection.derivedFasta)
-        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
     }
 
-    func testViralReconBundledPrimerFastaKeepsBedAlignedToEquivalentGenomeAccession() throws {
+    func testViralReconBundledPrimerFastaStagesWithoutTheReference() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ViralReconBundledPrimerFasta-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1462,68 +1500,46 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         CCCC
         """.write(to: primerBundle.appendingPathComponent("primers.fasta"), atomically: true, encoding: .utf8)
 
-        let selection = try ViralReconWizardPrimerStaging.stageBundledGenomePrimerSelection(
+        let selection = try ViralReconWizardPrimerStaging.stageForCanonicalReference(
             primerBundleURL: primerBundle,
-            genomeAccession: "NC_045512.2",
+            projectURL: root.appendingPathComponent("EmptyProject", isDirectory: true),
             destinationDirectory: root
         )
 
+        // A scheme that ships its own primer FASTA needs no reference at all, so
+        // it stages completely even before the reference has been acquired.
         XCTAssertFalse(selection.derivedFasta)
         let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
-        XCTAssertTrue(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
-        XCTAssertFalse(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
+        XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
+        XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
+        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
 
         XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")
     }
 
-    func testViralReconReadinessRejectsBlankGenomeBeforeRun() {
+    // The reference is fixed now, so readiness never asks for one. It only
+    // refuses a primer scheme that was written against a different genome.
+    func testViralReconReadinessRejectsPrimerSchemeForAnotherGenomeBeforeRun() {
         let evaluation = ViralReconWizardReadiness.evaluate(
             ViralReconWizardReadiness.State(
                 hasInputFiles: true,
                 effectivePlatform: .illumina,
                 inputError: nil,
-                primerManifest: Self.sarsCoV2PrimerManifest(),
+                primerManifest: Self.nonSARSCoV2PrimerManifest(),
                 outputRootAvailable: true,
-                version: "3.0.0",
-                minimumMappedReads: 1000,
-                maxCPUs: 4,
-                maxMemory: "8.GB",
-                reference: .sarsCoV2Genome(accession: "  "),
-                primerRequiresLocalReference: false,
-                hasSelectedLocalReference: false
-            )
-        )
-
-        XCTAssertFalse(evaluation.canRun)
-        XCTAssertEqual(evaluation.message, "Enter a SARS-CoV-2 genome accession.")
-    }
-
-    func testViralReconReadinessRejectsIncompatibleGenomeBeforeRun() {
-        let evaluation = ViralReconWizardReadiness.evaluate(
-            ViralReconWizardReadiness.State(
-                hasInputFiles: true,
-                effectivePlatform: .illumina,
-                inputError: nil,
-                primerManifest: Self.sarsCoV2PrimerManifest(),
-                outputRootAvailable: true,
-                version: "3.0.0",
-                minimumMappedReads: 1000,
-                maxCPUs: 4,
-                maxMemory: "8.GB",
-                reference: .sarsCoV2Genome(accession: "MT192765.1"),
-                primerRequiresLocalReference: false,
-                hasSelectedLocalReference: false
+                minimumMappedReads: 1000
             )
         )
 
         XCTAssertFalse(evaluation.canRun)
         XCTAssertEqual(
             evaluation.message,
-            "MT192765.1 is not compatible with this SARS-CoV-2 primer scheme. Expected MN908947.3, NC_045512.2."
+            "MN908947.3 is not compatible with this SARS-CoV-2 primer scheme. Expected MT192765.1."
         )
     }
 
-    func testViralReconReadinessStopsPromptingForPrimerDerivedReferenceAfterSelection() {
+    func testViralReconReadinessNeverAsksForAReference() {
         let evaluation = ViralReconWizardReadiness.evaluate(
             ViralReconWizardReadiness.State(
                 hasInputFiles: true,
@@ -1531,18 +1547,32 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                 inputError: nil,
                 primerManifest: Self.sarsCoV2PrimerManifest(),
                 outputRootAvailable: true,
-                version: "3.0.0",
-                minimumMappedReads: 1000,
-                maxCPUs: 4,
-                maxMemory: "8.GB",
-                reference: .sarsCoV2Genome(accession: "MN908947.3"),
-                primerRequiresLocalReference: true,
-                hasSelectedLocalReference: true
+                minimumMappedReads: 1000
             )
         )
 
         XCTAssertTrue(evaluation.canRun)
         XCTAssertEqual(evaluation.message, "Ready to run Viral Recon.")
+    }
+
+    func testViralReconReadinessSurfacesAdvancedParameterErrors() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                minimumMappedReads: 1000,
+                advancedError: "varient_caller is not a Viral Recon parameter. Check the spelling."
+            )
+        )
+
+        XCTAssertFalse(evaluation.canRun)
+        XCTAssertEqual(
+            evaluation.message,
+            "varient_caller is not a Viral Recon parameter. Check the spelling."
+        )
     }
 
     func testViralReconBuildFailureDoesNotForceParentReadinessFalse() throws {
@@ -2304,6 +2334,35 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             primerCount: 2,
             ampliconCount: 1
         )
+    }
+
+    /// A scheme written against a genome that is not the fixed reference.
+    private static func nonSARSCoV2PrimerManifest() -> PrimerSchemeManifest {
+        PrimerSchemeManifest(
+            schemaVersion: 1,
+            name: "other-genome-scheme",
+            displayName: "Other Genome Scheme",
+            referenceAccessions: [
+                PrimerSchemeManifest.ReferenceAccession(accession: "MT192765.1", canonical: true),
+            ],
+            primerCount: 2,
+            ampliconCount: 1
+        )
+    }
+
+    /// Writes `Downloads/MN908947.3.lungfishref` holding a plain FASTA, which is
+    /// what the wizard looks for before staging primers.
+    @discardableResult
+    private static func writeCanonicalReferenceBundle(
+        inProject projectURL: URL,
+        sequence: String
+    ) throws -> URL {
+        let bundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastaURL = bundleURL.appendingPathComponent("sequence.fasta")
+        try ">\(ViralReconReferenceCatalog.canonicalAccession) SARS-CoV-2 reference\n\(sequence)\n"
+            .write(to: fastaURL, atomically: true, encoding: .utf8)
+        return fastaURL
     }
 
     private func makeFASTQBundle(

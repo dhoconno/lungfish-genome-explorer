@@ -94,7 +94,7 @@ final class BuiltInPrimerSchemeServiceTests: XCTestCase {
                 destinationDirectory: directory
             )
 
-            let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+            let fasta = try String(contentsOf: XCTUnwrap(staged.fastaURL), encoding: .utf8)
             let records = fasta.split(separator: "\n").filter { $0.hasPrefix(">") }.count
             XCTAssertEqual(records, scheme.manifest.primerCount, scheme.manifest.name)
             XCTAssertFalse(staged.leftSuffix.isEmpty, scheme.manifest.name)

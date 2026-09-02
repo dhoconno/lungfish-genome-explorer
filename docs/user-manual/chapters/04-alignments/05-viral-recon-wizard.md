@@ -15,7 +15,7 @@ planned_shots:
   - id: viral-recon-tool-row
     caption: "The FASTQ/FASTA Operations dialog, Mapping category, with the Viral Recon tool row selected."
   - id: viral-recon-wizard-overview
-    caption: "The Viral Recon wizard with FASTQ inputs, reference, primer scheme, callers, and executor selected."
+    caption: "The Viral Recon wizard showing its four controls: inputs, primer scheme, minimum mapped reads, and readiness."
 illustrations: []
 glossary_refs: [primer-scheme, provenance, workflow]
 features_refs: []
@@ -26,15 +26,17 @@ lead_approved: false
 
 ## What it is
 
-The Viral Recon wizard wraps the supported `nf-core/viralrecon` workflow so a SARS-CoV-2 amplicon run delivers the standard pipeline outputs in one shot: mapping, primer trimming, variant calls, consensus sequences, and workflow reports. Lungfish builds the input samplesheet for you from FASTQ bundles, stages the reference and primer files, writes a `.lungfishrun` bundle, and launches the run through Nextflow with the executor you choose.
+The Viral Recon wizard wraps the supported `nf-core/viralrecon` workflow so a SARS-CoV-2 amplicon run delivers the standard pipeline outputs in one shot: mapping, primer trimming, variant calls, consensus sequences, and workflow reports. Lungfish builds the input samplesheet for you from FASTQ bundles, obtains the reference, stages the primer files, writes a `.lungfishrun` bundle, and launches the run through Nextflow.
 
-The wizard is **SARS-CoV-2-specific**, not a general viral pipeline. Its own subtitle reads "SARS-CoV-2 consensus and variant analysis from FASTQ bundles." The reference is either the built-in SARS-CoV-2 genome (`MN908947.3`) or a Local FASTA, the protocol is always **amplicon**, and a SARS-CoV-2 primer scheme is **required** to run: a readiness gate, not an optional extra. For a non-SARS amplicon virus, or a shotgun protocol, this GUI wizard is the wrong tool. Build a samplesheet and use the CLI, or assemble the individual mapping, primer-trim, and variant-calling steps yourself.
+Viral Recon requires **Docker Desktop**. It is the only execution profile that reaches a working run, so the wizard offers no executor choice and the launch path refuses any other.
+
+The wizard is **SARS-CoV-2-specific**, not a general viral pipeline. The reference is always `MN908947.3`, the protocol is always **amplicon**, and a SARS-CoV-2 primer scheme is **required** to run. For a non-SARS amplicon virus, or a shotgun protocol, this GUI wizard is the wrong tool. Build a samplesheet and use the CLI, or assemble the individual mapping, primer-trim, and variant-calling steps yourself.
 
 The GUI lives next to the mappers. There is no "Workflows" menu in Lungfish. You reach Viral Recon at `Tools > FASTQ/FASTA Operations > Mapping…`, then by clicking the **Viral Recon** tool row in the Mapping category, the same dialog where you pick minimap2 or BWA-MEM2. The separate top-level "Workflow Operations…" item is the generic Nextflow/Snakemake runner, not this wizard.
 
 This is a workflow-level path, not a stand-in for the mapping and primer-trimming chapters. Reach for the wizard when you already know the protocol is SARS-CoV-2 amplicon and want a reproducible end-to-end run. Reach for the individual Lungfish mapping, primer-trim, and variant-calling dialogs when you want to inspect or tune each step as you go.
 
-In practice, if your run is SARS-CoV-2 amplicon and you want consensus plus variants in a single pass, open the wizard, set the reference and a primer scheme, pick an executor, and run.
+In practice, if your run is SARS-CoV-2 amplicon and you want consensus plus variants in a single pass, open the wizard, pick a primer scheme, and run.
 
 For release-level tool versions and the current supported workflow pin, see [Tool Versions](../appendices/tool-versions.md#appendix-tool-versions). For citations, see [Tool Bibliography](../appendices/bibliography.md#appendix-bibliography).
 
@@ -42,13 +44,7 @@ For release-level tool versions and the current supported workflow pin, see [Too
 
 The GUI wizard and the CLI take different input shapes, and confusing the two is a common mistake. In the **GUI** you select one or more Lungfish FASTQ bundles or files, and the wizard *generates* the viralrecon samplesheet internally; you never write one. On the **CLI** you supply a samplesheet you wrote yourself.
 
-In the GUI, choose how the wizard treats the platform:
-
-| Setting | What the wizard does |
-|---|---|
-| Platform auto | Detects the platform from the reads (passes no explicit platform). |
-| Illumina | Forces `platform=illumina`. |
-| Nanopore | Forces `platform=nanopore`. |
+The wizard reads the platform off the reads themselves and shows it as static text under the input summary. A **Platform** control offering Illumina or Nanopore appears only when that detection fails, so most runs never see it.
 
 The wizard refuses a mixed-platform selection outright. Feed it bundles that mix Illumina and Nanopore reads and it raises a mixed-platforms error rather than guess, so keep one platform per run.
 
@@ -66,16 +62,26 @@ lungfish workflow run nf-core/viralrecon \
 
 ## Reference and Primers
 
-The wizard has two reference modes:
+There is no reference control. Viral Recon always runs against `MN908947.3`, because every bundled primer scheme is written against that accession and would not apply to another genome.
 
-| Mode | Behavior |
-|---|---|
-| SARS-CoV-2 Genome | Uses the catalog default SARS-CoV-2 accession (`MN908947.3`) as the viralrecon genome parameter. |
-| Local FASTA | Stages a FASTA you choose into the run inputs, with an optional **Choose GFF…** picker to stage a matching annotation. |
+Lungfish obtains the reference for you. It uses `Downloads/MN908947.3.lungfishref` when the project already holds it, and downloads it from NCBI GenBank when it does not. A first run therefore has a short download step, and the readiness line says so rather than appearing stalled. `NC_045512.2` is the same genome under a different accession, but it is never substituted: its FASTA header would not match the primer BED, so trimming would find nothing.
 
-A SARS-CoV-2 primer scheme is required, because the protocol is always amplicon. Choose one from the built-in and project-local `.lungfishprimers` bundles. If none are installed, the wizard shows "No SARS-CoV-2 primer schemes are available." and cannot run. It stages `primers.bed`, and `primers.fasta` when the scheme carries it, into the prepared input directory.
+A SARS-CoV-2 primer scheme is required, because the protocol is always amplicon. Choose one from the built-in and project-local `.lungfishprimers` bundles. If none are installed, the wizard shows "No SARS-CoV-2 primer schemes are available." and cannot run. It stages `primers.bed` into the prepared input directory and cuts `primers.fasta` out of the reference, since no bundled scheme ships one.
 
-Two scheme-related gates can catch you out. First, the wizard checks that your reference accession is compatible with the chosen scheme and rejects an unknown or mismatched one. Second, if the selected scheme carries no bundled `primers.fasta`, the wizard cannot derive primer sequences from the accession alone and needs a local FASTA to derive them. You do not have to leave SARS-CoV-2 Genome mode to satisfy this. When the scheme lacks bundled primers, a local FASTA picker with a **Choose FASTA...** button appears below the accession field; pick a SARS-CoV-2 FASTA there and the gate clears while the mode stays on SARS-CoV-2 Genome. Primer scheme structure and import status are documented in [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes).
+The wizard checks that the chosen scheme was written against `MN908947.3` and refuses one that was not. Primer scheme structure and import status are documented in [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes).
+
+## The four controls
+
+The sheet shows four controls, in this order:
+
+1. **Inputs.** A read-only summary of the FASTQ bundles you selected, with the detected platform below it.
+2. **Primer Scheme.** The scheme menu, with its accession, primer count and amplicon count.
+3. **Minimum mapped reads.** A stepper, default 1000. A sample with fewer mapped reads is dropped from the run.
+4. **Readiness.** What is still missing, or confirmation that the run can start.
+
+A collapsed **Advanced** group sits above Readiness. It carries a **Choose GFF...** button for a replacement annotation, and an extra-parameters field.
+
+Type extra parameters the way you would on a command line, for example `--variant_caller bcftools --skip_fastqc true`. Names are checked against the pipeline schema before the run starts, so a misspelling is refused at the sheet instead of failing minutes into a run. Parameters the wizard owns, such as `input`, `primer_bed` and `genome`, are refused with the control that owns them named.
 
 ## Procedure
 
@@ -84,34 +90,34 @@ Prepare the run:
 1. Open the project that contains the FASTQ bundles and select them in the sidebar.
 2. Choose `Tools > FASTQ/FASTA Operations > Mapping…`, then click the **Viral Recon** tool row. The wizard opens.
    <!-- planned: viral-recon-tool-row -->
-3. Confirm the FASTQ inputs and set the platform (Platform auto, Illumina, or Nanopore). Keep one platform per run.
-4. Choose the reference mode. For a local reference, select the FASTA and, if you have one, click **Choose GFF…** to stage the annotation.
+3. Confirm the FASTQ inputs. The detected platform appears below the summary; a Platform control appears only if detection failed.
+4. Choose the SARS-CoV-2 primer scheme. This is required, and the wizard will not run without it.
 
 Finish the run:
 
-1. Choose the SARS-CoV-2 primer scheme. This is required; the wizard will not run without it.
-2. Pick the executor: Docker (the default), Conda, or Local. Docker and Conda are the usual reproducible choices; Local is for machines where the required tools are already installed and managed outside Lungfish.
-3. Review CPUs, memory, minimum mapped reads, variant caller, consensus caller, and skip toggles. The defaults sit in the table below; the skip toggles default to skipping Assembly and Kraken2. The CPU and memory steppers are capped by your host's core count.
-4. Click **Prepare** or **Run**. Prepare-only writes the `.lungfishrun` bundle and prints its path. Run launches Nextflow from that bundle.
+1. Set the minimum mapped reads if 1000 does not suit your data.
+2. Open **Advanced** only if you need a replacement GFF or an extra pipeline parameter.
+3. Read the Readiness line. It names whatever is still missing, including a reference that has to be downloaded first.
+4. Click **Run**. Lungfish writes the `.lungfishrun` bundle and launches Nextflow from it.
 
 <!-- planned: viral-recon-wizard-overview -->
 
-The wizard opens with these defaults:
+Everything else is a default you never see. The wizard applies these:
 
 | Setting | Default |
 |---|---|
 | Executor | Docker |
 | Workflow version | 3.0.0 |
-| Minimum mapped reads | 1000 |
-| Memory | 8.GB |
+| Reference | `MN908947.3` |
 | Variant caller | iVar |
 | Consensus caller | BCFtools |
+| Memory | 8.GB |
 
-The **Variant caller** picker offers iVar (the default) or BCFtools, and the **Consensus caller** picker offers BCFtools (the default) or iVar. The two selections pass through as the viralrecon `variant_caller` and `consensus_caller` parameters.
+To change any of them, type the matching parameter into the Advanced field, for example `--consensus_caller ivar` or `--max_memory 16.GB`.
 
-Each **Skip Options** checkbox maps to a viralrecon `skip_*` parameter, and checking a box skips that stage. Assembly and Kraken2 are checked by default, so both are skipped unless you clear them. Checking the Variants or Consensus box skips that stage and drops the headline variant or consensus outputs from the run, so leave both clear for a standard consensus-plus-variants pass.
+Stages map to viralrecon `skip_*` parameters. Assembly and Kraken2 are skipped by default; run them with `--skip_assembly false` or `--skip_kraken2 false`.
 
-| Toggle | Parameter | Default |
+| Stage | Parameter | Default |
 |---|---|---|
 | Assembly | `skip_assembly` | Skipped |
 | Variants | `skip_variants` | Runs |
@@ -122,6 +128,8 @@ Each **Skip Options** checkbox maps to a viralrecon `skip_*` parameter, and chec
 | Cutadapt | `skip_cutadapt` | Runs |
 | iVar trim | `skip_ivar_trim` | Runs |
 | MultiQC | `skip_multiqc` | Runs |
+
+Freyja lineage abundance and its bootstrap are always skipped and cannot be re-enabled. The pipeline pins Freyja to an amd64-only container whose bootstrap workers are killed on Apple Silicon, which fails the whole run after every other output has been written. Lungfish runs Freyja natively from the wastewater-surveillance pack instead.
 
 ## CLI Procedure
 
@@ -139,7 +147,7 @@ Common options:
 
 | Option | Meaning |
 |---|---|
-| `--executor <profile>` | Select the Nextflow execution profile: `docker`, `conda`, or `local`. |
+| `--executor <profile>` | Select the Nextflow execution profile. Only `docker` works; `conda` and `local` are parsed and then refused. |
 | `--results-dir <dir>` | Override the workflow output directory. |
 | `--expected-output <path>` | Mark a final scientific output that must receive focused provenance. Executed runs require at least one; repeat it for multiple outputs. |
 | `--bundle-root <dir>` | Let Lungfish create a named `.lungfishrun` bundle under this directory. |
@@ -158,7 +166,7 @@ Example:
 ```bash
 lungfish workflow run nf-core/viralrecon \
   --input samplesheet.csv \
-  --executor conda \
+  --executor docker \
   --bundle-root Analyses \
   --results-dir Analyses/viralrecon-results \
   --expected-output Analyses/viralrecon-results \
