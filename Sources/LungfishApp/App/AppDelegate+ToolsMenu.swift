@@ -216,7 +216,12 @@ extension AppDelegate {
                         ?? request.outputDirectory.deletingLastPathComponent()
                     Task {
                         do {
-                            _ = try await service.run(request, bundleRoot: bundleRoot, routeContext: routeContext)
+                            _ = try await service.run(
+                                request,
+                                bundleRoot: bundleRoot,
+                                projectURL: currentProjectURL,
+                                routeContext: routeContext
+                            )
                         } catch {
                             debugLog("showFASTQOperationsDialog: Viral Recon failed to start: \(String(describing: error))")
                         }

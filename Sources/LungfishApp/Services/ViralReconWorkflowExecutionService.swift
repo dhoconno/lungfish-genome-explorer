@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -13,23 +14,36 @@ final class ViralReconWorkflowExecutionService {
 
     private let operationCenter: OperationCenter
     private let processRunner: ViralReconWorkflowProcessRunning
+    private let referenceDownloader: ViralReconReferenceAcquisition.Downloader
+    private var acquisitionSummary: String?
 
     init(
         operationCenter: OperationCenter = .shared,
-        processRunner: ViralReconWorkflowProcessRunning = ProcessViralReconWorkflowProcessRunner()
+        processRunner: ViralReconWorkflowProcessRunning = ProcessViralReconWorkflowProcessRunner(),
+        referenceDownloader: @escaping ViralReconReferenceAcquisition.Downloader
+            = ViralReconReferenceDownloader.live()
     ) {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
+        self.referenceDownloader = referenceDownloader
     }
 
     func run(
         _ request: ViralReconRunRequest,
         bundleRoot: URL,
+        projectURL: URL? = nil,
         routeContext: OperationRouteContext? = nil
     ) async throws -> RunResult {
+        // Refused before anything is written. conda names a real viralrecon
+        // profile but Lungfish never enables Nextflow's conda support here, and
+        // there is no `local` profile at all, so both abort a run that has
+        // already created its output tree.
+        try validateExecutor(for: request)
+
         try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
         let bundleURL = try availableBundleURL(in: bundleRoot)
-        let persistedRequest = try persistGeneratedInputs(from: request, in: bundleURL)
+        let referencedRequest = try acquireReference(for: request, projectURL: projectURL)
+        let persistedRequest = try persistGeneratedInputs(from: referencedRequest, in: bundleURL)
         try writeRunBundle(for: persistedRequest, to: bundleURL)
 
         let commandPreview = cliCommandPreview(for: persistedRequest, bundleURL: bundleURL)
@@ -45,7 +59,13 @@ final class ViralReconWorkflowExecutionService {
         operationCenter.setCancelCallback(for: operationID) {
             cancellation.cancel()
         }
-        logPreparation(for: persistedRequest, bundleURL: bundleURL, commandPreview: commandPreview, operationID: operationID)
+        logPreparation(
+            for: persistedRequest,
+            bundleURL: bundleURL,
+            commandPreview: commandPreview,
+            operationID: operationID
+        )
+        logReferenceAcquisition(operationID: operationID)
 
         do {
             let processResult = try await processRunner.runLungfishCLI(
@@ -121,6 +141,131 @@ final class ViralReconWorkflowExecutionService {
         }
     }
 
+    private func validateExecutor(for request: ViralReconRunRequest) throws {
+        let workflow = try viralReconWorkflow()
+        try NFCoreRunRequest(
+            workflow: workflow,
+            version: request.version,
+            executor: request.executor,
+            inputURLs: [request.samplesheetURL],
+            outputDirectory: request.outputDirectory,
+            params: request.effectiveParams,
+            presentationMode: .customAdapter("viralrecon")
+        ).validateExecutorSupported()
+    }
+
+    /// Replaces the requested accession with the reference bundle on disk.
+    ///
+    /// Viral Recon is SARS-CoV-2 only, so the reference is the fixed
+    /// MN908947.3 and Lungfish owns it rather than letting `--genome` resolve to
+    /// a remote URL. That keeps the pipeline input and the results viewer bundle
+    /// the same artifact, so the viewer can never show a different reference
+    /// from the one reads were aligned to.
+    private func acquireReference(
+        for request: ViralReconRunRequest,
+        projectURL: URL?
+    ) throws -> ViralReconRunRequest {
+        guard case .genome = request.reference, let projectURL else {
+            acquisitionSummary = nil
+            return request
+        }
+
+        let outcome = try ViralReconReferenceAcquisition.acquire(
+            projectURL: projectURL,
+            downloader: referenceDownloader
+        )
+        guard let fastaURL = Self.referenceFASTAURL(in: outcome.bundleURL) else {
+            throw ViralReconWorkflowExecutionError.referenceBundleHasNoFASTA(outcome.bundleURL)
+        }
+
+        switch outcome {
+        case .alreadyPresent:
+            acquisitionSummary = "Using reference \(ViralReconReferenceCatalog.canonicalAccession) from \(outcome.bundleURL.path)"
+        case .downloaded:
+            acquisitionSummary = "Downloaded reference \(ViralReconReferenceCatalog.canonicalAccession) to \(outcome.bundleURL.path)"
+        }
+
+        let primer = try completedPrimerSelection(for: request, referenceFASTAURL: fastaURL)
+
+        return try ViralReconRunRequest(
+            samples: request.samples,
+            platform: request.platform,
+            protocol: request.protocol,
+            samplesheetURL: request.samplesheetURL,
+            outputDirectory: request.outputDirectory,
+            executor: request.executor,
+            version: request.version,
+            reference: .local(fastaURL: fastaURL, gffURL: Self.referenceGFFURL(in: outcome.bundleURL)),
+            primer: primer,
+            minimumMappedReads: request.minimumMappedReads,
+            variantCaller: request.variantCaller,
+            consensusCaller: request.consensusCaller,
+            skipOptions: request.skipOptions,
+            advancedParams: request.advancedParams,
+            gffURL: request.gffURL,
+            fastqPassDirectoryURL: request.fastqPassDirectoryURL,
+            sequencingSummaryURL: request.sequencingSummaryURL
+        )
+    }
+
+    /// Cuts the primer sequences out of the reference when the wizard could not.
+    ///
+    /// No bundled scheme ships `primers.fasta`, and the wizard has no reference
+    /// to cut from until this point, so it stages only the BED and leaves the
+    /// FASTA to be derived here.
+    private func completedPrimerSelection(
+        for request: ViralReconRunRequest,
+        referenceFASTAURL: URL
+    ) throws -> ViralReconPrimerSelection {
+        guard !FileManager.default.fileExists(atPath: request.primer.fastaURL.path) else {
+            return request.primer
+        }
+        return try ViralReconPrimerStager.stage(
+            primerBundleURL: request.primer.bundleURL,
+            referenceFASTAURL: referenceFASTAURL,
+            referenceName: ViralReconReferenceCatalog.canonicalAccession,
+            destinationDirectory: request.primer.bedURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        )
+    }
+
+    private static func referenceFASTAURL(in bundleURL: URL) -> URL? {
+        if let manifestFASTAURL = ReferenceSequenceFolder.fastaURL(in: bundleURL) {
+            return manifestFASTAURL
+        }
+        if let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL),
+           resolvedURL != bundleURL {
+            return resolvedURL
+        }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: bundleURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return contents
+            .filter { SequenceFormat.from(url: $0) == .fasta }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .first
+    }
+
+    /// The GFF3 the fetch path writes alongside the sequence, when there is one.
+    private static func referenceGFFURL(in bundleURL: URL) -> URL? {
+        let names = ["genome/genes.gff3", "genome/genes.gff", "annotations.gff3", "annotations.gff"]
+        for name in names {
+            let candidate = bundleURL.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func logReferenceAcquisition(operationID: UUID) {
+        guard let acquisitionSummary else { return }
+        _ = operationCenter.update(id: operationID, progress: 0, detail: acquisitionSummary)
+        operationCenter.log(id: operationID, level: .info, message: acquisitionSummary)
+    }
+
     private func persistGeneratedInputs(from request: ViralReconRunRequest, in bundleURL: URL) throws -> ViralReconRunRequest {
         let inputsURL = bundleURL.appendingPathComponent("inputs", isDirectory: true)
         let primersURL = inputsURL.appendingPathComponent("primers", isDirectory: true)
@@ -176,6 +321,7 @@ final class ViralReconWorkflowExecutionService {
             consensusCaller: request.consensusCaller,
             skipOptions: request.skipOptions,
             advancedParams: request.advancedParams,
+            gffURL: request.gffURL,
             fastqPassDirectoryURL: fastqPassDirectoryURL ?? request.fastqPassDirectoryURL,
             sequencingSummaryURL: sequencingSummaryURL ?? request.sequencingSummaryURL
         )
@@ -404,6 +550,7 @@ protocol ViralReconWorkflowProcessRunning {
 enum ViralReconWorkflowExecutionError: Error, Equatable {
     case nonZeroExit(Int32)
     case missingWorkflowDefinition
+    case referenceBundleHasNoFASTA(URL)
 }
 
 final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
