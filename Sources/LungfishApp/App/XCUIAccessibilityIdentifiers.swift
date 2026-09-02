@@ -251,10 +251,6 @@ enum ViralReconAccessibilityID {
     static let inputSummary = "viral-recon-input-summary"
     static let platformPicker = "viral-recon-platform-picker"
     static let primerPicker = "viral-recon-primer-picker"
-    static let referenceModePicker = "viral-recon-reference-mode-picker"
-    static let genomeField = "viral-recon-genome-field"
-    static let referencePicker = "viral-recon-reference-picker"
-    static let executorPicker = "viral-recon-executor-picker"
-    static let versionField = "viral-recon-version-field"
+    static let minimumMappedReadsStepper = "viral-recon-minimum-mapped-reads-stepper"
     static let readinessLabel = "viral-recon-readiness-label"
 }

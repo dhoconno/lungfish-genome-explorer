@@ -12,48 +12,38 @@ struct ViralReconWizardSheet: View {
 
     @State private var resolvedInputs: [ViralReconResolvedInput] = []
     @State private var inputError: String?
-    @State private var selectedPlatformOverride: PlatformOverride = .auto
+    @State private var selectedPlatformOverride: PlatformOverride = .illumina
 
     @State private var primerOptions: [PrimerOption] = []
     @State private var selectedPrimerID: String = ""
 
-    @State private var referenceCandidates: [ReferenceCandidate] = []
-    @State private var selectedReferenceMode: ReferenceMode = .sarsCoV2Genome
-    @State private var genomeAccession: String = "MN908947.3"
-    @State private var selectedReferenceID: String = ""
-    @State private var browsedReferenceURL: URL?
-    @State private var browsedGFFURL: URL?
-
-    @State private var executor: NFCoreExecutor = .docker
-    @State private var version: String = "3.0.0"
     @State private var minimumMappedReads: Int = 1000
-    @State private var maxCPUs: Int = max(1, min(ProcessInfo.processInfo.processorCount, 8))
-    @State private var maxMemory: String = "8.GB"
-    @State private var variantCaller: ViralReconVariantCaller = .ivar
-    @State private var consensusCaller: ViralReconConsensusCaller = .bcftools
-    @State private var skipOptions: Set<ViralReconSkipOption> = ViralReconSkipOption.defaultSelection
     @State private var buildError: String?
+
+    /// Controls the sheet can show.
+    ///
+    /// `reference` and `executor` exist only so tests can assert they are never
+    /// returned. Viral Recon is SARS-CoV-2 only and Docker only, so neither is
+    /// ever a choice.
+    enum VisibleControl: Equatable {
+        case inputs
+        case platform
+        case primerScheme
+        case minimumMappedReads
+        case readiness
+        case reference
+        case executor
+    }
+
+    static func visibleControls(platformDetected: Bool) -> [VisibleControl] {
+        var controls: [VisibleControl] = [.inputs]
+        if !platformDetected { controls.append(.platform) }
+        controls.append(contentsOf: [.primerScheme, .minimumMappedReads, .readiness])
+        return controls
+    }
 
     private var selectedPrimerOption: PrimerOption? {
         primerOptions.first { $0.id == selectedPrimerID }
-    }
-
-    private var selectedReferenceCandidate: ReferenceCandidate? {
-        referenceCandidates.first { $0.id == selectedReferenceID }
-    }
-
-    private var referencePickerDisplayNames: [String: String] {
-        ReferenceCandidate.pickerDisplayNames(
-            for: referenceCandidates,
-            relativeTo: projectURL
-        )
-    }
-
-    private var selectedLocalReferenceURL: URL? {
-        if selectedReferenceID == Self.browsedReferenceID {
-            return browsedReferenceURL
-        }
-        return selectedReferenceCandidate?.fastaURL
     }
 
     private var outputRoot: URL? {
@@ -63,14 +53,24 @@ struct ViralReconWizardSheet: View {
         return inputFiles.first?.deletingLastPathComponent()
     }
 
+    /// The platform detected from the inputs alone, ignoring any override.
+    ///
+    /// The platform control only appears when this is nil, so an override the
+    /// user cannot see must not make it look like detection succeeded.
+    private var detectedPlatform: ViralReconPlatform? {
+        guard let detected = try? ViralReconWizardInputPolicy.resolveInputs(
+            inputFiles,
+            platformOverride: nil
+        ) else { return nil }
+        return try? ViralReconWizardInputPolicy.effectivePlatform(from: detected)
+    }
+
     private var effectivePlatform: ViralReconPlatform? {
         try? ViralReconWizardInputPolicy.effectivePlatform(from: resolvedInputs)
     }
 
-    private var primerRequiresLocalReference: Bool {
-        guard selectedReferenceMode == .sarsCoV2Genome,
-              let selectedPrimerOption else { return false }
-        return selectedPrimerOption.bundle.fastaURL == nil
+    private var platformDetected: Bool {
+        detectedPlatform != nil
     }
 
     private var readinessEvaluation: ViralReconWizardReadiness.Evaluation {
@@ -81,15 +81,7 @@ struct ViralReconWizardSheet: View {
                 inputError: inputError,
                 primerManifest: selectedPrimerOption?.bundle.manifest,
                 outputRootAvailable: outputRoot != nil,
-                version: version,
-                minimumMappedReads: minimumMappedReads,
-                maxCPUs: maxCPUs,
-                maxMemory: maxMemory,
-                reference: selectedReferenceMode == .sarsCoV2Genome
-                    ? .sarsCoV2Genome(accession: genomeAccession)
-                    : .localFASTA,
-                primerRequiresLocalReference: primerRequiresLocalReference,
-                hasSelectedLocalReference: selectedLocalReferenceURL != nil
+                minimumMappedReads: minimumMappedReads
             )
         )
     }
@@ -101,19 +93,7 @@ struct ViralReconWizardSheet: View {
     private var buildErrorRecoveryKey: BuildErrorRecoveryKey {
         BuildErrorRecoveryKey(
             selectedPrimerID: selectedPrimerID,
-            selectedReferenceMode: selectedReferenceMode,
-            genomeAccession: genomeAccession,
-            selectedReferenceID: selectedReferenceID,
-            browsedReferenceURL: browsedReferenceURL,
-            browsedGFFURL: browsedGFFURL,
-            executor: String(describing: executor),
-            version: version,
-            minimumMappedReads: minimumMappedReads,
-            maxCPUs: maxCPUs,
-            maxMemory: maxMemory,
-            variantCaller: variantCaller.rawValue,
-            consensusCaller: consensusCaller.rawValue,
-            skipOptions: skipOptions.map(\.rawValue).sorted()
+            minimumMappedReads: minimumMappedReads
         )
     }
 
@@ -121,13 +101,9 @@ struct ViralReconWizardSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 headerSection
-                inputsSection
-                referenceSection
-                primerSection
-                executionSection
-                callersSection
-                skipSection
-                readinessSection
+                ForEach(Self.visibleControls(platformDetected: platformDetected), id: \.self) { control in
+                    controlSection(control)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
@@ -155,9 +131,27 @@ struct ViralReconWizardSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func controlSection(_ control: VisibleControl) -> some View {
+        switch control {
+        case .inputs:
+            inputsSection
+        case .platform:
+            platformSection
+        case .primerScheme:
+            primerSection
+        case .minimumMappedReads:
+            minimumMappedReadsSection
+        case .readiness:
+            readinessSection
+        case .reference, .executor:
+            EmptyView()
+        }
+    }
+
     private var headerSection: some View {
         section("Viral Recon") {
-            Text("SARS-CoV-2 consensus and variant analysis from FASTQ bundles.")
+            Text("SARS-CoV-2 consensus and variant analysis from FASTQ bundles. Requires Docker Desktop.")
                 .font(.body)
                 .foregroundStyle(.secondary)
         }
@@ -169,20 +163,13 @@ struct ViralReconWizardSheet: View {
                 Text(inputSummary)
                     .accessibilityIdentifier(ViralReconAccessibilityID.inputSummary)
                     .accessibilityLabel(inputSummary)
-                Picker("Platform", selection: $selectedPlatformOverride) {
-                    ForEach(PlatformOverride.allCases, id: \.self) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier(ViralReconAccessibilityID.platformPicker)
 
                 if let inputError {
                     Text(inputError)
                         .font(.callout)
                         .foregroundStyle(Color.lungfishOrangeFallback)
                 } else if let effectivePlatform {
-                    Text("Selected platform: \(effectivePlatform.displayName)")
+                    Text("Platform: \(effectivePlatform.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -190,70 +177,19 @@ struct ViralReconWizardSheet: View {
         }
     }
 
-    private var referenceSection: some View {
-        section("Reference") {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Reference", selection: $selectedReferenceMode) {
-                    Text("SARS-CoV-2 Genome").tag(ReferenceMode.sarsCoV2Genome)
-                    Text("Local FASTA").tag(ReferenceMode.localFASTA)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier(ViralReconAccessibilityID.referenceModePicker)
-
-                if selectedReferenceMode == .sarsCoV2Genome {
-                    labeledTextField("Genome", text: $genomeAccession)
-                        .accessibilityIdentifier(ViralReconAccessibilityID.genomeField)
-                    if primerRequiresLocalReference {
-                        if let selectedLocalReferenceURL {
-                            Text("Using \(displayPath(for: selectedLocalReferenceURL)) to derive primer sequences.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Select a local SARS-CoV-2 FASTA below to derive primer sequences for this scheme.")
-                                .font(.caption)
-                                .foregroundStyle(Color.lungfishOrangeFallback)
-                        }
-                    }
-                    localReferencePicker
-                } else {
-                    localReferencePicker
-                    if let browsedGFFURL {
-                        Text("Annotation: \(displayPath(for: browsedGFFURL))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Button("Choose GFF...") {
-                        browseForGFF()
-                    }
+    /// Shown only when the reads do not name their platform.
+    ///
+    /// There is no Auto segment here: detection has already been tried and
+    /// failed, so offering it again would only reproduce the same failure.
+    private var platformSection: some View {
+        section("Platform") {
+            Picker("Platform", selection: $selectedPlatformOverride) {
+                ForEach(PlatformOverride.allCases, id: \.self) { option in
+                    Text(option.title).tag(option)
                 }
             }
-        }
-    }
-
-    private var localReferencePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if referenceCandidates.isEmpty && browsedReferenceURL == nil {
-                Text("No project references found.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Local FASTA", selection: $selectedReferenceID) {
-                    if let browsedReferenceURL {
-                        Text(displayPath(for: browsedReferenceURL)).tag(Self.browsedReferenceID)
-                    }
-                    ForEach(referenceCandidates) { candidate in
-                        Text(referencePickerDisplayNames[candidate.id] ?? candidate.displayName)
-                            .tag(candidate.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier(ViralReconAccessibilityID.referencePicker)
-            }
-            Button("Choose FASTA...") {
-                browseForReference()
-            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier(ViralReconAccessibilityID.platformPicker)
         }
     }
 
@@ -282,55 +218,19 @@ struct ViralReconWizardSheet: View {
         }
     }
 
-    private var executionSection: some View {
-        section("Execution") {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Executor", selection: $executor) {
-                    ForEach(Self.executors, id: \.self) { executor in
-                        Text(executor.displayName).tag(executor)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier(ViralReconAccessibilityID.executorPicker)
-
-                HStack(spacing: 12) {
-                    labeledTextField("Version", text: $version)
-                        .accessibilityIdentifier(ViralReconAccessibilityID.versionField)
-                    Stepper("Minimum mapped reads: \(minimumMappedReads)", value: $minimumMappedReads, in: 1...1_000_000)
-                }
-
-                HStack(spacing: 12) {
-                    Stepper("CPUs: \(maxCPUs)", value: $maxCPUs, in: 1...max(ProcessInfo.processInfo.processorCount, 1))
-                    labeledTextField("Memory", text: $maxMemory)
-                }
-            }
-        }
-    }
-
-    private var callersSection: some View {
-        section("Callers") {
-            HStack(spacing: 14) {
-                Picker("Variants", selection: $variantCaller) {
-                    ForEach(ViralReconVariantCaller.allCases, id: \.self) { caller in
-                        Text(caller.displayName).tag(caller)
-                    }
-                }
-                Picker("Consensus", selection: $consensusCaller) {
-                    ForEach(ViralReconConsensusCaller.allCases, id: \.self) { caller in
-                        Text(caller.displayName).tag(caller)
-                    }
-                }
-            }
-        }
-    }
-
-    private var skipSection: some View {
-        section("Skip Options") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], alignment: .leading, spacing: 8) {
-                ForEach(ViralReconSkipOption.selectable, id: \.self) { option in
-                    Toggle(option.displayName, isOn: binding(for: option))
-                        .toggleStyle(.checkbox)
-                }
+    private var minimumMappedReadsSection: some View {
+        section("Minimum mapped reads") {
+            VStack(alignment: .leading, spacing: 4) {
+                Stepper(
+                    "Minimum mapped reads: \(minimumMappedReads)",
+                    value: $minimumMappedReads,
+                    in: 1...1_000_000,
+                    step: 100
+                )
+                .accessibilityIdentifier(ViralReconAccessibilityID.minimumMappedReadsStepper)
+                Text("A sample with fewer mapped reads than this is dropped from the run.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -368,32 +268,8 @@ struct ViralReconWizardSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField(title, text: text)
-                .textFieldStyle(.roundedBorder)
-        }
-    }
-
-    private func binding(for option: ViralReconSkipOption) -> Binding<Bool> {
-        Binding(
-            get: { skipOptions.contains(option) },
-            set: { enabled in
-                if enabled {
-                    skipOptions.insert(option)
-                } else {
-                    skipOptions.remove(option)
-                }
-            }
-        )
-    }
-
     private func loadInitialData() async {
         await loadPrimerOptions()
-        await loadReferences()
         refreshResolvedInputs()
     }
 
@@ -418,21 +294,12 @@ struct ViralReconWizardSheet: View {
         }
     }
 
-    private func loadReferences() async {
-        guard let projectURL else { return }
-        let candidates = await Task.detached {
-            ReferenceSequenceScanner.scanAll(in: projectURL)
-        }.value
-        guard !Task.isCancelled else { return }
-        referenceCandidates = candidates
-        if selectedReferenceID.isEmpty {
-            selectedReferenceID = candidates.first?.id ?? ""
-        }
-    }
-
     private func refreshResolvedInputs() {
         do {
-            let platformOverride = selectedPlatformOverride.platform
+            // Detection wins. The override only reaches the resolver when the
+            // reads themselves name no platform, which is the only case where
+            // the picker is on screen.
+            let platformOverride = platformDetected ? nil : selectedPlatformOverride.platform
             let resolved = try ViralReconWizardInputPolicy.resolveInputs(
                 inputFiles,
                 platformOverride: platformOverride
@@ -485,11 +352,10 @@ struct ViralReconWizardSheet: View {
             fastqPassDirectoryURL = staged.fastqPassDirectory
         }
 
-        let reference = try buildReference()
-        let primer = try buildPrimerSelection(
-            option: selectedPrimerOption,
-            reference: reference,
-            stagingDirectory: stagingDirectory
+        let primer = try ViralReconWizardPrimerStaging.stageForCanonicalReference(
+            primerBundleURL: selectedPrimerOption.bundle.url,
+            projectURL: projectURL,
+            destinationDirectory: stagingDirectory
         )
 
         return try ViralReconRunRequest(
@@ -498,110 +364,17 @@ struct ViralReconWizardSheet: View {
             protocol: .amplicon,
             samplesheetURL: samplesheetURL,
             outputDirectory: outputDirectory,
-            executor: executor,
-            version: version.trimmingCharacters(in: .whitespacesAndNewlines),
-            reference: reference,
+            executor: Self.fixedExecutor,
+            version: Self.fixedVersion,
+            reference: .genome(ViralReconReferenceCatalog.canonicalAccession),
             primer: primer,
             minimumMappedReads: minimumMappedReads,
-            variantCaller: variantCaller,
-            consensusCaller: consensusCaller,
-            skipOptions: Array(skipOptions).sorted { $0.rawValue < $1.rawValue },
-            advancedParams: advancedParams(),
+            variantCaller: Self.defaultVariantCaller,
+            consensusCaller: Self.defaultConsensusCaller,
+            skipOptions: Array(ViralReconSkipOption.defaultSelection).sorted { $0.rawValue < $1.rawValue },
+            advancedParams: Self.defaultResourceParams(),
             fastqPassDirectoryURL: fastqPassDirectoryURL
         )
-    }
-
-    private func buildReference() throws -> ViralReconReference {
-        switch selectedReferenceMode {
-        case .sarsCoV2Genome:
-            let trimmed = genomeAccession.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { throw WizardError.missingGenome }
-            return .genome(trimmed)
-        case .localFASTA:
-            guard let selectedLocalReferenceURL else { throw WizardError.missingReference }
-            return .local(fastaURL: selectedLocalReferenceURL, gffURL: browsedGFFURL)
-        }
-    }
-
-    private func buildPrimerSelection(
-        option: PrimerOption,
-        reference: ViralReconReference,
-        stagingDirectory: URL
-    ) throws -> ViralReconPrimerSelection {
-        let genomeReferenceName: String?
-        if case .genome(let accession) = reference {
-            let trimmed = accession.trimmingCharacters(in: .whitespacesAndNewlines)
-            try ViralReconWizardPrimerCompatibility.validateGenomeAccession(
-                trimmed,
-                manifest: option.bundle.manifest
-            )
-            genomeReferenceName = trimmed
-        } else {
-            genomeReferenceName = nil
-        }
-
-        if case .local(let fastaURL, _) = reference {
-            return try ViralReconPrimerStager.stage(
-                primerBundleURL: option.bundle.url,
-                referenceFASTAURL: fastaURL,
-                referenceName: Self.referenceName(from: fastaURL, fallback: genomeAccession),
-                destinationDirectory: stagingDirectory
-            )
-        }
-
-        if option.bundle.fastaURL != nil {
-            return try ViralReconWizardPrimerStaging.stageBundledGenomePrimerSelection(
-                primerBundleURL: option.bundle.url,
-                genomeAccession: genomeReferenceName ?? genomeAccession,
-                destinationDirectory: stagingDirectory
-            )
-        }
-
-        guard let selectedLocalReferenceURL else {
-            throw WizardError.missingReferenceForPrimerFasta
-        }
-        return try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
-            primerBundleURL: option.bundle.url,
-            sourceReferenceFASTAURL: selectedLocalReferenceURL,
-            genomeAccession: genomeReferenceName ?? genomeAccession,
-            destinationDirectory: stagingDirectory
-        )
-    }
-
-    private func advancedParams() -> [String: String] {
-        var params: [String: String] = ["max_cpus": String(maxCPUs)]
-        let memory = maxMemory.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !memory.isEmpty {
-            params["max_memory"] = memory
-        }
-        return params
-    }
-
-    private func browseForReference() {
-        let panel = MappingWorkflowFilePanelFactory.referenceFASTAPanel(
-            title: "Select SARS-CoV-2 Reference FASTA"
-        )
-
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            browsedReferenceURL = url
-            selectedReferenceID = Self.browsedReferenceID
-            buildError = nil
-        }
-    }
-
-    private func browseForGFF() {
-        let panel = MappingWorkflowFilePanelFactory.gffAnnotationPanel(
-            title: "Select SARS-CoV-2 GFF Annotation"
-        )
-
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            browsedGFFURL = url
-            buildError = nil
-        }
     }
 
     private func clearBuildError() {
@@ -665,8 +438,19 @@ struct ViralReconWizardSheet: View {
         return error.localizedDescription
     }
 
-    private static let browsedReferenceID = "__browsed__"
-    private static let executors: [NFCoreExecutor] = [.docker, .conda, .local]
+    /// Docker is the only executor that reaches a working run, so it is fixed
+    /// here rather than offered. The launch path refuses the others outright.
+    private static let fixedExecutor: NFCoreExecutor = .docker
+    private static let fixedVersion = "3.0.0"
+    private static let defaultVariantCaller: ViralReconVariantCaller = .ivar
+    private static let defaultConsensusCaller: ViralReconConsensusCaller = .bcftools
+
+    private static func defaultResourceParams() -> [String: String] {
+        [
+            "max_cpus": String(max(1, min(ProcessInfo.processInfo.processorCount, 8))),
+            "max_memory": "8.GB",
+        ]
+    }
 }
 
 enum ViralReconWizardInputPolicy {
@@ -789,79 +573,57 @@ enum ViralReconWizardPrimerCompatibility {
 }
 
 enum ViralReconWizardPrimerStaging {
-    static func stageBundledGenomePrimerSelection(
+    /// Stages a primer scheme against the fixed SARS-CoV-2 reference.
+    ///
+    /// No bundled scheme ships `primers.fasta`, so the primer sequences have to
+    /// be cut out of the reference. When the project already holds
+    /// `Downloads/MN908947.3.lungfishref` that happens here. When it does not,
+    /// only the BED is staged and the launch path fills in the FASTA once it has
+    /// downloaded the reference, which is the one place that download belongs.
+    static func stageForCanonicalReference(
         primerBundleURL: URL,
-        genomeAccession: String,
+        projectURL: URL?,
         destinationDirectory: URL
     ) throws -> ViralReconPrimerSelection {
-        let bundle = try PrimerSchemeBundle.load(from: primerBundleURL)
-        guard let fastaURL = bundle.fastaURL else {
-            throw WizardError.missingBundledPrimerFASTA
+        if let referenceFASTAURL = canonicalReferenceFASTAURL(inProject: projectURL) {
+            return try ViralReconPrimerStager.stage(
+                primerBundleURL: primerBundleURL,
+                referenceFASTAURL: referenceFASTAURL,
+                referenceName: ViralReconReferenceCatalog.canonicalAccession,
+                destinationDirectory: destinationDirectory
+            )
         }
-        return try ViralReconPrimerStager.stage(
+        return try ViralReconPrimerStager.stageBEDOnly(
             primerBundleURL: primerBundleURL,
-            referenceFASTAURL: fastaURL,
-            referenceName: genomeAccession.trimmingCharacters(in: .whitespacesAndNewlines),
+            referenceName: ViralReconReferenceCatalog.canonicalAccession,
             destinationDirectory: destinationDirectory
         )
     }
 
-    static func stageGenomePrimerSelection(
-        primerBundleURL: URL,
-        sourceReferenceFASTAURL: URL,
-        genomeAccession: String,
-        destinationDirectory: URL
-    ) throws -> ViralReconPrimerSelection {
-        let referenceName = genomeAccession.trimmingCharacters(in: .whitespacesAndNewlines)
-        let preparedReference = try referenceFASTA(
-            sourceURL: sourceReferenceFASTAURL,
-            referenceName: referenceName,
-            destinationDirectory: destinationDirectory
-        )
-        return try ViralReconPrimerStager.stage(
-            primerBundleURL: primerBundleURL,
-            referenceFASTAURL: preparedReference,
-            referenceName: referenceName,
-            destinationDirectory: destinationDirectory
-        )
-    }
+    /// The FASTA inside the project's canonical reference bundle, if present.
+    ///
+    /// A downloaded bundle carries a reference manifest, but a bundle assembled
+    /// by hand may hold only a FASTA at its root, so both are accepted.
+    static func canonicalReferenceFASTAURL(inProject projectURL: URL?) -> URL? {
+        guard let projectURL else { return nil }
+        let bundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        guard FileManager.default.fileExists(atPath: bundleURL.path) else { return nil }
 
-    private static func referenceFASTA(
-        sourceURL: URL,
-        referenceName: String,
-        destinationDirectory: URL
-    ) throws -> URL {
-        let contents = try ViralReconPrimerStager.readFASTAText(at: sourceURL)
-        let rewritten = rewriteFirstFASTAHeader(in: contents, referenceName: referenceName)
-        // A compressed source must still be staged as plain text even when the
-        // header needs no rewrite: downstream primer derivation reads text.
-        guard rewritten != contents || ViralReconPrimerStager.isCompressedFASTA(sourceURL) else {
-            return sourceURL
+        if let manifestFASTAURL = ReferenceSequenceFolder.fastaURL(in: bundleURL) {
+            return manifestFASTAURL
         }
-
-        let primersDirectory = destinationDirectory.appendingPathComponent("primers", isDirectory: true)
-        try FileManager.default.createDirectory(at: primersDirectory, withIntermediateDirectories: true)
-        let destination = primersDirectory.appendingPathComponent("reference-for-primer-derivation.fasta")
-        try rewritten.write(to: destination, atomically: true, encoding: .utf8)
-        return destination
-    }
-
-    private static func rewriteFirstFASTAHeader(in contents: String, referenceName: String) -> String {
-        let lines = contents.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard let headerIndex = lines.firstIndex(where: { $0.hasPrefix(">") }) else {
-            return contents
+        if let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL),
+           resolvedURL != bundleURL {
+            return resolvedURL
         }
-
-        let currentID = lines[headerIndex]
-            .dropFirst()
-            .split(whereSeparator: \.isWhitespace)
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: bundleURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return contents
+            .filter { SequenceFormat.from(url: $0) == .fasta }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .first
-            .map(String.init)
-        guard currentID != referenceName else { return contents }
-
-        var rewritten = lines
-        rewritten[headerIndex] = ">\(referenceName)"
-        return rewritten.joined(separator: "\n")
     }
 }
 
@@ -872,18 +634,26 @@ enum ViralReconWizardReadiness {
         let inputError: String?
         let primerManifest: PrimerSchemeManifest?
         let outputRootAvailable: Bool
-        let version: String
         let minimumMappedReads: Int
-        let maxCPUs: Int
-        let maxMemory: String
-        let reference: Reference
-        let primerRequiresLocalReference: Bool
-        let hasSelectedLocalReference: Bool
-    }
+        let advancedError: String?
 
-    enum Reference {
-        case sarsCoV2Genome(accession: String)
-        case localFASTA
+        init(
+            hasInputFiles: Bool,
+            effectivePlatform: ViralReconPlatform?,
+            inputError: String?,
+            primerManifest: PrimerSchemeManifest?,
+            outputRootAvailable: Bool,
+            minimumMappedReads: Int,
+            advancedError: String? = nil
+        ) {
+            self.hasInputFiles = hasInputFiles
+            self.effectivePlatform = effectivePlatform
+            self.inputError = inputError
+            self.primerManifest = primerManifest
+            self.outputRootAvailable = outputRootAvailable
+            self.minimumMappedReads = minimumMappedReads
+            self.advancedError = advancedError
+        }
     }
 
     struct Evaluation: Equatable {
@@ -904,39 +674,24 @@ enum ViralReconWizardReadiness {
         guard let primerManifest = state.primerManifest else {
             return .blocked("Select a SARS-CoV-2 primer scheme.")
         }
-        switch state.reference {
-        case .sarsCoV2Genome(let accession):
-            let trimmed = accession.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                return .blocked("Enter a SARS-CoV-2 genome accession.")
-            }
-            do {
-                try ViralReconWizardPrimerCompatibility.validateGenomeAccession(trimmed, manifest: primerManifest)
-            } catch {
-                return .blocked(error.localizedDescription)
-            }
-        case .localFASTA:
-            if !state.hasSelectedLocalReference {
-                return .blocked("Select a local SARS-CoV-2 reference FASTA.")
-            }
-        }
-        if state.primerRequiresLocalReference && !state.hasSelectedLocalReference {
-            return .blocked("Select a local SARS-CoV-2 reference FASTA to derive primer sequences.")
+        // The reference is fixed, so the only way it can be wrong now is a
+        // primer scheme that was never written against it.
+        do {
+            try ViralReconWizardPrimerCompatibility.validateGenomeAccession(
+                ViralReconReferenceCatalog.canonicalAccession,
+                manifest: primerManifest
+            )
+        } catch {
+            return .blocked(error.localizedDescription)
         }
         if !state.outputRootAvailable {
             return .blocked("Choose a project or FASTQ location for outputs.")
         }
-        if state.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .blocked("Enter a Viral Recon version.")
-        }
         if state.minimumMappedReads <= 0 {
             return .blocked("Minimum mapped reads must be greater than zero.")
         }
-        if state.maxCPUs <= 0 {
-            return .blocked("CPU count must be greater than zero.")
-        }
-        if state.maxMemory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .blocked("Enter a memory limit.")
+        if let advancedError = state.advancedError {
+            return .blocked(advancedError)
         }
         return Evaluation(canRun: true, message: "Ready to run Viral Recon.")
     }
@@ -948,15 +703,16 @@ private extension ViralReconWizardReadiness.Evaluation {
     }
 }
 
+/// The platform choices offered when detection fails.
+///
+/// There is no Auto case: this control only appears after automatic detection
+/// has already failed, so re-offering it would only repeat the failure.
 private enum PlatformOverride: String, CaseIterable {
-    case auto
     case illumina
     case nanopore
 
     var platform: ViralReconPlatform? {
         switch self {
-        case .auto:
-            return nil
         case .illumina:
             return .illumina
         case .nanopore:
@@ -966,8 +722,6 @@ private enum PlatformOverride: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .auto:
-            return "Auto"
         case .illumina:
             return "Illumina"
         case .nanopore:
@@ -976,26 +730,9 @@ private enum PlatformOverride: String, CaseIterable {
     }
 }
 
-private enum ReferenceMode {
-    case sarsCoV2Genome
-    case localFASTA
-}
-
 private struct BuildErrorRecoveryKey: Equatable {
     let selectedPrimerID: String
-    let selectedReferenceMode: ReferenceMode
-    let genomeAccession: String
-    let selectedReferenceID: String
-    let browsedReferenceURL: URL?
-    let browsedGFFURL: URL?
-    let executor: String
-    let version: String
     let minimumMappedReads: Int
-    let maxCPUs: Int
-    let maxMemory: String
-    let variantCaller: String
-    let consensusCaller: String
-    let skipOptions: [String]
 }
 
 private struct PrimerOption: Identifiable {
@@ -1031,10 +768,6 @@ private enum WizardError: Error, LocalizedError {
     case missingPlatform
     case missingOutputRoot
     case missingPrimer
-    case missingGenome
-    case missingReference
-    case missingReferenceForPrimerFasta
-    case missingBundledPrimerFASTA
 
     var errorDescription: String? {
         switch self {
@@ -1044,14 +777,6 @@ private enum WizardError: Error, LocalizedError {
             return "choose a project or output location."
         case .missingPrimer:
             return "select a SARS-CoV-2 primer scheme."
-        case .missingGenome:
-            return "enter a SARS-CoV-2 genome accession."
-        case .missingReference:
-            return "select a local SARS-CoV-2 reference FASTA."
-        case .missingReferenceForPrimerFasta:
-            return "select a local SARS-CoV-2 FASTA so primer sequences can be derived."
-        case .missingBundledPrimerFASTA:
-            return "select a primer scheme with bundled primer FASTA."
         }
     }
 }
@@ -1063,70 +788,6 @@ private extension ViralReconPlatform {
             return "Illumina"
         case .nanopore:
             return "Oxford Nanopore"
-        }
-    }
-}
-
-private extension NFCoreExecutor {
-    var displayName: String {
-        switch self {
-        case .docker:
-            return "Docker"
-        case .conda:
-            return "Conda"
-        case .local:
-            return "Local"
-        }
-    }
-}
-
-private extension ViralReconVariantCaller {
-    var displayName: String {
-        switch self {
-        case .ivar:
-            return "iVar"
-        case .bcftools:
-            return "BCFtools"
-        }
-    }
-}
-
-private extension ViralReconConsensusCaller {
-    var displayName: String {
-        switch self {
-        case .ivar:
-            return "iVar"
-        case .bcftools:
-            return "BCFtools"
-        }
-    }
-}
-
-private extension ViralReconSkipOption {
-    var displayName: String {
-        switch self {
-        case .assembly:
-            return "Assembly"
-        case .variants:
-            return "Variants"
-        case .consensus:
-            return "Consensus"
-        case .fastQC:
-            return "FastQC"
-        case .kraken2:
-            return "Kraken2"
-        case .fastp:
-            return "fastp"
-        case .cutadapt:
-            return "Cutadapt"
-        case .ivarTrim:
-            return "iVar trim"
-        case .multiQC:
-            return "MultiQC"
-        case .freyja:
-            return "Freyja lineage abundance"
-        case .freyjaBoot:
-            return "Freyja bootstrap"
         }
     }
 }
