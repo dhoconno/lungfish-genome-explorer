@@ -842,6 +842,7 @@ enum SidebarProjectScanner {
         case "naomgs": return "n.circle"
         case "cz-id": return "c.circle"
         case "ont-genotyping": return "tablecells.badge.ellipsis"
+        case "viralrecon": return "v.circle"
         default: return "circle"
         }
     }
@@ -865,6 +866,10 @@ enum SidebarProjectScanner {
         case "nvd": return .nvdResult
         case "cz-id": return .czIdResult
         case "ont-genotyping": return .genotypeResultBundle
+        // Viral Recon publishes its alignment and variants into a reference
+        // bundle inside the analysis directory, so it routes through the
+        // generic analysis-result path like the mapping tools do.
+        case "viralrecon": return .analysisResult
         default: return .analysisResult
         }
     }
