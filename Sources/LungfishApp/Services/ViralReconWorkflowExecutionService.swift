@@ -300,7 +300,8 @@ final class ViralReconWorkflowExecutionService {
         for request: ViralReconRunRequest,
         referenceFASTAURL: URL
     ) throws -> ViralReconPrimerSelection {
-        guard !FileManager.default.fileExists(atPath: request.primer.fastaURL.path) else {
+        if let existing = request.primer.fastaURL,
+           FileManager.default.fileExists(atPath: existing.path) {
             return request.primer
         }
         return try ViralReconPrimerStager.stage(
@@ -355,12 +356,21 @@ final class ViralReconWorkflowExecutionService {
         let nanoporeURL = inputsURL.appendingPathComponent("nanopore", isDirectory: true)
         try FileManager.default.createDirectory(at: primersURL, withIntermediateDirectories: true)
 
+        // Refused here rather than allowed to fail as a copy of a file that was
+        // never written. `acquireReference` completes a BED-only selection when
+        // it can; if it could not, the run must not proceed to hand the
+        // pipeline a `primer_fasta` path that does not resolve.
+        guard let sourcePrimerFASTAURL = request.primer.fastaURL,
+              FileManager.default.fileExists(atPath: sourcePrimerFASTAURL.path) else {
+            throw ViralReconWorkflowExecutionError.primerFASTAUnavailable
+        }
+
         let samplesheetURL = inputsURL.appendingPathComponent("samplesheet.csv")
         let primerBEDURL = primersURL.appendingPathComponent("primers.bed")
         let primerFASTAURL = primersURL.appendingPathComponent("primers.fasta")
         try copyItem(from: request.samplesheetURL, to: samplesheetURL)
         try copyItem(from: request.primer.bedURL, to: primerBEDURL)
-        try copyItem(from: request.primer.fastaURL, to: primerFASTAURL)
+        try copyItem(from: sourcePrimerFASTAURL, to: primerFASTAURL)
 
         var fastqPassDirectoryURL: URL?
         var sequencingSummaryURL: URL?
@@ -461,7 +471,7 @@ final class ViralReconWorkflowExecutionService {
             operationCenter.log(
                 id: operationID,
                 level: .info,
-                message: "Using derived primer FASTA \(request.primer.fastaURL.path)"
+                message: "Using derived primer FASTA \(request.primer.fastaURL?.path ?? "(none)")"
             )
         }
         operationCenter.log(id: operationID, level: .info, message: commandPreview)
@@ -638,6 +648,9 @@ enum ViralReconWorkflowExecutionError: Error, Equatable, LocalizedError {
     /// into. Reported rather than swallowed: silently skipping the bundle would
     /// tell the user their results are viewable when nothing was ever written.
     case noProjectForResults
+    /// The scheme ships no primer FASTA and none could be derived, because
+    /// deriving one needs a reference and no reference could be acquired.
+    case primerFASTAUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -650,6 +663,10 @@ enum ViralReconWorkflowExecutionError: Error, Equatable, LocalizedError {
         case .noProjectForResults:
             return "Viral Recon results could not be added to a project because "
                 + "the run has no open project."
+        case .primerFASTAUnavailable:
+            return "The primer scheme ships no primer FASTA and one could not be "
+                + "derived, because the SARS-CoV-2 reference could not be acquired. "
+                + "Open the run inside a project so the reference can be downloaded."
         }
     }
 }

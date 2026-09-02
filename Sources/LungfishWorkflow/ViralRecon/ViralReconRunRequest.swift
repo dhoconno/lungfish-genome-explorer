@@ -92,7 +92,13 @@ public struct ViralReconPrimerSelection: Codable, Sendable, Equatable {
     public let bundleURL: URL
     public let displayName: String
     public let bedURL: URL
-    public let fastaURL: URL
+    /// The staged primer FASTA, or nil when the scheme ships none and it has
+    /// not been derived yet.
+    ///
+    /// Optional on purpose: naming a file that was never written is what let a
+    /// non-existent `primer_fasta` path reach the pipeline. A selection either
+    /// has a FASTA on disk or admits it does not.
+    public let fastaURL: URL?
     public let leftSuffix: String
     public let rightSuffix: String
     public let derivedFasta: Bool
@@ -101,7 +107,7 @@ public struct ViralReconPrimerSelection: Codable, Sendable, Equatable {
         bundleURL: URL,
         displayName: String,
         bedURL: URL,
-        fastaURL: URL,
+        fastaURL: URL?,
         leftSuffix: String,
         rightSuffix: String,
         derivedFasta: Bool
@@ -150,13 +156,20 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
             "platform": platform.rawValue,
             "protocol": `protocol`.rawValue,
             "primer_bed": primer.bedURL.path,
-            "primer_fasta": primer.fastaURL.path,
             "primer_left_suffix": primer.leftSuffix,
             "primer_right_suffix": primer.rightSuffix,
             "min_mapped_reads": String(minimumMappedReads),
             "variant_caller": variantCaller.rawValue,
             "consensus_caller": consensusCaller.rawValue,
         ]
+
+        // Emitted only when the file exists. Passing a path the pipeline
+        // cannot open makes the run start and then die inside Nextflow;
+        // omitting it lets viralrecon's own schema validation reject it up
+        // front, with a message about the parameter rather than about a file.
+        if let primerFASTAURL = primer.fastaURL {
+            params["primer_fasta"] = primerFASTAURL.path
+        }
 
         if platform == .nanopore, let fastqPassDirectoryURL {
             params["fastq_dir"] = fastqPassDirectoryURL.path

@@ -31,7 +31,7 @@ final class ViralReconPrimerStagerTests: XCTestCase {
                 destinationDirectory: tempDirectory
             )
 
-            let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+            let fasta = try String(contentsOf: XCTUnwrap(staged.fastaURL), encoding: .utf8)
             XCTAssertTrue(fasta.contains(">amplicon_1_LEFT\nCCCC"), "extension .\(ext): \(fasta)")
         }
     }
@@ -111,7 +111,7 @@ final class ViralReconPrimerStagerTests: XCTestCase {
         )
 
         XCTAssertTrue(staged.derivedFasta)
-        let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+        let fasta = try String(contentsOf: XCTUnwrap(staged.fastaURL), encoding: .utf8)
         XCTAssertTrue(fasta.contains(">amplicon_1_LEFT\nCCCC"), fasta)
         XCTAssertTrue(fasta.contains(">amplicon_1_RIGHT\nCCCC"), fasta)
     }
@@ -129,8 +129,8 @@ final class ViralReconPrimerStagerTests: XCTestCase {
         )
 
         XCTAssertTrue(staged.derivedFasta)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.fastaURL.path))
-        XCTAssertTrue(try String(contentsOf: staged.fastaURL, encoding: .utf8).contains(">"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(staged.fastaURL).path))
+        XCTAssertTrue(try String(contentsOf: XCTUnwrap(staged.fastaURL), encoding: .utf8).contains(">"))
     }
 
     func testPrimerStagerReadsGzippedReference() throws {
@@ -149,7 +149,7 @@ final class ViralReconPrimerStagerTests: XCTestCase {
         )
 
         XCTAssertTrue(staged.derivedFasta)
-        let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+        let fasta = try String(contentsOf: XCTUnwrap(staged.fastaURL), encoding: .utf8)
         XCTAssertTrue(fasta.contains(">amplicon_1_LEFT\nACGTACGT"))
     }
 
@@ -180,7 +180,7 @@ final class ViralReconPrimerStagerTests: XCTestCase {
             destinationDirectory: tempDirectory
         )
 
-        let fasta = try String(contentsOf: staged.fastaURL, encoding: .utf8)
+        let fasta = try String(contentsOf: XCTUnwrap(staged.fastaURL), encoding: .utf8)
         XCTAssertTrue(fasta.contains(">amplicon_1_LEFT\nCCCC"))
         XCTAssertTrue(fasta.contains(">amplicon_1_RIGHT\nGGGG"))
     }

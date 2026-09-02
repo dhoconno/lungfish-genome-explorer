@@ -14,7 +14,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
-        try FileManager.default.removeItem(at: request.primer.fastaURL)
+        try FileManager.default.removeItem(at: XCTUnwrap(request.primer.fastaURL))
         try """
         {
           "schema_version": 1,
@@ -166,7 +166,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
         XCTAssertEqual(
             try String(contentsOf: persistedPrimerFASTA, encoding: .utf8),
-            try String(contentsOf: request.primer.fastaURL, encoding: .utf8)
+            try String(contentsOf: XCTUnwrap(request.primer.fastaURL), encoding: .utf8)
         )
 
         let invocation = try XCTUnwrap(runner.invocations.first)
@@ -282,6 +282,60 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             item.logEntries.contains { $0.level == .warning && $0.message.contains("results") },
             "a run with no project must report that no bundle could be built"
         )
+    }
+
+    // `stageBEDOnly` leaves the primer FASTA to be derived by the launch path.
+    // When the launch path cannot derive one (no project, so no reference), the
+    // run used to die in `persistGeneratedInputs` copying a file that was never
+    // created, before its operation row even existed.
+    func testRunWithoutADerivablePrimerFASTAFailsWithAClearReason() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-primer-gap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let base = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let request = try ViralReconRunRequest(
+            samples: base.samples,
+            platform: base.platform,
+            protocol: base.protocol,
+            samplesheetURL: base.samplesheetURL,
+            outputDirectory: base.outputDirectory,
+            executor: base.executor,
+            version: base.version,
+            reference: base.reference,
+            primer: ViralReconPrimerSelection(
+                bundleURL: base.primer.bundleURL,
+                displayName: base.primer.displayName,
+                bedURL: base.primer.bedURL,
+                fastaURL: nil,
+                leftSuffix: base.primer.leftSuffix,
+                rightSuffix: base.primer.rightSuffix,
+                derivedFasta: true
+            ),
+            minimumMappedReads: base.minimumMappedReads,
+            variantCaller: base.variantCaller,
+            consensusCaller: base.consensusCaller,
+            skipOptions: base.skipOptions
+        )
+
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in }
+        )
+
+        do {
+            _ = try await service.run(
+                request,
+                bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+                projectURL: nil
+            )
+            XCTFail("a run with no derivable primer FASTA must not start")
+        } catch let error as ViralReconWorkflowExecutionError {
+            XCTAssertEqual(error, .primerFASTAUnavailable)
+        }
     }
 
     func testNoProjectForResultsHasAUserFacingDescription() {
@@ -498,7 +552,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
         // The wizard leaves no primers.fasta behind when it could not derive one.
-        try FileManager.default.removeItem(at: request.primer.fastaURL)
+        try FileManager.default.removeItem(at: XCTUnwrap(request.primer.fastaURL))
         try "MN908947.3\t0\t4\tSARS2_1_LEFT\t1\t+\nMN908947.3\t4\t8\tSARS2_1_RIGHT\t1\t-\n"
             .write(to: request.primer.bedURL, atomically: true, encoding: .utf8)
         try """

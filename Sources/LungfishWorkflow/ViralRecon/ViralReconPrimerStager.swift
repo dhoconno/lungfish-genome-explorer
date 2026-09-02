@@ -69,10 +69,15 @@ public enum ViralReconPrimerStager {
         let stagedBEDURL = primersDirectory.appendingPathComponent("primers.bed")
         try replaceItem(at: stagedBEDURL, withCopyOf: resolved.bedURL)
 
-        let stagedFASTAURL = primersDirectory.appendingPathComponent("primers.fasta")
+        // Returns nil rather than a path to a file it did not write: the launch
+        // path completes the selection once it has a reference to cut from, and
+        // a placeholder path would be indistinguishable from a real one.
+        var stagedFASTAURL: URL?
         let derivedFasta: Bool
         if let bundledFASTAURL = bundle.fastaURL {
-            try replaceItem(at: stagedFASTAURL, withCopyOf: bundledFASTAURL)
+            let destination = primersDirectory.appendingPathComponent("primers.fasta")
+            try replaceItem(at: destination, withCopyOf: bundledFASTAURL)
+            stagedFASTAURL = destination
             derivedFasta = false
         } else {
             derivedFasta = true

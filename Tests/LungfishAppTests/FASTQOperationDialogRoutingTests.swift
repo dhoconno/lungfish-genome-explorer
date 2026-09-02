@@ -1385,7 +1385,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
         XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
         XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
-        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
 
@@ -1423,7 +1423,8 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         XCTAssertTrue(selection.derivedFasta)
         XCTAssertTrue(FileManager.default.fileExists(atPath: selection.bedURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: selection.fastaURL.path))
+        XCTAssertNil(selection.fastaURL,
+                     "the selection must not name a FASTA the wizard could not write")
         XCTAssertEqual(selection.leftSuffix, "_LEFT")
         XCTAssertEqual(selection.rightSuffix, "_RIGHT")
     }
@@ -1468,7 +1469,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(selection.derivedFasta)
-        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
     }
@@ -1511,7 +1512,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
         XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
         XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
-        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        let stagedFASTA = try String(contentsOf: XCTUnwrap(selection.fastaURL), encoding: .utf8)
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
 
         XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")
