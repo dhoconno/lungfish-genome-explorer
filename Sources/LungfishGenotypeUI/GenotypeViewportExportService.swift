@@ -11,6 +11,12 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
     case csv
     case tsv
     case excel
+    /// Samples-across / alleles-down pivot, in the collaborator template
+    /// layout. Unlike the other formats this routes to
+    /// `genotype export-pivot-xlsx` and carries the viewport's Min Reads and
+    /// Min Percent thresholds, so the exported pivot already has background
+    /// suppressed rather than needing it stripped by hand in Excel.
+    case pivotExcel
 
     var id: String { rawValue }
 
@@ -19,6 +25,7 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
         case .csv: return "CSV"
         case .tsv: return "TSV"
         case .excel: return "Excel"
+        case .pivotExcel: return "Excel (pivot)"
         }
     }
 
@@ -26,17 +33,36 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
         switch self {
         case .csv: return "csv"
         case .tsv: return "tsv"
-        case .excel: return "xlsx"
+        case .excel, .pivotExcel: return "xlsx"
         }
     }
 
     /// Value passed to `genotype export --export-format`.
+    ///
+    /// `pivotExcel` uses its own subcommand, so it has no `--export-format`
+    /// value of its own; it reports `xlsx` for provenance readability.
     var cliValue: String {
         switch self {
         case .csv: return "csv"
         case .tsv: return "tsv"
-        case .excel: return "xlsx"
+        case .excel, .pivotExcel: return "xlsx"
         }
+    }
+
+    /// Whether the format is produced by `genotype export-pivot-xlsx` rather
+    /// than the projection-driven `genotype export`.
+    var usesPivotSubcommand: Bool { self == .pivotExcel }
+
+    /// `workflowName` recorded in the export's provenance envelope.
+    var provenanceWorkflowName: String {
+        usesPivotSubcommand ? "genotype.export.pivot-xlsx" : "lungfish genotype export"
+    }
+
+    /// `toolName` recorded in the export's provenance envelope.
+    var provenanceToolName: String {
+        usesPivotSubcommand
+            ? "lungfish genotype export-pivot-xlsx"
+            : CLICommandIdentity.executableName
     }
 
     var contentType: UTType {
@@ -45,7 +71,7 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
             return .commaSeparatedText
         case .tsv:
             return UTType(filenameExtension: "tsv") ?? .plainText
-        case .excel:
+        case .excel, .pivotExcel:
             return UTType(filenameExtension: "xlsx") ?? .data
         }
     }
@@ -108,31 +134,49 @@ struct GenotypeViewportExportService {
         let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
         let projectionData = try JSONEncoder().encode(projection)
 
-        var arguments = [
-            "genotype", "export",
-            "--bundle", snapshot.bundleURL.path,
-            "--export-format", format.cliValue,
-            "--output", standardizedOutputURL.path,
-            "--lens", snapshot.lens,
-            "--view-projection", projectionURL.path,
-        ]
-        for sample in snapshot.sampleNames {
-            arguments += ["--sample", sample]
+        var arguments: [String]
+        if format.usesPivotSubcommand {
+            // The pivot builder reads the bundle directly rather than the
+            // rendered projection, so the viewport's thresholds are passed
+            // explicitly and applied while the workbook is built.
+            arguments = [
+                "genotype", "export-pivot-xlsx",
+                "--bundle", snapshot.bundleURL.path,
+                "--output", standardizedOutputURL.path,
+            ]
+            if let minReads = minimumReads(from: snapshot.filters) {
+                arguments += ["--min-reads", String(minReads)]
+            }
+            if let minPercent = minimumPercent(from: snapshot.filters) {
+                arguments += ["--min-percent", String(minPercent)]
+            }
+        } else {
+            arguments = [
+                "genotype", "export",
+                "--bundle", snapshot.bundleURL.path,
+                "--export-format", format.cliValue,
+                "--output", standardizedOutputURL.path,
+                "--lens", snapshot.lens,
+                "--view-projection", projectionURL.path,
+            ]
+            for sample in snapshot.sampleNames {
+                arguments += ["--sample", sample]
+            }
+            if let minReads = minimumReads(from: snapshot.filters) {
+                arguments += ["--min-reads", String(minReads)]
+            }
+            if let filterText = filterText(from: snapshot.filters) {
+                arguments += ["--filter", filterText]
+            }
+            if let definitionID = snapshot.filters["activeHaplotypeDefinitionSetID"],
+               !definitionID.isEmpty {
+                arguments += ["--active-haplotype-definition", definitionID]
+            }
+            if let annotationSidecarURL = snapshot.annotationSidecarURL {
+                arguments += ["--annotations", annotationSidecarURL.path]
+            }
+            arguments.append("--force")
         }
-        if let minReads = minimumReads(from: snapshot.filters) {
-            arguments += ["--min-reads", String(minReads)]
-        }
-        if let filterText = filterText(from: snapshot.filters) {
-            arguments += ["--filter", filterText]
-        }
-        if let definitionID = snapshot.filters["activeHaplotypeDefinitionSetID"],
-           !definitionID.isEmpty {
-            arguments += ["--active-haplotype-definition", definitionID]
-        }
-        if let annotationSidecarURL = snapshot.annotationSidecarURL {
-            arguments += ["--annotations", annotationSidecarURL.path]
-        }
-        arguments.append("--force")
 
         let rollbackSnapshot = try GenotypeViewportExportRollbackSnapshot(
             urls: [standardizedOutputURL, provenanceURL, projectionURL],
@@ -147,10 +191,17 @@ struct GenotypeViewportExportService {
             guard fileManager.fileExists(atPath: provenanceURL.path) else {
                 throw GenotypeViewportExportError.missingProvenance(provenanceURL.path)
             }
+            // The pivot subcommand builds from the bundle, not the rendered
+            // projection, so only the projection-driven export attests it.
+            let expectedInputURLs = format.usesPivotSubcommand
+                ? []
+                : [projectionURL] + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
             try verifyProvenance(
                 provenanceURL: provenanceURL,
                 outputURL: standardizedOutputURL,
-                expectedInputURLs: [projectionURL] + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
+                expectedWorkflowName: format.provenanceWorkflowName,
+                expectedToolName: format.provenanceToolName,
+                expectedInputURLs: expectedInputURLs
             )
             rollbackSnapshot.discard()
             return GenotypeViewportExportResult(
@@ -173,11 +224,13 @@ struct GenotypeViewportExportService {
     private func verifyProvenance(
         provenanceURL: URL,
         outputURL: URL,
+        expectedWorkflowName: String = "lungfish genotype export",
+        expectedToolName: String = CLICommandIdentity.executableName,
         expectedInputURLs: [URL] = []
     ) throws {
         guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
-              envelope.toolName == CLICommandIdentity.executableName,
-              envelope.workflowName == "lungfish genotype export",
+              envelope.toolName == expectedToolName,
+              envelope.workflowName == expectedWorkflowName,
               envelope.exitStatus == 0,
               !envelope.argv.isEmpty else {
             throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
@@ -209,8 +262,20 @@ struct GenotypeViewportExportService {
     /// unique-read floor, so `--min-reads` is only emitted when the snapshot
     /// carries an explicit integer read count.
     private func minimumReads(from filters: [String: String]) -> Int? {
-        for key in ["minimumSupportReads", "minimumReads", "minReads"] {
+        for key in ["matrixMinimumReads", "minimumSupportReads", "minimumReads", "minReads"] {
             if let raw = filters[key], let value = Int(raw), value > 0 {
+                return value
+            }
+        }
+        return nil
+    }
+
+    /// The viewport's Min Percent control, when the analyst set one.
+    private func minimumPercent(from filters: [String: String]) -> Double? {
+        // `matrixMinimumPercent` is the comparison matrix's own Min Percent
+        // control and takes precedence over the row-level support percent.
+        for key in ["matrixMinimumPercent", "minimumSupportPercent", "minimumPercent", "minPercent"] {
+            if let raw = filters[key], let value = Double(raw), value > 0 {
                 return value
             }
         }

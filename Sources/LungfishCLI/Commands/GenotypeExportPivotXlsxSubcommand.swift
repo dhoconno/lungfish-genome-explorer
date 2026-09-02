@@ -41,12 +41,42 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     @Option(name: [.long, .customShort("o")], help: "Output XLSX path.")
     var output: String
 
+    @Option(
+        name: .long,
+        help: """
+        Drop allele values supported by fewer than this many reads. \
+        Mirrors the inspector's Min Reads control; 0 disables the filter.
+        """
+    )
+    var minReads: Int = 0
+
+    @Option(
+        name: .long,
+        help: """
+        Drop allele values below this percent of the sample's retained reads. \
+        Mirrors the inspector's Min Percent control; 0 disables the filter.
+        """
+    )
+    var minPercent: Double = 0
+
+    @Flag(
+        name: .long,
+        help: "Keep allele rows that are empty after filtering instead of removing them."
+    )
+    var keepEmptyRows: Bool = false
+
     func validate() throws {
         if bundle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ValidationError("--bundle must not be empty.")
         }
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ValidationError("--output must not be empty.")
+        }
+        if minReads < 0 {
+            throw ValidationError("--min-reads must not be negative.")
+        }
+        if minPercent < 0 || minPercent > 100 {
+            throw ValidationError("--min-percent must be between 0 and 100.")
         }
     }
 
@@ -58,7 +88,16 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         // sidecar so the pivot xlsx reflects the same calls the GUI shows
         // — without requiring the analyst to re-export from the inspector.
         let sidecar = try? ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
-        let workbook = PivotWorkbookBuilder.build(from: result, sidecar: sidecar)
+        let thresholds = PivotWorkbookBuilder.Thresholds(
+            minimumReads: minReads,
+            minimumPercent: minPercent,
+            keepEmptyRows: keepEmptyRows
+        )
+        let workbook = PivotWorkbookBuilder.build(
+            from: result,
+            sidecar: sidecar,
+            thresholds: thresholds
+        )
 
         let outputURL = URL(fileURLWithPath: output)
         let buildDir = FileManager.default.temporaryDirectory
@@ -74,7 +113,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 CLICommandIdentity.executableName, "genotype", "export-pivot-xlsx",
                 "--bundle", bundleURL.path,
                 "--output", outputURL.path,
-            ],
+            ] + thresholds.provenanceArguments,
             bundleURL: bundleURL,
             outputURLs: [outputURL],
             outputDirectory: outputURL.deletingLastPathComponent(),
@@ -96,7 +135,11 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             "sampleCount": workbook.samples.count,
             "alleleCount": workbook.alleleRowCount,
             "alleleGroupCount": workbook.groups.count,
-            "haplotypeAnalysisPresent": result.haplotypeAnalysis != nil
+            "haplotypeAnalysisPresent": result.haplotypeAnalysis != nil,
+            "minReads": thresholds.minimumReads,
+            "minPercent": thresholds.minimumPercent,
+            "filteredAlleleValueCount": workbook.filteredValueCount,
+            "removedAlleleRowCount": workbook.removedRowCount
         ]
         let summaryData = try JSONSerialization.data(
             withJSONObject: summary,
@@ -124,6 +167,10 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         let commentsRow: [String?]
         /// Allele groups in canonical numeric-prefix order.
         let groups: [AlleleGroup]
+        /// Allele values suppressed by the Min Reads / Min Percent thresholds.
+        var filteredValueCount: Int = 0
+        /// Allele rows removed because every value fell below the thresholds.
+        var removedRowCount: Int = 0
 
         var alleleRowCount: Int { groups.reduce(0) { $0 + $1.alleles.count } }
     }
@@ -148,6 +195,54 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     // MARK: - Building the workbook
 
     enum PivotWorkbookBuilder {
+        /// Background-suppression thresholds mirroring the inspector's
+        /// Min Reads and Min Percent controls.
+        ///
+        /// Analysts otherwise strip low-support background by hand in Excel
+        /// (bracketing values, then hiding the emptied rows). Applying the same
+        /// cut at export time produces the filtered pivot directly.
+        struct Thresholds: Equatable {
+            var minimumReads: Int = 0
+            var minimumPercent: Double = 0
+            /// Keep rows whose values were all suppressed. Off by default so a
+            /// filtered export omits rows that would otherwise be blank.
+            var keepEmptyRows: Bool = false
+
+            static let none = Thresholds()
+
+            var isActive: Bool { minimumReads > 0 || minimumPercent > 0 }
+
+            /// Whether `count` clears both thresholds for a sample whose
+            /// retained-read total is `sampleTotal`.
+            ///
+            /// A percent threshold needs a positive denominator; when the
+            /// sample total is missing or zero the read threshold alone decides,
+            /// so a sample with unknown depth is never silently blanked.
+            func admits(count: Int, sampleTotal: Int?) -> Bool {
+                guard count > 0 else { return false }
+                if minimumReads > 0, count < minimumReads { return false }
+                if minimumPercent > 0, let total = sampleTotal, total > 0 {
+                    let percent = Double(count) / Double(total) * 100
+                    if percent < minimumPercent { return false }
+                }
+                return true
+            }
+
+            var provenanceArguments: [String] {
+                var arguments: [String] = []
+                if minimumReads > 0 {
+                    arguments += ["--min-reads", String(minimumReads)]
+                }
+                if minimumPercent > 0 {
+                    arguments += ["--min-percent", String(minimumPercent)]
+                }
+                if keepEmptyRows {
+                    arguments.append("--keep-empty-rows")
+                }
+                return arguments
+            }
+        }
+
         /// Canonical split-locus layout used by the lab's reference workbook.
         static let canonicalSplitLoci: [String] = [
             "MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB",
@@ -171,12 +266,28 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         ]
 
         static func build(from result: ONTGenotypeResultBundleData) -> PivotWorkbook {
-            build(from: result, sidecar: nil)
+            build(from: result, sidecar: nil, thresholds: .none)
         }
 
-        static func build(from result: ONTGenotypeResultBundleData, sidecar: GenotypeAnnotationSidecar?) -> PivotWorkbook {
+        static func build(
+            from result: ONTGenotypeResultBundleData,
+            sidecar: GenotypeAnnotationSidecar?
+        ) -> PivotWorkbook {
+            build(from: result, sidecar: sidecar, thresholds: .none)
+        }
+
+        static func build(
+            from result: ONTGenotypeResultBundleData,
+            sidecar: GenotypeAnnotationSidecar?,
+            thresholds: Thresholds
+        ) -> PivotWorkbook {
             let samples = result.samples.map(\.sample)
-            let mappedReadCounts = result.samples.map { Optional($0.passedAlignments) }
+            // Distinct reads, not alignment records: an unmerged Illumina pair
+            // yields two records per fragment, which would report ~2x the value
+            // the genotype inspector shows for the same sample. The allele rows
+            // below already use `passedUniqueReads`, so this keeps the header
+            // row consistent with them.
+            let mappedReadCounts = result.samples.map { Optional($0.passedUniqueReads) }
             let totalReadCounts = result.samples.map(\.sampleTotalReads)
             let percentReadsUnmapped: [Double?] = result.samples.map { sample in
                 guard let retained = sample.sampleUniqueRetainedPercent else { return nil }
@@ -204,6 +315,13 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             )
             let speciesPrefix = speciesPrefix(from: result.haplotypeAnalysis)
 
+            // Percent thresholds are relative to the reads retained for the
+            // sample, which is the same denominator the inspector uses.
+            let sampleRetainedTotals: [String: Int] = Dictionary(
+                uniqueKeysWithValues: result.samples.map { ($0.sample, $0.passedUniqueReads) }
+            )
+            var filteredValueCount = 0
+            var removedRowCount = 0
             var groups: [AlleleGroup] = []
             // Emit groups in canonical prefix order, skipping any that
             // contain no observed genotypes.
@@ -214,8 +332,13 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 let alleles = makeAlleleRows(
                     genotypeNames: names,
                     samples: samples,
-                    countsByGenotypeBySample: countsByGenotypeBySample
+                    countsByGenotypeBySample: countsByGenotypeBySample,
+                    thresholds: thresholds,
+                    sampleTotals: sampleRetainedTotals,
+                    filteredValueCount: &filteredValueCount,
+                    removedRowCount: &removedRowCount
                 )
+                guard !alleles.isEmpty else { continue }
                 groups.append(AlleleGroup(label: speciesPrefix + suffix, alleles: alleles))
             }
             // Trailing bucket for any unexpected prefix so nothing is lost.
@@ -225,8 +348,13 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 let alleles = makeAlleleRows(
                     genotypeNames: names,
                     samples: samples,
-                    countsByGenotypeBySample: countsByGenotypeBySample
+                    countsByGenotypeBySample: countsByGenotypeBySample,
+                    thresholds: thresholds,
+                    sampleTotals: sampleRetainedTotals,
+                    filteredValueCount: &filteredValueCount,
+                    removedRowCount: &removedRowCount
                 )
+                guard !alleles.isEmpty else { continue }
                 let label = prefix == "??"
                     ? "Other alleles"
                     : "\(speciesPrefix)-\(prefix) alleles"
@@ -243,7 +371,9 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 percentReadsUnmapped: percentReadsUnmapped,
                 haplotypeRows: haplotypeRows,
                 commentsRow: commentsRow,
-                groups: groups
+                groups: groups,
+                filteredValueCount: filteredValueCount,
+                removedRowCount: removedRowCount
             )
         }
 
@@ -321,19 +451,38 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         private static func makeAlleleRows(
             genotypeNames: [String],
             samples: [String],
-            countsByGenotypeBySample: [String: [String: Int]]
+            countsByGenotypeBySample: [String: [String: Int]],
+            thresholds: Thresholds = .none,
+            sampleTotals: [String: Int] = [:],
+            filteredValueCount: inout Int,
+            removedRowCount: inout Int
         ) -> [AlleleRow] {
             let sortedNames = genotypeNames.sorted {
                 $0.localizedStandardCompare($1) == .orderedAscending
             }
-            return sortedNames.map { name in
+            var rows: [AlleleRow] = []
+            for name in sortedNames {
                 let perSample = countsByGenotypeBySample[name] ?? [:]
+                var suppressed = 0
                 let counts: [Int?] = samples.map { sample in
                     let count = perSample[sample] ?? 0
-                    return count > 0 ? count : nil
+                    guard count > 0 else { return nil }
+                    guard thresholds.admits(count: count, sampleTotal: sampleTotals[sample]) else {
+                        suppressed += 1
+                        return nil
+                    }
+                    return count
                 }
-                return AlleleRow(name: name, counts: counts)
+                filteredValueCount += suppressed
+                // A row with nothing left is background the analyst would have
+                // hidden by hand, so drop it unless asked to keep it.
+                if counts.allSatisfy({ $0 == nil }) {
+                    removedRowCount += 1
+                    if !thresholds.keepEmptyRows { continue }
+                }
+                rows.append(AlleleRow(name: name, counts: counts))
             }
+            return rows
         }
 
         private static func leadingNumericPrefix(_ genotype: String) -> String? {
