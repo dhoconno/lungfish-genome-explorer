@@ -51,4 +51,25 @@ public struct ConsensusCoordinateMap: Sendable, Equatable {
         }
         return position + shift
     }
+
+    /// Extracts length-changing variants from VCF body lines.
+    ///
+    /// Substitutions leave the coordinate system alone and are ignored. Only
+    /// indels shift downstream positions.
+    public static func indels(fromVCFLines lines: [String]) -> [Indel] {
+        var result: [Indel] = []
+        for line in lines {
+            guard !line.hasPrefix("#") else { continue }
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count >= 5, let position = Int(fields[1]) else { continue }
+            let reference = String(fields[3])
+            guard let firstAlternate = fields[4].split(separator: ",").first else { continue }
+            let alternate = String(firstAlternate)
+            guard reference.count != alternate.count else { continue }
+            result.append(Indel(position: position,
+                                referenceLength: reference.count,
+                                alternateLength: alternate.count))
+        }
+        return result
+    }
 }

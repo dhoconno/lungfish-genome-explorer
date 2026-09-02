@@ -48,4 +48,26 @@ final class ConsensusCoordinateMapTests: XCTestCase {
         ])
         XCTAssertEqual(map.consensusPosition(forReference: 300), 294)
     }
+
+    func testBuildsIndelsFromVCFLinesIgnoringSubstitutionsAndHeaders() {
+        let lines = [
+            "##fileformat=VCFv4.2",
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+            "MN908947.3\t17373\t.\tC\tT\t.\tPASS\t.",
+            "MN908947.3\t20297\t.\tAATT\tA\t.\tPASS\t.",
+        ]
+
+        let indels = ConsensusCoordinateMap.indels(fromVCFLines: lines)
+
+        XCTAssertEqual(indels.count, 1, "a substitution is not an indel")
+        XCTAssertEqual(indels.first?.position, 20_297)
+        XCTAssertEqual(indels.first?.referenceLength, 4)
+        XCTAssertEqual(indels.first?.alternateLength, 1)
+    }
+
+    func testMultiAllelicAlternateUsesFirstAllele() {
+        let lines = ["MN908947.3\t500\t.\tAAA\tA,AA\t.\tPASS\t."]
+        let indels = ConsensusCoordinateMap.indels(fromVCFLines: lines)
+        XCTAssertEqual(indels.first?.alternateLength, 1)
+    }
 }
