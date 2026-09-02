@@ -136,6 +136,10 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
     public let consensusCaller: ViralReconConsensusCaller
     public let skipOptions: [ViralReconSkipOption]
     public let advancedParams: [String: String]
+    /// A GFF3 annotation chosen in the wizard, overriding the one the reference
+    /// bundle carries. Kept out of `advancedParams` because `gff` is structural
+    /// there and would be refused.
+    public let gffURL: URL?
     public let fastqPassDirectoryURL: URL?
     public let sequencingSummaryURL: URL?
 
@@ -164,11 +168,14 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         switch reference {
         case .genome(let genome):
             params["genome"] = genome
-        case .local(let fastaURL, let gffURL):
+        case .local(let fastaURL, let referenceGFFURL):
             params["fasta"] = fastaURL.path
-            if let gffURL {
-                params["gff"] = gffURL.path
+            if let referenceGFFURL {
+                params["gff"] = referenceGFFURL.path
             }
+        }
+        if let gffURL {
+            params["gff"] = gffURL.path
         }
 
         for option in Set(skipOptions).union(ViralReconSkipOption.alwaysSkipped) {
@@ -195,6 +202,7 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         consensusCaller: ViralReconConsensusCaller,
         skipOptions: [ViralReconSkipOption],
         advancedParams: [String: String] = [:],
+        gffURL: URL? = nil,
         fastqPassDirectoryURL: URL? = nil,
         sequencingSummaryURL: URL? = nil
     ) throws {
@@ -218,6 +226,7 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         self.consensusCaller = consensusCaller
         self.skipOptions = skipOptions
         self.advancedParams = advancedParams
+        self.gffURL = gffURL
         self.fastqPassDirectoryURL = fastqPassDirectoryURL
         self.sequencingSummaryURL = resolvedSequencingSummaryURL
     }

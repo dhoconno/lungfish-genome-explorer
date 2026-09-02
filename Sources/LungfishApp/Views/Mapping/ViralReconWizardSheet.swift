@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -20,6 +21,11 @@ struct ViralReconWizardSheet: View {
     @State private var minimumMappedReads: Int = 1000
     @State private var buildError: String?
 
+    @State private var advancedExpanded = false
+    @State private var advancedText: String = ""
+    @State private var advancedGFFURL: URL?
+    @State private var knownParameters: Set<String> = []
+
     /// Controls the sheet can show.
     ///
     /// `reference` and `executor` exist only so tests can assert they are never
@@ -33,6 +39,16 @@ struct ViralReconWizardSheet: View {
         case readiness
         case reference
         case executor
+    }
+
+    /// The outcome of parsing the advanced parameters field.
+    ///
+    /// Shaped like `Result` but with a plain message: the failure is a sentence
+    /// for the readiness line, and `Result` would need `String` to conform to
+    /// `Error` for that, which is not a conformance worth adding app-wide.
+    enum AdvancedParameterParse: Equatable {
+        case success([String: String])
+        case failure(String)
     }
 
     static func visibleControls(platformDetected: Bool) -> [VisibleControl] {
@@ -73,6 +89,15 @@ struct ViralReconWizardSheet: View {
         detectedPlatform != nil
     }
 
+    private var advancedParseResult: AdvancedParameterParse {
+        Self.parseAdvancedParameters(advancedText, knownParameters: knownParameters)
+    }
+
+    private var advancedError: String? {
+        guard case .failure(let message) = advancedParseResult else { return nil }
+        return message
+    }
+
     private var readinessEvaluation: ViralReconWizardReadiness.Evaluation {
         ViralReconWizardReadiness.evaluate(
             ViralReconWizardReadiness.State(
@@ -81,7 +106,8 @@ struct ViralReconWizardSheet: View {
                 inputError: inputError,
                 primerManifest: selectedPrimerOption?.bundle.manifest,
                 outputRootAvailable: outputRoot != nil,
-                minimumMappedReads: minimumMappedReads
+                minimumMappedReads: minimumMappedReads,
+                advancedError: advancedError
             )
         )
     }
@@ -93,7 +119,9 @@ struct ViralReconWizardSheet: View {
     private var buildErrorRecoveryKey: BuildErrorRecoveryKey {
         BuildErrorRecoveryKey(
             selectedPrimerID: selectedPrimerID,
-            minimumMappedReads: minimumMappedReads
+            minimumMappedReads: minimumMappedReads,
+            advancedText: advancedText,
+            advancedGFFURL: advancedGFFURL
         )
     }
 
@@ -102,6 +130,9 @@ struct ViralReconWizardSheet: View {
             VStack(alignment: .leading, spacing: 18) {
                 headerSection
                 ForEach(Self.visibleControls(platformDetected: platformDetected), id: \.self) { control in
+                    if control == .readiness {
+                        advancedSection
+                    }
                     controlSection(control)
                 }
             }
@@ -235,6 +266,59 @@ struct ViralReconWizardSheet: View {
         }
     }
 
+    /// Everything the sheet no longer shows is still reachable here.
+    ///
+    /// Collapsed by default: a novice never opens it, and an expert does not
+    /// have to go looking for a control the simplification removed.
+    private var advancedSection: some View {
+        DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let advancedGFFURL {
+                        Text("Annotation: \(displayPath(for: advancedGFFURL))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        Text("The downloaded reference already carries its GFF3 annotations.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        Button("Choose GFF...") {
+                            browseForGFF()
+                        }
+                        .accessibilityIdentifier(ViralReconAccessibilityID.gffButton)
+                        if advancedGFFURL != nil {
+                            Button("Clear") {
+                                advancedGFFURL = nil
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Extra parameters")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField(
+                        "--variant_caller bcftools --skip_fastqc true",
+                        text: $advancedText
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier(ViralReconAccessibilityID.advancedParametersField)
+                    Text("Names are checked against the Viral Recon schema before the run starts.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityIdentifier(ViralReconAccessibilityID.advancedDisclosure)
+    }
+
     private var readinessSection: some View {
         section("Readiness") {
             Text(buildError ?? readinessText)
@@ -270,6 +354,7 @@ struct ViralReconWizardSheet: View {
 
     private func loadInitialData() async {
         await loadPrimerOptions()
+        knownParameters = await Task.detached { Self.loadKnownParameters() }.value
         refreshResolvedInputs()
     }
 
@@ -358,6 +443,14 @@ struct ViralReconWizardSheet: View {
             destinationDirectory: stagingDirectory
         )
 
+        let advancedParams: [String: String]
+        switch advancedParseResult {
+        case .success(let parsed):
+            advancedParams = Self.defaultResourceParams().merging(parsed) { _, override in override }
+        case .failure(let message):
+            throw WizardError.invalidAdvancedParameters(message)
+        }
+
         return try ViralReconRunRequest(
             samples: samples,
             platform: platform,
@@ -372,9 +465,23 @@ struct ViralReconWizardSheet: View {
             variantCaller: Self.defaultVariantCaller,
             consensusCaller: Self.defaultConsensusCaller,
             skipOptions: Array(ViralReconSkipOption.defaultSelection).sorted { $0.rawValue < $1.rawValue },
-            advancedParams: Self.defaultResourceParams(),
+            advancedParams: advancedParams,
+            gffURL: advancedGFFURL,
             fastqPassDirectoryURL: fastqPassDirectoryURL
         )
+    }
+
+    private func browseForGFF() {
+        let panel = MappingWorkflowFilePanelFactory.gffAnnotationPanel(
+            title: "Select SARS-CoV-2 GFF Annotation"
+        )
+
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            advancedGFFURL = url
+            buildError = nil
+        }
     }
 
     private func clearBuildError() {
@@ -393,6 +500,70 @@ struct ViralReconWizardSheet: View {
             return standardizedTarget
         }
         return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
+    }
+
+    /// Parses the advanced parameters field into pipeline parameters.
+    ///
+    /// Uses the same tokenizer six other wizards use, then checks each name
+    /// against the pipeline schema so a typo is caught here rather than several
+    /// minutes into a run.
+    static func parseAdvancedParameters(
+        _ text: String,
+        knownParameters: Set<String>
+    ) -> AdvancedParameterParse {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .success([:]) }
+
+        let tokens: [String]
+        do {
+            tokens = try AdvancedCommandLineOptions.parse(trimmed)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
+
+        var params: [String: String] = [:]
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index]
+            guard token.hasPrefix("--") else {
+                return .failure("Expected a parameter starting with -- but found \(token).")
+            }
+            let name = String(token.dropFirst(2))
+            guard index + 1 < tokens.count, !tokens[index + 1].hasPrefix("--") else {
+                return .failure("Parameter --\(name) needs a value.")
+            }
+            params[name] = tokens[index + 1]
+            index += 2
+        }
+
+        for outcome in ViralReconParameterSchema.validate(params, knownParameters: knownParameters) {
+            switch outcome {
+            case .accepted:
+                continue
+            case .unknownParameter(let name):
+                return .failure("\(name) is not a Viral Recon parameter. Check the spelling.")
+            case .structural(let name):
+                return .failure("\(name) is set by the wizard and cannot be overridden here.")
+            }
+        }
+        return .success(params)
+    }
+
+    /// Parameter names the installed pipeline release accepts.
+    ///
+    /// Read from the checkout Nextflow keeps under its own home. When the
+    /// pipeline has not been pulled yet there is nothing to check against, and
+    /// an empty set means every name is refused, so fall back to the keys the
+    /// request model already knows are overridable.
+    nonisolated static func loadKnownParameters() -> Set<String> {
+        let schemaURL = LungfishAppIdentity.current
+            .nextflowHomeURL(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+            .appendingPathComponent("assets/nf-core/viralrecon/nextflow_schema.json")
+        if let names = try? ViralReconParameterSchema.loadKnownParameters(from: schemaURL),
+           !names.isEmpty {
+            return names
+        }
+        return ViralReconRunRequest.overridableAdvancedKeys
     }
 
     static func referenceName(from fastaURL: URL, fallback: String) -> String {
@@ -733,6 +904,8 @@ private enum PlatformOverride: String, CaseIterable {
 private struct BuildErrorRecoveryKey: Equatable {
     let selectedPrimerID: String
     let minimumMappedReads: Int
+    let advancedText: String
+    let advancedGFFURL: URL?
 }
 
 private struct PrimerOption: Identifiable {
@@ -768,6 +941,7 @@ private enum WizardError: Error, LocalizedError {
     case missingPlatform
     case missingOutputRoot
     case missingPrimer
+    case invalidAdvancedParameters(String)
 
     var errorDescription: String? {
         switch self {
@@ -777,6 +951,8 @@ private enum WizardError: Error, LocalizedError {
             return "choose a project or output location."
         case .missingPrimer:
             return "select a SARS-CoV-2 primer scheme."
+        case .invalidAdvancedParameters(let message):
+            return message
         }
     }
 }
