@@ -115,6 +115,50 @@ final class ViralReconSidebarDiscoveryTests: XCTestCase {
         XCTAssertEqual(node.children.count, 2)
     }
 
+    // MARK: - Bundle contents
+
+    func testIngestWritesTheResultSidecarAndRoleDirectories() throws {
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+        let bundleDirectory = try XCTUnwrap(ingested.first).bundleDirectory
+        let fileManager = FileManager.default
+
+        XCTAssertTrue(fileManager.fileExists(
+            atPath: bundleDirectory.appendingPathComponent("viralrecon-result.json").path))
+        for role in ["consensus", "lineage", "reports"] {
+            var isDirectory: ObjCBool = false
+            XCTAssertTrue(
+                fileManager.fileExists(
+                    atPath: bundleDirectory.appendingPathComponent(role).path,
+                    isDirectory: &isDirectory) && isDirectory.boolValue,
+                "\(role)/ must exist in the ingested bundle")
+        }
+        XCTAssertTrue(fileManager.fileExists(
+            atPath: bundleDirectory.appendingPathComponent("consensus/S1.consensus.fa").path))
+        XCTAssertTrue(fileManager.fileExists(
+            atPath: bundleDirectory.appendingPathComponent("reports/multiqc_report.html").path))
+    }
+
+    func testResultSidecarNamesTheSampleAndItsOutputs() throws {
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+        let sidecarURL = try XCTUnwrap(ingested.first).bundleDirectory
+            .appendingPathComponent("viralrecon-result.json")
+
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: sidecarURL)) as? [String: Any])
+        XCTAssertEqual(json["tool"] as? String, "viralrecon")
+        XCTAssertEqual(json["sampleName"] as? String, "S1")
+        XCTAssertEqual(json["consensusPath"] as? String, "consensus/S1.consensus.fa")
+        XCTAssertEqual(json["referenceBundlePath"] as? String, "MN908947.3.lungfishref")
+    }
+
     func testRawOutputIsPreservedNotMoved() throws {
         _ = try ViralReconResultIngest.ingestRun(
             resultsDirectory: resultsURL,

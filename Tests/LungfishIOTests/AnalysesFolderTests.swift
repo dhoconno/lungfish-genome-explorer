@@ -471,3 +471,14 @@ final class AnalysesFolderViralReconTests: XCTestCase {
         XCTAssertEqual(analyses.map(\.tool), ["viralrecon"])
     }
 }
+
+extension AnalysesFolderViralReconTests {
+    func testRenamedViralReconDirectoryIsRecognisedByItsResultSidecar() throws {
+        let directory = root.appendingPathComponent("My SARS-CoV-2 Run", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("viralrecon-result.json"))
+
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: directory))
+        XCTAssertEqual(info.tool, "viralrecon")
+    }
+}

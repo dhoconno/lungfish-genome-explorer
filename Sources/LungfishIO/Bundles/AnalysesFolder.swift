@@ -507,6 +507,7 @@ public enum AnalysesFolder {
         let czIdManifest = url.appendingPathComponent("cz-id-manifest.json")
         let assemblyResult = url.appendingPathComponent("assembly-result.json")
         let mappingResult = url.appendingPathComponent("mapping-result.json")
+        let viralReconResult = url.appendingPathComponent("viralrecon-result.json")
         let msaManifest = url.appendingPathComponent("manifest.json")
         let alignedFASTA = url.appendingPathComponent("alignment/primary.aligned.fasta")
 
@@ -518,6 +519,11 @@ public enum AnalysesFolder {
         // Kraken2: has classification-result.json
         if fm.fileExists(atPath: classificationResult.path) {
             return "kraken2"
+        }
+
+        // Viral Recon: has viralrecon-result.json.
+        if fm.fileExists(atPath: viralReconResult.path) {
+            return "viralrecon"
         }
 
         // Assembly tools: managed sidecars store `tool`; legacy schema v1 implies SPAdes.

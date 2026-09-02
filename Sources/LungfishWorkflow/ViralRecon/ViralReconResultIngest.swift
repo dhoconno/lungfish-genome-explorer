@@ -58,9 +58,111 @@ public enum ViralReconResultIngest {
 
         let inventory = ViralReconResultInventory.discover(in: resultsDirectory,
                                                           sampleName: sampleName)
+        let copied = try copyOutputsByRole(inventory,
+                                           into: bundleDirectory,
+                                           fileManager: fileManager)
+        try writeResultSidecar(
+            inventory: inventory,
+            copied: copied,
+            referenceBundleURL: destinationReference,
+            resultsDirectory: resultsDirectory,
+            into: bundleDirectory
+        )
         return Ingested(bundleDirectory: bundleDirectory,
                         referenceBundleURL: destinationReference,
                         inventory: inventory)
+    }
+
+    /// The paths, relative to the bundle, of the outputs copied by role.
+    private struct CopiedOutputs {
+        var consensus: String?
+        var lineage: [String] = []
+        var reports: [String] = []
+    }
+
+    /// Copies the sample's outputs into `consensus/`, `lineage/` and `reports/`.
+    ///
+    /// The bundle is self-contained on purpose: the raw nf-core tree stays put
+    /// as provenance, but a bundle that only points into it stops working the
+    /// moment that tree is moved or cleaned up. The role directories are always
+    /// created, even when empty, so the bundle has one predictable shape and a
+    /// reader can tell "the step produced nothing" from "the bundle is
+    /// truncated".
+    private static func copyOutputsByRole(
+        _ inventory: ViralReconResultInventory,
+        into bundleDirectory: URL,
+        fileManager: FileManager
+    ) throws -> CopiedOutputs {
+        var copied = CopiedOutputs()
+
+        for role in ["consensus", "lineage", "reports"] {
+            try fileManager.createDirectory(
+                at: bundleDirectory.appendingPathComponent(role, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        func copy(_ source: URL, role: String) throws -> String? {
+            guard fileManager.fileExists(atPath: source.path) else { return nil }
+            let relative = "\(role)/\(source.lastPathComponent)"
+            let destination = bundleDirectory.appendingPathComponent(relative)
+            guard !fileManager.fileExists(atPath: destination.path) else { return relative }
+            try fileManager.copyItem(at: source, to: destination)
+            return relative
+        }
+
+        if let consensus = inventory.consensusFASTA {
+            copied.consensus = try copy(consensus, role: "consensus")
+        }
+        for lineage in inventory.lineageFiles {
+            if let relative = try copy(lineage, role: "lineage") {
+                copied.lineage.append(relative)
+            }
+        }
+        for report in inventory.reportFiles {
+            if let relative = try copy(report, role: "reports") {
+                copied.reports.append(relative)
+            }
+        }
+        return copied
+    }
+
+    /// Writes `viralrecon-result.json`, the summary sidecar analogous to
+    /// `mapping-result.json`.
+    ///
+    /// Paths are recorded relative to the bundle so the bundle stays valid when
+    /// the project is moved; the raw results directory is recorded absolutely
+    /// because it deliberately lives outside the bundle.
+    private static func writeResultSidecar(
+        inventory: ViralReconResultInventory,
+        copied: CopiedOutputs,
+        referenceBundleURL: URL,
+        resultsDirectory: URL,
+        into bundleDirectory: URL
+    ) throws {
+        var json: [String: Any] = [
+            "schemaVersion": 1,
+            "tool": "viralrecon",
+            "sampleName": inventory.sampleName,
+            "referenceBundlePath": referenceBundleURL.lastPathComponent,
+            "rawResultsPath": resultsDirectory.path,
+            "lineagePaths": copied.lineage,
+            "reportPaths": copied.reports,
+        ]
+        if let consensus = copied.consensus {
+            json["consensusPath"] = consensus
+        }
+        if let bam = inventory.sortedBAM {
+            json["alignmentPath"] = bam.path
+        }
+        if let vcf = inventory.variantVCF {
+            json["variantsPath"] = vcf.path
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: json,
+                                              options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: bundleDirectory.appendingPathComponent("viralrecon-result.json"),
+                       options: .atomic)
     }
 
     /// Ingests a finished run into the project's `Analyses/` directory.
