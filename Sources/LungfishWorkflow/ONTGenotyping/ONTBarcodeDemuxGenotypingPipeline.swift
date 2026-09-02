@@ -952,7 +952,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             request: request,
             resolvedMode: resolvedMode,
             supportDirectory: supportDirectory,
-            pythonURL: pythonURL
+            pythonURL: pythonURL,
+            progressHandler: progressHandler
         )
         let inputSnapshot = inputPlan.inputSnapshot
         let mappingInputFASTQURLs = inputPlan.mappingFASTQURLs
@@ -1951,10 +1952,38 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     struct IlluminaSampleInput {
         let sampleID: String
         let sourceURL: URL
+        /// The sample's reads as imported.
         let fastqURL: URL
+        /// The reads actually handed to minimap2. Equals `fastqURL` unless the
+        /// input held unmerged pairs, in which case it is the bbmerge output.
+        /// See `IlluminaAmpliconPairMerger` for why merging is required before
+        /// the full-reference-span filter can call the 244 bp DRB amplicons.
+        var mappingFASTQURL: URL
         let prefixedFASTQURL: URL
         let readCount: Int
         let readCountSource: String
+        /// How the reads were prepared for mapping, recorded in provenance.
+        var mergeOutcome: IlluminaAmpliconPairMerger.Outcome?
+
+        init(
+            sampleID: String,
+            sourceURL: URL,
+            fastqURL: URL,
+            prefixedFASTQURL: URL,
+            readCount: Int,
+            readCountSource: String,
+            mappingFASTQURL: URL? = nil,
+            mergeOutcome: IlluminaAmpliconPairMerger.Outcome? = nil
+        ) {
+            self.sampleID = sampleID
+            self.sourceURL = sourceURL
+            self.fastqURL = fastqURL
+            self.mappingFASTQURL = mappingFASTQURL ?? fastqURL
+            self.prefixedFASTQURL = prefixedFASTQURL
+            self.readCount = readCount
+            self.readCountSource = readCountSource
+            self.mergeOutcome = mergeOutcome
+        }
     }
 
     private struct IlluminaPreparation {
@@ -2098,7 +2127,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         request: ONTBarcodeDemuxGenotypingRunRequest,
         resolvedMode: AmpliconGenotypingMode,
         supportDirectory: URL,
-        pythonURL: URL
+        pythonURL: URL,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> InputPlan {
         switch resolvedMode {
         case .ontBarcodeDemux:
@@ -2131,7 +2161,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 request: request,
                 mode: resolvedMode,
                 supportDirectory: supportDirectory,
-                pythonURL: pythonURL
+                pythonURL: pythonURL,
+                progressHandler: progressHandler
             )
             let comparisonSnapshotURL = try request.comparisonWorkbookURL.map { comparisonURL in
                 try copyInputSnapshot(
@@ -2197,7 +2228,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         request: ONTBarcodeDemuxGenotypingRunRequest,
         mode: AmpliconGenotypingMode,
         supportDirectory: URL,
-        pythonURL: URL
+        pythonURL: URL,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> IlluminaPreparation {
         let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
         let isONTSampleBundles = mode == .ontSampleBundles
@@ -2207,11 +2239,24 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
 
-        let samples = try await Self.resolveIlluminaSampleInputs(
+        var samples = try await Self.resolveIlluminaSampleInputs(
             from: request.inputFASTQURLs,
             stagingDirectory: stagedDirectory
         )
         _ = pythonURL
+        // Illumina pairs must be merged before mapping: the retained-read filter
+        // requires a full-reference-span exact match, which a single 251 bp mate
+        // cannot achieve against the 244 bp DRB amplicons. Without this the DRB
+        // loci silently genotype as zero. See `IlluminaAmpliconPairMerger`.
+        if mode == .illuminaPaired {
+            samples = try await Self.mergeIlluminaPairsIfNeeded(
+                samples: samples,
+                supportDirectory: supportDirectory,
+                threads: request.threads,
+                condaManager: condaManager,
+                progressHandler: progressHandler
+            )
+        }
         let requiresBothEndSoftclips = isONTSampleBundles
             && samples.allSatisfy { Self.sampleInputRetainsFullReadContext($0.sourceURL) }
 
@@ -2227,7 +2272,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             isONTSampleBundles ? "ont-sample-bundle-manifest.json" : "illumina-sample-manifest.json"
         )
         let sampleItems = samples.map { sample -> [String: Any] in
-            [
+            var item: [String: Any] = [
                 "sample": sample.sampleID,
                 "inputBundle": sample.sourceURL.path,
                 "fastq": sample.fastqURL.path,
@@ -2239,13 +2284,39 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     ? Self.sampleInputRetainsFullReadContext(sample.sourceURL)
                     : false,
             ]
+            if let merge = sample.mergeOutcome {
+                item["pairMerge"] = [
+                    "disposition": merge.disposition.rawValue,
+                    "mergedFragments": merge.mergedCount,
+                    "unmergedReads": merge.unmergedReadCount,
+                    "mappedRecordCount": merge.mappingReadCount,
+                    "mappingFASTQ": sample.mappingFASTQURL.path,
+                    "arguments": merge.arguments,
+                ]
+            }
+            return item
         }
-        let manifest: [String: Any] = [
+        // Surface pair merging at the top level, not only per sample: a reader
+        // checking whether reads were merged should not have to scan every
+        // sample entry to find out.
+        let mergedSamples = samples.filter { $0.mergeOutcome?.didMerge == true }
+        var manifest: [String: Any] = [
             "mode": mode.rawValue,
             "inputReadCount": samples.reduce(0) { $0 + $1.readCount },
             "requiresBothEndSoftclips": requiresBothEndSoftclips,
             "samples": sampleItems,
         ]
+        manifest["pairMergePerformedDuringRun"] = !mergedSamples.isEmpty
+        if !mergedSamples.isEmpty {
+            manifest["pairMergeSummary"] = [
+                "mergedSampleCount": mergedSamples.count,
+                "totalSampleCount": samples.count,
+                "mergedFragments": mergedSamples.reduce(0) { $0 + ($1.mergeOutcome?.mergedCount ?? 0) },
+                "unmergedReads": mergedSamples.reduce(0) { $0 + ($1.mergeOutcome?.unmergedReadCount ?? 0) },
+                "reason": "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time",
+                "tool": "bbmerge.sh",
+            ]
+        }
         let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
         try manifestData.write(to: sampleManifestURL, options: .atomic)
 
@@ -2255,9 +2326,64 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             sampleDefinitionsURL: sampleDefinitionsURL,
             samples: samples,
             sourceFASTQURLs: samples.map(\.fastqURL),
-            mappingFASTQURLs: samples.map(\.fastqURL),
+            mappingFASTQURLs: samples.map(\.mappingFASTQURL),
             requiresBothEndSoftclips: requiresBothEndSoftclips
         )
+    }
+
+    /// Merges each Illumina sample's read pairs so the retained-read filter can
+    /// see full-length amplicons.
+    ///
+    /// Samples whose FASTQ is already single-end/merged are returned unchanged,
+    /// so pre-merged bundles keep their existing behaviour and cost nothing.
+    /// A sample is only rewritten to point at merged reads when bbmerge ran and
+    /// produced records.
+    private static func mergeIlluminaPairsIfNeeded(
+        samples: [IlluminaSampleInput],
+        supportDirectory: URL,
+        threads: Int,
+        condaManager: CondaManager,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> [IlluminaSampleInput] {
+        // Probe first so a fully pre-merged cohort never needs the bbtools env.
+        var pairedIndices: [Int] = []
+        for (index, sample) in samples.enumerated() {
+            if try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(at: sample.fastqURL) {
+                pairedIndices.append(index)
+            }
+        }
+        guard !pairedIndices.isEmpty else { return samples }
+
+        // Say so loudly. Reaching here means the inputs were imported without
+        // the Illumina Amplicon Merge recipe, and the run's read counts and
+        // provenance will differ from a merged-on-import bundle. Silence here
+        // is what let a whole locus class (DRB) report zero unnoticed.
+        progressHandler?(
+            0.23,
+            """
+            \(pairedIndices.count) of \(samples.count) Illumina inputs contain unmerged read pairs. \
+            Merging overlapping pairs before mapping so full-length amplicons \
+            (including the 244 bp DRB loci) can be genotyped. Import with the \
+            Illumina Amplicon Merge recipe to do this at import time instead.
+            """
+        )
+        let bbmergeURL = try await condaManager.toolPath(name: "bbmerge.sh", environment: "bbtools")
+        let mergeDirectory = supportDirectory.appendingPathComponent("illumina-merged-fastqs", isDirectory: true)
+        var updated = samples
+        for index in pairedIndices {
+            let sample = samples[index]
+            let outcome = try await IlluminaAmpliconPairMerger.prepareForMapping(
+                fastqURL: sample.fastqURL,
+                bbmergeURL: bbmergeURL,
+                workingDirectory: mergeDirectory,
+                stem: safeFilenameStem(sample.sampleID),
+                threads: threads
+            )
+            guard outcome.didMerge else { continue }
+            updated[index].mappingFASTQURL = outcome.mappingFASTQURL
+            updated[index].mergeOutcome = outcome
+        }
+        return updated
     }
 
     private static func sampleInputRetainsFullReadContext(_ url: URL) -> Bool {
@@ -2492,7 +2618,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
 
         for sample in samples {
-            for try await record in reader.records(from: sample.fastqURL) {
+            for try await record in reader.records(from: sample.mappingFASTQURL) {
                 let identifier = samplePrefixedIdentifier(for: record, sampleID: sample.sampleID)
                 var text = "@\(identifier)"
                 if let description = record.description {
@@ -2861,7 +2987,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     request: request,
                     resolvedMode: resolvedMode,
                     referenceFASTAURL: referenceFASTAURL,
-                    inputFASTQURLs: [sample.fastqURL],
+                    inputFASTQURLs: [sample.mappingFASTQURL],
                     streamedSampleInputs: [sample],
                     outputBAMURL: sampleBAMURL,
                     minimap2URL: minimap2URL,

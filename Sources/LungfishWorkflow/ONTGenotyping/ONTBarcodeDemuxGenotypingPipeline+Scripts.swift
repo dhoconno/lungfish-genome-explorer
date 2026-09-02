@@ -764,6 +764,24 @@ def display_value(value):
     return number if number is not None else text
 
 
+# The reported read count for a genotype or a sample.
+#
+# `passed_alignments` counts alignment *records*, so an unmerged Illumina pair
+# contributes twice (once per mate) and inflates every number by ~2x relative to
+# the genotype inspector, which reports distinct reads. `passed_unique_reads`
+# counts distinct query names, so the workbook and the browser agree. Fall back
+# to the alignment count only for rows that predate the unique-read column.
+REPORT_READ_COUNT_KEYS = ("passed_unique_reads", "passed_alignments")
+
+
+def report_read_count(row):
+    for key in REPORT_READ_COUNT_KEYS:
+        value = as_number(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
 def load_genotype_counts(rows):
     counts = defaultdict(dict)
     for row in rows:
@@ -771,7 +789,7 @@ def load_genotype_counts(rows):
         genotype = row.get("genotype", "").strip()
         if not sample or not genotype:
             continue
-        count = as_number(row.get("passed_alignments"))
+        count = report_read_count(row)
         if count is None:
             count = 0
         counts[sample][genotype] = counts[sample].get(genotype, 0) + int(count)
@@ -1112,7 +1130,7 @@ def fill_analysis_sheet(ws, genotype_counts, sample_stats, samples):
 
     for col, sample in cols:
         stats = sample_stats.get(sample, {})
-        ws.cell(3, col).value = display_value(stats.get("passed_alignments"))
+        ws.cell(3, col).value = display_value(report_read_count(stats))
 
     matched_by_row_sample = {}
     for row in allele_rows:
@@ -1877,7 +1895,7 @@ def write_interpretation_guide(ws, args, stats, haplotype_analysis, haplotype_de
         ["Field", "Interpretation"],
         ["Client ID", "Client-provided sample identifier."],
         ["GS ID", "Genotyping sample identifier used in the run."],
-        ["Mapped Read Count", "Filtered exact-match read count retained for the sample."],
+        ["Mapped Read Count", "Filtered exact-match reads retained for the sample (distinct reads, matching the genotype inspector)."],
         ["Haplotype 1 / Haplotype 2", "Whole-animal MCM haplotype assignment derived from per-locus calls."],
         ["recM", "Recombinant or mixed-family assignment across reported loci."],
         ["?", "No confident whole-animal haplotype assignment."],
@@ -1944,11 +1962,10 @@ def abbreviated_headers(loci):
 
 def read_count_for_sample(sample_stats, sample):
     row = sample_stats.get(sample, {})
-    return display_value(
-        row.get("passed_alignments")
-        or row.get("passed_unique_reads")
-        or row.get("sample_unique_retained_reads")
-    )
+    count = report_read_count(row)
+    if count is None:
+        count = row.get("sample_unique_retained_reads")
+    return display_value(count)
 
 
 def write_abbreviated_haplotypes(ws, samples, sample_stats, calls_by_sample_locus, loci):
@@ -2253,7 +2270,7 @@ def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers
 
     ws.append(["Animal ID", None, None] + samples)
     ws.append(["GS ID", "Total", "Average"] + samples)
-    ws.append(["Filtered exact-match read count", None, None] + [display_value(sample_stats.get(sample, {}).get("passed_alignments")) for sample in samples])
+    ws.append(["Filtered exact-match read count", None, None] + [display_value(report_read_count(sample_stats.get(sample, {}))) for sample in samples])
     ws.append([])
     ws.append([])
     for locus in haplotype_loci_for_report(haplotype_analysis):

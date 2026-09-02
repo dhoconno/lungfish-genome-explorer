@@ -1606,7 +1606,10 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
         XCTAssertEqual(workbook.samples, ["Animal1", "Animal2"])
         XCTAssertEqual(workbook.sheetName, "TestRun")
-        XCTAssertEqual(workbook.mappedReadCounts, [150, 25])
+        // Distinct reads, not alignment records: an unmerged Illumina pair
+        // contributes two records per fragment, which would report roughly
+        // double what the genotype inspector shows for the same sample.
+        XCTAssertEqual(workbook.mappedReadCounts, [120, 20])
         XCTAssertEqual(workbook.totalReadCounts, [200, 100])
         XCTAssertEqual(workbook.percentReadsUnmapped, [25.0, 40.0])
 

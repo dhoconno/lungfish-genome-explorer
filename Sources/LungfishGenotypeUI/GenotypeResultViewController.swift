@@ -5492,7 +5492,7 @@ public final class GenotypeResultViewController: NSViewController {
         if let entries = annotationStore?.sidecar.auditLog, !entries.isEmpty {
             addAuditSection(title: "Audit Timeline", contents: [makeAuditTimelineHost(entries: entries)])
         }
-        addAuditSection(title: "Share View", contents: [exportViewButton()])
+        addAuditSection(title: "Share View", contents: [exportViewButton(), exportPivotButton()])
         addAuditSection(title: "AI Haplotyping", contents: [makeAIHaplotypingHost()])
         addAuditSection(title: "Current Workbook", contents: [makeCurrentWorkbookUpdateHost()])
         var artifactRows: [NSView] = [
@@ -9616,12 +9616,38 @@ public final class GenotypeResultViewController: NSViewController {
         return stack
     }
 
+    private func exportPivotButton() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 8
+        let button = NSButton(title: "Export Filtered Pivot...", target: self, action: #selector(exportPivotView(_:)))
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.toolTip = "Export the samples-across pivot workbook with the current Min Reads and Min Percent thresholds already applied."
+        stack.addArrangedSubview(button)
+        stack.addArrangedSubview(
+            caption("Applies Min Reads and Min Percent while writing, so background rows are dropped instead of hidden by hand.")
+        )
+        return stack
+    }
+
     @objc private func exportExcelView(_ sender: Any?) {
+        presentViewExportPanel(format: .excel, filenameSuffix: "genotype-view")
+    }
+
+    @objc private func exportPivotView(_ sender: Any?) {
+        presentViewExportPanel(format: .pivotExcel, filenameSuffix: "genotype-pivot")
+    }
+
+    private func presentViewExportPanel(
+        format: GenotypeViewportExportFormat,
+        filenameSuffix: String
+    ) {
         guard let result else { return }
-        let format = GenotypeViewportExportFormat.excel
         let panel = NSSavePanel()
         panel.title = "Export Genotype View"
-        panel.nameFieldStringValue = "\(result.manifest.outputName)-genotype-view.\(format.fileExtension)"
+        panel.nameFieldStringValue = "\(result.manifest.outputName)-\(filenameSuffix).\(format.fileExtension)"
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
