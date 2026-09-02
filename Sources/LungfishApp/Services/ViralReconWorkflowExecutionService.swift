@@ -141,7 +141,11 @@ final class ViralReconWorkflowExecutionService {
                     errorDetail: String(describing: error)
                 )
             }
-            throw error
+            // Past this point the run owns an operation row and every failure
+            // has just been reported on it, with the stderr tail attached. The
+            // marker stops the caller adding a second, poorer failed row for
+            // the same run.
+            throw ViralReconReportedFailure(underlying: error)
         }
 
         return RunResult(
@@ -149,6 +153,22 @@ final class ViralReconWorkflowExecutionService {
             bundleURL: bundleURL,
             operationItem: operationCenter.items.first { $0.id == operationID }
         )
+    }
+
+    /// Whether this error was already reported on the run's own operation row.
+    ///
+    /// `run()` registers an operation row partway through, so its failures fall
+    /// into two kinds. A failure before registration has nowhere to be seen and
+    /// the caller must report it. A failure after registration is already a
+    /// failed row carrying the stderr tail, and reporting it again gives the
+    /// user two failed rows for one run.
+    static func failureWasReportedOnItsOperationRow(_ error: Error) -> Bool {
+        if error is ViralReconReportedFailure { return true }
+        // A non-zero exit is only ever produced after the row exists and has
+        // been failed with the stderr tail, so it counts as reported even when
+        // it reaches a caller unwrapped.
+        if case .nonZeroExit = error as? ViralReconWorkflowExecutionError { return true }
+        return false
     }
 
     /// Builds the viewable bundle from a finished run.
@@ -655,6 +675,26 @@ protocol ViralReconWorkflowProcessRunning {
     ) async throws -> ViralReconWorkflowProcessResult
 
     func cancel()
+}
+
+/// A Viral Recon failure that already has a failed operation row of its own.
+///
+/// Carries the original error so callers that inspect it, and any message shown
+/// to the user, are unchanged by the wrapping.
+struct ViralReconReportedFailure: Error, LocalizedError {
+    let underlying: Error
+
+    var errorDescription: String? { underlying.localizedDescription }
+}
+
+extension Error {
+    /// The failure behind a reported-failure wrapper, or self when unwrapped.
+    ///
+    /// Callers that switch on the concrete failure keep working whether or not
+    /// the run had got as far as owning an operation row.
+    var viralReconUnderlyingFailure: Error {
+        (self as? ViralReconReportedFailure)?.underlying ?? self
+    }
 }
 
 enum ViralReconWorkflowExecutionError: Error, Equatable, LocalizedError {

@@ -1081,6 +1081,11 @@ extension AppDelegate {
     /// failure lands in the Operations panel like every other tool's does.
     ///
     /// Cancellation is a user decision, not a defect, and is not reported.
+    ///
+    /// A failure the run already reported on its own row is not reported again
+    /// either. `run()` throws for post-registration failures too, and those
+    /// rows already carry the stderr tail, so a second row here showed the user
+    /// the same run failing twice with the less useful message winning.
     @discardableResult
     static func reportViralReconLaunchFailure(
         _ error: Error,
@@ -1088,6 +1093,9 @@ extension AppDelegate {
         routeContext: OperationRouteContext?
     ) -> UUID? {
         if error is CancellationError { return nil }
+        if ViralReconWorkflowExecutionService.failureWasReportedOnItsOperationRow(error) {
+            return nil
+        }
         let reason = error.localizedDescription
         let operationID = operationCenter.start(
             title: "Viral Recon",

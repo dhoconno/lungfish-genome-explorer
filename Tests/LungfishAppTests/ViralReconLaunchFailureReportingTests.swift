@@ -41,7 +41,7 @@ final class ViralReconLaunchFailureReportingTests: XCTestCase {
         let center = OperationCenter()
 
         AppDelegate.reportViralReconLaunchFailure(
-            ViralReconWorkflowExecutionError.nonZeroExit(2),
+            ViralReconWorkflowExecutionError.missingWorkflowDefinition,
             operationCenter: center,
             routeContext: nil
         )
@@ -51,6 +51,23 @@ final class ViralReconLaunchFailureReportingTests: XCTestCase {
             item.logEntries.contains { $0.level == .error },
             "the launch failure must appear in the row's history, not only in debugLog"
         )
+    }
+
+    // H-1: a non-zero exit is thrown only AFTER the run registered its own
+    // operation row and failed that row with the stderr tail attached. Adding a
+    // second row here showed the user two failed Viral Recon rows for one run,
+    // the second one carrying strictly less information than the first.
+    func testAFailureTheRunAlreadyReportedDoesNotCreateASecondRow() {
+        let center = OperationCenter()
+
+        let reported = AppDelegate.reportViralReconLaunchFailure(
+            ViralReconWorkflowExecutionError.nonZeroExit(2),
+            operationCenter: center,
+            routeContext: nil
+        )
+
+        XCTAssertNil(reported)
+        XCTAssertTrue(center.items.isEmpty)
     }
 
     // A cancelled launch is a user decision, not a defect, and must not leave a

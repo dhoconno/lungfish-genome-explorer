@@ -395,7 +395,10 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             )
             XCTFail("Expected Viral Recon service to throw for a non-zero CLI exit")
         } catch {
-            XCTAssertEqual(error as? ViralReconWorkflowExecutionError, .nonZeroExit(2))
+            XCTAssertEqual(
+                error.viralReconUnderlyingFailure as? ViralReconWorkflowExecutionError,
+                .nonZeroExit(2)
+            )
         }
 
         let item = try XCTUnwrap(operationCenter.items.first)
@@ -406,6 +409,75 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.errorDetail?.contains("bad params") == true)
         XCTAssertFalse(item.errorDetail?.components(separatedBy: .newlines).contains("stderr line 1") == true)
         XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("bad params") })
+    }
+
+    // H-1: a run that fails AFTER registering its own operation row has already
+    // reported that failure on the row, with the stderr tail attached. The
+    // caller must be able to tell, or it adds a second, less informative failed
+    // row for the same run and the user sees the run fail twice.
+    func testPostRegistrationFailureIsMarkedAsAlreadyReported() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let runner = StubViralReconProcessRunner(result: .init(
+            exitCode: 2,
+            standardOutput: "",
+            standardError: "bad params"
+        ))
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        do {
+            _ = try await service.run(
+                request,
+                bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+            )
+            XCTFail("Expected Viral Recon service to throw for a non-zero CLI exit")
+        } catch {
+            XCTAssertTrue(
+                ViralReconWorkflowExecutionService.failureWasReportedOnItsOperationRow(error),
+                "a post-registration failure must tell the caller it is already on a row"
+            )
+        }
+
+        XCTAssertEqual(operationCenter.items.count, 1)
+    }
+
+    // A failure BEFORE the row exists carries no such marker, so the caller
+    // still has to report it or the user sees nothing happen at all.
+    func testPreRegistrationFailureIsNotMarkedAsAlreadyReported() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp, executor: .conda)
+        let operationCenter = OperationCenter()
+        let runner = StubViralReconProcessRunner(
+            result: .init(exitCode: 0, standardOutput: "", standardError: "")
+        )
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        do {
+            _ = try await service.run(
+                request,
+                bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+            )
+            XCTFail("Expected an unsupported executor to be refused")
+        } catch {
+            XCTAssertFalse(
+                ViralReconWorkflowExecutionService.failureWasReportedOnItsOperationRow(error)
+            )
+        }
+
+        XCTAssertTrue(operationCenter.items.isEmpty)
     }
 
     // conda and local reach no working run, so they must be refused before any
