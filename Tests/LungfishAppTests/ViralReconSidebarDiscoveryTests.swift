@@ -81,6 +81,89 @@ final class ViralReconSidebarDiscoveryTests: XCTestCase {
         XCTAssertEqual(node.type, .analysisResult)
     }
 
+    // H-2: a real run leaves three things in Analyses/ -- the raw nf-core
+    // output tree, the .lungfishrun run bundle, and the ingested analysis. Only
+    // the last is meant to be seen. The scanner used to get nil from
+    // analysisInfo for the raw tree and fall through to scanTree, which walks
+    // the whole thing with no depth limit, so the user got the intended node
+    // plus a browsable dump of pipeline internals.
+    func testScannerShowsOnlyTheIngestedAnalysisNotThePipelineInternals() throws {
+        let analysesURL = projectURL.appendingPathComponent(
+            AnalysesFolder.directoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: analysesURL, withIntermediateDirectories: true)
+
+        // The raw nf-core output tree, as the wizard names it.
+        let rawResults = analysesURL.appendingPathComponent(
+            "viralrecon-results-abc123", isDirectory: true)
+        for relative in ["pipeline_info/execution_report.html",
+                         "variants/bowtie2/S1.sorted.bam",
+                         "multiqc/multiqc_report.html"] {
+            let url = rawResults.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: url)
+        }
+
+        // The run bundle the service writes beside it.
+        let runBundle = analysesURL.appendingPathComponent(
+            "viralrecon.\(NFCoreRunBundleStore.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: runBundle.appendingPathComponent("logs", isDirectory: true),
+            withIntermediateDirectories: true)
+        try Data().write(to: runBundle.appendingPathComponent("logs/nextflow.log"))
+
+        // The good ingested analysis.
+        _ = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+
+        let nodes = SidebarProjectScanner.collectAnalyses(in: projectURL)
+
+        XCTAssertEqual(
+            nodes.count, 1,
+            "one run must yield exactly one sidebar node, not the raw output tree "
+                + "and the run bundle as well. Got: \(nodes.map(\.title))"
+        )
+        XCTAssertEqual(nodes.first?.userInfo["analysisTool"] as? String, "viralrecon")
+    }
+
+    func testRawResultsAndRunBundleAreHiddenFromTheAnalysesScanner() {
+        let analysesURL = projectURL.appendingPathComponent(
+            AnalysesFolder.directoryName, isDirectory: true)
+
+        XCTAssertFalse(
+            SidebarProjectScanner.shouldIncludeEntry(
+                analysesURL.appendingPathComponent("viralrecon-results-abc123", isDirectory: true),
+                isDirectory: true,
+                context: .analysesDirectory
+            )
+        )
+        XCTAssertFalse(
+            SidebarProjectScanner.shouldIncludeEntry(
+                analysesURL.appendingPathComponent(
+                    "viralrecon.\(NFCoreRunBundleStore.directoryExtension)", isDirectory: true),
+                isDirectory: true,
+                context: .analysesDirectory
+            )
+        )
+    }
+
+    // A user directory that merely mentions the tool is still theirs to see.
+    func testAnUnrelatedUserFolderIsNotHiddenByTheNewRule() {
+        let analysesURL = projectURL.appendingPathComponent(
+            AnalysesFolder.directoryName, isDirectory: true)
+
+        XCTAssertTrue(
+            SidebarProjectScanner.shouldIncludeEntry(
+                analysesURL.appendingPathComponent("viralrecon notes", isDirectory: true),
+                isDirectory: true,
+                context: .analysesDirectory
+            )
+        )
+    }
+
     func testScannerHasAnIconAndItemTypeForViralRecon() {
         XCTAssertNotEqual(SidebarProjectScanner.analysisIcon(for: "viralrecon"), "circle",
                           "Viral Recon needs its own icon, not the fallback")
