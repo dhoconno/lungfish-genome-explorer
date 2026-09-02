@@ -436,6 +436,7 @@ enum SidebarProjectScanner {
             "source-files.json",
             "taxtriage-batch-manifest.json",
             "taxtriage-result.json",
+            "viralrecon-result.json",
         ]
         return internalJSONFilenames.contains(name)
     }

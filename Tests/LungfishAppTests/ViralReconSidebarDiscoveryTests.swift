@@ -170,6 +170,25 @@ final class ViralReconSidebarDiscoveryTests: XCTestCase {
         XCTAssertEqual(SidebarProjectScanner.analysisItemType(for: "viralrecon"), .analysisResult)
     }
 
+    // M-1: every sibling tool's result sidecar is hidden from the sidebar.
+    // Viral Recon's was missing from the list, so its internal summary showed
+    // up as a user-visible file inside the analysis.
+    func testTheResultSidecarIsHiddenLikeEveryOtherToolsIs() throws {
+        _ = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+
+        let analysis = try XCTUnwrap(try AnalysesFolder.listAnalyses(in: projectURL).first)
+        let sidecar = analysis.url.appendingPathComponent("viralrecon-result.json")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: sidecar.path),
+            "the sidecar this test hides must actually be the one ingest writes"
+        )
+        XCTAssertTrue(SidebarProjectScanner.isInternalSidecarFile(sidecar))
+    }
+
     // MARK: - Multi-sample
 
     func testMultiSampleRunIngestsAsABatchDiscoverableBySidebar() throws {
