@@ -50,6 +50,27 @@ final class FreyjaCommandTests: XCTestCase {
 
         XCTAssertTrue(subcommands.contains("FreyjaCommand"))
     }
+
+    func testDemixCommandOmitsSampleFlagRemovedInFreyja2() throws {
+        // Freyja 2.0.3, the version pinned in the tools lock, has no --sample
+        // option: passing it aborts with "No such option '--sample'". The sample
+        // identifier is still recorded in the plan and provenance, it just is not
+        // handed to the tool.
+        let plan = FreyjaDemixPlan(
+            configuration: FreyjaDemixConfiguration(
+                variantsURL: URL(fileURLWithPath: "/tmp/v.tsv"),
+                depthsURL: URL(fileURLWithPath: "/tmp/d.tsv"),
+                outputDirectory: URL(fileURLWithPath: "/tmp/out"),
+                sampleName: "WW-001"
+            ),
+            toolVersion: "2.0.3",
+            runtimeIdentity: "test"
+        )
+
+        XCTAssertFalse(plan.command.contains("--sample"), plan.shellCommand)
+        XCTAssertFalse(plan.command.contains("WW-001"), plan.shellCommand)
+        XCTAssertEqual(plan.options["sampleName"], "WW-001")
+    }
 }
 
 private func write(_ name: String, contents: String, in directory: URL) throws -> URL {

@@ -327,7 +327,7 @@ struct ViralReconWizardSheet: View {
     private var skipSection: some View {
         section("Skip Options") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], alignment: .leading, spacing: 8) {
-                ForEach(ViralReconSkipOption.allCases, id: \.self) { option in
+                ForEach(ViralReconSkipOption.selectable, id: \.self) { option in
                     Toggle(option.displayName, isOn: binding(for: option))
                         .toggleStyle(.checkbox)
                 }
@@ -1126,7 +1126,7 @@ private extension ViralReconSkipOption {
         case .freyja:
             return "Freyja lineage abundance"
         case .freyjaBoot:
-            return "Freyja bootstrap (fails on Apple Silicon)"
+            return "Freyja bootstrap"
         }
     }
 }

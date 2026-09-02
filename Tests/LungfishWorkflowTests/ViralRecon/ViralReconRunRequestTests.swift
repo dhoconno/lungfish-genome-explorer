@@ -58,16 +58,41 @@ final class ViralReconRunRequestTests: XCTestCase {
         XCTAssertTrue(args.contains(output.path))
     }
 
-    func testFreyjaSkipOptionsEmitTheirPipelineParameters() throws {
-        // Freyja's bootstrap step runs an amd64-only container whose parallel
-        // workers are killed under Apple Silicon emulation, failing the whole
-        // run after every scientific output has already been published. The
-        // pipeline can skip the bootstrap alone, or Freyja entirely, but only
-        // if the request can express it.
-        XCTAssertEqual(ViralReconSkipOption.freyja.rawValue, "skip_freyja")
-        XCTAssertEqual(ViralReconSkipOption.freyjaBoot.rawValue, "skip_freyja_boot")
+    func testFreyjaIsAlwaysSkippedRegardlessOfSelectedOptions() throws {
+        // Lungfish ships for Apple Silicon only, and viralrecon pins Freyja to an
+        // amd64-only container whose parallel bootstrap workers are killed under
+        // emulation. There is no configuration in which running it here helps, so
+        // the parameters are emitted whatever the caller selected. Freyja itself
+        // is not the problem: Lungfish runs it natively from its own tool pack.
+        let request = try makeFreyjaTestRequest(skipOptions: [])
 
-        let request = try ViralReconRunRequest(
+        let args = request.cliArguments(bundlePath: URL(fileURLWithPath: "/tmp/run/viralrecon.lungfishrun"))
+
+        XCTAssertTrue(args.contains("skip_freyja=true"))
+        XCTAssertTrue(args.contains("skip_freyja_boot=true"))
+    }
+
+    func testFreyjaSkipCannotBeTurnedOffByAdvancedParameters() throws {
+        // An advanced parameter must not be able to re-enable a step that cannot
+        // succeed on this architecture. Skip parameters are already reserved as
+        // generated keys, so the request refuses them outright.
+        XCTAssertThrowsError(
+            try ViralReconRunRequest.validateAdvancedParams(["skip_freyja": "false"])
+        ) { error in
+            XCTAssertEqual(
+                error as? ViralReconRunRequest.ValidationError,
+                .conflictingAdvancedParam("skip_freyja")
+            )
+        }
+        XCTAssertThrowsError(
+            try ViralReconRunRequest.validateAdvancedParams(["skip_freyja_boot": "false"])
+        )
+    }
+
+    private func makeFreyjaTestRequest(
+        skipOptions: [ViralReconSkipOption]
+    ) throws -> ViralReconRunRequest {
+        try ViralReconRunRequest(
             samples: [
                 ViralReconSample(
                     sampleName: "SARS2_A",
@@ -96,20 +121,9 @@ final class ViralReconRunRequestTests: XCTestCase {
             minimumMappedReads: 1000,
             variantCaller: .ivar,
             consensusCaller: .bcftools,
-            skipOptions: [.freyjaBoot],
+            skipOptions: skipOptions,
             advancedParams: [:]
         )
-
-        let args = request.cliArguments(bundlePath: URL(fileURLWithPath: "/tmp/run/viralrecon.lungfishrun"))
-
-        XCTAssertTrue(args.contains("skip_freyja_boot=true"))
-        XCTAssertFalse(args.contains("skip_freyja=true"))
-    }
-
-    func testFreyjaBootIsSkippedByDefaultOnAppleSilicon() {
-        // The default set the wizard opens with must not include a step that
-        // cannot succeed on this architecture.
-        XCTAssertTrue(ViralReconSkipOption.defaultSelection.contains(.freyjaBoot))
     }
 
     func testAdvancedParamsRejectGeneratedKeys() {
