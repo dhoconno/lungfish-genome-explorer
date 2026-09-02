@@ -159,6 +159,90 @@ final class ViralReconSidebarDiscoveryTests: XCTestCase {
         XCTAssertEqual(json["referenceBundlePath"] as? String, "MN908947.3.lungfishref")
     }
 
+    // MARK: - Publication
+
+    // Publication is what makes the alignment and variants visible. Firing it
+    // into a detached Task discarded every error and let the operation complete
+    // before it finished, so a bundle that shows nothing looked like a success.
+    func testPublicationFailureReachesTheCaller() async throws {
+        // A reference bundle with no readable manifest cannot receive tracks.
+        try Data("not json".utf8).write(
+            to: referenceBundleURL.appendingPathComponent("manifest.json"))
+
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+
+        do {
+            _ = try await ViralReconViewerPublication.publish(
+                ingested: try XCTUnwrap(ingested.first))
+            XCTFail("publication into an unreadable bundle must not report success")
+        } catch {
+            // The error reaching here at all is the point: it used to be
+            // swallowed by `try?` inside a detached Task.
+        }
+    }
+
+    func testLiveIngestSurfacesAPublicationFailureRatherThanDiscardingIt() async throws {
+        try Data("not json".utf8).write(
+            to: referenceBundleURL.appendingPathComponent("manifest.json"))
+        // The live ingest looks the reference bundle up by convention, so put
+        // it where the catalog expects to find it.
+        let expected = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        try FileManager.default.createDirectory(at: expected.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: referenceBundleURL, to: expected)
+
+        let context = ViralReconWorkflowExecutionService.ResultIngestContext(
+            resultsDirectory: resultsURL,
+            runBundleURL: root.appendingPathComponent("run.lungfishrun", isDirectory: true),
+            sampleNames: ["S1"],
+            projectURL: projectURL)
+
+        do {
+            try await ViralReconWorkflowExecutionService.liveResultIngest(context)
+            XCTFail("a publication failure must not be reported as a successful ingest")
+        } catch {
+            // Routed to the caller's warning handler instead of vanishing.
+        }
+    }
+
+    // One sample failing to publish must not cost the others their tracks, so
+    // every sample is attempted before the failure is rethrown.
+    func testEverySampleIsIngestedEvenWhenOneFailsToPublish() async throws {
+        try Data("not json".utf8).write(
+            to: referenceBundleURL.appendingPathComponent("manifest.json"))
+        let expected = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        try FileManager.default.createDirectory(at: expected.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: referenceBundleURL, to: expected)
+        for relative in ["variants/bowtie2/S2.sorted.bam"] {
+            let url = resultsURL.appendingPathComponent(relative)
+            try Data().write(to: url)
+        }
+
+        let context = ViralReconWorkflowExecutionService.ResultIngestContext(
+            resultsDirectory: resultsURL,
+            runBundleURL: root.appendingPathComponent("run.lungfishrun", isDirectory: true),
+            sampleNames: ["S1", "S2"],
+            projectURL: projectURL)
+
+        do {
+            try await ViralReconWorkflowExecutionService.liveResultIngest(context)
+            XCTFail("the publication failure must still be reported")
+        } catch {
+            // Expected.
+        }
+
+        let analyses = try AnalysesFolder.listAnalyses(in: projectURL)
+        let batch = try XCTUnwrap(analyses.first { $0.isBatch })
+        let samples = try FileManager.default.contentsOfDirectory(atPath: batch.url.path)
+            .filter { $0 != AnalysesFolder.metadataFilename }
+        XCTAssertEqual(samples.count, 2, "both samples must still have a bundle")
+    }
+
     func testRawOutputIsPreservedNotMoved() throws {
         _ = try ViralReconResultIngest.ingestRun(
             resultsDirectory: resultsURL,

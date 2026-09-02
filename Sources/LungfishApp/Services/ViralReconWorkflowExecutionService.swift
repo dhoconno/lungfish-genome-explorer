@@ -207,8 +207,25 @@ final class ViralReconWorkflowExecutionService {
             referenceBundleURL: referenceBundleURL,
             projectURL: projectURL
         )
+        // Awaited rather than fired into a detached Task. Publication is what
+        // makes the alignment and variants visible, so discarding its error
+        // left a bundle that shows nothing while the operation reported
+        // success, and completed the operation before publication had even
+        // finished.
+        //
+        // Every sample is attempted before anything is thrown: one sample
+        // failing to publish must not cost the others their tracks. The first
+        // failure is then rethrown so it reaches the caller's warning handler.
+        var publicationFailure: Error?
         for entry in ingested {
-            Task { try? await ViralReconViewerPublication.publish(ingested: entry) }
+            do {
+                try await ViralReconViewerPublication.publish(ingested: entry)
+            } catch {
+                publicationFailure = publicationFailure ?? error
+            }
+        }
+        if let publicationFailure {
+            throw publicationFailure
         }
     }
 
