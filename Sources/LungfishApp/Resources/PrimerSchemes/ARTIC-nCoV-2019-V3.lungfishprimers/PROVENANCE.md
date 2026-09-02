@@ -33,12 +33,12 @@ scripts/build-primer-bundle.swift --name ARTIC-nCoV-2019-V3 --display-name 'ARTI
 | --organism | Severe acute respiratory syndrome coronavirus 2 |
 | --canonical | MN908947.3 |
 | --equivalent | NC_045512.2 |
-| --bed | /Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/scripts/inputs/artic-ncov2019-V3-primers.bed |
+| --bed | scripts/inputs/artic-ncov2019-V3-primers.bed |
 | --fasta | (not supplied) |
 | --source-url | https://github.com/artic-network/artic-ncov2019/tree/master/primer_schemes/nCoV-2019/V3 |
 | --source | built-in |
 | --version | 1.0.0 |
-| --output | /Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers |
+| --output | Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers |
 
 ## Reference Verification
 
@@ -58,15 +58,15 @@ scripts/build-primer-bundle.swift --name ARTIC-nCoV-2019-V3 --display-name 'ARTI
 
 | Label | Path | Size bytes | SHA-256 |
 |---|---|---:|---|
-| Source BED | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/scripts/inputs/artic-ncov2019-V3-primers.bed` | 9839 | `6e98d7d5d1c6edac8ef0bac70d698e0828ae42bafe8f3bda0a6257d00ce414b5` |
+| Source BED | `scripts/inputs/artic-ncov2019-V3-primers.bed` | 9839 | `6e98d7d5d1c6edac8ef0bac70d698e0828ae42bafe8f3bda0a6257d00ce414b5` |
 
 ## Outputs
 
 | Label | Path | Size bytes | SHA-256 |
 |---|---|---:|---|
-| Bundle directory | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers` | 0 | `(directory)` |
-| Manifest | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers/manifest.json` | 701 | `b23c1aa7a1bb1698c108d4c88b7b9c892e325019a606b2ee23f8e2996867cce7` |
-| Bundled BED | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers/primers.bed` | 9839 | `6e98d7d5d1c6edac8ef0bac70d698e0828ae42bafe8f3bda0a6257d00ce414b5` |
+| Bundle directory | `Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers` | 0 | `(directory)` |
+| Manifest | `Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers/manifest.json` | 701 | `b23c1aa7a1bb1698c108d4c88b7b9c892e325019a606b2ee23f8e2996867cce7` |
+| Bundled BED | `Sources/LungfishApp/Resources/PrimerSchemes/ARTIC-nCoV-2019-V3.lungfishprimers/primers.bed` | 9839 | `6e98d7d5d1c6edac8ef0bac70d698e0828ae42bafe8f3bda0a6257d00ce414b5` |
 
 ## Stderr
 

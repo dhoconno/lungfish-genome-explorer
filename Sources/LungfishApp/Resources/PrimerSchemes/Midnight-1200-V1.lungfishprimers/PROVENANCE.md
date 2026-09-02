@@ -33,12 +33,12 @@ scripts/build-primer-bundle.swift --name Midnight-1200-V1 --display-name 'Midnig
 | --organism | Severe acute respiratory syndrome coronavirus 2 |
 | --canonical | MN908947.3 |
 | --equivalent | NC_045512.2 |
-| --bed | /Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/scripts/inputs/artic-midnight-1200-V1-primers.bed |
+| --bed | scripts/inputs/artic-midnight-1200-V1-primers.bed |
 | --fasta | (not supplied) |
 | --source-url | https://github.com/nf-core/test-datasets/tree/viralrecon/genome/MN908947.3/primer_schemes/artic/nCoV-2019/V1200 |
 | --source | built-in |
 | --version | 1.0.0 |
-| --output | /Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers |
+| --output | Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers |
 
 ## Reference Verification
 
@@ -58,15 +58,15 @@ scripts/build-primer-bundle.swift --name Midnight-1200-V1 --display-name 'Midnig
 
 | Label | Path | Size bytes | SHA-256 |
 |---|---|---:|---|
-| Source BED | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/scripts/inputs/artic-midnight-1200-V1-primers.bed` | 2579 | `f46125b0ca73f7ef4269c29c74246da5fde45753ade905928ec7427688e6b20a` |
+| Source BED | `scripts/inputs/artic-midnight-1200-V1-primers.bed` | 2579 | `f46125b0ca73f7ef4269c29c74246da5fde45753ade905928ec7427688e6b20a` |
 
 ## Outputs
 
 | Label | Path | Size bytes | SHA-256 |
 |---|---|---:|---|
-| Bundle directory | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers` | 0 | `(directory)` |
-| Manifest | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers/manifest.json` | 736 | `e0d44aae5dd9e5dc118b37549bf6fa9f7104f46564ea1f115bd6daa6855fe1a3` |
-| Bundled BED | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers/primers.bed` | 2579 | `f46125b0ca73f7ef4269c29c74246da5fde45753ade905928ec7427688e6b20a` |
+| Bundle directory | `Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers` | 0 | `(directory)` |
+| Manifest | `Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers/manifest.json` | 736 | `e0d44aae5dd9e5dc118b37549bf6fa9f7104f46564ea1f115bd6daa6855fe1a3` |
+| Bundled BED | `Sources/LungfishApp/Resources/PrimerSchemes/Midnight-1200-V1.lungfishprimers/primers.bed` | 2579 | `f46125b0ca73f7ef4269c29c74246da5fde45753ade905928ec7427688e6b20a` |
 
 ## Stderr
 

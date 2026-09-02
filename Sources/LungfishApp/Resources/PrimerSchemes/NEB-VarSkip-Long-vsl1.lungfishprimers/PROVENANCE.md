@@ -33,12 +33,12 @@ scripts/build-primer-bundle.swift --name NEB-VarSkip-Long-vsl1 --display-name 'N
 | --organism | Severe acute respiratory syndrome coronavirus 2 |
 | --canonical | MN908947.3 |
 | --equivalent | NC_045512.2 |
-| --bed | /Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/scripts/inputs/neb-varskip-long-vsl1-primers.bed |
+| --bed | scripts/inputs/neb-varskip-long-vsl1-primers.bed |
 | --fasta | (not supplied) |
 | --source-url | https://github.com/nf-core/test-datasets/tree/viralrecon/genome/MN908947.3/primer_schemes/NEB/nCov-2019/vsl1 |
 | --source | built-in |
 | --version | 1.0.0 |
-| --output | /Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers |
+| --output | Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers |
 
 ## Reference Verification
 
@@ -58,15 +58,15 @@ scripts/build-primer-bundle.swift --name NEB-VarSkip-Long-vsl1 --display-name 'N
 
 | Label | Path | Size bytes | SHA-256 |
 |---|---|---:|---|
-| Source BED | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/scripts/inputs/neb-varskip-long-vsl1-primers.bed` | 2756 | `3dc2b39d7023ab6ce7006d56da2609457e575404cb769c22de5043e4c9b7b107` |
+| Source BED | `scripts/inputs/neb-varskip-long-vsl1-primers.bed` | 2756 | `3dc2b39d7023ab6ce7006d56da2609457e575404cb769c22de5043e4c9b7b107` |
 
 ## Outputs
 
 | Label | Path | Size bytes | SHA-256 |
 |---|---|---:|---|
-| Bundle directory | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers` | 0 | `(directory)` |
-| Manifest | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers/manifest.json` | 715 | `5ae8db053411751ecc9a25889481a15af2efbf6fde87cd3fc1555f6c142964bd` |
-| Bundled BED | `/Users/dho/Documents/lungfish-genome-explorer/.claude/worktrees/viral-recon-primer-schemes-fed991/Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers/primers.bed` | 2756 | `3dc2b39d7023ab6ce7006d56da2609457e575404cb769c22de5043e4c9b7b107` |
+| Bundle directory | `Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers` | 0 | `(directory)` |
+| Manifest | `Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers/manifest.json` | 715 | `5ae8db053411751ecc9a25889481a15af2efbf6fde87cd3fc1555f6c142964bd` |
+| Bundled BED | `Sources/LungfishApp/Resources/PrimerSchemes/NEB-VarSkip-Long-vsl1.lungfishprimers/primers.bed` | 2756 | `3dc2b39d7023ab6ce7006d56da2609457e575404cb769c22de5043e4c9b7b107` |
 
 ## Stderr
 
