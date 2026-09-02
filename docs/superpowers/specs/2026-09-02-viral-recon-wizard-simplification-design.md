@@ -87,9 +87,11 @@ Four, in this order. The reference control is removed entirely.
    It reports reference acquisition, so a first run that must download
    MN908947.3 explains the wait rather than appearing stalled.
 
-The reference is resolved automatically, as specified in the track A design: the
-project's MN908947.3 bundle when present, otherwise downloaded from NCBI GenBank.
-The user is never asked to choose it and cannot choose it wrongly.
+The reference is hard-coded to MN908947.3, as specified in the track A design.
+It is used from `Downloads/MN908947.3.lungfishref` when that exists and
+downloaded from NCBI GenBank when it does not. The user is never asked to choose
+it, cannot choose it wrongly, and no other project bundle is ever substituted
+for it.
 
 ### Invisible defaults
 
@@ -125,8 +127,9 @@ in the same change.
 
 ## Testing
 
-- Reference resolution: matching bundle present, absent and downloaded, and
-  scheme mismatch refused.
+- Reference acquisition: the hard-coded bundle already present is used, and its
+  absence triggers a download. No other project bundle is ever substituted, including
+  one built from the equivalent NC_045512.2 accession.
 - Advanced parsing: tuning keys override defaults, structural keys refused,
   Freyja skips refused, unknown names refused by schema validation.
 - Executor: conda and local refused at launch with an actionable message, and the

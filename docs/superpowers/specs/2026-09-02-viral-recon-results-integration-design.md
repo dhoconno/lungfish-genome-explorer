@@ -47,28 +47,31 @@ it instead, and passes it in.
 
 Viral Recon is a SARS-CoV-2 tool. Every bundled primer scheme declares
 `organism` as severe acute respiratory syndrome coronavirus 2 and names
-MN908947.3 as its canonical accession, with NC_045512.2 recorded as an
-equivalent. There is no configuration in which some other genome is correct,
-because the primer schemes would not apply to it.
+MN908947.3 as its canonical accession. There is no configuration in which some
+other genome is correct, because the primer schemes would not apply to it.
 
-The reference is therefore fixed, not chosen. Before a run starts, Lungfish
-resolves MN908947.3 to a real `.lungfishref` bundle: it uses the project's copy
-when one is present, and otherwise downloads it from NCBI GenBank through the
-existing fetch path, which already retrieves sequence plus GFF3 annotations and
-builds a bundle with indices. That bundle is handed to the pipeline explicitly
-rather than letting `--genome` resolve to a remote URL.
+The reference is therefore hard-coded, not chosen and not searched for. Viral
+Recon uses MN908947.3, defined as a single constant rather than a wizard default
+string, which is how the accession is expressed today.
 
-The schemes record NC_045512.2 as biologically equivalent, and it is the same
-genome, but equivalence is not interchangeability here. A bundle built from
-NC_045512.2 carries that identifier in its FASTA header, and the primer BED is
-written against MN908947.3, so handing it to the pipeline would produce an
-alignment the trimming step cannot match. Only a bundle whose sequence identifier
-is MN908947.3 is used directly. When the project holds only the NC_045512.2 form,
-MN908947.3 is downloaded rather than substituted.
+Acquisition has exactly two outcomes:
 
-This is the same identifier trap described above, and it is the reason the
-resolution rule is stated in terms of the sequence identifier rather than the
-organism.
+1. `Downloads/MN908947.3.lungfishref` exists in the project. Use it.
+2. It does not. Download it from NCBI GenBank through the existing fetch path,
+   which retrieves sequence plus GFF3 annotations and builds a `.lungfishref`
+   with indices, then use it.
+
+That bundle is handed to the pipeline explicitly rather than letting `--genome`
+resolve to a remote URL, and it is the same bundle the results are published
+into.
+
+There is deliberately no matching of the requested reference against other
+bundles in the project. The scheme manifests record NC_045512.2 as biologically
+equivalent, and it is the same genome, but equivalence is not interchangeability:
+a bundle built from NC_045512.2 carries that identifier in its FASTA header while
+the primer BED is written against MN908947.3, so the trimming step would find
+nothing to match and the run would produce a quietly wrong result. Substitution
+is not attempted. A project holding only the NC_045512.2 form gets the download.
 
 Three consequences follow, and they shape the whole design.
 
@@ -82,15 +85,6 @@ showing a different reference from the one reads were aligned to.
 Third, back-filling existing result directories remains out of scope. Those runs
 resolved their reference remotely and it is no longer on disk. This matches the
 decision already taken: new runs only.
-
-### Accession matching
-
-The reference and the primer scheme must agree. The bundled ARTIC schemes are
-defined against MN908947.3, and the only reference currently in the test project
-is NC_045512, which is the same genome under a different accession and therefore
-carries sequence identifiers that will not match the BED. Resolution matches on
-accession, and a mismatch between scheme and reference is refused before the run
-starts rather than surfacing later as an empty alignment.
 
 ## Co-equal outputs
 
@@ -137,8 +131,8 @@ remains verifiable against what the pipeline actually wrote.
 
 ### Viewport
 
-The `.lungfishref` bundle is built from the reference captured during the run and
-registers three tracks over one coordinate system:
+The `.lungfishref` bundle is the hard-coded MN908947.3 bundle acquired before the
+run, and it registers three tracks over one coordinate system:
 
     MN908947.3  |=========================================|
     consensus   |=====N N N===============================|
@@ -203,5 +197,5 @@ one sample was run or twenty.
 `SidebarProjectScanner.buildAnalysisNode` already branches on `isBatch` and
 renders a batch node, so the sidebar requires no new node type.
 
-The reference is resolved once for the batch, not once per sample, since every
-sample in a Viral Recon run shares the same SARS-CoV-2 reference.
+The reference is acquired once for the batch, not once per sample, since every
+sample in a Viral Recon run uses the same hard-coded SARS-CoV-2 reference.
