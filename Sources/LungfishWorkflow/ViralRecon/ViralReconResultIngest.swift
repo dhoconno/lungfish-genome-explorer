@@ -20,11 +20,18 @@ public enum ViralReconResultIngest {
 
     public enum IngestError: Error, LocalizedError, Equatable {
         case referenceBundleMissing
+        /// A run with no samples at all. Refused rather than ingested as an
+        /// empty batch: an empty batch directory litters `Analyses/` and
+        /// reports success for a run that produced nothing to view.
+        case noSamples
 
         public var errorDescription: String? {
             switch self {
             case .referenceBundleMissing:
                 return "The Viral Recon reference bundle is missing."
+            case .noSamples:
+                return "The Viral Recon run listed no samples, so there are no "
+                    + "results to add to the project."
             }
         }
     }
@@ -183,6 +190,12 @@ public enum ViralReconResultIngest {
         projectURL: URL,
         fileManager: FileManager = .default
     ) throws -> [Ingested] {
+        // Checked before the batch path, which would otherwise create an empty
+        // batch directory for a run that has nothing to ingest.
+        guard !sampleNames.isEmpty else {
+            throw IngestError.noSamples
+        }
+
         guard sampleNames.count != 1 else {
             guard fileManager.fileExists(atPath: referenceBundleURL.path) else {
                 throw IngestError.referenceBundleMissing
@@ -225,6 +238,9 @@ public enum ViralReconResultIngest {
         projectURL: URL,
         fileManager: FileManager = .default
     ) throws -> [Ingested] {
+        guard !sampleNames.isEmpty else {
+            throw IngestError.noSamples
+        }
         guard fileManager.fileExists(atPath: referenceBundleURL.path) else {
             throw IngestError.referenceBundleMissing
         }

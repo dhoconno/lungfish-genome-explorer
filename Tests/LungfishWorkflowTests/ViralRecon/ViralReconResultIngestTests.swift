@@ -1,3 +1,4 @@
+import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
 
@@ -139,6 +140,51 @@ final class ViralReconResultIngestTests: XCTestCase {
                 "\(expected) consensus",
                 "sample \(expected) must not inherit another sample's consensus"
             )
+        }
+    }
+
+    // M-3: `guard sampleNames.count != 1` sent count == 0 down the batch path,
+    // which created an empty batch directory in Analyses/ and returned no
+    // samples. Unreachable in production today, but a latent trap: it litters
+    // the project and reports success for a run that ingested nothing.
+    func testZeroSamplesIsRefusedAndLeavesNoEmptyBatchDirectory() throws {
+        let project = root.appendingPathComponent("PEmpty.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(
+            try ViralReconResultIngest.ingestRun(
+                resultsDirectory: results,
+                sampleNames: [],
+                referenceBundleURL: referenceBundle,
+                projectURL: project)
+        ) { error in
+            XCTAssertEqual(error as? ViralReconResultIngest.IngestError, .noSamples)
+        }
+
+        let analyses = project.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(
+            at: analyses, includingPropertiesForKeys: nil)) ?? []
+        XCTAssertTrue(
+            leftovers.isEmpty,
+            "a refused run must not leave an empty batch directory behind. Got: "
+                + "\(leftovers.map { $0.lastPathComponent })"
+        )
+    }
+
+    // ingestBatch is public, so it is refused directly too, not only via
+    // ingestRun's dispatch.
+    func testIngestBatchAlsoRefusesZeroSamples() throws {
+        let project = root.appendingPathComponent("PEmptyBatch.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(
+            try ViralReconResultIngest.ingestBatch(
+                resultsDirectory: results,
+                sampleNames: [],
+                referenceBundleURL: referenceBundle,
+                projectURL: project)
+        ) { error in
+            XCTAssertEqual(error as? ViralReconResultIngest.IngestError, .noSamples)
         }
     }
 
