@@ -49,22 +49,25 @@ enum NFCoreResourceLimits {
         if let memory, !memory.isEmpty {
             limits.append("memory: \(memory)")
         }
-        guard !limits.isEmpty else {
-            return Plan(request: request, configURL: nil)
-        }
-
         var params = request.params
         params.removeValue(forKey: maxCPUsParameter)
         params.removeValue(forKey: maxMemoryParameter)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("lungfish-resource-limits.config")
+        var body = ""
+        if !limits.isEmpty {
+            body += """
+                resourceLimits = [ \(limits.joined(separator: ", ")) ]
+
+            """
+        }
+        body += Self.retryPolicy
         let contents = """
         // Written by Lungfish. This pipeline release expects Nextflow's
         // process.resourceLimits rather than --max_cpus / --max_memory.
         process {
-            resourceLimits = [ \(limits.joined(separator: ", ")) ]
-        }
+        \(body)}
 
         """
         try contents.write(to: configURL, atomically: true, encoding: .utf8)
@@ -83,6 +86,25 @@ enum NFCoreResourceLimits {
         )
         return Plan(request: adjusted, configURL: configURL.standardizedFileURL)
     }
+
+    /// Retries a task that died on a status the pipeline does not expect.
+    ///
+    /// nf-core's base config retries only 130...145, 104 and 175, which covers
+    /// signals and its own out-of-memory conventions. On Apple Silicon an
+    /// amd64-only container occasionally dies during startup under emulation
+    /// with some other status: QUAST has been seen exiting 3 within seconds on
+    /// a consensus that a rerun processes without complaint. Nextflow's default
+    /// is then to finish the run, so a transient container fault discards a
+    /// pipeline that had already produced every scientific output. Retrying any
+    /// non-zero status once restores those runs, and a task that fails for a
+    /// real reason simply fails again on the retry.
+    private static let retryPolicy = """
+        // Retry once on any failure. Emulated amd64 containers die sporadically
+        // during startup with statuses outside nf-core's retryable list.
+        errorStrategy = { task.attempt <= 1 ? 'retry' : 'finish' }
+        maxRetries = 1
+
+    """
 
     /// Whether a release expects `process.resourceLimits` instead of the
     /// `--max_*` parameters. viralrecon adopted the nf-core 3.x template in 3.0.0.
