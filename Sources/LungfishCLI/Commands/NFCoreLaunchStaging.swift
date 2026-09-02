@@ -78,6 +78,35 @@ enum NFCoreLaunchStaging {
         return StagingRoot(root: fallback, isFallback: true)
     }
 
+    /// Chooses a whitespace-free directory for Nextflow's work tree.
+    ///
+    /// Every task runs inside the work tree, and at least one tool refuses a
+    /// path with a space in it outright: QUAST exits with "QUAST does not
+    /// support spaces in paths" before doing any work. Staging the inputs is
+    /// not enough, because the task's own directory is what the tool is handed.
+    /// A project is named by the user and routinely contains spaces, so when
+    /// the scratch does, the work tree goes to a system temp directory
+    /// instead. Nextflow's own cache and history stay in the scratch, where the
+    /// volume probe put them.
+    static func workDirectory(preferring launchScratch: URL) throws -> StagingRoot {
+        let preferred = launchScratch
+            .appendingPathComponent("work", isDirectory: true)
+            .standardizedFileURL
+        guard containsWhitespace(preferred) else {
+            try FileManager.default.createDirectory(at: preferred, withIntermediateDirectories: true)
+            return StagingRoot(root: preferred, isFallback: false)
+        }
+        let fallback = try ProjectTempDirectory.create(
+            prefix: "nfcore-work-",
+            contextURL: nil,
+            policy: .systemOnly
+        ).standardizedFileURL
+        guard !containsWhitespace(fallback) else {
+            throw StagingError.stagingRootContainsWhitespace(fallback)
+        }
+        return StagingRoot(root: fallback, isFallback: true)
+    }
+
     /// Returns a request whose engine-facing file paths contain no whitespace.
     ///
     /// When nothing needs staging the request is returned unchanged and no

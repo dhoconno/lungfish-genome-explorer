@@ -146,6 +146,30 @@ final class NFCoreLaunchStagingTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.root.path))
     }
 
+    func testWorkDirectoryPrefersWhitespaceFreeScratch() throws {
+        let scratch = tempRoot.appendingPathComponent("nfcore-run-abc", isDirectory: true)
+
+        let work = try NFCoreLaunchStaging.workDirectory(preferring: scratch)
+
+        XCTAssertEqual(work.root, scratch.appendingPathComponent("work", isDirectory: true).standardizedFileURL)
+        XCTAssertFalse(work.isFallback)
+    }
+
+    func testWorkDirectoryFallsBackWhenScratchContainsWhitespace() throws {
+        // QUAST refuses outright: "QUAST does not support spaces in paths."
+        // Every task runs inside the Nextflow work tree, so a project named
+        // "My Genome Project.lungfish" fails that step even though the staged
+        // inputs were already moved off the whitespace path.
+        let scratch = tempRoot.appendingPathComponent("My Genome Project.lungfish/.tmp/nfcore-run-abc", isDirectory: true)
+
+        let work = try NFCoreLaunchStaging.workDirectory(preferring: scratch)
+        defer { try? FileManager.default.removeItem(at: work.root) }
+
+        XCTAssertTrue(work.isFallback)
+        XCTAssertNil(work.root.path.rangeOfCharacter(from: .whitespacesAndNewlines), work.root.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: work.root.path))
+    }
+
     func testRejectsStagingRootThatContainsWhitespace() throws {
         let inputs = tempRoot.appendingPathComponent("My Inputs", isDirectory: true)
         let samplesheet = try write("sample,fastq_1,fastq_2\n", to: inputs.appendingPathComponent("samplesheet.csv"))

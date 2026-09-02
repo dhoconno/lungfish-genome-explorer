@@ -90,17 +90,16 @@ enum NFCoreResourceLimits {
     /// Retries a task that died on a status the pipeline does not expect.
     ///
     /// nf-core's base config retries only 130...145, 104 and 175, which covers
-    /// signals and its own out-of-memory conventions. On Apple Silicon an
-    /// amd64-only container occasionally dies during startup under emulation
-    /// with some other status: QUAST has been seen exiting 3 within seconds on
-    /// a consensus that a rerun processes without complaint. Nextflow's default
-    /// is then to finish the run, so a transient container fault discards a
-    /// pipeline that had already produced every scientific output. Retrying any
-    /// non-zero status once restores those runs, and a task that fails for a
-    /// real reason simply fails again on the retry.
+    /// signals and its own out-of-memory conventions. Containers running under
+    /// Rosetta emulation can die during startup with other statuses, and a
+    /// single such fault otherwise discards a pipeline that may already have
+    /// produced every scientific output. One retry is cheap next to the whole
+    /// run, and a task that fails for a real reason fails again on the retry:
+    /// QUAST rejecting a path with a space in it failed both attempts, exactly
+    /// as it should have.
     private static let retryPolicy = """
-        // Retry once on any failure. Emulated amd64 containers die sporadically
-        // during startup with statuses outside nf-core's retryable list.
+        // Retry once on any failure. Emulated containers can die during startup
+        // with statuses outside nf-core's retryable list.
         errorStrategy = { task.attempt <= 1 ? 'retry' : 'finish' }
         maxRetries = 1
 
