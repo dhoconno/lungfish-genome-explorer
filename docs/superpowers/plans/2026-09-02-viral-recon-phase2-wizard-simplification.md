@@ -385,7 +385,52 @@ git commit -m "Add the Viral Recon advanced parameters disclosure"
 
 ---
 
-### Task 4: Correct the user manual
+### Task 4: Wire the foundation into the launch path
+
+**Files:**
+- Modify: `Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift` (the `NFCoreRunRequest` construction near line 186)
+- Test: `Tests/LungfishAppTests/ViralReconWorkflowExecutionServiceTests.swift`
+
+**Interfaces:**
+- Consumes: `NFCoreRunRequest.validateExecutorSupported()` (Phase 1 Task 4), `ViralReconReferenceAcquisition.acquire(projectURL:downloader:fileManager:)` (Phase 1 Task 2), `ViralReconReferenceDownloader.live()` (Phase 1 Task 3).
+- Produces: no new public type.
+
+Phase 1 built and tested these three pieces but deliberately left them unwired, so nothing currently calls them. Until this task lands, conda and local are still accepted at runtime and no reference is acquired. This task connects them.
+
+- [ ] **Step 1: Write the failing test**
+
+Write two tests against the execution service:
+
+First, that a request carrying `.conda` or `.local` fails before any pipeline work begins, with `NFCoreRunRequest.UnsupportedExecutorError.unsupported`. Assert no results directory was created, proving it failed early rather than after a run.
+
+Second, that a run whose project lacks `Downloads/MN908947.3.lungfishref` triggers the downloader exactly once, and that the acquired bundle path is what reaches the pipeline request as its reference. Inject a stub downloader; do not hit the network in a test.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `swift test --package-path . --skip-update --filter ViralReconWorkflowExecutionServiceTests`
+Expected: FAIL, because the service currently neither validates the executor nor acquires a reference.
+
+- [ ] **Step 3: Implement**
+
+Before constructing `NFCoreRunRequest`, call `validateExecutorSupported()` and let it throw. Then acquire the reference through `ViralReconReferenceAcquisition.acquire`, injecting `ViralReconReferenceDownloader.live()` in production, and pass the resulting bundle to the pipeline instead of a `--genome` accession.
+
+Report acquisition progress through `OperationCenter.shared.update()` and `OperationCenter.shared.log()`, per the project rule that pipeline operations do both. A first run that must download the reference should say so rather than appearing stalled.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `swift test --package-path . --skip-update --filter ViralReconWorkflowExecutionServiceTests`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift Tests/LungfishAppTests/ViralReconWorkflowExecutionServiceTests.swift
+git commit -m "Validate the executor and acquire the reference before launching"
+```
+
+---
+
+### Task 5: Correct the user manual
 
 **Files:**
 - Modify: `docs/user-manual/05-viral-recon-wizard.md`
@@ -416,7 +461,7 @@ git commit -m "Correct the Viral Recon manual: Docker only, four controls"
 
 ---
 
-### Task 5: Phase gate
+### Task 6: Phase gate
 
 - [ ] **Step 1: Run the unit tier**
 
