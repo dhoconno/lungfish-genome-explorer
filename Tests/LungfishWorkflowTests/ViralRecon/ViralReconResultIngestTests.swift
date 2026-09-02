@@ -96,6 +96,52 @@ final class ViralReconResultIngestTests: XCTestCase {
         }
     }
 
+    // M-2: sanitization is lossy. "S 1" and "S_1" both collapse to "S_1", so
+    // the second sample wrote into the first sample's directory, copy() bailed
+    // out because the destination already existed, and sample 2 silently
+    // inherited sample 1's consensus and reports. That is a wrong scientific
+    // result attributed to the wrong sample, so the names must be deduped.
+    func testCollidingSampleNamesGetDistinctDirectories() throws {
+        for sample in ["S 1", "S_1"] {
+            for relative in ["variants/bowtie2/\(sample).sorted.bam",
+                             "variants/ivar/consensus/bcftools/\(sample).consensus.fa"] {
+                let url = results.appendingPathComponent(relative)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data("\(sample) consensus".utf8).write(to: url)
+            }
+        }
+        let project = root.appendingPathComponent("PCollide.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let ingested = try ViralReconResultIngest.ingestBatch(
+            resultsDirectory: results,
+            sampleNames: ["S 1", "S_1"],
+            referenceBundleURL: referenceBundle,
+            projectURL: project)
+
+        XCTAssertEqual(ingested.count, 2)
+        let directories = ingested.map { $0.bundleDirectory.path }
+        XCTAssertEqual(
+            Set(directories).count, 2,
+            "two samples whose names sanitize to the same string must not share a directory"
+        )
+
+        // The decisive check: each sample's own consensus, not sample 1's twice.
+        for (entry, expected) in zip(ingested, ["S 1", "S_1"]) {
+            XCTAssertEqual(entry.inventory.sampleName, expected)
+            let consensus = try XCTUnwrap(
+                entry.inventory.consensusFASTA,
+                "sample \(expected) must have its own consensus"
+            )
+            XCTAssertEqual(
+                try String(contentsOf: consensus, encoding: .utf8),
+                "\(expected) consensus",
+                "sample \(expected) must not inherit another sample's consensus"
+            )
+        }
+    }
+
     func testBatchDirectoryIsMarkedAsABatch() throws {
         let project = root.appendingPathComponent("P2.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)

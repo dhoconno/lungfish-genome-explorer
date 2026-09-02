@@ -235,15 +235,22 @@ public enum ViralReconResultIngest {
             isBatch: true
         )
 
+        // Deduped, not merely sanitized: "S 1" and "S_1" both sanitize to
+        // "S_1", and the second sample would then write into the first
+        // sample's directory, where copy() returns early because the
+        // destination exists. Sample 2 would silently inherit sample 1's
+        // consensus and reports, attributing one sample's result to another.
+        var usedNames: Set<String> = []
         return try sampleNames.map { sampleName in
-            try ingest(
+            let directoryName = TaxTriageSerialBatchRunner.uniqueDirectoryName(
+                for: sampleName,
+                usedNames: &usedNames
+            )
+            return try ingest(
                 resultsDirectory: resultsDirectory,
                 sampleName: sampleName,
                 referenceBundleURL: referenceBundleURL,
-                into: batchDirectory.appendingPathComponent(
-                    TaxTriageSerialBatchRunner.sanitizedDirectoryName(for: sampleName),
-                    isDirectory: true
-                ),
+                into: batchDirectory.appendingPathComponent(directoryName, isDirectory: true),
                 fileManager: fileManager
             )
         }
