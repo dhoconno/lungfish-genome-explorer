@@ -12,20 +12,36 @@ final class ViralReconWorkflowExecutionService {
         let operationItem: OperationCenter.Item?
     }
 
+    /// What a finished run offers the ingest step.
+    struct ResultIngestContext {
+        let resultsDirectory: URL
+        let runBundleURL: URL
+        let sampleNames: [String]
+        let projectURL: URL?
+    }
+
+    /// Turns a finished run into a viewable bundle.
+    ///
+    /// Injected so a failing ingest can be exercised without a live pipeline.
+    typealias ResultIngest = @MainActor (ResultIngestContext) throws -> Void
+
     private let operationCenter: OperationCenter
     private let processRunner: ViralReconWorkflowProcessRunning
     private let referenceDownloader: ViralReconReferenceAcquisition.Downloader
+    private let resultIngest: ResultIngest
     private var acquisitionSummary: String?
 
     init(
         operationCenter: OperationCenter = .shared,
         processRunner: ViralReconWorkflowProcessRunning = ProcessViralReconWorkflowProcessRunner(),
         referenceDownloader: @escaping ViralReconReferenceAcquisition.Downloader
-            = ViralReconReferenceDownloader.live()
+            = ViralReconReferenceDownloader.live(),
+        resultIngest: @escaping ResultIngest = ViralReconWorkflowExecutionService.liveResultIngest
     ) {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
         self.referenceDownloader = referenceDownloader
+        self.resultIngest = resultIngest
     }
 
     func run(
@@ -89,6 +105,12 @@ final class ViralReconWorkflowExecutionService {
                 await waitForOperationCancellation(operationID)
             } else if processResult.exitCode == 0 {
                 operationCenter.log(id: operationID, level: .info, message: "Viral Recon completed")
+                ingestResults(
+                    for: persistedRequest,
+                    bundleURL: bundleURL,
+                    projectURL: projectURL,
+                    operationID: operationID
+                )
                 _ = operationCenter.complete(
                     id: operationID,
                     detail: completionDetail(for: persistedRequest, bundleURL: bundleURL),
@@ -127,6 +149,61 @@ final class ViralReconWorkflowExecutionService {
             bundleURL: bundleURL,
             operationItem: operationCenter.items.first { $0.id == operationID }
         )
+    }
+
+    /// Builds the viewable bundle from a finished run.
+    ///
+    /// Deliberately non-throwing. The pipeline has already succeeded and its raw
+    /// output is on disk, so a failure here reduces what can be displayed but
+    /// must never be reported as a lost analysis. The reason is logged so the
+    /// Inspector can explain why the bundle is unavailable.
+    private func ingestResults(
+        for request: ViralReconRunRequest,
+        bundleURL: URL,
+        projectURL: URL?,
+        operationID: UUID
+    ) {
+        let context = ResultIngestContext(
+            resultsDirectory: request.outputDirectory,
+            runBundleURL: bundleURL,
+            sampleNames: request.samples.map(\.sampleName),
+            projectURL: projectURL
+        )
+        do {
+            try resultIngest(context)
+        } catch {
+            _ = operationCenter.update(
+                id: operationID,
+                progress: 1.0,
+                detail: "Viral Recon completed. Results could not be prepared for viewing."
+            )
+            operationCenter.log(
+                id: operationID,
+                level: .warning,
+                message: "Viral Recon finished, but preparing its results for viewing failed: "
+                    + "\(error.localizedDescription). The raw output is intact at "
+                    + "\(request.outputDirectory.path)."
+            )
+        }
+    }
+
+    /// The shipping ingest: assemble the bundle, then register its tracks.
+    @MainActor
+    static func liveResultIngest(_ context: ResultIngestContext) throws {
+        guard let projectURL = context.projectURL else { return }
+        let referenceBundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        for sampleName in context.sampleNames {
+            let ingested = try ViralReconResultIngest.ingest(
+                resultsDirectory: context.resultsDirectory,
+                sampleName: sampleName,
+                referenceBundleURL: referenceBundleURL,
+                into: context.runBundleURL.appendingPathComponent(
+                    TaxTriageSerialBatchRunner.sanitizedDirectoryName(for: sampleName),
+                    isDirectory: true
+                )
+            )
+            Task { try? await ViralReconViewerPublication.publish(ingested: ingested) }
+        }
     }
 
     private func waitForOperationCancellation(_ operationID: UUID) async {

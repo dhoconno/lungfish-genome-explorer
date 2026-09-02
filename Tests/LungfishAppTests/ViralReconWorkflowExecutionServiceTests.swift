@@ -209,6 +209,78 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.bundleURLs, [result.bundleURL])
     }
 
+    // A visualisation problem must never present as a lost analysis. The
+    // pipeline did its work; failing to build a viewer bundle from that work is
+    // a reduced result, not a failed run.
+    func testIngestFailureStillReportsTheRunAsCompleted() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-ingest-fail-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let marker = request.outputDirectory.appendingPathComponent("raw-output.txt")
+        try FileManager.default.createDirectory(at: request.outputDirectory,
+                                                withIntermediateDirectories: true)
+        try "pipeline output".write(to: marker, atomically: true, encoding: .utf8)
+
+        let operationCenter = OperationCenter()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in },
+            resultIngest: { _ in
+                throw ViralReconResultIngest.IngestError.referenceBundleMissing
+            }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed, "ingest failure must not fail the run")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: marker.path),
+            "raw pipeline output must be left intact"
+        )
+        XCTAssertTrue(
+            item.logEntries.contains { $0.level == .warning && $0.message.contains("results") },
+            "the ingest failure must be recorded for the Inspector"
+        )
+    }
+
+    func testSuccessfulIngestIsReportedAndDoesNotDisturbCompletion() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-ingest-ok-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let ingested = IngestRecorder()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in },
+            resultIngest: { context in
+                ingested.record(context.resultsDirectory)
+            }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        XCTAssertEqual(ingested.directories.count, 1, "ingest runs once on completion")
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed)
+    }
+
     func testServiceFailsWithExitCodeAndStderrTail() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
@@ -1074,4 +1146,19 @@ private func readPID(_ url: URL) throws -> Int32 {
     let text = try String(contentsOf: url, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
+}
+
+private final class IngestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [URL] = []
+
+    var directories: [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return storage
+    }
+
+    func record(_ url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        storage.append(url)
+    }
 }
