@@ -32,18 +32,33 @@ public enum ViralReconSkipOption: String, Codable, Sendable, Equatable, CaseIter
     case freyja = "skip_freyja"
     case freyjaBoot = "skip_freyja_boot"
 
-    /// The skips a new run starts with.
+    /// Steps this pipeline can never run here, whatever the caller asked for.
     ///
-    /// Freyja's bootstrap is skipped by default: it runs an amd64-only
-    /// container whose parallel workers are killed under Apple Silicon
-    /// emulation, which fails the whole pipeline after every scientific output
-    /// has already been written. Freyja's own lineage call (`demix`) runs in
-    /// the same container and succeeds, so only the bootstrap is dropped.
+    /// Lungfish ships for Apple Silicon only, and viralrecon pins Freyja to an
+    /// amd64-only container. Under Rosetta its bootstrap workers are killed
+    /// outright, which fails the whole run after every other output has been
+    /// written, and there is no configuration in which running it here helps.
+    /// Both parameters are therefore forced rather than defaulted.
+    ///
+    /// This is a statement about the pipeline's container pin, not about the
+    /// tool: Lungfish runs Freyja natively from the wastewater-surveillance
+    /// pack, where bioconda ships a real arm64 build that demixes and
+    /// bootstraps without trouble.
+    public static let alwaysSkipped: Set<ViralReconSkipOption> = [
+        .freyja,
+        .freyjaBoot,
+    ]
+
+    /// The skips a new run starts with, over and above `alwaysSkipped`.
     public static let defaultSelection: Set<ViralReconSkipOption> = [
         .assembly,
         .kraken2,
-        .freyjaBoot,
     ]
+
+    /// Skips the user can choose, i.e. everything not forced.
+    public static var selectable: [ViralReconSkipOption] {
+        allCases.filter { !alwaysSkipped.contains($0) }
+    }
 }
 
 public struct ViralReconSample: Codable, Sendable, Equatable {
@@ -156,7 +171,7 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
             }
         }
 
-        for option in skipOptions {
+        for option in Set(skipOptions).union(ViralReconSkipOption.alwaysSkipped) {
             params[option.rawValue] = "true"
         }
         for key in advancedParams.keys.sorted() {

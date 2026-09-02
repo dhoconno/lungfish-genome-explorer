@@ -48,10 +48,10 @@ public struct FreyjaDemixPlan: Sendable, Codable, Equatable {
             configuration.depthsURL.path,
             "--output", demixURL.path,
         ]
-        if let sampleName = configuration.sampleName,
-           !sampleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            command += ["--sample", sampleName]
-        }
+        // Freyja 2.0.3 (the pinned version) has no --sample option; passing it
+        // aborts the run with "No such option '--sample'". The identifier is
+        // still recorded in the plan's options and in provenance, so the run is
+        // still attributable to its sample.
         command += configuration.extraArguments
 
         self.workflowName = "lungfish freyja demix"
