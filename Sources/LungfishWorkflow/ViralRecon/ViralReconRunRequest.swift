@@ -222,15 +222,33 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         self.sequencingSummaryURL = resolvedSequencingSummaryURL
     }
 
-    public static func validateAdvancedParams(_ params: [String: String]) throws {
-        let generatedKeys = Set([
-            "input", "outdir", "platform", "protocol", "genome", "fasta", "gff",
-            "fastq_dir", "sequencing_summary",
-            "primer_bed", "primer_fasta", "primer_left_suffix", "primer_right_suffix",
-            "min_mapped_reads", "variant_caller", "consensus_caller",
-        ] + ViralReconSkipOption.allCases.map(\.rawValue))
+    /// Keys an advanced user may override. These change how the pipeline runs
+    /// without changing what the wizard is describing.
+    public static var overridableAdvancedKeys: Set<String> {
+        var keys: Set<String> = ["variant_caller", "consensus_caller", "min_mapped_reads",
+                                 "max_cpus", "max_memory"]
+        for option in ViralReconSkipOption.allCases
+        where !ViralReconSkipOption.alwaysSkipped.contains(option) {
+            keys.insert(option.rawValue)
+        }
+        return keys
+    }
 
-        for key in params.keys.sorted() where generatedKeys.contains(key) {
+    /// Keys the wizard owns. Overriding these would contradict the inputs the
+    /// user selected, so they are refused with the owning control named.
+    public static var structuralAdvancedKeys: Set<String> {
+        var keys: Set<String> = ["input", "outdir", "platform", "protocol",
+                                 "primer_bed", "primer_fasta", "primer_left_suffix",
+                                 "primer_right_suffix", "genome", "fasta", "gff",
+                                 "fastq_dir", "sequencing_summary"]
+        for option in ViralReconSkipOption.alwaysSkipped {
+            keys.insert(option.rawValue)
+        }
+        return keys
+    }
+
+    public static func validateAdvancedParams(_ params: [String: String]) throws {
+        for key in params.keys.sorted() where structuralAdvancedKeys.contains(key) {
             throw ValidationError.conflictingAdvancedParam(key)
         }
     }
