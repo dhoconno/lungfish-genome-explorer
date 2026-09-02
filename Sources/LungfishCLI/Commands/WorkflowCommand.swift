@@ -635,8 +635,15 @@ struct RunSubcommand: AsyncParsableCommand {
             policy: NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: runBundleURL) ? .preferProjectContext : .systemOnly
         )
         defer { try? FileManager.default.removeItem(at: launchScratch) }
-        let scratchWorkDirectory = launchScratch.appendingPathComponent("work", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratchWorkDirectory, withIntermediateDirectories: true)
+        // Tasks run inside the work tree, and QUAST refuses a path containing a
+        // space, so the tree leaves the scratch when the project name has one.
+        let scratchWork = try NFCoreLaunchStaging.workDirectory(preferring: launchScratch)
+        defer {
+            if scratchWork.isFallback {
+                try? FileManager.default.removeItem(at: scratchWork.root)
+            }
+        }
+        let scratchWorkDirectory = scratchWork.root
         // nf-core schemas reject path parameters containing whitespace, and a
         // Lungfish project directory routinely has spaces in its name, so the
         // engine gets whitespace-free copies under the launch scratch. Only the

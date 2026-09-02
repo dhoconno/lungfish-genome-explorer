@@ -96,11 +96,10 @@ final class NFCoreResourceLimitsTests: XCTestCase {
     }
 
     func testViralReconConfigRetriesTransientContainerFailures() throws {
-        // Under Rosetta emulation an amd64-only task container occasionally dies
-        // on startup with a non-zero status that the nf-core base config does not
-        // consider retryable (its list is 130...145, 104 and 175). QUAST has been
-        // seen failing this way with exit 3 in seconds, on inputs that succeed on
-        // a rerun, which ends the whole pipeline after the science is done.
+        // A container running under Rosetta emulation can die on startup with a
+        // status the nf-core base config does not consider retryable (its list is
+        // 130...145, 104 and 175), ending the whole pipeline after the science is
+        // done. One retry is cheap; a task failing for a real reason fails again.
         let request = try makeRequest(params: ["max_cpus": "8", "max_memory": "8.GB"])
 
         let plan = try NFCoreResourceLimits.plan(for: request, in: tempRoot)
