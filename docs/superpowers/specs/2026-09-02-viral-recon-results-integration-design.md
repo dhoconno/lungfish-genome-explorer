@@ -42,15 +42,37 @@ project is `NC_045512`, which is the same genome under a different accession and
 therefore carries sequence identifiers that do not match the `MN908947.3` in the
 BAM and VCF.
 
-Two consequences follow, and they shape the whole design.
+The resolution is to stop letting the pipeline choose the reference. Lungfish owns
+it instead, and passes it in.
 
-First, the reference must be captured during the run, while the staged copy still
-exists, rather than reconstructed afterwards from the output directory. Ingest is
-therefore part of run completion, not a standalone directory scan.
+Before a run starts, the reference is resolved to a real `.lungfishref` bundle in
+the project. If a bundle matching the primer scheme's accession is already there,
+it is used. If not, it is downloaded from NCBI GenBank by the existing fetch path,
+which already retrieves sequence plus GFF3 annotations and builds a `.lungfishref`
+with indices. That resolved bundle is then handed to the pipeline explicitly
+rather than letting `--genome` resolve to a remote URL.
 
-Second, back-filling existing result directories is out of scope. The reference
-they used is no longer on disk. This matches the decision already taken: new runs
-only.
+Three consequences follow, and they shape the whole design.
+
+First, the reference is a first-class Lungfish artifact before the pipeline runs,
+so ingest never has to scavenge it from a Nextflow cache afterwards.
+
+Second, the same bundle serves as pipeline input and as the results viewer bundle.
+There is no copying, no second source of truth, and no possibility of the viewer
+showing a different reference from the one reads were aligned to.
+
+Third, back-filling existing result directories remains out of scope. Those runs
+resolved their reference remotely and it is no longer on disk. This matches the
+decision already taken: new runs only.
+
+### Accession matching
+
+The reference and the primer scheme must agree. The bundled ARTIC schemes are
+defined against MN908947.3, and the only reference currently in the test project
+is NC_045512, which is the same genome under a different accession and therefore
+carries sequence identifiers that will not match the BED. Resolution matches on
+accession, and a mismatch between scheme and reference is refused before the run
+starts rather than surfacing later as an empty alignment.
 
 ## Co-equal outputs
 
