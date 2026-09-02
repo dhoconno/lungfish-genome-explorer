@@ -68,4 +68,65 @@ final class ViralReconResultIngestTests: XCTestCase {
             XCTAssertEqual(error as? ViralReconResultIngest.IngestError, .referenceBundleMissing)
         }
     }
+
+    func testBatchCreatesOneSanitizedSubdirectoryPerSample() throws {
+        for sample in ["S1", "S 2"] {
+            for relative in ["variants/bowtie2/\(sample).sorted.bam"] {
+                let url = results.appendingPathComponent(relative)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data().write(to: url)
+            }
+        }
+        let project = root.appendingPathComponent("P.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let ingested = try ViralReconResultIngest.ingestBatch(
+            resultsDirectory: results,
+            sampleNames: ["S1", "S 2"],
+            referenceBundleURL: referenceBundle,
+            projectURL: project)
+
+        XCTAssertEqual(ingested.count, 2)
+        let parents = Set(ingested.map { $0.bundleDirectory.deletingLastPathComponent().path })
+        XCTAssertEqual(parents.count, 1, "all samples share one batch directory")
+        for entry in ingested {
+            XCTAssertFalse(entry.bundleDirectory.lastPathComponent.contains(" "),
+                           "sample directory names are sanitized")
+        }
+    }
+
+    func testBatchDirectoryIsMarkedAsABatch() throws {
+        let project = root.appendingPathComponent("P2.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let ingested = try ViralReconResultIngest.ingestBatch(
+            resultsDirectory: results,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundle,
+            projectURL: project)
+
+        let batchDirectory = try XCTUnwrap(ingested.first).bundleDirectory.deletingLastPathComponent()
+        XCTAssertTrue(batchDirectory.lastPathComponent.contains("viralrecon-batch-"))
+        let metadata = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: batchDirectory.appendingPathComponent("analysis-metadata.json"))
+        ) as? [String: Any]
+        XCTAssertEqual(metadata?["tool"] as? String, "viralrecon")
+        XCTAssertEqual(metadata?["isBatch"] as? Bool, true)
+    }
+
+    func testEachBatchSampleFindsItsOwnOutputs() throws {
+        let project = root.appendingPathComponent("P3.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let ingested = try ViralReconResultIngest.ingestBatch(
+            resultsDirectory: results,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundle,
+            projectURL: project)
+
+        let entry = try XCTUnwrap(ingested.first)
+        XCTAssertEqual(entry.inventory.sampleName, "S1")
+        XCTAssertEqual(entry.inventory.sortedBAM?.lastPathComponent, "S1.sorted.bam")
+    }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 
 /// Builds the analysis bundle the sidebar and viewport consume.
 ///
@@ -60,5 +61,44 @@ public enum ViralReconResultIngest {
         return Ingested(bundleDirectory: bundleDirectory,
                         referenceBundleURL: destinationReference,
                         inventory: inventory)
+    }
+
+    /// Ingests every sample of a multi-sample run into one batch directory.
+    ///
+    /// Samples get one bundle each, on the contract other batch tools already
+    /// use, so the sidebar renders a batch node without a new node type and the
+    /// layered viewport behaves the same whether one sample ran or twenty.
+    ///
+    /// The reference is acquired once for the batch: every sample in a Viral
+    /// Recon run aligns to the same hard-coded SARS-CoV-2 genome.
+    public static func ingestBatch(
+        resultsDirectory: URL,
+        sampleNames: [String],
+        referenceBundleURL: URL,
+        projectURL: URL,
+        fileManager: FileManager = .default
+    ) throws -> [Ingested] {
+        guard fileManager.fileExists(atPath: referenceBundleURL.path) else {
+            throw IngestError.referenceBundleMissing
+        }
+
+        let batchDirectory = try AnalysesFolder.createAnalysisDirectory(
+            tool: "viralrecon",
+            in: projectURL,
+            isBatch: true
+        )
+
+        return try sampleNames.map { sampleName in
+            try ingest(
+                resultsDirectory: resultsDirectory,
+                sampleName: sampleName,
+                referenceBundleURL: referenceBundleURL,
+                into: batchDirectory.appendingPathComponent(
+                    TaxTriageSerialBatchRunner.sanitizedDirectoryName(for: sampleName),
+                    isDirectory: true
+                ),
+                fileManager: fileManager
+            )
+        }
     }
 }
