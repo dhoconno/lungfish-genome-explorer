@@ -162,6 +162,8 @@ extension MainSplitViewController {
                 displayAssemblyAnalysisFromSidebar(at: url)
             case .mapping:
                 displayMappingAnalysisFromSidebar(at: url)
+            case .viralRecon:
+                displayViralReconAnalysisFromSidebar(at: url)
             case .unknown:
                 mainSplitLogger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
             }
@@ -896,6 +898,50 @@ extension MainSplitViewController {
                 }
             }
         }
+    }
+
+    /// Opens a Viral Recon analysis.
+    ///
+    /// A Viral Recon analysis is not itself a viewport document: its alignment
+    /// and variant tracks were published into the `.lungfishref` bundle the run
+    /// aligned against, which the ingest step copied into the analysis
+    /// directory. Selecting the analysis therefore opens that bundle, and the
+    /// Inspector catalogues the run's other outputs by scientific role.
+    ///
+    /// A batch directory has no bundle of its own; selecting one of its samples
+    /// opens that sample.
+    func displayViralReconAnalysisFromSidebar(at url: URL) {
+        mainSplitLogger.info("displayViralReconAnalysis: Opening '\(url.lastPathComponent, privacy: .public)'")
+        recordUITestEvent("viralrecon.display.requested \(url.lastPathComponent)")
+
+        inspectorController.updateProvenanceTarget(
+            url: url,
+            sidebarType: .analysisResult,
+            displayName: url.lastPathComponent
+        )
+        // NOT wired to the Inspector yet. `ViralReconDocumentStateBuilder` can
+        // catalogue this directory, but every Inspector document type needs its
+        // own state struct, its own `@Observable` property, a `nil` assignment
+        // in each of the dozen sibling `update...Document` methods that enforce
+        // mutual exclusion, and its own SwiftUI section. That plumbing does not
+        // exist for Viral Recon and is not invented here. The reference bundle
+        // opened below still populates the Inspector's bundle metadata.
+
+        guard let bundleURL = ViralReconAnalysisBundleLocator.viewableBundleURL(in: url) else {
+            // A batch root legitimately has no bundle: its samples do. Say so
+            // rather than clearing the viewport with a failure message.
+            mainSplitLogger.info(
+                "displayViralReconAnalysis: No viewable bundle in '\(url.lastPathComponent, privacy: .public)'"
+            )
+            recordUITestEvent("viralrecon.display.noBundle \(url.lastPathComponent)")
+            viewerController.clearViewport(
+                statusMessage: "Select a sample to view its Viral Recon results."
+            )
+            return
+        }
+
+        displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        recordUITestEvent("viralrecon.display.succeeded \(bundleURL.lastPathComponent)")
     }
 
     /// Display a direct reference bundle opened outside the project sidebar.

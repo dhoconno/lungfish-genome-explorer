@@ -243,6 +243,65 @@ final class ViralReconSidebarDiscoveryTests: XCTestCase {
         XCTAssertEqual(samples.count, 2, "both samples must still have a bundle")
     }
 
+    // MARK: - Display routing
+
+    // The tracks live in the `.lungfishref` inside the analysis directory, so
+    // selecting the analysis has to resolve that bundle. Without it the node
+    // renders and clicking it shows nothing.
+    func testViewableBundleIsLocatedInsideTheAnalysisDirectory() throws {
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+        let bundleDirectory = try XCTUnwrap(ingested.first).bundleDirectory
+
+        let located = try XCTUnwrap(ViralReconAnalysisBundleLocator.viewableBundleURL(in: bundleDirectory))
+        XCTAssertEqual(located.lastPathComponent, "MN908947.3.lungfishref")
+    }
+
+    func testBatchSampleBundleIsLocatedFromItsSampleDirectory() throws {
+        for relative in ["variants/bowtie2/S2.sorted.bam"] {
+            try Data().write(to: resultsURL.appendingPathComponent(relative))
+        }
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1", "S2"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+        let batchDirectory = try XCTUnwrap(ingested.first).bundleDirectory.deletingLastPathComponent()
+
+        // A batch directory holds no bundle of its own, but its samples do.
+        XCTAssertNil(ViralReconAnalysisBundleLocator.viewableBundleURL(in: batchDirectory))
+        for entry in ingested {
+            XCTAssertNotNil(ViralReconAnalysisBundleLocator.viewableBundleURL(in: entry.bundleDirectory))
+        }
+    }
+
+    func testLocatorReturnsNilForADirectoryWithNoBundle() throws {
+        XCTAssertNil(ViralReconAnalysisBundleLocator.viewableBundleURL(in: projectURL))
+    }
+
+    // The Inspector catalogue is built from the run's own sidecar, so a bundle
+    // whose raw results have been deleted still lists what it holds.
+    func testInspectorRowsAreBuiltFromTheIngestedBundle() throws {
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: resultsURL,
+            sampleNames: ["S1"],
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL)
+        let bundleDirectory = try XCTUnwrap(ingested.first).bundleDirectory
+        try FileManager.default.removeItem(at: resultsURL)
+
+        let rows = ViralReconDocumentStateBuilder.rows(forBundleAt: bundleDirectory)
+        XCTAssertTrue(rows.contains { $0.section == "Consensus" })
+        XCTAssertTrue(rows.contains { $0.section == "Quality" })
+        for row in rows {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: row.fileURL.path),
+                          "\(row.label) must point at a file inside the bundle")
+        }
+    }
+
     func testRawOutputIsPreservedNotMoved() throws {
         _ = try ViralReconResultIngest.ingestRun(
             resultsDirectory: resultsURL,
