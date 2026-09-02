@@ -252,6 +252,44 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
     }
 
+    // A run with no project has nowhere to put an analysis bundle. Returning
+    // early reported a completed, viewable result while producing nothing at
+    // all, which is the one failure mode a user cannot detect.
+    func testIngestWithoutAProjectIsAVisibleFailureNotASilentNoOp() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-no-project-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: StubViralReconProcessRunner(
+                result: .init(exitCode: 0, standardOutput: "", standardError: "")
+            ),
+            referenceDownloader: { _, _ in }
+        )
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true),
+            projectURL: nil
+        )
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        XCTAssertEqual(item.state, .completed, "the pipeline still succeeded")
+        XCTAssertTrue(
+            item.logEntries.contains { $0.level == .warning && $0.message.contains("results") },
+            "a run with no project must report that no bundle could be built"
+        )
+    }
+
+    func testNoProjectForResultsHasAUserFacingDescription() {
+        let message = ViralReconWorkflowExecutionError.noProjectForResults.localizedDescription
+        XCTAssertFalse(message.isEmpty)
+        XCTAssertTrue(message.lowercased().contains("project"))
+    }
+
     func testSuccessfulIngestIsReportedAndDoesNotDisturbCompletion() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral-recon-ingest-ok-\(UUID().uuidString)", isDirectory: true)

@@ -194,7 +194,12 @@ final class ViralReconWorkflowExecutionService {
     /// bundle written anywhere else is complete and permanently invisible.
     @MainActor
     static func liveResultIngest(_ context: ResultIngestContext) async throws {
-        guard let projectURL = context.projectURL else { return }
+        guard let projectURL = context.projectURL else {
+            // Reporting success while doing nothing is the worst outcome here:
+            // the run really did produce results, and returning early told the
+            // user they were viewable when no bundle had been written.
+            throw ViralReconWorkflowExecutionError.noProjectForResults
+        }
         let referenceBundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
         let ingested = try ViralReconResultIngest.ingestRun(
             resultsDirectory: context.resultsDirectory,
@@ -625,10 +630,28 @@ protocol ViralReconWorkflowProcessRunning {
     func cancel()
 }
 
-enum ViralReconWorkflowExecutionError: Error, Equatable {
+enum ViralReconWorkflowExecutionError: Error, Equatable, LocalizedError {
     case nonZeroExit(Int32)
     case missingWorkflowDefinition
     case referenceBundleHasNoFASTA(URL)
+    /// The run finished but there is no project to write an analysis bundle
+    /// into. Reported rather than swallowed: silently skipping the bundle would
+    /// tell the user their results are viewable when nothing was ever written.
+    case noProjectForResults
+
+    var errorDescription: String? {
+        switch self {
+        case .nonZeroExit(let code):
+            return "Viral Recon exited with code \(code)."
+        case .missingWorkflowDefinition:
+            return "The Viral Recon workflow definition is missing."
+        case .referenceBundleHasNoFASTA(let url):
+            return "The reference bundle at \(url.path) contains no FASTA."
+        case .noProjectForResults:
+            return "Viral Recon results could not be added to a project because "
+                + "the run has no open project."
+        }
+    }
 }
 
 final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {

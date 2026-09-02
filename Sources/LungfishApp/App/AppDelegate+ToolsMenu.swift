@@ -224,6 +224,7 @@ extension AppDelegate {
                             )
                         } catch {
                             debugLog("showFASTQOperationsDialog: Viral Recon failed to start: \(String(describing: error))")
+                            AppDelegate.reportViralReconLaunchFailure(error, routeContext: routeContext)
                         }
                     }
                     return
@@ -1070,6 +1071,44 @@ extension AppDelegate {
     /// `Analyses/<tool>-<timestamp>/` directory. If every child fails and
     /// leaves nothing behind, the now-empty batch directory is removed after
     /// the loop completes (spec §6).
+
+    /// Surfaces a Viral Recon launch failure the user can actually see.
+    ///
+    /// Executor validation, reference acquisition and input staging all run
+    /// before the run registers its own operation row, so a failure there had
+    /// nowhere to be reported and went only to `debugLog`: the user pressed Run
+    /// and nothing whatsoever happened. A failed row is created here so the
+    /// failure lands in the Operations panel like every other tool's does.
+    ///
+    /// Cancellation is a user decision, not a defect, and is not reported.
+    @discardableResult
+    static func reportViralReconLaunchFailure(
+        _ error: Error,
+        operationCenter: OperationCenter = .shared,
+        routeContext: OperationRouteContext?
+    ) -> UUID? {
+        if error is CancellationError { return nil }
+        let reason = error.localizedDescription
+        let operationID = operationCenter.start(
+            title: "Viral Recon",
+            detail: "Starting Viral Recon",
+            operationType: .viralRecon,
+            routeContext: routeContext
+        )
+        operationCenter.log(
+            id: operationID,
+            level: .error,
+            message: "Viral Recon could not start: \(reason)"
+        )
+        _ = operationCenter.fail(
+            id: operationID,
+            detail: reason,
+            errorMessage: "Viral Recon could not start",
+            errorDetail: reason
+        )
+        return operationID
+    }
+
     private func runManagedMapping(
         plan: MappingRunPlan,
         routeContext explicitRouteContext: OperationRouteContext? = nil
