@@ -1704,10 +1704,16 @@ struct ENAFastaResult: Codable {
 struct GenomeSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "genome",
-        abstract: "Download genome assemblies from NCBI and create indexed bundles",
+        abstract: "Download genomes from NCBI and create indexed bundles",
         discussion: """
-            Downloads a genome assembly from NCBI Datasets, including the FASTA sequence
-            and GFF3 annotations, then creates a .lungfishref bundle with proper indices.
+            Downloads a genome from NCBI, including the FASTA sequence and GFF3
+            annotations, then creates a .lungfishref bundle with proper indices.
+
+            Assembly accessions (GCF_/GCA_) are resolved through the assembly
+            database. Any other accession is fetched from nucleotide, which
+            returns the exact record requested: asking the assembly database for
+            a nucleotide accession returns the linked assembly instead, under a
+            different sequence name.
 
             The bundle contains:
             - Compressed, indexed FASTA (bgzip + samtools faidx)
@@ -1716,12 +1722,13 @@ struct GenomeSubcommand: AsyncParsableCommand {
 
             Examples:
               lungfish fetch genome GCF_003047895.1 --output-dir ./genomes
+              lungfish fetch genome MN908947.3 --output-dir ./genomes
               lungfish fetch genome GCF_000001405.40 --name "Human GRCh38" --output-dir ./
               lungfish fetch genome GCF_003047895.1 --fasta-only --output-dir ./
             """
     )
 
-    @Argument(help: "Assembly accession (e.g., GCF_003047895.1, GCA_000001405.29)")
+    @Argument(help: "Assembly (GCF_003047895.1) or nucleotide (MN908947.3) accession")
     var accession: String
 
     @Option(
@@ -1770,6 +1777,20 @@ struct GenomeSubcommand: AsyncParsableCommand {
             print("Accession: \(accession)")
             print("Output: \(outputURL.path)")
             print("")
+        }
+
+        // A nucleotide accession has no assembly record of its own, so the
+        // assembly search would land on the linked RefSeq assembly and return a
+        // differently named sequence. Fetch it from nuccore instead, where the
+        // requested accession is what comes back.
+        if NCBIAccessionKind.classify(accession) == .nucleotide {
+            try await runNucleotideFetch(
+                outputURL: outputURL,
+                formatter: formatter,
+                fileManager: fileManager,
+                startedAt: startedAt
+            )
+            return
         }
 
         // Step 1: Search for the assembly to get metadata
@@ -2097,6 +2118,144 @@ struct GenomeSubcommand: AsyncParsableCommand {
             )
             let handler = JSONOutputHandler()
             handler.writeData(result, label: nil)
+        }
+    }
+
+    /// Builds a bundle from a nucleotide accession via nuccore efetch.
+    ///
+    /// The assembly path cannot serve these: NCBI's assembly database has no
+    /// record for a GenBank nucleotide accession, so searching it returns the
+    /// linked RefSeq assembly under the requested name. Callers that match on
+    /// sequence name (primer BEDs, for one) then fail against a bundle that
+    /// looks correct. Fetching from nuccore returns the requested record.
+    private func runNucleotideFetch(
+        outputURL: URL,
+        formatter: TerminalFormatter,
+        fileManager: FileManager,
+        startedAt: Date
+    ) async throws {
+        if !globalOptions.quiet {
+            print(formatter.info("Fetching nucleotide record \(accession)..."))
+        }
+
+        let ncbiService = NCBIService(apiKey: apiKey)
+        let fastaData = try await ncbiService.efetch(
+            database: .nucleotide, ids: [accession], format: .fasta)
+
+        guard let fasta = String(data: fastaData, encoding: .utf8),
+              fasta.hasPrefix(">") else {
+            throw CLIError.networkError(reason: "Nucleotide record not found: \(accession)")
+        }
+
+        // The header names the sequence every downstream consumer matches on,
+        // so it is read from the record rather than assumed to be the query.
+        let header = fasta.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        let sequenceName = header.dropFirst().split(separator: " ").first.map(String.init) ?? accession
+        let organism = header
+            .drop(while: { $0 != " " })
+            .trimmingCharacters(in: .whitespaces)
+        let bundleName = name ?? sequenceName
+
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: ".lungfish-temp-", contextURL: outputURL)
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let fastaURL = tempDir.appendingPathComponent("sequence.fna")
+        try fastaData.write(to: fastaURL)
+
+        // Annotations are best-effort: not every nucleotide record carries a
+        // GFF3, and a bundle without one is still usable.
+        var gffURL: URL?
+        if !fastaOnly {
+            if !globalOptions.quiet {
+                print(formatter.info("Downloading annotations (GFF3)..."))
+            }
+            if let gffData = try? await ncbiService.efetch(
+                database: .nucleotide, ids: [accession], format: .gff3),
+               let gffText = String(data: gffData, encoding: .utf8),
+               gffText.contains("##gff-version") {
+                let url = tempDir.appendingPathComponent("annotations.gff3")
+                try gffData.write(to: url)
+                gffURL = url
+                if !globalOptions.quiet { print(formatter.success("Annotations downloaded")) }
+            } else if !globalOptions.quiet {
+                print(formatter.warning("Annotations not available for this record"))
+            }
+        }
+
+        if fastaOnly || noBundle {
+            let finalFastaPath = outputURL.appendingPathComponent("\(bundleName).fna")
+            try fileManager.copyItem(at: fastaURL, to: finalFastaPath)
+            if !globalOptions.quiet {
+                print("")
+                print(formatter.success("Files saved:"))
+                print("  FASTA: \(finalFastaPath.path)")
+            }
+            return
+        }
+
+        if !globalOptions.quiet {
+            print("")
+            print(formatter.header("Creating Indexed Bundle"))
+        }
+
+        let builder = await NativeBundleBuilder()
+        let stagingURL = tempDir.appendingPathComponent("bundle-staging", isDirectory: true)
+        try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+
+        let config = BuildConfiguration(
+            name: bundleName,
+            identifier: "com.ncbi.\(sequenceName.lowercased().replacingOccurrences(of: ".", with: "-"))",
+            fastaURL: fastaURL,
+            annotationFiles: gffURL.map { [AnnotationInput(url: $0, name: "genes")] } ?? [],
+            variantFiles: [],
+            signalFiles: [],
+            outputDirectory: stagingURL,
+            source: SourceInfo(
+                organism: organism.isEmpty ? sequenceName : organism,
+                commonName: nil,
+                taxonomyId: nil,
+                // A nucleotide record has no assembly; the sequence name is the
+                // identifier that matters to consumers of this bundle.
+                assembly: sequenceName,
+                assemblyAccession: nil,
+                database: "NCBI",
+                sourceURL: URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(sequenceName)"),
+                downloadDate: Date(),
+                notes: nil
+            ),
+            compressFASTA: true
+        )
+
+        let finalBundleURL = outputURL.appendingPathComponent(
+            "\(Self.bundleDirectoryName(for: bundleName)).lungfishref", isDirectory: true)
+        if fileManager.fileExists(atPath: finalBundleURL.path) {
+            throw CLIError.outputWriteFailed(
+                path: finalBundleURL.path, reason: "Path already exists")
+        }
+
+        let stagedBundleURL = try await builder.build(configuration: config) { _, progress, message in
+            if !globalOptions.quiet && globalOptions.outputFormat == .text {
+                print("\r  [\(Int(progress * 100))%] \(message)", terminator: "")
+                fflush(stdout)
+            }
+        }
+        try fileManager.moveItem(at: stagedBundleURL, to: finalBundleURL)
+
+        if !globalOptions.quiet {
+            print("")
+            print(formatter.success("Bundle created: \(finalBundleURL.path)"))
+        }
+
+        if globalOptions.outputFormat == .json {
+            let result = GenomeDownloadResult(
+                accession: sequenceName,
+                organism: organism.isEmpty ? sequenceName : organism,
+                fastaPath: nil,
+                gffPath: nil,
+                bundlePath: finalBundleURL.path
+            )
+            JSONOutputHandler().writeData(result, label: nil)
         }
     }
 
