@@ -48,6 +48,33 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         return ["skip_freyja", "skip_freyja_boot"]
     }
 
+    /// Executors that reach a working pipeline run.
+    ///
+    /// Only Docker does. The executor is passed straight through as
+    /// `-profile`, and viralrecon 3.0.0 defines no `local` profile, so that
+    /// value aborts before any work happens. `conda` names a real profile but
+    /// Lungfish never enables Nextflow's conda support for this workflow, so it
+    /// can only succeed by accident on a user-provisioned machine.
+    ///
+    /// The cases remain in `NFCoreExecutor` because saved run bundles may record
+    /// them and removing the cases would break decoding.
+    public enum UnsupportedExecutorError: Error, LocalizedError, Equatable {
+        case unsupported(NFCoreExecutor)
+
+        public var errorDescription: String? {
+            switch self {
+            case .unsupported(let executor):
+                return "The \(executor.rawValue) executor is not supported. Use Docker."
+            }
+        }
+    }
+
+    public func validateExecutorSupported() throws {
+        guard executor == .docker else {
+            throw UnsupportedExecutorError.unsupported(executor)
+        }
+    }
+
     /// Environment overrides the engine needs for the requested pipeline release.
     public var launchEnvironment: [String: String] {
         workflow.launchEnvironment(forVersion: version)
