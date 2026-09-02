@@ -23,7 +23,7 @@ final class ViralReconWorkflowExecutionService {
     /// Turns a finished run into a viewable bundle.
     ///
     /// Injected so a failing ingest can be exercised without a live pipeline.
-    typealias ResultIngest = @MainActor (ResultIngestContext) throws -> Void
+    typealias ResultIngest = @MainActor (ResultIngestContext) async throws -> Void
 
     private let operationCenter: OperationCenter
     private let processRunner: ViralReconWorkflowProcessRunning
@@ -105,7 +105,7 @@ final class ViralReconWorkflowExecutionService {
                 await waitForOperationCancellation(operationID)
             } else if processResult.exitCode == 0 {
                 operationCenter.log(id: operationID, level: .info, message: "Viral Recon completed")
-                ingestResults(
+                await ingestResults(
                     for: persistedRequest,
                     bundleURL: bundleURL,
                     projectURL: projectURL,
@@ -162,7 +162,7 @@ final class ViralReconWorkflowExecutionService {
         bundleURL: URL,
         projectURL: URL?,
         operationID: UUID
-    ) {
+    ) async {
         let context = ResultIngestContext(
             resultsDirectory: request.outputDirectory,
             runBundleURL: bundleURL,
@@ -170,7 +170,7 @@ final class ViralReconWorkflowExecutionService {
             projectURL: projectURL
         )
         do {
-            try resultIngest(context)
+            try await resultIngest(context)
         } catch {
             _ = operationCenter.update(
                 id: operationID,
@@ -188,21 +188,22 @@ final class ViralReconWorkflowExecutionService {
     }
 
     /// The shipping ingest: assemble the bundle, then register its tracks.
+    ///
+    /// The bundle is written under the project's `Analyses/` directory, not
+    /// inside the `.lungfishrun` bundle. Only `Analyses/` is scanned, so a
+    /// bundle written anywhere else is complete and permanently invisible.
     @MainActor
-    static func liveResultIngest(_ context: ResultIngestContext) throws {
+    static func liveResultIngest(_ context: ResultIngestContext) async throws {
         guard let projectURL = context.projectURL else { return }
         let referenceBundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
-        for sampleName in context.sampleNames {
-            let ingested = try ViralReconResultIngest.ingest(
-                resultsDirectory: context.resultsDirectory,
-                sampleName: sampleName,
-                referenceBundleURL: referenceBundleURL,
-                into: context.runBundleURL.appendingPathComponent(
-                    TaxTriageSerialBatchRunner.sanitizedDirectoryName(for: sampleName),
-                    isDirectory: true
-                )
-            )
-            Task { try? await ViralReconViewerPublication.publish(ingested: ingested) }
+        let ingested = try ViralReconResultIngest.ingestRun(
+            resultsDirectory: context.resultsDirectory,
+            sampleNames: context.sampleNames,
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL
+        )
+        for entry in ingested {
+            Task { try? await ViralReconViewerPublication.publish(ingested: entry) }
         }
     }
 

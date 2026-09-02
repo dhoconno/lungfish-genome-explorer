@@ -63,6 +63,51 @@ public enum ViralReconResultIngest {
                         inventory: inventory)
     }
 
+    /// Ingests a finished run into the project's `Analyses/` directory.
+    ///
+    /// This is the only entry point the launch path should use. The bundle has
+    /// to land under `Analyses/` in the shape `SidebarProjectScanner` already
+    /// understands, otherwise the run is invisible however complete it is;
+    /// writing it anywhere else (for example inside the `.lungfishrun` bundle)
+    /// produces a directory nothing ever scans.
+    ///
+    /// A single-sample run becomes one analysis directory. A multi-sample run
+    /// becomes one batch directory with a per-sample subdirectory, which is the
+    /// contract the sidebar's generic batch node already renders.
+    public static func ingestRun(
+        resultsDirectory: URL,
+        sampleNames: [String],
+        referenceBundleURL: URL,
+        projectURL: URL,
+        fileManager: FileManager = .default
+    ) throws -> [Ingested] {
+        guard sampleNames.count != 1 else {
+            guard fileManager.fileExists(atPath: referenceBundleURL.path) else {
+                throw IngestError.referenceBundleMissing
+            }
+            let directory = try AnalysesFolder.createAnalysisDirectory(
+                tool: "viralrecon",
+                in: projectURL,
+                isBatch: false
+            )
+            return [try ingest(
+                resultsDirectory: resultsDirectory,
+                sampleName: sampleNames[0],
+                referenceBundleURL: referenceBundleURL,
+                into: directory,
+                fileManager: fileManager
+            )]
+        }
+
+        return try ingestBatch(
+            resultsDirectory: resultsDirectory,
+            sampleNames: sampleNames,
+            referenceBundleURL: referenceBundleURL,
+            projectURL: projectURL,
+            fileManager: fileManager
+        )
+    }
+
     /// Ingests every sample of a multi-sample run into one batch directory.
     ///
     /// Samples get one bundle each, on the contract other batch tools already
