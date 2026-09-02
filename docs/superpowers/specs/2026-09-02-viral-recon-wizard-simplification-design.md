@@ -65,22 +65,31 @@ two forced Freyja skips.
 
 ## Design
 
+### Scope statement
+
+Viral Recon is a SARS-CoV-2 tool and the interface says so. All eight bundled
+primer schemes declare that organism and name MN908947.3 as canonical. A primer
+scheme is meaningless against any other genome, so offering a reference choice
+invites a selection that cannot be correct.
+
 ### Visible controls
 
-Five, in this order.
+Four, in this order. The reference control is removed entirely.
 
 1. Inputs. Read-only summary with detected platform shown as static text. The
    platform control appears only when detection fails, and the Auto segment is
    dropped when it does.
-2. Reference. A single menu over project reference bundles whose accession matches
-   the selected primer scheme. No mode picker, no accession field, no file panel.
-   When no matching bundle exists, the wizard offers to download it from NCBI
-   GenBank through the existing fetch path, which builds a proper `.lungfishref`.
-3. Primer scheme. Unchanged, including the accession, primer count and amplicon
+2. Primer scheme. Unchanged, including the accession, primer count and amplicon
    detail line. The panel found this control already works for novices.
-4. Minimum mapped reads. Stepper, default 1000, with a caption stating that it
+3. Minimum mapped reads. Stepper, default 1000, with a caption stating that it
    drops whole samples.
-5. Readiness. Promoted above Run, and also the surface for advanced-parse errors.
+4. Readiness. Promoted above Run, and also the surface for advanced-parse errors.
+   It reports reference acquisition, so a first run that must download
+   MN908947.3 explains the wait rather than appearing stalled.
+
+The reference is resolved automatically, as specified in the track A design: the
+project's MN908947.3 bundle when present, otherwise downloaded from NCBI GenBank.
+The user is never asked to choose it and cannot choose it wrongly.
 
 ### Invisible defaults
 

@@ -45,12 +45,30 @@ BAM and VCF.
 The resolution is to stop letting the pipeline choose the reference. Lungfish owns
 it instead, and passes it in.
 
-Before a run starts, the reference is resolved to a real `.lungfishref` bundle in
-the project. If a bundle matching the primer scheme's accession is already there,
-it is used. If not, it is downloaded from NCBI GenBank by the existing fetch path,
-which already retrieves sequence plus GFF3 annotations and builds a `.lungfishref`
-with indices. That resolved bundle is then handed to the pipeline explicitly
+Viral Recon is a SARS-CoV-2 tool. Every bundled primer scheme declares
+`organism` as severe acute respiratory syndrome coronavirus 2 and names
+MN908947.3 as its canonical accession, with NC_045512.2 recorded as an
+equivalent. There is no configuration in which some other genome is correct,
+because the primer schemes would not apply to it.
+
+The reference is therefore fixed, not chosen. Before a run starts, Lungfish
+resolves MN908947.3 to a real `.lungfishref` bundle: it uses the project's copy
+when one is present, and otherwise downloads it from NCBI GenBank through the
+existing fetch path, which already retrieves sequence plus GFF3 annotations and
+builds a bundle with indices. That bundle is handed to the pipeline explicitly
 rather than letting `--genome` resolve to a remote URL.
+
+The schemes record NC_045512.2 as biologically equivalent, and it is the same
+genome, but equivalence is not interchangeability here. A bundle built from
+NC_045512.2 carries that identifier in its FASTA header, and the primer BED is
+written against MN908947.3, so handing it to the pipeline would produce an
+alignment the trimming step cannot match. Only a bundle whose sequence identifier
+is MN908947.3 is used directly. When the project holds only the NC_045512.2 form,
+MN908947.3 is downloaded rather than substituted.
+
+This is the same identifier trap described above, and it is the reason the
+resolution rule is stated in terms of the sequence identifier rather than the
+organism.
 
 Three consequences follow, and they shape the whole design.
 
@@ -172,10 +190,18 @@ present as a lost analysis.
 - Promoting the consensus into `Reference Sequences/`. Revisit once the layered
   view is in use.
 
-## Open question
+## Multi-sample runs
 
-Multi-sample runs. This design describes one sample because that is what the test
-data exercises. A run with several samples produces several BAMs, consensuses and
-lineage calls. The bundle shape above holds, but whether that means one bundle per
-sample or one bundle with per-sample tracks is undecided and should be settled
-before implementation reaches the sidebar.
+Samples are processed one per run, following the contract other batch tools in
+this application already use. `AnalysesFolder.createAnalysisDirectory` with
+`isBatch: true` produces `viralrecon-batch-<timestamp>/`, holding one sanitized
+subdirectory per sample, exactly as `TaxTriageSerialBatchRunner` does. Each
+sample subdirectory carries the single-sample bundle described above, so the
+per-sample shape is unchanged and the layered viewport works identically whether
+one sample was run or twenty.
+
+`SidebarProjectScanner.buildAnalysisNode` already branches on `isBatch` and
+renders a batch node, so the sidebar requires no new node type.
+
+The reference is resolved once for the batch, not once per sample, since every
+sample in a Viral Recon run shares the same SARS-CoV-2 reference.
