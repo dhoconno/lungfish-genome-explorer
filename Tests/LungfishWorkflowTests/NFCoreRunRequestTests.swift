@@ -23,6 +23,8 @@ final class NFCoreRunRequestTests: XCTestCase {
                 "--input", "/tmp/samples ids.csv",
                 "--outdir", "/tmp/results",
                 "--platform", "illumina",
+                "--skip_freyja", "true",
+                "--skip_freyja_boot", "true",
             ]
         )
 
@@ -115,5 +117,39 @@ final class NFCoreRunRequestTests: XCTestCase {
         let args = request.cliArguments(bundlePath: URL(fileURLWithPath: "/tmp/run.lungfishrun"))
         XCTAssertTrue(args.contains("--expected-output"))
         XCTAssertTrue(args.contains(expectedOutput.path))
+    }
+
+    func testViralReconRequestsAlwaysCarryTheFreyjaSkips() throws {
+        // `lungfish-cli workflow run nf-core/viralrecon` builds this request type,
+        // not ViralReconRunRequest, so forcing the skips there alone left the CLI
+        // path still able to launch Freyja. Lungfish is Apple Silicon only and
+        // viralrecon pins Freyja to an amd64-only container, so the skips belong
+        // wherever the pipeline command is built.
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let request = NFCoreRunRequest(
+            workflow: workflow,
+            version: "3.0.0",
+            executor: .docker,
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/results"),
+            params: ["platform": "illumina"]
+        )
+
+        let params = request.effectiveParams
+
+        XCTAssertEqual(params["skip_freyja"], "true")
+        XCTAssertEqual(params["skip_freyja_boot"], "true")
+        XCTAssertTrue(request.nextflowArguments.contains("--skip_freyja"))
+    }
+
+    func testUnsupportedStepParametersAreScopedToViralRecon() {
+        // The skip is specific to viralrecon's container pin. Another pipeline
+        // must not acquire a Freyja parameter it does not understand.
+        XCTAssertEqual(
+            NFCoreRunRequest.unsupportedStepParameters(forWorkflow: "viralrecon"),
+            ["skip_freyja", "skip_freyja_boot"]
+        )
+        XCTAssertTrue(NFCoreRunRequest.unsupportedStepParameters(forWorkflow: "taxtriage").isEmpty)
+        XCTAssertTrue(NFCoreRunRequest.unsupportedStepParameters(forWorkflow: "sarek").isEmpty)
     }
 }

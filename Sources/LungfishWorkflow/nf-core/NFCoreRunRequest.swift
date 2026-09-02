@@ -28,7 +28,24 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             merged["input"] = inputURLs.map(\.path).joined(separator: ",")
         }
         merged["outdir"] = outputDirectory.path
+        for parameter in Self.unsupportedStepParameters(forWorkflow: workflow.name) {
+            merged[parameter] = "true"
+        }
         return merged
+    }
+
+    /// Steps a pipeline cannot run on this platform, forced off wherever the
+    /// command is built.
+    ///
+    /// Lungfish ships for Apple Silicon only. viralrecon pins Freyja to an
+    /// amd64-only container whose bootstrap workers are killed under Rosetta,
+    /// which fails the whole run after every other output has been written.
+    /// Freyja itself is fine here: Lungfish runs it natively from the
+    /// wastewater-surveillance pack, where bioconda ships an arm64 build. Only
+    /// this pipeline's containerised copy is unusable.
+    static func unsupportedStepParameters(forWorkflow workflowName: String) -> [String] {
+        guard workflowName == "viralrecon" else { return [] }
+        return ["skip_freyja", "skip_freyja_boot"]
     }
 
     /// Environment overrides the engine needs for the requested pipeline release.
