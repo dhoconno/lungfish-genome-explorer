@@ -1529,8 +1529,11 @@ final class ViewerBundleRoutingTests: XCTestCase {
             [
                 "Extract Sequence…",
                 "Copy FASTA",
-                "Export FASTA…",
-                "Create Bundle…",
+                // Renamed so the MSA menu says it acts on a rectangular block,
+                // and so its export cannot be confused with exporting the
+                // whole aligned FASTA.
+                "Export Selected Residues…",
+                "Extract Selection to New Bundle…",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",
