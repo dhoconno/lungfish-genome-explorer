@@ -52,6 +52,12 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
+        // A native bundle viewport has no annotations for the parent drawer to
+        // show, and the MSA carries its own.
+        if isNativeBundleViewportInstalled {
+            return
+        }
+
         if annotationDrawerView == nil {
             configureAnnotationDrawer()
         }

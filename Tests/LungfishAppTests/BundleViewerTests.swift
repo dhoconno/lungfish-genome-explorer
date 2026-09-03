@@ -1125,6 +1125,66 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(vc.contentMode, .genomics)
     }
 
+    func testParentDrawerStaysHiddenWhenATeardownRunsAfterAnMSAIsInstalled() async throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        // The drawer is created lazily the first time a user opens it, which is
+        // how it comes to exist under a later alignment.
+        vc.toggleAnnotationDrawer()
+        XCTAssertNotNil(vc.annotationDrawerView)
+
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+        XCTAssertTrue(vc.isNativeBundleViewportInstalled)
+        XCTAssertEqual(vc.annotationDrawerView?.isHidden, true)
+
+        // A stale teardown from another viewport must not unhide the drawer
+        // underneath the alignment. This is the actual reported defect.
+        vc.hideTaxonomyView()
+        vc.hideNaoMgsView()
+        vc.hideAssemblyView()
+        vc.hideFASTACollectionView()
+
+        XCTAssertEqual(
+            vc.annotationDrawerView?.isHidden, true,
+            "a teardown unhid the parent drawer under the MSA viewport"
+        )
+    }
+
+    func testParentDrawerIsRevealedAgainOnceTheNativeBundleIsTornDown() async throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+        vc.toggleAnnotationDrawer()
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+
+        vc.hideAlignmentTreeBundleViews()
+        XCTAssertFalse(vc.isNativeBundleViewportInstalled)
+
+        // hideNaoMgsView is the teardown that restores viewer chrome without
+        // first requiring its own controller, so it reaches the reveal call.
+        vc.hideNaoMgsView()
+        XCTAssertEqual(vc.annotationDrawerView?.isHidden, false)
+    }
+
+    func testTogglingTheAnnotationDrawerIsANoOpUnderAnMSA() async throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+        vc.toggleAnnotationDrawer()
+        let openStateBeforeMSA = vc.isAnnotationDrawerOpen
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+
+        vc.toggleAnnotationDrawer()
+
+        XCTAssertEqual(vc.annotationDrawerView?.isHidden, true)
+        XCTAssertEqual(
+            vc.isAnnotationDrawerOpen, openStateBeforeMSA,
+            "toggling under an MSA must not touch the parent drawer's open state"
+        )
+    }
+
     func testMultipleSequenceAlignmentViewportRendersAlignmentMatrix() async throws {
         let controller = MultipleSequenceAlignmentViewController()
         _ = controller.view

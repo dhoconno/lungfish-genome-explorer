@@ -71,7 +71,7 @@ extension ViewerViewController {
         headerView?.isHidden = false
         statusBar?.isHidden = false
         geneTabBarView?.isHidden = (geneTabBarView?.selectedGeneRegion == nil)
-        annotationDrawerView?.isHidden = false
+        revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false
     }
 }
