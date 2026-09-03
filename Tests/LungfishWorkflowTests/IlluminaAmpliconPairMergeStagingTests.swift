@@ -297,4 +297,34 @@ final class IlluminaAmpliconPairMergeStagingTests: XCTestCase {
         }
         return candidate
     }
+    // bbmerge infers compression from the filename, so a staged link must keep
+    // the input's real extension. Naming a gzipped FASTQ `.input.fastq` made
+    // bbmerge read compressed bytes as text: it found zero pairs and died with
+    // an ArrayIndexOutOfBoundsException, after the whitespace staging had
+    // otherwise worked.
+    func testStagedInputKeepsACompressedInputsExtension() throws {
+        let working = try makeDirectory(named: "Amplicon genotyping results")
+        let input = working.appendingPathComponent("WD1.fastq.gz")
+        try Data().write(to: input)
+
+        let staging = try IlluminaAmpliconPairMerger.MergeStaging.plan(
+            fastqURL: input, workingDirectory: working, stem: "WD1")
+        defer { staging.cleanUp() }
+
+        XCTAssertTrue(staging.runInputURL.lastPathComponent.hasSuffix(".fastq.gz"),
+                      "staged \(staging.runInputURL.lastPathComponent) loses the gzip extension")
+    }
+
+    func testStagedInputKeepsAPlainInputsExtension() throws {
+        let working = try makeDirectory(named: "Amplicon genotyping results")
+        let input = working.appendingPathComponent("WD1.fastq")
+        try Data().write(to: input)
+
+        let staging = try IlluminaAmpliconPairMerger.MergeStaging.plan(
+            fastqURL: input, workingDirectory: working, stem: "WD1")
+        defer { staging.cleanUp() }
+
+        XCTAssertTrue(staging.runInputURL.lastPathComponent.hasSuffix(".fastq"))
+        XCTAssertFalse(staging.runInputURL.lastPathComponent.hasSuffix(".gz"))
+    }
 }

@@ -259,6 +259,16 @@ public enum IlluminaAmpliconPairMerger {
     /// True when `url`'s path holds any character the shell would split on.
     ///
     /// Exposed for the staging tests; the merge itself asks `MergeStaging`.
+    /// The input's extension as bbmerge understands it, defaulting to plain
+    /// FASTQ when the name carries nothing useful.
+    static func readableExtension(of url: URL) -> String {
+        let name = url.lastPathComponent.lowercased()
+        for candidate in ["fastq.gz", "fq.gz", "fastq", "fq"] where name.hasSuffix(".\(candidate)") {
+            return candidate
+        }
+        return "fastq"
+    }
+
     static func pathContainsWhitespace(_ url: URL) -> Bool {
         url.standardizedFileURL.path.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
     }
@@ -346,7 +356,12 @@ public enum IlluminaAmpliconPairMerger {
             // Link rather than copy: amplicon FASTQs run to gigabytes, and
             // bbmerge only reads the input. The link's own path is what the
             // wrapper interpolates, so it is the path that must stay clean.
-            let stagedInput = root.appendingPathComponent("\(stem).input.fastq")
+            // bbmerge infers compression from the filename, so the staged name
+            // must keep the input's real extension. Calling a gzipped FASTQ
+            // `.input.fastq` makes it read compressed bytes as text, find zero
+            // pairs, and die inside its own parser.
+            let stagedInput = root.appendingPathComponent(
+                "\(stem).input.\(readableExtension(of: fastqURL))")
             do {
                 try FileManager.default.createSymbolicLink(
                     at: stagedInput,
