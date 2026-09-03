@@ -80,6 +80,12 @@ extension AlignCommand {
         var allowFASTQAssemblyInputs: Bool = false
 
         @Option(
+            name: .customLong("sequence"),
+            help: "Align only this sequence. Repeatable. Accepts a full FASTA header, an accession, or the label shown in the alignment."
+        )
+        var sequences: [String] = []
+
+        @Option(
             name: .customLong("extra-mafft-options"),
             parsing: .unconditional,
             help: "Additional MAFFT options, written exactly as they should be passed to MAFFT"
@@ -281,7 +287,8 @@ extension AlignCommand {
                 deterministicThreads: !allowNondeterministicThreads,
                 extraArguments: extraArguments,
                 wrapperArgv: wrapperArgv,
-                allowFASTQAssemblyInputs: allowFASTQAssemblyInputs
+                allowFASTQAssemblyInputs: allowFASTQAssemblyInputs,
+                includedSequenceNames: sequences.isEmpty ? nil : sequences
             )
         }
 
@@ -355,6 +362,11 @@ extension AlignCommand {
             }
             if allowNondeterministicThreads {
                 argv += ["--allow-nondeterministic-threads"]
+            }
+            // Without these the recorded command would re-run on every
+            // sequence, so a subset alignment would not reproduce.
+            for name in sequences {
+                argv += ["--sequence", name]
             }
             if globalOptions.outputFormat == .json {
                 argv += ["--format", "json"]
