@@ -122,6 +122,15 @@ extension InspectorViewController {
         }
     }
 
+    /// Updates the Document inspector with a Viral Recon run's output catalogue.
+    ///
+    /// Does not switch to the Document tab the way its siblings do. A Viral
+    /// Recon selection opens the reference bundle viewport, whose own wiring
+    /// owns the tab choice; forcing `.bundle` here would fight it.
+    func updateViralReconDocument(_ state: ViralReconDocumentState?) {
+        viewModel.documentSectionViewModel.updateViralReconDocument(state)
+    }
+
     /// Updates the Document inspector with multiple-sequence-alignment bundle statistics.
     func updateMultipleSequenceAlignmentDocument(_ bundle: MultipleSequenceAlignmentBundle) {
         let manifest = bundle.manifest

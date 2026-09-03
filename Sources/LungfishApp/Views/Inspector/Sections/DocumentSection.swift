@@ -51,6 +51,14 @@ public final class DocumentSectionViewModel {
     /// Genotype result document state shown when a lungfishgenotype viewport is active.
     var genotypeResultDocument: GenotypeResultDocumentState?
 
+    /// Viral Recon output catalogue shown when a Viral Recon analysis is open.
+    ///
+    /// Deliberately not cleared by `update(manifest:bundleURL:)`: a Viral Recon
+    /// analysis displays the reference bundle it aligned against, so the bundle
+    /// manifest arrives immediately after this catalogue is set. Every other
+    /// document mode still clears it, because those replace the viewport.
+    var viralReconDocument: ViralReconDocumentState?
+
     /// MHC amplicon reference bundle document state shown when a `.lungfishmhcref`
     /// bundle is selected. This metadata-only document has no viewport.
     var mhcReferenceBundleDocument: MHCReferenceBundleDocumentState?
@@ -79,6 +87,9 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        // viralReconDocument is deliberately preserved: a Viral Recon analysis
+        // displays the reference bundle it aligned against, so this method runs
+        // immediately after the catalogue is installed.
         navigateToSourceData = nil
         self.manifest = manifest
         self.bundleURL = bundleURL
@@ -119,6 +130,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         navigateToSourceData = nil
         self.fastqStatistics = stats
         // Clear bundle-related data since this is a standalone FASTQ
@@ -158,6 +170,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         self.naoMgsManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -176,6 +189,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         self.nvdManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -191,6 +205,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -215,6 +230,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -239,6 +255,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -264,6 +281,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -289,6 +307,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         mhcReferenceBundleDocument = nil
+        viralReconDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -309,6 +328,7 @@ public final class DocumentSectionViewModel {
         mhcReferenceBundleDocument = state
         guard state != nil else { return }
 
+        viralReconDocument = nil
         mappingDocument = nil
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
@@ -327,6 +347,27 @@ public final class DocumentSectionViewModel {
         nvdManifest = nil
         analysisManifestEntries = []
         clearAlignmentTrackInventory()
+    }
+
+    /// Updates the view model with the Viral Recon output catalogue.
+    ///
+    /// Unlike its siblings this clears no bundle state. The catalogue is shown
+    /// alongside the reference bundle the run aligned against, not instead of
+    /// it, so wiping `manifest` here would hide the run's own alignment and
+    /// variant tracks.
+    func updateViralReconDocument(_ state: ViralReconDocumentState?) {
+        viralReconDocument = state
+        guard state != nil else { return }
+
+        mappingDocument = nil
+        assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
+        phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
+        fastqStatistics = nil
+        naoMgsManifest = nil
+        nvdManifest = nil
     }
 
     func updateAlignmentTrackInventory(
@@ -437,6 +478,7 @@ public final class DocumentSectionViewModel {
             phylogeneticTreeDocument != nil ||
             genotypeResultDocument != nil ||
             mhcReferenceBundleDocument != nil ||
+            viralReconDocument != nil ||
             manifest != nil ||
             fastqStatistics != nil ||
             sraRunInfo != nil ||
@@ -641,6 +683,14 @@ public struct DocumentSection: View {
             MultipleSequenceAlignmentDocumentSection(state: multipleSequenceAlignmentDocument)
         } else if let mhcReferenceBundleDocument = viewModel.mhcReferenceBundleDocument {
             MHCReferenceBundleDocumentSection(state: mhcReferenceBundleDocument)
+        } else if let viralReconDocument = viewModel.viralReconDocument {
+            VStack(alignment: .leading, spacing: 16) {
+                ViralReconDocumentSection(state: viralReconDocument)
+                if let manifest = viewModel.manifest {
+                    Divider()
+                    bundleContent(manifest)
+                }
+            }
         } else if let manifest = viewModel.manifest {
             bundleContent(manifest)
                 .onChange(of: manifest.modifiedDate) { _, _ in

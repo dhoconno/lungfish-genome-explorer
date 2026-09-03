@@ -914,19 +914,6 @@ extension MainSplitViewController {
         mainSplitLogger.info("displayViralReconAnalysis: Opening '\(url.lastPathComponent, privacy: .public)'")
         recordUITestEvent("viralrecon.display.requested \(url.lastPathComponent)")
 
-        inspectorController.updateProvenanceTarget(
-            url: url,
-            sidebarType: .analysisResult,
-            displayName: url.lastPathComponent
-        )
-        // NOT wired to the Inspector yet. `ViralReconDocumentStateBuilder` can
-        // catalogue this directory, but every Inspector document type needs its
-        // own state struct, its own `@Observable` property, a `nil` assignment
-        // in each of the dozen sibling `update...Document` methods that enforce
-        // mutual exclusion, and its own SwiftUI section. That plumbing does not
-        // exist for Viral Recon and is not invented here. The reference bundle
-        // opened below still populates the Inspector's bundle metadata.
-
         guard let bundleURL = ViralReconAnalysisBundleLocator.viewableBundleURL(in: url) else {
             // A batch root legitimately has no bundle: its samples do. Say so
             // rather than clearing the viewport with a failure message.
@@ -940,8 +927,29 @@ extension MainSplitViewController {
             return
         }
 
-        displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        displayReferenceBundleViewportFromSidebar(at: bundleURL) { [weak self] in
+            self?.applyViralReconInspectorState(analysisDirectory: url)
+        }
         recordUITestEvent("viralrecon.display.succeeded \(bundleURL.lastPathComponent)")
+    }
+
+    /// Populates the Inspector for a Viral Recon analysis.
+    ///
+    /// Only ever called from the bundle-displayed completion, never before it:
+    /// displaying the bundle calls `clearSelection()`, which wipes both the
+    /// provenance target and the output catalogue.
+    private func applyViralReconInspectorState(analysisDirectory: URL) {
+        inspectorController.updateProvenanceTarget(
+            url: analysisDirectory,
+            sidebarType: .analysisResult,
+            displayName: analysisDirectory.lastPathComponent
+        )
+        inspectorController.updateViralReconDocument(
+            ViralReconDocumentStateBuilder.state(
+                forBundleAt: analysisDirectory,
+                sampleName: ViralReconAnalysisSampleName.resolve(for: analysisDirectory)
+            )
+        )
     }
 
     /// Display a direct reference bundle opened outside the project sidebar.
@@ -988,10 +996,17 @@ extension MainSplitViewController {
     }
 
     /// Display a direct reference bundle in the shared list/detail reference viewport.
+    ///
+    /// `onDisplayed` runs only after the bundle is on screen, which is the only
+    /// safe point for a caller to add its own Inspector content: this method
+    /// calls `clearSelection()` partway through, so anything the caller set
+    /// beforehand is discarded. It is not called when the request is superseded
+    /// or the bundle fails to load.
     func displayReferenceBundleViewportFromSidebar(
         at url: URL,
         identity: ContentSelectionIdentity? = nil,
-        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil,
+        onDisplayed: (() -> Void)? = nil
     ) {
         mainSplitLogger.info("displayReferenceBundleViewport: Opening '\(url.lastPathComponent, privacy: .public)'")
         let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "referenceBundle")
@@ -1021,6 +1036,7 @@ extension MainSplitViewController {
                         resultURL: url, bundleURL: url, workflowName: "Reference Bundle"
                     )
                     self.wireDirectReferenceViewportInspectorUpdates()
+                    onDisplayed?()
                     mainSplitLogger.info("displayReferenceBundleViewport: Bundle displayed successfully")
                 } catch {
                     mainSplitLogger.error("displayReferenceBundleViewport: Failed - \(error.localizedDescription, privacy: .public)")
