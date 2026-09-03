@@ -2352,7 +2352,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     : false,
             ]
             if let merge = sample.mergeOutcome {
-                item["pairMerge"] = [
+                var pairMerge: [String: Any] = [
                     "disposition": merge.disposition.rawValue,
                     "mergedFragments": merge.mergedCount,
                     "unmergedReads": merge.unmergedReadCount,
@@ -2360,6 +2360,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     "mappingFASTQ": sample.mappingFASTQURL.path,
                     "arguments": merge.arguments,
                 ]
+                // bbtools' wrapper scripts `eval` their argv, so a project path
+                // with a space is re-split and the run has to happen elsewhere.
+                // Say so, otherwise `arguments` reads as though the merge
+                // touched files outside the project for no stated reason.
+                if let stagingRoot = merge.stagingRoot {
+                    pairMerge["stagingRoot"] = stagingRoot.path
+                    pairMerge["stagingReason"] = "bbmerge.sh word-splits its arguments, so a path containing whitespace was staged on a whitespace-free temporary path"
+                }
+                item["pairMerge"] = pairMerge
             }
             return item
         }

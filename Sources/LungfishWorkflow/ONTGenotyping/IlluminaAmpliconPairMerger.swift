@@ -56,8 +56,18 @@ public enum IlluminaAmpliconPairMerger {
         public let unmergedReadCount: Int
         /// Number of records in `mappingFASTQURL`.
         public let mappingReadCount: Int
-        /// `bbmerge.sh` argv, empty when nothing was run.
+        /// `bbmerge.sh` argv exactly as executed, empty when nothing was run.
+        ///
+        /// When the run was staged these hold the temporary paths bbmerge was
+        /// actually given, not the project paths. Recording the real argv is
+        /// what makes a provenance record reproduce the run; `stagingRoot`
+        /// tells a reader why the paths look unfamiliar.
         public let arguments: [String]
+        /// Temporary directory the run used, nil when it ran in place.
+        ///
+        /// Present so provenance can explain argv paths that no longer exist:
+        /// the directory is deleted as soon as the merge returns.
+        public let stagingRoot: URL?
         public let stderr: String
 
         public var didMerge: Bool { disposition == .merged }
@@ -66,6 +76,7 @@ public enum IlluminaAmpliconPairMerger {
     public enum MergeError: LocalizedError {
         case bbmergeFailed(status: Int32, stderr: String)
         case bbmergeProducedNoReads(stderr: String)
+        case stagingRootContainsWhitespace(URL)
 
         public var errorDescription: String? {
             switch self {
@@ -73,6 +84,11 @@ public enum IlluminaAmpliconPairMerger {
                 return "bbmerge failed with status \(status): \(stderr)"
             case .bbmergeProducedNoReads(let stderr):
                 return "bbmerge produced no reads to map: \(stderr)"
+            case .stagingRootContainsWhitespace(let url):
+                return """
+                    Cannot run bbmerge for a path containing whitespace: the staging \
+                    directory '\(url.path)' contains whitespace too.
+                    """
             }
         }
     }
@@ -174,19 +190,23 @@ public enum IlluminaAmpliconPairMerger {
                 unmergedReadCount: 0,
                 mappingReadCount: count,
                 arguments: [],
+                stagingRoot: nil,
                 stderr: ""
             )
         }
 
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let mergedURL = workingDirectory.appendingPathComponent("\(stem).merged.fastq")
-        let unmergedURL = workingDirectory.appendingPathComponent("\(stem).unmerged.fastq")
-        let stderrURL = workingDirectory.appendingPathComponent("\(stem).bbmerge.stderr.log")
+        let staging = try MergeStaging.plan(
+            fastqURL: fastqURL,
+            workingDirectory: workingDirectory,
+            stem: stem
+        )
+        defer { staging.cleanUp() }
 
         let arguments = [
-            "in=\(fastqURL.path)",
-            "out=\(mergedURL.path)",
-            "outu=\(unmergedURL.path)",
+            "in=\(staging.runInputURL.path)",
+            "out=\(staging.runMergedURL.path)",
+            "outu=\(staging.runUnmergedURL.path)",
             "interleaved=t",
             "threads=\(max(1, threads))",
         ]
@@ -194,17 +214,24 @@ public enum IlluminaAmpliconPairMerger {
         let (status, stderr) = try await runBBMerge(
             bbmergeURL: bbmergeURL,
             arguments: arguments,
-            stderrURL: stderrURL
+            stderrURL: staging.runStderrURL
         )
+        // Move outputs home before checking status, so a failed run still
+        // leaves its stderr log next to the other run artifacts for triage.
+        try staging.adoptResults()
         guard status == 0 else {
             throw MergeError.bbmergeFailed(status: status, stderr: stderr)
         }
 
+        let mergedURL = staging.finalMergedURL
+        let unmergedURL = staging.finalUnmergedURL
         let mergedCount = try await countRecordsIfPresent(at: mergedURL)
         let unmergedCount = try await countRecordsIfPresent(at: unmergedURL)
 
         // Map merged fragments plus any mates bbmerge could not join, so a
         // library with partial overlap still contributes every usable read.
+        // Concatenation is ours, not bbmerge's, so it runs on the real
+        // destination path regardless of whitespace.
         let mappingURL = workingDirectory.appendingPathComponent("\(stem).for-mapping.fastq")
         let mappingCount = try concatenate(
             sources: [mergedURL, unmergedURL],
@@ -222,8 +249,148 @@ public enum IlluminaAmpliconPairMerger {
             unmergedReadCount: unmergedCount,
             mappingReadCount: mappingCount,
             arguments: arguments,
+            stagingRoot: staging.temporaryRoot,
             stderr: stderr
         )
+    }
+
+    // MARK: - Whitespace staging
+
+    /// True when `url`'s path holds any character the shell would split on.
+    ///
+    /// Exposed for the staging tests; the merge itself asks `MergeStaging`.
+    static func pathContainsWhitespace(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
+    }
+
+    /// Where one bbmerge invocation reads and writes, and where its results belong.
+    ///
+    /// # Why this exists
+    ///
+    /// bbtools ships wrapper scripts, not binaries, and every one of them ends
+    /// the same way:
+    ///
+    /// ```sh
+    /// CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
+    /// eval $CMD
+    /// ```
+    ///
+    /// The wrapper interpolates `$@` into a single string and `eval`s it, so
+    /// the shell re-splits every argument on whitespace no matter how carefully
+    /// the caller passed its argv array. A project at
+    /// "…/Analyses/Amplicon genotyping results/…" therefore made bbmerge abort
+    /// with "Unknown parameter genotyping" before reading a read, because the
+    /// middle word of the directory name arrived as its own argument.
+    ///
+    /// Lungfish projects are named by the user and routinely contain spaces, so
+    /// when the input FASTQ or the working directory does, the run moves to a
+    /// system temp directory whose path has none. Only bbmerge's own view
+    /// moves: the merged, unmerged, and stderr artifacts are put back into the
+    /// caller's working directory before `prepareForMapping` returns, so the
+    /// `Outcome` contract is unchanged.
+    ///
+    /// This mirrors the approach `NFCoreLaunchStaging` takes for QUAST, which
+    /// rejects spaced paths outright. It is deliberately a copy rather than a
+    /// shared helper: those helpers live in `LungfishCLI`, which sits above
+    /// this module in the layering.
+    struct MergeStaging {
+        /// Temp root created for this run, or nil when the run happened in place.
+        let temporaryRoot: URL?
+        /// FASTQ handed to bbmerge's `in=`.
+        let runInputURL: URL
+        let runMergedURL: URL
+        let runUnmergedURL: URL
+        let runStderrURL: URL
+        /// Where the merged reads must end up for the caller.
+        let finalMergedURL: URL
+        let finalUnmergedURL: URL
+        let finalStderrURL: URL
+
+        /// Chooses whitespace-free run paths for one sample.
+        ///
+        /// `stem` is already sanitized by the caller, so only the directories
+        /// and the source FASTQ's own name can introduce whitespace.
+        static func plan(fastqURL: URL, workingDirectory: URL, stem: String) throws -> MergeStaging {
+            let mergedURL = workingDirectory.appendingPathComponent("\(stem).merged.fastq")
+            let unmergedURL = workingDirectory.appendingPathComponent("\(stem).unmerged.fastq")
+            let stderrURL = workingDirectory.appendingPathComponent("\(stem).bbmerge.stderr.log")
+
+            let needsStaging = pathContainsWhitespace(fastqURL)
+                || pathContainsWhitespace(workingDirectory)
+            guard needsStaging else {
+                return MergeStaging(
+                    temporaryRoot: nil,
+                    runInputURL: fastqURL,
+                    runMergedURL: mergedURL,
+                    runUnmergedURL: unmergedURL,
+                    runStderrURL: stderrURL,
+                    finalMergedURL: mergedURL,
+                    finalUnmergedURL: unmergedURL,
+                    finalStderrURL: stderrURL
+                )
+            }
+
+            let root = try ProjectTempDirectory.create(
+                prefix: "bbmerge-",
+                contextURL: nil,
+                policy: .systemOnly
+            ).standardizedFileURL
+            // Refuse rather than run a command we know the wrapper will
+            // mis-parse: a spaced TMPDIR would reproduce the original failure
+            // with a confusing path.
+            guard !pathContainsWhitespace(root) else {
+                try? FileManager.default.removeItem(at: root)
+                throw MergeError.stagingRootContainsWhitespace(root)
+            }
+
+            // Link rather than copy: amplicon FASTQs run to gigabytes, and
+            // bbmerge only reads the input. The link's own path is what the
+            // wrapper interpolates, so it is the path that must stay clean.
+            let stagedInput = root.appendingPathComponent("\(stem).input.fastq")
+            do {
+                try FileManager.default.createSymbolicLink(
+                    at: stagedInput,
+                    withDestinationURL: fastqURL.standardizedFileURL
+                )
+            } catch {
+                try FileManager.default.copyItem(at: fastqURL, to: stagedInput)
+            }
+
+            return MergeStaging(
+                temporaryRoot: root,
+                runInputURL: stagedInput,
+                runMergedURL: root.appendingPathComponent("\(stem).merged.fastq"),
+                runUnmergedURL: root.appendingPathComponent("\(stem).unmerged.fastq"),
+                runStderrURL: root.appendingPathComponent("\(stem).bbmerge.stderr.log"),
+                finalMergedURL: mergedURL,
+                finalUnmergedURL: unmergedURL,
+                finalStderrURL: stderrURL
+            )
+        }
+
+        /// Moves whatever bbmerge produced back into the caller's directory.
+        ///
+        /// A missing run-side file is normal: bbmerge writes no `outu` stream
+        /// when every pair merged, and no `out` stream when none did.
+        func adoptResults() throws {
+            guard temporaryRoot != nil else { return }
+            let moves = [
+                (runMergedURL, finalMergedURL),
+                (runUnmergedURL, finalUnmergedURL),
+                (runStderrURL, finalStderrURL),
+            ]
+            for (source, destination) in moves {
+                guard FileManager.default.fileExists(atPath: source.path) else { continue }
+                try? FileManager.default.removeItem(at: destination)
+                try FileManager.default.moveItem(at: source, to: destination)
+            }
+        }
+
+        /// Removes the staging root, including on the error path.
+        func cleanUp() {
+            guard let temporaryRoot else { return }
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
     }
 
     // MARK: - Support
