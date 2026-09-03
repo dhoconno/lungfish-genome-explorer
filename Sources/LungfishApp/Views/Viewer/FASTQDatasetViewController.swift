@@ -1345,7 +1345,13 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-    private static func buildFASTAPreview(from url: URL, readLimit: Int) async throws -> String {
+    // `nonisolated` because the enclosing class is `@MainActor`: without it
+    // these inherit main-actor isolation, so the detached task that calls them
+    // hops straight back to the main thread and the seqkit run, its temp
+    // directory creation and the FASTQ read all block the UI. On a machine
+    // whose disk is busy that freezes the window while a sample is selected.
+    // None of the three touch view state, so leaving the actor is safe.
+    private nonisolated static func buildFASTAPreview(from url: URL, readLimit: Int) async throws -> String {
         if let streamedFASTA = await buildFASTAPreviewWithSeqkit(from: url, readLimit: readLimit) {
             return streamedFASTA
         }
@@ -1360,7 +1366,7 @@ public final class FASTQDatasetViewController: NSViewController {
         return formatFASTA(records: records)
     }
 
-    private static func buildFASTAPreviewWithSeqkit(from url: URL, readLimit: Int) async -> String? {
+    private nonisolated static func buildFASTAPreviewWithSeqkit(from url: URL, readLimit: Int) async -> String? {
         let fm = FileManager.default
         let tempDir: URL
         do {
@@ -1404,7 +1410,7 @@ public final class FASTQDatasetViewController: NSViewController {
         }
     }
 
-    private static func formatFASTA(records: [FASTQRecord]) -> String {
+    private nonisolated static func formatFASTA(records: [FASTQRecord]) -> String {
         guard !records.isEmpty else { return "No FASTQ reads available for preview." }
         var lines: [String] = []
         lines.reserveCapacity(records.count * 2)
