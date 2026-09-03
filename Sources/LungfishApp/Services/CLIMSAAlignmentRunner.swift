@@ -71,7 +71,8 @@ actor CLIMSAAlignmentRunner {
         symbols: String = "strict",
         allowNondeterministicThreads: Bool = false,
         allowFASTQAssemblyInputs: Bool = false,
-        extraArguments: [String]
+        extraArguments: [String],
+        includedSequenceNames: [String]? = nil
     ) -> [String] {
         var args = ["align", "mafft"] + inputURLs.map(\.path)
         args += ["--project", projectURL.path]
@@ -103,6 +104,9 @@ actor CLIMSAAlignmentRunner {
         }
         if !extraArguments.isEmpty {
             args += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+        }
+        for name in includedSequenceNames ?? [] {
+            args += ["--sequence", name]
         }
         args += ["--format", "json"]
         return args

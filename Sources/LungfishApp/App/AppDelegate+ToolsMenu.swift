@@ -1391,7 +1391,8 @@ extension AppDelegate {
             symbols: request.symbolPolicy.rawValue,
             allowNondeterministicThreads: !request.deterministicThreads,
             allowFASTQAssemblyInputs: request.allowFASTQAssemblyInputs,
-            extraArguments: request.extraArguments
+            extraArguments: request.extraArguments,
+            includedSequenceNames: request.includedSequenceNames
         )
         let cliCommand = OperationCenter.buildCLICommand(
             subcommand: "align",

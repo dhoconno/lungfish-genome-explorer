@@ -250,4 +250,32 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
     }
+
+    func testBuildArgumentsEmitsOneSequenceFlagPerIncludedName() throws {
+        let args = CLIMSAAlignmentRunner.buildArguments(
+            inputURLs: [URL(fileURLWithPath: "/tmp/in.fasta")],
+            projectURL: URL(fileURLWithPath: "/tmp/Project.lungfish"),
+            outputURL: nil,
+            name: "Subset",
+            strategy: "auto",
+            outputOrder: "input",
+            threads: nil,
+            extraArguments: [],
+            includedSequenceNames: ["seqA", "seqB"]
+        )
+        XCTAssertEqual(args.filter { $0 == "--sequence" }.count, 2)
+        let index = try XCTUnwrap(args.firstIndex(of: "seqA"))
+        XCTAssertEqual(args[index - 1], "--sequence")
+    }
+
+    func testBuildArgumentsOmitsSequenceFlagsWhenNoSelection() {
+        let args = CLIMSAAlignmentRunner.buildArguments(
+            inputURLs: [URL(fileURLWithPath: "/tmp/in.fasta")],
+            projectURL: URL(fileURLWithPath: "/tmp/Project.lungfish"),
+            outputURL: nil, name: nil, strategy: "auto", outputOrder: "input",
+            threads: nil, extraArguments: []
+        )
+        XCTAssertFalse(args.contains("--sequence"))
+    }
+
 }
