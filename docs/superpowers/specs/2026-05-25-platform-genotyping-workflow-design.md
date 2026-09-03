@@ -87,7 +87,7 @@ The workflow must write canonical provenance into the final `.lungfishgenotype` 
 - prepared Illumina sample bundle paths, source FASTQ payload paths, staged mapping FASTQs, and checksums,
 - reference path/checksum,
 - barcode definition and demux manifest checksums for ONT,
-- `illuminaInputPreparation` with `internalMergePerformed: false`; R1/R2 merge parameters and counts live in each prepared FASTQ bundle's import provenance,
+- `illuminaInputPreparation` with `internalMergePerformed` reporting whether the run merged pairs itself; when merging happened at import it stays false and the R1/R2 merge parameters and counts live in each prepared FASTQ bundle's import provenance, and when the pipeline merged unmerged input during the run the accompanying `pairMergeSummary` records the counts,
 - minimap2/samtools/python/runtime identity,
 - output files in the final bundle,
 - exit status, wall time, useful stderr.

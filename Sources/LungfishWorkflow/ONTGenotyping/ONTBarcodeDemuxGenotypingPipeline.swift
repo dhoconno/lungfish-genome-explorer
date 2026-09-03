@@ -1001,6 +1001,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_stats.json"),
                 to: request.statsJSONURL
             )
+            try annotateStatsJSONWithInputPreparation(
+                statsJSONURL: request.statsJSONURL,
+                illuminaPreparation: inputPlan.illuminaPreparation
+            )
             let scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
             if resolvedMode == .illuminaPaired {
                 progressHandler?(0.78, "Publishing genotyping evidence and provisional exon 2 sequences.")
@@ -1994,6 +1998,69 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let sourceFASTQURLs: [URL]
         let mappingFASTQURLs: [URL]
         let requiresBothEndSoftclips: Bool
+        let pairMerge: PairMergeProvenance
+    }
+
+    /// Whether this run merged read pairs itself, and with what outcome.
+    ///
+    /// A run-time merge means the inputs were imported without the Illumina
+    /// Amplicon Merge recipe. That is a materially different provenance from a
+    /// bundle merged at import, and the difference decides whether the DRB loci
+    /// could be genotyped at all, so it has to survive the run rather than only
+    /// appear in the progress feed. The same record is written into the sample
+    /// manifest, the durable stats JSON, and the provenance envelope so no two
+    /// artifacts can disagree.
+    private struct PairMergeProvenance {
+        let mergedSampleCount: Int
+        let totalSampleCount: Int
+        let mergedFragments: Int
+        let unmergedReads: Int
+        let mergedSamples: [[String: Any]]
+
+        var performed: Bool { mergedSampleCount > 0 }
+
+        init(samples: [IlluminaSampleInput]) {
+            // Pair the sample with its outcome up front so the per-sample rows
+            // below carry plain values: JSONSerialization throws on a wrapped
+            // Optional, and this record must never be the thing that fails a run.
+            let merged = samples.compactMap { sample -> (IlluminaSampleInput, IlluminaAmpliconPairMerger.Outcome)? in
+                guard let outcome = sample.mergeOutcome, outcome.didMerge else { return nil }
+                return (sample, outcome)
+            }
+            mergedSampleCount = merged.count
+            totalSampleCount = samples.count
+            mergedFragments = merged.reduce(0) { $0 + $1.1.mergedCount }
+            unmergedReads = merged.reduce(0) { $0 + $1.1.unmergedReadCount }
+            mergedSamples = merged.map { sample, outcome in
+                [
+                    "sample": sample.sampleID,
+                    "disposition": outcome.disposition.rawValue,
+                    "mergedFragments": outcome.mergedCount,
+                    "unmergedReads": outcome.unmergedReadCount,
+                    "mappedRecordCount": outcome.mappingReadCount,
+                ]
+            }
+        }
+
+        /// The keys to splice into any artifact that should carry the record.
+        ///
+        /// `pairMergePerformedDuringRun` is always present, including when it is
+        /// false: an absent key would leave a reader unable to tell "did not
+        /// merge" apart from "written by a build that did not record merging".
+        func recordDictionary() -> [String: Any] {
+            var record: [String: Any] = ["pairMergePerformedDuringRun": performed]
+            guard performed else { return record }
+            record["pairMergeSummary"] = [
+                "mergedSampleCount": mergedSampleCount,
+                "totalSampleCount": totalSampleCount,
+                "mergedFragments": mergedFragments,
+                "unmergedReads": unmergedReads,
+                "reason": "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time",
+                "tool": "bbmerge.sh",
+                "mergedSamples": mergedSamples,
+            ]
+            return record
+        }
     }
 
     private struct MappingStepResult {
@@ -2299,24 +2366,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         // Surface pair merging at the top level, not only per sample: a reader
         // checking whether reads were merged should not have to scan every
         // sample entry to find out.
-        let mergedSamples = samples.filter { $0.mergeOutcome?.didMerge == true }
+        let pairMerge = PairMergeProvenance(samples: samples)
         var manifest: [String: Any] = [
             "mode": mode.rawValue,
             "inputReadCount": samples.reduce(0) { $0 + $1.readCount },
             "requiresBothEndSoftclips": requiresBothEndSoftclips,
             "samples": sampleItems,
         ]
-        manifest["pairMergePerformedDuringRun"] = !mergedSamples.isEmpty
-        if !mergedSamples.isEmpty {
-            manifest["pairMergeSummary"] = [
-                "mergedSampleCount": mergedSamples.count,
-                "totalSampleCount": samples.count,
-                "mergedFragments": mergedSamples.reduce(0) { $0 + ($1.mergeOutcome?.mergedCount ?? 0) },
-                "unmergedReads": mergedSamples.reduce(0) { $0 + ($1.mergeOutcome?.unmergedReadCount ?? 0) },
-                "reason": "inputs were not merged at import; run the Illumina Amplicon Merge recipe to merge at import time",
-                "tool": "bbmerge.sh",
-            ]
-        }
+        manifest.merge(pairMerge.recordDictionary()) { _, new in new }
         let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
         try manifestData.write(to: sampleManifestURL, options: .atomic)
 
@@ -2327,7 +2384,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             samples: samples,
             sourceFASTQURLs: samples.map(\.fastqURL),
             mappingFASTQURLs: samples.map(\.mappingFASTQURL),
-            requiresBothEndSoftclips: requiresBothEndSoftclips
+            requiresBothEndSoftclips: requiresBothEndSoftclips,
+            pairMerge: pairMerge
         )
     }
 
@@ -4055,6 +4113,36 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try FileManager.default.copyItem(at: source, to: destination)
     }
 
+    /// Copies the run's input-preparation record into the durable stats JSON.
+    ///
+    /// The filter script writes the stats file from what it can see, which is
+    /// the scratch sample manifest under `.amplicon-genotyping`. That directory
+    /// is deleted on success, so anything recorded only there is lost, and the
+    /// `sampleManifest` path the script wrote dangles. This lifts the merge
+    /// record into the stats file, which is a first-class bundle output, and
+    /// drops the dangling path so nobody is sent chasing a deleted file.
+    ///
+    /// The stats file is rewritten before provenance is recorded, so the
+    /// checksum in the envelope covers the annotated content.
+    private func annotateStatsJSONWithInputPreparation(
+        statsJSONURL: URL,
+        illuminaPreparation: IlluminaPreparation?
+    ) throws {
+        let data = try Data(contentsOf: statsJSONURL)
+        guard var stats = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        stats.removeValue(forKey: "sampleManifest")
+        if let illuminaPreparation {
+            stats.merge(illuminaPreparation.pairMerge.recordDictionary()) { _, new in new }
+        }
+        let annotated = try JSONSerialization.data(
+            withJSONObject: stats,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try annotated.write(to: statsJSONURL, options: .atomic)
+    }
+
     @discardableResult
     private func writeHaplotypeDefinitionSnapshot(
         _ definitionSet: GenotypeHaplotypeDefinitionSet,
@@ -4377,7 +4465,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ]]
         } ?? []
         let sampleBundleInputPreparation: Any = illuminaPreparation.map { preparation in
-            [
+            // `internalMergePerformed` was fixed at false back when merging could
+            // only happen at import. The pipeline now merges unmerged pairs
+            // itself, so reporting false would hide the very thing a reader
+            // consults this key to learn.
+            var preparationRecord: [String: Any] = [
                 "mode": preparation.mode.rawValue,
                 "sourceFASTQs": preparation.sourceFASTQURLs.map(\.path),
                 "mappingFASTQs": preparation.mappingFASTQURLs.map(\.path),
@@ -4385,8 +4477,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "sampleDefinitions": preparation.sampleDefinitionsURL.path,
                 "sampleManifest": preparation.sampleManifestURL.path,
                 "requiresBothEndSoftclips": preparation.requiresBothEndSoftclips,
-                "internalMergePerformed": false,
-            ] as [String: Any]
+                "internalMergePerformed": preparation.pairMerge.performed,
+            ]
+            preparationRecord.merge(preparation.pairMerge.recordDictionary()) { _, new in new }
+            return preparationRecord
         } as Any? ?? NSNull()
         let illuminaInputPreparation: Any = resolvedMode == .illuminaPaired
             ? sampleBundleInputPreparation

@@ -10,8 +10,16 @@ Run: `Analyses/Amplicon genotyping results/amplicon-genotyping_2.lungfishgenotyp
 > of unmerged input: it ran to completion and produced a normal-looking
 > workbook in which every DRB locus reported zero, with no warning. The fix
 > therefore merges *and announces it*, naming the recipe that should have been
-> used at import, and records `pairMergePerformedDuringRun` in the manifest so
-> a merge during the run can never be mistaken for a merged-on-import bundle.
+> used at import, and records `pairMergePerformedDuringRun` so a merge during
+> the run can never be mistaken for a merged-on-import bundle.
+
+> **Follow-up (2026-09-02).** The merge record first landed only in the sample
+> manifest under `.amplicon-genotyping`, which success cleanup deletes, so a
+> finished run kept no trace of it. The record now also goes into
+> `<name>.retained-demux-stats.json` and the provenance envelope's
+> `illuminaInputPreparation`, both of which survive the run. The stats file no
+> longer carries the `sampleManifest` key that pointed at the deleted scratch
+> path.
 
 ## Finding 1 (headline): zero DRB genotypes, because reads reach mapping unmerged
 

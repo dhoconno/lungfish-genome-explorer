@@ -963,6 +963,15 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, false)
         XCTAssertEqual(options["demuxRetainedReadsOnly"] as? Bool, false)
         XCTAssertTrue(options["illuminaMergeResults"] is NSNull)
+        let preparation = try XCTUnwrap(options["illuminaInputPreparation"] as? [String: Any])
+        XCTAssertEqual(preparation["internalMergePerformed"] as? Bool, false)
+        XCTAssertEqual(preparation["pairMergePerformedDuringRun"] as? Bool, false)
+        // Present-and-false, never absent, so a pre-merged bundle is
+        // distinguishable from an artifact written before merging was recorded.
+        let premergedStats = try jsonObject(at: request.statsJSONURL)
+        XCTAssertEqual(premergedStats["pairMergePerformedDuringRun"] as? Bool, false)
+        XCTAssertNil(premergedStats["pairMergeSummary"])
+        XCTAssertNil(premergedStats["sampleManifest"])
 
         let inputs = try XCTUnwrap(provenance["inputs"] as? [[String: Any]])
         XCTAssertTrue(inputs.contains { $0["path"] as? String == sampleA.fastqURL.standardizedFileURL.path && $0["sha256"] as? String != nil }, "\(inputs)")
@@ -1040,6 +1049,111 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             reviewCatalog.sizeBytes,
             Int64(try ProvenanceFileHasher.fileSize(of: reviewCatalogURL))
         )
+    }
+
+    func testRunIlluminaModeRecordsRunTimePairMergeInDurableStatsJSON() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("miseq-unmerged.lungfishgenotype", isDirectory: true)
+        try """
+        >A1_063_01
+        ACGTACGT
+        >14_M1_DQA1_24_03
+        ACGTACGT
+        >14_M1_DQB1_18_01_01
+        ACGTACGT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        ACGTACGT
+        >14_M4_DQB1_06_08
+        ACGTACGT
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let unmerged = try makeInterleavedPairFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "ACGTACGT",
+            fragments: 3
+        )
+        let premerged = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW002",
+            sequence: "ACGTACGT"
+        )
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [unmerged.bundleURL, premerged.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-unmerged",
+            analysisName: "MiSeqUnmerged",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        let announcements = LockedMessages()
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request) { _, message in
+            announcements.append(message)
+        }
+
+        // The support root holding the sample manifest is deleted on success,
+        // so the merge record has to live in an artifact that survives.
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputDirectory.appendingPathComponent(".amplicon-genotyping").path
+            )
+        )
+        let stats = try jsonObject(at: request.statsJSONURL)
+        XCTAssertEqual(stats["pairMergePerformedDuringRun"] as? Bool, true)
+        let summary = try XCTUnwrap(stats["pairMergeSummary"] as? [String: Any])
+        XCTAssertEqual(summary["mergedSampleCount"] as? Int, 1)
+        XCTAssertEqual(summary["totalSampleCount"] as? Int, 2)
+        XCTAssertEqual(summary["mergedFragments"] as? Int, 3)
+        XCTAssertEqual(summary["unmergedReads"] as? Int, 0)
+        XCTAssertEqual(summary["tool"] as? String, "bbmerge.sh")
+        XCTAssertTrue(
+            (summary["reason"] as? String)?.contains("Illumina Amplicon Merge") == true,
+            "\(summary)"
+        )
+        let mergedSamples = try XCTUnwrap(summary["mergedSamples"] as? [[String: Any]])
+        XCTAssertEqual(mergedSamples.count, 1)
+        XCTAssertEqual(mergedSamples.first?["sample"] as? String, "DW001")
+        XCTAssertEqual(mergedSamples.first?["mergedFragments"] as? Int, 3)
+        XCTAssertEqual(mergedSamples.first?["disposition"] as? String, "bbmerge-merged")
+
+        // The stats JSON used to point at the scratch manifest, which is gone by
+        // the time anybody reads it.
+        if let manifestPath = stats["sampleManifest"] as? String {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: manifestPath),
+                "sampleManifest must not reference a deleted path: \(manifestPath)"
+            )
+        }
+
+        // The announcement stays, so an operator watching the run still sees it.
+        let announcedMessages = announcements.values
+        XCTAssertTrue(
+            announcedMessages.contains { $0.contains("unmerged read pairs") },
+            "\(announcedMessages)"
+        )
+
+        let provenance = try jsonObject(at: request.provenanceURL)
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        let preparation = try XCTUnwrap(options["illuminaInputPreparation"] as? [String: Any])
+        XCTAssertEqual(preparation["internalMergePerformed"] as? Bool, true)
     }
 
     func testRunIlluminaModePublishesObservedNovelSequenceAsProvisionalExon2() async throws {
@@ -4051,6 +4165,39 @@ print(json.dumps(payload))
         return (bundleURL, fastqURL)
     }
 
+    /// Builds a bundle whose FASTQ holds interleaved, unmerged R1/R2 pairs.
+    ///
+    /// This is the shape that reaches the pipeline when a MiSeq run is imported
+    /// without the Illumina Amplicon Merge recipe, and the case the run-time
+    /// merge exists to rescue.
+    private func makeInterleavedPairFASTQBundle(
+        root: URL,
+        name: String,
+        sequence: String,
+        fragments: Int = 4
+    ) throws -> (bundleURL: URL, fastqURL: URL) {
+        let bundleURL = root.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastqURL = bundleURL.appendingPathComponent("\(name).fastq")
+        let quality = String(repeating: "I", count: sequence.count)
+        let text = (0..<fragments).map { index in
+            let identifier = "\(name):1:1:1:1:\(index)"
+            return """
+            @\(identifier) 1:N:0:1
+            \(sequence)
+            +
+            \(quality)
+            @\(identifier) 2:N:0:1
+            \(sequence)
+            +
+            \(quality)
+
+            """
+        }.joined()
+        try text.write(to: fastqURL, atomically: true, encoding: .utf8)
+        return (bundleURL, fastqURL)
+    }
+
     private func waitForFile(at url: URL, timeout: TimeInterval) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !FileManager.default.fileExists(atPath: url.path) {
@@ -4343,6 +4490,33 @@ print(json.dumps(payload))
             to: minimap2Bin.appendingPathComponent("minimap2")
         )
 
+        let bbtoolsBin = root.appendingPathComponent("envs/bbtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bbtoolsBin, withIntermediateDirectories: true)
+        try writeExecutable(
+            #"""
+            #!/bin/sh
+            set -eu
+            input=""
+            merged=""
+            unmerged=""
+            for argument in "$@"; do
+              case "$argument" in
+                in=*) input="${argument#in=}" ;;
+                out=*) merged="${argument#out=}" ;;
+                outu=*) unmerged="${argument#outu=}" ;;
+              esac
+            done
+            # Collapse each interleaved pair into one merged record and leave the
+            # unmerged stream empty, which is what bbmerge does for a fully
+            # overlapping amplicon library.
+            awk 'NR % 8 == 1 { sub(/ .*$/, "", $0); print } NR % 8 == 2 || NR % 8 == 3 || NR % 8 == 4 { print }' \
+              "$input" > "$merged"
+            : > "$unmerged"
+            echo "fake bbmerge merged pairs" >&2
+            """#,
+            to: bbtoolsBin.appendingPathComponent("bbmerge.sh")
+        )
+
         let samtoolsBin = root.appendingPathComponent("envs/samtools/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: samtoolsBin, withIntermediateDirectories: true)
         try writeExecutable(
@@ -4531,6 +4705,23 @@ print(json.dumps(payload))
 private extension Array {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private final class LockedMessages: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ message: String) {
+        lock.lock()
+        storage.append(message)
+        lock.unlock()
     }
 }
 
