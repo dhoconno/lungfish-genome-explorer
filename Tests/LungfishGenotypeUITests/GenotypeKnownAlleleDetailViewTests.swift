@@ -637,6 +637,154 @@ final class GenotypeKnownAlleleDetailViewTests: XCTestCase {
         XCTAssertNotEqual(lightComponents, darkComponents)
     }
 
+    /// Reported 2026-09-03: the app crashed inside a layout pass while a
+    /// MiSeq genotype result was open with the Inspector showing. AppKit threw
+    /// because the view kept flipping between its wide and narrow overview
+    /// layouts within one pass. This hosts the view exactly as the result
+    /// viewport's detail pane does (scroll view, document pinned to the clip
+    /// width, a `.width`-aligned vertical stack) and walks the pane width
+    /// across the threshold. Every width must settle without throwing, keep
+    /// the document at the clip width, and land in the layout its width calls for.
+    func testOverviewLayoutSettlesAtEveryDetailPaneWidth() throws {
+        let view = makeView()
+        view.configure(
+            record: makeRecord(),
+            observedSample: "CR1178",
+            comments: [("Reviewer", "Looks fine"), ("Second", "Also fine")]
+        )
+
+        let container = NSView()
+        let scrollView = NSScrollView()
+        let documentView = NSView()
+        let stack = NSStackView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = documentView
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .width
+        stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        stack.addArrangedSubview(view)
+        documentView.addSubview(stack)
+        container.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            documentView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
+            stack.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 8),
+            stack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -10),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: documentView.bottomAnchor, constant: -8),
+        ])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        let factsRail = try identifiedView("knownAlleleFactsRail", in: view)
+        let overviewStack = try XCTUnwrap(factsRail.superview as? NSStackView)
+
+        for width in stride(from: 420, through: 760, by: 10).map(CGFloat.init) {
+            window.setContentSize(NSSize(width: width, height: 420))
+            container.layoutSubtreeIfNeeded()
+            container.layoutSubtreeIfNeeded()
+
+            let clipWidth = scrollView.contentView.bounds.width
+            XCTAssertEqual(
+                documentView.frame.width, clipWidth, accuracy: 0.5,
+                "pane width \(width): the document must stay at the clip width, not be pushed out by the overview"
+            )
+            let expectsNarrow = view.bounds.width < 560
+            XCTAssertEqual(
+                overviewStack.orientation, expectsNarrow ? .vertical : .horizontal,
+                "pane width \(width): view width \(view.bounds.width) settled in the wrong overview layout"
+            )
+        }
+    }
+
+    /// A narrow overview must not go wide the moment it crosses 560pt: a
+    /// legacy scroller appearing or the layout change itself can move the
+    /// width by a few points, and without a band that flips it straight back.
+    func testOverviewLayoutUsesHysteresisAroundTheNarrowThreshold() throws {
+        let view = makeView()
+        view.configure(record: makeRecord(), observedSample: "CR1178")
+        let factsRail = try identifiedView("knownAlleleFactsRail", in: view)
+        let overviewStack = try XCTUnwrap(factsRail.superview as? NSStackView)
+
+        // Each resize event reaches the view on its own run-loop turn.
+        func layout(width: CGFloat) {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            view.frame = NSRect(x: 0, y: 0, width: width, height: 700)
+            view.layoutSubtreeIfNeeded()
+        }
+
+        layout(width: 500)
+        XCTAssertEqual(overviewStack.orientation, .vertical)
+        layout(width: 575)
+        XCTAssertEqual(overviewStack.orientation, .vertical, "575 is inside the band; a narrow overview stays narrow")
+        XCTAssertGreaterThanOrEqual(view.intrinsicContentSize.height, 610, "height follows the layout in effect")
+        layout(width: 600)
+        XCTAssertEqual(overviewStack.orientation, .horizontal)
+        layout(width: 575)
+        XCTAssertEqual(overviewStack.orientation, .horizontal, "575 is inside the band; a wide overview stays wide")
+        XCTAssertLessThan(view.intrinsicContentSize.height, 610)
+        layout(width: 559)
+        XCTAssertEqual(overviewStack.orientation, .vertical)
+    }
+
+    /// Reported 2026-09-03: the app crashed inside one layout pass because the
+    /// overview flipped wide, which changed its width, which flipped it narrow,
+    /// which changed its width back, without end. Within a single run-loop
+    /// turn a flip back to a layout already left is that loop and must be
+    /// refused; on the next turn a real resize is honoured again.
+    func testOverviewLayoutRefusesToOscillateWithinOneLayoutTurn() throws {
+        let view = makeView()
+        view.configure(record: makeRecord(), observedSample: "CR1178")
+        let factsRail = try identifiedView("knownAlleleFactsRail", in: view)
+        let overviewStack = try XCTUnwrap(factsRail.superview as? NSStackView)
+
+        func layout(width: CGFloat) {
+            view.frame = NSRect(x: 0, y: 0, width: width, height: 700)
+            view.layoutSubtreeIfNeeded()
+        }
+
+        // The scaffold created the view wide at 900pt; start on a fresh turn
+        // and then keep every step below on this one turn, as a single
+        // layout pass would.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        layout(width: 500)
+        XCTAssertEqual(overviewStack.orientation, .vertical)
+        layout(width: 700)
+        XCTAssertEqual(overviewStack.orientation, .horizontal)
+        layout(width: 500)
+        XCTAssertEqual(
+            overviewStack.orientation, .horizontal,
+            "flipping back to the layout left two flips ago in one turn is the loop; stay put"
+        )
+        XCTAssertLessThan(view.intrinsicContentSize.height, 610, "height follows the layout kept, not the width")
+
+        // A new run-loop turn is a fresh start: the user really dragged back.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        layout(width: 500)
+        XCTAssertEqual(overviewStack.orientation, .vertical)
+    }
+
     private func makeView() -> GenotypeKnownAlleleDetailView {
         let view = GenotypeKnownAlleleDetailView(frame: NSRect(x: 0, y: 0, width: 900, height: 560))
         view.layoutSubtreeIfNeeded()

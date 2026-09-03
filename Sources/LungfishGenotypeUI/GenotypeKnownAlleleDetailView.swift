@@ -93,11 +93,13 @@ final class GenotypeKnownAlleleDetailView: NSView {
     override var intrinsicContentSize: NSSize {
         let height: CGFloat
         if isShowingFallback {
-            height = 240 + commentContentHeight(isNarrow: bounds.width <= 0 || bounds.width < 560)
+            height = 240 + commentContentHeight(isNarrow: isNarrowOverviewLayoutInEffect)
         } else {
             switch currentMode {
             case .overview:
-                let isNarrow = bounds.width <= 0 || bounds.width < 560
+                // Follows the layout actually in effect, so the height and the
+                // orientation cannot disagree inside the hysteresis band.
+                let isNarrow = isNarrowOverviewLayoutInEffect
                 height = (isNarrow ? 610 : 340) + commentContentHeight(isNarrow: isNarrow)
             case .genBank, .fasta:
                 height = 420
@@ -458,14 +460,62 @@ final class GenotypeKnownAlleleDetailView: NSView {
         ])
     }
 
+    /// Width below which the overview stacks vertically.
+    static let narrowOverviewLayoutThreshold: CGFloat = 560
+    /// Width a narrow overview must reach before it goes back to the wide
+    /// layout. The 40pt band means a legacy scroller appearing (15pt) or a
+    /// few points of drift as the layout changes cannot flip it straight back.
+    static let wideOverviewLayoutThreshold: CGFloat = 600
+
+    /// Whether `width` calls for the narrow overview, with hysteresis around
+    /// the current layout.
+    func prefersNarrowOverviewLayout(for width: CGFloat) -> Bool {
+        guard width > 0 else { return true }
+        if usesNarrowOverviewLayout == true {
+            return width < Self.wideOverviewLayoutThreshold
+        }
+        return width < Self.narrowOverviewLayoutThreshold
+    }
+
+    private var isNarrowOverviewLayoutInEffect: Bool {
+        usesNarrowOverviewLayout ?? prefersNarrowOverviewLayout(for: bounds.width)
+    }
+
+    /// Layout flips made during the current run-loop turn, oldest first.
+    ///
+    /// Reported 2026-09-03: the app crashed inside a layout pass because this
+    /// view flipped between its wide and narrow overview layouts every pass.
+    /// Each flip changes the constraints, which changes the width AppKit hands
+    /// back, which asked for the other layout again, until AppKit gave up and
+    /// threw. A flip that repeats one made two flips earlier in the same turn
+    /// is that loop, so it is refused and the view stays as it is; the history
+    /// clears on the next turn so a real resize back through the band works.
+    private var overviewLayoutFlipsThisTurn: [(width: CGFloat, narrow: Bool)] = []
+
     private func updateOverviewLayout(for width: CGFloat) {
         guard let factsRailWidthConstraint,
               let narrowOverviewHeightConstraint,
               let narrowFactsHeightConstraint,
               let narrowOverviewWidthConstraint,
               let narrowFactsWidthConstraint else { return }
-        let shouldUseNarrowLayout = width <= 0 || width < 560
+        let shouldUseNarrowLayout = prefersNarrowOverviewLayout(for: width)
         guard usesNarrowOverviewLayout != shouldUseNarrowLayout else { return }
+        if overviewLayoutFlipsThisTurn.count >= 2,
+           let earlier = overviewLayoutFlipsThisTurn.first,
+           earlier.narrow == shouldUseNarrowLayout {
+            return
+        }
+        if overviewLayoutFlipsThisTurn.isEmpty {
+            // Runs on the main loop's next pass, after the current layout
+            // pass has fully unwound, whichever mode the loop is in.
+            RunLoop.main.perform { [weak self] in
+                self?.overviewLayoutFlipsThisTurn.removeAll()
+            }
+        }
+        overviewLayoutFlipsThisTurn.append((width, shouldUseNarrowLayout))
+        if overviewLayoutFlipsThisTurn.count > 2 {
+            overviewLayoutFlipsThisTurn.removeFirst()
+        }
         usesNarrowOverviewLayout = shouldUseNarrowLayout
 
         if shouldUseNarrowLayout {
