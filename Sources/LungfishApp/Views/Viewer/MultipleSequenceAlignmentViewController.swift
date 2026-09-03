@@ -1371,7 +1371,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                 onExport: { [weak self] in self?.exportSelectedSequences() },
                 onCreateBundle: { [weak self] in self?.createBundleFromSelectedSequences() },
                 onAlignWithMAFFT: nil,
-                onRunOperation: nil
+                onRunOperation: nil,
+                createBundleMenuTitle: "Extract Selection to New Bundle…",
+                exportMenuTitle: "Export Selected Residues…"
             )
         )
         let treeItem = NSMenuItem(

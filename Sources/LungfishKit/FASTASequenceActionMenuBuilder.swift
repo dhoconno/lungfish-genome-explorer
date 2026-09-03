@@ -9,6 +9,12 @@ public struct FASTASequenceActionHandlers {
     public var onCopy: (() -> Void)?
     public var onExport: (() -> Void)?
     public var onCreateBundle: (() -> Void)?
+    /// Title for the create-bundle item. The MSA canvas overrides it because
+    /// there the unit is a rectangular block, not whole sequences.
+    public var createBundleMenuTitle: String = "Extract to New Bundle…"
+    /// Title for the export item, overridden by the MSA canvas so it cannot be
+    /// confused with exporting the whole aligned FASTA.
+    public var exportMenuTitle: String = "Export FASTA…"
     public var onAlignWithMAFFT: (() -> Void)?
     public var onRunOperation: (() -> Void)?
 
@@ -20,7 +26,9 @@ public struct FASTASequenceActionHandlers {
         onExport: (() -> Void)? = nil,
         onCreateBundle: (() -> Void)? = nil,
         onAlignWithMAFFT: (() -> Void)? = nil,
-        onRunOperation: (() -> Void)? = nil
+        onRunOperation: (() -> Void)? = nil,
+        createBundleMenuTitle: String = "Extract to New Bundle…",
+        exportMenuTitle: String = "Export FASTA…"
     ) {
         self.onExtractSequence = onExtractSequence
         self.blastMenuTitle = blastMenuTitle
@@ -30,6 +38,8 @@ public struct FASTASequenceActionHandlers {
         self.onCreateBundle = onCreateBundle
         self.onAlignWithMAFFT = onAlignWithMAFFT
         self.onRunOperation = onRunOperation
+        self.createBundleMenuTitle = createBundleMenuTitle
+        self.exportMenuTitle = exportMenuTitle
     }
 }
 
@@ -87,13 +97,13 @@ public enum FASTASequenceActionMenuBuilder {
             to: &items
         )
         addItem(
-            titled: "Export FASTA…",
+            titled: handlers.exportMenuTitle,
             handler: handlers.onExport,
             enabled: isEnabled,
             to: &items
         )
         addItem(
-            titled: "Create Bundle…",
+            titled: handlers.createBundleMenuTitle,
             handler: handlers.onCreateBundle,
             enabled: isEnabled,
             to: &items
