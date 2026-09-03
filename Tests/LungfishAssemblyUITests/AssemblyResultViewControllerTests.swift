@@ -163,7 +163,7 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testActionBar.accessibilityIdentifier(), "assembly-result-action-bar")
         XCTAssertEqual(
             vc.testContextMenuTitles,
-            ["Extract Sequence…", "BLAST Contig…", "Copy FASTA", "Export FASTA…", "Create Bundle…"]
+            ["Extract Sequence…", "BLAST Contig…", "Copy FASTA", "Export FASTA…", "Extract to New Bundle…"]
         )
     }
 

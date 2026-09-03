@@ -245,7 +245,7 @@ final class NvdResultViewControllerTests: XCTestCase {
                 "Verify with BLAST…",
                 "Copy FASTA",
                 "Export FASTA…",
-                "Create Bundle…",
+                "Extract to New Bundle…",
                 "Run Operation…",
                 "Copy Contig Name",
                 "Copy Accession",
