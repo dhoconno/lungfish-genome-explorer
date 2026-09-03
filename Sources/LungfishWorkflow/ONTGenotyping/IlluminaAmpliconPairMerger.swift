@@ -424,8 +424,27 @@ public enum IlluminaAmpliconPairMerger {
         arguments: [String],
         stderrURL: URL
     ) async throws -> (status: Int32, stderr: String) {
+        try await runProcess(executableURL: bbmergeURL, arguments: arguments, stderrURL: stderrURL)
+    }
+
+    /// Runs `executableURL` to completion with stderr captured to a file.
+    ///
+    /// The exit is observed through `terminationHandler`, installed before
+    /// `run()`, which Foundation guarantees to invoke exactly once. An earlier
+    /// version parked a global-queue thread in `waitUntilExit()` instead; on a
+    /// 30-sample MiSeq cohort that wait intermittently never returned for a
+    /// bbmerge that had already exited in under a second, leaving the CLI
+    /// asleep with no child process for the rest of the session.
+    ///
+    /// Internal so the wait can be exercised directly against fast-exiting
+    /// children without a bbmerge install.
+    static func runProcess(
+        executableURL: URL,
+        arguments: [String],
+        stderrURL: URL
+    ) async throws -> (status: Int32, stderr: String) {
         let process = Process()
-        process.executableURL = bbmergeURL
+        process.executableURL = executableURL
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
@@ -433,15 +452,50 @@ public enum IlluminaAmpliconPairMerger {
         process.standardError = stderrHandle
         defer { try? stderrHandle.close() }
 
+        let exit = ProcessExitWaiter()
+        process.terminationHandler = { terminated in
+            exit.finish(terminated.terminationStatus)
+        }
         try process.run()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global().async {
-                process.waitUntilExit()
-                continuation.resume()
+        let status = await exit.wait()
+        let stderrText = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+        return (status, stderrText)
+    }
+
+    /// Bridges a `Process.terminationHandler` to one awaiting caller.
+    ///
+    /// Either side may arrive first: a child that exits before the caller
+    /// awaits is handed its stored status immediately, and a caller that
+    /// awaits first is resumed by the handler.
+    private final class ProcessExitWaiter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var status: Int32?
+        private var continuation: CheckedContinuation<Int32, Never>?
+
+        func finish(_ code: Int32) {
+            let pending: CheckedContinuation<Int32, Never>?
+            lock.lock()
+            status = code
+            pending = continuation
+            continuation = nil
+            lock.unlock()
+            pending?.resume(returning: code)
+        }
+
+        func wait() async -> Int32 {
+            await withCheckedContinuation { continuation in
+                let stored: Int32?
+                lock.lock()
+                stored = status
+                if stored == nil {
+                    self.continuation = continuation
+                }
+                lock.unlock()
+                if let stored {
+                    continuation.resume(returning: stored)
+                }
             }
         }
-        let stderrText = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-        return (process.terminationStatus, stderrText)
     }
 
     private static func countRecords(at url: URL) async throws -> Int {
