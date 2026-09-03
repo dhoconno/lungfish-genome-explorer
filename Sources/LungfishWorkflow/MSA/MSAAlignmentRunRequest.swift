@@ -107,6 +107,11 @@ public struct MSAAlignmentRunRequest: Codable, Sendable, Equatable {
     public let extraArguments: [String]
     public let wrapperArgv: [String]
     public let allowFASTQAssemblyInputs: Bool
+    /// Names of the input records to align. `nil` aligns every record.
+    /// Resolved through ``MSASequenceSelection/resolve(requestedNames:records:sanitize:)``,
+    /// so an entry may be a full FASTA header, an accession, or the sanitized
+    /// label shown in the alignment.
+    public let includedSequenceNames: [String]?
 
     public init(
         tool: MSAAlignmentTool,
@@ -123,7 +128,8 @@ public struct MSAAlignmentRunRequest: Codable, Sendable, Equatable {
         deterministicThreads: Bool = true,
         extraArguments: [String] = [],
         wrapperArgv: [String] = [],
-        allowFASTQAssemblyInputs: Bool = false
+        allowFASTQAssemblyInputs: Bool = false,
+        includedSequenceNames: [String]? = nil
     ) {
         self.tool = tool
         self.inputSequenceURLs = inputSequenceURLs
@@ -140,6 +146,7 @@ public struct MSAAlignmentRunRequest: Codable, Sendable, Equatable {
         self.extraArguments = extraArguments
         self.wrapperArgv = wrapperArgv
         self.allowFASTQAssemblyInputs = allowFASTQAssemblyInputs
+        self.includedSequenceNames = includedSequenceNames
     }
 
     public var resolvedOutputBundleURL: URL {

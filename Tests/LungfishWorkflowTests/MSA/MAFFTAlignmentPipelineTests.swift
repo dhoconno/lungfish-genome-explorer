@@ -419,6 +419,40 @@ final class MAFFTAlignmentPipelineTests: XCTestCase {
         }
         try compressed.write(to: outputURL, options: .atomic)
     }
+
+    func testIncludedSequenceNamesDefaultsToNilAndRoundTripsThroughCodable() throws {
+        let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
+        let plain = MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: [project.appendingPathComponent("in.fasta")],
+            projectURL: project,
+            outputBundleURL: nil,
+            name: "Aligned",
+            threads: nil
+        )
+        XCTAssertNil(plain.includedSequenceNames)
+
+        let subset = MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: [project.appendingPathComponent("in.fasta")],
+            projectURL: project,
+            outputBundleURL: nil,
+            name: "Aligned",
+            threads: nil,
+            includedSequenceNames: ["seqA", "seqB"]
+        )
+        let data = try JSONEncoder().encode(subset)
+        let decoded = try JSONDecoder().decode(MSAAlignmentRunRequest.self, from: data)
+        XCTAssertEqual(decoded.includedSequenceNames, ["seqA", "seqB"])
+
+        // A payload written before this field existed must still decode.
+        let legacy = try JSONEncoder().encode(plain)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: legacy) as? [String: Any])
+        object.removeValue(forKey: "includedSequenceNames")
+        let trimmed = try JSONSerialization.data(withJSONObject: object)
+        let legacyDecoded = try JSONDecoder().decode(MSAAlignmentRunRequest.self, from: trimmed)
+        XCTAssertNil(legacyDecoded.includedSequenceNames)
+    }
 }
 
 private final class RecordingMSAToolRunner: MSAToolRunning, @unchecked Sendable {
@@ -449,4 +483,5 @@ private final class RecordingMSAToolRunner: MSAToolRunning, @unchecked Sendable 
             version: "v7.526"
         )
     }
+
 }
