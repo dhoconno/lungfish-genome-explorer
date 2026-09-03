@@ -316,6 +316,120 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
         XCTAssertEqual(snapshot.maskSymbolMode, MSAConsensusMaskSymbolMode.x.rawValue)
     }
 
+    // MARK: - Dead control removal (Task 13)
+
+    /// Builds a minimal alignment document state with the real memberwise
+    /// initialiser, which requires every stored property.
+    private func makeAlignmentDocumentState() -> MultipleSequenceAlignmentDocumentState {
+        MultipleSequenceAlignmentDocumentState(
+            title: "alignment",
+            subtitle: "aligned-fasta • dna",
+            summary: "3 sequences • 6 aligned columns",
+            contextRows: [("Sequences", "3")],
+            warningRows: [],
+            artifactRows: [],
+            consensusPreview: "ACGTTA"
+        )
+    }
+
+    func testAIAssistantTabIsHiddenUnlessTheSettingIsOn() {
+        let model = InspectorViewModel()
+        model.contentMode = .genomics
+
+        let original = AppSettings.shared.aiSearchEnabled
+        defer { AppSettings.shared.aiSearchEnabled = original }
+
+        AppSettings.shared.aiSearchEnabled = false
+        XCTAssertFalse(
+            model.availableTabs.contains(.ai),
+            "selecting the assistant with AI off raises a modal alert and leaves an empty pane"
+        )
+
+        AppSettings.shared.aiSearchEnabled = true
+        XCTAssertTrue(model.availableTabs.contains(.ai))
+    }
+
+    func testAnalysisTabIsHiddenForAnAlignmentDocument() {
+        let model = InspectorViewModel()
+        model.contentMode = .genomics
+        XCTAssertTrue(model.availableTabs.contains(.analysis))
+
+        model.documentSectionViewModel.multipleSequenceAlignmentDocument = makeAlignmentDocumentState()
+        XCTAssertFalse(
+            model.availableTabs.contains(.analysis),
+            "the Analysis tab asks the user to import a BAM, which an alignment bundle never has"
+        )
+    }
+
+    func testSelectedTabFallsBackWhenTheActiveTabDisappears() {
+        let model = InspectorViewModel()
+        model.contentMode = .genomics
+        let original = AppSettings.shared.aiSearchEnabled
+        defer { AppSettings.shared.aiSearchEnabled = original }
+
+        AppSettings.shared.aiSearchEnabled = true
+        model.selectedTab = .ai
+        AppSettings.shared.aiSearchEnabled = false
+        model.reconcileSelectedTab()
+        XCTAssertEqual(model.selectedTab, .bundle)
+    }
+
+    func testReconcileLeavesAStillListedTabAlone() {
+        let model = InspectorViewModel()
+        model.contentMode = .genomics
+        model.selectedTab = .view
+
+        model.reconcileSelectedTab()
+
+        XCTAssertEqual(model.selectedTab, .view)
+    }
+
+    func testShowingAnAlignmentDocumentMovesTheSelectionOffTheAnalysisTab() {
+        let model = InspectorViewModel()
+        model.contentMode = .genomics
+        model.selectedTab = .analysis
+
+        model.documentSectionViewModel.multipleSequenceAlignmentDocument = makeAlignmentDocumentState()
+        model.reconcileSelectedTab()
+
+        XCTAssertFalse(model.availableTabs.contains(.analysis))
+        XCTAssertTrue(
+            model.availableTabs.contains(model.selectedTab),
+            "the content switch must never render a tab the picker no longer lists"
+        )
+    }
+
+    func testLegacyAnnotationLoadDisablesTheVariantsAndSamplesTabs() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        drawer.activeTab = .samples
+        drawer.tabControl.selectedSegment = AnnotationTableDrawerView.DrawerTab.samples.rawValue
+
+        drawer.setAnnotations([])
+
+        XCTAssertFalse(
+            drawer.tabControl.isEnabled(forSegment: AnnotationTableDrawerView.DrawerTab.variants.rawValue),
+            "the legacy in-memory path has no variant table behind it"
+        )
+        XCTAssertFalse(
+            drawer.tabControl.isEnabled(forSegment: AnnotationTableDrawerView.DrawerTab.samples.rawValue),
+            "Samples otherwise offers Import Metadata and Sample Groups against nothing"
+        )
+        XCTAssertEqual(drawer.activeTab, .annotations)
+        XCTAssertEqual(
+            drawer.tabControl.selectedSegment,
+            AnnotationTableDrawerView.DrawerTab.annotations.rawValue
+        )
+    }
+
+    func testDrawerTabControlAccessibilityLabelNamesEverySegment() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+
+        XCTAssertEqual(
+            drawer.tabControl.accessibilityLabel(),
+            "Switch between annotations, variants, and samples"
+        )
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

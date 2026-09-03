@@ -1534,6 +1534,9 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 // whole aligned FASTA.
                 "Export Selected Residues…",
                 "Extract Selection to New Bundle…",
+                // `onRunOperationRequested` is wired by the viewport's owner, so
+                // the canvas menu offers Run Operation rather than dropping it.
+                "Run Operation…",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",

@@ -863,6 +863,18 @@ extension AnnotationTableDrawerView {
         isLoading = false
         totalAnnotationCount = results.count
 
+        // The legacy in-memory path has no variant or sample tables behind it.
+        // Only `setSearchIndex` populates those, and an alignment never calls
+        // it, so without this the Samples tab would offer Import Metadata,
+        // Download Template, Add Sample Field, and Sample Groups against
+        // nothing at all.
+        tabControl.setEnabled(false, forSegment: DrawerTab.variants.rawValue)
+        tabControl.setEnabled(false, forSegment: DrawerTab.samples.rawValue)
+        if activeTab != .annotations {
+            activeTab = .annotations
+            tabControl.selectedSegment = DrawerTab.annotations.rawValue
+        }
+
         let typeSet = Set(results.map { $0.type })
         availableAnnotationTypes = typeSet.sorted()
         visibleAnnotationTypes = typeSet
