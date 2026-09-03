@@ -3958,6 +3958,23 @@ public final class GenotypeResultViewController: NSViewController {
         if showsRawMatrix {
             ensureComparisonMatrixConfigured()
         }
+        if detailPaneSuppressedForBareSelection {
+            detailContainer.isHidden = true
+        }
+    }
+
+    /// True while the selected call has nothing to put in the detail pane: no
+    /// graphical reference record, no GenBank fields and no comments. A
+    /// genotype-only result then shows the matrix alone rather than a pane
+    /// holding the allele name and a note that a fresh analysis is required.
+    private var detailPaneSuppressedForBareSelection = false
+
+    private func setDetailPaneSuppressed(_ suppressed: Bool) {
+        detailPaneSuppressedForBareSelection = suppressed
+        // Lifting the suppression restores the review lens's own rule for
+        // the pane; every other lens shows it.
+        detailContainer.isHidden = suppressed
+            || (selectedLens == .review && callEvidence == nil)
     }
 
     private var rawMatrixUsesSampleCurationDetail: Bool {
@@ -4114,6 +4131,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = sharedCall
         currentCandidateRow = nil
         currentSelectedSample = sample
+        setDetailPaneSuppressed(false)
         let displayLabel = alleleDisplayLabel(for: sharedCall.genotype)
         let referenceRows = genBankFieldRows(for: sharedCall.genotype)
         let resolvedMatrixTargets = matrixTargets ?? [
@@ -4157,6 +4175,20 @@ public final class GenotypeResultViewController: NSViewController {
                 observedSample: sample,
                 comments: commentRows
             )
+        } else if referenceRows.isEmpty && commentRows.isEmpty {
+            // A genotype-only result has no graphical record, no GenBank
+            // fields and no comments for this call. A pane would hold only
+            // the allele name and a note about needing a fresh analysis, so
+            // show the matrix alone instead.
+            removeArrangedSubviews(from: detailStack)
+            setDetailPaneSuppressed(true)
+            publishSelectionState(selectionState(
+                for: sharedCall,
+                sample: sample,
+                matrixTargets: resolvedMatrixTargets,
+                providedCommentRows: commentRows
+            ))
+            return
         } else {
             knownAlleleDetailView.configureFallback(
                 alleleName: displayLabel,
@@ -4324,6 +4356,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showEmptySelection() {
+        setDetailPaneSuppressed(false)
         currentSharedCall = nil
         currentCandidateRow = nil
         currentSelectedSample = nil
@@ -4493,6 +4526,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func showGenericMatrixTargetSelection(_ uniqueTargets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         legacyNonRowDetailBuildCount += 1
+        setDetailPaneSuppressed(false)
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle("Matrix Annotation Targets"))
         let rows = matrixTargetDetailRows(for: uniqueTargets) + matrixCommentDetailRows(for: uniqueTargets)
@@ -4572,6 +4606,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func showSampleColumnSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         legacyNonRowDetailBuildCount += 1
+        setDetailPaneSuppressed(false)
         let samples = targets.compactMap { target -> String? in
             guard case let .column(sample) = target else { return nil }
             return sample
@@ -5040,6 +5075,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
         legacyNonRowDetailBuildCount += 1
+        setDetailPaneSuppressed(false)
         currentSharedCall = nil
         currentCandidateRow = nil
         currentSelectedSample = nil
@@ -10548,6 +10584,10 @@ extension GenotypeResultViewController {
 
     var testingCallEvidencePaneHidden: Bool {
         detailContainer.isHidden || (callEvidenceHost?.isHidden ?? true)
+    }
+
+    var testingDetailPaneHidden: Bool {
+        detailContainer.isHidden
     }
 
     func testingCallEvidenceRootView(

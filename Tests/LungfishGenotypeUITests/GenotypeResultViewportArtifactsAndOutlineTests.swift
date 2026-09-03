@@ -2017,7 +2017,13 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testSelectedFASTARowFallsBackToGenotypeWithoutGenBankSection() {
+    /// Reported 2026-09-03: a genotype-only result showed a detail pane holding
+    /// only the allele name and "A fresh analysis is required to generate
+    /// graphical reference records", which explains nothing and takes space
+    /// from the matrix. With no graphical record, no GenBank fields and no
+    /// comments there is nothing to detail, so the pane is hidden and the
+    /// matrix stands alone. It returns as soon as a selection has content.
+    func testSelectedFASTARowWithNothingToDetailHidesThePane() {
         let genotype = "01_Mafa_A1_001_01_FULL_FASTA_LABEL"
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -2025,19 +2031,21 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             samples: [],
             calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 20)]
         ))
+        XCTAssertFalse(controller.testingDetailPaneHidden)
 
         controller.testingSelectMatrixRows(genotypes: [genotype], sample: nil)
 
-        let detail = onlyKnownAlleleDetail(in: controller.view)
-        XCTAssertEqual(text("knownAlleleAlleleLabel", in: detail), genotype)
-        XCTAssertEqual(text("knownAlleleRawReferenceID", in: detail), genotype)
-        XCTAssertEqual(
-            text("knownAlleleFallbackNote", in: detail),
-            "A fresh analysis is required to generate graphical reference records."
-        )
+        XCTAssertTrue(knownAlleleDetails(in: controller.view).isEmpty, "no fallback card is mounted")
+        XCTAssertTrue(controller.testingDetailPaneHidden, "the matrix stands alone")
         XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Reference Sequence" })
-    }
+        XCTAssertTrue(
+            controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Allele" },
+            "the Inspector still receives the selection"
+        )
 
+        controller.testingSelectMatrixRows(genotypes: [], sample: nil)
+        XCTAssertFalse(controller.testingDetailPaneHidden, "clearing the selection brings the pane back")
+    }
 
     func testSelectedColumnShowsSampleMetricsAndOnlyVisibleSupportedAlleles() {
         let retained = ONTGenotypeCall(
