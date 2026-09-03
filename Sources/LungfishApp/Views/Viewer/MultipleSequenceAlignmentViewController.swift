@@ -288,6 +288,16 @@ struct MultipleSequenceAlignmentSelectionExportRequest: Equatable, Sendable {
     let displayName: String
 }
 
+/// A request to export a whole alignment, or the currently selected rows,
+/// through the alignment export sheet.
+struct MultipleSequenceAlignmentExportRequest: Equatable, Sendable {
+    let bundleURL: URL
+    let rows: String?
+    let columns: String?
+    let selectedRowCount: Int
+    let totalRowCount: Int
+}
+
 struct MultipleSequenceAlignmentTreeInferenceRequest: Equatable, Sendable {
     let bundleURL: URL
     let rows: String?
@@ -325,6 +335,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onExtractAnnotatedSequenceRequested: (([String], String, [String: [SequenceAnnotation]]) -> Void)?
     var onExportFASTARequested: (([String], String) -> Void)?
     var onExportMSASelectionRequested: ((MultipleSequenceAlignmentSelectionExportRequest) -> Void)?
+    var onExportAlignmentRequested: ((MultipleSequenceAlignmentExportRequest) -> Void)?
     var onCreateBundleRequested: (([String], String) -> Void)?
     var onCreateAnnotatedBundleRequested: (([String], String, [String: [SequenceAnnotation]]) -> Void)?
     var onRunOperationRequested: (([String], String) -> Void)?
@@ -1462,6 +1473,16 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                 exportMenuTitle: "Export Selected Residues…"
             )
         )
+        let exportAlignmentItem = NSMenuItem(
+            title: "Export Alignment\u{2026}",
+            action: #selector(exportAlignmentFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        exportAlignmentItem.target = self
+        exportAlignmentItem.isEnabled = bundleURL != nil
+        menu.addItem(exportAlignmentItem)
+        menu.addItem(.separator())
+
         let treeItem = NSMenuItem(
             title: "Build Tree with IQ-TREE…",
             action: #selector(inferTreeFromMenu(_:)),
@@ -1499,6 +1520,20 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         } catch {
             presentError(error, title: "Apply Annotation Failed")
         }
+    }
+
+    @objc private func exportAlignmentFromMenu(_ sender: Any?) {
+        guard let bundleURL else { return }
+        let rowIDs = selectedRowRange?.compactMap { rowIDsByIndex[safe: $0] } ?? []
+        onExportAlignmentRequested?(
+            MultipleSequenceAlignmentExportRequest(
+                bundleURL: bundleURL,
+                rows: rowIDs.isEmpty ? nil : rowIDs.joined(separator: ","),
+                columns: nil,
+                selectedRowCount: rowIDs.count,
+                totalRowCount: alignmentRows.count
+            )
+        )
     }
 
     @objc private func inferTreeFromMenu(_ sender: Any?) {

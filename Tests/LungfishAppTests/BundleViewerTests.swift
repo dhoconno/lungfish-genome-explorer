@@ -1597,6 +1597,9 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 // `onRunOperationRequested` is wired by the viewport's owner, so
                 // the canvas menu offers Run Operation rather than dropping it.
                 "Run Operation…",
+                // Document-scoped export, grouped away from the
+                // selection-scoped items above and the analysis items below.
+                "Export Alignment…",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",

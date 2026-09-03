@@ -92,6 +92,15 @@ extension ViewerViewController {
         controller.onRunOperationRequested = { [weak self] fastaRecords, suggestedName in
             self?.presentFASTAOperationDialog(records: fastaRecords, suggestedName: suggestedName)
         }
+        controller.onExportAlignmentRequested = { [weak self] request in
+            self?.presentMSAAlignmentExportSheet(
+                bundleURL: request.bundleURL,
+                rows: request.rows,
+                columns: request.columns,
+                selectedRowCount: request.selectedRowCount,
+                totalRowCount: request.totalRowCount
+            )
+        }
         controller.onInferTreeRequested = { [weak self] request in
             self?.inferTreeFromMSAViaCLI(request)
         }

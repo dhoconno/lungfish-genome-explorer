@@ -136,3 +136,181 @@ enum MSAAlignmentExportSheet {
         }
     }
 }
+
+
+// MARK: - Sheet model and view
+
+/// Observable state for ``MSAAlignmentExportView``.
+@Observable
+@MainActor
+final class MSAAlignmentExportModel {
+    var destination: MSAExportDestination = .file
+    var layout: MSAExportLayout = .aligned
+    var format: String = "aligned-fasta"
+    var scope: MSAExportScope = .entireAlignment
+    var name: String
+
+    /// Rough size of the exported text, used to gate the clipboard before the
+    /// user commits rather than refusing afterwards.
+    let estimatedBytes: Int
+    /// Whether a multi-row selection exists, which is what makes the scope
+    /// control meaningful.
+    let hasSelection: Bool
+    let selectedRowCount: Int
+    let totalRowCount: Int
+
+    init(
+        name: String,
+        estimatedBytes: Int,
+        hasSelection: Bool,
+        selectedRowCount: Int,
+        totalRowCount: Int
+    ) {
+        self.name = name
+        self.estimatedBytes = estimatedBytes
+        self.hasSelection = hasSelection
+        self.selectedRowCount = selectedRowCount
+        self.totalRowCount = totalRowCount
+    }
+
+    var isClipboardAvailable: Bool {
+        MSAAlignmentExportSheet.isClipboardAvailable(estimatedBytes: estimatedBytes)
+    }
+
+    var clipboardTooltip: String? {
+        isClipboardAvailable ? nil : MSAAlignmentExportSheet.clipboardUnavailableMessage(estimatedBytes: estimatedBytes)
+    }
+
+    /// Formats offered for the current destination. Only the file destination
+    /// exposes the tree-builder formats; bundle and clipboard stay FASTA.
+    var availableFormats: [String] {
+        guard destination == .file else {
+            return layout == .aligned ? ["aligned-fasta"] : ["fasta"]
+        }
+        return layout == .aligned ? MSAAlignmentExportSheet.alignedFileFormats : ["fasta"]
+    }
+
+    /// Keeps `format` consistent whenever destination or layout changes.
+    func reconcileFormat() {
+        if !availableFormats.contains(format) {
+            format = availableFormats[0]
+        }
+        if destination == .clipboard && !isClipboardAvailable {
+            destination = .file
+            reconcileFormat()
+        }
+    }
+
+    var configuration: MSAAlignmentExportConfiguration {
+        MSAAlignmentExportConfiguration(
+            destination: destination,
+            layout: layout,
+            format: format,
+            scope: scope,
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+}
+
+struct MSAAlignmentExportView: View {
+    @Bindable var model: MSAAlignmentExportModel
+    var onCancel: () -> Void
+    var onExport: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text("Export Alignment")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Destination")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                    ForEach(MSAExportDestination.allCases) { destination in
+                        let enabled = destination != .clipboard || model.isClipboardAvailable
+                        Button {
+                            guard enabled else { return }
+                            model.destination = destination
+                            model.reconcileFormat()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: model.destination == destination ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(enabled ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
+                                Text(destination.label)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(enabled ? Color.primary : Color.lungfishSecondaryText)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!enabled)
+                        .help(destination == .clipboard ? (model.clipboardTooltip ?? "") : "")
+                        .accessibilityIdentifier("msa-export-destination-\(destination.rawValue)")
+                    }
+                }
+
+                Picker("Sequences", selection: $model.layout) {
+                    ForEach(MSAExportLayout.allCases) { layout in
+                        Text(layout.label).tag(layout)
+                    }
+                }
+                .onChange(of: model.layout) { _, _ in model.reconcileFormat() }
+                .accessibilityIdentifier("msa-export-layout")
+
+                if model.destination == .file && model.availableFormats.count > 1 {
+                    Picker("Format", selection: $model.format) {
+                        ForEach(model.availableFormats, id: \.self) { format in
+                            Text(format).tag(format)
+                        }
+                    }
+                    .accessibilityIdentifier("msa-export-format")
+                }
+
+                if model.hasSelection {
+                    Picker("Scope", selection: $model.scope) {
+                        Text("Entire alignment (\(model.totalRowCount))").tag(MSAExportScope.entireAlignment)
+                        Text("Selected rows (\(model.selectedRowCount))").tag(MSAExportScope.selectedRows)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .accessibilityIdentifier("msa-export-scope")
+                }
+
+                if model.destination == .bundle {
+                    Text(model.layout.bundleCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextField("Bundle name", text: $model.name)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button(model.destination.primaryButtonTitle, action: onExport)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.destination == .bundle && model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 480)
+    }
+}
