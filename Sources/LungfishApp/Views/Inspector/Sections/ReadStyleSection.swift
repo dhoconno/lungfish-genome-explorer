@@ -1761,7 +1761,7 @@ public struct AlignmentViewSection: View {
                 .foregroundStyle(.secondary)
 
             HStack {
-                Text("Low support")
+                Text("Low support (of non-gap residues)")
                 Spacer()
                 Text("\(Int(viewModel.msaConsensusLowSupportThresholdPercent))%")
                     .foregroundStyle(.secondary)

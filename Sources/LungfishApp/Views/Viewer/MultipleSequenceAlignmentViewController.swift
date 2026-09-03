@@ -20,6 +20,8 @@ private enum MultipleSequenceAlignmentAccessibilityID {
     static let zoomInButton = "multiple-sequence-alignment-zoom-in-button"
     static let fitColumnsButton = "multiple-sequence-alignment-fit-columns-button"
     static let siteMode = "multiple-sequence-alignment-site-mode"
+    static let previousVariableButton = "multiple-sequence-alignment-previous-variable-button"
+    static let nextVariableButton = "multiple-sequence-alignment-next-variable-button"
     static let colorScheme = "multiple-sequence-alignment-color-scheme"
 }
 
@@ -409,6 +411,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentRows = parsedRows
         rowIDsByIndex = loaded.rows.map(\.id)
         columnSummaries = Self.computeColumnSummaries(for: parsedRows)
+        updateVariableSiteButtonAvailability()
         coordinateMapsByRowID = Dictionary(uniqueKeysWithValues: (try loaded.loadCoordinateMaps()).map { ($0.rowID, $0) })
         annotationStore = try loaded.loadAnnotationStore()
         refreshAnnotationTracks()
@@ -608,11 +611,19 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         previousVariableButton.action = #selector(previousVariableSite(_:))
         previousVariableButton.bezelStyle = .rounded
         LungfishKitControlStyle.applyInspectorMetrics(to: previousVariableButton)
+        previousVariableButton.setAccessibilityIdentifier(
+            MultipleSequenceAlignmentAccessibilityID.previousVariableButton
+        )
 
         nextVariableButton.target = self
         nextVariableButton.action = #selector(nextVariableSite(_:))
         nextVariableButton.bezelStyle = .rounded
         LungfishKitControlStyle.applyInspectorMetrics(to: nextVariableButton)
+        nextVariableButton.setAccessibilityIdentifier(
+            MultipleSequenceAlignmentAccessibilityID.nextVariableButton
+        )
+
+        updateVariableSiteButtonAvailability()
 
         colorSchemeControl.selectedSegment = MultipleSequenceAlignmentColorScheme.nucleotide.rawValue
         colorSchemeControl.target = self
@@ -855,16 +866,25 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         }
     }
 
+    /// Enables the variable-site steppers only when there is a variable site to
+    /// step to.
+    ///
+    /// An alignment with no variable columns previously left both buttons live;
+    /// pressing one silently switched the site mode to variable-only as a side
+    /// effect and then navigated nowhere. Disabling them says the same thing
+    /// without changing what the user is looking at.
+    private func updateVariableSiteButtonAvailability() {
+        let hasVariableSites = columnSummaries.contains(where: \.variable)
+        previousVariableButton.isEnabled = hasVariableSites
+        nextVariableButton.isEnabled = hasVariableSites
+    }
+
     private func moveVariableSelection(direction: Int) {
         let variableColumns = columnSummaries.filter(\.variable).map(\.index)
         guard !variableColumns.isEmpty else { return }
         let current = selectedAlignmentColumn ?? variableColumns[0]
         let currentIndex = variableColumns.firstIndex(of: current) ?? (direction > 0 ? -1 : variableColumns.count)
         let nextIndex = min(max(currentIndex + direction, 0), variableColumns.count - 1)
-        if siteModeControl.selectedSegment != 1 {
-            siteModeControl.selectedSegment = 1
-            applySiteMode()
-        }
         select(row: selectedRowIndex ?? 0, alignmentColumn: variableColumns[nextIndex])
     }
 
@@ -1366,12 +1386,16 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             selectionCount: selectedFASTARecords().count,
             handlers: FASTASequenceActionHandlers(
                 onExtractSequence: { [weak self] in self?.extractSelectedSequences() },
+                // Deliberately nil: BLAST of aligned rows would query gapped
+                // sequence.
                 onBlast: nil,
                 onCopy: { [weak self] in self?.copySelectedFASTAToPasteboard() },
                 onExport: { [weak self] in self?.exportSelectedSequences() },
                 onCreateBundle: { [weak self] in self?.createBundleFromSelectedSequences() },
+                // Deliberately nil: realigning an alignment is a different
+                // operation from aligning sequences.
                 onAlignWithMAFFT: nil,
-                onRunOperation: nil
+                onRunOperation: { [weak self] in self?.runOperationOnSelectedSequences() }
             )
         )
         let treeItem = NSMenuItem(

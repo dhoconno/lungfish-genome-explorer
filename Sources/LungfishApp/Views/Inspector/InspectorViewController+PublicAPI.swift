@@ -193,6 +193,9 @@ extension InspectorViewController {
             displayName: manifest.name
         )
         viewModel.selectedTab = .bundle
+        // Loading an alignment drops the Analysis tab, so make sure the
+        // selection still names a tab the picker lists.
+        viewModel.reconcileSelectedTab()
     }
 
     /// Updates the Document inspector with MHC amplicon reference bundle metadata.
