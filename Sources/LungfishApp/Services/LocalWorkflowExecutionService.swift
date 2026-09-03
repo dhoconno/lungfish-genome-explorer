@@ -292,9 +292,19 @@ protocol LocalWorkflowCLIProcessRunning {
         workingDirectory: URL,
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> LocalWorkflowCLIProcessResult
+
+    /// Terminates the lungfish-cli process currently being run, if any.
+    ///
+    /// Lets an operation register a cancel callback with the Operation
+    /// Center; without one the panel shows no Cancel button and a stalled
+    /// run can only be ended by quitting the app.
+    func cancel()
 }
 
 extension LocalWorkflowCLIProcessRunning {
+    /// Stubs that never launch a real process have nothing to terminate.
+    func cancel() {}
+
     func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
         try await runLungfishCLI(
             arguments: arguments,
@@ -347,5 +357,9 @@ struct ProcessLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRunning {
             standardError: result.standardError,
             didStreamOutput: result.didStreamOutput
         )
+    }
+
+    func cancel() {
+        runner.cancel()
     }
 }

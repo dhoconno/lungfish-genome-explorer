@@ -425,6 +425,16 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for miSeq amplicon MHC genotyping..."
         )
+        // Registering a cancel callback is what makes the Operations panel
+        // show a Cancel button. Without it a stalled cohort could only be
+        // ended by quitting the app. The callback runs on a global queue.
+        operationCenter.setCancelCallback(for: operationID) { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(

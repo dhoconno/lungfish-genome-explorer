@@ -486,6 +486,58 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--reuse-compatible-checkpoints"))
     }
 
+    /// Reported 2026-09-03: a stalled MiSeq cohort could not be stopped from
+    /// the Operations panel because the row had no Cancel button. The button
+    /// appears only for operations that registered a cancel callback.
+    func testIlluminaGenotypingIsCancellableWhileTheCLIRunsAndCancelTerminatesTheProcess() async throws {
+        let temp = try temporaryDirectory()
+        let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses/reads-miseq.lungfishgenotype", isDirectory: true)
+        for url in [readsURL, referenceURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [readsURL],
+            referenceSourceURL: referenceURL,
+            barcodeDefinitionsURL: nil,
+            outputDirectory: outputURL,
+            outputName: "reads-miseq",
+            analysisName: "MiSeq",
+            projectURL: temp,
+            threads: 4,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner()
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+        var wasCancellableWhileRunning: Bool?
+        runner.onRun = {
+            let item = operationCenter.items.first
+            wasCancellableWhileRunning = item?.isCancellable
+            if let id = item?.id {
+                operationCenter.cancel(id: id)
+            }
+        }
+
+        _ = try? await service.run(.ontGenotyping(request))
+
+        XCTAssertEqual(wasCancellableWhileRunning, true,
+                       "the Operations panel shows Cancel only for a running operation with a cancel callback")
+        for _ in 0..<200 where runner.cancelCount == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(runner.cancelCount, 1, "cancelling the row must terminate the lungfish-cli process")
+    }
+
     func testONTGenotypingFailureReportsCLIExitStatusAndStderr() async throws {
         let temp = try temporaryDirectory()
         let request = try makeONTGenotypingRequest(temp: temp)
@@ -1021,6 +1073,9 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
     private(set) var invocations: [Invocation] = []
     private(set) var didReceiveOutputHandler = false
     private(set) var fullLengthOutputDirectoryExistedAtInvocation: [Bool] = []
+    /// Runs while the CLI is 'executing', so a test can observe the operation mid-run.
+    var onRun: (@MainActor () -> Void)?
+    private(set) var cancelCount = 0
     private let exitCode: Int32
     private let stdout: String?
     private let stderr: String
@@ -1047,12 +1102,17 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         self.corruptsGenotypeScientificArtifact = corruptsGenotypeScientificArtifact
     }
 
+    func cancel() {
+        cancelCount += 1
+    }
+
     func runLungfishCLI(
         arguments: [String],
         workingDirectory: URL,
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> LocalWorkflowCLIProcessResult {
         didReceiveOutputHandler = outputHandler != nil
+        onRun?()
         invocations.append(Invocation(
             arguments: arguments,
             workingDirectory: workingDirectory.standardizedFileURL
