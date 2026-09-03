@@ -109,12 +109,30 @@ public enum ViralReconResultIngest {
             )
         }
 
+        // Two distinct outputs can share a filename: mosdepth writes the
+        // per-amplicon and whole-genome coverage tables under sibling
+        // directories, both named `<sample>.mosdepth.coverage.tsv`. Keying the
+        // destination on the last path component alone dropped the second and
+        // reported the first's path for it, silently losing the amplicon
+        // dropout view. A colliding name is therefore qualified by the source
+        // directory rather than skipped.
+        var usedRelativePaths: Set<String> = []
         func copy(_ source: URL, role: String) throws -> String? {
             guard fileManager.fileExists(atPath: source.path) else { return nil }
-            let relative = "\(role)/\(source.lastPathComponent)"
+            var name = source.lastPathComponent
+            var relative = "\(role)/\(name)"
+            if usedRelativePaths.contains(relative) {
+                let qualifier = source.deletingLastPathComponent().lastPathComponent
+                name = "\(qualifier)-\(name)"
+                relative = "\(role)/\(name)"
+            }
             let destination = bundleDirectory.appendingPathComponent(relative)
-            guard !fileManager.fileExists(atPath: destination.path) else { return relative }
+            guard !fileManager.fileExists(atPath: destination.path) else {
+                usedRelativePaths.insert(relative)
+                return relative
+            }
             try fileManager.copyItem(at: source, to: destination)
+            usedRelativePaths.insert(relative)
             return relative
         }
 

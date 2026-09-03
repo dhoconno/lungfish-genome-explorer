@@ -221,4 +221,36 @@ final class ViralReconResultIngestTests: XCTestCase {
         XCTAssertEqual(entry.inventory.sampleName, "S1")
         XCTAssertEqual(entry.inventory.sortedBAM?.lastPathComponent, "S1.sorted.bam")
     }
+    // mosdepth writes per-amplicon and whole-genome coverage under sibling
+    // directories using the SAME filename. Copying both into one flat reports/
+    // directory by last path component silently dropped the second, so the
+    // amplicon-dropout view could be lost while the sidecar still listed two
+    // report paths.
+    func testKeepsBothCoverageTablesWhenTheirFilenamesCollide() throws {
+        for relative in ["variants/bowtie2/mosdepth/amplicon/S1.mosdepth.coverage.tsv",
+                         "variants/bowtie2/mosdepth/genome/S1.mosdepth.coverage.tsv"] {
+            let url = results.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            // Distinct contents so an overwrite is detectable, not just a name clash.
+            try Data(relative.utf8).write(to: url)
+        }
+        let destination = root.appendingPathComponent("Analyses/Viral Recon", isDirectory: true)
+
+        let ingested = try ViralReconResultIngest.ingest(
+            resultsDirectory: results,
+            sampleName: "S1",
+            referenceBundleURL: referenceBundle,
+            into: destination)
+
+        let reports = ingested.bundleDirectory.appendingPathComponent("reports", isDirectory: true)
+        let copied = try FileManager.default.contentsOfDirectory(atPath: reports.path)
+            .filter { $0.contains("mosdepth") }
+        XCTAssertEqual(copied.count, 2, "both coverage tables must survive, got \(copied)")
+
+        let bodies = try Set(copied.map {
+            String(decoding: try Data(contentsOf: reports.appendingPathComponent($0)), as: UTF8.self)
+        })
+        XCTAssertEqual(bodies.count, 2, "one coverage table overwrote the other")
+    }
 }
