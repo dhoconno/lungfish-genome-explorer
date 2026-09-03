@@ -82,4 +82,48 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
                            .downloadProducedNoBundle(ViralReconReferenceCatalog.canonicalAccession))
         }
     }
+    // Regression: `fetch genome` resolves accessions through the NCBI assembly
+    // database, where MN908947.3 has no record of its own, so the search lands
+    // on the linked RefSeq assembly and returns NC_045512.2 under the requested
+    // name. The bundle exists and is named correctly, so an existence check
+    // passes while every primer BED line fails to match. Verified against NCBI
+    // on 2026-09-02.
+    func testDownloadedBundleCarryingTheEquivalentSequenceNameIsRejected() throws {
+        XCTAssertThrowsError(
+            try ViralReconReferenceAcquisition.acquire(
+                projectURL: projectURL,
+                downloader: { _, destination in
+                    try Self.writeBundle(at: destination.appendingPathComponent(
+                        ViralReconReferenceCatalog.bundleFilename, isDirectory: true),
+                        sequenceName: "NC_045512.2")
+                }
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? ViralReconReferenceAcquisition.AcquisitionError,
+                .sequenceIdentifierMismatch(expected: "MN908947.3", found: "NC_045512.2"))
+        }
+    }
+
+    func testDownloadedBundleCarryingTheCanonicalSequenceNameIsAccepted() throws {
+        let outcome = try ViralReconReferenceAcquisition.acquire(
+            projectURL: projectURL,
+            downloader: { _, destination in
+                try Self.writeBundle(at: destination.appendingPathComponent(
+                    ViralReconReferenceCatalog.bundleFilename, isDirectory: true),
+                    sequenceName: "MN908947.3")
+            }
+        )
+
+        XCTAssertEqual(outcome, .downloaded(ViralReconReferenceCatalog.bundleURL(inProject: projectURL)))
+    }
+
+    /// Writes the `.fai` a real bundle carries, which names the sequence.
+    private static func writeBundle(at bundleURL: URL, sequenceName: String) throws {
+        let genome = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
+        try "\(sequenceName)\t29903\t97\t80\t81\n"
+            .write(to: genome.appendingPathComponent("sequence.fa.gz.fai"),
+                   atomically: true, encoding: .utf8)
+    }
 }
