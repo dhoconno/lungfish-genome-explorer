@@ -538,8 +538,11 @@ public enum NativeTool: String, CaseIterable, Sendable {
     }
 
     /// Whether this tool is a BBTools shell script that doesn't properly quote `$@`.
-    /// These scripts require paths without spaces; NativeToolRunner will create
-    /// temporary symlinks for any arguments containing spaces.
+    ///
+    /// Every one of these wrappers ends with `CMD="java ... $@"; eval $CMD`, so
+    /// the shell re-splits any argument containing whitespace. `NativeToolRunner`
+    /// routes them through ``BBToolsArgumentStaging``, which rewrites path
+    /// arguments onto a whitespace-free staging root and moves outputs back.
     public var isBBToolsShellScript: Bool {
         switch self {
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio: return true
@@ -767,34 +770,13 @@ public actor NativeToolRunner {
         _ = try requireProvenancePolicy(for: tool)
         let toolPath = try findTool(tool)
 
-        // BBTools shell scripts use unquoted $@ which causes word-splitting on spaces.
-        // Create temporary symlinks for any key=value arguments whose paths contain spaces.
-        var resolvedArgs = arguments
-        var symlinks: [URL] = []
-        if tool.isBBToolsShellScript {
-            let fm = FileManager.default
-            for (i, arg) in arguments.enumerated() {
-                guard let eqIdx = arg.firstIndex(of: "=") else { continue }
-                let value = String(arg[arg.index(after: eqIdx)...])
-                guard value.contains(" ") else { continue }
-                let key = String(arg[..<eqIdx])
-                let originalURL = URL(fileURLWithPath: value)
-                let linkDir = try ProjectTempDirectory.create(
-                    prefix: "lungfish-bbtools-",
-                    contextURL: originalURL,
-                    policy: .systemOnly
-                )
-                let linkURL = linkDir.appendingPathComponent(Self.bbToolsShellSafeLeafName(for: originalURL))
-                try fm.createSymbolicLink(at: linkURL, withDestinationURL: URL(fileURLWithPath: value))
-                resolvedArgs[i] = "\(key)=\(linkURL.path)"
-                symlinks.append(linkDir)
-            }
-        }
-        defer {
-            for link in symlinks {
-                try? FileManager.default.removeItem(at: link)
-            }
-        }
+        // BBTools ships wrapper scripts that end in `eval $CMD`, so the shell
+        // re-splits every argument on whitespace no matter how carefully this
+        // argv array was built. Rewrite path arguments onto a clean staging
+        // root first; a clean path plans to a no-op and runs unchanged.
+        let staging = try bbToolsStaging(for: tool, arguments: arguments)
+        defer { staging.cleanUp() }
+        let resolvedArgs = staging.arguments
 
         logger.info("Running \(tool.rawValue): \(resolvedArgs.joined(separator: " "))")
 
@@ -803,14 +785,63 @@ public actor NativeToolRunner {
             overriding: environment
         )
 
-        return try await runProcess(
+        let result = try await runProcess(
             executableURL: toolPath,
             arguments: resolvedArgs,
-            workingDirectory: workingDirectory,
+            workingDirectory: bbToolsWorkingDirectory(
+                for: tool,
+                requested: workingDirectory,
+                staging: staging
+            ),
             environment: effectiveEnvironment,
             timeout: timeout ?? defaultTimeout,
             toolName: tool.rawValue
         )
+        // Move outputs home before returning, and before inspecting the exit
+        // code: a failed run's partial output is more useful to the caller than
+        // a temp directory that is about to be deleted.
+        staging.adoptResults()
+        return result
+    }
+
+    /// Plans whitespace staging for a bbtools invocation.
+    ///
+    /// Non-bbtools tools quote their argv correctly, so they are never staged:
+    /// rewriting their paths would hand them a location their caller does not
+    /// expect for no benefit.
+    private func bbToolsStaging(
+        for tool: NativeTool,
+        arguments: [String]
+    ) throws -> BBToolsArgumentStaging.Plan {
+        guard tool.isBBToolsShellScript else {
+            return BBToolsArgumentStaging.Plan(
+                arguments: arguments,
+                temporaryRoot: nil,
+                outputMoves: []
+            )
+        }
+        return try BBToolsArgumentStaging.plan(arguments: arguments)
+    }
+
+    /// Keeps the process out of a whitespace-bearing working directory.
+    ///
+    /// bbtools resolves relative paths against the working directory and passes
+    /// them back through the same `eval`, and several scripts shell out to
+    /// pigz with the cwd interpolated. When the caller's directory contains
+    /// whitespace and a staging root already exists, run there instead. The
+    /// caller's outputs are absolute and adopted explicitly, so nothing lands
+    /// in the wrong place.
+    private func bbToolsWorkingDirectory(
+        for tool: NativeTool,
+        requested: URL?,
+        staging: BBToolsArgumentStaging.Plan
+    ) -> URL? {
+        guard tool.isBBToolsShellScript,
+              let requested,
+              BBToolsArgumentStaging.containsWhitespace(requested.path),
+              let root = staging.temporaryRoot
+        else { return requested }
+        return root
     }
 
     private func bbToolsEnvironment(
@@ -992,16 +1023,6 @@ public actor NativeToolRunner {
         } onCancel: {
             cancellationState.cancel()
         }
-    }
-
-    private static func bbToolsShellSafeLeafName(for originalURL: URL) -> String {
-        let suffix: String
-        if originalURL.pathExtension.isEmpty {
-            suffix = ""
-        } else {
-            suffix = ".\(originalURL.pathExtension)"
-        }
-        return "bbtools-\(UUID().uuidString.lowercased())\(suffix)"
     }
 
     private func requireProvenancePolicy(for tool: NativeTool) throws -> ProvenancePolicyEntry {

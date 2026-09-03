@@ -400,15 +400,10 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             existingPath: ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         )
 
-        // BBTools internally calls pigz/gzip without quoting paths, so spaces
-        // break at multiple levels (shell eval AND internal tool invocations).
-        // Use symlinks for inputs and a temp name for outputs to ensure all paths
-        // are space-free throughout the entire BBTools pipeline.
+        // Paths go to the tool unmodified: `NativeToolRunner.run` stages any
+        // whitespace-bearing argument for every BBTools script in one place,
+        // so this site does not carry its own symlink handling.
         let fm = FileManager.default
-        var symlinksToCleanup: [URL] = []
-
-        let safeInput = try Self.bbToolsSafePath(for: inputFile, fm: fm, cleanup: &symlinksToCleanup)
-        let safeOutput = try Self.bbToolsSafeOutputPath(for: outputFile, cleanup: &symlinksToCleanup)
 
         // Heap sizing lives in ManagedJavaHeapPolicy so an import never plans
         // to use memory a concurrently running classifier already holds.
@@ -419,8 +414,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         env["_JAVA_OPTIONS"] = "-Xmx\(heapGB)g"
 
         var args = [
-            "in=\(safeInput.path)",
-            "out=\(safeOutput.path)",
+            "in=\(inputFile.path)",
+            "out=\(outputFile.path)",
             "-Xmx\(heapGB)g",
             "ow=t",
             "reorder",
@@ -431,8 +426,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         ]
 
         if let inputFile2 {
-            let safeInput2 = try Self.bbToolsSafePath(for: inputFile2, fm: fm, cleanup: &symlinksToCleanup)
-            args.append("in2=\(safeInput2.path)")
+            args.append("in2=\(inputFile2.path)")
             args.append("interleaved=t")
         }
 
@@ -447,31 +441,15 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         progress(0.05, "Launching bbtools clumpify.sh...")
 
-        defer {
-            for link in symlinksToCleanup { try? fm.removeItem(at: link) }
-        }
-
         let stepStartedAt = Date()
-        let result = try await runner.runProcess(
-            executableURL: clumpifyScript,
+        let result = try await runner.run(
+            .clumpify,
             arguments: args,
             workingDirectory: config.outputDirectory,
             environment: env,
-            timeout: timeoutSeconds,
-            toolName: "clumpify.sh"
+            timeout: timeoutSeconds
         )
         let stepCompletedAt = Date()
-
-        // Move temp output to the real path if we used a space-free name.
-        if safeOutput != outputFile, fm.fileExists(atPath: safeOutput.path) {
-            try? fm.removeItem(at: outputFile)
-            do {
-                try fm.moveItem(at: safeOutput, to: outputFile)
-            } catch {
-                try fm.copyItem(at: safeOutput, to: outputFile)
-                try? fm.removeItem(at: safeOutput)
-            }
-        }
 
         guard result.isSuccess else {
             let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
@@ -634,16 +612,11 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress(0.1, "Interleaving paired Trim Galore outputs...")
 
         let stepStartedAt = Date()
-        let result = try await runner.runProcess(
-            executableURL: reformat,
+        let result = try await runner.run(
+            .reformat,
             arguments: args,
             workingDirectory: config.outputDirectory,
-            environment: CoreToolLocator.bbToolsEnvironment(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-                existingPath: ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            ),
-            timeout: timeoutSeconds,
-            toolName: "reformat.sh"
+            timeout: timeoutSeconds
         )
         let stepCompletedAt = Date()
 
@@ -684,55 +657,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-    /// Returns a space-free path for BBTools by symlinking if needed.
-    ///
-    /// BBTools internally invokes pigz/gzip without quoting paths, so spaces
-    /// break even after surviving the shell `eval`. Symlinks provide a clean
-    /// space-free path that works at every level.
-    private static func bbToolsSafePath(
-        for url: URL,
-        fm: FileManager,
-        cleanup: inout [URL]
-    ) throws -> URL {
-        guard url.path.contains(" ") else { return url }
-        let linkDir = try ProjectTempDirectory.create(
-            prefix: "lungfish-bbtools-",
-            contextURL: url,
-            policy: .systemOnly
-        )
-        let linkURL = linkDir.appendingPathComponent(bbToolsShellSafeLeafName(for: url))
-        try fm.createSymbolicLink(at: linkURL, withDestinationURL: url)
-        cleanup.append(linkDir)
-        return linkURL
-    }
 
-    /// Returns a space-free output path for BBTools.
-    ///
-    /// For output files, symlinks don't reliably work (tools may delete and
-    /// recreate). Use a temp name in system temp and then move/copy into place.
-    private static func bbToolsSafeOutputPath(
-        for url: URL,
-        cleanup: inout [URL]
-    ) throws -> URL {
-        guard url.path.contains(" ") else { return url }
-        let outputDir = try ProjectTempDirectory.create(
-            prefix: "lungfish-bbtools-",
-            contextURL: url,
-            policy: .systemOnly
-        )
-        cleanup.append(outputDir)
-        return outputDir.appendingPathComponent(bbToolsShellSafeLeafName(for: url))
-    }
 
-    private static func bbToolsShellSafeLeafName(for url: URL) -> String {
-        let suffix: String
-        if url.pathExtension.isEmpty {
-            suffix = ""
-        } else {
-            suffix = ".\(url.pathExtension)"
-        }
-        return "bbtools-\(UUID().uuidString.lowercased())\(suffix)"
-    }
 
     /// Compresses a FASTQ file with pigz (parallel gzip) or bgzip.
     private func compress(

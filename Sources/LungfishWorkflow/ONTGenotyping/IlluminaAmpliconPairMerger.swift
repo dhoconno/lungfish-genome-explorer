@@ -300,9 +300,18 @@ public enum IlluminaAmpliconPairMerger {
     /// `Outcome` contract is unchanged.
     ///
     /// This mirrors the approach `NFCoreLaunchStaging` takes for QUAST, which
-    /// rejects spaced paths outright. It is deliberately a copy rather than a
-    /// shared helper: those helpers live in `LungfishCLI`, which sits above
-    /// this module in the layering.
+    /// rejects spaced paths outright.
+    ///
+    /// ``BBToolsArgumentStaging`` now does the same job generically for every
+    /// bbtools invocation that goes through `NativeToolRunner`. This type stays
+    /// separate because the merge does not: it drives `bbmerge.sh` through its
+    /// own `Process` so it can stream stderr to a log file, and its `Outcome`
+    /// contract reports the staged argv and staging root for provenance. The
+    /// generic helper stages an opaque argv and has no such contract, so
+    /// folding this into it would trade a verified-on-real-data merge for a
+    /// worse provenance record. Both apply the same two rules: symlink inputs
+    /// rather than copy them, and keep the input's real extension so bbtools
+    /// still infers format and compression correctly.
     struct MergeStaging {
         /// Temp root created for this run, or nil when the run happened in place.
         let temporaryRoot: URL?
