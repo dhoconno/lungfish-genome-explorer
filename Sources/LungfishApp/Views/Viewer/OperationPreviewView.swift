@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 
 // MARK: - FASTQ Operations Color Palette
 //
@@ -18,15 +19,14 @@ import LungfishIO
 //   Quality   — Green/Yellow/Orange/Danger (Q-score thresholds)
 //   Corrected — Purple       (error correction markers)
 
-/// Brand teal from the asset catalog (dark mode aware).
-private let lungfishTeal = NSColor(named: "LungfishTeal", bundle: .module)
-    ?? NSColor(red: 0, green: 0.627, blue: 0.690, alpha: 1)
-
 /// Color palette for all FASTQ operation previews.
 enum FASTQPalette {
     // -- Structural read colors --
-    static let readFill      = lungfishTeal                        // primary read body
-    static let readFillFaded = lungfishTeal.withAlphaComponent(0.15) // dimmed / duplicate
+    // NSColor.lungfishTeal resolves through a dynamic provider instead of the
+    // asset catalog. These are read during `draw(_:)`, and a catalog lookup
+    // there can block the main thread on filesystem I/O. See LungfishColors.
+    static let readFill      = NSColor.lungfishTeal                        // primary read body
+    static let readFillFaded = NSColor.lungfishTeal.withAlphaComponent(0.15) // dimmed / duplicate
     static let pairedRead    = NSColor.systemIndigo                // R2 in PE views
 
     // -- Semantic action colors --

@@ -33,6 +33,7 @@ extension Color {
     public static let lungfishCreamFallback = Color(nsColor: .lungfishCream)
     public static let lungfishWarmGreyFallback = Color(nsColor: .lungfishWarmGrey)
     public static let lungfishSageFallback = Color(nsColor: .lungfishSage)
+    public static let lungfishTealFallback = Color(nsColor: .lungfishTeal)
 
     public static let lungfishCanvasBackground = Color(nsColor: .lungfishCanvasBackground)
     public static let lungfishCardBackground = Color(nsColor: .lungfishCardBackground)
@@ -88,6 +89,26 @@ extension NSColor {
 
     public static let lungfishWarmGrey: NSColor = NSColor(name: "LungfishWarmGrey") { _ in
         NSColor(red: 0.541, green: 0.518, blue: 0.478, alpha: 1.0) // #8A847A
+    }
+
+    /// Lungfish Teal -- secondary brand color used for FASTQ read bodies and
+    /// sparkline fills.
+    ///
+    /// The RGB values are inlined rather than read from the `LungfishTeal`
+    /// colorset on purpose. `NSColor(named:bundle:)` walks the bundle directory
+    /// through `_CFIterateDirectory`, and this color is resolved from inside a
+    /// `draw(_:)` pass; under heavy filesystem load that read blocked the main
+    /// thread and froze the app. A dynamic provider keeps the light/dark
+    /// behavior while making resolution pure arithmetic that cannot block.
+    ///
+    /// - Light mode: RGB 0.000, 0.627, 0.690
+    /// - Dark mode: RGB 0.000, 0.769, 0.851
+    public static let lungfishTeal: NSColor = NSColor(name: "LungfishTeal") { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return NSColor(red: 0.000, green: 0.769, blue: 0.851, alpha: 1.0)
+        } else {
+            return NSColor(red: 0.000, green: 0.627, blue: 0.690, alpha: 1.0)
+        }
     }
 
     public static let lungfishSage: NSColor = NSColor(name: "LungfishSage") { appearance in
