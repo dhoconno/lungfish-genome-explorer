@@ -49,4 +49,49 @@ final class ViralReconResultInventoryTests: XCTestCase {
         XCTAssertNil(inventory.variantVCF)
         XCTAssertTrue(inventory.lineageFiles.isEmpty)
     }
+    // For an amplicon run the primer-trimmed BAM is the scientifically correct
+    // alignment: the untrimmed one still carries primer-derived sequence, which
+    // shows up as spurious low-frequency variants at amplicon ends. The variant
+    // calls beside it were made from the trimmed BAM, so publishing the
+    // untrimmed one puts the two views in silent disagreement.
+    func testPrefersThePrimerTrimmedAlignmentWhenPresent() throws {
+        try makeFile("variants/bowtie2/S1.ivar_trim.sorted.bam")
+        try makeFile("variants/bowtie2/S1.ivar_trim.sorted.bam.bai")
+
+        let inventory = ViralReconResultInventory.discover(in: root, sampleName: "S1")
+
+        XCTAssertEqual(inventory.sortedBAM?.lastPathComponent, "S1.ivar_trim.sorted.bam")
+        XCTAssertEqual(inventory.bamIndex?.lastPathComponent, "S1.ivar_trim.sorted.bam.bai")
+    }
+
+    // A metagenomic run never trims primers, so the plain alignment stands.
+    func testFallsBackToTheUntrimmedAlignmentWhenTrimmingDidNotRun() {
+        let inventory = ViralReconResultInventory.discover(in: root, sampleName: "S1")
+
+        XCTAssertEqual(inventory.sortedBAM?.lastPathComponent, "S1.sorted.bam")
+        XCTAssertEqual(inventory.bamIndex?.lastPathComponent, "S1.sorted.bam.bai")
+    }
+
+    // Amplicon dropout is the dominant failure mode of ARTIC sequencing and is
+    // invisible in the alignment, variants and consensus: a dropped amplicon
+    // yields no variant records at all, so the variant track looks clean
+    // exactly where there is no data.
+    func testFindsPerAmpliconAndGenomeCoverage() throws {
+        try makeFile("variants/bowtie2/mosdepth/amplicon/S1.mosdepth.coverage.tsv")
+        try makeFile("variants/bowtie2/mosdepth/genome/S1.mosdepth.coverage.tsv")
+
+        let inventory = ViralReconResultInventory.discover(in: root, sampleName: "S1")
+        let names = Set(inventory.reportFiles.map(\.lastPathComponent))
+
+        XCTAssertTrue(names.contains("S1.mosdepth.coverage.tsv"))
+        XCTAssertEqual(inventory.reportFiles.filter { $0.lastPathComponent.contains("mosdepth") }.count, 2)
+    }
+
+    func testFindsTheVariantsQCSummaryWhenPresent() throws {
+        try makeFile("multiqc/summary_variants_metrics_mqc.csv")
+
+        let inventory = ViralReconResultInventory.discover(in: root, sampleName: "S1")
+
+        XCTAssertTrue(inventory.reportFiles.contains { $0.lastPathComponent == "summary_variants_metrics_mqc.csv" })
+    }
 }

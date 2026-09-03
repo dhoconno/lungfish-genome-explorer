@@ -38,8 +38,17 @@ public struct ViralReconResultInventory: Sendable, Equatable {
             return fileManager.fileExists(atPath: url.path) ? url : nil
         }
 
-        let bam = existing("variants/bowtie2/\(sampleName).sorted.bam")
-        let bai = existing("variants/bowtie2/\(sampleName).sorted.bam.bai")
+        // An amplicon run trims primers, and the trimmed alignment is the one
+        // the variant caller used. Publishing the untrimmed BAM beside those
+        // calls puts the two views in silent disagreement: primer-derived
+        // sequence survives at amplicon ends and reads as low-frequency
+        // variation that iVar trim exists to remove. Metagenomic runs never
+        // produce the trimmed file, so the plain alignment stands.
+        let trimmedBAM = existing("variants/bowtie2/\(sampleName).ivar_trim.sorted.bam")
+        let bam = trimmedBAM ?? existing("variants/bowtie2/\(sampleName).sorted.bam")
+        let bai = bam.flatMap { alignment in
+            existing("variants/bowtie2/\(alignment.lastPathComponent).bai")
+        }
         let vcf = existing("variants/ivar/\(sampleName).vcf.gz")
         let consensusRoot = "variants/ivar/consensus/bcftools"
         let consensus = existing("\(consensusRoot)/\(sampleName).consensus.fa")
@@ -53,7 +62,16 @@ public struct ViralReconResultInventory: Sendable, Equatable {
         }
 
         var reports: [URL] = []
-        for relative in ["multiqc/multiqc_report.html", "fastp/\(sampleName).fastp.html"] {
+        // Per-amplicon coverage is what distinguishes "no variants here" from
+        // "no data here". Amplicon dropout produces no variant records at all,
+        // so without it the variant track looks cleanest exactly where the
+        // sequencing failed. The QC summary is the single per-sample row that
+        // says whether the run is trustworthy at all.
+        for relative in ["multiqc/multiqc_report.html",
+                         "multiqc/summary_variants_metrics_mqc.csv",
+                         "fastp/\(sampleName).fastp.html",
+                         "variants/bowtie2/mosdepth/amplicon/\(sampleName).mosdepth.coverage.tsv",
+                         "variants/bowtie2/mosdepth/genome/\(sampleName).mosdepth.coverage.tsv"] {
             if let url = existing(relative) { reports.append(url) }
         }
 
