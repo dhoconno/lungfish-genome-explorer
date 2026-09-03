@@ -2721,6 +2721,28 @@ public class ViewerViewController: NSViewController {
         }
         guard !records.isEmpty, !FASTAOperationCatalog.availableToolIDs().isEmpty else { return }
         let projectURL = projectURLForDerivedReferenceBundle()
+
+        // Prefer the durable source file over a staged copy of the selection.
+        // Staging discards the original record count, which is exactly what
+        // the dialog needs to offer "all N" against "selected M".
+        let durableSources = fastaExportSourceURLs()
+        let selectedIDs = FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: ""))
+        if durableSources.count == 1,
+           FASTAOperationCatalog.inputSequenceFormat(for: durableSources[0]) == .fasta,
+           selectedIDs.count == records.count,
+           let totalCount = try? FASTAOperationCatalog.recordCount(in: durableSources[0]),
+           totalCount > selectedIDs.count {
+            AppDelegate.shared?.showFASTQOperationsDialog(
+                view,
+                initialCategory: initialCategory,
+                initialToolID: initialToolID,
+                preferredInputURLs: [durableSources[0]],
+                mafftAllSequenceCount: totalCount,
+                mafftSelectedSequenceNames: selectedIDs
+            )
+            return
+        }
+
         let bundleURL: URL
         do {
             bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(

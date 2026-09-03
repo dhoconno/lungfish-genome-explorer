@@ -604,6 +604,12 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .lungfishHelp(LungfishHelpContent.fastqSearchReverseComplement)
 
             case .mafft:
+                MSASequenceScopePicker(
+                    allCount: state.mafftAllSequenceCount,
+                    selectedCount: state.mafftSelectedSequenceNames.count,
+                    selection: $state.mafftSequenceScope
+                )
+
                 MultiBundleRunModePicker(
                     bundleCount: state.selectedInputURLs.count,
                     policy: Self.mafftMultiBundleRunPolicy,

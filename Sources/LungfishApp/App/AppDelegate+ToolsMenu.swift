@@ -164,7 +164,9 @@ extension AppDelegate {
         _ sender: Any?,
         initialCategory: FASTQOperationCategoryID,
         initialToolID: FASTQOperationToolID? = nil,
-        preferredInputURLs: [URL] = []
+        preferredInputURLs: [URL] = [],
+        mafftAllSequenceCount: Int = 0,
+        mafftSelectedSequenceNames: [String] = []
     ) {
         guard let originController = activeMainWindowController(sender: sender),
               let originSplit = originController.mainSplitViewController,
@@ -199,6 +201,8 @@ extension AppDelegate {
                 initialCategory: initialCategory,
                 initialToolID: initialToolID,
                 projectURL: currentProjectURL,
+                mafftAllSequenceCount: mafftAllSequenceCount,
+                mafftSelectedSequenceNames: mafftSelectedSequenceNames,
                 onRun: { [weak self] state in
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
