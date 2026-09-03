@@ -379,6 +379,24 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private let annotationDrawer = AnnotationTableDrawerView()
     private var annotationDrawerHeightConstraint: NSLayoutConstraint?
 
+    // MARK: - Resizable name gutter
+
+    static let gutterWidthDefaultsKey = "msaRowGutterWidth"
+    private static let minimumGutterWidth: CGFloat = 160
+    private static let maximumGutterWidth: CGFloat = 640
+
+    private var gutterWidth = MultipleSequenceAlignmentViewController.restoredGutterWidth()
+
+    /// Reads the persisted gutter width, falling back to the shipped default.
+    private static func restoredGutterWidth() -> CGFloat {
+        let stored = UserDefaults.standard.double(forKey: gutterWidthDefaultsKey)
+        guard stored > 0 else { return MSAAlignmentCanvasMetrics.rowGutterWidth }
+        return min(max(CGFloat(stored), minimumGutterWidth), maximumGutterWidth)
+    }
+    private var cornerHeaderWidthConstraint: NSLayoutConstraint?
+    private var rowGutterWidthConstraint: NSLayoutConstraint?
+    private let gutterResizeHandleView = MSAGutterResizeHandleView()
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -724,14 +742,20 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         canvasContainer.addSubview(overviewSignalView)
         canvasContainer.addSubview(rowGutterView)
         canvasContainer.addSubview(alignmentScrollView)
+        canvasContainer.addSubview(gutterResizeHandleView)
 
-        let gutterWidth = MSAAlignmentCanvasMetrics.rowGutterWidth
+        configureGutterResizeHandle()
+
         let headerHeight = MSAAlignmentCanvasMetrics.headerHeight
         let overviewHeight = MSAAlignmentCanvasMetrics.overviewHeight
+        let cornerHeaderWidthConstraint = cornerHeaderView.widthAnchor.constraint(equalToConstant: gutterWidth)
+        let rowGutterWidthConstraint = rowGutterView.widthAnchor.constraint(equalToConstant: gutterWidth)
+        self.cornerHeaderWidthConstraint = cornerHeaderWidthConstraint
+        self.rowGutterWidthConstraint = rowGutterWidthConstraint
         NSLayoutConstraint.activate([
             cornerHeaderView.topAnchor.constraint(equalTo: canvasContainer.topAnchor),
             cornerHeaderView.leadingAnchor.constraint(equalTo: canvasContainer.leadingAnchor),
-            cornerHeaderView.widthAnchor.constraint(equalToConstant: gutterWidth),
+            cornerHeaderWidthConstraint,
             cornerHeaderView.heightAnchor.constraint(equalToConstant: headerHeight + overviewHeight),
 
             columnHeaderView.topAnchor.constraint(equalTo: canvasContainer.topAnchor),
@@ -746,13 +770,19 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
             rowGutterView.topAnchor.constraint(equalTo: cornerHeaderView.bottomAnchor),
             rowGutterView.leadingAnchor.constraint(equalTo: canvasContainer.leadingAnchor),
-            rowGutterView.widthAnchor.constraint(equalToConstant: gutterWidth),
+            rowGutterWidthConstraint,
             rowGutterView.bottomAnchor.constraint(equalTo: canvasContainer.bottomAnchor),
 
             alignmentScrollView.topAnchor.constraint(equalTo: overviewSignalView.bottomAnchor),
             alignmentScrollView.leadingAnchor.constraint(equalTo: rowGutterView.trailingAnchor),
             alignmentScrollView.trailingAnchor.constraint(equalTo: canvasContainer.trailingAnchor),
             alignmentScrollView.bottomAnchor.constraint(equalTo: canvasContainer.bottomAnchor),
+
+            // An 8-point grab strip straddling the painted divider, 4 points each side.
+            gutterResizeHandleView.topAnchor.constraint(equalTo: canvasContainer.topAnchor),
+            gutterResizeHandleView.bottomAnchor.constraint(equalTo: canvasContainer.bottomAnchor),
+            gutterResizeHandleView.centerXAnchor.constraint(equalTo: rowGutterView.trailingAnchor),
+            gutterResizeHandleView.widthAnchor.constraint(equalToConstant: 8),
         ])
 
         alignmentScrollView.contentView.postsBoundsChangedNotifications = true
@@ -762,6 +792,38 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             name: NSView.boundsDidChangeNotification,
             object: alignmentScrollView.contentView
         )
+    }
+
+    private func configureGutterResizeHandle() {
+        gutterResizeHandleView.translatesAutoresizingMaskIntoConstraints = false
+        gutterResizeHandleView.onDragToWindowX = { [weak self] windowX in
+            guard let self else { return }
+            let containerX = self.canvasContainer.convert(NSPoint(x: windowX, y: 0), from: nil).x
+            self.setGutterWidth(containerX)
+        }
+        gutterResizeHandleView.onDoubleClick = { [weak self] in
+            self?.sizeGutterToFitWidestLabel()
+        }
+    }
+
+    /// Clamps, persists, and applies a new sequence-name gutter width.
+    ///
+    /// Only the two width constants change, so a live drag never triggers a
+    /// matrix relayout; the gutter already redraws on every scroll.
+    private func setGutterWidth(_ width: CGFloat) {
+        let clamped = min(max(width, Self.minimumGutterWidth), Self.maximumGutterWidth)
+        guard clamped != gutterWidth else { return }
+        gutterWidth = clamped
+        cornerHeaderWidthConstraint?.constant = clamped
+        rowGutterWidthConstraint?.constant = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: Self.gutterWidthDefaultsKey)
+        rowGutterView.needsDisplay = true
+        cornerHeaderView.needsDisplay = true
+    }
+
+    /// Sizes the gutter to the widest label currently loaded, capped at the maximum.
+    private func sizeGutterToFitWidestLabel() {
+        setGutterWidth(rowGutterView.widthThatFitsWidestLabel())
     }
 
     private func configureAnnotationDrawer() {
@@ -1081,7 +1143,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         if clipWidth > 0 {
             return clipWidth
         }
-        return max(320, view.bounds.width - MSAAlignmentCanvasMetrics.rowGutterWidth)
+        return max(320, view.bounds.width - gutterWidth)
     }
 
     private func visibleCenterDisplayColumn() -> Int? {
@@ -1322,7 +1384,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     private func zoomToAnnotation(_ annotation: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord) {
         guard let columnRange = annotationAlignmentColumnRange(annotation) else { return }
-        let visibleWidth = max(320, alignmentScrollView.contentView.bounds.width, view.bounds.width - MSAAlignmentCanvasMetrics.rowGutterWidth)
+        let visibleWidth = max(320, alignmentScrollView.contentView.bounds.width, view.bounds.width - gutterWidth)
         let targetWidth = min(
             MSAAlignmentCanvasMetrics.maximumAnnotationZoomColumnWidth,
             max(MSAAlignmentCanvasMetrics.defaultColumnWidth, floor((visibleWidth - 80) / CGFloat(max(columnRange.count, 1))))
@@ -2025,6 +2087,14 @@ extension MultipleSequenceAlignmentViewController: AnnotationTableDrawerDelegate
 }
 
 extension MultipleSequenceAlignmentViewController {
+    func testingSetGutterWidth(_ width: CGFloat) { setGutterWidth(width) }
+
+    var testingGutterWidth: CGFloat { gutterWidth }
+
+    var testingEffectiveVisibleMatrixWidth: CGFloat { effectiveVisibleMatrixWidth() }
+
+    func testingSizeGutterToFitWidestLabel() { sizeGutterToFitWidestLabel() }
+
     var testingRenderedRowNames: [String] {
         alignmentRows.map(\.name)
     }
@@ -2316,7 +2386,53 @@ private final class MSAAlignmentCornerHeaderView: NSView {
     }
 }
 
-private final class MSAAlignmentRowGutterView: NSView {
+/// The narrow grab strip that resizes the sequence-name gutter.
+///
+/// It uses a `.cursorUpdate` tracking area rather than `mouseEntered`, so the
+/// resize cursor is re-asserted whenever the view moves under a stationary
+/// pointer instead of sticking after a scroll.
+private final class MSAGutterResizeHandleView: NSView {
+    /// Reports the pointer's window-space x during a drag.
+    var onDragToWindowX: ((CGFloat) -> Void)?
+    var onDoubleClick: (() -> Void)?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .cursorUpdate, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            onDoubleClick?()
+            return
+        }
+        // Track the drag locally so only the two width constants change per
+        // mouse-moved event; the matrix layout is left alone until mouse-up.
+        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { break }
+            onDragToWindowX?(next.locationInWindow.x)
+        }
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .splitter }
+
+    override func accessibilityLabel() -> String? { "Sequence name column divider" }
+
+    override func isAccessibilityElement() -> Bool { true }
+}
+
+private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
     var verticalOffset: CGFloat = 0
     var horizontalOffset: CGFloat = 0
     var selectedRowIndex: Int?
@@ -2329,6 +2445,7 @@ private final class MSAAlignmentRowGutterView: NSView {
     private var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
     private var numberingMode: MSAAlignmentNumberingMode = .both
     private var consensusResidues: [Character] = []
+    private var toolTipTextByTag: [NSView.ToolTipTag: String] = [:]
 
     override var isFlipped: Bool { true }
 
@@ -2359,6 +2476,7 @@ private final class MSAAlignmentRowGutterView: NSView {
         NSColor.controlBackgroundColor.setFill()
         dirtyRect.fill()
 
+        clearNameToolTips()
         drawConsensusLabelIfNeeded(in: dirtyRect)
 
         let rowHeight = MSAAlignmentCanvasMetrics.rowHeight
@@ -2425,12 +2543,21 @@ private final class MSAAlignmentRowGutterView: NSView {
 
         let coordinateText = numberingMode.showsSourceCoordinates ? sourceCoordinateRangeText(rowIndex: rowIndex) : nil
         let coordinateWidth: CGFloat = coordinateText == nil ? 0 : 58
+        let nameRect = NSRect(
+            x: leadingX,
+            y: inset.minY + 1,
+            width: max(24, inset.maxX - leadingX - coordinateWidth - 4),
+            height: inset.height
+        )
+        // Accession suffixes carry meaning, so trim the middle rather than the tail.
         drawText(
             name,
-            in: NSRect(x: leadingX, y: inset.minY + 1, width: max(24, inset.maxX - leadingX - coordinateWidth - 4), height: inset.height),
+            in: nameRect,
             color: .labelColor,
-            font: .systemFont(ofSize: 12)
+            font: .systemFont(ofSize: 12),
+            lineBreakMode: .byTruncatingMiddle
         )
+        registerNameToolTip(name, in: NSRect(x: rect.minX, y: rect.minY, width: bounds.width, height: rect.height))
         if let coordinateText {
             drawText(
                 coordinateText,
@@ -2440,6 +2567,39 @@ private final class MSAAlignmentRowGutterView: NSView {
                 alignment: .right
             )
         }
+    }
+
+    /// Attaches the untruncated name as a tooltip so a narrow gutter stays readable.
+    private func registerNameToolTip(_ name: String, in rect: NSRect) {
+        let tag = addToolTip(rect, owner: self, userData: nil)
+        toolTipTextByTag[tag] = name
+    }
+
+    func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        toolTipTextByTag[tag] ?? ""
+    }
+
+    private func clearNameToolTips() {
+        removeAllToolTips()
+        toolTipTextByTag.removeAll(keepingCapacity: true)
+    }
+
+    /// The gutter width that would show every loaded label in full.
+    func widthThatFitsWidestLabel() -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12)
+        let widest = rows.reduce(CGFloat.zero) { partial, row in
+            let width = (row.name as NSString).size(withAttributes: [.font: font]).width
+            return max(partial, width)
+        }
+        let indexWidth: CGFloat = numberingMode.showsRowIndex ? 32 : 0
+        let coordinateWidth: CGFloat = numberingMode.showsSourceCoordinates ? 62 : 0
+        // 8 points of inset on each side, plus 4 points of gap before coordinates.
+        return ceil(widest) + indexWidth + coordinateWidth + 20
     }
 
     private func labelComponents(for rowIndex: Int) -> [String] {
@@ -3509,11 +3669,12 @@ func drawText(
     in rect: NSRect,
     color: NSColor,
     font: NSFont = .systemFont(ofSize: 11),
-    alignment: NSTextAlignment = .left
+    alignment: NSTextAlignment = .left,
+    lineBreakMode: NSLineBreakMode = .byTruncatingTail
 ) {
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = alignment
-    paragraph.lineBreakMode = .byTruncatingTail
+    paragraph.lineBreakMode = lineBreakMode
     let attributes: [NSAttributedString.Key: Any] = [
         .font: font,
         .foregroundColor: color,

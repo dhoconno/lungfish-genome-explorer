@@ -2079,6 +2079,60 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingRenderedTipLabels, ["BA.1", "BA.2", "BA.5"])
     }
 
+
+    // MARK: - Resizable MSA name gutter
+
+    func testGutterWidthClampsToTheReadableRange() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        controller.testingSetGutterWidth(40)
+        XCTAssertEqual(controller.testingGutterWidth, 160, "must not go below the readable floor")
+
+        controller.testingSetGutterWidth(5000)
+        XCTAssertEqual(controller.testingGutterWidth, 640)
+
+        controller.testingSetGutterWidth(300)
+        XCTAssertEqual(controller.testingGutterWidth, 300)
+    }
+
+    func testGutterWidthPersistsAcrossControllers() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        let first = MultipleSequenceAlignmentViewController()
+        _ = first.view
+        try await first.displayBundle(at: bundleURL)
+        first.testingSetGutterWidth(320)
+
+        let second = MultipleSequenceAlignmentViewController()
+        _ = second.view
+        try await second.displayBundle(at: bundleURL)
+        XCTAssertEqual(second.testingGutterWidth, 320)
+    }
+
+    func testVisibleMatrixWidthTracksTheLiveGutterWidth() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let before = controller.testingEffectiveVisibleMatrixWidth
+        controller.testingSetGutterWidth(controller.testingGutterWidth + 100)
+        XCTAssertEqual(
+            controller.testingEffectiveVisibleMatrixWidth, before - 100, accuracy: 0.5,
+            "Fit Columns would miscompute if this still read the old constant"
+        )
+    }
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("\(UUID().uuidString).lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
