@@ -78,22 +78,60 @@ final class FileSystemWatcherTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(500))
     }
 
-    func testFailedStreamStartCleansUp() throws {
+    // MARK: - Non-blocking setup (2026-09-02 launch hang)
+
+    /// Counters a fake lifecycle records from whichever thread the watcher
+    /// drives it on. FSEvents setup runs off the main actor now, so the
+    /// bookkeeping has to be thread safe rather than MainActor-isolated.
+    private final class LifecycleCounters: @unchecked Sendable {
+        private let lock = NSLock()
+        private var counts: [String: Int] = [:]
+
+        func record(_ key: String) {
+            lock.lock()
+            counts[key, default: 0] += 1
+            lock.unlock()
+        }
+
+        func count(_ key: String) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return counts[key] ?? 0
+        }
+    }
+
+    /// Builds a real (but never started) stream so the invalidate/release calls
+    /// under test operate on a genuine FSEventStreamRef. Nonisolated because
+    /// the lifecycle seam is driven from the watcher's setup queue.
+    private nonisolated static func makeRealStream(for directory: URL) -> FSEventStreamRef {
+        var context = FSEventStreamContext(version: 0, info: nil, retain: nil, release: nil, copyDescription: nil)
+        return FSEventStreamCreate(
+            nil,
+            { _, _, _, _, _, _ in },
+            &context,
+            [directory.path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            1.0,
+            UInt32(kFSEventStreamCreateFlagUseCFTypes)
+        )!
+    }
+
+    func testFailedStreamStartCleansUp() async throws {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        var stopCount = 0
-        var invalidationCount = 0
-        var releaseCount = 0
+        let counters = LifecycleCounters()
         let lifecycle = FileSystemWatcher.StreamLifecycle(
+            create: { _, _, _, _ in Self.makeRealStream(for: tempDir) },
+            setDispatchQueue: { _, _ in },
             start: { _ in false },
-            stop: { _ in stopCount += 1 },
+            stop: { _ in counters.record("stop") },
             invalidate: { stream in
-                invalidationCount += 1
+                counters.record("invalidate")
                 FSEventStreamInvalidate(stream)
             },
             release: { stream in
-                releaseCount += 1
+                counters.record("release")
                 FSEventStreamRelease(stream)
             }
         )
@@ -104,11 +142,172 @@ final class FileSystemWatcherTests: XCTestCase {
         )
 
         watcher.startWatching(directory: tempDir)
+        await watcher.waitForPendingStreamSetup()
 
         XCTAssertFalse(watcher.isWatching)
-        XCTAssertEqual(stopCount, 0)
-        XCTAssertEqual(invalidationCount, 1)
-        XCTAssertEqual(releaseCount, 1)
+        XCTAssertEqual(counters.count("stop"), 0)
+        XCTAssertEqual(counters.count("invalidate"), 1)
+        XCTAssertEqual(counters.count("release"), 1)
+    }
+
+    func testNilStreamCreationLeavesWatcherInactive() async throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+
+        let counters = LifecycleCounters()
+        let lifecycle = FileSystemWatcher.StreamLifecycle(
+            create: { _, _, _, _ in nil },
+            setDispatchQueue: { _, _ in },
+            start: { _ in counters.record("start"); return true },
+            stop: { _ in },
+            invalidate: { _ in },
+            release: { _ in }
+        )
+        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: nil, streamLifecycle: lifecycle)
+
+        watcher.startWatching(directory: tempDir)
+        await watcher.waitForPendingStreamSetup()
+
+        XCTAssertFalse(watcher.isWatching)
+        XCTAssertEqual(counters.count("start"), 0, "A nil stream must never be started")
+    }
+
+    /// The launch hang: `FSEventStreamCreate` can wedge inside
+    /// `watch_all_parents`, and it used to run on the main thread during
+    /// `applicationDidFinishLaunching`, so no window was ever drawn. The caller
+    /// must return promptly no matter how long creation takes.
+    func testHangingStreamCreationDoesNotBlockCaller() async throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+
+        let released = DispatchSemaphore(value: 0)
+        let entered = DispatchSemaphore(value: 0)
+        let lifecycle = FileSystemWatcher.StreamLifecycle(
+            create: { _, _, _, _ in
+                entered.signal()
+                released.wait()
+                return Self.makeRealStream(for: tempDir)
+            },
+            setDispatchQueue: { _, _ in },
+            start: { _ in true },
+            stop: { _ in },
+            invalidate: { FSEventStreamInvalidate($0) },
+            release: { FSEventStreamRelease($0) }
+        )
+        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: nil, streamLifecycle: lifecycle)
+
+        let started = Date()
+        watcher.startWatching(directory: tempDir)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 1.0, "startWatching must not wait on FSEventStreamCreate")
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success, "Creation should have begun off the main thread")
+
+        // The main actor stays responsive while creation is wedged.
+        var mainActorRan = false
+        let ticked = Task { @MainActor in mainActorRan = true }
+        await ticked.value
+        XCTAssertTrue(mainActorRan)
+
+        released.signal()
+        await watcher.waitForPendingStreamSetup()
+        XCTAssertTrue(watcher.isWatching)
+        watcher.stopWatching()
+    }
+
+    /// A `stopWatching()` that lands while creation is still in flight must
+    /// tear the finished stream down instead of attaching it, otherwise the
+    /// watcher leaks a live stream nobody can stop.
+    func testStopDuringPendingSetupTearsDownTheLateStream() async throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+
+        let counters = LifecycleCounters()
+        let released = DispatchSemaphore(value: 0)
+        let entered = DispatchSemaphore(value: 0)
+        let lifecycle = FileSystemWatcher.StreamLifecycle(
+            create: { _, _, _, _ in
+                entered.signal()
+                released.wait()
+                return Self.makeRealStream(for: tempDir)
+            },
+            setDispatchQueue: { _, _ in },
+            start: { _ in counters.record("start"); return true },
+            stop: { _ in counters.record("stop") },
+            invalidate: { stream in
+                counters.record("invalidate")
+                FSEventStreamInvalidate(stream)
+            },
+            release: { stream in
+                counters.record("release")
+                FSEventStreamRelease(stream)
+            }
+        )
+        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: nil, streamLifecycle: lifecycle)
+
+        watcher.startWatching(directory: tempDir)
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        watcher.stopWatching()
+
+        released.signal()
+        await watcher.waitForPendingStreamSetup()
+
+        XCTAssertFalse(watcher.isWatching)
+        XCTAssertEqual(counters.count("stop"), 1, "The late stream must be stopped")
+        XCTAssertEqual(counters.count("invalidate"), 1)
+        XCTAssertEqual(counters.count("release"), 1)
+    }
+
+    /// Restarting on a second directory while the first setup is in flight must
+    /// leave exactly one live stream: the second one.
+    func testRestartDuringPendingSetupDiscardsTheSupersededStream() async throws {
+        let tempDir1 = try createTempDirectory()
+        let tempDir2 = try createTempDirectory()
+        defer {
+            removeTempDirectory(tempDir1)
+            removeTempDirectory(tempDir2)
+        }
+
+        let counters = LifecycleCounters()
+        let released = DispatchSemaphore(value: 0)
+        let entered = DispatchSemaphore(value: 0)
+        let lifecycle = FileSystemWatcher.StreamLifecycle(
+            create: { paths, _, _, _ in
+                let watched = (paths as? [String])?.first ?? ""
+                if watched == tempDir1.path {
+                    entered.signal()
+                    released.wait()
+                }
+                return Self.makeRealStream(for: tempDir2)
+            },
+            setDispatchQueue: { _, _ in },
+            start: { _ in counters.record("start"); return true },
+            stop: { _ in counters.record("stop") },
+            invalidate: { stream in
+                counters.record("invalidate")
+                FSEventStreamInvalidate(stream)
+            },
+            release: { stream in
+                counters.record("release")
+                FSEventStreamRelease(stream)
+            }
+        )
+        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: nil, streamLifecycle: lifecycle)
+
+        watcher.startWatching(directory: tempDir1)
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        watcher.startWatching(directory: tempDir2)
+        released.signal()
+        await watcher.waitForPendingStreamSetup()
+
+        XCTAssertTrue(watcher.isWatching)
+        XCTAssertEqual(counters.count("start"), 2, "Both streams start; only the current one is kept")
+        XCTAssertEqual(counters.count("stop"), 1, "The superseded stream is torn down")
+        XCTAssertEqual(counters.count("release"), 1)
+
+        watcher.stopWatching()
+        XCTAssertEqual(counters.count("stop"), 2)
+        XCTAssertEqual(counters.count("release"), 2)
     }
 
     func testWatcherDetectsFileCreation() async throws {

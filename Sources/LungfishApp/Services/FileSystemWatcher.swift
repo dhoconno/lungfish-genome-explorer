@@ -27,15 +27,39 @@ public final class FileSystemWatcher {
 
     // MARK: - Types
 
-    /// Internal seam around the FSEvents lifecycle so start failures and
-    /// cleanup can be exercised deterministically without changing public API.
-    struct StreamLifecycle {
-        let start: (FSEventStreamRef) -> Bool
-        let stop: (FSEventStreamRef) -> Void
-        let invalidate: (FSEventStreamRef) -> Void
-        let release: (FSEventStreamRef) -> Void
+    /// Internal seam around the FSEvents lifecycle so slow creation, start
+    /// failures and cleanup can be exercised deterministically without changing
+    /// public API. Every closure is `@Sendable` because setup runs off the main
+    /// actor (see `startWatching`).
+    struct StreamLifecycle: Sendable {
+        let create: @Sendable (
+            _ pathsToWatch: CFArray,
+            _ latency: CFTimeInterval,
+            _ flags: UInt32,
+            _ context: UnsafeMutablePointer<FSEventStreamContext>
+        ) -> FSEventStreamRef?
+        let setDispatchQueue: @Sendable (FSEventStreamRef, DispatchQueue) -> Void
+        let start: @Sendable (FSEventStreamRef) -> Bool
+        let stop: @Sendable (FSEventStreamRef) -> Void
+        let invalidate: @Sendable (FSEventStreamRef) -> Void
+        let release: @Sendable (FSEventStreamRef) -> Void
 
-        @MainActor static let live = StreamLifecycle(
+        static let live = StreamLifecycle(
+            create: { pathsToWatch, latency, flags, context in
+                // `context.info` is a registry token, not a watcher pointer, so
+                // a stream that finishes creating after the watcher is gone
+                // resolves to nothing instead of dangling.
+                FSEventStreamCreate(
+                    nil,
+                    FileSystemWatcher.fsEventsCallback,
+                    context,
+                    pathsToWatch,
+                    FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+                    latency,
+                    flags
+                )
+            },
+            setDispatchQueue: { FSEventStreamSetDispatchQueue($0, $1) },
             start: { FSEventStreamStart($0) },
             stop: FSEventStreamStop,
             invalidate: FSEventStreamInvalidate,
@@ -96,25 +120,105 @@ public final class FileSystemWatcher {
         public let all: [URL]
     }
 
+    /// Everything the FSEvents callback reads, published as one immutable value
+    /// so the callback queue never observes a half-updated watch.
+    private struct CallbackSnapshot: Sendable {
+        let watchedRootPath: String?
+        let policy: StreamPolicy
+
+        static let inactive = CallbackSnapshot(watchedRootPath: nil, policy: .nativeVolume)
+    }
+
+    /// Maps a live watcher to the token its streams carry in `FSEventStreamContext.info`.
+    ///
+    /// Setup is asynchronous, so a stream can finish creating and start
+    /// delivering after the watcher that requested it is gone. A raw
+    /// `Unmanaged.passUnretained(self)` pointer would dangle in that window, so
+    /// the callback resolves a token through this registry instead and finds
+    /// nothing once the watcher has deregistered.
+    private final class CallbackRegistry: @unchecked Sendable {
+        static let shared = CallbackRegistry()
+
+        private let lock = NSLock()
+        private var nextToken: UInt = 1
+        private var entries: [UInt: Entry] = [:]
+
+        struct Entry {
+            weak var watcher: FileSystemWatcher?
+            var snapshot: CallbackSnapshot
+        }
+
+        func register(_ watcher: FileSystemWatcher) -> UInt {
+            lock.lock()
+            defer { lock.unlock() }
+            let token = nextToken
+            nextToken += 1
+            entries[token] = Entry(watcher: watcher, snapshot: .inactive)
+            return token
+        }
+
+        func deregister(_ token: UInt) {
+            lock.lock()
+            entries.removeValue(forKey: token)
+            lock.unlock()
+        }
+
+        func publish(_ snapshot: CallbackSnapshot, for token: UInt) {
+            lock.lock()
+            entries[token]?.snapshot = snapshot
+            lock.unlock()
+        }
+
+        func lookup(_ token: UInt) -> (watcher: FileSystemWatcher, snapshot: CallbackSnapshot)? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let entry = entries[token], let watcher = entry.watcher else { return nil }
+            return (watcher, entry.snapshot)
+        }
+    }
+
     // MARK: - Properties
 
     private let onChange: @MainActor (ChangedPaths) -> Void
     private let onRootChanged: (@MainActor () -> Void)?
     private let streamLifecycle: StreamLifecycle
+    /// Registry token for this watcher's streams. Assigned once in `init`
+    /// after the stored properties are in place (registration needs `self`).
+    private var callbackToken: UInt = 0
     private var watchedDirectory: URL?
+    /// Only ever mutated on the main actor; `nonisolated(unsafe)` exists so
+    /// `deinit` can release a still-live stream.
     private nonisolated(unsafe) var eventStream: FSEventStreamRef?
     /// Policy chosen for the current watch; exposed for tests and diagnostics.
     public private(set) var streamPolicy: StreamPolicy = .nativeVolume
-    /// Snapshots for the off-main callback.
-    private nonisolated(unsafe) var watchedRootPathSnapshot: String?
-    private nonisolated(unsafe) var callbackPolicySnapshot: StreamPolicy = .nativeVolume
+    /// Bumped by every `startWatching`/`stopWatching`. A background setup that
+    /// lands with a stale generation has been superseded and must tear its
+    /// stream down instead of attaching it.
+    private var watchGeneration: UInt = 0
+    /// How many setups have been dispatched but not yet landed back on the main
+    /// actor, including superseded ones whose only remaining work is tearing
+    /// their stream down.
+    private var pendingSetupCount: Int = 0
     /// Serial queue the FSEvents stream delivers on, so a flood of events is
     /// classified off the main thread and only the coalesced result hops to it.
-    private static let callbackQueue = DispatchQueue(label: "com.lungfish.fsevents", qos: .utility)
+    private nonisolated static let callbackQueue = DispatchQueue(label: "com.lungfish.fsevents", qos: .utility)
+    /// Queue that owns the blocking half of FSEvents setup. `FSEventStreamCreate`
+    /// can wedge indefinitely inside `watch_all_parents`; on 2026-09-02 that
+    /// happened on the main thread during `applicationDidFinishLaunching` and
+    /// the app never drew a window. Losing a watcher only costs live
+    /// auto-refresh, so setup must never be able to cost a window.
+    private nonisolated static let setupQueue = DispatchQueue(label: "com.lungfish.fsevents.setup", qos: .utility)
 
+    /// True from the moment a watch is requested until it is stopped, including
+    /// while stream setup is still in flight. Callers treat this as "this
+    /// watcher owns the directory", not as "fseventsd has acknowledged it".
     public var isWatching: Bool {
-        eventStream != nil
+        eventStream != nil || hasClaimedWatch
     }
+
+    /// True between `startWatching` and the matching stop/failure, whether or
+    /// not the stream has finished coming up.
+    private var hasClaimedWatch = false
 
     // MARK: - Initialization
 
@@ -125,6 +229,7 @@ public final class FileSystemWatcher {
         self.onChange = onChange
         self.onRootChanged = onRootChanged
         self.streamLifecycle = .live
+        self.callbackToken = CallbackRegistry.shared.register(self)
         logger.debug("FileSystemWatcher initialized")
     }
 
@@ -136,10 +241,12 @@ public final class FileSystemWatcher {
         self.onChange = onChange
         self.onRootChanged = onRootChanged
         self.streamLifecycle = streamLifecycle
+        self.callbackToken = CallbackRegistry.shared.register(self)
         logger.debug("FileSystemWatcher initialized")
     }
 
     deinit {
+        CallbackRegistry.shared.deregister(callbackToken)
         if let stream = eventStream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
@@ -149,10 +256,12 @@ public final class FileSystemWatcher {
 
     // MARK: - Public API
 
+    /// Begins watching `directory`. Returns immediately: the FSEvents stream is
+    /// created, scheduled and started on `setupQueue` because
+    /// `FSEventStreamCreate` can block for an unbounded time, and a hung
+    /// filesystem watcher must never keep the app from drawing a window.
     public func startWatching(directory: URL) {
-        if eventStream != nil {
-            stopWatching()
-        }
+        tearDownCurrentStream(reason: "restart")
 
         guard directory.isFileURL else {
             logger.error("startWatching: URL is not a file URL: \(directory.absoluteString, privacy: .public)")
@@ -163,66 +272,166 @@ public final class FileSystemWatcher {
         let path = directory.path
         let volumeType = Self.volumeTypeName(of: directory)
         streamPolicy = StreamPolicy.policy(forVolumeTypeName: volumeType)
-        watchedRootPathSnapshot = directory.standardizedFileURL.path
-        callbackPolicySnapshot = streamPolicy
+        // Publish before the stream can start: the callback must never see a
+        // root path from the previous watch.
+        CallbackRegistry.shared.publish(
+            CallbackSnapshot(watchedRootPath: directory.standardizedFileURL.path, policy: streamPolicy),
+            for: callbackToken
+        )
         logger.info(
             "startWatching: Starting FSEvents watch on '\(path, privacy: .public)' (volume \(volumeType ?? "unknown", privacy: .public), perFileEvents=\(self.streamPolicy.perFileEvents, privacy: .public), latency=\(self.streamPolicy.latency, privacy: .public)s)"
         )
 
-        var context = FSEventStreamContext(
-            version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
-            copyDescription: nil
-        )
+        hasClaimedWatch = true
+        watchGeneration += 1
+        let generation = watchGeneration
+        let lifecycle = streamLifecycle
+        let policy = streamPolicy
+        let token = callbackToken
 
-        let pathsToWatch = [path] as CFArray
-
-        guard let stream = FSEventStreamCreate(
-            nil,
-            FileSystemWatcher.fsEventsCallback,
-            &context,
-            pathsToWatch,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            streamPolicy.latency,
-            streamPolicy.createFlags
-        ) else {
-            logger.error("startWatching: FSEventStreamCreate returned nil — watcher will be inactive")
-            startPollingFallback(directory: directory)
-            return
+        pendingSetupCount += 1
+        // Dispatched straight onto `setupQueue` rather than through a MainActor
+        // Task: hopping through the main actor first would mean a main thread
+        // that later blocks could keep setup from ever starting, which is the
+        // failure mode this whole change exists to remove.
+        Self.setupQueue.async { [weak self] in
+            let outcome = Self.makeStream(
+                path: path,
+                policy: policy,
+                token: token,
+                lifecycle: lifecycle
+            )
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else {
+                        // The watcher died mid-setup; the stream has no owner.
+                        if case .started(let stream) = outcome {
+                            Self.tearDown(stream, lifecycle: lifecycle)
+                        }
+                        return
+                    }
+                    self.finishSetup(outcome, generation: generation, directory: directory)
+                }
+            }
         }
-
-        FSEventStreamSetDispatchQueue(stream, Self.callbackQueue)
-        guard streamLifecycle.start(stream) else {
-            logger.error("startWatching: FSEventStreamStart failed — watcher will be inactive")
-            streamLifecycle.invalidate(stream)
-            streamLifecycle.release(stream)
-            watchedDirectory = nil
-            startPollingFallback(directory: directory)
-            return
-        }
-
-        eventStream = stream
-        logger.info("startWatching: FSEvents stream started successfully")
     }
 
     public func stopWatching() {
-        guard let stream = eventStream else {
+        guard isWatching else {
             logger.debug("stopWatching: Not currently watching")
             return
         }
 
         logger.info("stopWatching: Stopping watcher for '\(self.watchedDirectory?.path ?? "unknown", privacy: .public)'")
 
-        streamLifecycle.stop(stream)
-        streamLifecycle.invalidate(stream)
-        streamLifecycle.release(stream)
-        eventStream = nil
+        tearDownCurrentStream(reason: "stop")
         watchedDirectory = nil
-        watchedRootPathSnapshot = nil
 
         logger.info("stopWatching: Watcher stopped and released")
+    }
+
+    /// Waits until every in-flight stream setup has landed, including
+    /// superseded ones whose only remaining work is tearing their stream down.
+    /// Test-only: production callers must never wait on FSEvents setup, which
+    /// is the whole point of this design.
+    func waitForPendingStreamSetup() async {
+        while pendingSetupCount > 0 {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    // MARK: - Stream setup
+
+    /// Result of the blocking half of setup, performed off the main actor.
+    private enum SetupOutcome {
+        case creationFailed
+        case startFailed
+        case started(FSEventStreamRef)
+    }
+
+    /// The blocking half of setup: create, schedule and start. Runs on
+    /// `setupQueue` and touches no watcher state, so it is safe to run while
+    /// the main actor mutates that state concurrently.
+    private nonisolated static func makeStream(
+        path: String,
+        policy: StreamPolicy,
+        token: UInt,
+        lifecycle: StreamLifecycle
+    ) -> SetupOutcome {
+        // The token, not a watcher pointer, identifies the callback target.
+        // See `CallbackRegistry`.
+        var context = FSEventStreamContext(
+            version: 0,
+            info: UnsafeMutableRawPointer(bitPattern: token),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+        let created = withUnsafeMutablePointer(to: &context) {
+            lifecycle.create([path] as CFArray, policy.latency, policy.createFlags, $0)
+        }
+        guard let stream = created else { return .creationFailed }
+        lifecycle.setDispatchQueue(stream, callbackQueue)
+        guard lifecycle.start(stream) else {
+            lifecycle.invalidate(stream)
+            lifecycle.release(stream)
+            return .startFailed
+        }
+        return .started(stream)
+    }
+
+    /// Installs (or discards) a stream whose setup has finished.
+    private func finishSetup(_ outcome: SetupOutcome, generation: UInt, directory: URL) {
+        pendingSetupCount -= 1
+
+        // A stop or a restart that arrived while setup was in flight bumped the
+        // generation. The stream we just started belongs to nobody.
+        guard generation == watchGeneration else {
+            if case .started(let stream) = outcome {
+                logger.info("startWatching: Discarding a superseded FSEvents stream")
+                Self.tearDown(stream, lifecycle: streamLifecycle)
+            }
+            return
+        }
+
+        switch outcome {
+        case .creationFailed:
+            logger.error("startWatching: FSEventStreamCreate returned nil — watcher will be inactive")
+            hasClaimedWatch = false
+            CallbackRegistry.shared.publish(.inactive, for: callbackToken)
+            startPollingFallback(directory: directory)
+        case .startFailed:
+            logger.error("startWatching: FSEventStreamStart failed — watcher will be inactive")
+            hasClaimedWatch = false
+            watchedDirectory = nil
+            CallbackRegistry.shared.publish(.inactive, for: callbackToken)
+            startPollingFallback(directory: directory)
+        case .started(let stream):
+            eventStream = stream
+            logger.info("startWatching: FSEvents stream started successfully")
+        }
+    }
+
+    /// Retires whatever this watcher currently owns: the live stream if setup
+    /// finished, and the generation claim if it did not.
+    private func tearDownCurrentStream(reason: String) {
+        // Bumping the generation is what makes an in-flight setup discard its
+        // stream when it lands. There is nothing to cancel: the blocking work
+        // is already committed on `setupQueue` and may be wedged inside
+        // `FSEventStreamCreate`.
+        watchGeneration += 1
+        hasClaimedWatch = false
+        CallbackRegistry.shared.publish(.inactive, for: callbackToken)
+        guard let stream = eventStream else { return }
+        eventStream = nil
+        logger.debug("tearDownCurrentStream: releasing stream on \(reason, privacy: .public)")
+        Self.tearDown(stream, lifecycle: streamLifecycle)
+    }
+
+    private nonisolated static func tearDown(_ stream: FSEventStreamRef, lifecycle: StreamLifecycle) {
+        lifecycle.stop(stream)
+        lifecycle.invalidate(stream)
+        lifecycle.release(stream)
     }
 
     // MARK: - Sidecar Filter
@@ -279,23 +488,27 @@ public final class FileSystemWatcher {
 
     // MARK: - FSEvents Callback
 
-    private static let fsEventsCallback: FSEventStreamCallback = {
+    private nonisolated static let fsEventsCallback: FSEventStreamCallback = {
         (streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds) in
         guard let clientCallBackInfo else { return }
-        let watcher = Unmanaged<FileSystemWatcher>.fromOpaque(clientCallBackInfo).takeUnretainedValue()
+        // `info` carries a registry token, not a watcher pointer: setup is
+        // asynchronous, so a stream can outlive the watcher that requested it
+        // and a raw pointer would dangle. An unknown token means the watcher is
+        // gone and the delivery is dropped.
+        let token = UInt(bitPattern: clientCallBackInfo)
+        guard let entry = CallbackRegistry.shared.lookup(token) else { return }
+        let watcher = entry.watcher
         // The stream is scheduled on a private serial queue: path filtering and
         // burst coalescing happen here, off the main thread, and exactly one
         // main-thread hop delivers the result. A hung main thread therefore
         // never stops the stream from draining.
         guard let cfPaths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else { return }
         let flags = UnsafeBufferPointer(start: eventFlags, count: numEvents)
-        let watchedRootPath = watcher.watchedRootPathSnapshot
-        let policy = watcher.callbackPolicySnapshot
         let delivery = FileSystemWatcher.classify(
             paths: cfPaths,
             flags: flags.map { Int($0) },
-            watchedRootPath: watchedRootPath,
-            policy: policy
+            watchedRootPath: entry.snapshot.watchedRootPath,
+            policy: entry.snapshot.policy
         )
         switch delivery {
         case .none:
