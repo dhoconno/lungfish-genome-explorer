@@ -509,7 +509,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         outlineView.delegate = self
         outlineView.menu = buildContextMenu()
         outlineView.usesAlternatingRowBackgroundColors = true
-        outlineView.rowHeight = 24
+        outlineView.rowHeight = 22
         outlineView.allowsColumnReordering = true
         outlineView.allowsMultipleSelection = true
         outlineView.headerView = NSTableHeaderView()

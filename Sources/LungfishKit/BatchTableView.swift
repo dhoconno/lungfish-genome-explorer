@@ -131,34 +131,23 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         ("", .left, nil)
     }
 
-    /// Returns an optional dimmed secondary line drawn under the primary
-    /// ``cellContent(for:row:)`` text for a given column/row.
+    /// Returns optional dimmed secondary text drawn on the same line after
+    /// the primary ``cellContent(for:row:)`` text for a given column/row.
     ///
     /// Additive to ``cellContent(for:row:)`` — does NOT change its
-    /// `(text, alignment, font)` tuple, so existing single-line renderers are
-    /// unaffected. Return `nil` (the default) to keep the single-line cell.
-    /// Subclasses use this to show a bundle's user-facing display name as the
-    /// primary line while keeping the functional identifier (e.g. a FASTA
-    /// contig id) visible as a smaller, secondary line.
+    /// `(text, alignment, font)` tuple, so existing renderers are unaffected,
+    /// and it never changes the row height: every list keeps the shared
+    /// single-line height whether or not rows carry secondary text. Return
+    /// `nil` (the default) to show the primary text alone. Subclasses use
+    /// this to show a bundle's user-facing display name as the primary text
+    /// while keeping the functional identifier (e.g. a FASTA contig id)
+    /// visible beside it.
     open func secondaryCellText(
         for column: NSUserInterfaceItemIdentifier,
         row: Row
     ) -> String? {
         nil
     }
-
-    /// Declares that some rows in this table may render a dimmed secondary
-    /// line under the primary cell text (see ``secondaryCellText(for:row:)``).
-    ///
-    /// The default (`false`) keeps the original single-line fixed row height
-    /// so tables that never use the secondary-line seam are visually
-    /// unchanged. Subclasses that opt in (e.g. showing a bundle display name
-    /// as the primary line with the functional ID as a secondary line) must
-    /// override this to `true` so the fixed row height grows enough to fit
-    /// both lines without clipping — even for rows in that same table that
-    /// have no secondary line, since ``NSTableView`` uses one fixed
-    /// `rowHeight` for every row.
-    open var usesSecondaryLines: Bool { false }
 
     /// Returns whether the given row matches `filterText`.
     ///
@@ -397,9 +386,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             24,
             ceil(typography.font(for: .body).boundingRectForFont.height + 8)
         )
-        tableView.rowHeight = usesSecondaryLines
-            ? typography.tableRowHeightWithSecondaryLine()
-            : typography.tableRowHeight()
+        tableView.rowHeight = typography.tableRowHeight()
         if let headerView = tableView.headerView {
             var frame = headerView.frame
             frame.size.height = typography.tableHeaderHeight()
@@ -725,7 +712,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Cell Factory
 
     open func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
+        let cell = BatchTableCellView()
         cell.identifier = identifier
         let tf = BatchQuickCopyTextField(labelWithString: "")
         tf.pasteboard = cellCopyPasteboard
@@ -739,9 +726,12 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         cell.addSubview(tf)
         cell.textField = tf
 
-        // Optional dimmed secondary line (populated via `secondaryCellText`).
-        // Hidden and empty by default so single-line cells are unaffected;
-        // additive to the primary `textField` slot, not a replacement for it.
+        // Optional dimmed secondary text (populated via `secondaryCellText`).
+        // It sits on the same line as the primary text, after it, so a row
+        // that carries it is exactly as tall as one that does not: every
+        // list in the app shares the single-line row height. Hidden and
+        // empty by default so cells without it are unaffected; additive to
+        // the primary `textField` slot, not a replacement for it.
         let secondaryField = NSTextField(labelWithString: "")
         secondaryField.tag = batchSecondaryTextFieldTag
         secondaryField.font = typography.font(for: .monospaced)
@@ -751,16 +741,33 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         secondaryField.isHidden = true
         cell.addSubview(secondaryField)
 
-        let primaryCenterY = tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        primaryCenterY.identifier = "batchCellPrimaryCenterY"
-        primaryCenterY.priority = .defaultHigh
+        // The primary text keeps its width when the two compete for room;
+        // the secondary text truncates first. A primary wider than the cell
+        // still truncates against the required trailing limit below.
+        tf.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        tf.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        secondaryField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        secondaryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        // With no secondary text the primary field spans the cell exactly as
+        // it always has (`batchCellPrimaryTrailing`). When secondary text is
+        // shown that constraint is released and the secondary field takes
+        // over the trailing edge (`batchCellSecondaryTrailing`).
+        let primaryTrailing = tf.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4)
+        primaryTrailing.identifier = "batchCellPrimaryTrailing"
+        let secondaryLeading = secondaryField.leadingAnchor.constraint(equalTo: tf.trailingAnchor, constant: 8)
+        secondaryLeading.identifier = "batchCellSecondaryLeading"
+        let secondaryTrailing = secondaryField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4)
+        secondaryTrailing.identifier = "batchCellSecondaryTrailing"
+        cell.primaryTrailing = primaryTrailing
+        cell.secondaryLeading = secondaryLeading
+        cell.secondaryTrailing = secondaryTrailing
         NSLayoutConstraint.activate([
             tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            tf.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            primaryCenterY,
-            secondaryField.leadingAnchor.constraint(equalTo: tf.leadingAnchor),
-            secondaryField.trailingAnchor.constraint(equalTo: tf.trailingAnchor),
-            secondaryField.topAnchor.constraint(equalTo: tf.bottomAnchor, constant: 1),
+            tf.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
+            tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            primaryTrailing,
+            secondaryField.firstBaselineAnchor.constraint(equalTo: tf.firstBaselineAnchor),
         ])
         return cell
     }
@@ -1033,10 +1040,11 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         applySecondaryCellText(secondaryText, to: cellView, alignment: alignment)
     }
 
-    /// Populates (or hides) the dimmed secondary line added by
-    /// ``makeCellView(identifier:)`` and repositions the primary line to
-    /// leave room for it. Cells are reused across rows/columns, so this runs
-    /// on every render to reset state left over from a prior row.
+    /// Populates (or hides) the dimmed secondary text added by
+    /// ``makeCellView(identifier:)`` and hands the cell's trailing edge to
+    /// whichever field is last on the line. Cells are reused across
+    /// rows/columns, so this runs on every render to reset state left over
+    /// from a prior row.
     private func applySecondaryCellText(
         _ secondaryText: String?,
         to cellView: NSTableCellView,
@@ -1045,19 +1053,21 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         guard let secondaryField = cellView.viewWithTag(batchSecondaryTextFieldTag) as? NSTextField else {
             return
         }
-        let primaryCenterY = cellView.constraints.first {
-            $0.identifier == "batchCellPrimaryCenterY"
-        }
+        let cell = cellView as? BatchTableCellView
 
         if let secondaryText, !secondaryText.isEmpty {
             secondaryField.stringValue = secondaryText
             secondaryField.alignment = alignment
             secondaryField.isHidden = false
-            primaryCenterY?.constant = -8
+            cell?.primaryTrailing?.isActive = false
+            cell?.secondaryLeading?.isActive = true
+            cell?.secondaryTrailing?.isActive = true
         } else {
             secondaryField.stringValue = ""
             secondaryField.isHidden = true
-            primaryCenterY?.constant = 0
+            cell?.secondaryLeading?.isActive = false
+            cell?.secondaryTrailing?.isActive = false
+            cell?.primaryTrailing?.isActive = true
         }
     }
 
@@ -1252,4 +1262,18 @@ public func formatReadCount(_ count: Int) -> String {
         return String(format: "%.1fK", Double(count) / 1_000)
     }
     return "\(count)"
+}
+
+// MARK: - Cell view
+
+/// The cell ``BatchTableView/makeCellView(identifier:)`` builds.
+///
+/// Holds the constraints that hand the trailing edge to either the primary
+/// text field or the inline secondary text, so re-populating a reused cell
+/// can flip between the two without searching the constraint list (inactive
+/// constraints are not in `constraints`).
+public final class BatchTableCellView: NSTableCellView {
+    fileprivate var primaryTrailing: NSLayoutConstraint?
+    fileprivate var secondaryLeading: NSLayoutConstraint?
+    fileprivate var secondaryTrailing: NSLayoutConstraint?
 }

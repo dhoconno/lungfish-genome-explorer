@@ -4469,7 +4469,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         tableView.allowsColumnSelection = false
         tableView.headerView = NSTableHeaderView()
         tableView.style = .inset
-        tableView.rowHeight = 24
+        tableView.rowHeight = 22
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tableView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -4510,7 +4510,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     private func applyContentTypography() {
         taxTriageApplyTableGeometry(
             to: tableView,
-            minimumRowHeight: 24,
+            minimumRowHeight: 22,
             preferredFontProvider: preferredFontProvider
         )
         metadataColumns.applyContentTypography()

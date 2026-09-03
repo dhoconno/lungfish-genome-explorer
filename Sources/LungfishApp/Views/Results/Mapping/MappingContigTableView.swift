@@ -11,11 +11,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     /// primary "contig" cell line. `nil` (the default) falls back to
     /// showing the contig id alone, unchanged from pre-Item-2 behavior.
     ///
-    /// `didSet` re-runs `applyContentTypography()` because `usesSecondaryLines`
-    /// derives from this value — flipping it must recompute `tableView.rowHeight`
-    /// (only set inside `applyContentTypography()`) so the taller two-line row
-    /// height takes effect instead of staying at the single-line height set at
-    /// init, before this property is ever assigned.
+    /// `didSet` re-runs `applyContentTypography()`, which reloads the table so
+    /// every visible cell picks up the new primary/secondary text split.
     var bundleDisplayName: String? {
         didSet {
             guard bundleDisplayName != oldValue else { return }
@@ -49,11 +46,6 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     override var tableAccessibilityIdentifier: String? { "mapping-result-contig-table" }
     override var tableAccessibilityLabel: String? { "Mapping contig table" }
     override var cellCopyPasteboard: PasteboardWriting? { scalarPasteboard }
-
-    // A row shows the dimmed secondary contig-id line whenever `bundleDisplayName`
-    // is set (see `secondaryCellText`), so the table needs the taller fixed row
-    // height even for rows in the same table with no secondary text.
-    override var usesSecondaryLines: Bool { bundleDisplayName != nil }
 
     override var columnTypeHints: [String: Bool] {
         [

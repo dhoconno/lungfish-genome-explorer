@@ -573,10 +573,13 @@ final class BatchTableViewTests: XCTestCase {
         )
         XCTAssertFalse(alphaSecondaryField.isHidden)
         XCTAssertEqual(alphaSecondaryField.stringValue, "NC_078297")
-        let alphaPrimaryCenterY = try XCTUnwrap(
-            alphaCell.constraints.first { $0.identifier == "batchCellPrimaryCenterY" }
-        )
-        XCTAssertEqual(alphaPrimaryCenterY.constant, -8, "primary line shifts up to make room for the secondary line")
+        let activeIdentifiers: (NSTableCellView) -> Set<String> = { cell in
+            Set(cell.constraints.compactMap(\.identifier))
+        }
+        XCTAssertTrue(activeIdentifiers(alphaCell).contains("batchCellSecondaryTrailing"),
+                      "the secondary text takes over the cell's trailing edge")
+        XCTAssertFalse(activeIdentifiers(alphaCell).contains("batchCellPrimaryTrailing"),
+                       "the primary text releases the trailing edge while secondary text is shown")
 
         // Reuse that exact `alphaCell` instance for row 1 (no secondary text)
         // through the real population code path, deterministically simulating
@@ -587,37 +590,27 @@ final class BatchTableViewTests: XCTestCase {
         let betaSecondaryField = try XCTUnwrap(betaCell.viewWithTag(9081) as? NSTextField)
         XCTAssertTrue(betaSecondaryField.isHidden, "beta has no secondary text, so the reused cell's secondary field must be hidden")
         XCTAssertEqual(betaSecondaryField.stringValue, "", "the reused cell's secondary field must not leak alpha's text")
-        let betaPrimaryCenterY = try XCTUnwrap(
-            betaCell.constraints.first { $0.identifier == "batchCellPrimaryCenterY" }
-        )
-        XCTAssertEqual(betaPrimaryCenterY.constant, 0, "primary line's centerY constant must reset when the secondary line is hidden again")
+        XCTAssertTrue(activeIdentifiers(betaCell).contains("batchCellPrimaryTrailing"),
+                      "the primary text must span the cell again once the secondary text is hidden")
+        XCTAssertFalse(activeIdentifiers(betaCell).contains("batchCellSecondaryTrailing"))
         XCTAssertEqual(betaCell.textField?.stringValue, "beta")
 
-        // Reverse direction: a row WITH a secondary line reusing a cell view
-        // that previously had none must show the secondary line again.
+        // Reverse direction: a row WITH secondary text reusing a cell view
+        // that previously had none must show the secondary text again.
         table.secondaryTextByName = ["beta": "NC_000001"]
         table.testPopulateReusedCellView(betaCell, row: 1, columnID: "name")
         let reusedForBeta = betaCell
         let reusedSecondaryField = try XCTUnwrap(reusedForBeta.viewWithTag(9081) as? NSTextField)
-        XCTAssertFalse(reusedSecondaryField.isHidden, "beta now has a secondary line and must show it on the reused cell")
+        XCTAssertFalse(reusedSecondaryField.isHidden, "beta now has secondary text and must show it on the reused cell")
         XCTAssertEqual(reusedSecondaryField.stringValue, "NC_000001")
-        let reusedPrimaryCenterY = try XCTUnwrap(
-            reusedForBeta.constraints.first { $0.identifier == "batchCellPrimaryCenterY" }
-        )
-        XCTAssertEqual(reusedPrimaryCenterY.constant, -8, "primary line must shift up again once the secondary line reappears")
+        XCTAssertTrue(activeIdentifiers(reusedForBeta).contains("batchCellSecondaryTrailing"))
+        XCTAssertFalse(activeIdentifiers(reusedForBeta).contains("batchCellPrimaryTrailing"))
     }
 
-    // MARK: - Row height for the secondary-line seam (FIX 1, mapping-viewer-fixes review 2026-08-09)
+    // MARK: - Inline secondary text keeps the shared single-line row height
 
-    func testRowHeightGrowsToFitBothLinesWhenUsesSecondaryLinesIsTrueWithoutClippingEitherLine() throws {
+    func testSecondaryTextRendersOnTheSameLineAsThePrimaryTextInsideTheCell() throws {
         let table = SecondaryTextBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
-        table.usesSecondaryLinesOverride = true
-        // `usesSecondaryLines` only feeds into `tableView.rowHeight` inside
-        // `applyContentTypography()` (see `MappingContigTableView`/
-        // `ReferenceBundleRecordTable`'s `bundleDisplayName` `didSet`, which
-        // this mirrors) — flipping the flag alone does not retroactively
-        // resize a row height already set at init.
-        table.applyContentTypography()
         table.configure(rows: [
             TestBatchRow(name: "alpha"),
             TestBatchRow(name: "beta"),
@@ -644,11 +637,8 @@ final class BatchTableViewTests: XCTestCase {
         let columnIndex = try XCTUnwrap(table.tableView.tableColumns.firstIndex(of: column))
 
         // Materialize the cell through NSTableView's real caching/layout path
-        // (reloadData + view(atColumn:row:makeIfNecessary:)) so the returned
-        // view is genuinely embedded at its real on-screen frame inside the
-        // table's row view hierarchy, instead of a detached view whose frame
-        // we'd have to fake — the whole point of this test is to catch actual
-        // rendered-geometry clipping, not constraint math in isolation.
+        // so the geometry below is the rendered geometry, not constraint math
+        // on a detached view.
         table.tableView.reloadData()
         table.tableView.layoutSubtreeIfNeeded()
         let alphaCell = try XCTUnwrap(
@@ -659,67 +649,44 @@ final class BatchTableViewTests: XCTestCase {
         let secondaryField = try XCTUnwrap(alphaCell.viewWithTag(9081) as? NSTextField)
         XCTAssertFalse(secondaryField.isHidden)
 
-        // Both lines must render fully inside the cell's own bounds — the
-        // clipping this test guards against is the secondary line's frame
-        // extending past the bottom edge of the (old, single-line-sized) row.
         let cellBounds = alphaCell.bounds
         XCTAssertTrue(
             cellBounds.contains(primaryField.frame),
-            "primary line frame \(primaryField.frame) must stay within cell bounds \(cellBounds)"
+            "primary text frame \(primaryField.frame) must stay within cell bounds \(cellBounds)"
         )
         XCTAssertTrue(
             cellBounds.contains(secondaryField.frame),
-            "secondary line frame \(secondaryField.frame) must stay within cell bounds \(cellBounds) — not clipped"
-        )
-        XCTAssertLessThanOrEqual(
-            secondaryField.frame.maxY,
-            cellBounds.maxY,
-            "secondary line's bottom edge must not extend past the row's bottom edge"
+            "secondary text frame \(secondaryField.frame) must stay within cell bounds \(cellBounds)"
         )
         XCTAssertGreaterThanOrEqual(
-            secondaryField.frame.minY,
-            cellBounds.minY,
-            "secondary line's top edge must not extend above the row's top edge"
+            secondaryField.frame.minX,
+            primaryField.frame.maxX,
+            "secondary text follows the primary text on the same line, never beneath it"
+        )
+        XCTAssertEqual(
+            secondaryField.frame.midY,
+            primaryField.frame.midY,
+            accuracy: 1,
+            "secondary text shares the primary text's line"
         )
     }
 
-    func testUsesSecondaryLinesFalseKeepsOriginalSingleLineRowHeight() throws {
+    func testSecondaryTextNeverChangesTheSharedSingleLineRowHeight() throws {
+        // Every list in the app shares one row height. A table whose rows
+        // carry secondary text is exactly as tall as one whose rows do not,
+        // so the mapping selector no longer stands out with double-height rows.
         let secondaryTable = SecondaryTextBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
-        secondaryTable.usesSecondaryLinesOverride = false
         secondaryTable.configure(rows: [TestBatchRow(name: "alpha")])
+        secondaryTable.secondaryTextByName = ["alpha": "NC_078297"]
+        secondaryTable.applyContentTypography()
 
         let plainTable = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         plainTable.configure(rows: [TestBatchRow(name: "alpha")])
 
-        // A table that never opts into the secondary-line seam (the default,
-        // `usesSecondaryLines == false`) must keep exactly the original
-        // single-line fixed row height — single-line tables are visually
-        // unchanged by the FIX 1 seam.
         XCTAssertEqual(secondaryTable.tableView.rowHeight, plainTable.tableView.rowHeight, accuracy: 0.01)
         XCTAssertEqual(
             secondaryTable.tableView.rowHeight,
             ContentTypography.current().tableRowHeight(),
-            accuracy: 0.01
-        )
-    }
-
-    func testUsesSecondaryLinesTrueGrowsRowHeightBeyondSingleLineHeight() throws {
-        let table = SecondaryTextBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
-        table.usesSecondaryLinesOverride = false
-        table.configure(rows: [TestBatchRow(name: "alpha")])
-        let singleLineHeight = table.tableView.rowHeight
-
-        table.usesSecondaryLinesOverride = true
-        table.applyContentTypography()
-
-        XCTAssertGreaterThan(
-            table.tableView.rowHeight,
-            singleLineHeight,
-            "opting into usesSecondaryLines must grow the fixed row height beyond the single-line height"
-        )
-        XCTAssertEqual(
-            table.tableView.rowHeight,
-            ContentTypography.current().tableRowHeightWithSecondaryLine(),
             accuracy: 0.01
         )
     }
@@ -806,12 +773,6 @@ private final class TestBatchTableView: BatchTableView<TestBatchRow> {
 @MainActor
 private final class SecondaryTextBatchTableView: BatchTableView<TestBatchRow> {
     var secondaryTextByName: [String: String] = [:]
-
-    /// Mirrors the real `MappingContigTableView`/`ReferenceBundleRecordTable`
-    /// pattern: opt-in flag that must be explicitly set to `true` — the
-    /// default keeps single-line tables at the original fixed row height.
-    var usesSecondaryLinesOverride = false
-    override var usesSecondaryLines: Bool { usesSecondaryLinesOverride }
 
     override var columnSpecs: [BatchColumnSpec] {
         [
