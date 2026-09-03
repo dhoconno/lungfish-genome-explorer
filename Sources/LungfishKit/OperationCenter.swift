@@ -179,6 +179,10 @@ public final class OperationCenter: ObservableObject {
         public var workflowRunID: UUID?
         /// The project/window context that launched this operation, when available.
         public var routeContext: OperationRouteContext?
+        /// Where the automatic failure report for this operation was written.
+        /// Nil until the operation fails, and also when the report could not be
+        /// written (a logging failure is never allowed to escalate).
+        public var failureReportURL: URL?
 
         public var hasWarnings: Bool {
             logEntries.contains { $0.level == .warning }
@@ -263,6 +267,11 @@ public final class OperationCenter: ObservableObject {
     public var onBundleReady: (([URL]) -> Void)?
     /// Context-aware bundle delivery for multi-window project sessions.
     public var onBundleReadyWithContext: (([URL], OperationRouteContext?) -> Void)?
+
+    /// Writes a diagnostic report to disk whenever an operation fails, so a
+    /// failure can be read from a file instead of only from a live panel.
+    /// Tests substitute a store rooted in a temporary directory.
+    public var failureReportStore = OperationFailureReportStore()
 
     /// Maps bundle path string to the operation ID that holds the lock.
     private var bundleLocks: [String: UUID] = [:]
@@ -686,6 +695,9 @@ public final class OperationCenter: ObservableObject {
         items[index].errorMessage = errorMessage
         items[index].errorDetail = errorDetail
         finishItem(at: index, finishedAt: finishedAt)
+        // Written before the item can be trimmed out of `items`, so the report
+        // survives even when a burst of failures pushes this row off the panel.
+        items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
         unlockBundle(for: id)
         _ = trimCompletedItemsIfNeeded()
         publishTerminalChange(id: id, previousOrder: previousOrder)

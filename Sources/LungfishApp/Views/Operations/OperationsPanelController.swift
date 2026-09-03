@@ -49,6 +49,7 @@ private enum ExpansionSectionID {
     static let outputFiles = "ops-expansion-outputs"
     static let logEntries = "ops-expansion-log"
     static let errorBox = "ops-expansion-error"
+    static let failureReportPath = "ops-failure-report-path"
 }
 
 // MARK: - OperationsPanelViewController
@@ -474,6 +475,13 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         NSPasteboard.general.setString(report, forType: .string)
     }
 
+    @objc private func contextRevealFailureReport(_ sender: NSMenuItem) {
+        guard let itemID = sender.representedObject as? UUID,
+              let item = items.first(where: { $0.id == itemID }),
+              let reportURL = item.failureReportURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([reportURL])
+    }
+
     @objc private func contextOpenGitHubIssue(_ sender: NSMenuItem) {
         guard let itemID = sender.representedObject as? UUID,
               let item = items.first(where: { $0.id == itemID }) else { return }
@@ -544,37 +552,11 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     /// Builds a structured failure report containing CLI command, error message,
     /// error detail, and full log — suitable for pasting into a bug report.
     ///
-    /// Falls back gracefully: if structured `errorMessage`/`errorDetail` fields
-    /// are not set (e.g. download failures that only populate `detail`), the
-    /// `detail` subtitle text is used as the failure reason.
+    /// Composition lives in ``OperationFailureReportStore`` beside the data it
+    /// reads, so the report the user copies is byte-identical to the one
+    /// already written to disk when the operation failed.
     private func buildFailureReport(for item: OperationCenter.Item) -> String {
-        var lines: [String] = []
-        lines.append("=== Lungfish Operation Failure Report ===")
-        lines.append("Operation: \(item.title)")
-        if let cmd = item.cliCommand {
-            lines.append("")
-            lines.append("CLI Command:")
-            lines.append("  \(cmd)")
-        }
-        // Prefer structured errorMessage; fall back to the detail subtitle which
-        // download/ingestion paths always populate with the failure reason.
-        let errorText = item.errorMessage ?? item.detail
-        if !errorText.isEmpty {
-            lines.append("")
-            lines.append("Error: \(errorText)")
-        }
-        if let detail = item.errorDetail {
-            lines.append("")
-            lines.append("Details:")
-            detail.components(separatedBy: "\n").forEach { lines.append("  \($0)") }
-        }
-        if !item.logEntries.isEmpty {
-            lines.append("")
-            lines.append("Log:")
-            lines.append(formatLogEntries(item.logEntries).components(separatedBy: "\n")
-                .map { "  \($0)" }.joined(separator: "\n"))
-        }
-        return lines.joined(separator: "\n")
+        OperationFailureReportStore.buildFailureReport(for: item)
     }
 
     private func openGitHubIssue(for item: OperationCenter.Item) {
@@ -641,6 +623,9 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             extraHeight += 40
             if item.errorDetail != nil {
                 extraHeight += 36
+            }
+            if item.failureReportURL != nil {
+                extraHeight += 14
             }
         }
 
@@ -1008,7 +993,11 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
             // Error section (for failed operations)
             if item.state == .failed, let errorMsg = item.errorMessage {
-                let section = buildErrorSection(message: errorMsg, detail: item.errorDetail)
+                let section = buildErrorSection(
+                    message: errorMsg,
+                    detail: item.errorDetail,
+                    reportURL: item.failureReportURL
+                )
                 section.setAccessibilityIdentifier(ExpansionSectionID.errorBox)
                 section.translatesAutoresizingMaskIntoConstraints = false
                 cell.addSubview(section)
@@ -1287,7 +1276,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     }
 
     /// Builds the error display section with red background highlighting.
-    private func buildErrorSection(message: String, detail: String?) -> NSView {
+    private func buildErrorSection(message: String, detail: String?, reportURL: URL? = nil) -> NSView {
         let container = NSView()
 
         let box = NSView()
@@ -1317,6 +1306,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             errorLabel.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
         ]
 
+        var lastLabelAnchor = errorLabel.bottomAnchor
+
         if let detail {
             let detailLabel = NSTextField(labelWithString: detail)
             detailLabel.font = NSFont(name: "Menlo", size: 9) ?? .monospacedSystemFont(ofSize: 9, weight: .regular)
@@ -1330,13 +1321,33 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 detailLabel.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 2),
                 detailLabel.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
                 detailLabel.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-                detailLabel.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -4),
             ])
-        } else {
-            constraints.append(
-                errorLabel.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -4)
-            )
+            lastLabelAnchor = detailLabel.bottomAnchor
         }
+
+        // Tells the user (or an agent reading a screenshot) where the report
+        // already is, so diagnosis does not require the app to stay running.
+        if let reportURL {
+            let pathLabel = NSTextField(labelWithString: "Report: \(reportURL.path)")
+            pathLabel.font = NSFont(name: "Menlo", size: 9) ?? .monospacedSystemFont(ofSize: 9, weight: .regular)
+            pathLabel.textColor = .secondaryLabelColor
+            pathLabel.lineBreakMode = .byTruncatingMiddle
+            pathLabel.maximumNumberOfLines = 1
+            pathLabel.isSelectable = true
+            pathLabel.setAccessibilityIdentifier(ExpansionSectionID.failureReportPath)
+            pathLabel.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(pathLabel)
+            constraints.append(contentsOf: [
+                pathLabel.topAnchor.constraint(equalTo: lastLabelAnchor, constant: 2),
+                pathLabel.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
+                pathLabel.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
+            ])
+            lastLabelAnchor = pathLabel.bottomAnchor
+        }
+
+        constraints.append(
+            lastLabelAnchor.constraint(equalTo: box.bottomAnchor, constant: -4)
+        )
 
         NSLayoutConstraint.activate(constraints)
         return container
@@ -1525,6 +1536,19 @@ extension OperationsPanelViewController: NSMenuDelegate {
             openIssue.representedObject = item.id
             openIssue.target = self
             menu.addItem(openIssue)
+
+            // The report was written automatically when the operation failed,
+            // so this only has to point at it.
+            if item.failureReportURL != nil {
+                let revealReport = NSMenuItem(
+                    title: "Reveal Failure Report in Finder",
+                    action: #selector(contextRevealFailureReport(_:)),
+                    keyEquivalent: ""
+                )
+                revealReport.representedObject = item.id
+                revealReport.target = self
+                menu.addItem(revealReport)
+            }
         }
 
         if item.cliCommand != nil || !item.logEntries.isEmpty || item.state == .failed {
