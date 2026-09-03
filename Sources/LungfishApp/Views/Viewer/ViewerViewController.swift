@@ -2296,7 +2296,7 @@ public class ViewerViewController: NSViewController {
         }
     }
 
-    private func presentBlockingAlert(title: String, message: String) {
+    func presentBlockingAlert(title: String, message: String) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
@@ -2559,7 +2559,7 @@ public class ViewerViewController: NSViewController {
         }
     }
 
-    private func projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: URL? = nil) -> URL? {
+    func projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: URL? = nil) -> URL? {
         if let sourceAlignmentBundleURL,
            let projectURL = Self.enclosingProjectURL(for: sourceAlignmentBundleURL) {
             return projectURL
