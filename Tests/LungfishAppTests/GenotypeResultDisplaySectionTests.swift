@@ -241,6 +241,49 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         ))
     }
 
+    /// Reported 2026-09-03: the "Export Filtered Pivot" action added the day
+    /// before lived in the viewport's Audit lens, which is hidden for MiSeq
+    /// results, so the analyst who asked for it could not find it. The
+    /// exports now sit in the Inspector beside the filters they apply.
+    func testExportButtonsRenderInGenotypeDisplayOnlyWhenAViewportIsBound() throws {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(isAvailable: true)
+        let unbound = try GenotypeResultDisplaySection(viewModel: viewModel).inspect()
+        XCTAssertThrowsError(
+            try unbound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export"),
+            "no viewport bound, so no export can be offered"
+        )
+
+        var requested: [GenotypeInspectorExportKind] = []
+        viewModel.onExportRequested = { requested.append($0) }
+        let bound = try GenotypeResultDisplaySection(viewModel: viewModel).inspect()
+        _ = try bound.find(text: "Export")
+        _ = try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export")
+        try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-excel-view")
+            .button().tap()
+        try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-filtered-pivot")
+            .button().tap()
+        XCTAssertEqual(requested, [.excelView, .filteredPivot])
+        _ = try bound.find(text: "Excel View\u{2026}")
+        _ = try bound.find(text: "Filtered Pivot\u{2026}")
+    }
+
+    func testExportMainSplitWiringUsesActiveControllerAndInspectorCleanup() {
+        let mainSplitSource = combinedMainSplitViewControllerSource()
+        let inspectorSource = combinedInspectorViewControllerSource()
+
+        // source-text: same seam as the visibility wiring test above.
+        XCTAssertTrue(mainSplitSource.contains(
+            "onExportRequested = { [weak self, weak controller] kind in"
+        ))
+        XCTAssertTrue(mainSplitSource.contains(
+            "controller?.exportFromInspector(kind)"
+        ))
+        XCTAssertTrue(inspectorSource.contains(
+            "onExportRequested = nil"
+        ))
+    }
+
     func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
         let settings = AppSettings.shared
         let original = settings.contentTextSizePreference

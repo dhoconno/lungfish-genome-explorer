@@ -134,6 +134,7 @@ extension InspectorViewController {
         viewModel.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = nil
         viewModel.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = nil
         viewModel.genotypeResultDisplaySectionViewModel.onMatrixVisibilityCommandRequested = nil
+        viewModel.genotypeResultDisplaySectionViewModel.onExportRequested = nil
         viewModel.selectionSectionViewModel.onGenotypeHighlightRequested = nil
 
         // Clear FASTQ metadata section
