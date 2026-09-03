@@ -4109,9 +4109,11 @@ extension ViewerViewController {
         quickLookView != nil
     }
 
+    // The environment half of the old check never fired under SwiftPM, which
+    // sets no XCTEST* variables; only the process-name fallback was carrying
+    // it. Probing for the loaded framework works under both runners.
     private static var isRunningUnderXCTest: Bool {
-        ProcessInfo.processInfo.processName == "xctest"
-            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        TestHarness.isRunning
     }
 
     func testTapBundleBackNavigation() {

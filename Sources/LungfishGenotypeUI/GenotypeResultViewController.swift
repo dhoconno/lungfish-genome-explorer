@@ -9153,9 +9153,11 @@ public final class GenotypeResultViewController: NSViewController {
         // `manualHaplotypeDraftDecisionProvider` first (this method is only
         // reached when none is installed), so under XCTest we resolve to
         // `.cancel` without presenting UI. Runtime app behavior is unchanged.
-        let isRunningUnderXCTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
-        if isRunningUnderXCTest {
+        // Probed rather than read from the environment: the SwiftPM runner sets
+        // no XCTEST* variables, so the environment form never fired and this
+        // guard was one uninstalled decision provider away from deadlocking the
+        // suite on a modal it can never dismiss.
+        if TestHarness.isRunning {
             return .cancel
         }
         guard let window = view.window ?? NSApp.keyWindow else {

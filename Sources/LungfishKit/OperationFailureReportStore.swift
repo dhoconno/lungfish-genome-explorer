@@ -47,9 +47,7 @@ public final class OperationFailureReportStore: @unchecked Sendable {
     /// Detected by looking for a loaded test framework rather than the usual
     /// `XCTestConfigurationFilePath` environment variable, because the SwiftPM
     /// runner used by this package sets no `XCTEST*` variables at all.
-    private static let isRunningUnderTests: Bool = {
-        NSClassFromString("XCTestCase") != nil || NSClassFromString("XCTest") != nil
-    }()
+    private static var isRunningUnderTests: Bool { TestHarness.isRunning }
 
     /// The directory reports are written to, exposed so the UI can tell the
     /// user where to look without duplicating the path construction.
