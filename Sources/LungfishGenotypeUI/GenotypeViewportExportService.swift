@@ -149,6 +149,11 @@ struct GenotypeViewportExportService {
             }
             if let minPercent = minimumPercent(from: snapshot.filters) {
                 arguments += ["--min-percent", String(minPercent)]
+                // The matrix's Percent Basis decides what Min Percent is a
+                // percent of; the export must apply the same denominator.
+                if let basis = percentBasis(from: snapshot.filters) {
+                    arguments += ["--percent-basis", basis]
+                }
             }
         } else {
             arguments = [
@@ -271,6 +276,17 @@ struct GenotypeViewportExportService {
     }
 
     /// The viewport's Min Percent control, when the analyst set one.
+    /// The CLI's `--percent-basis` value for the matrix's Percent Basis, which
+    /// the snapshot carries as the control's display name.
+    private func percentBasis(from filters: [String: String]) -> String? {
+        guard let name = filters["matrixPercentDenominator"] else { return nil }
+        switch name {
+        case ONTGenotypeSupportDenominator.viewedLocus.displayName: return "viewed-locus"
+        case ONTGenotypeSupportDenominator.sampleRetained.displayName: return "sample-retained"
+        default: return nil
+        }
+    }
+
     private func minimumPercent(from filters: [String: String]) -> Double? {
         // `matrixMinimumPercent` is the comparison matrix's own Min Percent
         // control and takes precedence over the row-level support percent.

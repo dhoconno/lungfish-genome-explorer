@@ -396,13 +396,13 @@ extension MainSplitViewController {
                     }
                     controller?.performMatrixVisibilityCommand(command)
                 }
-                inspectorController.genotypeResultDisplaySectionViewModel.onExportRequested = { [weak self, weak controller] kind in
+                inspectorController.genotypeResultDisplaySectionViewModel.onFilteredPivotExportRequested = { [weak self, weak controller] in
                     guard let self,
                           self.viewerController.genotypeResultViewController === controller
                     else {
                         return
                     }
-                    controller?.exportFromInspector(kind)
+                    controller?.exportFilteredPivotFromInspector()
                 }
                 inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                     controller?.applyHighlight(request)

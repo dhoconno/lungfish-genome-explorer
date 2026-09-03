@@ -9642,18 +9642,14 @@ public final class GenotypeResultViewController: NSViewController {
         presentViewExportPanel(format: .pivotExcel, filenameSuffix: "genotype-pivot")
     }
 
-    /// Runs an export started from the Inspector's Genotype Display section.
+    /// Runs the Filtered Pivot export started from the Inspector's Genotype
+    /// Display section.
     ///
-    /// The Audit lens that hosted these buttons is hidden for MiSeq results,
-    /// so the Inspector, where the Min Reads and Min Percent filters are set,
-    /// is the reachable home for the export that applies them.
-    public func exportFromInspector(_ kind: GenotypeInspectorExportKind) {
-        switch kind {
-        case .excelView:
-            presentViewExportPanel(format: .excel, filenameSuffix: "genotype-view")
-        case .filteredPivot:
-            presentViewExportPanel(format: .pivotExcel, filenameSuffix: "genotype-pivot")
-        }
+    /// The Audit lens that hosted the export buttons is hidden for MiSeq
+    /// results, so the Inspector, where the Min Reads and Min Percent filters
+    /// are set, is the reachable home for the export that applies them.
+    public func exportFilteredPivotFromInspector() {
+        presentViewExportPanel(format: .pivotExcel, filenameSuffix: "filtered-pivot")
     }
 
     private func presentViewExportPanel(

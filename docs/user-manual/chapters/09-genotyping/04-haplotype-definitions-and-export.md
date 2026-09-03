@@ -188,10 +188,18 @@ command line.
 
 The samples-across pivot workbook transposes the layout so samples run across the
 columns and alleles run down the rows, which is the orientation many downstream
-spreadsheets expect. All of these exports are read-only with respect to the
-bundle: they never modify the calls or the annotations. The headless exporters
-are `lungfish genotype export-xlsx` for the coloured matrix,
-`lungfish genotype export-pivot-xlsx` for the pivot workbook, and the general
+spreadsheets expect. The Filtered Pivot button at the foot of the Inspector's
+Genotype Display section writes a copy of the result's current workbook with
+only the pivot sheet changed: allele values below the Min Reads and Min Percent
+filters shown above it are blanked, each row's Total and observation count are
+recomputed, and rows left empty are removed. Every other sheet and all
+formatting are carried through unchanged. The copy is a one-way export, so edits
+made to it in Excel never flow back into the result. All of these exports are
+read-only with respect to the bundle: they never modify the calls or the
+annotations. The headless exporters are `lungfish genotype export-xlsx` for the
+coloured matrix, `lungfish genotype export-pivot-xlsx` for the filtered pivot
+workbook (with `--min-reads`, `--min-percent`, `--percent-basis` and an optional
+`--source-workbook`), and the general
 `lungfish genotype export`, whose `--export-format` defaults to `xlsx` and also
 accepts `csv` or `tsv`. That general form takes a repeatable `--sample` to
 restrict the matrix to named samples, an `--active-haplotype-definition` to

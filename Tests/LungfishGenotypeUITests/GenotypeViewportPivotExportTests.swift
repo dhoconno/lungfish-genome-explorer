@@ -99,6 +99,30 @@ final class GenotypeViewportPivotExportTests: XCTestCase {
         XCTAssertTrue(hasOption(arguments, "--min-percent", value: "1.5"))
     }
 
+    /// Min Percent is a percent of whatever the matrix's Percent Basis
+    /// selects, so the export must carry that denominator too or it would
+    /// drop different cells than the analyst is looking at.
+    func testPivotExportCarriesTheMatrixPercentBasisWithMinimumPercent() throws {
+        let viewedLocus = try capturedArguments(
+            filters: ["matrixMinimumPercent": "1.5", "matrixPercentDenominator": "Viewed Locus"],
+            format: .pivotExcel
+        )
+        XCTAssertTrue(hasOption(viewedLocus, "--percent-basis", value: "viewed-locus"))
+
+        let sampleRetained = try capturedArguments(
+            filters: ["matrixMinimumPercent": "1.5", "matrixPercentDenominator": "Sample Retained"],
+            format: .pivotExcel
+        )
+        XCTAssertTrue(hasOption(sampleRetained, "--percent-basis", value: "sample-retained"))
+
+        // Without an active percent threshold the basis is meaningless.
+        let off = try capturedArguments(
+            filters: ["matrixMinimumPercent": "0.0", "matrixPercentDenominator": "Viewed Locus"],
+            format: .pivotExcel
+        )
+        XCTAssertFalse(off.contains("--percent-basis"))
+    }
+
     func testDisabledThresholdsAreOmitted() throws {
         // "0" means the control is off; sending it would imply an active cut.
         let arguments = try capturedArguments(

@@ -557,7 +557,7 @@ Builds a SQLite database from classifier pipeline output for fast random-access 
 
 `lungfish genotype <subcommand> --bundle <path>`
 
-Inspects and exports `.lungfishgenotype` result bundles. The seven subcommands are `list-samples`, `list-cohorts`, `apply-annotations`, `export`, `export-xlsx`, `export-pivot-xlsx`, and `export-labkey`. Read-only subcommands print to stdout; the rest merge into the annotation sidecar beside the bundle's `genotype-result.json` without modifying pipeline output.
+Inspects and exports `.lungfishgenotype` result bundles. The seven subcommands are `list-samples`, `list-cohorts`, `apply-annotations`, `export`, `export-xlsx`, `export-pivot-xlsx`, and `export-labkey`. Read-only subcommands print to stdout; the rest merge into the annotation sidecar beside the bundle's `genotype-result.json` without modifying pipeline output. `export-pivot-xlsx` copies the bundle's current workbook and filters only its pivot sheet by `--min-reads` and `--min-percent` (with `--percent-basis viewed-locus` or `sample-retained`); it writes a pivot-only workbook only when the bundle has no workbook.
 
 ## Provenance and export
 

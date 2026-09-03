@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Exports the genotype bundle as a "pivot" XLSX matching the layout used
 /// by the lab's notebook-style collaborator template.
@@ -65,6 +66,27 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     )
     var keepEmptyRows: Bool = false
 
+    @Option(
+        name: .long,
+        help: """
+        Denominator for --min-percent: 'sample-retained' (the sample's retained \
+        reads) or 'viewed-locus' (the sample's reads at the allele's locus, as \
+        the inspector's Viewed Locus basis).
+        """
+    )
+    var percentBasis: PivotWorkbookBuilder.PercentBasis = .sampleRetained
+
+    @Option(
+        name: .long,
+        help: """
+        Workbook to copy and filter. Defaults to the bundle's current.xlsx when \
+        one exists, else its primary workbook. The export is that workbook with \
+        only the pivot sheet changed; when the bundle has no workbook a pivot-only \
+        workbook is written instead.
+        """
+    )
+    var sourceWorkbook: String?
+
     func validate() throws {
         if bundle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ValidationError("--bundle must not be empty.")
@@ -81,6 +103,16 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        try await run(managedPythonResolver: {
+            try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
+        })
+    }
+
+    /// `managedPythonResolver` locates the managed openpyxl runtime used to
+    /// rewrite the pivot sheet of a copied workbook; tests inject it.
+    func run(
+        managedPythonResolver: @escaping @Sendable () async throws -> URL
+    ) async throws {
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
@@ -91,20 +123,39 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         let thresholds = PivotWorkbookBuilder.Thresholds(
             minimumReads: minReads,
             minimumPercent: minPercent,
-            keepEmptyRows: keepEmptyRows
+            keepEmptyRows: keepEmptyRows,
+            percentBasis: percentBasis
         )
-        let workbook = PivotWorkbookBuilder.build(
-            from: result,
-            sidecar: sidecar,
-            thresholds: thresholds
-        )
-
         let outputURL = URL(fileURLWithPath: output)
         let buildDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-genotype-pivot-xlsx-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: buildDir) }
         try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
 
+        if let sourceWorkbookURL = Self.resolveSourceWorkbookURL(
+            explicit: sourceWorkbook,
+            bundleURL: bundleURL,
+            manifest: result.manifest
+        ) {
+            try await exportFilteredCopy(
+                of: sourceWorkbookURL,
+                result: result,
+                sidecar: sidecar,
+                thresholds: thresholds,
+                bundleURL: bundleURL,
+                outputURL: outputURL,
+                buildDir: buildDir,
+                managedPythonResolver: managedPythonResolver,
+                startedAt: startedAt
+            )
+            return
+        }
+
+        let workbook = PivotWorkbookBuilder.build(
+            from: result,
+            sidecar: sidecar,
+            thresholds: thresholds
+        )
         try Self.writeXLSX(to: outputURL, buildDir: buildDir, workbook: workbook)
         try await GenotypeExportProvenanceSupport.record(
             workflowName: "genotype.export.pivot-xlsx",
@@ -207,6 +258,8 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             /// Keep rows whose values were all suppressed. Off by default so a
             /// filtered export omits rows that would otherwise be blank.
             var keepEmptyRows: Bool = false
+            /// Denominator behind `minimumPercent`.
+            var percentBasis: PercentBasis = .sampleRetained
 
             static let none = Thresholds()
 
@@ -239,8 +292,21 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 if keepEmptyRows {
                     arguments.append("--keep-empty-rows")
                 }
+                if percentBasis != .sampleRetained {
+                    arguments += ["--percent-basis", percentBasis.rawValue]
+                }
                 return arguments
             }
+        }
+
+        /// Denominator for the Min Percent threshold, matching the inspector's
+        /// Percent Basis control.
+        enum PercentBasis: String, CaseIterable, ExpressibleByArgument, Sendable {
+            /// The sample's retained reads.
+            case sampleRetained = "sample-retained"
+            /// The sample's reads at the allele's locus group, the inspector's
+            /// default.
+            case viewedLocus = "viewed-locus"
         }
 
         /// Canonical split-locus layout used by the lab's reference workbook.
@@ -315,11 +381,29 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             )
             let speciesPrefix = speciesPrefix(from: result.haplotypeAnalysis)
 
-            // Percent thresholds are relative to the reads retained for the
-            // sample, which is the same denominator the inspector uses.
+            // Percent thresholds use the denominator the inspector's Percent
+            // Basis control selects: the sample's retained reads, or the
+            // sample's reads at the allele's locus group.
             let sampleRetainedTotals: [String: Int] = Dictionary(
                 uniqueKeysWithValues: result.samples.map { ($0.sample, $0.passedUniqueReads) }
             )
+            var viewedLocusTotals: [String: [String: Int]] = [:]
+            var locusGroupByGenotype: [String: String] = [:]
+            for call in result.calls {
+                viewedLocusTotals[call.sample, default: [:]][call.locusGroup, default: 0] += call.passedUniqueReads
+                if locusGroupByGenotype[call.genotype] == nil {
+                    locusGroupByGenotype[call.genotype] = call.locusGroup
+                }
+            }
+            let denominator: (String, String) -> Int? = { genotype, sample in
+                switch thresholds.percentBasis {
+                case .sampleRetained:
+                    return sampleRetainedTotals[sample]
+                case .viewedLocus:
+                    guard let locusGroup = locusGroupByGenotype[genotype] else { return nil }
+                    return viewedLocusTotals[sample]?[locusGroup]
+                }
+            }
             var filteredValueCount = 0
             var removedRowCount = 0
             var groups: [AlleleGroup] = []
@@ -334,7 +418,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                     samples: samples,
                     countsByGenotypeBySample: countsByGenotypeBySample,
                     thresholds: thresholds,
-                    sampleTotals: sampleRetainedTotals,
+                    denominator: denominator,
                     filteredValueCount: &filteredValueCount,
                     removedRowCount: &removedRowCount
                 )
@@ -350,7 +434,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                     samples: samples,
                     countsByGenotypeBySample: countsByGenotypeBySample,
                     thresholds: thresholds,
-                    sampleTotals: sampleRetainedTotals,
+                    denominator: denominator,
                     filteredValueCount: &filteredValueCount,
                     removedRowCount: &removedRowCount
                 )
@@ -453,7 +537,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
             samples: [String],
             countsByGenotypeBySample: [String: [String: Int]],
             thresholds: Thresholds = .none,
-            sampleTotals: [String: Int] = [:],
+            denominator: (String, String) -> Int? = { _, _ in nil },
             filteredValueCount: inout Int,
             removedRowCount: inout Int
         ) -> [AlleleRow] {
@@ -467,7 +551,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 let counts: [Int?] = samples.map { sample in
                     let count = perSample[sample] ?? 0
                     guard count > 0 else { return nil }
-                    guard thresholds.admits(count: count, sampleTotal: sampleTotals[sample]) else {
+                    guard thresholds.admits(count: count, sampleTotal: denominator(name, sample)) else {
                         suppressed += 1
                         return nil
                     }
@@ -836,4 +920,318 @@ enum GenotypeExportPivotXlsxError: Error, LocalizedError {
         case .zipFailed: return "Failed to zip the pivot XLSX archive."
         }
     }
+}
+
+// MARK: - Filtered copy of the bundle's workbook
+
+extension GenotypeExportPivotXlsxSubcommand {
+    struct FilteredCopyError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// The workbook the export copies: an explicit `--source-workbook`, else
+    /// the bundle's `current.xlsx` when one has been published, else the
+    /// primary workbook the run wrote. Returns nil when none exists on disk,
+    /// in which case the pivot-only workbook is written instead.
+    static func resolveSourceWorkbookURL(
+        explicit: String?,
+        bundleURL: URL,
+        manifest: ONTGenotypeResultBundleManifest
+    ) -> URL? {
+        let fileManager = FileManager.default
+        if let explicit, !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: explicit)
+        }
+        var candidates: [URL] = []
+        if let current = manifest.currentWorkbookPath, !current.isEmpty {
+            candidates.append(bundleURL.appendingPathComponent(current))
+        }
+        candidates.append(bundleURL.appendingPathComponent("current.xlsx"))
+        if !manifest.primaryWorkbookPath.isEmpty {
+            candidates.append(bundleURL.appendingPathComponent(manifest.primaryWorkbookPath))
+        }
+        return candidates.first { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    /// The per-allele survivors handed to the openpyxl script.
+    ///
+    /// Built with every row present (`keepEmptyRows` forced on) so a row whose
+    /// values all fell below the thresholds still appears, with no survivors,
+    /// and the script can delete it. The caller's own `keepEmptyRows` travels
+    /// separately.
+    struct FilterPlan: Codable, Equatable {
+        struct Row: Codable, Equatable {
+            let genotype: String
+            /// Samples whose value clears the thresholds, in workbook order.
+            let keep: [String]
+        }
+
+        let sheet: String
+        let keepEmptyRows: Bool
+        let rows: [Row]
+
+        static func make(
+            from result: ONTGenotypeResultBundleData,
+            sidecar: GenotypeAnnotationSidecar?,
+            thresholds: PivotWorkbookBuilder.Thresholds
+        ) -> FilterPlan {
+            var planThresholds = thresholds
+            planThresholds.keepEmptyRows = true
+            let workbook = PivotWorkbookBuilder.build(
+                from: result,
+                sidecar: sidecar,
+                thresholds: planThresholds
+            )
+            let rows = workbook.groups.flatMap { group in
+                group.alleles.map { allele in
+                    Row(
+                        genotype: allele.name,
+                        keep: zip(workbook.samples, allele.counts).compactMap { sample, count in
+                            count == nil ? nil : sample
+                        }
+                    )
+                }
+            }
+            return FilterPlan(
+                sheet: workbook.sheetName,
+                keepEmptyRows: thresholds.keepEmptyRows,
+                rows: rows
+            )
+        }
+    }
+
+    struct FilteredCopySummary: Decodable {
+        let sheet: String
+        let matchedAlleleRows: Int
+        let blankedValues: Int
+        let removedAlleleRows: Int
+    }
+
+    /// Copies `sourceWorkbookURL` to the output with only its pivot sheet
+    /// changed: values below the thresholds are blanked, each allele row's
+    /// Total and observation count are recomputed from what remains, and rows
+    /// left empty are removed unless `--keep-empty-rows` was given. Every
+    /// other sheet, and the pivot sheet's formatting, header rows and
+    /// haplotype rows, are untouched. The copy is not registered with the
+    /// bundle, so edits made to it never flow back into the result.
+    func exportFilteredCopy(
+        of sourceWorkbookURL: URL,
+        result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar?,
+        thresholds: PivotWorkbookBuilder.Thresholds,
+        bundleURL: URL,
+        outputURL: URL,
+        buildDir: URL,
+        managedPythonResolver: @escaping @Sendable () async throws -> URL,
+        startedAt: Date
+    ) async throws {
+        guard FileManager.default.fileExists(atPath: sourceWorkbookURL.path) else {
+            throw FilteredCopyError(message: "Source workbook not found: \(sourceWorkbookURL.path)")
+        }
+        let plan = FilterPlan.make(from: result, sidecar: sidecar, thresholds: thresholds)
+        let planURL = buildDir.appendingPathComponent("filter-plan.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(plan).write(to: planURL, options: .atomic)
+        let scriptURL = buildDir.appendingPathComponent("filter-pivot-sheet.py")
+        try Data(Self.filterPivotSheetScript.utf8).write(to: scriptURL, options: .atomic)
+
+        let pythonURL = try await managedPythonResolver()
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let (status, stdout, stderr) = try await Self.runProcess(
+            executableURL: pythonURL,
+            arguments: [scriptURL.path, sourceWorkbookURL.path, outputURL.path, planURL.path]
+        )
+        guard status == 0 else {
+            throw FilteredCopyError(
+                message: "Filtering the pivot sheet failed (exit \(status)): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+            )
+        }
+        let summary = try JSONDecoder().decode(FilteredCopySummary.self, from: Data(stdout.utf8))
+
+        var command = [
+            CLICommandIdentity.executableName, "genotype", "export-pivot-xlsx",
+            "--bundle", bundleURL.path,
+            "--output", outputURL.path,
+            "--source-workbook", sourceWorkbookURL.path,
+        ]
+        command += thresholds.provenanceArguments
+        try await GenotypeExportProvenanceSupport.record(
+            workflowName: "genotype.export.pivot-xlsx",
+            toolName: "lungfish genotype export-pivot-xlsx",
+            command: command,
+            bundleURL: bundleURL,
+            outputURLs: [outputURL],
+            outputDirectory: outputURL.deletingLastPathComponent(),
+            optionPaths: [
+                "bundle": bundleURL,
+                "output": outputURL,
+                "source-workbook": sourceWorkbookURL,
+            ],
+            additionalInputURLs: [sourceWorkbookURL] + (
+                GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
+                    for: result,
+                    bundleURL: bundleURL,
+                    sidecar: sidecar
+                ).map { [$0] } ?? []
+            ),
+            startedAt: startedAt
+        )
+
+        let report: [String: Any] = [
+            "bundle": bundleURL.path,
+            "output": outputURL.path,
+            "sourceWorkbook": sourceWorkbookURL.path,
+            "sheet": summary.sheet,
+            "sampleCount": result.samples.count,
+            "matchedAlleleRows": summary.matchedAlleleRows,
+            "minReads": thresholds.minimumReads,
+            "minPercent": thresholds.minimumPercent,
+            "percentBasis": thresholds.percentBasis.rawValue,
+            "filteredAlleleValueCount": summary.blankedValues,
+            "removedAlleleRowCount": summary.removedAlleleRows,
+        ]
+        let reportData = try JSONSerialization.data(
+            withJSONObject: report,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        FileHandle.standardOutput.write(reportData)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    /// Runs a child to completion, observing its exit through
+    /// `terminationHandler` (see IlluminaAmpliconPairMerger for why not
+    /// `waitUntilExit`).
+    static func runProcess(
+        executableURL: URL,
+        arguments: [String]
+    ) async throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        final class Exit: @unchecked Sendable {
+            private let lock = NSLock()
+            private var status: Int32?
+            private var continuation: CheckedContinuation<Int32, Never>?
+            func finish(_ code: Int32) {
+                lock.lock(); status = code; let pending = continuation; continuation = nil; lock.unlock()
+                pending?.resume(returning: code)
+            }
+            func wait() async -> Int32 {
+                await withCheckedContinuation { continuation in
+                    lock.lock()
+                    let stored = status
+                    if stored == nil { self.continuation = continuation }
+                    lock.unlock()
+                    if let stored { continuation.resume(returning: stored) }
+                }
+            }
+        }
+        let exit = Exit()
+        process.terminationHandler = { exit.finish($0.terminationStatus) }
+        try process.run()
+        // Drain both pipes off the awaiting task so a chatty child cannot
+        // fill a pipe and stall before it exits.
+        async let stdoutData = Task.detached { stdoutPipe.fileHandleForReading.readDataToEndOfFile() }.value
+        async let stderrData = Task.detached { stderrPipe.fileHandleForReading.readDataToEndOfFile() }.value
+        let status = await exit.wait()
+        let stdout = String(decoding: await stdoutData, as: UTF8.self)
+        let stderr = String(decoding: await stderrData, as: UTF8.self)
+        return (status, stdout, stderr)
+    }
+
+    /// Rewrites the pivot sheet of a copied workbook from a filter plan.
+    ///
+    /// Sample columns are read from the "GS ID" header row, which the
+    /// pipeline's workbook and the pivot-only writer share. Allele rows are
+    /// matched by their name in column A against the plan, so the header,
+    /// read-count, haplotype and comment rows, and any group labels, are never
+    /// touched. Column B (Total) and C (# Obs.) are recomputed only where the
+    /// row already carried numbers there.
+    static let filterPivotSheetScript = #"""
+import json
+import sys
+
+from openpyxl import load_workbook
+
+source, output, plan_path = sys.argv[1:4]
+with open(plan_path) as handle:
+    plan = json.load(handle)
+
+workbook = load_workbook(source)
+sheet_name = plan.get("sheet")
+sheet = workbook[sheet_name] if sheet_name in workbook.sheetnames else workbook.worksheets[0]
+keep_empty_rows = bool(plan.get("keepEmptyRows"))
+survivors = {row["genotype"]: set(row["keep"]) for row in plan["rows"]}
+
+header_row = None
+for row in range(1, min(sheet.max_row, 60) + 1):
+    if sheet.cell(row, 1).value == "GS ID":
+        header_row = row
+        break
+if header_row is None:
+    sys.stderr.write("The pivot sheet has no 'GS ID' header row.\n")
+    sys.exit(2)
+
+sample_columns = {}
+for column in range(4, sheet.max_column + 1):
+    name = sheet.cell(header_row, column).value
+    if isinstance(name, str) and name.strip():
+        sample_columns[name.strip()] = column
+
+first_allele_row = header_row + 1
+for row in range(header_row, sheet.max_row + 1):
+    if sheet.cell(row, 1).value == "Comments":
+        first_allele_row = row + 1
+        break
+
+matched = 0
+blanked = 0
+rows_to_delete = []
+for row in range(first_allele_row, sheet.max_row + 1):
+    name = sheet.cell(row, 1).value
+    if not isinstance(name, str) or name not in survivors:
+        continue
+    matched += 1
+    keep = survivors[name]
+    remaining = []
+    for sample, column in sample_columns.items():
+        cell = sheet.cell(row, column)
+        if cell.value is None:
+            continue
+        if sample in keep:
+            if isinstance(cell.value, (int, float)):
+                remaining.append(cell.value)
+        else:
+            cell.value = None
+            blanked += 1
+    total_cell = sheet.cell(row, 2)
+    observed_cell = sheet.cell(row, 3)
+    if isinstance(total_cell.value, (int, float)):
+        total_cell.value = sum(remaining) if remaining else None
+    if isinstance(observed_cell.value, (int, float)):
+        observed_cell.value = len(remaining) if remaining else None
+    if not remaining and not keep_empty_rows:
+        rows_to_delete.append(row)
+
+for row in reversed(rows_to_delete):
+    sheet.delete_rows(row)
+
+workbook.save(output)
+print(json.dumps({
+    "sheet": sheet.title,
+    "matchedAlleleRows": matched,
+    "blankedValues": blanked,
+    "removedAlleleRows": len(rows_to_delete),
+}))
+"""#
 }

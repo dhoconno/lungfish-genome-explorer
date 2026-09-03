@@ -218,6 +218,75 @@ final class GenotypePivotThresholdTests: XCTestCase {
         )
     }
 
+    // MARK: - Percent basis
+
+    /// The inspector's Percent Basis defaults to Viewed Locus: a value is a
+    /// percent of the sample's reads at that allele's locus, not of every
+    /// retained read. An export applying the other denominator would drop
+    /// different cells than the analyst is looking at.
+    func testViewedLocusBasisMeasuresAgainstTheLocusNotTheSample() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/pivot-basis.lungfishgenotype", isDirectory: true)
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "basis", analysisName: "Basis",
+            primaryWorkbookPath: "b.xlsx",
+            longSummaryCSVPath: "g.csv", sampleSummaryCSVPath: "s.csv",
+            statsJSONPath: "stats.json", provenancePath: "prov.json"
+        )
+        let artifacts = ONTGenotypeResultArtifacts(
+            workbookURL: bundleURL.appendingPathComponent("b.xlsx"),
+            longSummaryCSVURL: bundleURL.appendingPathComponent("g.csv"),
+            sampleSummaryCSVURL: bundleURL.appendingPathComponent("s.csv"),
+            statsJSONURL: bundleURL.appendingPathComponent("stats.json"),
+            provenanceURL: bundleURL.appendingPathComponent("prov.json")
+        )
+        func call(_ genotype: String, unique: Int) -> ONTGenotypeCall {
+            ONTGenotypeCall(
+                sample: "Animal1", genotype: genotype,
+                passedAlignments: unique, passedUniqueReads: unique,
+                sampleTotalReads: 2_000, sampleUniqueRetainedReads: 1_000,
+                sampleUniqueRetainedPercent: 50.0,
+                overallInputReads: nil, overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            )
+        }
+        // MHC-A carries 100 reads in this sample, MHC-B 50; the sample
+        // retained 1,000 in total.
+        let calls = [
+            call("01_Mamu-A1_001g", unique: 90),
+            call("01_Mamu-A1_002g", unique: 10),
+            call("03_Mamu-B_001g", unique: 50),
+        ]
+        XCTAssertEqual(Set(calls.prefix(2).map(\.locusGroup)).count, 1, "both A1 calls share a locus group")
+        XCTAssertNotEqual(calls[0].locusGroup, calls[2].locusGroup)
+        let result = ONTGenotypeResultBundleData(
+            bundleURL: bundleURL, manifest: manifest, artifacts: artifacts,
+            stats: ONTGenotypeRunStats(), calls: calls,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "Animal1", passedAlignments: 150, passedUniqueReads: 1_000,
+                    sampleTotalReads: 2_000, sampleUniqueRetainedPercent: 50.0, calls: calls
+                ),
+            ],
+            haplotypeAnalysis: nil
+        )
+
+        let viewedLocus = alleleCounts(Builder.build(
+            from: result, sidecar: nil,
+            thresholds: Thresholds(minimumPercent: 5, percentBasis: .viewedLocus)
+        ))
+        XCTAssertEqual(viewedLocus["01_Mamu-A1_002g"], [10], "10 of 100 MHC-A reads is 10%, above 5%")
+
+        let sampleRetained = alleleCounts(Builder.build(
+            from: result, sidecar: nil,
+            thresholds: Thresholds(minimumPercent: 5, percentBasis: .sampleRetained)
+        ))
+        XCTAssertNil(sampleRetained["01_Mamu-A1_002g"], "10 of 1,000 retained reads is 1%, below 5%")
+        XCTAssertEqual(
+            Thresholds(minimumPercent: 5, percentBasis: .viewedLocus).provenanceArguments,
+            ["--min-percent", "5.0", "--percent-basis", "viewed-locus"]
+        )
+    }
+
     // MARK: - Argument parsing
 
     func testParsesThresholdOptions() throws {
@@ -241,6 +310,77 @@ final class GenotypePivotThresholdTests: XCTestCase {
         XCTAssertEqual(command.minReads, 0)
         XCTAssertEqual(command.minPercent, 0)
         XCTAssertFalse(command.keepEmptyRows)
+    }
+
+    func testParsesPercentBasisAndSourceWorkbook() throws {
+        let command = try GenotypeExportPivotXlsxSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype",
+            "--output", "/tmp/out.xlsx",
+            "--percent-basis", "viewed-locus",
+            "--source-workbook", "/tmp/example.lungfishgenotype/current.xlsx",
+        ])
+        XCTAssertEqual(command.percentBasis, .viewedLocus)
+        XCTAssertEqual(command.sourceWorkbook, "/tmp/example.lungfishgenotype/current.xlsx")
+
+        let defaults = try GenotypeExportPivotXlsxSubcommand.parse([
+            "--bundle", "/tmp/example.lungfishgenotype", "--output", "/tmp/out.xlsx",
+        ])
+        XCTAssertEqual(defaults.percentBasis, .sampleRetained)
+        XCTAssertNil(defaults.sourceWorkbook)
+        XCTAssertThrowsError(try GenotypeExportPivotXlsxSubcommand.parse([
+            "--bundle", "/tmp/b.lungfishgenotype", "--output", "/tmp/o.xlsx",
+            "--percent-basis", "reads",
+        ]))
+    }
+
+    // MARK: - Filter plan for the workbook copy
+
+    /// The plan handed to the openpyxl script must list every allele row,
+    /// including one whose values all fell below the thresholds, so the
+    /// script can delete it; the caller's keep-empty choice travels separately.
+    func testFilterPlanListsEveryAlleleRowWithItsSurvivingSamples() {
+        let plan = GenotypeExportPivotXlsxSubcommand.FilterPlan.make(
+            from: makeResult(),
+            sidecar: nil,
+            thresholds: Thresholds(minimumReads: 10)
+        )
+        XCTAssertFalse(plan.keepEmptyRows)
+        let byGenotype = Dictionary(uniqueKeysWithValues: plan.rows.map { ($0.genotype, $0.keep) })
+        XCTAssertEqual(byGenotype["01_Strong"], ["Animal1", "Animal2"])
+        XCTAssertEqual(byGenotype["01_Middle"], ["Animal1"], "Animal2's 8 reads fall below 10")
+        XCTAssertEqual(byGenotype["01_Background"], [], "an emptied row is listed so the script removes it")
+        XCTAssertEqual(plan.rows.count, 3)
+    }
+
+    func testSourceWorkbookPrefersExplicitThenCurrentThenPrimary() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pivot-source-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let manifest = makeResult().manifest  // primaryWorkbookPath "t.xlsx"
+        typealias Command = GenotypeExportPivotXlsxSubcommand
+
+        XCTAssertNil(
+            Command.resolveSourceWorkbookURL(explicit: nil, bundleURL: bundleURL, manifest: manifest),
+            "no workbook on disk means the pivot-only writer is used"
+        )
+        let primary = bundleURL.appendingPathComponent("t.xlsx")
+        try Data("primary".utf8).write(to: primary)
+        XCTAssertEqual(
+            Command.resolveSourceWorkbookURL(explicit: nil, bundleURL: bundleURL, manifest: manifest)?.path,
+            primary.path
+        )
+        let current = bundleURL.appendingPathComponent("current.xlsx")
+        try Data("current".utf8).write(to: current)
+        XCTAssertEqual(
+            Command.resolveSourceWorkbookURL(explicit: nil, bundleURL: bundleURL, manifest: manifest)?.path,
+            current.path,
+            "a published current.xlsx carries the analyst's calls and wins"
+        )
+        XCTAssertEqual(
+            Command.resolveSourceWorkbookURL(explicit: "/tmp/elsewhere.xlsx", bundleURL: bundleURL, manifest: manifest)?.path,
+            "/tmp/elsewhere.xlsx"
+        )
     }
 
     func testRejectsOutOfRangeThresholds() throws {

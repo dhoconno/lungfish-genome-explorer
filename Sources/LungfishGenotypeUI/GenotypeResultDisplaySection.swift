@@ -25,29 +25,6 @@ public enum GenotypeMatrixPaletteTarget: String, CaseIterable, Identifiable {
     }
 }
 
-/// An export an analyst can start from the Inspector's Genotype Display section.
-public enum GenotypeInspectorExportKind: String, CaseIterable, Sendable {
-    /// The matrix as displayed, one sheet, no thresholds applied.
-    case excelView
-    /// The samples-across pivot with the section's Min Reads and Min Percent
-    /// filters applied while writing.
-    case filteredPivot
-
-    public var buttonTitle: String {
-        switch self {
-        case .excelView: return "Excel View\u{2026}"
-        case .filteredPivot: return "Filtered Pivot\u{2026}"
-        }
-    }
-
-    public var accessibilityIdentifier: String {
-        switch self {
-        case .excelView: return "genotype-inspector-export-excel-view"
-        case .filteredPivot: return "genotype-inspector-export-filtered-pivot"
-        }
-    }
-}
-
 @Observable
 @MainActor
 public final class GenotypeResultDisplaySectionViewModel {
@@ -118,17 +95,17 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var onSupportSelectionPreviewChanged: ((Int) -> Void)?
     public var onMatrixVisibilityCommandRequested:
         ((GenotypeMatrixVisibilityCommand) -> Void)?
-    /// Set by the composition root to route an export request to the
+    /// Set by the composition root to route the Filtered Pivot export to the
     /// displayed genotype viewport. The Inspector is where analysts set the
     /// Min Reads and Min Percent filters, so the export that applies them
     /// lives beside those controls rather than in a viewport lens.
-    public var onExportRequested: ((GenotypeInspectorExportKind) -> Void)?
+    public var onFilteredPivotExportRequested: (() -> Void)?
 
-    /// Whether the export buttons are shown: a viewport must be bound.
-    public var canExport: Bool { onExportRequested != nil }
+    /// Whether the export button is shown: a viewport must be bound.
+    public var canExportFilteredPivot: Bool { onFilteredPivotExportRequested != nil }
 
-    public func requestExport(_ kind: GenotypeInspectorExportKind) {
-        onExportRequested?(kind)
+    public func requestFilteredPivotExport() {
+        onFilteredPivotExportRequested?()
     }
 
     @ObservationIgnored
@@ -1267,7 +1244,7 @@ public struct GenotypeResultDisplaySection: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if viewModel.canExport {
+                    if viewModel.canExportFilteredPivot {
                         Divider()
                         exportControls
                     }
@@ -1296,16 +1273,12 @@ public struct GenotypeResultDisplaySection: View {
             Text("Export")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                ForEach(GenotypeInspectorExportKind.allCases, id: \.self) { kind in
-                    Button(kind.buttonTitle) {
-                        viewModel.requestExport(kind)
-                    }
-                    .accessibilityIdentifier(kind.accessibilityIdentifier)
-                }
+            Button("Filtered Pivot\u{2026}") {
+                viewModel.requestFilteredPivotExport()
             }
             .controlSize(.small)
-            Text("The filtered pivot applies the Min Reads and Min Percent filters above while writing, so background rows are dropped rather than hidden by hand.")
+            .accessibilityIdentifier("genotype-inspector-export-filtered-pivot")
+            Text("Writes a copy of the result workbook whose pivot sheet has the Min Reads and Min Percent filters above applied. Every other sheet is unchanged. The copy is a one-way export: edits made to it in Excel do not flow back into this result.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
