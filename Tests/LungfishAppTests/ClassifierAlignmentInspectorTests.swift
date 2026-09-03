@@ -230,8 +230,12 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertNil(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities)
         XCTAssertNil(inspector.readStyleSectionViewModel.onSettingsChanged)
         XCTAssertNil(inspector.viewModel.documentSectionViewModel.visibleAlignmentTrackID)
-        XCTAssertEqual(inspector.viewModel.contentMode, .empty)
-        XCTAssertEqual(inspector.viewModel.selectedTab, .bundle)
+        // Clearing evidence must not blank the Inspector: the classifier
+        // result view that hosts this viewport is still displayed, so the
+        // mode stays metagenomics and the tab falls back to the summary.
+        XCTAssertEqual(inspector.viewModel.contentMode, .metagenomics)
+        XCTAssertEqual(inspector.viewModel.selectedTab, .resultSummary)
+        XCTAssertFalse(inspector.viewModel.availableTabs.contains(.view))
         inspector.readStyleSectionViewModel.minMapQ = 47
         inspector.readStyleSectionViewModel.onSettingsChanged?()
         XCTAssertEqual(controller.viewer.viewerView.minMapQSetting, 0)

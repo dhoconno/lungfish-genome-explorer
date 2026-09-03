@@ -75,8 +75,20 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             guard let capabilities else {
                 inspector.readStyleSectionViewModel.clear()
                 inspector.viewModel.documentSectionViewModel.visibleAlignmentTrackID = nil
-                inspector.viewModel.contentMode = .empty
-                inspector.viewModel.selectedTab = .bundle
+                // The content mode belongs to the host viewport, which mirrors
+                // it into the Inspector through viewportContentModeDidChange.
+                // This viewport is embedded inside a classifier result view
+                // that is still on screen, so forcing `.empty` here (as an
+                // earlier version did) blanked the Inspector every time the
+                // result view cleared evidence, including on its initial load
+                // before any evidence had ever been shown. Only the evidence
+                // tabs go away; fall back to the summary when one was selected.
+                let available = inspector.viewModel.availableTabs
+                if !available.contains(inspector.viewModel.selectedTab) {
+                    inspector.viewModel.selectedTab = available.contains(.resultSummary)
+                        ? .resultSummary
+                        : (available.first ?? .bundle)
+                }
                 return
             }
             inspector.viewModel.contentMode = .metagenomics
