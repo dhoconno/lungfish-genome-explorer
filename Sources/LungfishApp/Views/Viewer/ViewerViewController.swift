@@ -236,6 +236,25 @@ public class ViewerViewController: NSViewController {
     /// Native 12S amplicon result bundle viewport.
     var twelveSAmpliconResultViewController: TwelveSAmpliconResultViewController?
 
+    /// True while a native bundle viewport owns the viewer area. Those
+    /// viewports fill the whole view and carry their own drawers, so the
+    /// parent annotation drawer must stay hidden underneath them.
+    public var isNativeBundleViewportInstalled: Bool {
+        multipleSequenceAlignmentViewController != nil
+            || phylogeneticTreeViewController != nil
+            || genotypeResultViewController != nil
+            || twelveSAmpliconResultViewController != nil
+    }
+
+    /// Reveals the parent annotation drawer unless a native bundle viewport
+    /// is installed. Every teardown path calls this instead of setting
+    /// `isHidden` directly, so a teardown running after a native install
+    /// cannot unhide the drawer under it.
+    func revealAnnotationDrawerUnlessNativeBundleInstalled() {
+        guard !isNativeBundleViewportInstalled else { return }
+        annotationDrawerView?.isHidden = false
+    }
+
     /// Whether this viewer should publish app-wide viewport notifications.
     ///
     /// Embedded viewers, such as the mapping detail viewer, use the same
@@ -1695,7 +1714,7 @@ public class ViewerViewController: NSViewController {
         enhancedRulerView.isHidden = false
         viewerView.isHidden = false
         statusBar.isHidden = false
-        annotationDrawerView?.isHidden = false
+        revealAnnotationDrawerUnlessNativeBundleInstalled()
     }
 
     private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
