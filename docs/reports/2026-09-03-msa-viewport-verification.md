@@ -135,6 +135,16 @@ unrelated to these changes.
 
 ## Not covered here
 
-The drag handle's cursor behaviour and tooltip need a pointer and were checked
-by hand rather than by test. The reference-bundle viewport's extraction menu is
-covered by unit tests rather than this walkthrough.
+The reference-bundle viewport's extraction menu is covered by unit tests rather
+than this walkthrough, because the test project holds a plain FASTA.
+
+The gutter handle's affordances were initially checked only by hand. They are
+now asserted headlessly: the drag and its clamping, double-click to fit, the
+splitter accessibility role, the cursor-update tracking area, and the per-row
+tooltips. Only the cursor image itself still needs a live pointer, since AppKit
+will not report it without one.
+
+Writing those tests surfaced a detail worth recording. Double-clicking to fit
+these fixture names computes 142 points, below the 160-point readable floor, so
+the clamp holds the gutter at 160. That is correct behaviour, and the first
+version of the test wrongly asserted the unclamped value.
