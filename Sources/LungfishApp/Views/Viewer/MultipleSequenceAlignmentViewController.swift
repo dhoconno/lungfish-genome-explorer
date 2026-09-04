@@ -2154,6 +2154,51 @@ extension MultipleSequenceAlignmentViewController {
 
     func testingSizeGutterToFitWidestLabel() { sizeGutterToFitWidestLabel() }
 
+    /// The resize handle, exposed so tests can assert its affordances without
+    /// a live pointer. The cursor itself still needs a GUI pass.
+    var testingGutterResizeHandle: NSView { gutterResizeHandleView }
+
+    /// Whether a cursor-update tracking area covers the handle. The cursor
+    /// itself cannot be asserted headlessly, but its absence here would mean
+    /// the resize affordance never appears.
+    var testingHandleHasCursorUpdateTrackingArea: Bool {
+        // AppKit installs tracking areas during a display cycle, which a
+        // headless test never runs, so ask for it directly.
+        gutterResizeHandleView.updateTrackingAreas()
+        return gutterResizeHandleView.testingHasCursorUpdateTrackingArea
+    }
+
+    /// The gutter width that would show every loaded label in full.
+    func testingWidthThatFitsWidestLabel() -> CGFloat {
+        rowGutterView.widthThatFitsWidestLabel()
+    }
+
+    /// Renders the gutter offscreen so tooltip rects are re-registered.
+    /// Drawing through a real bitmap context rather than calling `draw`
+    /// directly, which has no graphics context outside a window.
+    func testingForceGutterRedraw() {
+        let bounds = rowGutterView.bounds
+        guard bounds.width > 0, bounds.height > 0,
+              let rep = rowGutterView.bitmapImageRepForCachingDisplay(in: bounds) else { return }
+        rowGutterView.cacheDisplay(in: bounds, to: rep)
+    }
+
+    /// Simulates a drag of the handle to the given window-space x.
+    func testingDragGutterHandle(toWindowX x: CGFloat) {
+        gutterResizeHandleView.testingSimulateDrag(toWindowX: x)
+    }
+
+    /// Simulates a double-click on the handle, which sizes to fit.
+    func testingDoubleClickGutterHandle() {
+        gutterResizeHandleView.testingSimulateDoubleClick()
+    }
+
+    /// The untruncated label a tooltip would show for a registered rect, or
+    /// nil when no tooltip covers that row.
+    func testingToolTipTexts() -> [String] {
+        rowGutterView.testingToolTipTexts()
+    }
+
     var testingRenderedRowNames: [String] {
         alignmentRows.map(\.name)
     }
@@ -2489,6 +2534,23 @@ private final class MSAGutterResizeHandleView: NSView {
     override func accessibilityLabel() -> String? { "Sequence name column divider" }
 
     override func isAccessibilityElement() -> Bool { true }
+
+    // MARK: - Test seams
+
+    func testingSimulateDrag(toWindowX x: CGFloat) {
+        onDragToWindowX?(x)
+    }
+
+    func testingSimulateDoubleClick() {
+        onDoubleClick?()
+    }
+
+    /// Whether a cursor-update tracking area covers the handle. The cursor
+    /// itself cannot be asserted headlessly, but its absence here would mean
+    /// the resize affordance never appears.
+    var testingHasCursorUpdateTrackingArea: Bool {
+        trackingAreas.contains { $0.options.contains(.cursorUpdate) }
+    }
 }
 
 private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
@@ -2641,6 +2703,10 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
         userData data: UnsafeMutableRawPointer?
     ) -> String {
         toolTipTextByTag[tag] ?? ""
+    }
+
+    func testingToolTipTexts() -> [String] {
+        toolTipTextByTag.values.sorted()
     }
 
     private func clearNameToolTips() {

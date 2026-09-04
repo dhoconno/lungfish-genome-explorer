@@ -193,6 +193,8 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
                        "'lungfishref' extension should belong to exactly one DocumentType")
         XCTAssertEqual(typesWithLungfishref.first, .lungfishReferenceBundle)
     }
+
+
 }
 
 // MARK: - ChromosomeInfo Tests
@@ -2322,6 +2324,103 @@ final class ViewerBundleRoutingTests: XCTestCase {
         let bundleURL = tempDir.appendingPathComponent("small-branch-tree.lungfishtree", isDirectory: true)
         _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
         return bundleURL
+    }
+
+    // MARK: - Gutter resize handle affordances
+
+    func testGutterHandleAdvertisesItselfAsASplitter() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let handle = controller.testingGutterResizeHandle
+        XCTAssertTrue(handle.isAccessibilityElement())
+        XCTAssertEqual(handle.accessibilityRole(), .splitter)
+        XCTAssertEqual(handle.accessibilityLabel(), "Sequence name column divider")
+    }
+
+    func testGutterHandleCarriesACursorUpdateTrackingArea() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        // Tracking areas are only installed once the view is in a window, so
+        // host it in one. The cursor itself needs a live pointer, but without
+        // this area the resize affordance could never appear at all.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = controller.view
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(controller.testingHandleHasCursorUpdateTrackingArea)
+    }
+
+    func testDraggingTheGutterHandleResizesAndClamps() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        controller.testingDragGutterHandle(toWindowX: 320)
+        XCTAssertEqual(controller.testingGutterWidth, 320, accuracy: 0.5)
+
+        // A drag past either stop must clamp, not run away.
+        controller.testingDragGutterHandle(toWindowX: 20)
+        XCTAssertEqual(controller.testingGutterWidth, 160, accuracy: 0.5)
+
+        controller.testingDragGutterHandle(toWindowX: 5000)
+        XCTAssertEqual(controller.testingGutterWidth, 640, accuracy: 0.5)
+    }
+
+    func testDoubleClickingTheGutterHandleSizesToFitTheWidestName() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        controller.testingSetGutterWidth(640)
+        controller.testingDoubleClickGutterHandle()
+
+        // Fit-to-content is still subject to the readable floor: these fixture
+        // names are short, so the fit width falls below 160 and clamps there.
+        let fitWidth = controller.testingWidthThatFitsWidestLabel()
+        let expected = max(160, min(640, fitWidth))
+        XCTAssertEqual(
+            controller.testingGutterWidth,
+            expected,
+            accuracy: 0.5,
+            "double-click must size to the widest label, clamped to the readable range"
+        )
+        XCTAssertLessThan(
+            controller.testingGutterWidth, 640,
+            "double-click must actually shrink the gutter from its widest"
+        )
+    }
+
+    func testEveryRowRegistersItsUntruncatedNameAsATooltip() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = controller.view
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingSetGutterWidth(160)
+        controller.testingForceGutterRedraw()
+
+        // Truncation still happens at the minimum width, so the full name has
+        // to stay recoverable on hover.
+        XCTAssertEqual(controller.testingToolTipTexts(), ["seq1", "seq2", "seq3"])
     }
 }
 
