@@ -1,6 +1,19 @@
 # MSA Viewport and Sequence Extraction Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **STATUS: COMPLETE (2026-09-03).** All 14 tasks executed on
+> `claude/mafft-msa-viewport-fixes-7762b4`. Unit and integration gates pass;
+> all six defects verified in the running Debug build. Results:
+> `docs/reports/2026-09-03-msa-viewport-verification.md`.
+>
+> Corrections found during execution, for anyone reading the plan as history:
+> Task 4's seams are `executeForTesting` / `makeRequestForTesting`, not
+> `runForTesting`. The CLI has its OWN `canonicalArgv` alongside the pipeline's
+> `defaultWrapperArgv`; both need the `--sequence` flags or provenance lies.
+> `--filter BundleViewerTests` matches nothing — the class is
+> `ViewerBundleRoutingTests`. `MultipleSequenceAlignmentDocumentState` needs
+> all seven memberwise arguments.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix six reported defects in the MAFFT multiple sequence alignment viewport and the FASTA paths next to it, so a user can extract selected sequences to a bundle, choose whether MAFFT aligns all or only selected sequences, read long sequence names, export the aligned FASTA, and never see a dead control.
 
@@ -83,7 +96,7 @@ syndrome…` has a `name` of that entire string. Matching only on it would make
   - `public static func resolve(requestedNames: [String], records: [(name: String, sourceFile: String)], sanitize: (String) -> String) throws -> Set<Int>`
     returning the indices of records to keep.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 import XCTest
@@ -176,12 +189,12 @@ final class MSASequenceSelectionTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter MSASequenceSelectionTests`
 Expected: FAIL, `cannot find 'MSASequenceSelection' in scope`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```swift
 // MSASequenceSelection.swift - Tiered name resolution for MSA input subsetting
@@ -265,12 +278,12 @@ public enum MSASequenceSelection {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter MSASequenceSelectionTests`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/MSA/MSASequenceSelection.swift Tests/LungfishWorkflowTests/MSA/MSASequenceSelectionTests.swift
@@ -291,7 +304,7 @@ git commit -m "feat: tiered name resolver for MSA sequence subsetting"
   **last** init parameter defaulting to `nil`. Placing it last keeps all
   eleven existing call sites source-compatible.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `MAFFTAlignmentPipelineTests`:
 
@@ -333,12 +346,12 @@ func testIncludedSequenceNamesDefaultsToNilAndRoundTripsThroughCodable() throws 
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `swift test --package-path . --skip-update --filter testIncludedSequenceNamesDefaultsToNil`
 Expected: FAIL, `extra argument 'includedSequenceNames' in call`.
 
-- [ ] **Step 3: Add the property**
+- [x] **Step 3: Add the property**
 
 In `MSAAlignmentRunRequest`, add the stored property after
 `allowFASTQAssemblyInputs`:
@@ -365,7 +378,7 @@ Add the init parameter **last**, and assign it last:
     }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `swift test --package-path . --skip-update --filter testIncludedSequenceNamesDefaultsToNil`
 Expected: PASS.
@@ -376,7 +389,7 @@ incremental object described in Global Constraints. Remove
 `.build/arm64-apple-macosx/debug/description.json`, rebuild, and re-run. Do not
 change the code.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/MSA/MSAAlignmentRunRequest.swift Tests/LungfishWorkflowTests/MSA/MAFFTAlignmentPipelineTests.swift
@@ -401,7 +414,7 @@ command that re-runs on everything.
 - Produces: filtered staging; `--sequence` flags in the canonical argv; a
   `gappedInput` warning string.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 func testStageInputFASTAKeepsOnlyTheRequestedSequences() async throws {
@@ -511,12 +524,12 @@ func testWrapperArgvRecordsTheSequenceSubsetSoTheRunReproduces() throws {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter MAFFTAlignmentPipelineTests`
 Expected: FAIL, `value of type 'MAFFTAlignmentPipeline' has no member 'testingStageInputFASTA'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add test seams next to the private methods in `MAFFTAlignmentPipeline`:
 
@@ -588,12 +601,12 @@ In `defaultWrapperArgv`, before the closing `return argv`:
         }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter MAFFTAlignmentPipelineTests`
 Expected: PASS, including the eight pre-existing tests in that file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift Tests/LungfishWorkflowTests/MSA/MAFFTAlignmentPipelineTests.swift
@@ -612,7 +625,7 @@ git commit -m "feat: subset MAFFT input by sequence name, with provenance and a 
 - Consumes: `MSAAlignmentRunRequest.includedSequenceNames` (Task 2).
 - Produces: `lungfish-cli align mafft --sequence <name>` (repeatable).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 func testMAFFTCommandPassesRepeatedSequenceFlagsIntoTheRequest() async throws {
@@ -646,12 +659,12 @@ func testMAFFTCommandOmitsIncludedNamesWhenNoSequenceFlagIsGiven() throws {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `swift test --package-path . --skip-update --filter AlignCommandTests`
 Expected: FAIL, unknown option `--sequence`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the option after `allowFASTQAssemblyInputs`:
 
@@ -674,12 +687,12 @@ selection:
 `canonicalArgv` already delegates to `defaultWrapperArgv`, which Task 3 taught
 to emit the flags, so nothing further is needed for provenance.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `swift test --package-path . --skip-update --filter AlignCommandTests`
 Expected: PASS.
 
-- [ ] **Step 5: Verify end to end against the real fixture**
+- [x] **Step 5: Verify end to end against the real fixture**
 
 ```bash
 swift build --package-path . --skip-update --product lungfish-cli
@@ -691,7 +704,7 @@ rm -rf /tmp/msa-subset && mkdir -p /tmp/msa-subset && cp -R "Tests/Fixtures/alig
 
 Expected: `2`. The five-genome fixture aligned down to the two named records.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Sources/LungfishCLI/Commands/AlignCommand.swift Tests/LungfishCLITests/AlignCommandTests.swift
@@ -711,7 +724,7 @@ git commit -m "feat: add repeatable --sequence to align mafft"
 - Consumes: `--sequence` (Task 4).
 - Produces: `CLIMSAAlignmentRunner.buildArguments(… includedSequenceNames: [String]? = nil)`, defaulted so existing call sites still compile.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 func testBuildArgumentsEmitsOneSequenceFlagPerIncludedName() {
@@ -743,12 +756,12 @@ func testBuildArgumentsOmitsSequenceFlagsWhenNoSelection() {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `swift test --package-path . --skip-update --filter CLIMSAAlignmentRunnerTests`
 Expected: FAIL, `extra argument 'includedSequenceNames' in call`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the parameter last in `buildArguments`, before the closing paren:
 
@@ -775,12 +788,12 @@ At the `runMAFFTAlignment` call site, forward the request's field:
             includedSequenceNames: request.includedSequenceNames
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `swift test --package-path . --skip-update --filter CLIMSAAlignmentRunnerTests`
 Expected: PASS, including the six pre-existing tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Services/CLIMSAAlignmentRunner.swift Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift Tests/LungfishAppTests/CLIMSAAlignmentRunnerTests.swift
@@ -810,7 +823,7 @@ git commit -m "feat: forward the MSA sequence selection through the GUI runner"
   - On the dialog state: `var mafftSequenceScope: MSASequenceScope`,
     `var mafftAllSequenceCount: Int`, `var mafftSelectedSequenceNames: [String]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `Tests/LungfishKitTests/MSASequenceScopePickerTests.swift`:
 
@@ -879,12 +892,12 @@ func testMAFFTRequestCarriesSelectedNamesOnlyWhenScopeIsSelected() throws {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter "MSASequenceScopePickerTests|testMAFFTRequestCarriesSelectedNames"`
 Expected: FAIL, `cannot find 'MSASequenceScopePicker' in scope`.
 
-- [ ] **Step 3: Write the picker**
+- [x] **Step 3: Write the picker**
 
 Model it on `MultiBundleRunModePicker`, including the pure `rowStates` seam and
 the accessibility identifiers. Note the deliberate difference: this picker has
@@ -990,7 +1003,7 @@ public struct MSASequenceScopePicker: View {
 }
 ```
 
-- [ ] **Step 4: Wire the dialog state**
+- [x] **Step 4: Wire the dialog state**
 
 In `FASTQOperationDialogState`, add stored properties next to the other MAFFT
 state and initialise them in `init` to `.all`, `0`, and `[]`:
@@ -1025,7 +1038,7 @@ case, above the existing `MultiBundleRunModePicker`:
                 MultiBundleRunModePicker(
 ```
 
-- [ ] **Step 5: Preserve the counts on the way into the dialog**
+- [x] **Step 5: Preserve the counts on the way into the dialog**
 
 `presentFASTAOperationDialog` currently stages the selection to a temp bundle,
 which destroys the original record count. Change it to prefer the durable
@@ -1071,12 +1084,12 @@ Add the `recordCount` helper to `FASTAOperationCatalog`:
     }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter "MSASequenceScopePickerTests|FASTQOperationsCatalogTests"`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Sources/LungfishKit/MSASequenceScopePicker.swift Sources/LungfishApp/Views/FASTQ Sources/LungfishApp/Views/Viewer/ViewerViewController.swift Sources/LungfishApp/Views/Shared/FASTAOperationCatalog.swift Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift Tests/LungfishKitTests/MSASequenceScopePickerTests.swift Tests/LungfishAppTests/FASTQOperationsCatalogTests.swift
@@ -1097,7 +1110,7 @@ git commit -m "feat: explicit all-vs-selected scope for MAFFT alignment"
 - Produces: `FASTASequenceActionHandlers.createBundleMenuTitle: String` and
   `.exportMenuTitle: String`, both defaulted.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 import XCTest
@@ -1147,12 +1160,12 @@ final class FASTASequenceActionMenuBuilderTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `swift test --package-path . --skip-update --filter FASTASequenceActionMenuBuilderTests`
 Expected: FAIL, `extra argument 'createBundleMenuTitle'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add two properties to `FASTASequenceActionHandlers`, following the existing
 `blastMenuTitle` precedent, and add matching defaulted init parameters **after**
@@ -1174,12 +1187,12 @@ In the MSA canvas's `selectionContextMenu()`, pass the overrides:
                 exportMenuTitle: "Export Selected Residues…",
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `swift test --package-path . --skip-update --filter FASTASequenceActionMenuBuilderTests`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishKit/FASTASequenceActionMenuBuilder.swift Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift Tests/LungfishKitTests/FASTASequenceActionMenuBuilderTests.swift
@@ -1201,7 +1214,7 @@ git commit -m "feat: name the sequence extraction menu items for what they do"
 - Produces: `ChromosomeNavigatorView.onExtractSelectedSequencesRequested: (([ChromosomeInfo]) -> Void)?`
   and `func testingSelectRows(_ rows: [Int])`, `func testingContextMenuTitles(clickedRow: Int) -> [String]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 import XCTest
@@ -1262,12 +1275,12 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter ChromosomeNavigatorSelectionTests`
 Expected: FAIL, no member `testingSelectRows`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Enable multi-selection:
 
@@ -1394,12 +1407,12 @@ starting an `OperationCenter` operation of type `.bundleBuild`, setting a
 cancel callback, and completing with the parsed bundle URL. Call both
 `OperationCenter.shared.update` and `.log` during the run.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter ChromosomeNavigatorSelectionTests`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Views/Viewer/ChromosomeNavigatorView.swift Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift Tests/LungfishAppTests/ChromosomeNavigatorSelectionTests.swift
@@ -1441,7 +1454,7 @@ The eleven teardown sites:
 - Produces: `ViewerViewController.isNativeBundleViewportInstalled: Bool` and
   `func revealAnnotationDrawerUnlessNativeBundleInstalled()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 func testParentDrawerStaysHiddenWhenATeardownRunsAfterAnMSAIsInstalled() async throws {
@@ -1490,12 +1503,12 @@ func testTogglingTheAnnotationDrawerIsANoOpUnderAnMSA() async throws {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter "testParentDrawerStaysHidden|testParentDrawerIsRevealed|testTogglingTheAnnotationDrawer"`
 Expected: FAIL, no member `isNativeBundleViewportInstalled`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `ViewerViewController`:
 
@@ -1539,12 +1552,12 @@ Verify the exact property names for the genotype and 12S controllers before
 compiling; grep for `genotypeResultViewController` and
 `twelveSAmpliconResultViewController` on `ViewerViewController`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter BundleViewerTests`
 Expected: PASS, including the four pre-existing MSA tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Views/Viewer
@@ -1570,7 +1583,7 @@ git commit -m "fix: keep the parent annotation drawer hidden under a native bund
   `var testingGutterWidth: CGFloat`, and the `UserDefaults` key
   `"msaRowGutterWidth"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 func testGutterWidthClampsToTheReadableRange() async throws {
@@ -1618,12 +1631,12 @@ func testVisibleMatrixWidthTracksTheLiveGutterWidth() async throws {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter "testGutterWidth|testVisibleMatrixWidth"`
 Expected: FAIL, no member `testingSetGutterWidth`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace the constant with a stored property and hold both constraints:
 
@@ -1713,12 +1726,12 @@ In `drawRowLabel`, switch the name field's truncation to `.byTruncatingMiddle`,
 since accession suffixes carry meaning, and set a tooltip carrying the full
 name so truncation at the minimum width is still recoverable.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter BundleViewerTests`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift Tests/LungfishAppTests/BundleViewerTests.swift
@@ -1744,7 +1757,7 @@ git commit -m "feat: make the MSA sequence-name gutter resizable and persistent"
   - `static func cliArguments(for:bundleURL:outputURL:rows:columns:) -> [String]`
   - `static func isClipboardAvailable(estimatedBytes: Int) -> Bool` with a 5 MB cap
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 import XCTest
@@ -1831,12 +1844,12 @@ final class MSAAlignmentExportSheetTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter MSAAlignmentExportSheetTests`
 Expected: FAIL, cannot find `MSAAlignmentExportSheet`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Build the argument mapping on top of the two existing, already-tested builders,
 `CLIMSAActionCommandBuilder.buildExtractArguments` and `buildExportArguments`.
@@ -1854,12 +1867,12 @@ destination. Under the bundle destination, caption the result type: aligned
 writes a `.lungfishmsa` whose consensus and variable sites are properties of
 the subset, unaligned writes a `.lungfishref`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter MSAAlignmentExportSheetTests`
 Expected: PASS, 7 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Views/Viewer/MSAAlignmentExportSheet.swift Tests/LungfishAppTests/MSAAlignmentExportSheetTests.swift
@@ -1882,7 +1895,7 @@ git commit -m "feat: alignment export sheet with bundle, file, and clipboard des
 - Produces: `SidebarBundleCapabilities.canExportAlignment: Bool`;
   `ViewerViewController.exportMSAAlignmentViaCLI(_:)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 func testOnlyTheAlignmentBundleAdvertisesAlignmentExport() {
@@ -1903,12 +1916,12 @@ func testAlignmentExportDoesNotReuseTheSequenceExportCapability() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter SidebarBundleCapabilityTests`
 Expected: FAIL, no member `canExportAlignment`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `canExportAlignment` to `SidebarBundleCapabilities` with a `false` default,
 and set it true only in the `.multipleSequenceAlignmentBundle` arm. That enum's
@@ -1987,12 +2000,12 @@ clipboard leg's concurrency is the part to get right:
 Read the file and check the size inside the detached task, off the main actor,
 and hop back carrying only the string. Never `Task { @MainActor in }` there.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter SidebarBundleCapabilityTests`
 Expected: PASS.
 
-- [ ] **Step 5: Verify the destinations end to end**
+- [x] **Step 5: Verify the destinations end to end**
 
 ```bash
 swift build --package-path . --skip-update --product lungfish-cli && M=$(ls -d /tmp/msa-subset/Proj/Multiple\ Sequence\ Alignments/*.lungfishmsa | head -1) && .build/arm64-apple-macosx/debug/lungfish-cli msa export "$M" --output-format aligned-fasta --output /tmp/msa-subset/aligned.fasta --force && grep -v '^>' /tmp/msa-subset/aligned.fasta | tr -cd '-' | wc -c
@@ -2000,7 +2013,7 @@ swift build --package-path . --skip-update --product lungfish-cli && M=$(ls -d /
 
 Expected: a non-zero gap count, proving the aligned leg keeps gaps.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Sources/LungfishApp/Views/Viewer/ViewerViewController+MSAExport.swift Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift Sources/LungfishApp/Views/Sidebar Tests/LungfishAppTests/SidebarBundleCapabilityTests.swift
@@ -2023,7 +2036,7 @@ Four dead surfaces, all confirmed against the source.
 - Consumes: nothing.
 - Produces: no new API.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 @MainActor
@@ -2074,12 +2087,12 @@ Construct `MultipleSequenceAlignmentDocumentState` with its real initialiser;
 read `Sections/MultipleSequenceAlignmentDocumentSection.swift:16-40` first and
 copy the signature.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `swift test --package-path . --skip-update --filter MultipleSequenceAlignmentDocumentSectionTests`
 Expected: FAIL, the AI tab is present and Analysis is not filtered.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `availableTabs`, replace the `.genomics` arm:
 
@@ -2162,12 +2175,12 @@ code computes conservation among non-gap residues only:
             Text("Low support (of non-gap residues)")
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --skip-update --filter "MultipleSequenceAlignmentDocumentSectionTests|InspectorProvenanceTabTests"`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Views/Inspector Sources/LungfishApp/Views/Viewer
@@ -2180,7 +2193,7 @@ git commit -m "fix: remove the dead AI, Analysis, and drawer tabs from the align
 
 **Files:** none modified. This task proves the branch.
 
-- [ ] **Step 1: Run the unit tier**
+- [x] **Step 1: Run the unit tier**
 
 Run: `bash scripts/full-suite-gate.sh --tier unit`
 Expected: green. A run is green when XCTest failures are empty and
@@ -2188,12 +2201,12 @@ swift-testing failures are zero. `FileSystemWatcherTests` failing only inside a
 full run is the known environmental flake on this machine; it must pass when
 run alone.
 
-- [ ] **Step 2: Run the integration tier**
+- [x] **Step 2: Run the integration tier**
 
 Run: `bash scripts/full-suite-gate.sh --tier integration`
 Expected: green.
 
-- [ ] **Step 3: Build the Debug app**
+- [x] **Step 3: Build the Debug app**
 
 ```bash
 python3 scripts/release/release.py debug
@@ -2202,13 +2215,13 @@ python3 scripts/release/release.py debug
 Expected: `build/Debug/Lungfish Debug.app`, ad-hoc signed, bundle id
 `com.lungfish.browser.debug`.
 
-- [ ] **Step 4: Prepare a fresh test project**
+- [x] **Step 4: Prepare a fresh test project**
 
 ```bash
 rm -rf /tmp/lge-msa-walkthrough && mkdir -p /tmp/lge-msa-walkthrough && cp -R "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish" /tmp/lge-msa-walkthrough/Proj && rm -rf "/tmp/lge-msa-walkthrough/Proj/Multiple Sequence Alignments"
 ```
 
-- [ ] **Step 5: Drive the GUI**
+- [x] **Step 5: Drive the GUI**
 
 Launch the Debug app with `LUNGFISH_STORAGE_ROOT=/tmp/lge-msa-walkthrough` and
 `LUNGFISH_CONDA_ROOT="$HOME/.lungfish/conda"`. Never point the conda root at a
@@ -2236,7 +2249,7 @@ Verify each reported defect, capturing a screenshot for each:
 6. Confirm the Inspector shows no Assistant tab and no Analysis tab, and that
    the drawer's Variants and Samples segments are disabled.
 
-- [ ] **Step 6: Record the results**
+- [x] **Step 6: Record the results**
 
 Write `docs/reports/2026-09-03-msa-viewport-verification.md` with one section
 per defect, each stating what was done, what was observed, and the screenshot
