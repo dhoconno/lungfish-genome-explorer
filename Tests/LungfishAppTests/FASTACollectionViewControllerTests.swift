@@ -143,7 +143,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
 
         XCTAssertEqual(
             vc.testContextMenuTitles.filter { !$0.isEmpty },
-            ["Extract Sequence…", "Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Create Bundle…", "Align with MAFFT…", "Run Operation…"]
+            ["Extract Sequence…", "Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Extract to New Bundle…", "Align with MAFFT…", "Run Operation…"]
         )
     }
 
@@ -177,7 +177,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         vc.onExtractSequenceRequested = { captured["Extract Sequence…"] = $0.map(\.name) }
         vc.onBlastRequested = { captured["Verify with BLAST…"] = $0.map(\.name) }
         vc.onExportRequested = { captured["Export FASTA…"] = $0.map(\.name) }
-        vc.onCreateBundleRequested = { captured["Create Bundle…"] = $0.map(\.name) }
+        vc.onCreateBundleRequested = { captured["Extract to New Bundle…"] = $0.map(\.name) }
         vc.onAlignWithMAFFTRequested = { captured["Align with MAFFT…"] = $0.map(\.name) }
         vc.onRunOperationRequested = { captured["Run Operation…"] = $0.map(\.name) }
         _ = vc.view
@@ -191,7 +191,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         )
 
         vc.testSelectRows([1])
-        let singleSequenceActions = ["Extract Sequence…", "Verify with BLAST…", "Export FASTA…", "Create Bundle…", "Run Operation…"]
+        let singleSequenceActions = ["Extract Sequence…", "Verify with BLAST…", "Export FASTA…", "Extract to New Bundle…", "Run Operation…"]
         singleSequenceActions.forEach {
             vc.testInvokeContextMenuItem(titled: $0)
         }
@@ -204,7 +204,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
 
         captured.removeAll()
         vc.testSelectRows([1, 0])
-        let multiSequenceActions = ["Extract Sequence…", "Verify with BLAST…", "Export FASTA…", "Create Bundle…", "Align with MAFFT…", "Run Operation…"]
+        let multiSequenceActions = ["Extract Sequence…", "Verify with BLAST…", "Export FASTA…", "Extract to New Bundle…", "Align with MAFFT…", "Run Operation…"]
         multiSequenceActions.forEach {
             vc.testInvokeContextMenuItem(titled: $0)
         }

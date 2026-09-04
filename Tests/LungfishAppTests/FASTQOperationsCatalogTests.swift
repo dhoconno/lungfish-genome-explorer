@@ -29,6 +29,8 @@ private actor StubPackStatusProvider: PluginPackStatusProviding {
         reinstall: Bool,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {}
+
+
 }
 
 @MainActor
@@ -337,5 +339,30 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         let status = await provider.status(forPackID: "unknown-pack")
 
         XCTAssertNil(status)
+    }
+
+    func testMAFFTRequestCarriesSelectedNamesOnlyWhenScopeIsSelected() throws {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+        state.mafftAllSequenceCount = 12
+        state.mafftSelectedSequenceNames = ["seqA", "seqB"]
+
+        state.mafftSequenceScope = .all
+        state.prepareForRun()
+        XCTAssertNil(try XCTUnwrap(state.pendingMSAAlignmentRequest).includedSequenceNames)
+
+        state.mafftSequenceScope = .selected
+        state.prepareForRun()
+        XCTAssertEqual(
+            try XCTUnwrap(state.pendingMSAAlignmentRequest).includedSequenceNames,
+            ["seqA", "seqB"]
+        )
     }
 }

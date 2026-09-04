@@ -8,6 +8,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import os.log
 
 /// Logger for bundle display operations
@@ -201,7 +202,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     ) throws {
         hideNonBundleViews()
         hideCollectionBackButton()
-        annotationDrawerView?.isHidden = false
+        revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false
 
         if installChromosomeNavigator, context.chromosomes.count > 1 {
@@ -427,6 +428,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         let navigator = ChromosomeNavigatorView()
         navigator.translatesAutoresizingMaskIntoConstraints = false
         navigator.delegate = self
+        navigator.onExtractSelectedSequencesRequested = { [weak self] chromosomes in
+            self?.extractSelectedChromosomesToNewBundle(chromosomes)
+        }
         navigator.chromosomes = chromosomes
         navigator.selectedChromosomeIndex = 0
 
@@ -745,4 +749,100 @@ extension ViewerViewController {
         currentBundleViewState = state
         state.save(to: bundleURL)
     }
+
+    /// Extracts the chromosomes selected in the navigator into a new
+    /// `.lungfishref` bundle, through the same `extract contigs --bundle` CLI
+    /// path the FASTA collection viewport uses.
+    func extractSelectedChromosomesToNewBundle(_ chromosomes: [ChromosomeInfo]) {
+        let names = chromosomes.map(\.name)
+        guard !names.isEmpty else { return }
+        guard let bundleURL = currentReferenceBundle?.url,
+              let manifest = try? BundleManifest.load(from: bundleURL),
+              let genomePath = manifest.genome?.path else {
+            presentBlockingAlert(
+                title: "Extract Sequences Failed",
+                message: "This reference bundle does not declare a genome FASTA to extract from."
+            )
+            return
+        }
+        let sourceURL = bundleURL.appendingPathComponent(genomePath)
+        let projectURL = projectURLForDerivedReferenceBundle()
+        guard let projectURL,
+              canWriteProjectOutputs(projectURL: projectURL, workflowName: "Sequence extraction") else {
+            return
+        }
+
+        let suggestedName = names.count == 1 ? names[0] : "selected-sequences"
+        let arguments = FASTASelectionReferenceBundleCLI.arguments(
+            sourceURL: sourceURL,
+            sequenceIDs: names,
+            projectURL: projectURL,
+            bundleName: suggestedName
+        ) + ["--quiet"]
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        let operationID = OperationCenter.shared.start(
+            title: "Extract Sequences",
+            detail: "Extracting \(names.count) selected sequence(s) into a new bundle...",
+            operationType: .bundleBuild,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "extract contigs",
+                args: Array(arguments.dropFirst(2))
+            ),
+            routeContext: routeContext
+        )
+        OperationCenter.shared.log(
+            id: operationID,
+            level: .info,
+            message: "Extracting: \(names.joined(separator: ", "))"
+        )
+        let cancellation = LungfishCLIRunner.CancellationHandle()
+        OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
+
+        Task.detached { [weak self] in
+            do {
+                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
+                guard let newBundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
+                    throw LungfishCLIRunner.RunError.invalidInvocation(
+                        "The sequence-extraction command completed without reporting its bundle path."
+                    )
+                }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.update(
+                            id: operationID,
+                            progress: 1.0,
+                            detail: "Created \(newBundleURL.lastPathComponent)"
+                        )
+                        OperationCenter.shared.log(
+                            id: operationID,
+                            level: .info,
+                            message: "Created \(newBundleURL.lastPathComponent)"
+                        )
+                        _ = OperationCenter.shared.complete(
+                            id: operationID,
+                            detail: "Created \(newBundleURL.lastPathComponent)",
+                            bundleURLs: [newBundleURL]
+                        )
+                    }
+                }
+            } catch LungfishCLIRunner.RunError.cancelled {
+                return
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.fail(
+                            id: operationID,
+                            detail: "Sequence extraction failed",
+                            errorMessage: error.localizedDescription
+                        )
+                        self?.presentBlockingAlert(
+                            title: "Extract Sequences Failed",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
+    }
+
 }

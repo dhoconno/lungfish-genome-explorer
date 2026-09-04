@@ -164,7 +164,22 @@ public enum SidebarItemType: Sendable {
                 canExportSequences: true,
                 canExportAnnotations: true
             )
-        case .mhcReferenceBundle, .fastqBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
+        case .multipleSequenceAlignmentBundle:
+            // The alignment bundle gets the baseline actions plus alignment
+            // export. It must NOT get canExportSequences: that path reads a
+            // .lungfishref manifest.genome.path, which a .lungfishmsa has no
+            // equivalent of. Alignment export runs through `msa export` /
+            // `msa extract` instead.
+            return SidebarBundleCapabilities(
+                canOpen: true,
+                canShowPackageContents: true,
+                canGetBundleInfo: true,
+                canShowInInspector: true,
+                canExportSequences: false,
+                canExportAnnotations: false,
+                canExportAlignment: true
+            )
+        case .mhcReferenceBundle, .fastqBundle, .phylogeneticTreeBundle,
              .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
             // .mhcReferenceBundle gets the baseline actions here, NOT
             // canExportSequences: exportSequences()'s sequence-loading path
@@ -241,6 +256,10 @@ struct SidebarBundleCapabilities: Equatable {
     var canShowInInspector: Bool
     var canExportSequences: Bool
     var canExportAnnotations: Bool = false
+    /// Whether this bundle kind can export its alignment. Deliberately NOT
+    /// `canExportSequences`, whose loader only understands a `.lungfishref`
+    /// manifest and cannot read a `.lungfishmsa`.
+    var canExportAlignment: Bool = false
 
     static let none = SidebarBundleCapabilities(
         canOpen: false,
@@ -248,7 +267,8 @@ struct SidebarBundleCapabilities: Equatable {
         canGetBundleInfo: false,
         canShowInInspector: false,
         canExportSequences: false,
-        canExportAnnotations: false
+        canExportAnnotations: false,
+        canExportAlignment: false
     )
 }
 

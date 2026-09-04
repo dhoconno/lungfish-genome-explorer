@@ -80,6 +80,35 @@ final class AlignCommandTests: XCTestCase {
         XCTAssertEqual(request.inputSequenceURLs, [input])
         XCTAssertEqual(request.projectURL, project)
     }
+
+    func testMAFFTCommandPassesRepeatedSequenceFlagsIntoTheRequest() throws {
+        let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
+        let input = project.appendingPathComponent("input.fasta")
+        let command = try AlignCommand.MAFFTSubcommand.parse([
+            "mafft", input.path,
+            "--project", project.path,
+            "--sequence", "MT192765.1",
+            "--sequence", "OK091006.1",
+            "--format", "json",
+        ])
+        XCTAssertEqual(command.sequences, ["MT192765.1", "OK091006.1"])
+
+        let request = try command.makeRequestForTesting()
+        XCTAssertEqual(request.includedSequenceNames, ["MT192765.1", "OK091006.1"])
+        XCTAssertEqual(request.wrapperArgv.filter { $0 == "--sequence" }.count, 2)
+        XCTAssertTrue(request.wrapperArgv.contains("MT192765.1"))
+    }
+
+    func testMAFFTCommandOmitsIncludedNamesWhenNoSequenceFlagIsGiven() throws {
+        let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
+        let command = try AlignCommand.MAFFTSubcommand.parse([
+            "mafft", project.appendingPathComponent("input.fasta").path,
+            "--project", project.path,
+        ])
+        XCTAssertTrue(command.sequences.isEmpty)
+        XCTAssertNil(try command.makeRequestForTesting().includedSequenceNames)
+    }
+
 }
 
 private final class SendableLineRecorder: @unchecked Sendable {

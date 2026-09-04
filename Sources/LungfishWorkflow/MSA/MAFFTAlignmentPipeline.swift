@@ -95,7 +95,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
 
     private let toolRunner: any MSAToolRunning
 
-    private struct StagedInputResult {
+    struct StagedInputResult {
         let recordCount: Int
         let warnings: [String]
         let sourceRowMetadata: [MultipleSequenceAlignmentBundle.SourceRowMetadataInput]
@@ -105,6 +105,23 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
 
     public init(toolRunner: any MSAToolRunning = CondaMSAToolRunner()) {
         self.toolRunner = toolRunner
+    }
+
+    // MARK: - Test seams
+
+    func testingStageInputFASTA(
+        _ inputURLs: [URL],
+        to stagedInputURL: URL,
+        request: MSAAlignmentRunRequest
+    ) async throws -> StagedInputResult {
+        try await stageInputFASTA(inputURLs, to: stagedInputURL, request: request)
+    }
+
+    static func testingDefaultWrapperArgv(
+        request: MSAAlignmentRunRequest,
+        outputBundleURL: URL
+    ) -> [String] {
+        MAFFTAlignmentPipeline().defaultWrapperArgv(request: request, outputBundleURL: outputBundleURL)
     }
 
     public static func buildCommand(
@@ -289,6 +306,19 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         var sourceAnnotations: [MultipleSequenceAlignmentBundle.SourceAnnotationInput] = []
         var fastqQualitySummaries: [MultipleSequenceAlignmentBundle.FASTQQualitySummaryInput] = []
 
+        // Pass 1: read every input's records before filtering, so a
+        // requested name living in the second of two files is not reported as
+        // a false negative.
+        struct PendingRecord {
+            let name: String
+            let sequence: String
+            let quality: [UInt8]?
+            let inputURL: URL
+            let sequenceFormat: SequenceFormat
+            let annotations: [MultipleSequenceAlignmentBundle.SourceAnnotationInput]
+        }
+        var pending: [PendingRecord] = []
+
         for inputURL in inputURLs {
             guard let fastaURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL),
                   let sequenceFormat = SequenceInputResolver.inputSequenceFormat(for: inputURL) ??
@@ -310,39 +340,75 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
             }
             let annotationsBySequence = try await sourceAnnotationsBySequence(for: inputURL, records: records)
             for record in records {
-                let baseLabel = sanitizedLabel(record.name)
-                let occurrence = seenLabels[baseLabel, default: 0] + 1
-                seenLabels[baseLabel] = occurrence
-                let finalLabel = occurrence == 1 ? baseLabel : "\(baseLabel)_\(occurrence)"
-                if finalLabel != record.name {
-                    warnings.append("Input row '\(record.name)' was rewritten as '\(finalLabel)' for downstream tree compatibility.")
-                }
-                output += ">\(finalLabel)\n\(wrapped(record.sequence))"
-                recordCount += 1
-                sourceRowMetadata.append(
-                    .init(
-                        rowName: finalLabel,
-                        originalName: record.name,
-                        sourceSequenceName: record.name,
-                        sourceFilePath: inputURL.path,
-                        sourceFormat: sequenceFormat.rawValue,
-                        sourceChecksumSHA256: MultipleSequenceAlignmentBundle.sha256Hex(for: Data(record.sequence.utf8))
+                pending.append(
+                    PendingRecord(
+                        name: record.name,
+                        sequence: record.sequence,
+                        quality: record.quality,
+                        inputURL: inputURL,
+                        sequenceFormat: sequenceFormat,
+                        annotations: annotationsBySequence[record.name, default: []]
                     )
                 )
-                for annotation in annotationsBySequence[record.name, default: []] {
-                    sourceAnnotations.append(annotation.withRowName(finalLabel))
-                }
-                if let quality = record.quality {
-                    fastqQualitySummaries.append(
-                        qualitySummary(
-                            rowName: finalLabel,
-                            recordID: record.name,
-                            sourceFASTQPath: inputURL.path,
-                            sequence: record.sequence,
-                            quality: quality
-                        )
+            }
+        }
+
+        // Warn before filtering. Gapped input means the user is realigning an
+        // existing alignment; MAFFT treats "-" as a residue and silently
+        // produces an unreliable result.
+        if pending.contains(where: { $0.sequence.contains("-") }) {
+            warnings.append("Input sequences already contain gaps. Realigning an existing alignment produces unreliable results; remove gaps before aligning.")
+        }
+
+        // Pass 2: subset if the request names specific sequences.
+        if let requested = request.includedSequenceNames {
+            let keep = try MSASequenceSelection.resolve(
+                requestedNames: requested,
+                records: pending.map { ($0.name, $0.inputURL.lastPathComponent) },
+                sanitize: sanitizedLabel
+            )
+            let totalCount = pending.count
+            let excluded = pending.indices.filter { !keep.contains($0) }.map { pending[$0].name }
+            pending = pending.indices.filter { keep.contains($0) }.map { pending[$0] }
+            warnings.append("Aligned \(pending.count) of \(totalCount) input sequences.")
+            if !excluded.isEmpty {
+                warnings.append("Excluded from the alignment: \(excluded.joined(separator: ", ")).")
+            }
+        }
+
+        for record in pending {
+            let baseLabel = sanitizedLabel(record.name)
+            let occurrence = seenLabels[baseLabel, default: 0] + 1
+            seenLabels[baseLabel] = occurrence
+            let finalLabel = occurrence == 1 ? baseLabel : "\(baseLabel)_\(occurrence)"
+            if finalLabel != record.name {
+                warnings.append("Input row '\(record.name)' was rewritten as '\(finalLabel)' for downstream tree compatibility.")
+            }
+            output += ">\(finalLabel)\n\(wrapped(record.sequence))"
+            recordCount += 1
+            sourceRowMetadata.append(
+                .init(
+                    rowName: finalLabel,
+                    originalName: record.name,
+                    sourceSequenceName: record.name,
+                    sourceFilePath: record.inputURL.path,
+                    sourceFormat: record.sequenceFormat.rawValue,
+                    sourceChecksumSHA256: MultipleSequenceAlignmentBundle.sha256Hex(for: Data(record.sequence.utf8))
+                )
+            )
+            for annotation in record.annotations {
+                sourceAnnotations.append(annotation.withRowName(finalLabel))
+            }
+            if let quality = record.quality {
+                fastqQualitySummaries.append(
+                    qualitySummary(
+                        rowName: finalLabel,
+                        recordID: record.name,
+                        sourceFASTQPath: record.inputURL.path,
+                        sequence: record.sequence,
+                        quality: quality
                     )
-                }
+                )
             }
         }
 
@@ -540,6 +606,12 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         }
         if request.allowFASTQAssemblyInputs {
             argv += ["--allow-fastq-assembly-inputs"]
+        }
+        // Without these the canonical command would re-run on every sequence,
+        // so a subset alignment would record a command that does not
+        // reproduce it.
+        for name in request.includedSequenceNames ?? [] {
+            argv += ["--sequence", name]
         }
         return argv
     }

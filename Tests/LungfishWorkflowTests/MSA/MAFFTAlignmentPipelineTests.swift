@@ -419,6 +419,140 @@ final class MAFFTAlignmentPipelineTests: XCTestCase {
         }
         try compressed.write(to: outputURL, options: .atomic)
     }
+
+    func testIncludedSequenceNamesDefaultsToNilAndRoundTripsThroughCodable() throws {
+        let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
+        let plain = MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: [project.appendingPathComponent("in.fasta")],
+            projectURL: project,
+            outputBundleURL: nil,
+            name: "Aligned",
+            threads: nil
+        )
+        XCTAssertNil(plain.includedSequenceNames)
+
+        let subset = MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: [project.appendingPathComponent("in.fasta")],
+            projectURL: project,
+            outputBundleURL: nil,
+            name: "Aligned",
+            threads: nil,
+            includedSequenceNames: ["seqA", "seqB"]
+        )
+        let data = try JSONEncoder().encode(subset)
+        let decoded = try JSONDecoder().decode(MSAAlignmentRunRequest.self, from: data)
+        XCTAssertEqual(decoded.includedSequenceNames, ["seqA", "seqB"])
+
+        // A payload written before this field existed must still decode.
+        let legacy = try JSONEncoder().encode(plain)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: legacy) as? [String: Any])
+        object.removeValue(forKey: "includedSequenceNames")
+        let trimmed = try JSONSerialization.data(withJSONObject: object)
+        let legacyDecoded = try JSONDecoder().decode(MSAAlignmentRunRequest.self, from: trimmed)
+        XCTAssertNil(legacyDecoded.includedSequenceNames)
+    }
+
+    func testStageInputFASTAKeepsOnlyTheRequestedSequences() async throws {
+        let workspace = try makeWorkspace()
+        let input = workspace.appendingPathComponent("many.fasta")
+        let project = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        try """
+        >MT192765.1 first record
+        ACGT
+        >OK091006.1 second record
+        ACGA
+        >AB000001.1 third record
+        ACGC
+        """.write(to: input, atomically: true, encoding: .utf8)
+
+        let request = MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: [input],
+            projectURL: project,
+            outputBundleURL: nil,
+            name: "Subset",
+            threads: nil,
+            includedSequenceNames: ["MT192765.1", "AB000001.1"]
+        )
+        let staged = workspace.appendingPathComponent("staged.fasta")
+        let result = try await MAFFTAlignmentPipeline()
+            .testingStageInputFASTA([input], to: staged, request: request)
+
+        XCTAssertEqual(result.recordCount, 2)
+        let text = try String(contentsOf: staged, encoding: .utf8)
+        XCTAssertTrue(text.contains("MT192765.1_first_record"))
+        XCTAssertTrue(text.contains("AB000001.1_third_record"))
+        XCTAssertFalse(text.contains("OK091006.1"))
+        XCTAssertTrue(result.warnings.contains { $0.contains("Aligned 2 of 3") })
+        XCTAssertTrue(result.warnings.contains { $0.contains("Excluded from the alignment") })
+    }
+
+    func testStageInputFASTAReportsTooFewSequencesDistinctlyFromNoMatch() async throws {
+        let workspace = try makeWorkspace()
+        let input = workspace.appendingPathComponent("many.fasta")
+        let project = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        try ">a first\nACGT\n>b second\nACGA\n".write(to: input, atomically: true, encoding: .utf8)
+
+        func request(_ names: [String]) -> MSAAlignmentRunRequest {
+            MSAAlignmentRunRequest(
+                tool: .mafft, inputSequenceURLs: [input], projectURL: project,
+                outputBundleURL: nil, name: "S", threads: nil, includedSequenceNames: names
+            )
+        }
+        let staged = workspace.appendingPathComponent("staged.fasta")
+
+        // A name that matches nothing must say so, not claim too few sequences.
+        do {
+            _ = try await MAFFTAlignmentPipeline()
+                .testingStageInputFASTA([input], to: staged, request: request(["zzz"]))
+            XCTFail("expected an error")
+        } catch let error as MSASequenceSelectionError {
+            XCTAssertEqual(error, .unmatched(["zzz"]))
+        }
+    }
+
+    func testStageInputFASTAWarnsWhenInputIsAlreadyAligned() async throws {
+        let workspace = try makeWorkspace()
+        let input = workspace.appendingPathComponent("aligned.fasta")
+        let project = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        try ">a\nAC-GT\n>b\nAC-GA\n".write(to: input, atomically: true, encoding: .utf8)
+
+        let request = MSAAlignmentRunRequest(
+            tool: .mafft, inputSequenceURLs: [input], projectURL: project,
+            outputBundleURL: nil, name: "S", threads: nil
+        )
+        let staged = workspace.appendingPathComponent("staged.fasta")
+        let result = try await MAFFTAlignmentPipeline()
+            .testingStageInputFASTA([input], to: staged, request: request)
+
+        XCTAssertTrue(
+            result.warnings.contains { $0.contains("already contain gaps") },
+            "expected a realign-an-alignment warning, got \(result.warnings)"
+        )
+    }
+
+    func testWrapperArgvRecordsTheSequenceSubsetSoTheRunReproduces() throws {
+        let project = URL(fileURLWithPath: "/workspace/Project.lungfish")
+        let input = project.appendingPathComponent("in.fasta")
+        let request = MSAAlignmentRunRequest(
+            tool: .mafft, inputSequenceURLs: [input], projectURL: project,
+            outputBundleURL: nil, name: "Subset", threads: nil,
+            includedSequenceNames: ["seqA", "seqB"]
+        )
+        let argv = MAFFTAlignmentPipeline.testingDefaultWrapperArgv(
+            request: request,
+            outputBundleURL: project.appendingPathComponent("Out.lungfishmsa", isDirectory: true)
+        )
+        XCTAssertEqual(argv.filter { $0 == "--sequence" }.count, 2)
+        XCTAssertTrue(argv.contains("seqA"))
+        XCTAssertTrue(argv.contains("seqB"))
+    }
+
 }
 
 private final class RecordingMSAToolRunner: MSAToolRunning, @unchecked Sendable {
@@ -449,4 +583,5 @@ private final class RecordingMSAToolRunner: MSAToolRunning, @unchecked Sendable 
             version: "v7.526"
         )
     }
+
 }

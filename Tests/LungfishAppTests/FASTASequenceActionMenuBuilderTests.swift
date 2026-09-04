@@ -19,7 +19,7 @@ final class FASTASequenceActionMenuBuilderTests: XCTestCase {
 
         XCTAssertEqual(
             menu.items.map { $0.title }.filter { !$0.isEmpty },
-            ["Extract Sequence…", "Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Create Bundle…", "Run Operation…"]
+            ["Extract Sequence…", "Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Extract to New Bundle…", "Run Operation…"]
         )
     }
 
@@ -39,7 +39,7 @@ final class FASTASequenceActionMenuBuilderTests: XCTestCase {
 
         XCTAssertEqual(
             menu.items.map { $0.title }.filter { !$0.isEmpty },
-            ["Extract Sequence…", "BLAST Contig…", "Copy FASTA", "Export FASTA…", "Create Bundle…", "Run Operation…"]
+            ["Extract Sequence…", "BLAST Contig…", "Copy FASTA", "Export FASTA…", "Extract to New Bundle…", "Run Operation…"]
         )
     }
 
@@ -76,22 +76,22 @@ final class FASTASequenceActionMenuBuilderTests: XCTestCase {
         let expectations: [(count: Int, enabled: [String: Bool])] = [
             (0, [
                 "Extract Sequence…": false, "Verify with BLAST…": false,
-                "Copy FASTA": false, "Export FASTA…": false, "Create Bundle…": false,
+                "Copy FASTA": false, "Export FASTA…": false, "Extract to New Bundle…": false,
                 "Align with MAFFT…": false, "Run Operation…": false,
             ]),
             (1, [
                 "Extract Sequence…": true, "Verify with BLAST…": true,
-                "Copy FASTA": true, "Export FASTA…": true, "Create Bundle…": true,
+                "Copy FASTA": true, "Export FASTA…": true, "Extract to New Bundle…": true,
                 "Align with MAFFT…": false, "Run Operation…": true,
             ]),
             (2, [
                 "Extract Sequence…": true, "Verify with BLAST…": true,
-                "Copy FASTA": true, "Export FASTA…": true, "Create Bundle…": true,
+                "Copy FASTA": true, "Export FASTA…": true, "Extract to New Bundle…": true,
                 "Align with MAFFT…": true, "Run Operation…": true,
             ]),
             (51, [
                 "Extract Sequence…": true, "Verify with BLAST…": false,
-                "Copy FASTA": true, "Export FASTA…": true, "Create Bundle…": true,
+                "Copy FASTA": true, "Export FASTA…": true, "Extract to New Bundle…": true,
                 "Align with MAFFT…": true, "Run Operation…": true,
             ]),
         ]

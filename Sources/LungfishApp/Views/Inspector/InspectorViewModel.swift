@@ -33,7 +33,19 @@ public final class InspectorViewModel {
     var availableTabs: [InspectorTab] {
         switch contentMode {
         case .genomics:
-            return [.bundle, .selectedItem, .view, .analysis, .provenance, .ai]
+            var tabs: [InspectorTab] = [.bundle, .selectedItem, .view]
+            // An alignment bundle has no BAM, and the Analysis tab's empty
+            // state asks the user to import one.
+            if documentSectionViewModel.multipleSequenceAlignmentDocument == nil {
+                tabs.append(.analysis)
+            }
+            tabs.append(.provenance)
+            // Selecting the assistant tab with AI off raises a modal alert and
+            // leaves an empty pane, so hide it until a provider is configured.
+            if AppSettings.shared.aiSearchEnabled {
+                tabs.append(.ai)
+            }
+            return tabs
         case .mapping:
             return [.bundle, .selectedItem, .view, .analysis, .provenance]
         case .assembly:
@@ -66,6 +78,19 @@ public final class InspectorViewModel {
 
     /// Currently selected inspector tab.
     var selectedTab: InspectorTab = .bundle
+
+    /// Moves ``selectedTab`` back onto a listed tab when the current one stops
+    /// being available.
+    ///
+    /// ``availableTabs`` is derived from ``contentMode``, the AI setting, and
+    /// whether an alignment document is loaded, so any of those changing can
+    /// strand the selection on a tab the picker no longer lists. The content
+    /// switch would then render a pane with no corresponding segment. Call this
+    /// wherever those inputs change.
+    func reconcileSelectedTab() {
+        guard !availableTabs.contains(selectedTab) else { return }
+        selectedTab = availableTabs.first ?? .bundle
+    }
 
     /// Currently selected read-style subsection inside the View tab.
     var selectedReadStyleViewSubsection: ReadStyleViewSubsection = .alignment

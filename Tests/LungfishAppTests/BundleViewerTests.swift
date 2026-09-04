@@ -193,6 +193,8 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
                        "'lungfishref' extension should belong to exactly one DocumentType")
         XCTAssertEqual(typesWithLungfishref.first, .lungfishReferenceBundle)
     }
+
+
 }
 
 // MARK: - ChromosomeInfo Tests
@@ -1125,6 +1127,66 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(vc.contentMode, .genomics)
     }
 
+    func testParentDrawerStaysHiddenWhenATeardownRunsAfterAnMSAIsInstalled() async throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        // The drawer is created lazily the first time a user opens it, which is
+        // how it comes to exist under a later alignment.
+        vc.toggleAnnotationDrawer()
+        XCTAssertNotNil(vc.annotationDrawerView)
+
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+        XCTAssertTrue(vc.isNativeBundleViewportInstalled)
+        XCTAssertEqual(vc.annotationDrawerView?.isHidden, true)
+
+        // A stale teardown from another viewport must not unhide the drawer
+        // underneath the alignment. This is the actual reported defect.
+        vc.hideTaxonomyView()
+        vc.hideNaoMgsView()
+        vc.hideAssemblyView()
+        vc.hideFASTACollectionView()
+
+        XCTAssertEqual(
+            vc.annotationDrawerView?.isHidden, true,
+            "a teardown unhid the parent drawer under the MSA viewport"
+        )
+    }
+
+    func testParentDrawerIsRevealedAgainOnceTheNativeBundleIsTornDown() async throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+        vc.toggleAnnotationDrawer()
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+
+        vc.hideAlignmentTreeBundleViews()
+        XCTAssertFalse(vc.isNativeBundleViewportInstalled)
+
+        // hideNaoMgsView is the teardown that restores viewer chrome without
+        // first requiring its own controller, so it reaches the reveal call.
+        vc.hideNaoMgsView()
+        XCTAssertEqual(vc.annotationDrawerView?.isHidden, false)
+    }
+
+    func testTogglingTheAnnotationDrawerIsANoOpUnderAnMSA() async throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+        vc.toggleAnnotationDrawer()
+        let openStateBeforeMSA = vc.isAnnotationDrawerOpen
+        try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+
+        vc.toggleAnnotationDrawer()
+
+        XCTAssertEqual(vc.annotationDrawerView?.isHidden, true)
+        XCTAssertEqual(
+            vc.isAnnotationDrawerOpen, openStateBeforeMSA,
+            "toggling under an MSA must not touch the parent drawer's open state"
+        )
+    }
+
     func testMultipleSequenceAlignmentViewportRendersAlignmentMatrix() async throws {
         let controller = MultipleSequenceAlignmentViewController()
         _ = controller.view
@@ -1529,8 +1591,17 @@ final class ViewerBundleRoutingTests: XCTestCase {
             [
                 "Extract Sequence…",
                 "Copy FASTA",
-                "Export FASTA…",
-                "Create Bundle…",
+                // Renamed so the MSA menu says it acts on a rectangular block,
+                // and so its export cannot be confused with exporting the
+                // whole aligned FASTA.
+                "Export Selected Residues…",
+                "Extract Selection to New Bundle…",
+                // `onRunOperationRequested` is wired by the viewport's owner, so
+                // the canvas menu offers Run Operation rather than dropping it.
+                "Run Operation…",
+                // Document-scoped export, grouped away from the
+                // selection-scoped items above and the analysis items below.
+                "Export Alignment…",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",
@@ -2079,6 +2150,60 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingRenderedTipLabels, ["BA.1", "BA.2", "BA.5"])
     }
 
+
+    // MARK: - Resizable MSA name gutter
+
+    func testGutterWidthClampsToTheReadableRange() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        controller.testingSetGutterWidth(40)
+        XCTAssertEqual(controller.testingGutterWidth, 160, "must not go below the readable floor")
+
+        controller.testingSetGutterWidth(5000)
+        XCTAssertEqual(controller.testingGutterWidth, 640)
+
+        controller.testingSetGutterWidth(300)
+        XCTAssertEqual(controller.testingGutterWidth, 300)
+    }
+
+    func testGutterWidthPersistsAcrossControllers() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        let first = MultipleSequenceAlignmentViewController()
+        _ = first.view
+        try await first.displayBundle(at: bundleURL)
+        first.testingSetGutterWidth(320)
+
+        let second = MultipleSequenceAlignmentViewController()
+        _ = second.view
+        try await second.displayBundle(at: bundleURL)
+        XCTAssertEqual(second.testingGutterWidth, 320)
+    }
+
+    func testVisibleMatrixWidthTracksTheLiveGutterWidth() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let before = controller.testingEffectiveVisibleMatrixWidth
+        controller.testingSetGutterWidth(controller.testingGutterWidth + 100)
+        XCTAssertEqual(
+            controller.testingEffectiveVisibleMatrixWidth, before - 100, accuracy: 0.5,
+            "Fit Columns would miscompute if this still read the old constant"
+        )
+    }
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("\(UUID().uuidString).lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
@@ -2199,6 +2324,103 @@ final class ViewerBundleRoutingTests: XCTestCase {
         let bundleURL = tempDir.appendingPathComponent("small-branch-tree.lungfishtree", isDirectory: true)
         _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
         return bundleURL
+    }
+
+    // MARK: - Gutter resize handle affordances
+
+    func testGutterHandleAdvertisesItselfAsASplitter() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let handle = controller.testingGutterResizeHandle
+        XCTAssertTrue(handle.isAccessibilityElement())
+        XCTAssertEqual(handle.accessibilityRole(), .splitter)
+        XCTAssertEqual(handle.accessibilityLabel(), "Sequence name column divider")
+    }
+
+    func testGutterHandleCarriesACursorUpdateTrackingArea() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        // Tracking areas are only installed once the view is in a window, so
+        // host it in one. The cursor itself needs a live pointer, but without
+        // this area the resize affordance could never appear at all.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = controller.view
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(controller.testingHandleHasCursorUpdateTrackingArea)
+    }
+
+    func testDraggingTheGutterHandleResizesAndClamps() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        controller.testingDragGutterHandle(toWindowX: 320)
+        XCTAssertEqual(controller.testingGutterWidth, 320, accuracy: 0.5)
+
+        // A drag past either stop must clamp, not run away.
+        controller.testingDragGutterHandle(toWindowX: 20)
+        XCTAssertEqual(controller.testingGutterWidth, 160, accuracy: 0.5)
+
+        controller.testingDragGutterHandle(toWindowX: 5000)
+        XCTAssertEqual(controller.testingGutterWidth, 640, accuracy: 0.5)
+    }
+
+    func testDoubleClickingTheGutterHandleSizesToFitTheWidestName() async throws {
+        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
+        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
+
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        controller.testingSetGutterWidth(640)
+        controller.testingDoubleClickGutterHandle()
+
+        // Fit-to-content is still subject to the readable floor: these fixture
+        // names are short, so the fit width falls below 160 and clamps there.
+        let fitWidth = controller.testingWidthThatFitsWidestLabel()
+        let expected = max(160, min(640, fitWidth))
+        XCTAssertEqual(
+            controller.testingGutterWidth,
+            expected,
+            accuracy: 0.5,
+            "double-click must size to the widest label, clamped to the readable range"
+        )
+        XCTAssertLessThan(
+            controller.testingGutterWidth, 640,
+            "double-click must actually shrink the gutter from its widest"
+        )
+    }
+
+    func testEveryRowRegistersItsUntruncatedNameAsATooltip() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = controller.view
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingSetGutterWidth(160)
+        controller.testingForceGutterRedraw()
+
+        // Truncation still happens at the minimum width, so the full name has
+        // to stay recoverable on hover.
+        XCTAssertEqual(controller.testingToolTipTexts(), ["seq1", "seq2", "seq3"])
     }
 }
 

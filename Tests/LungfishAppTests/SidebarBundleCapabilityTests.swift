@@ -235,4 +235,22 @@ final class SidebarBundleCapabilityTests: XCTestCase {
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         return (tempRoot, projectURL)
     }
+
+    func testOnlyTheAlignmentBundleAdvertisesAlignmentExport() {
+        XCTAssertTrue(SidebarItemType.multipleSequenceAlignmentBundle.bundleCapabilities.canExportAlignment)
+        for type in [SidebarItemType.referenceBundle, .mhcReferenceBundle, .fastqBundle,
+                     .phylogeneticTreeBundle, .genotypeResultBundle] {
+            XCTAssertFalse(
+                type.bundleCapabilities.canExportAlignment,
+                "\(type) must not advertise an action its exporter cannot perform"
+            )
+        }
+    }
+
+    func testAlignmentExportDoesNotReuseTheSequenceExportCapability() {
+        // canExportSequences routes to a loader that only understands a
+        // .lungfishref manifest, so the MSA must not borrow it.
+        XCTAssertFalse(SidebarItemType.multipleSequenceAlignmentBundle.bundleCapabilities.canExportSequences)
+    }
+
 }

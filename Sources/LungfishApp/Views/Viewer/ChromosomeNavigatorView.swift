@@ -73,6 +73,13 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 
     weak var delegate: ChromosomeNavigatorDelegate?
 
+    /// Invoked with every selected chromosome when the user asks to extract
+    /// them to a new bundle. A `nil` handler omits the menu item entirely.
+    public var onExtractSelectedSequencesRequested: (([ChromosomeInfo]) -> Void)?
+
+    /// Overrides `tableView.clickedRow` in tests, where there is no real click.
+    private var testingClickedRow: Int?
+
     /// When true, `tableViewSelectionDidChange` will not call the delegate.
     /// Used by `selectChromosome(named:)` to update the table selection
     /// without triggering a full navigation (which would reset the reference frame).
@@ -180,7 +187,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         tableView.rowHeight = 36
         tableView.intercellSpacing = NSSize(width: 0, height: 1)
         tableView.selectionHighlightStyle = .regular
-        tableView.allowsMultipleSelection = false
+        tableView.allowsMultipleSelection = true
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.style = .sourceList
         tableView.target = self
@@ -360,6 +367,11 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         let row = tableView.selectedRow
         guard row >= 0, row < displayedChromosomes.count else { return }
 
+        // Shift- or command-click extends the selection. Navigating on every
+        // such change would fire the primary action repeatedly and jump the
+        // viewport somewhere the user did not click.
+        guard tableView.selectedRowIndexes.count == 1 else { return }
+
         selectedChromosomeIndex = row
         let chromosome = displayedChromosomes[row]
 
@@ -405,10 +417,30 @@ extension ChromosomeNavigatorView: NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let clickedRow = tableView.clickedRow
+        let clickedRow = testingClickedRow ?? tableView.clickedRow
         guard clickedRow >= 0, clickedRow < displayedChromosomes.count else {
             // Right-clicked on empty space - no menu items
             return
+        }
+
+        // Right-clicking outside the current selection targets that row alone,
+        // matching FASTACollectionViewController's reconciliation.
+        if !tableView.selectedRowIndexes.contains(clickedRow) {
+            tableView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
+        }
+
+        let selected = selectedChromosomes()
+
+        if onExtractSelectedSequencesRequested != nil {
+            let extractItem = NSMenuItem(
+                title: "Extract to New Bundle\u{2026}",
+                action: #selector(extractSelectedChromosomes(_:)),
+                keyEquivalent: ""
+            )
+            extractItem.target = self
+            extractItem.isEnabled = !selected.isEmpty
+            menu.addItem(extractItem)
+            menu.addItem(.separator())
         }
 
         let chromosome = displayedChromosomes[clickedRow]
@@ -427,11 +459,52 @@ extension ChromosomeNavigatorView: NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Show in Inspector
+        // Show in Inspector — inspects a single chromosome, so it is disabled
+        // for a multi-row selection.
         let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showChromosomeInInspector(_:)), keyEquivalent: "")
         inspectorItem.target = self
         inspectorItem.representedObject = chromosome
+        inspectorItem.isEnabled = selected.count <= 1
         menu.addItem(inspectorItem)
+    }
+
+    private func selectedChromosomes() -> [ChromosomeInfo] {
+        tableView.selectedRowIndexes.compactMap { row in
+            guard row >= 0, row < displayedChromosomes.count else { return nil }
+            return displayedChromosomes[row]
+        }
+    }
+
+    @objc private func extractSelectedChromosomes(_ sender: Any?) {
+        let selected = selectedChromosomes()
+        guard !selected.isEmpty else { return }
+        onExtractSelectedSequencesRequested?(selected)
+    }
+
+    // MARK: - Test seams
+
+    func testingSelectRows(_ rows: [Int]) {
+        tableView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+    }
+
+    var testingSelectedChromosomeNames: [String] { selectedChromosomes().map(\.name) }
+
+    func testingContextMenuTitles(clickedRow: Int) -> [String] {
+        let menu = NSMenu()
+        testingClickedRow = clickedRow
+        defer { testingClickedRow = nil }
+        menuNeedsUpdate(menu)
+        return menu.items.map(\.title)
+    }
+
+    func testingInvokeContextMenuItem(titled title: String, clickedRow: Int) {
+        let menu = NSMenu()
+        testingClickedRow = clickedRow
+        defer { testingClickedRow = nil }
+        menuNeedsUpdate(menu)
+        guard let item = menu.items.first(where: { $0.title == title }),
+              let action = item.action else { return }
+        _ = perform(action, with: item)
     }
 }
 

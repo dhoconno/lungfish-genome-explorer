@@ -141,6 +141,26 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
+        // Alignment export gets its own block rather than nesting inside the
+        // canExportSequences branch above. The coupling note there explains
+        // why that nesting is an accident to avoid: the two capabilities are
+        // independent, and canExportSequences' loader cannot read a
+        // .lungfishmsa at all.
+        if items.count == 1,
+           let soleAlignment = items.first,
+           soleAlignment.type.bundleCapabilities.canExportAlignment,
+           let alignmentURL = soleAlignment.url {
+            let exportAlignmentItem = NSMenuItem(
+                title: "Export Alignment\u{2026}",
+                action: #selector(contextMenuExportAlignment(_:)),
+                keyEquivalent: ""
+            )
+            exportAlignmentItem.target = self
+            exportAlignmentItem.representedObject = alignmentURL
+            menu.addItem(exportAlignmentItem)
+            menu.addItem(NSMenuItem.separator())
+        }
+
         // Single bundle selected - show the baseline bundle actions every
         // bundle kind supports (SidebarItemType.bundleCapabilities).
         if items.count == 1, let soleItem = items.first, soleItem.type.isBundle {
@@ -1175,6 +1195,13 @@ extension SidebarViewController: NSMenuDelegate {
     // MARK: - FASTQ Export
 
     /// Exports a FASTQ bundle to a standalone FASTQ file via NSSavePanel.
+    @objc private func contextMenuExportAlignment(_ sender: Any?) {
+        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+        guard let viewer = (view.window?.windowController as? MainWindowController)?
+            .mainSplitViewController?.viewerController else { return }
+        viewer.presentMSAAlignmentExportSheet(bundleURL: url)
+    }
+
     @objc private func contextMenuExportFASTQ(_ sender: Any?) {
         // Delegate to the AppDelegate's exportFASTQ which handles single and multi-selection
         NSApp.sendAction(#selector(FileMenuActions.exportFASTQ(_:)), to: nil, from: sender)

@@ -343,10 +343,7 @@ extension InspectorViewController {
         }
 
         // If the currently selected tab is not available in the new mode, switch to the first available tab.
-        let available = viewModel.availableTabs
-        if !available.contains(viewModel.selectedTab), let first = available.first {
-            viewModel.selectedTab = first
-        }
+        viewModel.reconcileSelectedTab()
     }
 
     /// Handles the `.batchManifestCached` notification.

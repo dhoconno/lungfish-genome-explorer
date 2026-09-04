@@ -967,7 +967,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tabControl.translatesAutoresizingMaskIntoConstraints = false
         tabControl.target = self
         tabControl.action = #selector(tabChanged(_:))
-        tabControl.setAccessibilityLabel("Switch between annotations and variants")
+        tabControl.setAccessibilityLabel("Switch between annotations, variants, and samples")
         headerBar.addSubview(tabControl)
 
         // Export button (header bar)

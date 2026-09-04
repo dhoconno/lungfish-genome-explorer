@@ -229,6 +229,16 @@ enum FASTAOperationCatalog {
         )
     }
 
+    /// Counts FASTA records in a file on disk, so the operations dialog can
+    /// offer "all N" against "selected M" instead of silently aligning
+    /// whatever was staged.
+    static func recordCount(in url: URL) throws -> Int {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        return text.split(whereSeparator: \.isNewline).reduce(into: 0) { count, line in
+            if line.hasPrefix(">") { count += 1 }
+        }
+    }
+
     static func selectedIdentifiers(in fasta: String) -> [String] {
         fasta.split(whereSeparator: \.isNewline).compactMap { line in
             guard line.hasPrefix(">") else { return nil }

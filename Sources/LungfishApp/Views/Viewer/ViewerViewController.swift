@@ -236,6 +236,25 @@ public class ViewerViewController: NSViewController {
     /// Native 12S amplicon result bundle viewport.
     var twelveSAmpliconResultViewController: TwelveSAmpliconResultViewController?
 
+    /// True while a native bundle viewport owns the viewer area. Those
+    /// viewports fill the whole view and carry their own drawers, so the
+    /// parent annotation drawer must stay hidden underneath them.
+    public var isNativeBundleViewportInstalled: Bool {
+        multipleSequenceAlignmentViewController != nil
+            || phylogeneticTreeViewController != nil
+            || genotypeResultViewController != nil
+            || twelveSAmpliconResultViewController != nil
+    }
+
+    /// Reveals the parent annotation drawer unless a native bundle viewport
+    /// is installed. Every teardown path calls this instead of setting
+    /// `isHidden` directly, so a teardown running after a native install
+    /// cannot unhide the drawer under it.
+    func revealAnnotationDrawerUnlessNativeBundleInstalled() {
+        guard !isNativeBundleViewportInstalled else { return }
+        annotationDrawerView?.isHidden = false
+    }
+
     /// Whether this viewer should publish app-wide viewport notifications.
     ///
     /// Embedded viewers, such as the mapping detail viewer, use the same
@@ -1695,7 +1714,7 @@ public class ViewerViewController: NSViewController {
         enhancedRulerView.isHidden = false
         viewerView.isHidden = false
         statusBar.isHidden = false
-        annotationDrawerView?.isHidden = false
+        revealAnnotationDrawerUnlessNativeBundleInstalled()
     }
 
     private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
@@ -2296,7 +2315,7 @@ public class ViewerViewController: NSViewController {
         }
     }
 
-    private func presentBlockingAlert(title: String, message: String) {
+    func presentBlockingAlert(title: String, message: String) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
@@ -2559,7 +2578,7 @@ public class ViewerViewController: NSViewController {
         }
     }
 
-    private func projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: URL? = nil) -> URL? {
+    func projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: URL? = nil) -> URL? {
         if let sourceAlignmentBundleURL,
            let projectURL = Self.enclosingProjectURL(for: sourceAlignmentBundleURL) {
             return projectURL
@@ -2721,6 +2740,28 @@ public class ViewerViewController: NSViewController {
         }
         guard !records.isEmpty, !FASTAOperationCatalog.availableToolIDs().isEmpty else { return }
         let projectURL = projectURLForDerivedReferenceBundle()
+
+        // Prefer the durable source file over a staged copy of the selection.
+        // Staging discards the original record count, which is exactly what
+        // the dialog needs to offer "all N" against "selected M".
+        let durableSources = fastaExportSourceURLs()
+        let selectedIDs = FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: ""))
+        if durableSources.count == 1,
+           FASTAOperationCatalog.inputSequenceFormat(for: durableSources[0]) == .fasta,
+           selectedIDs.count == records.count,
+           let totalCount = try? FASTAOperationCatalog.recordCount(in: durableSources[0]),
+           totalCount > selectedIDs.count {
+            AppDelegate.shared?.showFASTQOperationsDialog(
+                view,
+                initialCategory: initialCategory,
+                initialToolID: initialToolID,
+                preferredInputURLs: [durableSources[0]],
+                mafftAllSequenceCount: totalCount,
+                mafftSelectedSequenceNames: selectedIDs
+            )
+            return
+        }
+
         let bundleURL: URL
         do {
             bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(

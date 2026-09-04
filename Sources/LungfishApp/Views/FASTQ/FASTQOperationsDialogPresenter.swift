@@ -11,6 +11,8 @@ struct FASTQOperationsDialogPresenter {
         projectURL: URL? = nil,
         availableToolIDs: [FASTQOperationToolID]? = nil,
         primaryActionTitle: String = "Run",
+        mafftAllSequenceCount: Int = 0,
+        mafftSelectedSequenceNames: [String] = [],
         onRun: ((FASTQOperationDialogState) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
@@ -23,6 +25,11 @@ struct FASTQOperationsDialogPresenter {
         if let initialToolID {
             state.selectTool(initialToolID)
         }
+        state.mafftAllSequenceCount = mafftAllSequenceCount
+        state.mafftSelectedSequenceNames = mafftSelectedSequenceNames
+        // Default to the selection when the caller supplied one, since the
+        // user reached the dialog by selecting those sequences.
+        state.mafftSequenceScope = mafftSelectedSequenceNames.isEmpty ? .all : .selected
 
         let panel = NSPanel(
             contentRect: .zero,

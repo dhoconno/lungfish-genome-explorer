@@ -144,6 +144,14 @@ final class FASTQOperationDialogState {
     var mafftThreads: Int?
     var mafftExtraOptionsText: String
     var mafftAllowFASTQAssemblyInputs: Bool
+    /// Whether the run covers every sequence in the source file or only the
+    /// sequences selected in the viewport.
+    var mafftSequenceScope: MSASequenceScope
+    /// Total records in the source file, when known. Zero means the dialog
+    /// could not determine it, so no scope choice is offered.
+    var mafftAllSequenceCount: Int
+    /// Names of the sequences selected in the viewport, if any.
+    var mafftSelectedSequenceNames: [String]
 
     var pbaaOutputName: String
     var pbaaThreads: Int
@@ -281,6 +289,9 @@ final class FASTQOperationDialogState {
         self.mafftThreads = nil
         self.mafftExtraOptionsText = ""
         self.mafftAllowFASTQAssemblyInputs = false
+        self.mafftSequenceScope = .all
+        self.mafftAllSequenceCount = 0
+        self.mafftSelectedSequenceNames = []
         self.pbaaOutputName = selectedInputURLs.first?.deletingPathExtension().lastPathComponent.appending("-pbaa")
             ?? "pbaa-clusters"
         self.pbaaThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
@@ -850,7 +861,10 @@ final class FASTQOperationDialogState {
             symbolPolicy: mafftSymbolPolicy,
             deterministicThreads: mafftDeterministicThreads,
             extraArguments: extraArguments,
-            allowFASTQAssemblyInputs: mafftAllowFASTQAssemblyInputs
+            allowFASTQAssemblyInputs: mafftAllowFASTQAssemblyInputs,
+            includedSequenceNames: (mafftSequenceScope == .selected && !mafftSelectedSequenceNames.isEmpty)
+                ? mafftSelectedSequenceNames
+                : nil
         )
     }
 
