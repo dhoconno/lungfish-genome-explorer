@@ -10,6 +10,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from scripts.tests.gate_fixtures import make_gate_fixture
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,8 @@ class ReleaseBuilderFixture:
             "scripts/release/release_xcode.py",
             "scripts/release/check-sparkle-build-number.py",
             "scripts/release/release-candidate-receipt.py",
+            "scripts/release/gate_evidence.py",
+            "scripts/full-suite-gate.sh",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
             "Package.swift",
@@ -133,6 +136,7 @@ class ReleaseBuilderFixture:
             #!/usr/bin/python3
             import os
             from pathlib import Path
+from scripts.tests.gate_fixtures import make_gate_fixture
             import sys
 
             events = Path(os.environ["BUILDER_EVENTS"])
@@ -464,6 +468,7 @@ class ReleaseBuilderFixture:
             import json
             import os
             from pathlib import Path
+from scripts.tests.gate_fixtures import make_gate_fixture
             import re
             import shutil
             import sys
@@ -645,6 +650,12 @@ class ReleaseBuilderFixture:
         if coordinated:
             environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"] = "a" * 64
         command = ["/bin/bash", str(self.builder)]
+        channel = arguments[arguments.index("--channel") + 1] if "--channel" in arguments else "stable"
+        staging = Path(tempfile.mkdtemp(prefix="gates-", dir=self.root)) / "evidence"
+        manifest = make_gate_fixture(staging, {"clean": True, "commit": self._git("rev-parse", "HEAD").stdout.strip()}, channel,
+                                     json.loads((self.repo / "config/release-contract.json").read_text())["gates"]["focusedReleaseTests"])
+        command += ["--gate-manifest", str(manifest), "--gate-manifest-sha256", hashlib.sha256(manifest.read_bytes()).hexdigest()]
+
         if include_output_paths:
             command.extend(
                 [

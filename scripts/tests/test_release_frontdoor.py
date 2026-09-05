@@ -7,6 +7,8 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import shutil
+from scripts.tests.gate_fixtures import make_gate_fixture
 import pwd
 import subprocess
 import sys
@@ -173,9 +175,12 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
         def run_local_gates(self, _request):
             self.events.append("local-release-gates")
+            self.gates = self.release.GateEvidence(Path("/retained/manifest.json"), "d" * 64)
+            return self.gates
 
         def package_only(self, request):
             self.events.append("builder-package-only")
+            assert request.gate_evidence is self.gates
             return request.receipt
 
         def verify_candidate_receipt(self, request):
@@ -246,102 +251,77 @@ class FrontDoorTransactionTests(unittest.TestCase):
         self.assertNotIn("doctor-credentials", operations.events)
         self.assertNotIn("tag-push", operations.events)
 
-    def test_local_release_gates_follow_the_channel_contract_on_the_release_mac(self):
-        class RecordingRunner:
-            def __init__(self):
-                self.commands = []
-                self.environments = []
-                self.environment = {"PATH": "/usr/bin:/bin"}
+    def test_package_refuses_missing_gate_evidence_before_builder(self):
+        operations = self.RecordingOperations(self.release)
+        operations.run_local_gates = lambda request: None
+        with self.assertRaisesRegex(self.release.ReleaseError, "immutable evidence"):
+            self.release.ReleaseCoordinator(operations).package(self.request("package"))
+        self.assertNotIn("builder-package-only", operations.events)
 
-            def run(self, command, **kwargs):
-                self.commands.append(command)
-                self.environments.append(kwargs.get("env"))
-                return subprocess.CompletedProcess(command, 0)
-
-        operations = object.__new__(self.release.LocalReleaseOperations)
-        operations.root = ROOT
-        operations.contract = self.release.load_contract(
-            ROOT / "config/release-contract.json"
-        )
-        operations.runner = RecordingRunner()
-        request = self.request("package")
-
+    def test_local_release_gates_follow_contract_and_return_bound_results(self):
+        contract = self.release.load_contract(ROOT / "config/release-contract.json")
+        source = {"commit": "a" * 40, "clean": True}
         gate_python = Path("/managed/python3")
-        with (
-            mock.patch.object(
-                self.release, "verify_dependency_receipt_file"
-            ) as verify_receipt,
-            mock.patch.object(
-                operations, "_managed_gate_python", return_value=gate_python
-            ),
-        ):
-            operations.run_local_gates(request)
+        for channel, tiers in (("preview", ["unit", "integration"]), ("stable", ["full", "conformance"])):
+            with self.subTest(channel=channel), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                fixtures = make_gate_fixture(root / "fixtures", source, channel,
+                                             list(contract.gates.focusedReleaseTests))
+                class RecordingRunner:
+                    environment = {"PATH": "/usr/bin:/bin"}
+                    def __init__(self):
+                        self.commands, self.environments = [], []
+                    def run(self, command, **kwargs):
+                        index = len(self.commands)
+                        self.commands.append(command)
+                        self.environments.append(kwargs.get("env"))
+                        option = "--output" if index == 0 else "--evidence-dir"
+                        destination = Path(command[command.index(option) + 1])
+                        shutil.copytree(fixtures.parent / ("python" if index == 0 else str(index - 1)), destination)
+                        return subprocess.CompletedProcess(command, 0)
+                operations = object.__new__(self.release.LocalReleaseOperations)
+                operations.root, operations.contract, operations.runner = root, contract, RecordingRunner()
+                request = replace(self.request("package"), root=root, channel=channel,
+                                  dependency_receipt=fixtures.parent / "dependency-receipt.json")
+                with mock.patch.object(self.release, "verify_dependency_receipt_file"), mock.patch.object(
+                    operations, "_managed_gate_python", return_value=gate_python
+                ), mock.patch.object(self.release, "source_identity", return_value=source):
+                    evidence = operations.run_local_gates(request)
+                manifest = json.loads(evidence.manifest.read_text())
+                self.assertEqual(evidence.sha256, __import__("hashlib").sha256(evidence.manifest.read_bytes()).hexdigest())
+                self.assertEqual(len(manifest["results"]), 3)
+                commands = operations.runner.commands
+                self.assertEqual(commands[0][:4], [str(gate_python), "-B", str(root / "scripts/release/gate_evidence.py"), "python"])
+                self.assertEqual(commands[0][-len(contract.gates.focusedReleaseTests):], list(contract.gates.focusedReleaseTests))
+                self.assertEqual([c[c.index("--tier") + 1] for c in commands[1:]], tiers)
+                self.assertEqual("--require-tools" in commands[-1], channel == "stable")
+                self.assertEqual(operations.runner.environments[0]["LUNGFISH_RELEASE_PYTHON"], str(gate_python))
+                self.assertEqual(operations.runner.environments[0]["PATH"], "/managed:/usr/bin:/bin")
+                if channel == "stable":
+                    self.assertEqual(operations.runner.environments[-1]["LUNGFISH_STORAGE_ROOT"], str(request.dependency_receipt.parent))
+                with mock.patch.object(self.release, "source_identity", return_value={"commit": "a" * 40, "clean": False}):
+                    with self.assertRaisesRegex(self.release.ReleaseError, "gate evidence"):
+                        operations.package_only(replace(request, gate_evidence=evidence))
+                (evidence.manifest.parent / "swift-0/runner.log").write_text("changed")
+                with self.assertRaisesRegex(self.release.ReleaseError, "gate evidence"):
+                    operations.package_only(replace(request, gate_evidence=evidence))
+                self.assertEqual(len(operations.runner.commands), 3)
 
-        verify_receipt.assert_called_once_with(ROOT, request.dependency_receipt)
-        self.assertEqual(
-            operations.runner.commands[0],
-            [
-                str(gate_python),
-                "-B",
-                "-m",
-                "unittest",
-                *operations.contract.gates.focusedReleaseTests,
-            ],
-        )
-        self.assertEqual(
-            operations.runner.commands[1:],
-            [
-                ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", "unit"],
-                [
-                    "/bin/bash",
-                    str(ROOT / "scripts/full-suite-gate.sh"),
-                    "--tier",
-                    "integration",
-                ],
-            ],
-        )
-        self.assertEqual(
-            operations.runner.environments,
-            [
-                {"PATH": "/managed:/usr/bin:/bin"},
-                {"PATH": "/managed:/usr/bin:/bin"},
-                {"PATH": "/managed:/usr/bin:/bin"},
-            ],
-        )
-
-        operations.runner.commands.clear()
-        operations.runner.environments.clear()
-        with (
-            mock.patch.object(self.release, "verify_dependency_receipt_file"),
-            mock.patch.object(
-                operations, "_managed_gate_python", return_value=gate_python
-            ),
-        ):
-            operations.run_local_gates(replace(request, channel="stable"))
-        self.assertEqual(
-            operations.runner.commands[1:],
-            [
-                ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", "full"],
-                [
-                    "/bin/bash",
-                    str(ROOT / "scripts/full-suite-gate.sh"),
-                    "--tier",
-                    "conformance",
-                    "--require-tools",
-                ],
-            ],
-        )
-        self.assertEqual(
-            operations.runner.environments,
-            [
-                {"PATH": "/managed:/usr/bin:/bin"},
-                {"PATH": "/managed:/usr/bin:/bin"},
-                {
-                    "PATH": "/managed:/usr/bin:/bin",
-                    "LUNGFISH_STORAGE_ROOT": str(request.dependency_receipt.parent),
-                },
-            ],
-        )
+    def test_failed_gate_stops_before_next_suite_and_keeps_staging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "dependency-receipt.json").write_text("{}")
+            operations = object.__new__(self.release.LocalReleaseOperations)
+            operations.root = root
+            operations.contract = self.release.load_contract(ROOT / "config/release-contract.json")
+            operations.runner = SimpleNamespace(environment={"PATH": "/bin"}, run=mock.Mock(return_value=subprocess.CompletedProcess([], 139)))
+            with mock.patch.object(self.release, "verify_dependency_receipt_file"), mock.patch.object(
+                operations, "_managed_gate_python", return_value=Path("/fixture/python3")
+            ), mock.patch.object(self.release, "source_identity", return_value={"commit": "a" * 40, "clean": True}):
+                with self.assertRaisesRegex(self.release.ReleaseError, "retained evidence"):
+                    operations.run_local_gates(replace(self.request("package"), root=root, dependency_receipt=root / "dependency-receipt.json"))
+            self.assertEqual(operations.runner.run.call_count, 1)
+            self.assertEqual(len(list((root / ".build/gate-logs").iterdir())), 1)
 
     def test_release_test_python_is_the_exact_isolated_runtime_not_an_ambient_env(self):
         class RecordingRunner:

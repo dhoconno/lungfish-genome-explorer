@@ -25,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from release_contract import load_contract  # noqa: E402
+from gate_evidence import EvidenceError, create_manifest, source_identity, verify_manifest  # noqa: E402
 from release_cache_fingerprint import (  # noqa: E402
     CacheFingerprintError,
     CachePaths,
@@ -190,6 +191,12 @@ def load_release_profile(path: Path) -> ReleaseProfile:
 
 
 @dataclass(frozen=True)
+class GateEvidence:
+    manifest: Path
+    sha256: str
+
+
+@dataclass(frozen=True)
 class ReleaseRequest:
     root: Path
     channel: str
@@ -208,6 +215,7 @@ class ReleaseRequest:
     prune_prereleases_keep: int
     sparkle_public_ed_key: str = PUBLIC_SPARKLE_KEY
     github_repository: str = ""
+    gate_evidence: GateEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -235,7 +243,7 @@ class ReleaseOperations(Protocol):
     def package_only(self, request: ReleaseRequest) -> Path:
         ...
 
-    def run_local_gates(self, request: ReleaseRequest) -> None:
+    def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
         ...
 
     def validate_sparkle_build_number(
@@ -269,7 +277,10 @@ class ReleaseCoordinator:
     def package(self, request: ReleaseRequest) -> CandidateIdentity:
         self.operations.verify_package_source(request)
         self.operations.doctor_package(request)
-        self.operations.run_local_gates(request)
+        gates = self.operations.run_local_gates(request)
+        if not isinstance(gates, GateEvidence):
+            raise ReleaseError("local release gates did not return immutable evidence")
+        request = replace(request, gate_evidence=gates)
         receipt = self.operations.package_only(request)
         active = replace(request, receipt=receipt)
         return self.operations.verify_candidate_receipt(active)
@@ -1521,41 +1532,68 @@ class LocalReleaseOperations:
             "dependency verification before packaging"
         )
 
-    def run_local_gates(self, request: ReleaseRequest) -> None:
+    def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
         verify_dependency_receipt_file(self.root, request.dependency_receipt)
         gate_python = self._managed_gate_python(request)
         gate_environment = {
-            "PATH": f"{gate_python.parent}:{self.runner.environment.get('PATH', '')}"
+            "PATH": f"{gate_python.parent}:{self.runner.environment.get('PATH', '')}",
+            "LUNGFISH_RELEASE_PYTHON": str(gate_python),
         }
-        self.runner.run(
-            [
-                str(gate_python),
-                "-B",
-                "-m",
-                "unittest",
-                *self.contract.gates.focusedReleaseTests,
-            ],
-            env=gate_environment,
-        )
+        # The builder replaces release_dir. Keep immutable staging outside it;
+        # receipt creation retains and revalidates the exact bytes below it.
+        parent = self.root / ".build/gate-logs"
+        parent.mkdir(parents=True, exist_ok=True)
+        directory = Path(tempfile.mkdtemp(prefix="release-", dir=parent))
+        source = source_identity(self.root)
+        dependency_digest = hashlib.sha256(request.dependency_receipt.read_bytes()).hexdigest()
+        result_paths = []
+        commands = [([
+            str(gate_python), "-B", str(self.root / "scripts/release/gate_evidence.py"),
+            "python", "--root", str(self.root), "--output", str(directory / "python"),
+            *self.contract.gates.focusedReleaseTests,
+        ], gate_environment, directory / "python/gate.result.json")]
         gate_script = str(self.root / "scripts/full-suite-gate.sh")
-        for step in self.contract.gates.for_channel(request.channel):
-            command = ["/bin/bash", gate_script, "--tier", step.tier]
+        for index, step in enumerate(self.contract.gates.for_channel(request.channel)):
+            output = directory / f"swift-{index}"
+            command = ["/bin/bash", gate_script, "--tier", step.tier, "--evidence-dir", str(output)]
             if step.requireTools:
                 command.append("--require-tools")
-            step_environment = gate_environment.copy()
+            environment = gate_environment.copy()
             if step.requireTools:
-                step_environment["LUNGFISH_STORAGE_ROOT"] = str(
-                    request.dependency_receipt.parent
-                )
-            self.runner.run(command, env=step_environment)
+                environment["LUNGFISH_STORAGE_ROOT"] = str(request.dependency_receipt.parent)
+            commands.append((command, environment, output / "gate.result.json"))
+        for command, environment, result_path in commands:
+            result = self.runner.run(command, env=environment, check=False)
+            if result.returncode != 0:
+                raise ReleaseError(f"local release gate failed; retained evidence: {directory}")
+            result_paths.append(result_path)
+        try:
+            if hashlib.sha256(request.dependency_receipt.read_bytes()).hexdigest() != dependency_digest:
+                raise EvidenceError("dependency receipt changed during gates")
+            manifest, digest = create_manifest(directory, source, request.channel,
+                                               result_paths, request.dependency_receipt, self.contract)
+        except (EvidenceError, OSError, ValueError) as error:
+            raise ReleaseError(f"local gate evidence is invalid: {error}") from error
+        return GateEvidence(manifest=manifest, sha256=digest)
 
     def package_only(self, request: ReleaseRequest) -> Path:
+        if request.gate_evidence is None:
+            raise ReleaseError("package requires immutable gate evidence")
+        try:
+            verify_manifest(request.gate_evidence.manifest, request.gate_evidence.sha256,
+                            source_identity(self.root), request.channel, self.contract)
+        except (EvidenceError, OSError, ValueError) as error:
+            raise ReleaseError(f"package gate evidence is invalid: {error}") from error
         archive, derived, release_dir = self._paths(request)
         selected_cache = self._cache_paths(request)
         command = [
             "/bin/bash",
             str(SCRIPT_DIR / "build-notarized-dmg.sh"),
             "--package-only",
+            "--gate-manifest",
+            str(request.gate_evidence.manifest),
+            "--gate-manifest-sha256",
+            request.gate_evidence.sha256,
             "--channel",
             request.channel,
             "--release-dir",

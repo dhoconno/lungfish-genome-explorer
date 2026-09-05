@@ -19,6 +19,12 @@ load-bearing equalities:
 """
 
 import re
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -111,57 +117,6 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "ARG_MAX in serial mode (posix_spawn: Argument list too long)",
         )
 
-    def test_parallel_runs_retry_failing_classes_serially(self):
-        gate = _gate_text()
-        self.assertIn(
-            'if [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then',
-            gate,
-            "runs with only XCTest failures must retry the failing classes in "
-            "isolation (and never retry swift-testing failures)",
-        )
-        self.assertIn(
-            "flaky under load, passed isolated serial retry",
-            gate,
-            "a pass that needed the serial retry must loudly name the retried "
-            "classes instead of masking the flakiness",
-        )
-        self.assertIn(
-            '[ "$class_count" -le 12 ]',
-            gate,
-            "more than 12 failing classes means real breakage and must not retry",
-        )
-        self.assertIn(
-            'while IFS= read -r failing_class; do',
-            gate,
-            "each failing class must run in its own swift-test process so global "
-            "test state cannot leak between retried classes",
-        )
-        self.assertIn(
-            'retry_filter="^${escaped_class}(/|$)"',
-            gate,
-            "the retry process must select exactly one failing class",
-        )
-        self.assertNotIn(
-            'retry_filter="^($(printf',
-            gate,
-            "combining every failing class into one retry process is not isolated",
-        )
-        self.assertIn(
-            'run_swift_test "$class_log" env LUNGFISH_REQUIRE_TOOLS=1 swift',
-            gate,
-            "isolated retries must retain --require-tools fail-closed behavior",
-        )
-        self.assertIn("count_xctest_failures()", gate)
-        classifier = gate.split("count_xctest_failures()", 1)[1].split(
-            "run_gate()", 1
-        )[0]
-        self.assertIn('grep -cv "^CoreData: error:"', classifier)
-        self.assertEqual(
-            gate.count('count_xctest_failures "'),
-            2,
-            "primary and retry logs must use the same XCTest failure classifier",
-        )
-
     def test_parallel_is_rejected_for_storage_bearing_selections(self):
         self.assertIn(
             "--parallel is not allowed for selections containing the ProjectStorage suites",
@@ -169,20 +124,150 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "the --parallel guard for integration/full/unfiltered runs is gone",
         )
 
-    def test_swift_624_debug_type_workaround_covers_primary_and_retry_runs(self):
-        gate = _gate_text()
-        self.assertIn("Swift version 6\\.2\\.4", gate)
-        self.assertIn("-disable-round-trip-debug-types", gate)
-        self.assertEqual(gate.count("-disable-round-trip-debug-types"), 2)
-        self.assertEqual(gate.count('SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1'), 2)
+class GateBehaviorTests(unittest.TestCase):
+    def run_gate(self, scenario, *options):
+        with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
+            root = Path(temp)
+            (root / ".gitignore").write_text(".build/\n")
+            (root / "scripts/release").mkdir(parents=True)
+            shutil.copy2(ROOT / "scripts/full-suite-gate.sh", root / "scripts/full-suite-gate.sh")
+            helper = ROOT / "scripts/release/gate_evidence.py"
+            if helper.exists():
+                shutil.copy2(helper, root / "scripts/release/gate_evidence.py")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            swift = bin_dir / "swift"
+            swift.write_text("#!" + sys.executable + "\n" + FAKE_SWIFT)
+            swift.chmod(0o755)
+            sleep = bin_dir / "sleep"
+            sleep.write_text("#!/bin/sh\nexit 0\n")
+            sleep.chmod(0o755)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            result = subprocess.run(
+                ["/bin/bash", str(root / "scripts/full-suite-gate.sh"), *options],
+                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                     "GATE_SCENARIO": scenario},
+                capture_output=True, text=True, timeout=15,
+            )
+            reports = list(root.glob(".build/gate-logs/**/*.result.json"))
+            evidence = json.loads(reports[0].read_text()) if reports else None
+            return result, evidence
 
-    def test_xcode_266_zombie_watchdog_requires_both_final_pass_summaries(self):
-        gate = _gate_text()
-        self.assertIn('state" == Z*', gate)
-        self.assertIn("Test Suite '(All tests|Selected tests)' passed", gate)
-        self.assertIn("Test run .* passed", gate)
-        self.assertEqual(gate.count('run_swift_test "$'), 4)
+    def test_empty_success_cannot_authorize_gate(self):
+        result, _ = self.run_gate("empty")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_original_crash_cannot_be_promoted_by_passing_isolated_retry(self):
+        result, evidence = self.run_gate("crash_retry")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["attempts"][0]["exitStatus"], 139)
+        self.assertEqual(len(evidence["attempts"]), 1)
+
+    def test_one_selected_xctest_passes_with_unused_swift_harness_zero(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["attempts"][0]["harnesses"]["xctest"]["executed"], 1)
+        self.assertEqual(evidence["attempts"][0]["harnesses"]["swift-testing"]["selected"], 0)
+        self.assertEqual(evidence["attempts"][0]["exitStatus"], 0)
+        self.assertTrue(evidence["authorized"])
+        self.assertTrue(evidence["runtime"]["swiftVersion"].startswith("Apple Swift"))
+
+    def test_mixed_harnesses_both_complete(self):
+        result, evidence = self.run_gate("mixed")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["attempts"][0]["harnesses"]["swift-testing"]["executed"], 1)
+
+    def test_parallel_xunit_is_matched_to_the_selected_cases(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests", "--parallel")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["attempts"][0]["harnesses"]["xctest"]["completionEvidence"], "xunit")
+
+    def test_partial_killed_failed_tool_and_unmatched_selections_fail(self):
+        cases = [("partial", []), ("missing_case", []), ("killed", []),
+                 ("tool_failure", ["--require-tools"]), ("tool_skip", ["--require-tools"]),
+                 ("one", ["--filter", "DoesNotExist"]), ("swift_partial", []),
+                 ("build_failure", []), ("bad_xml", ["--parallel", "--filter", "ExampleTests"]),
+                 ("parallel_empty_child", ["--parallel", "--filter", "ExampleTests"]),
+                 ("source_changed", []), ("swift_extra", []), ("swift_run_issue", [])]
+        for scenario, options in cases:
+            with self.subTest(scenario=scenario):
+                result, evidence = self.run_gate(scenario, *options)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(evidence["authorized"])
+
+    def test_completed_assertion_failure_retry_remains_diagnostic(self):
+        result, evidence = self.run_gate("assertion_retry")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["attempts"][0]["exitStatus"], 1)
+        self.assertEqual(evidence["attempts"][1]["exitStatus"], 0)
+        self.assertFalse(evidence["authorized"])
+        self.assertEqual(evidence["attempts"][1]["role"], "diagnostic-retry")
+        self.assertNotEqual(evidence["attempts"][0]["files"], evidence["attempts"][1]["files"])
+
+
+FAKE_SWIFT = r'''import json, os, pathlib, signal, sys
+args = sys.argv[1:]
+scenario = os.environ["GATE_SCENARIO"]
+def option(name):
+    return args[args.index(name) + 1] if name in args else None
+def events(records):
+    output = option("--event-stream-output-path")
+    if output:
+        pathlib.Path(output).write_text("".join(json.dumps({"version": 0, **r}) + "\n" for r in records))
+def event(kind, **kw):
+    return {"kind": "event", "payload": {"kind": kind, **kw}}
+test_id = "LungfishIntegrationTests.MixedTests/testB()/Fixture.swift:1:1"
+metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
+if args == ["--version"]:
+    print("Apple Swift version 6.2.4 (fixture)")
+    sys.exit(0)
+if "list" in args:
+    if scenario == "build_failure":
+        print("error: compilation failed", file=sys.stderr)
+        sys.exit(1)
+    if "--disable-swift-testing" in args:
+        if scenario != "empty":
+            print("LungfishCoreTests.ExampleTests/testA")
+        if scenario == "missing_case":
+            print("LungfishCoreTests.ExampleTests/testMissing")
+    else:
+        events([metadata] if scenario in ("mixed", "swift_partial") else [])
+    sys.exit(0)
+if scenario == "empty":
+    sys.exit(0)
+is_retry = "--filter" in args and "^LungfishCoreTests" in option("--filter")
+if scenario == "crash_retry" and not is_retry:
+    print("Test Case '-[LungfishCoreTests.ExampleTests testA]' failed (0.1 seconds).")
+    print("Segmentation fault: 11")
+    sys.exit(139)
+if scenario == "killed":
+    os.kill(os.getpid(), signal.SIGKILL)
+failed = scenario == "tool_failure" or (scenario == "assertion_retry" and not is_retry)
+skipped = scenario == "tool_skip"
+status = "failed" if failed else "skipped" if skipped else "passed"
+if scenario == "source_changed":
+    pathlib.Path("changed-source.txt").write_text("changed")
+if scenario != "parallel_empty_child":
+    print("Test Case '-[LungfishCoreTests.ExampleTests testA]' " + status + " (0.1 seconds).")
+if scenario != "partial":
+    print("Test Suite 'Selected tests' " + ("failed" if failed else "passed") + " at 2026-09-05")
+    print("Executed 1 test, with " + ("1" if failed else "0") + " failures (0 unexpected) in 0.1 seconds")
+xml = option("--xunit-output")
+if xml and "--parallel" in args:
+    pathlib.Path(xml).write_text("<testsuites><testsuite tests='1'><testcase classname='LungfishCoreTests.ExampleTests' name='testA'/>" + ("" if scenario == "bad_xml" else "</testsuite></testsuites>"))
+records = [event("runStarted")]
+if scenario == "swift_extra":
+    records += [metadata, event("testStarted", testID=test_id), event("testEnded", testID=test_id)]
+if scenario == "swift_run_issue":
+    records += [event("issueRecorded", issue={"isKnown": False, "isFailure": True})]
+if scenario in ("mixed", "swift_partial"):
+    records += [metadata, event("testStarted", testID=test_id), event("testEnded", testID=test_id)]
+if scenario != "swift_partial":
+    records += [event("runEnded")]
+events(records)
+print("✔ Test run with 0 tests passed after 0.001 seconds.")
+sys.exit(1 if failed else 0)
+'''
 
 if __name__ == "__main__":
     unittest.main()

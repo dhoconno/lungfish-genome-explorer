@@ -90,6 +90,8 @@ TEAM_ID=""
 NOTARY_PROFILE=""
 SCRATCH_PATH=""
 SCRATCH_PATH_EXPLICIT=0
+GATE_MANIFEST=""
+GATE_MANIFEST_SHA256=""
 RELEASE_DIR=""
 RELEASE_DIR_EXPLICIT=0
 ARCHIVE_PATH=""
@@ -164,6 +166,11 @@ while [ "$#" -gt 0 ]; do
         --archive-path)
             ARCHIVE_PATH="$2"
             ARCHIVE_PATH_EXPLICIT=1
+            shift 2
+            ;;
+        --gate-manifest|--gate-manifest-sha256)
+            [ "$#" -ge 2 ] || { echo "Missing gate evidence value" >&2; exit 64; }
+            if [ "$1" = "--gate-manifest" ]; then GATE_MANIFEST="$2"; else GATE_MANIFEST_SHA256="$2"; fi
             shift 2
             ;;
         --release-dir)
@@ -1300,6 +1307,8 @@ if [ -z "$RESUME_CANDIDATE" ]; then
     "$RELEASE_PYTHON" "$CANDIDATE_RECEIPT_SCRIPT" create \
         --app "$RELEASE_APP_PATH" \
         --output "$CANDIDATE_RECEIPT_PATH" \
+        --gate-manifest "$GATE_MANIFEST" \
+        --gate-manifest-sha256 "$GATE_MANIFEST_SHA256" \
         --channel "$CHANNEL" \
         --scratch-path "$SCRATCH_PATH" \
         --cache-root "$CACHE_ROOT" \

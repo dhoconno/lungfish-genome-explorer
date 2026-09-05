@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from scripts.tests.gate_fixtures import make_gate_fixture
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -485,6 +486,61 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
     def setUp(self):
         self.python = Path(sys.executable)
 
+    def test_candidate_cannot_be_created_without_gate_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._make_fixture(Path(temporary))
+            result = self._run(fixture, "create", "--app", str(fixture["app"]),
+                               "--output", str(fixture["receipt"]), "--channel", "stable",
+                               "--scratch-path", str(fixture["scratch"]))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(fixture["receipt"].exists())
+
+    def test_candidate_retains_and_verifies_exact_gate_logs_and_manifest(self):
+        for changed in ("manifest.json", "0/runner.log", "0/gate.result.json", "dependency-receipt.json"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
+                fixture = self._make_fixture(Path(temporary))
+                created = self._create(fixture)
+                self.assertEqual(created.returncode, 0, created.stderr)
+                receipt = json.loads(fixture["receipt"].read_text())
+                self.assertEqual(receipt["gates"]["sha256"], hashlib.sha256(fixture["gate_manifest"].read_bytes()).hexdigest())
+                shutil.rmtree(fixture["gate_manifest"].parent)
+                self.assertEqual(self._verify(fixture).returncode, 0)
+                retained = fixture["release"] / "gate-evidence" / changed
+                retained.write_bytes(retained.read_bytes() + b"changed")
+                verified = self._verify(fixture)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn("gate", verified.stderr)
+
+    def test_failing_or_retried_gate_cannot_create_candidate(self):
+        for mutation in ("failure", "retry", "wrong_source", "missing_log", "missing_gate", "wrong_filter"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                fixture = self._make_fixture(Path(temporary))
+                manifest_path = fixture["gate_manifest"]
+                manifest = json.loads(manifest_path.read_text())
+                result_path = manifest_path.parent / "0/gate.result.json"
+                result = json.loads(result_path.read_text())
+                if mutation == "failure":
+                    result["attempts"][0]["exitStatus"] = 139
+                elif mutation == "retry":
+                    result["attempts"].append({**result["attempts"][0], "role": "diagnostic-retry"})
+                elif mutation == "wrong_filter":
+                    result["options"]["filter"] = "OnlyOneTest"
+                elif mutation == "wrong_source":
+                    result["source"]["commit"] = "f" * 40
+                elif mutation == "missing_log":
+                    (manifest_path.parent / "0/runner.log").unlink()
+                else:
+                    manifest["results"].pop()
+                result_path.write_text(json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n")
+                for records in (manifest["results"], manifest["files"]):
+                    for record in records:
+                        if record["path"] == "0/gate.result.json":
+                            record["sha256"] = hashlib.sha256(result_path.read_bytes()).hexdigest()
+                            record["sizeBytes"] = result_path.stat().st_size
+                manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
+                self.assertNotEqual(self._create(fixture).returncode, 0)
+                self.assertFalse(fixture["receipt"].exists())
+
     def test_create_writes_canonical_receipt_with_all_bound_identities(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture = self._make_fixture(Path(temp_dir))
@@ -897,6 +953,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "scripts/check-package-resolved-consistency.sh",
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release-candidate-receipt.py",
+            "scripts/release/gate_evidence.py",
+            "scripts/full-suite-gate.sh",
             "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_cache_security.py",
             "scripts/release/release_contract.py",
@@ -1056,6 +1114,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             )
         )
         receipt = release / "candidate.json"
+        gate_manifest = make_gate_fixture(root / "staged-gates", {"commit": commit, "clean": True},
+                                          modules=json.loads(contract.read_text())["gates"]["focusedReleaseTests"])
         return {
             "repo": repo,
             "release": release,
@@ -1067,6 +1127,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "scratch": scratch.resolve(),
             "cache_root": cache_root.resolve(),
             "receipt": receipt,
+            "gate_manifest": gate_manifest,
             "script": repo / "scripts" / "release" / "release-candidate-receipt.py",
             "bin": bin_dir,
             "toolchain": toolchain,
@@ -1090,6 +1151,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "stable",
             "--scratch-path",
             str(scratch if scratch is not None else fixture["scratch"]),
+            "--gate-manifest", str(fixture["gate_manifest"]),
+            "--gate-manifest-sha256", hashlib.sha256(fixture["gate_manifest"].read_bytes()).hexdigest(),
         )
 
     def _verify(self, fixture, channel="stable"):

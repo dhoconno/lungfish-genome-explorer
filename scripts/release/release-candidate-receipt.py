@@ -28,6 +28,7 @@ from release_cache_fingerprint import (
     fingerprint as cache_fingerprint,
 )
 from release_contract import CONTRACT_PATH, load_contract
+from gate_evidence import EvidenceError, retain_manifest, verify_manifest
 from release_repository import RepositoryIdentityError, resolve_repository_identity
 
 
@@ -77,6 +78,7 @@ RECEIPT_FIELDS = frozenset(
         "build",
         "artifacts",
         "cache",
+        "gates",
     }
 )
 
@@ -466,8 +468,15 @@ def _build_receipt(
     cache_root: Path,
     remote: str,
     github_repository: str | None,
+    gate_manifest: Path,
+    gate_digest: str,
+    retain_to: Path | None = None,
 ) -> dict[str, Any]:
     source = _source_identity()
+    if retain_to is None:
+        verify_manifest(gate_manifest, gate_digest, source, channel, load_contract(CONTRACT_PATH))
+    else:
+        retain_manifest(gate_manifest, gate_digest, retain_to, source, channel, load_contract(CONTRACT_PATH))
     app = _normalize_app(app_path)
     identities, _ = _bundle_identity(app, channel)
     toolchain = _toolchain_identity()
@@ -514,6 +523,7 @@ def _build_receipt(
     receipt = {
         "schemaVersion": 1,
         "source": source,
+        "gates": {"path": "gate-evidence/manifest.json", "sha256": gate_digest},
         **identities,
         "inputs": inputs,
         "toolchain": toolchain,
@@ -621,6 +631,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--output", required=True, type=Path)
     create.add_argument("--channel", required=True, choices=("preview", "stable"))
     create.add_argument("--scratch-path", required=True, type=Path)
+    create.add_argument("--gate-manifest", required=True, type=Path)
+    create.add_argument("--gate-manifest-sha256", required=True)
     configured_cache_root = Path(
         os.environ.get("LUNGFISH_RELEASE_CACHE_ROOT", str(DEFAULT_CACHE_ROOT))
     )
@@ -648,11 +660,16 @@ def main() -> int:
                 args.cache_root,
                 args.remote,
                 args.github_repository,
+                args.gate_manifest,
+                args.gate_manifest_sha256,
+                _safe_output_path(args.output).parent / "gate-evidence",
             )
             _write_receipt(args.output, payload, args.app)
             print("PASS unsigned candidate receipt created")
         else:
             receipt = _read_receipt(args.receipt)
+            if receipt.get("gates", {}).get("path") != "gate-evidence/manifest.json":
+                raise ReceiptError("gate evidence path is invalid")
             observed = _build_receipt(
                 args.app,
                 args.channel,
@@ -660,6 +677,8 @@ def main() -> int:
                 args.cache_root,
                 args.remote,
                 args.github_repository,
+                args.receipt.parent / "gate-evidence/manifest.json",
+                receipt["gates"]["sha256"],
             )
             if (
                 receipt.get("build") != observed["build"]
@@ -671,7 +690,7 @@ def main() -> int:
             if receipt != observed:
                 raise ReceiptError("unsigned candidate receipt does not match")
             print("PASS unsigned candidate receipt")
-    except (ReceiptError, ValueError) as error:
+    except (ReceiptError, EvidenceError, ValueError, OSError, KeyError, TypeError) as error:
         print(f"FAIL unsigned candidate receipt: {error}", file=sys.stderr)
         return 1
     return 0

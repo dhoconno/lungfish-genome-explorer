@@ -22,8 +22,11 @@
 #                                                   # whose large --skip selection exceeds
 #                                                   # ARG_MAX in serial mode)
 #
-# Every run also writes an xUnit XML report next to the gate log
-# (.build/gate-logs/gate-<stamp>-<sha>.xunit.xml) so per-test timing accumulates.
+# Every run retains a unique evidence directory under .build/gate-logs.
+# Parallel XCTest uses xUnit plus explicit case records; serial XCTest uses
+# explicit case records and its outer summary. Swift Testing uses ABI-v0 JSON.
+# --evidence-dir <new-directory> selects the retained output directory.
+# --describe-selection prints the resolved selection without executing tests.
 #
 # Exit code: 0 if the selected suite passed, non-zero otherwise. Skipped tests do not fail
 # the gate, unless --require-tools is given (see above). Designed to be used as a git
@@ -35,6 +38,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT" || exit 1
 
+ORIGINAL_ARGV=("$0" "$@")
+EVIDENCE_DIR=""
+DESCRIBE_SELECTION=0
 BG=0
 QUIET=0
 REQUIRE_TOOLS=0
@@ -44,6 +50,10 @@ SKIP=""
 PARALLEL=0
 while [ $# -gt 0 ]; do
     case "$1" in
+        --describe-selection) DESCRIBE_SELECTION=1; shift ;;
+        --evidence-dir)
+            [ $# -ge 2 ] || { echo "--evidence-dir requires a value" >&2; exit 64; }
+            EVIDENCE_DIR="$2"; shift 2 ;;
         --bg) BG=1; shift ;;
         --quiet) QUIET=1; shift ;;
         --require-tools) REQUIRE_TOOLS=1; shift ;;
@@ -69,7 +79,6 @@ while [ $# -gt 0 ]; do
 done
 
 LOG_DIR="$PROJECT_ROOT/.build/gate-logs"
-mkdir -p "$LOG_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 LOG="$LOG_DIR/gate-${STAMP}-${SHA}.log"
@@ -143,225 +152,44 @@ if [ "$PARALLEL" -eq 1 ]; then
     fi
 fi
 
-# Conformance-suite allowlist: test-case lines matching this regex are subject to the
-# --require-tools "no skips allowed" check. Keep in sync with the conformance suites
-# added under Tests/LungfishWorkflowTests/Conformance/ and the tool/DB-heavy
-# integration suites that ToolAvailability.skipOrFail now gates.
-#
-# The suites span four test targets (LungfishWorkflowTests, LungfishAppTests,
-# LungfishCLITests, LungfishIntegrationTests), so the target component is
-# matched loosely and the class name carries the selection.
-#
-# NOTE: ClassificationPipelineIntegrationTests (not ClassificationPipelineTests,
-# which is a sibling class in the same file with no tool/DB skips) is the class
-# that actually holds the kraken2/micromamba/database skips. MAFFTAlignmentPipelineTests
-# is deliberately excluded: its one XCTSkip guards a /usr/bin/gzip fixture-creation
-# failure, not tool/DB availability, so it must never gate --require-tools.
-# FastqGenotypingCommandTests and PrimerTrimThenIVarTests also carry non-tool
-# skips (missing fixtures); those remain plain XCTSkip and so are reported as
-# skips here, which is intended -- only the tool/DB skips route through
-# skipOrFail and become failures under --require-tools.
-CONFORMANCE_ALLOWLIST="Test Case '-\[[A-Za-z]+\.(.*Conformance.*|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests)[^]]*\]' skipped"
-
-# Swift 6.2.4 can abort while reconstructing imported CoreGraphics debug types
-# against the macOS 26 SDK. This is the compiler's documented crash workaround;
-# keep it version-scoped so later compilers retain their default debug behavior.
-SWIFT_624_DEBUG_TYPE_WORKAROUND=0
-if swift --version 2>/dev/null | grep -q 'Swift version 6\.2\.4'; then
-    SWIFT_624_DEBUG_TYPE_WORKAROUND=1
+EFFECTIVE_TIER="${TIER:-full}"
+if [ -z "$TIER" ] && [ -n "$FILTER" ]; then EFFECTIVE_TIER=custom; fi
+if [ "$DESCRIBE_SELECTION" -eq 1 ]; then
+    "${LUNGFISH_RELEASE_PYTHON:-python3}" -c 'import json,sys; print(json.dumps(dict(zip(("tier","filter","skip"), sys.argv[1:4]), parallel=sys.argv[4]=="1", requireTools=sys.argv[5]=="1")))' "$EFFECTIVE_TIER" "$FILTER" "$SKIP" "$PARALLEL" "$REQUIRE_TOOLS"
+    exit $?
 fi
+mkdir -p "$LOG_DIR"
 
-# Xcode 26.6's swift-test can fail to reap a completed xctest child and wait
-# forever. Run it under a watchdog that intervenes only when the direct child
-# is already a zombie and both XCTest and Swift Testing wrote final PASS
-# summaries. The caller still scans the complete log for failures and skips.
-run_swift_test() {
-    local output_log="$1"
-    shift
-    "$@" > "$output_log" 2>&1 &
-    local swift_pid=$!
-    while kill -0 "$swift_pid" 2>/dev/null; do
-        local child state child_command
-        for child in $(pgrep -P "$swift_pid" 2>/dev/null); do
-            state=$(ps -o state= -p "$child" 2>/dev/null | tr -d ' ')
-            child_command=$(ps -o command= -p "$child" 2>/dev/null)
-            # Compiler and package-plugin subprocesses can briefly become
-            # zombies during a normal build. Only the final XCTest runner is
-            # evidence of the Xcode 26.6 reaping bug this watchdog addresses.
-            if [[ "$state" == Z* && "$child_command" == *xctest* ]]; then
-                if grep -Eq "Test Suite '(All tests|Selected tests)' passed" "$output_log" \
-                    && grep -Eq 'Test run .* passed' "$output_log"; then
-                    kill "$swift_pid" 2>/dev/null || true
-                    wait "$swift_pid" 2>/dev/null || true
-                    return 0
-                fi
-                kill "$swift_pid" 2>/dev/null || true
-                wait "$swift_pid" 2>/dev/null || true
-                return 1
-            fi
-        done
-        sleep 1
-    done
-    wait "$swift_pid"
-}
-
-count_xctest_failures() {
-    grep -E "with [1-9][0-9]* failure|' failed \(|: error:" "$1" 2>/dev/null \
-        | grep -cv "^CoreData: error:"
-}
-
+# The evidence parser owns completion, original exits and diagnostic retries.
+# Unique run directories prevent one run from replacing another run's evidence.
+if [ -z "$EVIDENCE_DIR" ]; then
+    EVIDENCE_DIR="$LOG_DIR/gate-${STAMP}-${SHA}-$$"
+fi
 run_gate() {
-    {
-        echo "Full-suite gate starting at $(date) for $SHA"
-        echo "Log: $LOG"
-        [ -n "$TIER" ] && echo "Tier: $TIER"
-        [ "$REQUIRE_TOOLS" -eq 1 ] && echo "Mode: --require-tools (LUNGFISH_REQUIRE_TOOLS=1)"
-        [ "$PARALLEL" -eq 1 ] && echo "Mode: --parallel"
-        [ -n "$FILTER" ] && echo "Filter: $FILTER"
-        [ -n "$SKIP" ] && echo "Skip: $SKIP"
-    } >&2
-
-    # Single swift invocation (SwiftPM serializes on .build/.lock). --skip-update
-    # keeps it offline (avoids the testSRASearch NCBI flake's dependency on the network).
-    local swift_args=(test --skip-update --xunit-output "$LOG_DIR/gate-${STAMP}-${SHA}.xunit.xml")
-    if [ "$SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1 ]; then
-        swift_args+=(-Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types)
-    fi
-    [ -n "$FILTER" ] && swift_args+=(--filter "$FILTER")
-    [ -n "$SKIP" ] && swift_args+=(--skip "$SKIP")
-    [ "$PARALLEL" -eq 1 ] && swift_args+=(--parallel)
-
+    local command=("${LUNGFISH_RELEASE_PYTHON:-python3}" "$SCRIPT_DIR/release/gate_evidence.py" swift
+        --root "$PROJECT_ROOT" --output "$EVIDENCE_DIR" --tier "$EFFECTIVE_TIER"
+        --filter "$FILTER" --skip "$SKIP")
+    [ "$PARALLEL" -eq 1 ] && command+=(--parallel)
+    [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
+    command+=(-- "${ORIGINAL_ARGV[@]}")
     if [ "$REQUIRE_TOOLS" -eq 1 ]; then
-        run_swift_test "$LOG" env LUNGFISH_REQUIRE_TOOLS=1 swift "${swift_args[@]}"
+        LUNGFISH_REQUIRE_TOOLS=1 "${command[@]}"
     else
-        run_swift_test "$LOG" swift "${swift_args[@]}"
-    fi
-    local status=$?
-
-    # Both harnesses must report no failures. XCTest prints "with N failures";
-    # swift-testing prints "Test run with N tests ... (passed|failed)".
-    local xctest_fail
-    # ": error:" catches compiler/tooling failures, but a locked/idle login
-    # session makes macOS system frameworks emit benign "CoreData: error: ..."
-    # noise (NSXPCConnection, NSXPCStore addPersistentStore, etc.) that failed
-    # two otherwise fully-green overnight runs; the suite itself uses no
-    # CoreData, and real failures always also produce "' failed (" or a
-    # nonzero "with N failures" count, so exclude the whole family.
-    xctest_fail=$(count_xctest_failures "$LOG")
-    local swifttesting_fail
-    swifttesting_fail=$(grep -cE "✘ Test run|✘ Suite|recorded an issue" "$LOG" 2>/dev/null)
-
-    local conformance_skips=0
-    if [ "$REQUIRE_TOOLS" -eq 1 ]; then
-        conformance_skips=$(grep -cE "$CONFORMANCE_ALLOWLIST" "$LOG" 2>/dev/null)
-    fi
-
-    # Load-flake retry: both parallel runs and long serial runs surface a
-    # nondeterministic tail of load-sensitive tests (timing debounces, window-server
-    # layout, FSEvents, process reaping) that pass in isolation. When a run has only
-    # XCTest failures, rerun JUST the failing classes serially in isolation once;
-    # the gate passes only if the retry is clean, and it loudly names the retried
-    # classes so flakiness stays visible instead of masked. Deterministic failures
-    # still fail (they fail in isolation too). More than 12 failing classes means
-    # real breakage: no retry.
-    RETRIED_CLASSES=""
-    if [ "$xctest_fail" -gt 0 ] && [ "$swifttesting_fail" -eq 0 ]; then
-        local failing_classes
-        failing_classes=$(grep -oE "Test Case '-\[[A-Za-z0-9_]+\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$LOG" \
-            | sed -E "s/Test Case '-\[([A-Za-z0-9_]+\.[A-Za-z0-9_]+) .*/\1/" | sort -u)
-        local class_count
-        class_count=$(printf '%s\n' "$failing_classes" | grep -c . 2>/dev/null)
-        if [ "$class_count" -ge 1 ] && [ "$class_count" -le 12 ]; then
-            local retry_log="$LOG_DIR/gate-${STAMP}-${SHA}.retry.log"
-            : > "$retry_log"
-            echo "Run had $class_count failing class(es); retrying each in its own process" >&2
-            # Let the machine settle before re-measuring: big runs leave fseventsd
-            # digesting .build churn at ~100% CPU for a while, which is exactly the
-            # load that makes timing-bounded tests fail. Retrying at peak churn
-            # re-fails genuine load flakes and mislabels them deterministic.
-            sleep 30
-            local retry_status=0
-            local retry_index=0
-            local failing_class escaped_class retry_filter class_log class_status class_fail
-            while IFS= read -r failing_class; do
-                [ -n "$failing_class" ] || continue
-                escaped_class="${failing_class//./\\.}"
-                retry_filter="^${escaped_class}(/|$)"
-                class_log="${retry_log%.log}.${retry_index}.log"
-                echo "Isolated serial retry: $retry_filter" >&2
-                local retry_args=(test --skip-update --filter "$retry_filter")
-                if [ "$SWIFT_624_DEBUG_TYPE_WORKAROUND" -eq 1 ]; then
-                    retry_args+=(-Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types)
-                fi
-                if [ "$REQUIRE_TOOLS" -eq 1 ]; then
-                    if run_swift_test "$class_log" env LUNGFISH_REQUIRE_TOOLS=1 swift "${retry_args[@]}"; then
-                        class_status=0
-                    else
-                        class_status=$?
-                    fi
-                else
-                    if run_swift_test "$class_log" swift "${retry_args[@]}"; then
-                        class_status=0
-                    else
-                        class_status=$?
-                    fi
-                fi
-                {
-                    echo "===== $failing_class ====="
-                    cat "$class_log"
-                } >> "$retry_log"
-                class_fail=$(count_xctest_failures "$class_log")
-                if [ "$class_status" -ne 0 ] || [ "$class_fail" -ne 0 ]; then
-                    retry_status=1
-                fi
-                retry_index=$((retry_index + 1))
-            done <<< "$failing_classes"
-            if [ "$retry_status" -eq 0 ]; then
-                RETRIED_CLASSES=$(printf '%s\n' "$failing_classes" | paste -sd ',' -)
-                xctest_fail=0
-                status=0
-            else
-                echo "Serial retry FAILED - deterministic failures (retry log: $retry_log)" >&2
-            fi
-        fi
-    fi
-
-    if [ "$status" -eq 0 ] && [ "$xctest_fail" -eq 0 ] && [ "$swifttesting_fail" -eq 0 ] && [ "$conformance_skips" -eq 0 ]; then
-        # The LAST "Executed N tests" line is XCTest's grand total. Using the first
-        # match reported an early sub-suite instead, which understated a 189-test run
-        # as "Executed 2 tests" and made a real pass look like a coverage gap.
-        local xctest_total
-        xctest_total=$(grep -oE "Executed [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
-        local swifttesting_total
-        swifttesting_total=$(grep -oE "Test run with [0-9]+ tests" "$LOG" 2>/dev/null | tail -1)
-        echo "GATE PASS ($SHA) - ${xctest_total:-suite}${swifttesting_total:+, $swifttesting_total}${RETRIED_CLASSES:+ - flaky under load, passed isolated serial retry: $RETRIED_CLASSES} - log: $LOG"
-        return 0
-    else
-        {
-            echo "GATE FAIL ($SHA) - see $LOG"
-            echo "--- failing lines ---"
-            grep -E "with [1-9][0-9]* failure|' failed \(|: error:|✘ Test run|✘ Suite|recorded an issue" "$LOG" | head -20
-            if [ "$conformance_skips" -gt 0 ]; then
-                echo "--- skipped conformance tests under --require-tools ---"
-                grep -E "$CONFORMANCE_ALLOWLIST" "$LOG" | head -20
-            fi
-        } >&2
-        echo "GATE FAIL ($SHA) - log: $LOG"
-        return 1
+        "${command[@]}"
     fi
 }
 
 if [ "$BG" -eq 1 ]; then
     run_gate &
     GATE_PID=$!
-    echo "Full-suite gate running in background (pid $GATE_PID). Watch: tail -f $LOG" >&2
+    echo "Full-suite gate running in background (pid $GATE_PID). Watch: ls $EVIDENCE_DIR" >&2
     echo "The PASS/FAIL verdict goes to this shell's stdout when complete; the log holds the swift test output." >&2
     exit 0
 else
     if [ "$QUIET" -eq 1 ]; then
         run_gate >/dev/null 2>/dev/null
         status=$?
-        [ "$status" -eq 0 ] && echo "GATE PASS ($SHA)" || echo "GATE FAIL ($SHA) - log: $LOG"
+        [ "$status" -eq 0 ] && echo "GATE PASS ($SHA)" || echo "GATE FAIL ($SHA) - evidence: $EVIDENCE_DIR"
         exit $status
     else
         run_gate
