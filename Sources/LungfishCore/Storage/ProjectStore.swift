@@ -5,9 +5,16 @@
 // Owner: Storage & Indexing Lead (Role 18)
 
 import CommonCrypto
+import Darwin
 import Foundation
 import SQLite3
 import os.log
+
+/// Effective access is enforced by storage, including metadata writes.
+public enum ProjectAccessMode: Sendable, Equatable {
+    case readOnly
+    case writable
+}
 
 // MARK: - ProjectStore
 
@@ -58,6 +65,11 @@ public final class ProjectStore {
 
     /// The project directory URL
     public let projectURL: URL
+    public let accessMode: ProjectAccessMode
+    nonisolated private let snapshotDirectory: URL?
+    private let writerLease: ProjectStoreWriterLease?
+    private static var writerLeases: [String: WeakProjectStoreWriterLease] = [:]
+
 
     /// The SQLite database connection
     /// Note: nonisolated(unsafe) is needed because deinit in Swift 6 requires access to this
@@ -105,145 +117,306 @@ public final class ProjectStore {
 
     // MARK: - Initialization
 
-    /// Creates or opens a project store at the specified location.
-    ///
-    /// - Parameter url: The project directory URL
-    /// - Throws: `ProjectStoreError` if the store cannot be created or opened
-    public init(at url: URL) throws {
-        self.projectURL = url
-
-        // Create directory if needed
-        try FileManager.default.createDirectory(
-            at: url,
-            withIntermediateDirectories: true
-        )
-
-        // Migrate from old project.db to hidden .project.db if needed
-        let legacyDBPath = url.appendingPathComponent("project.db")
-        let hiddenDBPath = url.appendingPathComponent(".project.db")
-        
-        if FileManager.default.fileExists(atPath: legacyDBPath.path),
-           !FileManager.default.fileExists(atPath: hiddenDBPath.path) {
-            do {
-                try Self.migrateLegacyDatabaseWithCompanions(
-                    legacyDBURL: legacyDBPath,
-                    hiddenDBURL: hiddenDBPath
-                )
-                Self.logger.info("ProjectStore: Migrated project.db to .project.db")
-            } catch {
-                Self.logger.warning("ProjectStore: Failed to migrate database: \(error.localizedDescription, privacy: .public)")
-                // Fall back to legacy path if migration fails
-            }
-        }
-
-        // Open database (prefer hidden, fall back to legacy)
-        let dbPath: String
-        if FileManager.default.fileExists(atPath: hiddenDBPath.path) {
-            dbPath = hiddenDBPath.path
-        } else if FileManager.default.fileExists(atPath: legacyDBPath.path) {
-            dbPath = legacyDBPath.path
+    /// Compatibility initializer: creates only when the directory does not exist.
+    /// Existing stores are opened without implicit migration.
+    public convenience init(at url: URL) throws {
+        if FileManager.default.fileExists(atPath: url.path) {
+            try self.init(opening: url, access: .writable)
         } else {
-            // New project - use hidden path
-            dbPath = hiddenDBPath.path
+            try self.init(creating: url)
         }
-
-        var dbPointer: OpaquePointer?
-        let result = sqlite3_open_v2(
-            dbPath,
-            &dbPointer,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-
-        guard result == SQLITE_OK, let db = dbPointer else {
-            let message = String(cString: sqlite3_errmsg(dbPointer))
-            throw ProjectStoreError.databaseError(message: "Failed to open database: \(message)")
-        }
-
-        self.db = db
-
-        // Configure SQLite for performance
-        try execute("PRAGMA journal_mode = WAL")
-        try execute("PRAGMA synchronous = NORMAL")
-        try execute("PRAGMA foreign_keys = ON")
-        try execute("PRAGMA cache_size = -64000") // 64MB cache
-
-        // Initialize schema
-        try initializeSchema()
-
-        Self.logger.info("Opened project store at \(url.path, privacy: .public)")
     }
 
-    private static func migrateLegacyDatabaseWithCompanions(
-        legacyDBURL: URL,
-        hiddenDBURL: URL,
-        fileManager: FileManager = .default
-    ) throws {
-        var movedPairs: [(source: URL, destination: URL)] = []
+    public convenience init(creating url: URL) throws {
+        guard !FileManager.default.fileExists(atPath: url.path) else {
+            throw ProjectStoreError.databaseError(message: "Project already exists: \(url.path)")
+        }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard mkdir(url.path, 0o755) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         do {
-            let pairs = sqliteDatabaseMigrationPairs(legacyDBURL: legacyDBURL, hiddenDBURL: hiddenDBURL)
-            for pair in pairs where fileManager.fileExists(atPath: pair.source.path) {
-                if fileManager.fileExists(atPath: pair.destination.path) {
-                    try fileManager.removeItem(at: pair.destination)
-                }
-                try fileManager.moveItem(at: pair.source, to: pair.destination)
-                movedPairs.append(pair)
-            }
+            let lease = try Self.acquireWriterLease(at: url)
+            try self.init(projectURL: url, databaseURL: url.appendingPathComponent(".project.db"),
+                          access: .writable, snapshot: nil, lease: lease, create: true)
         } catch {
-            for pair in movedPairs.reversed() where fileManager.fileExists(atPath: pair.destination.path) {
-                if fileManager.fileExists(atPath: pair.source.path) {
-                    try? fileManager.removeItem(at: pair.destination)
-                } else {
-                    try? fileManager.moveItem(at: pair.destination, to: pair.source)
-                }
-            }
+            // Creation owns this newly created directory; no pre-existing data is removed.
+            try? FileManager.default.removeItem(at: url)
             throw error
         }
     }
 
-    private static func sqliteDatabaseMigrationPairs(
-        legacyDBURL: URL,
-        hiddenDBURL: URL
-    ) -> [(source: URL, destination: URL)] {
-        [(legacyDBURL, hiddenDBURL)]
-            + ["wal", "shm"].map { suffix in
-                (
-                    sqliteCompanionURL(for: legacyDBURL, suffix: suffix),
-                    sqliteCompanionURL(for: hiddenDBURL, suffix: suffix)
-                )
+    public convenience init(opening url: URL, access: ProjectAccessMode = .writable, validateBeforeWrite: (() throws -> Void)? = nil) throws {
+        let source = try Self.databaseURL(at: url)
+        let snapshot = try Self.snapshot(of: source)
+        do {
+            let inspection = try ProjectStore(projectURL: url, databaseURL: snapshot.database,
+                access: .readOnly, snapshot: snapshot.directory, lease: nil, create: false)
+            let version = try inspection.getSchemaVersion()
+            guard version == Self.schemaVersion else {
+                if version == 0 {
+                    throw ProjectStoreError.migrationRequired(found: version, supported: Self.schemaVersion)
+                }
+                throw ProjectStoreError.databaseError(message: "Unsupported project schema \(version); supported schema is \(Self.schemaVersion)")
             }
+            if access == .readOnly {
+                try self.init(projectURL: url, databaseURL: snapshot.database,
+                              access: access, snapshot: snapshot.directory, lease: nil, create: false)
+                // Both handles share the snapshot until this initializer returns. The
+                // inspection handle must not delete it before the retained connection.
+                inspection.retainsSnapshot = false
+            } else {
+                let lease = try Self.acquireWriterLease(at: url)
+                guard try Self.sourceFingerprint(source) == snapshot.fingerprint else {
+                    throw ProjectStoreError.databaseError(message: "Project changed during access validation. Reopen it.")
+                }
+                try validateBeforeWrite?()
+                try self.init(projectURL: url, databaseURL: source, access: access,
+                              snapshot: nil, lease: lease, create: false)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: snapshot.directory)
+            throw error
+        }
     }
 
-    private static func sqliteCompanionURL(for dbURL: URL, suffix: String) -> URL {
-        URL(fileURLWithPath: "\(dbURL.path)-\(suffix)")
+    /// Explicit schema/layout migration. The complete source database set is
+    /// retained in a recovery directory before publication. No open calls this.
+    public static func migrate(at url: URL, access: ProjectAccessMode = .writable, validateBeforeWrite: (() throws -> Void)? = nil) throws {
+        guard access == .writable else {
+            throw ProjectStoreError.databaseError(message: "Migration requires writable access")
+        }
+        guard !ownsWriterLease(at: url) else {
+            throw ProjectStoreError.databaseError(message: "Close project writers before migration")
+        }
+        let source = try databaseURL(at: url)
+        let snapshot = try snapshot(of: source)
+        defer { try? FileManager.default.removeItem(at: snapshot.directory) }
+        let inspection = try ProjectStore(projectURL: url, databaseURL: snapshot.database,
+            access: .readOnly, snapshot: nil, lease: nil, create: false)
+        let version = try inspection.getSchemaVersion()
+        guard (0...schemaVersion).contains(version) else {
+            throw ProjectStoreError.databaseError(message: "Unsupported project schema \(version)")
+        }
+        let lease = try acquireWriterLease(at: url)
+        defer { withExtendedLifetime(lease) {} }
+        guard try sourceFingerprint(source) == snapshot.fingerprint else {
+            throw ProjectStoreError.databaseError(message: "Project changed before migration")
+        }
+        try validateBeforeWrite?()
+        let started = Date()
+        let recovery = url.appendingPathComponent(".lungfish/migrations/\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        for suffix in snapshot.fingerprint.keys {
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: source.path + suffix),
+                to: recovery.appendingPathComponent("source.db" + suffix))
+        }
+        guard try sourceFingerprint(source) == snapshot.fingerprint,
+              try sourceFingerprint(recovery.appendingPathComponent("source.db")) == snapshot.fingerprint else {
+            throw ProjectStoreError.databaseError(message: "Project changed while retaining migration recovery data at \(recovery.path)")
+        }
+        // Migrate a private copy and verify it before publishing any database pages.
+        let staged = try ProjectStore(projectURL: url, databaseURL: snapshot.database,
+            access: .writable, snapshot: nil, lease: nil, create: false, migrate: true)
+        var integrity = ""
+        try staged.query("PRAGMA integrity_check") { stmt in
+            if let text = sqlite3_column_text(stmt, 0) { integrity = String(cString: text) }
+        }
+        guard integrity == "ok" else {
+            throw ProjectStoreError.databaseError(message: "Migration integrity check failed; recovery retained at \(recovery.path)")
+        }
+        let destination = url.appendingPathComponent(".project.db")
+        let provenanceURL = recovery.appendingPathComponent("provenance.json")
+        let inputFiles: [[String: Any]] = try snapshot.fingerprint.map { suffix, hash in
+            let input = URL(fileURLWithPath: source.path + suffix)
+            return ["path": input.path, "sha256": hash,
+                    "sizeBytes": try input.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0,
+                    "recoveryPath": recovery.appendingPathComponent("source.db" + suffix).path]
+        }
+        var provenance: [String: Any] = [
+            "schemaVersion": 1,
+            "workflow": "Lungfish.ProjectStore.migrate",
+            "workflowVersion": "1",
+            "toolVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development",
+            "invocation": "ProjectFile.migrate(at: URL(fileURLWithPath: \(String(reflecting: url.path))), access: .writable)",
+            "argv": ProcessInfo.processInfo.arguments,
+            "options": ["access": "writable", "sourceSchema": version, "targetSchema": schemaVersion, "retainRecovery": true],
+            "runtime": ["os": ProcessInfo.processInfo.operatingSystemVersionString, "sqlite": String(cString: sqlite3_libversion())],
+            "inputs": inputFiles, "outputPath": destination.path,
+            "startedAt": ISO8601DateFormatter().string(from: started),
+            "status": "prepared", "stderr": ""
+        ]
+        try JSONSerialization.data(withJSONObject: provenance, options: [.prettyPrinted, .sortedKeys])
+            .write(to: provenanceURL, options: .atomic)
+        let destinationExisted = FileManager.default.fileExists(atPath: destination.path)
+        var published = false
+        do {
+            // SQLite backup publishes the schema in one SQLite transaction. This
+            // preserves atomic recovery even when the destination has WAL files.
+            var target: OpaquePointer?
+            let result = sqlite3_open_v2(destination.path, &target,
+                SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
+            guard result == SQLITE_OK, let target else {
+                if let target { sqlite3_close_v2(target) }
+                throw ProjectStoreError.databaseError(message: "Cannot open migration destination")
+            }
+            do {
+                guard let backup = sqlite3_backup_init(target, "main", staged.db, "main") else {
+                    throw ProjectStoreError.databaseError(message: String(cString: sqlite3_errmsg(target)))
+                }
+                let step = sqlite3_backup_step(backup, -1)
+                let finish = sqlite3_backup_finish(backup)
+                guard step == SQLITE_DONE, finish == SQLITE_OK else {
+                    throw ProjectStoreError.databaseError(message: "Migration publication failed (SQLite \(step)/\(finish))")
+                }
+            } catch {
+                sqlite3_close_v2(target)
+                throw error
+            }
+            sqlite3_close_v2(target)
+            published = true
+            provenance["outputs"] = try sourceFingerprint(destination).map { suffix, hash in
+                let output = URL(fileURLWithPath: destination.path + suffix)
+                return ["path": output.path, "sha256": hash,
+                        "sizeBytes": try output.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0] as [String: Any]
+            }
+            provenance["status"] = "completed"
+            provenance["exitStatus"] = 0
+            provenance["wallTimeSeconds"] = Date().timeIntervalSince(started)
+            try JSONSerialization.data(withJSONObject: provenance, options: [.prettyPrinted, .sortedKeys])
+                .write(to: provenanceURL, options: .atomic)
+        } catch {
+            if !destinationExisted, !published {
+                for suffix in ["", "-wal", "-shm", "-journal"] {
+                    let partial = URL(fileURLWithPath: destination.path + suffix)
+                    if FileManager.default.fileExists(atPath: partial.path) {
+                        try? FileManager.default.removeItem(at: partial)
+                    }
+                }
+            }
+            throw ProjectStoreError.databaseError(message: "Migration did not finish: \(error.localizedDescription). Source recovery and prepared provenance retained at \(recovery.path)")
+        }
+    }
+
+    nonisolated(unsafe) private var retainsSnapshot = true
+
+    private init(projectURL: URL, databaseURL: URL, access: ProjectAccessMode,
+                 snapshot: URL?, lease: ProjectStoreWriterLease?, create: Bool, migrate: Bool = false) throws {
+        self.projectURL = projectURL
+        self.accessMode = access
+        self.snapshotDirectory = snapshot
+        self.writerLease = lease
+        var pointer: OpaquePointer?
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | (create ? SQLITE_OPEN_CREATE : 0)
+        let result = sqlite3_open_v2(databaseURL.path, &pointer, flags, nil)
+        guard result == SQLITE_OK, let pointer else {
+            let message = pointer.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite error"
+            if let pointer { sqlite3_close_v2(pointer) }
+            throw ProjectStoreError.databaseError(message: message)
+        }
+        self.db = pointer
+        if access == .readOnly {
+            try execute("PRAGMA query_only = ON")
+        } else {
+            // Validate again on the final connection before persistent pragmas.
+            let version = try getSchemaVersion()
+            guard create || version == Self.schemaVersion || (migrate && version == 0) else {
+                throw ProjectStoreError.databaseError(message: "Unsupported project schema \(version)")
+            }
+            try execute("PRAGMA foreign_keys = ON")
+            if create || migrate {
+                try withTransaction {
+                    try createTables()
+                    try setSchemaVersion(Self.schemaVersion)
+                }
+            }
+            try execute("PRAGMA journal_mode = WAL")
+            try execute("PRAGMA synchronous = NORMAL")
+        }
+    }
+
+    private static func databaseURL(at url: URL) throws -> URL {
+        for name in [".project.db", "project.db"] {
+            let candidate = url.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        throw ProjectStoreError.databaseError(message: "Missing project database in \(url.path)")
+    }
+
+    private static func sourceFingerprint(_ source: URL) throws -> [String: String] {
+        var result: [String: String] = [:]
+        for suffix in ["", "-wal", "-journal"] {
+            let path = source.path + suffix
+            guard FileManager.default.fileExists(atPath: path) else { continue }
+            let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+            defer { try? handle.close() }
+            var context = CC_SHA256_CTX()
+            CC_SHA256_Init(&context)
+            while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty {
+                _ = data.withUnsafeBytes { CC_SHA256_Update(&context, $0.baseAddress, CC_LONG(data.count)) }
+            }
+            var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+            CC_SHA256_Final(&digest, &context)
+            result[suffix] = digest.map { String(format: "%02x", $0) }.joined()
+        }
+        return result
+    }
+
+    private static func snapshot(of source: URL) throws -> (directory: URL, database: URL, fingerprint: [String: String]) {
+        let before = try sourceFingerprint(source)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LungfishProjectInspection-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let database = directory.appendingPathComponent("project.db")
+        do {
+            for suffix in before.keys {
+                let copy = URL(fileURLWithPath: database.path + suffix)
+                try FileManager.default.copyItem(at: URL(fileURLWithPath: source.path + suffix), to: copy)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: copy.path)
+            }
+            guard try sourceFingerprint(source) == before,
+                  try sourceFingerprint(database) == before else {
+                throw ProjectStoreError.databaseError(message: "Project changed during inspection. Reopen it when its writer is idle.")
+            }
+            return (directory, database, before)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    public static func ownsWriterLease(at url: URL) -> Bool {
+        guard let lease = writerLeases[url.resolvingSymlinksInPath().standardizedFileURL.path]?.value else { return false }
+        return (try? ProjectLockManager().readLock(at: lease.lockURL)) == lease.record
+    }
+
+    private static func acquireWriterLease(at url: URL) throws -> ProjectStoreWriterLease {
+        let key = url.resolvingSymlinksInPath().standardizedFileURL.path
+        if let existing = writerLeases[key]?.value {
+            guard (try? ProjectLockManager().readLock(at: existing.lockURL)) == existing.record else {
+                throw ProjectStoreError.databaseError(message: "Project writer lease changed; reopen read-only")
+            }
+            return existing
+        }
+        let manager = ProjectLockManager()
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let record = ProjectLockRecord.current(projectURL: url, mode: "write", toolName: "Lungfish ProjectStore", appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")
+        guard case .missing = try manager.readLockResult(at: lockURL),
+              try manager.acquireLock(record, to: lockURL) else {
+            throw ProjectStoreError.databaseError(message: "Project has a writer lock; open read-only or explicitly resolve the existing lock.")
+        }
+        let lease = ProjectStoreWriterLease(lockURL: lockURL, record: record)
+        writerLeases[key] = WeakProjectStoreWriterLease(value: lease)
+        return lease
     }
 
     deinit {
-        if let db = db {
-            // Checkpoint WAL to reclaim disk space before closing
-            var walFrameCount: Int32 = 0
-            var checkpointedFrames: Int32 = 0
-            sqlite3_wal_checkpoint_v2(
-                db,
-                nil,
-                SQLITE_CHECKPOINT_TRUNCATE,
-                &walFrameCount,
-                &checkpointedFrames
-            )
-            sqlite3_close_v2(db)
+        if let db { sqlite3_close_v2(db) }
+        if retainsSnapshot, let snapshotDirectory {
+            try? FileManager.default.removeItem(at: snapshotDirectory)
         }
     }
 
     // MARK: - Schema Management
-
-    private func initializeSchema() throws {
-        let currentVersion = try getSchemaVersion()
-
-        if currentVersion < Self.schemaVersion {
-            try createTables()
-            try setSchemaVersion(Self.schemaVersion)
-        }
-    }
 
     private func getSchemaVersion() throws -> Int {
         var version: Int = 0
@@ -914,7 +1087,7 @@ public final class ProjectStore {
     /// - Parameter mode: The checkpoint mode. Defaults to `.truncate` which
     ///   checkpoints all frames and truncates the WAL file to zero bytes.
     func checkpoint(mode: CheckpointMode = .truncate) {
-        guard let db = db else { return }
+        guard accessMode == .writable, let db = db else { return }
 
         let modeValue: Int32
         switch mode {
@@ -1132,6 +1305,7 @@ public struct StoredAnnotation: Sendable, Identifiable {
 /// Errors that can occur during project store operations.
 public enum ProjectStoreError: Error, LocalizedError, Sendable {
     case databaseError(message: String)
+    case migrationRequired(found: Int, supported: Int)
     case queryError(message: String)
     case sequenceNotFound(id: UUID)
     case versionNotFound(hash: String)
@@ -1142,6 +1316,8 @@ public enum ProjectStoreError: Error, LocalizedError, Sendable {
         switch self {
         case .databaseError(let message):
             return "Database error: \(message)"
+        case .migrationRequired(let found, let supported):
+            return "Project schema \(found) requires explicit migration to schema \(supported). Source recovery data will be retained."
         case .queryError(let message):
             return "Query error: \(message)"
         case .sequenceNotFound(let id):
@@ -1154,4 +1330,23 @@ public enum ProjectStoreError: Error, LocalizedError, Sendable {
             return "Serialization error: \(message)"
         }
     }
+}
+
+private final class ProjectStoreWriterLease: @unchecked Sendable {
+    let lockURL: URL
+    let record: ProjectLockRecord
+    init(lockURL: URL, record: ProjectLockRecord) {
+        self.lockURL = lockURL
+        self.record = record
+    }
+    deinit {
+        let manager = ProjectLockManager()
+        if (try? manager.readLock(at: lockURL)) == record {
+            try? manager.removeLockIfPresent(at: lockURL)
+        }
+    }
+}
+
+private struct WeakProjectStoreWriterLease {
+    weak var value: ProjectStoreWriterLease?
 }

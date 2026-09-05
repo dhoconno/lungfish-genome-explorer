@@ -13,6 +13,7 @@ public final class ProjectSession: Identifiable {
     public private(set) var documents: [LoadedDocument] = []
     public private(set) var activeDocument: LoadedDocument?
     public private(set) var workingDirectoryURL: URL?
+    public private(set) var isReadOnlyFilesystemFallback = false
 
     public init(id: UUID = UUID(), windowStateScope: WindowStateScope = WindowStateScope()) {
         self.id = id
@@ -20,15 +21,26 @@ public final class ProjectSession: Identifiable {
     }
 
     @discardableResult
-    public func openProject(at url: URL) throws -> ProjectFile {
+    public func openProject(at url: URL, access: ProjectAccessMode = .writable) throws -> ProjectFile {
         let standardizedURL = url.standardizedFileURL
-        let warning = ProjectOpenWarningState.evaluate(projectURL: standardizedURL)
-        let openedProject = try ProjectFile.open(at: standardizedURL)
+        let warning = ProjectStore.ownsWriterLease(at: standardizedURL)
+            ? ProjectOpenWarningState.unlocked(projectURL: standardizedURL)
+            : ProjectOpenWarningState.evaluate(projectURL: standardizedURL)
+        let databaseName = FileManager.default.fileExists(atPath: standardizedURL.appendingPathComponent(".project.db").path)
+            ? ".project.db" : "project.db"
+        let writablePaths = [standardizedURL.path,
+                             standardizedURL.appendingPathComponent(databaseName).path,
+                             standardizedURL.appendingPathComponent("metadata.json").path]
+        let effectiveAccess: ProjectAccessMode = access == .readOnly || warning.isReadOnlyRecommended
+            || writablePaths.contains(where: { !FileManager.default.isWritableFile(atPath: $0) })
+            ? .readOnly : .writable
+        let openedProject = try ProjectFile.open(at: standardizedURL, access: effectiveAccess)
         let loadedDocuments = try ProjectDocumentLoader.loadSequences(from: openedProject)
 
         projectURL = openedProject.url.standardizedFileURL
         workingDirectoryURL = openedProject.url.standardizedFileURL
         project = openedProject
+        isReadOnlyFilesystemFallback = false
         openWarningState = warning
         documents = loadedDocuments
         activeDocument = loadedDocuments.first
@@ -54,6 +66,7 @@ public final class ProjectSession: Identifiable {
         projectURL = createdProject.url.standardizedFileURL
         workingDirectoryURL = createdProject.url.standardizedFileURL
         project = createdProject
+        isReadOnlyFilesystemFallback = false
         openWarningState = .unlocked(projectURL: createdProject.url)
         documents = []
         activeDocument = nil
@@ -62,7 +75,17 @@ public final class ProjectSession: Identifiable {
     }
 
     public var isReadOnlyRecommended: Bool {
-        openWarningState.isReadOnlyRecommended
+        isReadOnlyFilesystemFallback || project?.accessMode == .readOnly || openWarningState.isReadOnlyRecommended
+    }
+
+    /// A rejected native project can still be browsed, but its root must not
+    /// become an implicitly writable plain folder through the fallback UI.
+    public func openReadOnlyFilesystemFallback(at url: URL) {
+        closeProject()
+        projectURL = url.standardizedFileURL
+        workingDirectoryURL = url.standardizedFileURL
+        openWarningState = ProjectOpenWarningState.evaluate(projectURL: url)
+        isReadOnlyFilesystemFallback = true
     }
 
     public func setActiveDocument(_ document: LoadedDocument?) {
@@ -70,6 +93,7 @@ public final class ProjectSession: Identifiable {
     }
 
     public func closeProject() {
+        isReadOnlyFilesystemFallback = false
         projectURL = nil
         workingDirectoryURL = nil
         project = nil

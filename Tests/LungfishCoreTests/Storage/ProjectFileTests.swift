@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishCore
 
 @MainActor
@@ -25,6 +26,152 @@ final class ProjectFileTests: XCTestCase {
             try? FileManager.default.removeItem(at: tempDir)
         }
         try await super.tearDown()
+    }
+
+    func testRejectedMissingMetadataLeavesProjectUnchanged() throws {
+        let url = tempDirectory.appendingPathComponent("Missing.lungfish")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try Data("invented payload".utf8).write(to: url.appendingPathComponent("sample.txt"))
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.open(at: url))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testRejectedFutureFormatLeavesProjectUnchanged() throws {
+        let url = tempDirectory.appendingPathComponent("Future.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Future")
+        let metadataURL = url.appendingPathComponent("metadata.json")
+        var metadata = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any])
+        metadata["formatVersion"] = "999.0"
+        metadata["futureField"] = "preserve me"
+        try JSONSerialization.data(withJSONObject: metadata).write(to: metadataURL)
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.open(at: url))
+        XCTAssertThrowsError(try ProjectFile.open(at: url, access: .readOnly))
+        XCTAssertThrowsError(try ProjectFile.migrate(at: url))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testRejectedFutureSchemaLeavesProjectUnchanged() throws {
+        let url = tempDirectory.appendingPathComponent("FutureSchema.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Future schema")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.appendingPathComponent(".project.db").path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 999", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.open(at: url))
+        XCTAssertThrowsError(try ProjectFile.open(at: url, access: .readOnly))
+        XCTAssertThrowsError(try ProjectFile.migrate(at: url))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testRejectedCorruptWriterLockLeavesProjectUnchanged() throws {
+        let url = tempDirectory.appendingPathComponent("Locked.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Locked")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("invalid lock".utf8).write(to: lockURL)
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.open(at: url))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testReadOnlyOpenAndRejectedMutationsLeaveAllProjectBytesUnchanged() throws {
+        let url = tempDirectory.appendingPathComponent("ReadOnly.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Read only")
+        let before = try projectSnapshot(url)
+        do {
+            let project = try ProjectFile.open(at: url, access: .readOnly)
+            XCTAssertEqual(project.accessMode, .readOnly)
+            XCTAssertTrue(try project.listSequences().isEmpty)
+            XCTAssertThrowsError(try project.save())
+            XCTAssertThrowsError(try project.addSequence(Sequence(name: "invented", alphabet: .dna, bases: "ACGT")))
+        }
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testReadOnlyOpenIncludesCommittedWALWithoutChangingSource() throws {
+        let url = tempDirectory.appendingPathComponent("LiveWAL.lungfish")
+        let writer = try ProjectFile.create(at: url, name: "Live WAL")
+        try writer.addSequence(Sequence(name: "invented", alphabet: .dna, bases: "ACGT"))
+        let before = try projectSnapshot(url)
+        do {
+            let reader = try ProjectFile.open(at: url, access: .readOnly)
+            XCTAssertEqual(try reader.listSequences().map(\.name), ["invented"])
+        }
+        XCTAssertEqual(try projectSnapshot(url), before)
+        withExtendedLifetime(writer) {}
+    }
+
+    func testExplicitMigrationRejectsReadOnlyAndCorruptLockWithoutMutation() throws {
+        let url = tempDirectory.appendingPathComponent("MigrationLock.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Migration lock")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        try Data("invalid lock".utf8).write(to: lockURL)
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.migrate(at: url, access: .readOnly))
+        XCTAssertThrowsError(try ProjectFile.migrate(at: url))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testOlderSchemaRequiresExplicitRecoverableMigration() throws {
+        let url = tempDirectory.appendingPathComponent("OldSchema.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Old schema")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.appendingPathComponent(".project.db").path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 0", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.open(at: url))
+        XCTAssertThrowsError(try ProjectFile.open(at: url, access: .readOnly))
+        XCTAssertEqual(try projectSnapshot(url), before)
+        try ProjectFile.migrate(at: url)
+        let opened = try ProjectFile.open(at: url, access: .readOnly)
+        XCTAssertEqual(opened.name, "Old schema")
+        let recoveryRoot = url.appendingPathComponent(".lungfish/migrations")
+        let recovery = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: recoveryRoot, includingPropertiesForKeys: nil).first)
+        XCTAssertEqual(try Data(contentsOf: recovery.appendingPathComponent("source.db")), before[".project.db"])
+    }
+
+    func testCreateCannotOverwriteExistingProject() throws {
+        let url = tempDirectory.appendingPathComponent("Existing.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Existing")
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.create(at: url, name: "Replacement"))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testMissingDatabaseIsNeverCreatedByOpen() throws {
+        let url = tempDirectory.appendingPathComponent("MissingDatabase.lungfish")
+        _ = try ProjectFile.create(at: url, name: "Missing database")
+        try FileManager.default.removeItem(at: url.appendingPathComponent(".project.db"))
+        let before = try projectSnapshot(url)
+        XCTAssertThrowsError(try ProjectFile.open(at: url))
+        XCTAssertThrowsError(try ProjectFile.open(at: url, access: .readOnly))
+        XCTAssertEqual(try projectSnapshot(url), before)
+    }
+
+    func testSharedWriterLeaseSurvivesClosingOneProjectHandle() throws {
+        let url = tempDirectory.appendingPathComponent("SharedWriter.lungfish")
+        var first: ProjectFile? = try ProjectFile.create(at: url, name: "Shared")
+        XCTAssertNotNil(first)
+        var second: ProjectFile? = try ProjectFile.open(at: url)
+        first = nil
+        XCTAssertTrue(ProjectStore.ownsWriterLease(at: url))
+        try second?.save()
+        second = nil
+        XCTAssertFalse(ProjectStore.ownsWriterLease(at: url))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectLockManager.lockURL(for: url).path))
+    }
+
+    private func projectSnapshot(_ url: URL) throws -> [String: Data] {
+        let paths = try FileManager.default.subpathsOfDirectory(atPath: url.path)
+        return try Dictionary(uniqueKeysWithValues: paths.map { path in
+            let item = url.appendingPathComponent(path)
+            let values = try item.resourceValues(forKeys: [.isDirectoryKey])
+            return (path, values.isDirectory == true ? Data() : try Data(contentsOf: item))
+        })
     }
 
     // MARK: - Project Creation Tests

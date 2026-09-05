@@ -83,6 +83,8 @@ public final class ProjectFile: ObservableObject {
     /// The underlying storage
     private let store: ProjectStore
 
+    public var accessMode: ProjectAccessMode { store.accessMode }
+
     /// Whether the project has unsaved changes
     @Published public private(set) var isDirty: Bool = false
 
@@ -137,7 +139,7 @@ public final class ProjectFile: ObservableObject {
         logger.info("Creating project at \(projectURL.path, privacy: .public)")
 
         // Create the project store (creates directory and database)
-        let store = try ProjectStore(at: projectURL)
+        let store = try ProjectStore(creating: projectURL)
 
         let now = Date()
         let project = ProjectFile(
@@ -162,7 +164,7 @@ public final class ProjectFile: ObservableObject {
     ///
     /// - Parameter url: The project directory URL
     /// - Returns: The opened project
-    public static func open(at url: URL) throws -> ProjectFile {
+    public static func open(at url: URL, access: ProjectAccessMode = .writable) throws -> ProjectFile {
         logger.info("Opening project at \(url.path, privacy: .public)")
 
         // Verify it's a directory
@@ -172,11 +174,18 @@ public final class ProjectFile: ObservableObject {
             throw ProjectFileError.notAProject(url: url)
         }
 
-        // Open the store
-        let store = try ProjectStore(at: url)
-
-        // Load metadata
+        // Compatibility must be established before acquiring a lease or opening
+        // SQLite writable; unknown fields/versions are never normalized on open.
         let metadata = try loadMetadata(from: url)
+        guard metadata.formatVersion == formatVersion else {
+            throw ProjectFileError.incompatibleVersion(found: metadata.formatVersion, required: formatVersion)
+        }
+        let store = try ProjectStore(opening: url, access: access) {
+            let current = try loadMetadata(from: url)
+            guard current == metadata else {
+                throw ProjectFileError.loadError(message: "Project metadata changed during access validation. Reopen the project.")
+            }
+        }
 
         let project = ProjectFile(
             url: url,
@@ -193,6 +202,19 @@ public final class ProjectFile: ObservableObject {
 
         logger.info("Project opened: \(metadata.name, privacy: .public)")
         return project
+    }
+
+    /// Performs a supported migration only when explicitly requested.
+    public static func migrate(at url: URL, access: ProjectAccessMode = .writable) throws {
+        let metadata = try loadMetadata(from: url)
+        guard metadata.formatVersion == formatVersion else {
+            throw ProjectFileError.incompatibleVersion(found: metadata.formatVersion, required: formatVersion)
+        }
+        try ProjectStore.migrate(at: url, access: access) {
+            guard try loadMetadata(from: url) == metadata else {
+                throw ProjectFileError.loadError(message: "Project metadata changed before migration. Reopen the project.")
+            }
+        }
     }
 
     // MARK: - Sequence Operations
@@ -343,6 +365,9 @@ public final class ProjectFile: ObservableObject {
     }
 
     private func saveMetadata() throws {
+        guard accessMode == .writable else {
+            throw ProjectFileError.saveError(message: "Project is open read-only")
+        }
         let metadata = ProjectMetadata(
             formatVersion: Self.formatVersion,
             name: name,
@@ -426,7 +451,7 @@ public final class ProjectFile: ObservableObject {
 // MARK: - ProjectMetadata
 
 /// Serializable project metadata.
-private struct ProjectMetadata: Codable {
+private struct ProjectMetadata: Codable, Equatable {
     let formatVersion: String
     let name: String
     let description: String?

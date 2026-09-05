@@ -431,11 +431,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Keep global working directory in sync with most recently activated project.
         workingDirectoryURL = projectURL
         mainWindowController = controller
-        // Migrate analysis results from legacy derivatives/ location to Analyses/.
-        // This is idempotent and safe to run on every project open.
-        if let count = try? AnalysesMigration.migrateProject(at: projectURL), count > 0 {
-            debugLog("openProject: Migrated \(count) analysis director\(count == 1 ? "y" : "ies") from derivatives/ to Analyses/")
-        }
+        // Opening is inspection/access resolution only. Legacy analysis migration
+        // must be invoked explicitly after writable access has been established.
 
         let result = projectOpenCoordinator.openProject(at: projectURL, using: controller.projectSession)
         switch result {
@@ -460,6 +457,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         case .filesystemFallback(let fallback):
             projectSessionRegistry.unregister(controller.projectSession)
             controller.projectSession.closeProject()
+            let isNativeProject = fallback.url.pathExtension == ProjectFile.fileExtension
+                || FileManager.default.fileExists(atPath: fallback.url.appendingPathComponent("metadata.json").path)
+                || FileManager.default.fileExists(atPath: fallback.url.appendingPathComponent(".project.db").path)
+                || FileManager.default.fileExists(atPath: fallback.url.appendingPathComponent("project.db").path)
+            if isNativeProject {
+                controller.projectSession.openReadOnlyFilesystemFallback(at: fallback.url)
+            }
             if let previousProjectURL,
                projectSessionRegistry
                 .sessions(forProjectURL: previousProjectURL)
@@ -468,9 +472,33 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     for: previousProjectURL
                 )
             }
-            controller.window?.title = "\(fallback.name) - \(LungfishAppIdentity.current.fullName)"
+            let accessSuffix = isNativeProject ? " (Read Only)" : ""
+            controller.window?.title = "\(fallback.name)\(accessSuffix) - \(LungfishAppIdentity.current.fullName)"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url)
+            if let error = fallback.error as? ProjectStoreError,
+               case .migrationRequired = error,
+               let window = controller.window {
+                let alert = NSAlert()
+                alert.messageText = "Project Migration Required"
+                alert.informativeText = "This project uses an older database schema. Migrating updates its database and retains the original database files and a provenance record in .lungfish/migrations inside the project. Close other writers before continuing."
+                alert.addButton(withTitle: "Migrate and Open")
+                alert.addButton(withTitle: "Keep Browsing Files")
+                alert.beginSheetModal(for: window) { [weak self, weak controller] response in
+                    guard response == .alertFirstButtonReturn, let self, let controller,
+                          controller.mainSplitViewController?.sidebarController.projectFolderURL?.standardizedFileURL == fallback.url.standardizedFileURL else { return }
+                    do {
+                        try ProjectFile.migrate(at: fallback.url)
+                        self.openProject(fallback.url, in: controller)
+                    } catch {
+                        let failure = NSAlert()
+                        failure.messageText = "Project Migration Did Not Finish"
+                        failure.informativeText = error.localizedDescription
+                        failure.addButton(withTitle: "OK")
+                        if let window = controller.window { failure.beginSheetModal(for: window) }
+                    }
+                }
+            }
         }
 
         // Opening is deliberately read-only with respect to project storage.

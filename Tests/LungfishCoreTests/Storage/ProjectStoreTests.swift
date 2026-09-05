@@ -60,27 +60,31 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(retrieved?.metadata?["strain"], "K-12")
     }
 
-    func testLegacyDatabaseMigrationMovesSQLiteCompanionFiles() throws {
-        let legacyDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LungfishLegacyProject-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: legacyDirectory) }
-        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
-
-        let legacyDBURL = legacyDirectory.appendingPathComponent("project.db")
-        try createLegacyProjectDatabase(at: legacyDBURL)
-        let legacyWALURL = sqliteCompanionURL(for: legacyDBURL, suffix: "wal")
-        let legacySHMURL = sqliteCompanionURL(for: legacyDBURL, suffix: "shm")
-        try Data("stale wal".utf8).write(to: legacyWALURL)
-        try Data("stale shm".utf8).write(to: legacySHMURL)
-
-        let migratedStore = try ProjectStore(at: legacyDirectory)
-        defer { _ = migratedStore }
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyDBURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyWALURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: legacySHMURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyDirectory.appendingPathComponent(".project.db").path))
-        XCTAssertEqual(try migratedStore.getMetadata(key: "legacy"), "metadata")
+    func testLegacyDatabaseMigrationIsExplicitAndRetainsSourceRecovery() throws {
+        let directory = tempDirectory.appendingPathComponent("Legacy")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let source = directory.appendingPathComponent("project.db")
+        try createLegacyProjectDatabase(at: source)
+        let before = try Data(contentsOf: source)
+        do {
+            let inspection = try ProjectStore(opening: directory, access: .readOnly)
+            XCTAssertEqual(try inspection.getMetadata(key: "legacy"), "metadata")
+        }
+        XCTAssertEqual(try Data(contentsOf: source), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent(".project.db").path))
+        try ProjectStore.migrate(at: directory)
+        XCTAssertEqual(try Data(contentsOf: source), before)
+        let migrated = try ProjectStore(opening: directory, access: .readOnly)
+        XCTAssertEqual(try migrated.getMetadata(key: "legacy"), "metadata")
+        let recovery = directory.appendingPathComponent(".lungfish/migrations")
+        let run = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: recovery, includingPropertiesForKeys: nil).first)
+        XCTAssertEqual(try Data(contentsOf: run.appendingPathComponent("source.db")), before)
+        let provenance = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: run.appendingPathComponent("provenance.json"))) as? [String: Any])
+        XCTAssertEqual(provenance["status"] as? String, "completed")
+        XCTAssertEqual(provenance["exitStatus"] as? Int, 0)
+        XCTAssertEqual(provenance["outputPath"] as? String, directory.appendingPathComponent(".project.db").path)
+        XCTAssertNotNil(provenance["inputs"])
+        XCTAssertNotNil(provenance["outputs"])
     }
 
     func testStoreSequenceRollsBackWhenCurrentStateInsertFails() throws {
