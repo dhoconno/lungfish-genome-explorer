@@ -439,6 +439,12 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
     // MARK: - Context Menu Actions
 
+    @objc private func contextRunAgain(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? OperationCenter.Item,
+              let source = WorkflowOperationsWindowController.replaySourceBundleURL(for: item) else { return }
+        WorkflowOperationsWindowController.showPreviousRun(at: source, routeContext: item.routeContext)
+    }
+
     @objc private func contextCopyCLICommand(_ sender: NSMenuItem) {
         guard let itemID = sender.representedObject as? UUID,
               let item = items.first(where: { $0.id == itemID }),
@@ -1499,6 +1505,13 @@ extension OperationsPanelViewController: NSMenuDelegate {
         let clickedRow = tableView.clickedRow
         guard clickedRow >= 0, clickedRow < items.count else { return }
         let item = items[clickedRow]
+
+        if WorkflowOperationsWindowController.replaySourceBundleURL(for: item) != nil {
+            let runAgain = NSMenuItem(title: "Run Again…", action: #selector(contextRunAgain(_:)), keyEquivalent: "")
+            runAgain.target = self
+            runAgain.representedObject = item
+            menu.addItem(runAgain)
+        }
 
         if item.cliCommand != nil {
             let copyCmd = NSMenuItem(title: "Copy CLI Command", action: #selector(contextCopyCLICommand(_:)), keyEquivalent: "")

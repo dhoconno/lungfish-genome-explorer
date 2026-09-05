@@ -56,32 +56,36 @@ struct AlignmentScientificActionReporter {
     let log: (_ id: UUID, _ message: String) -> Void
     let finish: (_ id: UUID, _ terminal: Terminal) -> Void
 
-    static let operationCenter = Self(
+    static let operationCenter = operationCenter(routeContext: nil)
+
+    static func operationCenter(routeContext: OperationRouteContext?, center: OperationCenter = .shared) -> Self {
+        Self(
         start: { title, detail in
-            OperationCenter.shared.start(title: title, detail: detail, operationType: .taxonomyExtraction)
+            center.start(title: title, detail: detail, operationType: .taxonomyExtraction, routeContext: routeContext)
         },
         installCancellation: { id, cancellation in
-            OperationCenter.shared.setCancelCallback(for: id, callback: cancellation)
+            center.setCancelCallback(for: id, callback: cancellation)
         },
         log: { id, message in
-            OperationCenter.shared.log(id: id, level: .info, message: message)
+            center.log(id: id, level: .info, message: message)
         },
         finish: { id, terminal in
             switch terminal {
             case .success(let result):
                 if result.finalURL.pathExtension.lowercased() == FASTQBundle.directoryExtension {
-                    _ = OperationCenter.shared.complete(id: id, detail: "Alignment read extraction published", bundleURLs: [result.finalURL])
+                    _ = center.complete(id: id, detail: "Alignment read extraction published", bundleURLs: [result.finalURL])
                 } else {
                     let finalURLs = Array(Set(result.outputURLs + [result.finalURL, result.provenanceURL])).sorted { $0.path < $1.path }
-                    _ = OperationCenter.shared.complete(id: id, detail: "Alignment read extraction published", outputURLs: finalURLs)
+                    _ = center.complete(id: id, detail: "Alignment read extraction published", outputURLs: finalURLs)
                 }
             case .failure(let message):
-                _ = OperationCenter.shared.fail(id: id, detail: "Alignment read extraction failed", errorMessage: message)
+                _ = center.fail(id: id, detail: "Alignment read extraction failed", errorMessage: message)
             case .cancelled:
-                OperationCenter.shared.cancel(id: id)
+                center.acknowledgeCancellation(id: id)
             }
         }
     )
+    }
 }
 
 /// Scientific extraction boundary for immutable alignment evidence. Workflow

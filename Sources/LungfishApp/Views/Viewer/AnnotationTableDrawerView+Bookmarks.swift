@@ -148,49 +148,29 @@ extension AnnotationTableDrawerView {
             return
         }
 
+        let sourceURLs = bookmarkedVariantExportSourceURLs(from: index)
+        let selectedRows = bookmarkedResults.map {
+            BookmarkedVariantExportService.Row(trackID: $0.trackId, rowID: $0.variantRowId,
+                name: $0.name, type: $0.type, chromosome: $0.chromosome, start: $0.start,
+                ref: $0.ref, alt: $0.alt, quality: $0.quality, filter: $0.filter)
+        }
         let panel = ViewerFilePanelFactory.bookmarkedVariantsExportPanel()
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
 
-            let startedAt = Date()
-            var lines: [String] = []
-            lines.append(["ID", "Type", "Chrom", "Pos", "Ref", "Alt", "Quality", "Filter"].joined(separator: "\t"))
-            for v in bookmarkedResults {
-                let pos = v.start + 1  // VCF is 1-based
-                let qual = v.quality.map { $0 < 0 ? "." : String(format: "%.1f", $0) } ?? "."
-                lines.append([
-                    v.name, v.type, v.chromosome, "\(pos)",
-                    v.ref ?? ".", v.alt ?? ".", qual, v.filter ?? ".",
-                ].joined(separator: "\t"))
-            }
-
             do {
-                try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
-                let sourceURLs = self.bookmarkedVariantExportSourceURLs(from: index)
-                try ScientificFileExportProvenance.write(.init(
-                    workflowName: "lungfish app bookmarked variant export",
-                    sourceURLs: sourceURLs,
-                    outputURL: url,
-                    outputFormat: .text,
-                    argv: self.bookmarkedVariantExportArgv(sourceURLs: sourceURLs, outputURL: url),
-                    explicitOptions: [
-                        "sourceVariantDatabasePaths": .array(sourceURLs.map { .file($0) }),
-                        "outputPath": .file(url),
-                    ],
-                    defaults: [
-                        "outputFormat": .string("tsv"),
-                    ],
-                    resolved: [
-                        "variantCount": .integer(bookmarkedResults.count),
-                    ],
-                    startedAt: startedAt
-                ))
+                try BookmarkedVariantExportService.export(.init(sourceURLs: sourceURLs, rows: selectedRows, outputURL: url))
                 bookmarkLogger.info("Exported \(bookmarkedResults.count) bookmarked variants to \(url.lastPathComponent)")
             } catch {
-                try? FileManager.default.removeItem(at: url)
                 bookmarkLogger.error("Bookmark export failed: \(error)")
+                let alert = NSAlert()
+                alert.messageText = "Bookmark Export Failed"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.beginSheetModal(for: window)
             }
         }
     }
@@ -202,15 +182,6 @@ extension AnnotationTableDrawerView {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             return seen.insert(url.path).inserted ? url : nil
         }
-    }
-
-    private func bookmarkedVariantExportArgv(sourceURLs: [URL], outputURL: URL) -> [String] {
-        var argv = ["Lungfish Genome Explorer", "export-bookmarked-variants"]
-        for sourceURL in sourceURLs {
-            argv.append(contentsOf: ["--variant-database", sourceURL.path])
-        }
-        argv.append(contentsOf: ["--output", outputURL.path])
-        return argv
     }
 
     // MARK: - Bookmark Smart Token

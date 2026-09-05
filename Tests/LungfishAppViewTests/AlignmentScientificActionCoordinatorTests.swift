@@ -8,6 +8,18 @@ import XCTest
 @testable import LungfishWorkflow
 
 @MainActor final class AlignmentScientificActionCoordinatorTests: XCTestCase {
+    func testOperationReporterRetainsCapturedWindowAndProjectRoute() {
+        let center = OperationCenter()
+        let scope = WindowStateScope()
+        let origin = OperationRouteContext(projectURL: URL(fileURLWithPath: "/tmp/origin.lungfish"), windowStateScope: scope)
+        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: origin, center: center)
+        let id = reporter.start("Invented read extraction", "Captured source")
+        XCTAssertEqual(center.items.first(where: { $0.id == id })?.routeContext, origin)
+        reporter.finish(id, .failure("Invented test failure"))
+        XCTAssertEqual(center.items.first(where: { $0.id == id })?.routeContext, origin)
+        XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .failed)
+    }
+
     private func context(
         _ source: AlignmentSourceReadResolution = .bamFallback,
         outputCapability: AlignmentOutputCapability = .projectDerivedRoot(URL(fileURLWithPath: "/output"))

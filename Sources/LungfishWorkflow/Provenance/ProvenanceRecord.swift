@@ -378,7 +378,7 @@ public enum FileRole: String, Codable, Sendable {
 // MARK: - Canonical Provenance Conversion
 
 extension WorkflowRun {
-    public func canonicalEnvelope() -> ProvenanceEnvelope {
+    public func canonicalEnvelope(resolvedDefaults: [String: ParameterValue] = [:]) -> ProvenanceEnvelope {
         let firstStep = steps.first
         let convertedSteps = steps.map(ProvenanceStep.init(stepExecution:))
         let allFiles = convertedSteps.flatMap { $0.inputs + $0.outputs }
@@ -402,7 +402,7 @@ extension WorkflowRun {
             argv: firstStep?.command ?? [],
             durableReplayArgv: firstStep?.durableReplayArgv,
             reproducibleCommand: firstStep?.commandString,
-            options: ProvenanceOptions(explicit: parameters),
+            options: ProvenanceOptions(explicit: parameters, resolvedDefaults: resolvedDefaults),
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: appVersion,
                 operatingSystemVersion: hostOS,
@@ -467,8 +467,8 @@ extension WorkflowRun {
 }
 
 extension ProvenanceEnvelope {
-    public func legacyWorkflowRun() -> WorkflowRun {
-        if let legacyRun {
+    public func legacyWorkflowRun(preferCanonicalSteps: Bool = false) -> WorkflowRun {
+        if let legacyRun, !preferCanonicalSteps {
             return legacyRun
         }
 
@@ -484,6 +484,7 @@ extension ProvenanceEnvelope {
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: legacyCommand(argv: argv, reproducibleCommand: reproducibleCommand),
+                    durableReplayArgv: durableReplayArgv,
                     runtimeIdentity: runtimeIdentity,
                     inputs: files.filter { $0.role == .input }.map(FileRecord.init(provenanceFile:)),
                     outputs: fallbackOutputs.map(FileRecord.init(provenanceFile:)),

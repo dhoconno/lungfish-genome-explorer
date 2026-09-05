@@ -285,20 +285,21 @@ extension AppDelegate {
     // MARK: - Export FASTQ
 
     @objc func exportFASTQ(_ sender: Any?) {
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController else {
+        let controller = activeMainWindowController(sender: sender)
+        guard let sidebarController = controller?.mainSplitViewController?.sidebarController else {
             showExportError(message: "No sidebar available.")
             return
         }
 
         let rawSelection = sidebarController.selectedItems()
-        let exportSelection = FASTQExportSelection.partition(rawSelection)
+        let exportSelection = SidebarExportSelection(rawSelection, format: .fastq)
         let items = exportSelection.exportable
         guard !items.isEmpty else {
             showExportError(message: "No FASTQ datasets selected. Select one or more FASTQ bundles in the sidebar.")
             return
         }
 
-        guard let window = mainWindowController?.window else { return }
+        guard let window = controller?.window else { return }
 
         // A mixed selection with SOME exportable items: proceed with the
         // exportable subset, but tell the user exactly what got skipped

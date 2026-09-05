@@ -19,200 +19,163 @@ final class CondaLockfileServiceTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testLockfilePinsPluginPackRequirementsAndIsCondaLockCompatible() throws {
-        let pack = PluginPack(
-            id: "read-mapping",
-            name: "Read Mapping",
-            description: "Mapping",
-            sfSymbol: "map",
-            packages: ["minimap2", "bwa-mem2"],
-            category: "Mapping",
-            requirements: [
-                PackToolRequirement(
-                    id: "minimap2",
-                    displayName: "minimap2",
-                    environment: "minimap2",
-                    installPackages: ["bioconda::minimap2=2.30=hba9b596_0"],
-                    executables: ["minimap2"],
-                    version: "2.30"
-                ),
-                PackToolRequirement(
-                    id: "bwa-mem2",
-                    displayName: "BWA-MEM2",
-                    environment: "bwa-mem2",
-                    installPackages: ["bioconda::bwa-mem2=2.3=he512de6_0"],
-                    executables: ["bwa-mem2"],
-                    version: "2.3"
-                ),
-            ]
-        )
-        let output = tempRoot.appendingPathComponent("read-mapping-lock.yml")
+    private func fixturePack() -> PluginPack {
+        PluginPack(id: "fixture", name: "Fixture", description: "Local identity fixture",
+                   sfSymbol: "wrench", packages: [], category: "Testing", requirements: [
+            PackToolRequirement(id: "fixture-tool", displayName: "Fixture Tool", environment: "renamed-runtime",
+                installPackages: ["conda-forge::python=3.12=fixture_0", "conda-forge::make=4.4=fixture_1"],
+                executables: ["fixture"], fallbackExecutablePaths: ["fixture": ["bin/custom"]],
+                version: "fixture-v1", license: "MIT", sourceURL: "https://example.invalid/source",
+                sourceOverlay: .init(kind: .bracken, version: "fixture-v1",
+                    sourceURL: URL(string: "https://example.invalid/fixture.tar.gz")!,
+                    sha256: String(repeating: "a", count: 64)))
+        ], postInstallHooks: [.init(description: "Fixture setup", environment: "renamed-runtime",
+            command: ["fixture-setup", "--mode", "literal value"], requiresNetwork: false)])
+    }
 
-        let result = try CondaLockfileService().writeLockfile(
-            for: pack,
-            to: output,
-            commandLine: ["lungfish", "conda", "lock", "--pack", "read-mapping", "--output", output.path]
-        )
-
-        XCTAssertEqual(result.lockfileURL, output)
-        let yaml = try String(contentsOf: output, encoding: .utf8)
-        XCTAssertTrue(yaml.contains("metadata:"))
-        XCTAssertTrue(yaml.contains("content_hash:"))
-        XCTAssertTrue(yaml.contains("package:"))
-        XCTAssertTrue(yaml.contains("name: minimap2"))
-        // parsePackageSpec now splits channel::name=version=build into three parts,
-        // so version and build are emitted as separate, conda-lock-compatible fields.
-        XCTAssertTrue(yaml.contains("version: \"2.30\""))
-        XCTAssertTrue(yaml.contains("build: \"hba9b596_0\""))
-        XCTAssertTrue(yaml.contains("manager: conda"))
-        XCTAssertTrue(yaml.contains("name: bwa-mem2"))
-        XCTAssertTrue(yaml.contains("version: \"2.3\""))
-        XCTAssertTrue(yaml.contains("build: \"he512de6_0\""))
-        XCTAssertTrue(yaml.contains("category: main"))
+    func testExportRetainsCompleteRequestedIdentityWithoutClaimingResolution() throws {
+        let pack = fixturePack()
+        let output = tempRoot.appendingPathComponent("requested-environment.json")
+        let result = try CondaLockfileService(platforms: ["osx-arm64", "linux-64"], channels: ["conda-forge"])
+            .writeLockfile(for: pack, to: output, commandLine: ["lungfish-cli", "conda", "lock"])
+        let data = try Data(contentsOf: output)
+        let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        XCTAssertNotNil(document, "Export must use the versioned Lungfish requested-specification contract")
+        guard let document else { return }
+        XCTAssertEqual(document["kind"] as? String, "lungfish.conda-request-specification")
+        XCTAssertEqual(document["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(document["resolution"] as? String, "unresolved")
+        XCTAssertEqual(document["platforms"] as? [String], ["osx-arm64", "linux-64"])
+        XCTAssertEqual(document["channels"] as? [String], ["conda-forge"])
+        let requirements = try XCTUnwrap(document["requirements"])
+        let decoded = try JSONDecoder().decode([PackToolRequirement].self,
+            from: JSONSerialization.data(withJSONObject: requirements))
+        XCTAssertEqual(decoded, pack.toolRequirements)
+        let hooks = try XCTUnwrap(document["postInstallHooks"])
+        XCTAssertEqual(try JSONDecoder().decode([PostInstallHook].self,
+            from: JSONSerialization.data(withJSONObject: hooks)), pack.postInstallHooks)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
     }
 
-    /// R3-R3ML-16: parsePackageSpec did `withoutChannel.split(separator: "=",
-    /// maxSplits: 1).map(String.init)` then unconditionally indexed `parts[0]`.
-    /// String.split on an empty string returns [], not [""], so parts[0] traps if
-    /// spec is empty. The call site is
-    /// `parsePackageSpec(requirement.installPackages.first ?? requirement.id)`, so an
-    /// empty `id` with no `installPackages` (installPackages can legitimately be []
-    /// per PluginPack.swift's PackToolRequirement.init default) reaches the crash.
-    func testWriteLockfileDoesNotCrashOnEmptyRequirementIDAndNoInstallPackages() throws {
-        let pack = PluginPack(
-            id: "edge-case-pack",
-            name: "Edge Case Pack",
-            description: "Pack with an empty requirement id and no installPackages",
-            sfSymbol: "wrench",
-            packages: [],
-            category: "Testing",
-            requirements: [
-                PackToolRequirement(
-                    id: "",
-                    displayName: "Empty ID Tool",
-                    environment: "empty-id-tool",
-                    installPackages: nil,
-                    executables: ["empty-id-tool"]
-                ),
-            ]
-        )
-        let output = tempRoot.appendingPathComponent("edge-case-lock.yml")
-
-        let result = try CondaLockfileService().writeLockfile(
-            for: pack,
-            to: output,
-            commandLine: ["lungfish", "conda", "lock", "--pack", "edge-case-pack", "--output", output.path]
-        )
-
-        XCTAssertEqual(result.lockfileURL, output)
-        let yaml = try String(contentsOf: output, encoding: .utf8)
-        // The empty spec falls back to `(spec, nil)` -- name is the (empty) spec
-        // itself, so the emitted line is "  - name: " with nothing after the colon.
-        XCTAssertTrue(yaml.contains("  - name: \n"), "expected an empty-but-present name line, got:\n\(yaml)")
+    func testRequestedSpecificationRoundTripsAndRejectsUnsupportedSchemaAndPlatforms() throws {
+        let service = CondaLockfileService(platforms: ["osx-arm64", "linux-64"])
+        let output = tempRoot.appendingPathComponent("roundtrip.json")
+        _ = try service.writeLockfile(for: fixturePack(), to: output, commandLine: [])
+        let specification = try service.readSpecification(from: output)
+        XCTAssertEqual(specification.requirements, fixturePack().toolRequirements)
+        XCTAssertEqual(specification.postInstallHooks, fixturePack().postInstallHooks)
+        XCTAssertEqual(specification.platforms, ["osx-arm64", "linux-64"])
+        let roundtrip = try JSONDecoder().decode(CondaRequestedEnvironmentSpecification.self,
+            from: JSONEncoder().encode(specification))
+        XCTAssertEqual(roundtrip, specification)
+        var document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: output)) as? [String: Any])
+        for (key, value) in [("schemaVersion", 999 as Any), ("platforms", ["unsupported-platform"] as Any), ("resolution", "resolved" as Any)] {
+            var malformed = document
+            malformed[key] = value
+            try JSONSerialization.data(withJSONObject: malformed).write(to: output)
+            XCTAssertThrowsError(try service.readSpecification(from: output))
+        }
+        document["requirements"] = []
+        try JSONSerialization.data(withJSONObject: document).write(to: output)
+        XCTAssertThrowsError(try service.readSpecification(from: output))
     }
 
-    func testInstallFromLockfilePlansExactEnvironmentCreatesAndWritesProvenance() async throws {
-        let customCondaRoot = tempRoot.appendingPathComponent("conda", isDirectory: true)
-        let lockfile = customCondaRoot
-            .appendingPathComponent("locks", isDirectory: true)
-            .appendingPathComponent("lock.yml")
-        try FileManager.default.createDirectory(
-            at: lockfile.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try """
-        version: 1
-        metadata:
-          pack: read-mapping
-          platforms:
-            - osx-arm64
-        package:
-          - name: minimap2
-            version: "2.30"
-            manager: conda
-            platform: osx-arm64
-            dependencies: {}
-          - name: bwa-mem2
-            version: "2.3"
-            manager: conda
-            platform: osx-arm64
-            dependencies: {}
+    func testMultipleExportsRetainIndependentProvenance() throws {
+        let service = CondaLockfileService()
+        let first = try service.writeLockfile(for: fixturePack(), to: tempRoot.appendingPathComponent("first.json"), commandLine: ["first export"])
+        let firstReceipt = try Data(contentsOf: first.provenanceURL)
+        let second = try service.writeLockfile(for: fixturePack(), to: tempRoot.appendingPathComponent("second.json"), commandLine: ["second export"])
+        XCTAssertNotEqual(first.provenanceURL, second.provenanceURL)
+        XCTAssertEqual(try Data(contentsOf: first.provenanceURL), firstReceipt)
+    }
 
-        """.write(to: lockfile, atomically: true, encoding: .utf8)
+    func testFailedReceiptPublicationRestoresPreviousSpecificationAndReceipt() throws {
+        let output = tempRoot.appendingPathComponent("previous.json")
+        let old = try CondaLockfileService().writeLockfile(for: fixturePack(), to: output, commandLine: ["old export"])
+        let oldOutput = try Data(contentsOf: output)
+        let oldReceipt = try Data(contentsOf: old.provenanceURL)
+        var service = CondaLockfileService(platforms: ["linux-64"])
+        service.publicationDidOccur = { url in
+            if url == old.provenanceURL { throw CocoaError(.fileWriteUnknown) }
+        }
+        XCTAssertThrowsError(try service.writeLockfile(for: fixturePack(), to: output, commandLine: ["new export"]))
+        XCTAssertEqual(try Data(contentsOf: output), oldOutput)
+        XCTAssertEqual(try Data(contentsOf: old.provenanceURL), oldReceipt)
+    }
 
+    func testFailedExportPreservesNewerWriterAndRetainsRecoverablePreviousPair() throws {
+        let output = tempRoot.appendingPathComponent("concurrent.json")
+        let old = try CondaLockfileService().writeLockfile(for: fixturePack(), to: output, commandLine: ["old export"])
+        let oldOutput = try Data(contentsOf: output)
+        let oldReceipt = try Data(contentsOf: old.provenanceURL)
+        let newer = Data("newer writer's bytes".utf8)
+        var service = CondaLockfileService(platforms: ["linux-64"])
+        service.publicationDidOccur = { url in
+            if url == old.provenanceURL {
+                try newer.write(to: output, options: .atomic)
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        do {
+            _ = try service.writeLockfile(for: fixturePack(), to: output, commandLine: ["failed export"])
+            XCTFail("Injected receipt failure must fail export")
+        } catch let recovery as ScientificPublicationRecoveryRequired {
+            defer { for url in recovery.recoveryURLs { try? FileManager.default.removeItem(at: url) } }
+            let recoveryRoot = try XCTUnwrap(recovery.recoveryURLs.first)
+            let files = try FileManager.default.contentsOfDirectory(at: recoveryRoot, includingPropertiesForKeys: nil)
+            let bytes = files.compactMap { try? Data(contentsOf: $0) }
+            XCTAssertTrue(bytes.contains(oldOutput), "Previous specification must remain recoverable")
+            XCTAssertTrue(bytes.contains(oldReceipt), "Previous receipt must remain recoverable")
+        } catch {
+            XCTFail("Expected explicit recoverable publication failure, got \(error)")
+        }
+        XCTAssertEqual(try Data(contentsOf: output), newer)
+    }
+
+    func testInvalidEmptyRequirementIsRejectedBeforePublishing() throws {
+        let pack = PluginPack(id: "fixture", name: "Fixture", description: "", sfSymbol: "wrench",
+            packages: [], category: "Testing", requirements: [
+                PackToolRequirement(id: "", displayName: "Invalid", environment: "runtime",
+                    installPackages: [], executables: [])])
+        let output = tempRoot.appendingPathComponent("invalid.json")
+        XCTAssertThrowsError(try CondaLockfileService().writeLockfile(for: pack, to: output, commandLine: []))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testExactInstallRejectsRequestedSpecificationWithoutInvokingSolver() async throws {
+        let output = tempRoot.appendingPathComponent("requested.json")
+        _ = try CondaLockfileService().writeLockfile(for: fixturePack(), to: output, commandLine: [])
+        try await assertExactInstallRejected(output)
+    }
+
+    func testExactInstallRejectsLegacyExternalAndMalformedDocumentsWithoutMutation() async throws {
+        let documents = [
+            "version: 1\npackage:\n  - name: python\n    version: \"3.12\"\n    build: \"fixture_0\"\n",
+            "{\"kind\":\"lungfish.conda-request-specification\",\"schemaVersion\":999}",
+            "this is not a supported environment identity"
+        ]
+        for (index, content) in documents.enumerated() {
+            let input = tempRoot.appendingPathComponent("unsupported-\(index).txt")
+            try content.write(to: input, atomically: true, encoding: .utf8)
+            try await assertExactInstallRejected(input)
+        }
+    }
+
+    private func assertExactInstallRejected(_ input: URL) async throws {
+        let root = tempRoot.appendingPathComponent("not-created-\(UUID().uuidString)")
         let recorder = RecordingCondaLockInstaller()
-        let result = try await CondaLockfileService().install(
-            fromLockfile: lockfile,
-            condaRoot: customCondaRoot,
-            installer: recorder,
-            commandLine: ["lungfish", "conda", "install", "--from-lockfile", lockfile.path]
-        )
-
+        do {
+            _ = try await CondaLockfileService().install(fromLockfile: input, condaRoot: root,
+                installer: recorder, commandLine: ["lungfish-cli", "conda", "install", "--from-lockfile", input.path])
+            XCTFail("Exact reconstruction must reject unsupported locks instead of solving a reduced specification")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("exact reconstruction"), error.localizedDescription)
+        }
         let calls = await recorder.calls
-        XCTAssertEqual(calls, [
-            .init(environment: "minimap2", packageSpecs: ["minimap2=2.30"], condaRoot: customCondaRoot),
-            .init(environment: "bwa-mem2", packageSpecs: ["bwa-mem2=2.3"], condaRoot: customCondaRoot),
-        ])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
-        XCTAssertTrue(result.provenanceURL.path.hasPrefix(customCondaRoot.standardizedFileURL.path))
-
-        let minimap2Env = customCondaRoot.appendingPathComponent("envs/minimap2", isDirectory: true)
-        let bwaEnv = customCondaRoot.appendingPathComponent("envs/bwa-mem2", isDirectory: true)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: minimap2Env.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: bwaEnv.path))
-
-        let provenance = try JSONDecoder.lungfishProvenance.decode(
-            WorkflowRun.self,
-            from: Data(contentsOf: result.provenanceURL)
-        )
-        XCTAssertEqual(provenance.parameters["lockfilePath"]?.stringValue, lockfile.standardizedFileURL.path)
-        XCTAssertTrue(provenance.parameters["lockfilePath"]?.stringValue?.hasPrefix(customCondaRoot.standardizedFileURL.path) == true)
-        XCTAssertEqual(provenance.parameters["destinationCondaRoot"]?.stringValue, customCondaRoot.standardizedFileURL.path)
-        XCTAssertEqual(
-            provenance.steps.first?.outputs.map(\.path).sorted(),
-            [bwaEnv.path, minimap2Env.path].sorted()
-        )
+        XCTAssertTrue(calls.isEmpty, "Unsupported reconstruction must never invoke a fresh solver")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
     }
 
-    func testInstallFromLockfileWithBuildLineInstallsFullThreePartSpec() async throws {
-        let customCondaRoot = tempRoot.appendingPathComponent("conda", isDirectory: true)
-        let lockfile = customCondaRoot
-            .appendingPathComponent("locks", isDirectory: true)
-            .appendingPathComponent("lock.yml")
-        try FileManager.default.createDirectory(
-            at: lockfile.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try """
-        version: 1
-        metadata:
-          pack: read-mapping
-          platforms:
-            - osx-arm64
-        package:
-          - name: minimap2
-            version: "2.30"
-            build: "hba9b596_0"
-            manager: conda
-            platform: osx-arm64
-            dependencies: {}
-
-        """.write(to: lockfile, atomically: true, encoding: .utf8)
-
-        let recorder = RecordingCondaLockInstaller()
-        _ = try await CondaLockfileService().install(
-            fromLockfile: lockfile,
-            condaRoot: customCondaRoot,
-            installer: recorder,
-            commandLine: ["lungfish", "conda", "install", "--from-lockfile", lockfile.path]
-        )
-
-        let calls = await recorder.calls
-        XCTAssertEqual(calls, [
-            .init(environment: "minimap2", packageSpecs: ["minimap2=2.30=hba9b596_0"], condaRoot: customCondaRoot),
-        ])
-    }
 }
 
 private actor RecordingCondaLockInstaller: CondaLockInstalling {

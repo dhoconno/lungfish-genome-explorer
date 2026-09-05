@@ -478,10 +478,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     }
                 }}
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Deleted \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")"
-                    )
+                    ) else { return }
                     do {
                         try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
                     } catch {
@@ -491,14 +491,15 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             } catch LungfishCLIRunner.RunError.cancelled {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotations cancelled")
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
+                    guard OperationCenter.shared.fail(
                         id: opID,
                         detail: "Delete Annotations failed",
                         errorMessage: error.localizedDescription
-                    )
+                    ) else { return }
                     self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
                 }}
             }
@@ -576,10 +577,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                     if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
                     }
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Deleted annotation track \(trackName)"
-                    )
+                    ) else { return }
                     do {
                         try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
                     } catch {
@@ -589,14 +590,15 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             } catch LungfishCLIRunner.RunError.cancelled {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.log(id: opID, level: .info, message: "Delete Annotation Track cancelled")
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
+                    guard OperationCenter.shared.fail(
                         id: opID,
                         detail: "Delete Annotation Track failed",
                         errorMessage: error.localizedDescription
-                    )
+                    ) else { return }
                     self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
                 }}
             }

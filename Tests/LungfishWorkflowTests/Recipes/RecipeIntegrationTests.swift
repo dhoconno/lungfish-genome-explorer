@@ -297,9 +297,10 @@ final class RecipeIntegrationTests: XCTestCase {
               await toolAvailable(.deacon) else {
             try ToolAvailability.skipOrFail("Required tools not available")
         }
-        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
+        guard let installedDatabase = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
             try ToolAvailability.skipOrFail("Deacon human-read removal index not installed")
         }
+        _ = try ConformanceFixtures.installedManagedDatabaseFile(id: "deacon-panhuman", path: installedDatabase)
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let recipes = RecipeRegistryV2.builtinRecipes()
@@ -345,9 +346,10 @@ final class RecipeIntegrationTests: XCTestCase {
               await toolAvailable(.deacon) else {
             try ToolAvailability.skipOrFail("Required tools not available")
         }
-        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
+        guard let installedDatabase = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
             try ToolAvailability.skipOrFail("Deacon human-read removal index not installed")
         }
+        _ = try ConformanceFixtures.installedManagedDatabaseFile(id: "deacon-panhuman", path: installedDatabase)
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let recipes = RecipeRegistryV2.builtinRecipes()

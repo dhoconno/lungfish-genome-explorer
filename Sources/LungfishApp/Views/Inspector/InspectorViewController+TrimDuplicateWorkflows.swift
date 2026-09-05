@@ -204,6 +204,9 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
+                        let detail = tracker.completedTrackName.map { "Adopted alignment track \($0)" }
+                            ?? "Primer trim complete"
+                        guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                         if let self, let split = self.parent as? MainSplitViewController {
                             split.sidebarController.requestReloadFromFilesystem()
                             do {
@@ -215,27 +218,23 @@ extension InspectorViewController {
                                 )
                             }
                         }
-
-                        let detail = tracker.completedTrackName.map { "Adopted alignment track \($0)" }
-                            ?? "Primer trim complete"
-                        _ = OperationCenter.shared.complete(id: opID, detail: detail)
                     }
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
                     }
                 }
             } catch {
                 let message = tracker.failureMessage ?? error.localizedDescription
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
+                        guard OperationCenter.shared.fail(
                             id: opID,
                             detail: message,
                             errorMessage: message
-                        )
+                        ) else { return }
                         self?.presentSimpleAlert(
                             title: "Primer Trim Failed",
                             message: message
@@ -368,10 +367,10 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: operationID,
                             detail: "Created annotation track \"\(result.annotationTrackInfo.name)\"."
-                        )
+                        ) else { return }
                         guard let self,
                               let split = self.parent as? MainSplitViewController else { return }
                         self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
@@ -489,10 +488,10 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: operationID,
                             detail: "Created filtered alignment track \"\(result.trackInfo.name)\"."
-                        )
+                        ) else { return }
                         guard let self,
                               let split = self.parent as? MainSplitViewController else { return }
                         self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false

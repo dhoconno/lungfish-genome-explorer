@@ -182,6 +182,25 @@ final class AttachmentImportProvenanceTests: XCTestCase {
         XCTAssertEqual(Set(manager.listAttachments()), ["reads.fastq", "reads-2.fastq"])
     }
 
+    func testScientificAttachmentSidecarObstructionPreservesOldPayloadAndArtifact() throws {
+        let bundle = tempDir.appendingPathComponent("ResultBundle", isDirectory: true)
+        let store = BundleAttachmentStore(bundleURL: bundle)
+        try FileManager.default.createDirectory(at: store.attachmentsDirectory, withIntermediateDirectories: true)
+        let destination = store.urlForAttachment("reads.fastq")
+        try Data("old attachment".utf8).write(to: destination)
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: destination)
+        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
+        let marker = sidecar.appendingPathComponent("retained.txt")
+        try Data("old artifact".utf8).write(to: marker)
+        let source = tempDir.appendingPathComponent("reads.fastq")
+        try Data("synthetic replacement".utf8).write(to: source)
+        try writeCLISidecar(for: source)
+
+        XCTAssertThrowsError(try ProvenanceAwareAttachmentImporter.attach(fileAt: source, to: store))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("old attachment".utf8))
+        XCTAssertEqual(try Data(contentsOf: marker), Data("old artifact".utf8))
+    }
+
     @discardableResult
     private func writeCLISidecar(for outputURL: URL, sidecarTargetURL: URL? = nil) throws -> URL {
         let envelope = try ProvenanceRunBuilder(

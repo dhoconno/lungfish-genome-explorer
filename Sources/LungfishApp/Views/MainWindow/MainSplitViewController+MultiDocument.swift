@@ -9,6 +9,75 @@ import LungfishWorkflow
 import os.log
 
 extension MainSplitViewController {
+    /// External opens and sidebar reads share the same publication gate. The
+    /// session loader registers only after the originating display is still current.
+    func loadExternalDocument(at url: URL) {
+        let identity = contentSelectionIdentity(url: url, kind: "externalDocument")
+        let token = beginDisplayRequest(identity: identity)
+        let session = projectSession
+        let generation = session.documentGeneration
+        let loader = externalDocumentLoader
+        externalDocumentLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await session.loadAndPublishDocument(at: url, loader: loader,
+                canPublish: { [weak self] in
+                    guard let self else { return false }
+                    return session.documentGeneration == generation
+                        && self.canCommitDisplayRequest(token, identity: identity)
+                },
+                publish: { [weak self] document in
+                    guard let self else { return }
+                    self.inspectorController.clearSelection()
+                    self.inspectorController.activeContentSelectionIdentity = identity
+                    self.viewerController.displayDocument(document)
+                },
+                failure: { [weak self] error in
+                    guard let self else { return }
+                    self.inspectorController.clearSelection()
+                    self.viewerController.clearViewport(statusMessage: "Unable to load \(url.lastPathComponent): \(error.localizedDescription)")
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Open File"
+                    alert.informativeText = error.localizedDescription
+                    alert.addButton(withTitle: "OK")
+                    if let window = self.view.window { alert.beginSheetModal(for: window) }
+                },
+                loading: { [weak self] active in
+                    guard let self else { return }
+                    if active { self.viewerController.showProgress("Loading \(url.lastPathComponent)...") }
+                    else { self.viewerController.hideProgress() }
+                })
+            if self.canCommitDisplayRequest(token, identity: identity) { self.externalDocumentLoadTask = nil }
+        }
+    }
+
+    func loadProjectDocument(_ document: LoadedDocument) {
+        let identity = contentSelectionIdentity(url: document.url, kind: "projectSequence",
+            resultID: document.projectSequenceID?.uuidString)
+        let token = beginDisplayRequest(identity: identity)
+        viewerController.showProgress("Loading \(document.name)...")
+        externalDocumentLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.canCommitDisplayRequest(token, identity: identity) {
+                    self.viewerController.hideProgress()
+                    self.externalDocumentLoadTask = nil
+                }
+            }
+            do {
+                guard let hydrated = try await self.projectSession.hydrateProjectDocument(document, canPublish: { [weak self] in
+                    self?.canCommitDisplayRequest(token, identity: identity) == true
+                }), self.canCommitDisplayRequest(token, identity: identity) else { return }
+                self.inspectorController.clearSelection()
+                self.inspectorController.activeContentSelectionIdentity = identity
+                self.viewerController.displayDocument(hydrated)
+            } catch {
+                guard self.canCommitDisplayRequest(token, identity: identity), !(error is CancellationError) else { return }
+                self.inspectorController.clearSelection()
+                self.viewerController.clearViewport(statusMessage: "Unable to load \(document.name): \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Handles multiple sidebar items being selected.
     ///
     /// This method collects sequences from all selected documents and displays them
@@ -16,6 +85,11 @@ extension MainSplitViewController {
     ///
     /// - Parameter items: Array of selected sidebar items
     func handleMultipleItemsSelected(_ items: [SidebarItem]) {
+        let identity = ContentSelectionIdentity(url: nil, kind: "multipleDocuments",
+            resultID: items.compactMap { $0.url?.standardizedFileURL.path }.joined(separator: "\n"),
+            windowID: windowStateScope.id)
+        let token = beginDisplayRequest(identity: identity)
+        let projectGeneration = projectSession.documentGeneration
         // Filter to only sequence-type items that can be displayed together
         // in the collection view.
         let displayableItems = items.filter { item in
@@ -54,6 +128,7 @@ extension MainSplitViewController {
             viewerController.hideFASTACollectionView()
             viewerController.hideCollectionBackButton()
             viewerController.showNoSequenceSelected()
+            inspectorController.clearSelection()
             return
         }
 
@@ -70,12 +145,18 @@ extension MainSplitViewController {
 
         // Categorize documents: fully loaded, placeholders (need lazy load), or unregistered
         var fullyLoadedDocuments: [LoadedDocument] = []
+        var catalogDocuments: [LoadedDocument] = []
         var placeholderDocuments: [(LoadedDocument, URL, DocumentType)] = []
         var unregisteredURLs: [(URL, DocumentType)] = []
 
         for item in displayableItems {
+            if let documentID = item.userInfo["documentID"].flatMap(UUID.init(uuidString:)),
+               let catalog = projectSession.documents.first(where: { $0.id == documentID && $0.projectSequenceID != nil }) {
+                catalogDocuments.append(catalog)
+                continue
+            }
             if let url = item.url {
-                if let existingDoc = DocumentManager.shared.documents.first(where: { $0.url == url }) {
+                if let existingDoc = projectSession.documents.first(where: { $0.projectSequenceID == nil && $0.url == url }) {
                     // Check if fully loaded
                     let isFullyLoaded = !existingDoc.sequences.isEmpty || !existingDoc.annotations.isEmpty
                     if isFullyLoaded {
@@ -97,12 +178,13 @@ extension MainSplitViewController {
                         "handleMultipleItemsSelected: Dropped '\(item.title, privacy: .public)' - DocumentType.detect returned nil for \(url.lastPathComponent, privacy: .public)"
                     )
                 }
-            } else if let doc = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
+            } else if let documentID = item.userInfo["documentID"].flatMap(UUID.init(uuidString:)),
+                      let doc = projectSession.documents.first(where: { $0.id == documentID }) {
                 fullyLoadedDocuments.append(doc)
             }
         }
 
-        let needsLoading = !placeholderDocuments.isEmpty || !unregisteredURLs.isEmpty
+        let needsLoading = !catalogDocuments.isEmpty || !placeholderDocuments.isEmpty || !unregisteredURLs.isEmpty
 
         // If we have documents to load, do it asynchronously
         if needsLoading {
@@ -114,25 +196,41 @@ extension MainSplitViewController {
             multiDocumentLoadTask = Task { @MainActor [weak self] in
                 guard let self = self else { return }
 
-                let totalToLoad = placeholderDocuments.count + unregisteredURLs.count
+                let totalToLoad = catalogDocuments.count + placeholderDocuments.count + unregisteredURLs.count
                 self.viewerController.showProgress("Loading \(totalToLoad) documents...")
 
                 // Start with already-loaded documents
                 var loadedDocs = fullyLoadedDocuments
 
+                let selectedCatalogIDs = Set(catalogDocuments.map(\.id))
+                for document in catalogDocuments {
+                    do {
+                        guard let hydrated = try await self.projectSession.hydrateProjectDocument(document, keeping: selectedCatalogIDs, canPublish: {
+                            self.selectionGeneration == generation && self.projectSession.documentGeneration == projectGeneration
+                                && self.canCommitDisplayRequest(token, identity: identity)
+                        }) else { return }
+                        loadedDocs.append(hydrated)
+                    } catch {
+                        guard !Task.isCancelled, self.canCommitDisplayRequest(token, identity: identity) else { return }
+                        mainSplitLogger.warning("Selected project sequence failed to load: \(error.localizedDescription)")
+                    }
+                }
+
                 // Load placeholder documents via DocumentLoader
                 for (existingDoc, url, docType) in placeholderDocuments {
-                    guard !Task.isCancelled, self.selectionGeneration == generation else {
+                    guard !Task.isCancelled, self.selectionGeneration == generation,
+                          self.projectSession.documentGeneration == projectGeneration,
+                          self.canCommitDisplayRequest(token, identity: identity) else {
                         mainSplitLogger.info("handleMultipleItemsSelected: Discarding stale multi-select load before lazy load")
-                        self.multiDocumentLoadTask = nil
                         return
                     }
 
                     do {
                         let result = try await DocumentLoader.loadFile(at: url, type: docType)
-                        guard !Task.isCancelled, self.selectionGeneration == generation else {
+                        guard !Task.isCancelled, self.selectionGeneration == generation,
+                          self.projectSession.documentGeneration == projectGeneration,
+                          self.canCommitDisplayRequest(token, identity: identity) else {
                             mainSplitLogger.info("handleMultipleItemsSelected: Discarding stale multi-select load after lazy load")
-                            self.multiDocumentLoadTask = nil
                             return
                         }
                         existingDoc.sequences = result.sequences
@@ -147,19 +245,23 @@ extension MainSplitViewController {
 
                 // Load unregistered documents via DocumentManager
                 for (url, _) in unregisteredURLs {
-                    guard !Task.isCancelled, self.selectionGeneration == generation else {
+                    guard !Task.isCancelled, self.selectionGeneration == generation,
+                          self.projectSession.documentGeneration == projectGeneration,
+                          self.canCommitDisplayRequest(token, identity: identity) else {
                         mainSplitLogger.info("handleMultipleItemsSelected: Discarding stale multi-select load before document load")
-                        self.multiDocumentLoadTask = nil
                         return
                     }
 
                     do {
-                        let document = try await DocumentManager.shared.loadDocument(at: url)
-                        guard !Task.isCancelled, self.selectionGeneration == generation else {
+                        let document = try await DocumentManager.shared.readDocument(at: url)
+                        guard !Task.isCancelled, self.selectionGeneration == generation,
+                          self.projectSession.documentGeneration == projectGeneration,
+                          self.canCommitDisplayRequest(token, identity: identity) else {
                             mainSplitLogger.info("handleMultipleItemsSelected: Discarding stale multi-select load after document load")
-                            self.multiDocumentLoadTask = nil
                             return
                         }
+                        self.projectSession.registerDocument(document, makeActive: false)
+                        DocumentManager.shared.refreshMirror(ifOwnedBy: self.projectSession)
                         loadedDocs.append(document)
                         mainSplitLogger.debug("handleMultipleItemsSelected: Loaded '\(document.name, privacy: .public)'")
                     } catch {
@@ -167,9 +269,10 @@ extension MainSplitViewController {
                     }
                 }
 
-                guard !Task.isCancelled, self.selectionGeneration == generation else {
+                guard !Task.isCancelled, self.selectionGeneration == generation,
+                          self.projectSession.documentGeneration == projectGeneration,
+                          self.canCommitDisplayRequest(token, identity: identity) else {
                     mainSplitLogger.info("handleMultipleItemsSelected: Discarding stale multi-select load before collection display")
-                    self.multiDocumentLoadTask = nil
                     return
                 }
 
@@ -235,10 +338,10 @@ extension MainSplitViewController {
     }
 
     @objc func handleDocumentLoaded(_ notification: Notification) {
-        guard let document = notification.userInfo?["document"] as? LoadedDocument else {
-            mainSplitLogger.warning("handleDocumentLoaded: No document in notification")
-            return
-        }
+        guard notification.userInfo?["sessionID"] as? UUID == projectSession.id,
+              let document = notification.userInfo?["document"] as? LoadedDocument,
+              projectSession.documents.contains(where: { $0.id == document.id }) else { return }
+        DocumentManager.shared.refreshMirror(ifOwnedBy: projectSession)
 
         mainSplitLogger.info("handleDocumentLoaded: Document '\(document.name, privacy: .public)' was loaded")
 
@@ -248,9 +351,7 @@ extension MainSplitViewController {
         // Only outside-project files are added to Open Documents; project files
         // are surfaced by FileSystemWatcher.
         if let projectURL = sidebarController.currentProjectURL {
-            let docPath = document.url.standardizedFileURL.path
-            let projectPath = projectURL.standardizedFileURL.path
-            if docPath.hasPrefix(projectPath) {
+            if ProjectSession.contains(document.url, in: projectURL) {
                 // File is inside project - FileSystemWatcher will handle sidebar refresh
                 mainSplitLogger.debug("handleDocumentLoaded: File is inside project, sidebar updated via FileSystemWatcher")
                 return
@@ -258,13 +359,14 @@ extension MainSplitViewController {
         }
 
         // File is outside project - add to "Open Documents" section (legacy behavior)
-        sidebarController.addLoadedDocument(document)
+        sidebarController.addLoadedDocument(document,
+            select: notification.userInfo?["makeActive"] as? Bool ?? false, notify: false)
     }
 
     @objc func handleProjectOpened(_ notification: Notification) {
         // In multi-window mode, only the active main window should react to
         // DocumentManager's global project-opened notification.
-        if AppDelegate.shared?.mainWindowController?.mainSplitViewController !== self {
+        if notification.userInfo?["sessionID"] as? UUID != projectSession.id {
             mainSplitLogger.debug("handleProjectOpened: Ignoring notification for non-active window")
             return
         }
@@ -274,34 +376,12 @@ extension MainSplitViewController {
             return
         }
 
-        mainSplitLogger.info("handleProjectOpened: Project '\(project.name, privacy: .public)' was opened")
-
-        // Update window title to reflect the project name
-        let projectName = project.url.deletingPathExtension().lastPathComponent
-        view.window?.title = "\(projectName) \u{2014} \(LungfishAppIdentity.current.fullName)"
-
-        // Use the new filesystem-backed sidebar model
-        // This will scan the project directory and set up file watching
-        sidebarController.openProject(at: project.url)
-
-        // Display the first document if available, otherwise show empty state
-        let documents = DocumentManager.shared.documents
-        if let firstDoc = documents.first {
-            viewerController?.hideProgress()
-            viewerController?.displayDocument(firstDoc)
-            mainSplitLogger.info("handleProjectOpened: Displaying first document '\(firstDoc.name, privacy: .public)'")
-        } else {
-            // Empty project - show clear "No sequence selected" state
-            viewerController?.showNoSequenceSelected()
-            mainSplitLogger.info("handleProjectOpened: Empty project, showing 'No sequence selected' state")
-        }
-
-        let warningState = notification.userInfo?["openWarningState"] as? ProjectOpenWarningState
-            ?? DocumentManager.shared.activeProjectOpenWarningState
-        onProjectOpenWarningStateChanged?(warningState)
+        guard projectSession.project === project else { return }
+        applyProjectSessionState()
     }
 
     public func applyProjectSessionState(restoring snapshot: ProjectWindowSnapshot? = nil) {
+        invalidateDisplayRequest()
         guard let project = projectSession.project else {
             sidebarController.closeProject()
             viewerController?.showNoSequenceSelected()
@@ -311,18 +391,23 @@ extension MainSplitViewController {
 
         let projectName = project.url.deletingPathExtension().lastPathComponent
         view.window?.title = "\(projectName) - \(LungfishAppIdentity.current.fullName)"
-        sidebarController.openProject(at: project.url)
+        sidebarController.openProject(at: project.url, asyncScan: true)
+        sidebarController.setProjectCatalog(projectSession.documents)
 
         if let firstDoc = projectSession.activeDocument ?? projectSession.documents.first {
-            viewerController?.hideProgress()
-            viewerController?.displayDocument(firstDoc)
+            if firstDoc.projectSequenceID != nil { loadProjectDocument(firstDoc) }
+            else { viewerController?.displayDocument(firstDoc) }
         } else {
             viewerController?.showNoSequenceSelected()
         }
 
         onProjectOpenWarningStateChanged?(projectSession.openWarningState)
 
-        guard let snapshot else { return }
+        if let snapshot { applyProjectWindowSnapshot(snapshot) }
+    }
+
+    /// One restoration authority for accepted native and filesystem-backed roots.
+    func applyProjectWindowSnapshot(_ snapshot: ProjectWindowSnapshot) {
         sidebarController.applyRestoredState(
             selectedURL: snapshot.selectedSidebarURL,
             expandedURLs: snapshot.expandedSidebarURLs,
@@ -344,13 +429,22 @@ extension MainSplitViewController {
 
     func restoreActiveContentState(_ state: RestorableContentState) {
         guard let url = state.url else { return }
-        if let document = projectSession.documents.first(where: {
-            $0.url.standardizedFileURL == url.standardizedFileURL
-        }) {
-            viewerController?.hideProgress()
-            viewerController?.displayDocument(document)
+        let storedID = state.payload["projectSequenceID"].flatMap(UUID.init(uuidString:))
+        let restoredDocument = projectSession.documents.first { document in
+            if let storedID { return document.projectSequenceID == storedID }
+            return state.kind != "projectSequence" && document.url.standardizedFileURL == url.standardizedFileURL
+                && (state.payload["sourceKind"] != "external" || document.projectSequenceID == nil)
+        }
+        if let document = restoredDocument {
+            if document.projectSequenceID != nil { loadProjectDocument(document) }
+            else { viewerController?.displayDocument(document) }
             projectSession.setActiveDocument(document)
-            DocumentManager.shared.setActiveDocument(document)
+            DocumentManager.shared.refreshMirror(ifOwnedBy: projectSession)
+            return
+        }
+        if state.kind == "projectSequence" {
+            viewerController?.clearViewport(statusMessage: "Saved project sequence is unavailable")
+            inspectorController?.clearSelection()
             return
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -414,7 +508,18 @@ extension MainSplitViewController {
         windowTitleSuffix: String?,
         frame: CodableWindowFrame?
     ) -> ProjectWindowSnapshot {
-        ProjectWindowSnapshot(
+        var activeContent = viewerController?.restorableContentState()
+        // A pending native hydration has selected a source even while the old
+        // viewport remains visible. Persist that existing display identity so
+        // recovery cannot turn the previous rendering into the new selection.
+        if let identity = activeContentSelectionIdentity, identity.kind == "projectSequence",
+           let sequenceID = identity.resultID.flatMap(UUID.init(uuidString:)),
+           let selected = projectSession.documents.first(where: { $0.projectSequenceID == sequenceID }),
+           activeContent?.payload["projectSequenceID"] != sequenceID.uuidString {
+            activeContent = RestorableContentState(kind: "projectSequence", url: selected.url,
+                payload: ["projectSequenceID": sequenceID.uuidString])
+        }
+        return ProjectWindowSnapshot(
             id: id,
             projectURL: projectURL,
             windowOrdinal: windowOrdinal,
@@ -425,7 +530,7 @@ extension MainSplitViewController {
             selectedSidebarURL: sidebarController.selectedFileURL,
             expandedSidebarURLs: sidebarController.expandedItemURLsForPersistence(),
             sidebarSearchText: sidebarController.searchTextForPersistence(),
-            activeContent: viewerController?.restorableContentState(),
+            activeContent: activeContent,
             inspectorTab: inspectorController?.restorableSelectedTabIdentifier(),
             sidebarCollapsed: sidebarItem.isCollapsed,
             inspectorCollapsed: inspectorItem.isCollapsed,
@@ -478,7 +583,19 @@ extension MainSplitViewController {
         mainSplitLogger.info("handleSidebarFileDropped: Processing \(allURLs.count) dropped file(s)")
 
         // Get project URL from either the sidebar (new model) or DocumentManager (legacy)
-        let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+        guard let projectURL = projectSession.projectURL ?? sidebarController.currentProjectURL else {
+            let message = "Open a project before importing files."
+            for url in allURLs {
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: message)
+            }
+            if let window = view.window {
+                let alert = NSAlert()
+                alert.messageText = "No Project Open"
+                alert.informativeText = message
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            }
+            return
+        }
 
         let zipImportBatch: LGEZipImportBatch
         do {
@@ -523,13 +640,10 @@ extension MainSplitViewController {
 
         // Determine the target directory based on the destination item
         let targetDir: URL = {
-            if let projectURL {
-                if let destItem = destinationItem, destItem.type == .folder, let folderURL = destItem.url {
-                    return folderURL
-                }
-                return projectURL
+            if let destItem = destinationItem, destItem.type == .folder, let folderURL = destItem.url {
+                return folderURL
             }
-            return sourceURLs[0].deletingLastPathComponent()
+            return projectURL
         }()
 
         // Partition URLs into FASTQ files, ONT directories, and other files
@@ -537,7 +651,9 @@ extension MainSplitViewController {
         var otherURLs: [URL] = []
 
         for url in sourceURLs {
-            if isONTDirectory(url) {
+            if SidebarProjectScanner.isNativePackage(url) {
+                otherURLs.append(url)
+            } else if isONTDirectory(url) {
                 importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir, requestID: requestID)
             } else if SequencingReadImportSource.isSupported(url) {
                 fastqURLs.append(url)

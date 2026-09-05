@@ -790,6 +790,50 @@ struct ProvenanceSigningTests {
         )
     }
 
+    @Test("Unsigned cleanup preserves directories occupying signing-artifact paths")
+    func testUnsignedCleanupRejectsSigningArtifactDirectories() throws {
+        for isPublicKey in [false, true] {
+            let directory = try makeTempDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let provenanceURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            let artifact = isPublicKey ? ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL)
+                : ProvenanceSigningConfiguration.signatureURL(for: provenanceURL)
+            try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+            let marker = artifact.appendingPathComponent("retained.txt")
+            try Data("must survive".utf8).write(to: marker)
+            let envelope = ProvenanceEnvelope(workflowName: "Fixture", toolName: "fixture", toolVersion: "1", argv: ["/bin/true"], exitStatus: 0)
+            #expect(throws: ProvenanceWriterError.self) {
+                _ = try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
+            }
+            #expect((try? Data(contentsOf: marker)) == Data("must survive".utf8))
+        }
+    }
+
+    @Test("Unsigned cleanup preserves symbolic links and non-file signing artifacts")
+    func testUnsignedCleanupRejectsSigningArtifactLinksAndFIFOs() throws {
+        for isPublicKey in [false, true] {
+            for isLink in [false, true] {
+                let directory = try makeTempDirectory()
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let provenanceURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+                let artifact = isPublicKey ? ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL)
+                    : ProvenanceSigningConfiguration.signatureURL(for: provenanceURL)
+                let target = directory.appendingPathComponent("retained-target.txt")
+                try Data("untouched target".utf8).write(to: target)
+                if isLink { try FileManager.default.createSymbolicLink(at: artifact, withDestinationURL: target) }
+                else { #expect(artifact.path.withCString { mkfifo($0, 0o600) } == 0) }
+                let originalInode = try FileManager.default.attributesOfItem(atPath: artifact.path)[.systemFileNumber] as? NSNumber
+                let envelope = ProvenanceEnvelope(workflowName: "Fixture", toolName: "fixture", toolVersion: "1", argv: ["/bin/true"], exitStatus: 0)
+                #expect(throws: ProvenanceWriterError.self) {
+                    _ = try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
+                }
+                let retainedInode = (try? FileManager.default.attributesOfItem(atPath: artifact.path))?[.systemFileNumber] as? NSNumber
+                #expect(retainedInode == originalInode)
+                #expect(try Data(contentsOf: target) == Data("untouched target".utf8))
+            }
+        }
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)

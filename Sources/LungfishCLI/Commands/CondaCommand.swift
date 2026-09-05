@@ -22,8 +22,8 @@ struct CondaCommand: AsyncParsableCommand {
             conflicts. Tools are stored in \(managedStorageRootDescription()).
 
             Use 'lungfish conda lock --pack <pack> --output lockfile.yml' to write
-            a conda-lock-compatible lockfile, then reproduce it with
-            'lungfish conda install --from-lockfile lockfile.yml'.
+            a Lungfish requested environment specification (JSON). This is not a
+            resolved artifact lock; exact --from-lockfile reconstruction is unsupported.
             """,
             subcommands: [
                 InstallSubcommand.self,
@@ -90,7 +90,7 @@ extension CondaCommand {
         @Option(name: .customLong("from-bundle"), help: "Offline conda pack directory, .tar, .tgz, or .tar.gz archive")
         var fromBundle: String?
 
-        @Option(name: .customLong("from-lockfile"), help: "conda-lock-compatible lockfile created by 'lungfish conda lock'")
+        @Option(name: .customLong("from-lockfile"), help: "Unsupported exact reconstruction input; requested specifications cannot be installed as resolved locks")
         var fromLockfile: String?
 
         @Option(name: .customLong("conda-root"), help: "Conda root to install into when using --offline or --from-lockfile (default: managed storage conda root)")
@@ -226,13 +226,13 @@ extension CondaCommand {
     struct LockSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "lock",
-            abstract: "Write a conda-lock-compatible lockfile for a plugin pack"
+            abstract: "Export a requested environment specification for a plugin pack (not a resolved lock)"
         )
 
-        @Option(name: .long, help: "Built-in tool pack ID to lock")
+        @Option(name: .long, help: "Built-in tool pack ID to export")
         var pack: String
 
-        @Option(name: .shortAndLong, help: "Lockfile output path")
+        @Option(name: .shortAndLong, help: "Requested specification JSON output path")
         var output: String
 
         @OptionGroup var globalOptions: GlobalOptions
@@ -250,7 +250,7 @@ extension CondaCommand {
                 commandLine: CondaOfflinePackService.redactedCommandLine(CommandLine.arguments)
             )
             if !globalOptions.quiet {
-                print(formatter.success("Lockfile written: \(result.lockfileURL.path)"))
+                print(formatter.success("Requested specification written: \(result.lockfileURL.path)"))
                 print("Provenance: \(result.provenanceURL.path)")
             }
         }

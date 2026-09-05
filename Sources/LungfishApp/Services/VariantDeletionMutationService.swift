@@ -30,15 +30,16 @@ struct VariantDeletionMutationResult: Sendable, Equatable {
 
 struct VariantDeletionMutationService {
     private let fileManager: FileManager
-    private let writeProvenance: (ProvenanceEnvelope, URL) throws -> URL
+    private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
     init(
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) {
         self.fileManager = fileManager
-        self.writeProvenance = { envelope, bundleURL in
-            try provenanceWriter.write(envelope, to: bundleURL)
+        self.writeProvenance = { envelope, bundleURL, publication in
+            try provenanceWriter.observingPublications { try publication.observeProvenance($0) }
+                .write(envelope, to: bundleURL)
         }
     }
 
@@ -47,7 +48,7 @@ struct VariantDeletionMutationService {
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
         self.fileManager = fileManager
-        self.writeProvenance = writeProvenance
+        self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
     func deleteVariants(
@@ -100,19 +101,15 @@ struct VariantDeletionMutationService {
         }
 
         let startedAt = Date()
-        let backupDirectory = try makeBackupDirectory()
-        defer { try? fileManager.removeItem(at: backupDirectory) }
-        let backups = try targets.map { try backupDatabase($0.databaseURL, in: backupDirectory) }
-        let databaseInputs = try targets.map {
-            try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .input)
-        }
-        let contextInputs = try contextInputDescriptors(bundleURL: bundleURL)
-
+        let publication = try VariantMutationPublication(databaseURLs: targets.map(\.databaseURL),
+            bundleURL: bundleURL, fileManager: fileManager)
         do {
+            let databaseInputs = try targets.map { try publication.inputDescriptor(for: $0.databaseURL) }
+            let contextInputs = try contextInputDescriptors(bundleURL: bundleURL)
             var deletedCountsByTrack: [String: Int] = [:]
             var deletedCountsByDatabase: [String: Int] = [:]
             for target in targets {
-                let database = try VariantDatabase(url: target.databaseURL, readWrite: true)
+                let database = publication.database(at: target.databaseURL)
                 let deleted = try mutate(database, target)
                 guard deleted > 0 else { continue }
                 deletedCountsByTrack[target.trackId, default: 0] += deleted
@@ -120,6 +117,7 @@ struct VariantDeletionMutationService {
             }
 
             guard !deletedCountsByDatabase.isEmpty else {
+                publication.commit(retainConsumedInputs: false)
                 return VariantDeletionMutationResult(
                     deletedCountsByTrack: [:],
                     deletedCountsByDatabase: [:],
@@ -127,6 +125,7 @@ struct VariantDeletionMutationService {
                 )
             }
 
+            try publication.checkpoint()
             let updatedTargets = targets.filter { deletedCountsByDatabase[$0.databaseURL.path] != nil }
             let databaseOutputs = try updatedTargets.map {
                 try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .output)
@@ -137,22 +136,22 @@ struct VariantDeletionMutationService {
                 bundleURL: bundleURL,
                 targets: updatedTargets,
                 contextInputs: contextInputs,
-                databaseInputs: databaseInputs.filter { deletedCountsByDatabase[$0.path] != nil },
+                databaseInputs: databaseInputs.filter { deletedCountsByDatabase[$0.originPath ?? $0.path] != nil },
                 databaseOutputs: databaseOutputs,
                 deletedCountsByTrack: deletedCountsByTrack,
                 deletedCountsByDatabase: deletedCountsByDatabase,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
-            let provenanceURL = try writeProvenance(envelope, bundleURL)
+            let provenanceURL = try writeProvenance(envelope, bundleURL, publication)
+            publication.commit()
             return VariantDeletionMutationResult(
                 deletedCountsByTrack: deletedCountsByTrack,
                 deletedCountsByDatabase: deletedCountsByDatabase,
                 provenanceURL: provenanceURL
             )
         } catch {
-            restore(backups)
-            throw error
+            try publication.rollback(after: error)
         }
     }
 
@@ -225,9 +224,8 @@ struct VariantDeletionMutationService {
         .runtime(ProvenanceRuntimeIdentity())
         .step(step)
 
-        for contextURL in contextURLs(bundleURL: bundleURL) {
-            builder = try builder.input(contextURL, format: formatForContextURL(contextURL), role: .input)
-        }
+        for input in databaseInputs { builder = try builder.consumedInputSnapshot(input) }
+        for input in contextInputs { builder = try builder.consumedInputSnapshot(input) }
         for target in targets {
             builder = try builder.output(target.databaseURL, format: .unknown, role: .output)
         }
@@ -269,26 +267,6 @@ struct VariantDeletionMutationService {
         return result
     }
 
-    private func makeBackupDirectory() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("variant-deletion-mutation-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private func backupDatabase(_ databaseURL: URL, in backupDirectory: URL) throws -> VariantDeletionDatabaseBackup {
-        let backupURL = backupDirectory.appendingPathComponent(UUID().uuidString + "-" + databaseURL.lastPathComponent)
-        try fileManager.copyItem(at: databaseURL, to: backupURL)
-        return VariantDeletionDatabaseBackup(originalURL: databaseURL, backupURL: backupURL)
-    }
-
-    private func restore(_ backups: [VariantDeletionDatabaseBackup]) {
-        for backup in backups {
-            try? fileManager.removeItem(at: backup.originalURL)
-            try? fileManager.copyItem(at: backup.backupURL, to: backup.originalURL)
-        }
-    }
-
     private func shellEscape(_ value: String) -> String {
         guard !value.isEmpty else { return "''" }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-:=,+"))
@@ -297,11 +275,6 @@ struct VariantDeletionMutationService {
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
-}
-
-private struct VariantDeletionDatabaseBackup {
-    let originalURL: URL
-    let backupURL: URL
 }
 
 private enum DeletionKind {

@@ -207,7 +207,7 @@ public actor MetagenomicsDatabaseRegistry {
     private var computeChecksum: ChecksumComputing
 
     /// Writes the canonical receipt for a promoted update.
-    private let provenanceWriter: any MetagenomicsDatabaseInstallProvenanceWriting
+    private let provenanceWriter: CanonicalMetagenomicsDatabaseInstallProvenanceWriter
 
     /// Files required for a valid Kraken2 database directory.
     static let requiredKraken2Files = ["hash.k2d", "opts.k2d", "taxo.k2d"]
@@ -694,34 +694,95 @@ public actor MetagenomicsDatabaseRegistry {
             )
         }
 
-        db.path = destination
-        db.isExternal = externalVolumeDetector(destination)
-        db.lastUpdated = Date()
-        db.status = .ready
-
-        // Create bookmark for external volumes.
-        if db.isExternal {
-            do {
-                db.bookmarkData = try createBookmark(for: destination)
-                logger.info(
-                    "Created bookmark for '\(name, privacy: .public)' on external volume"
-                )
-            } catch {
-                logger.warning(
-                    "Failed to create bookmark for '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)"
-                )
-                // Continue without bookmark -- the path alone may still work.
-            }
-        } else {
-            db.bookmarkData = nil
-            endSecurityScopedAccess(for: name)
+        let prior = db
+        let source = db.path?.standardizedFileURL
+        let final = destination.standardizedFileURL
+        let startedAt = Date()
+        let boundIdentity = db.canonicalReceiptSHA256 != nil && db.payloadDigest != nil
+        if boundIdentity {
+            _ = try MetagenomicsDatabaseConformanceIdentity.verify(db, readingPayloadAt: final)
         }
+        let restoreMovedPayload = boundIdentity && source != final
+            && source.map { !FileManager.default.fileExists(atPath: $0.path) } == true
+        var publication: ScientificFilePublicationTransaction?
+        var receiptStage: URL?
+        defer { if let receiptStage { try? FileManager.default.removeItem(at: receiptStage) } }
+        do {
+            if boundIdentity, let source {
+                let sidecar = final.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+                let receiptBytes = try Data(contentsOf: sidecar)
+                let receiptSHA = SHA256.hash(data: receiptBytes).map { String(format: "%02x", $0) }.joined()
+                let receipt = try ProvenanceEnvelopeReader.decodeCanonical(receiptBytes)
+                let previousReceipt = ProvenanceFileDescriptor(path: sidecar.path, checksumSHA256: receiptSHA,
+                    fileSize: UInt64(receiptBytes.count), role: .input)
+                guard receiptSHA == prior.canonicalReceiptSHA256 else {
+                    throw MetagenomicsDatabaseIdentityError.changed(name)
+                }
+                publication = try ScientificFilePublicationTransaction(protectedURLs: [sidecar], fileDestinations: [sidecar])
+                let stage = FileManager.default.temporaryDirectory.appendingPathComponent("database-relocation-\(UUID().uuidString)")
+                receiptStage = stage
+                try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+                var pathMap = [source.path: final.path]
+                for output in receipt.outputs {
+                    let relative = String(output.path.dropFirst(source.path.count + 1))
+                    pathMap[output.path] = final.appendingPathComponent(relative).path
+                }
+                let relocated = try ProvenanceRehydrator.rehydrate(sourceDirectory: final, finalDirectory: stage, pathMap: pathMap)
+                let withRelocation = CanonicalMetagenomicsDatabaseInstallProvenanceWriter.appendingRelocation(
+                    to: relocated, databaseName: name, from: source, to: final,
+                    previousReceipt: previousReceipt, startedAt: startedAt)
+                try ProvenanceWriter(signingProvider: nil).write(withRelocation, to: stage)
+                try publication?.publish(stagedURL: stage.appendingPathComponent(ProvenanceWriter.provenanceFilename), to: sidecar)
+                db.canonicalReceiptSHA256 = try ProvenanceFileHasher.sha256(of: sidecar)
+            }
+            db.path = destination
+            db.isExternal = externalVolumeDetector(destination)
+            db.lastUpdated = Date()
+            db.status = .ready
 
-        databases[name] = db
-        try saveManifest()
-        logger.info(
-            "Relocated database '\(name, privacy: .public)' to \(destination.path, privacy: .public)"
-        )
+            // Create bookmark for external volumes.
+            if db.isExternal {
+                do {
+                    db.bookmarkData = try createBookmark(for: destination)
+                    logger.info(
+                        "Created bookmark for '\(name, privacy: .public)' on external volume"
+                    )
+                } catch {
+                    logger.warning(
+                        "Failed to create bookmark for '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+                    )
+                    // Continue without bookmark -- the path alone may still work.
+                }
+            } else {
+                db.bookmarkData = nil
+                endSecurityScopedAccess(for: name)
+            }
+
+            if boundIdentity {
+                _ = try MetagenomicsDatabaseConformanceIdentity.verify(db, readingPayloadAt: nil, publication: publication)
+            }
+            databases[name] = db
+            try saveManifest()
+            publication?.commit()
+        } catch let originalError {
+            databases[name] = prior
+            if let publication {
+                do { try publication.rollback(after: originalError) }
+                catch let recovery as ScientificPublicationRecoveryRequired { throw recovery }
+                catch { /* Receipt restored; restore a verified caller move below. */ }
+            }
+            if restoreMovedPayload, let source {
+                do {
+                    _ = try MetagenomicsDatabaseConformanceIdentity.verify(prior, readingPayloadAt: final)
+                    try FileManager.default.moveItem(at: final, to: source)
+                } catch {
+                    throw ScientificPublicationRecoveryRequired(originalError: originalError, restorationError: error,
+                        recoveryURLs: [final, source])
+                }
+            }
+            throw originalError
+        }
+        logger.info("Relocated database '\(name, privacy: .public)' to \(destination.path, privacy: .public)")
     }
 
     // MARK: - Bookmark Support
@@ -1052,6 +1113,9 @@ public actor MetagenomicsDatabaseRegistry {
         databases[name] = db
 
         do {
+            db.canonicalReceiptSHA256 = try ProvenanceFileHasher.sha256(of:
+                prepared.result.finalURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+            databases[name] = db
             try saveManifest()
         } catch let persistenceError {
             let rollbackError: Error?
@@ -1140,12 +1204,12 @@ public actor MetagenomicsDatabaseRegistry {
             }
         }
 
-        // `DatabaseSpec.version` is non-optional, so a catalog-backed entry always has
-        // a concrete target version; there is no "latest" fallback to stage under.
+        // This is a requested catalog label (possibly "live"), not proof of bytes.
+        // The receipt below binds the received archive and retained payload identity.
         guard let targetVersion = catalogEntry.version else {
             throw MetagenomicsDatabaseRegistryError.updateNotSupported(
                 name: name,
-                reason: "the catalog entry does not pin a version"
+                reason: "the catalog entry has no requested version label"
             )
         }
 
@@ -1162,6 +1226,8 @@ public actor MetagenomicsDatabaseRegistry {
         // exit path, including a checksum mismatch. A database tarball can be tens of
         // gigabytes, so it must never be left behind in the temp directory.
         var downloadedArchive: URL?
+        let snapshot: MetagenomicsDatabasePayloadSnapshot
+        let canonicalReceiptSHA256: String
         defer {
             if let downloadedArchive {
                 try? fm.removeItem(at: downloadedArchive)
@@ -1182,8 +1248,12 @@ public actor MetagenomicsDatabaseRegistry {
             // lookup on that string would silently find no spec and skip verification.
             if let resolvedCatalogID = catalogEntry.catalogID,
                let spec = ManagedToolLock.bundled.database(id: resolvedCatalogID),
-               let expected = expectedChecksum(spec),
-               let archiveURL {
+               let expected = expectedChecksum(spec) {
+                guard let archiveURL else {
+                    throw MetagenomicsDatabaseRegistryError.updateNotSupported(
+                        name: name, reason: "expected archive checksum cannot be verified because the downloaded archive is unavailable"
+                    )
+                }
                 let actual = try computeChecksum(archiveURL, expected.algorithm)
                 guard actual.caseInsensitiveCompare(expected.hex) == .orderedSame else {
                     throw MetagenomicsDatabaseRegistryError.checksumMismatch(
@@ -1200,6 +1270,14 @@ public actor MetagenomicsDatabaseRegistry {
                     name: name, missingFiles: missing
                 )
             }
+            snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: staging)
+            try writeUpdateProvenance(
+                database: installed, finalURL: installedPath, catalogEntry: catalogEntry,
+                source: source, archiveURL: archiveURL, snapshot: snapshot, startedAt: startedAt
+            )
+            canonicalReceiptSHA256 = try ProvenanceFileHasher.sha256(of:
+                staging.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+            try Task.checkCancellation()
         } catch {
             try? fm.removeItem(at: staging)
             logger.error(
@@ -1225,22 +1303,6 @@ public actor MetagenomicsDatabaseRegistry {
             )
         }
 
-        // The user-visible database is already the new one; removing the superseded
-        // copy is cleanup, so a failure here is logged rather than raised. This also
-        // sweeps residue from any earlier interrupted attempt.
-        Self.removeTransactionSiblings(for: installedPath, name: name)
-
-        // Provenance for the promoted payload. The database is already usable, so a
-        // receipt failure is recorded as a warning rather than undoing a good update;
-        // `verify` treats a row without a payload digest as unaudited, not corrupt.
-        writeUpdateProvenance(
-            database: installed,
-            finalURL: installedPath,
-            catalogEntry: catalogEntry,
-            source: source,
-            startedAt: startedAt
-        )
-
         let previous = databases[name]
         var updated = installed
         updated.path = installedPath
@@ -1254,10 +1316,8 @@ public actor MetagenomicsDatabaseRegistry {
         updated.downloadURL = catalogEntry.downloadURL
         updated.installationRecipe = catalogEntry.installationRecipe
         updated.sizeOnDisk = Self.directorySize(at: installedPath)
-        // The staged payload is not the installer's transaction, so it carries no
-        // verified aggregate digest; clearing it keeps `verify` from reporting the
-        // freshly installed copy as corrupt against the old payload's digest.
-        updated.payloadDigest = nil
+        updated.payloadDigest = snapshot.aggregateSHA256
+        updated.canonicalReceiptSHA256 = canonicalReceiptSHA256
         updated.installedAt = Date()
         updated.lastUpdated = Date()
         updated.status = .ready
@@ -1282,8 +1342,12 @@ public actor MetagenomicsDatabaseRegistry {
             try saveManifest()
         } catch {
             databases[name] = previous
+            // Keep the previous payload until both provenance and registry commit.
+            try? fm.removeItem(at: installedPath)
+            try? fm.moveItem(at: retired, to: installedPath)
             throw error
         }
+        Self.removeTransactionSiblings(for: installedPath, name: name)
 
         progress(1, "Updated \(name)")
         logger.info(
@@ -1342,43 +1406,42 @@ public actor MetagenomicsDatabaseRegistry {
         return nil
     }
 
-    /// Writes a canonical provenance sidecar for a promoted update.
-    ///
-    /// Uses the same writer the installer uses, so an updated database carries the
-    /// same kind of receipt as a freshly installed one. Failures are logged: the
-    /// payload is already in place and scientifically usable, and discarding a good
-    /// database over a receipt problem would be the worse outcome.
+    /// Prepare the receipt alongside the staged payload. Receipt failure prevents
+    /// publication; descriptor paths still name the final retained directory.
     private func writeUpdateProvenance(
         database: MetagenomicsDatabaseInfo,
         finalURL: URL,
         catalogEntry: MetagenomicsDatabaseInfo,
         source: URL,
+        archiveURL: URL?,
+        snapshot: MetagenomicsDatabasePayloadSnapshot,
         startedAt: Date
-    ) {
-        do {
-            let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: finalURL)
-            let resolved: [String: ParameterValue] = [
-                "databaseRoot": .file(finalURL),
-                "updatedFromVersion": .string(database.version ?? "unknown"),
-                "updatedToVersion": .string(catalogEntry.version ?? "unknown"),
-            ]
-            let attempt = MetagenomicsDatabaseInstallAttempt(
-                database: catalogEntry,
-                finalURL: finalURL,
-                recipeSource: source.absoluteString,
-                explicitOptions: ["catalogID": .string(catalogEntry.catalogID ?? "unknown")],
-                defaultOptions: [:],
-                resolvedOptions: resolved,
-                steps: [],
-                startedAt: startedAt,
-                completedAt: Date()
-            )
-            try provenanceWriter.writeSuccess(attempt, snapshot: snapshot)
-        } catch {
-            logger.warning(
-                "Updated '\(database.name, privacy: .public)' but could not write install provenance: \(error.localizedDescription, privacy: .public)"
-            )
-        }
+    ) throws {
+        let resolved: [String: ParameterValue] = [
+            "databaseRoot": .file(finalURL),
+            "updatedFromVersion": .string(database.version ?? "unknown"),
+            "updatedToVersion": .string(catalogEntry.version ?? "unknown"),
+            "archiveInstaller": .string("Lungfish archive update workflow"),
+            "invocationKind": .string("swift-api"),
+        ]
+        let inputs = try archiveURL.map { [try ProvenanceFileDescriptor.file(url: $0, role: .input)] } ?? []
+        let completedAt = Date()
+        // The transfer seam exposes no child-process result. Record the actual
+        // workflow and its options, never invent an executed tar command/version.
+        let step = MetagenomicsDatabaseInstallStepEvidence(
+            toolName: "Lungfish database archive update", toolVersion: WorkflowRun.currentAppVersion,
+            argv: ["MetagenomicsDatabaseRegistry.updateDatabase(catalogID:progress:)", catalogEntry.catalogID ?? database.name],
+            durableReplayArgv: [], resolvedOptions: resolved,
+            runtimeIdentity: ProvenanceRuntimeIdentity(), inputs: inputs, outputs: snapshot.files,
+            exitStatus: 0, startedAt: startedAt, completedAt: completedAt, stderr: ""
+        )
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: catalogEntry, finalURL: finalURL, recipeSource: source.absoluteString,
+            explicitOptions: ["catalogID": .string(catalogEntry.catalogID ?? "unknown")],
+            defaultOptions: [:], resolvedOptions: resolved, steps: [step],
+            startedAt: startedAt, completedAt: completedAt
+        )
+        try provenanceWriter.writeSuccess(attempt, snapshot: snapshot, to: snapshot.rootURL)
     }
 
     /// Downloads and extracts an archive recipe into `destination`, returning the
@@ -1411,7 +1474,7 @@ public actor MetagenomicsDatabaseRegistry {
     }
 
     /// Streams a file through the requested digest.
-    private static let fileChecksum: ChecksumComputing = { url, algorithm in
+    static let fileChecksum: ChecksumComputing = { url, algorithm in
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var md5 = Insecure.MD5()
@@ -1616,6 +1679,7 @@ public actor MetagenomicsDatabaseRegistry {
                     staged.lastPathComponent.dropFirst(stagingPrefix.count)
                 )
                 updated.payloadDigest = nil
+                updated.canonicalReceiptSHA256 = nil
                 updated.sizeOnDisk = Self.directorySize(at: path)
                 updated.installedAt = Date()
                 updated.lastUpdated = Date()

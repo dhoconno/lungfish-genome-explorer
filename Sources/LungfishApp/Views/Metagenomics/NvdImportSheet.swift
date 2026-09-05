@@ -92,6 +92,7 @@ struct NvdImportSheet: View {
 
     /// The dataset URL that triggered this import (for context display).
     let datasetURL: URL?
+    var initialSourceURL: URL? = nil
 
     /// Called when the user clicks Run. Parameter: NVD run directory URL.
     var onImport: ((URL) -> Void)?
@@ -161,6 +162,11 @@ struct NvdImportSheet: View {
                 }
             }
         )
+        .onAppear {
+            guard selectedPath == nil, let initialSourceURL else { return }
+            selectedPath = initialSourceURL
+            scanDirectory(at: initialSourceURL)
+        }
     }
 
     // MARK: - Location

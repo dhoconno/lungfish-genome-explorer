@@ -933,22 +933,43 @@ extension AppDelegate {
                     result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                 }
 
+                try FileManager.default.removeItem(at: materializeTempDir)
                 let capturedConfig = config
                 let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
 
+                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            return
+                        }
+                        // Record analysis in source bundle manifest
+                        if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
+                            let entry = AnalysisManifestEntry(
+                                tool: "kraken2",
+                                analysisDirectoryName: Self.analysisManifestDirectoryName(
+                                    for: capturedConfig.outputDirectory,
+                                    projectURL: routeContext?.projectURL
+                                ),
+                                displayName: "Kraken2 Classification",
+                                parameters: outcomeMetadata.analysisParameters,
+                                summary: outcomeMetadata.analysisSummary,
+                                status: .completed
+                            )
+                            do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
+                        }
+
                         if outcomeMetadata.requiresWarningCompletion {
-                            _ = OperationCenter.shared.completeWithWarning(
+                            guard OperationCenter.shared.completeWithWarning(
                                 id: opID,
                                 detail: outcomeMetadata.completionDetail
-                            )
+                            ) else { return }
                         } else {
-                            _ = OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: outcomeMetadata.completionDetail
-                            )
+                            ) else { return }
                         }
 
                         viewerController.displayTaxonomyResult(result)
@@ -979,28 +1000,13 @@ extension AppDelegate {
                             .mainSplitViewController?
                             .sidebarController.requestReloadFromFilesystem()
 
-                        // Record analysis in source bundle manifest
-                        if let bundleURL = Self.findSourceBundle(for: capturedConfig.originalInputFiles ?? capturedConfig.inputFiles) {
-                            let entry = AnalysisManifestEntry(
-                                tool: "kraken2",
-                                analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                    for: capturedConfig.outputDirectory,
-                                    projectURL: routeContext?.projectURL
-                                ),
-                                displayName: "Kraken2 Classification",
-                                parameters: outcomeMetadata.analysisParameters,
-                                summary: outcomeMetadata.analysisSummary,
-                                status: .completed
-                            )
-                            do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
-                        }
                     }
                 }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Failed"
@@ -1240,6 +1246,7 @@ extension AppDelegate {
                     command: esCliArgv
                 )
 
+                try FileManager.default.removeItem(at: materializeTempDir)
                 let capturedResult = ioResult
                 let capturedConfig = config
                 let capturedDBBuildError = dbBuildErrorDescription
@@ -1253,18 +1260,10 @@ extension AppDelegate {
                                 message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                             )
                         }
-                        let completionDetail = capturedResult.detections.isEmpty
-                            ? "No viral hits detected"
-                            : "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: completionDetail
-                        )
-                        // Reload sidebar so the new result bundle appears.
-                        // User clicks the new result to view it (batch-only display path).
-                        self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
-
+                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            return
+                        }
                         // Record analysis in source bundle manifest
                         if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
                             let entry = AnalysisManifestEntry(
@@ -1280,6 +1279,19 @@ extension AppDelegate {
                             )
                             do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
                         }
+
+                        let completionDetail = capturedResult.detections.isEmpty
+                            ? "No viral hits detected"
+                            : "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: completionDetail
+                        ) else { return }
+                        // Reload sidebar so the new result bundle appears.
+                        // User clicks the new result to view it (batch-only display path).
+                        self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
+
                     }
                 }
             } catch {
@@ -1287,7 +1299,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Failed"
@@ -1379,7 +1391,10 @@ extension AppDelegate {
         )
 
         let task = Task.detached { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                await MainActor.run { OperationCenter.shared.fail(id: opID, detail: "Originating application closed") }
+                return
+            }
 
             let batchMaterializeTempDir: URL
             do {
@@ -1406,7 +1421,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
                         self.targetMainWindowController(routeContext: routeContext)?
                             .mainSplitViewController?
                             .sidebarController.requestReloadFromFilesystem()
@@ -1568,10 +1583,11 @@ extension AppDelegate {
                 }
                 appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
                 let terminalDetail = detail
+                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: terminalDetail)
+                        guard OperationCenter.shared.fail(id: opID, detail: terminalDetail) else { return }
                     }
                 }
                 return
@@ -1668,20 +1684,22 @@ extension AppDelegate {
                 }
                 appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
                 let terminalDetail = detail
+                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: terminalDetail)
+                        guard OperationCenter.shared.fail(id: opID, detail: terminalDetail) else { return }
                     }
                 }
                 return
             }
 
             if batchWasCancelled {
+                try? FileManager.default.removeItem(at: batchMaterializeTempDir)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                        guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
                         self.targetMainWindowController(routeContext: routeContext)?
                             .mainSplitViewController?
                             .sidebarController.requestReloadFromFilesystem()
@@ -1694,7 +1712,9 @@ extension AppDelegate {
                 rows: summaryRows,
                 sqliteWarning: dbBuildErrorDescription
             )
+            try? FileManager.default.removeItem(at: batchMaterializeTempDir)
             let capturedDBBuildError = dbBuildErrorDescription
+            let wasCancelled = Task.isCancelled
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
@@ -1703,7 +1723,7 @@ extension AppDelegate {
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
                         self.targetMainWindowController(routeContext: routeContext)?
                             .mainSplitViewController?
                             .sidebarController.requestReloadFromFilesystem()
@@ -1727,27 +1747,10 @@ extension AppDelegate {
                         )
                     }
 
-                    let completionBase = "\(successCount) of \(sampleCount) samples returned valid Kraken2 classifications"
-                    if finalEvaluation.requiresWarningCompletion {
-                        _ = OperationCenter.shared.completeWithWarning(
-                            id: opID,
-                            detail: "\(completionBase); \(finalEvaluation.warningMessage)"
-                        )
-                    } else {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: completionBase
-                        )
+                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
+                        return
                     }
-
-                    if let firstResult = successfulResults.first?.result {
-                        viewerController.displayTaxonomyResult(firstResult)
-                    }
-
-                    self.targetMainWindowController(routeContext: routeContext)?
-                        .mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-
                     // Record analysis in source bundle manifests
                     for entry in successfulResults {
                         let bundleURL = Self.findSourceBundle(for: entry.config.originalInputFiles ?? entry.config.inputFiles)
@@ -1769,6 +1772,28 @@ extension AppDelegate {
                             do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
                         }
                     }
+
+                    let completionBase = "\(successCount) of \(sampleCount) samples returned valid Kraken2 classifications"
+                    if finalEvaluation.requiresWarningCompletion {
+                        guard OperationCenter.shared.completeWithWarning(
+                            id: opID,
+                            detail: "\(completionBase); \(finalEvaluation.warningMessage)"
+                        ) else { return }
+                    } else {
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: completionBase
+                        ) else { return }
+                    }
+
+                    if let firstResult = successfulResults.first?.result {
+                        viewerController.displayTaxonomyResult(firstResult)
+                    }
+
+                    self.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?
+                        .sidebarController.requestReloadFromFilesystem()
+
                 }
             }
         }
@@ -1831,7 +1856,11 @@ extension AppDelegate {
         )
 
         let task = Task.detached { [weak self] in
-            guard let self else { return }
+            do {
+            guard let self else {
+                await MainActor.run { OperationCenter.shared.fail(id: opID, detail: "Originating application closed") }
+                return
+            }
 
             let batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
                 prefix: "esviritu-batch-mat-", contextURL: firstConfig.inputFiles.first ?? firstConfig.outputDirectory)
@@ -2035,13 +2064,15 @@ extension AppDelegate {
                 )
             }
 
+            try? FileManager.default.removeItem(at: batchMaterializeTempDir)
             let capturedDBBuildError = dbBuildErrorDescription
+            let wasCancelled = Task.isCancelled
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
 
-                    if Task.isCancelled {
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                    if wasCancelled {
+                        guard OperationCenter.shared.fail(id: opID, detail: "Batch cancelled") else { return }
                         return
                     }
 
@@ -2050,7 +2081,7 @@ extension AppDelegate {
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Batch Failed"
@@ -2071,24 +2102,10 @@ extension AppDelegate {
                         )
                     }
 
-                    if failureCount == 0 {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "\(successCount) of \(sampleCount) samples completed"
-                        )
-                    } else {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "\(successCount) completed, \(failureCount) failed"
-                        )
+                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
+                        return
                     }
-
-                    // Reload sidebar so the new batch result appears.
-                    // User clicks the new result to view it (batch-only display path).
-                    self.targetMainWindowController(routeContext: routeContext)?
-                        .mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-
                     // Record analysis in source bundle manifests
                     for entry in successfulResults {
                         let bundleURL = Self.findSourceBundle(for: entry.config.inputFiles)
@@ -2107,6 +2124,30 @@ extension AppDelegate {
                             do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
                         }
                     }
+
+                    if failureCount == 0 {
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "\(successCount) of \(sampleCount) samples completed"
+                        ) else { return }
+                    } else {
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "\(successCount) completed, \(failureCount) failed"
+                        ) else { return }
+                    }
+
+                    // Reload sidebar so the new batch result appears.
+                    // User clicks the new result to view it (batch-only display path).
+                    self.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?
+                        .sidebarController.requestReloadFromFilesystem()
+
+                }
+            }
+            } catch {
+                await MainActor.run {
+                    OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 }
             }
         }
@@ -2226,6 +2267,7 @@ extension AppDelegate {
                     resultDirectory: result.outputDirectory
                 )
 
+                try FileManager.default.removeItem(at: materializeTempDir)
                 let capturedResult = result
                 let capturedConfig = config
                 let capturedDBBuildError = dbBuildErrorDescription
@@ -2284,13 +2326,13 @@ extension AppDelegate {
                         } else {
                             completionDetail = capturedResult.summary
                         }
-                        _ = OperationCenter.shared.complete(
+                        Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
+                        guard OperationCenter.shared.complete(
                             id: opID,
                             detail: completionDetail
-                        )
+                        ) else { return }
                         // Write cross-reference sidecars into each source bundle so
                         // the sidebar discovers TaxTriage results under all contributors.
-                        Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
 
                         // Record in batch run history log
                         BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
@@ -2324,7 +2366,7 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
 
                         let alert = NSAlert()
                         alert.messageText = "TaxTriage Failed"

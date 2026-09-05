@@ -78,6 +78,10 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     /// Optional checksum of the installed payload.
     public var payloadDigest: String?
 
+    /// SHA-256 of the canonical receipt published with this payload. Legacy rows
+    /// decode as nil and cannot claim verified conformance identity.
+    public var canonicalReceiptSHA256: String?
+
     /// Human-readable description of the database contents.
     public let description: String
 
@@ -149,6 +153,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
         catalogID: String? = nil,
         installationRecipe: MetagenomicsDatabaseInstallationRecipe? = nil,
         payloadDigest: String? = nil,
+        canonicalReceiptSHA256: String? = nil,
         description: String,
         collection: DatabaseCollection? = nil,
         path: URL? = nil,
@@ -168,6 +173,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
         self.catalogID = catalogID
         self.installationRecipe = installationRecipe
         self.payloadDigest = payloadDigest
+        self.canonicalReceiptSHA256 = canonicalReceiptSHA256
         self.description = description
         self.collection = collection
         self.path = path
@@ -189,6 +195,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
         case catalogID
         case installationRecipe
         case payloadDigest
+        case canonicalReceiptSHA256
         case description
         case collection
         case path
@@ -214,6 +221,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
             forKey: .installationRecipe
         ) ?? downloadURL.flatMap(URL.init(string:)).map { .archive(url: $0) }
         payloadDigest = try container.decodeIfPresent(String.self, forKey: .payloadDigest)
+        canonicalReceiptSHA256 = try container.decodeIfPresent(String.self, forKey: .canonicalReceiptSHA256)
         description = try container.decode(String.self, forKey: .description)
         collection = try container.decodeIfPresent(DatabaseCollection.self, forKey: .collection)
         path = try container.decodeIfPresent(URL.self, forKey: .path)
@@ -236,6 +244,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
         try container.encodeIfPresent(catalogID, forKey: .catalogID)
         try container.encodeIfPresent(installationRecipe, forKey: .installationRecipe)
         try container.encodeIfPresent(payloadDigest, forKey: .payloadDigest)
+        try container.encodeIfPresent(canonicalReceiptSHA256, forKey: .canonicalReceiptSHA256)
         try container.encode(description, forKey: .description)
         try container.encodeIfPresent(collection, forKey: .collection)
         try container.encodeIfPresent(path, forKey: .path)
@@ -263,6 +272,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
             && lhs.catalogID == rhs.catalogID
             && lhs.installationRecipe == rhs.installationRecipe
             && lhs.payloadDigest == rhs.payloadDigest
+            && lhs.canonicalReceiptSHA256 == rhs.canonicalReceiptSHA256
             && lhs.description == rhs.description
             && lhs.collection == rhs.collection
             && lhs.path?.absoluteString == rhs.path?.absoluteString

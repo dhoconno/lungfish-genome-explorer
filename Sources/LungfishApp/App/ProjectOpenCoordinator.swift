@@ -42,6 +42,21 @@ final class ProjectOpenCoordinator {
         return project
     }
 
+    func completePreparedOpen(_ preparation: Result<ProjectSession.PreparedProject, Error>, at projectURL: URL, using session: ProjectSession, generation: UInt64) throws -> OpenResult {
+        guard session.documentGeneration == generation else { throw CancellationError() }
+        switch preparation {
+        case .success(let prepared):
+            let project = try session.acceptPreparedProject(prepared, generation: generation)
+            recordRecentProject(project.url, project.name)
+            return .opened(project)
+        case .failure(let error):
+            if error is CancellationError { throw error }
+            let name = projectURL.deletingPathExtension().lastPathComponent
+            recordRecentProject(projectURL, name)
+            return .filesystemFallback(FilesystemFallback(url: projectURL, name: name, error: error))
+        }
+    }
+
     @discardableResult
     func openProject(
         at projectURL: URL,

@@ -1,5 +1,6 @@
 import Foundation
 import LungfishWorkflow
+import LungfishKit
 import os
 
 enum ReferenceBundleImportHelperLauncher {
@@ -215,5 +216,36 @@ enum ReferenceBundleImportHelperLauncher {
 
         let inferredName = parsed.1 ?? bundleURL.deletingPathExtension().lastPathComponent
         return ReferenceBundleImportResult(bundleURL: bundleURL, bundleName: inferredName)
+    }
+}
+
+/// Keeps terminal ownership independent of the sidebar/viewer lifetime. The
+/// helper has no cancellation contract, so the operation deliberately has none.
+@MainActor
+enum ReferenceImportOperationLifecycle {
+    static func run(
+        center: OperationCenter,
+        sourceURL: URL,
+        outputDirectory: URL,
+        routeContext: OperationRouteContext?,
+        importer: (UUID) async throws -> URL
+    ) async -> Result<URL, Error> {
+        let id = center.start(
+            title: "Reference Import",
+            detail: "Importing \(sourceURL.lastPathComponent)...",
+            operationType: .bundleBuild,
+            cliCommand: OperationCenter.buildCLICommand(subcommand: "import", args: ["fasta", sourceURL.path, "--output-dir", outputDirectory.path]),
+            routeContext: routeContext
+        )
+        do {
+            let output = try await importer(id)
+            guard center.complete(id: id, detail: "Imported \(output.lastPathComponent)", bundleURLs: [output]) else {
+                return .failure(CancellationError())
+            }
+            return .success(output)
+        } catch {
+            center.fail(id: id, detail: error.localizedDescription)
+            return .failure(error)
+        }
     }
 }

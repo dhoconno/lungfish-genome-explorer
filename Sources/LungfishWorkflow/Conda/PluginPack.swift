@@ -112,6 +112,14 @@ public struct PackToolSourceOverlay: Sendable, Codable, Hashable {
         self.sourceURL = sourceURL
         self.sha256 = sha256.lowercased()
     }
+
+    func validateRequestedIdentity() throws {
+        guard !version.isEmpty, sourceURL.scheme == "https", sourceURL.host != nil,
+              sha256.count == 64, sha256.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw CondaLockfileError.invalidSpecification("Source overlay requires an HTTPS archive URL, version, and SHA-256.")
+        }
+    }
+
 }
 
 public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
@@ -244,20 +252,16 @@ public extension PackToolRequirement {
                 smokeTest: smokeTest
             )
         }
-        var overlay: PackToolSourceOverlay?
-        if let build = spec.sourceBuild {
-            if let kind = PackToolSourceOverlay.Kind(rawValue: id), let url = URL(string: build.url) {
-                overlay = PackToolSourceOverlay(
-                    kind: kind,
-                    version: build.version,
-                    sourceURL: url,
-                    sha256: build.sha256
-                )
-            } else {
-                // A sourceBuild for a tool the installer has no recipe for is a manifest
-                // error: fail loudly in debug, fall back to the conda spec in release.
-                assertionFailure("manifest sourceBuild for \(id) has no installer recipe or an invalid URL")
-            }
+        let overlay: PackToolSourceOverlay?
+        do {
+            overlay = try spec.requestedSourceOverlay()
+        } catch {
+            // Decoded manifests reject this before pack construction. Programmatic
+            // invalid manifests keep the pack visible but cannot silently substitute
+            // a conda package for an unsupported source build.
+            assertionFailure(error.localizedDescription)
+            return PackToolRequirement(id: id, displayName: displayName,
+                environment: spec.environment, installPackages: [], executables: executables)
         }
         return PackToolRequirement(
             id: id,
@@ -272,6 +276,22 @@ public extension PackToolRequirement {
             sourceURL: spec.sourceUrl,
             sourceOverlay: overlay
         )
+    }
+}
+
+extension PackToolSpec {
+    func requestedSourceOverlay() throws -> PackToolSourceOverlay? {
+        guard let sourceBuild else { return nil }
+        guard let kind = PackToolSourceOverlay.Kind(rawValue: toolID),
+              let url = URL(string: sourceBuild.url),
+              !sourceBuild.toolchainPackages.isEmpty,
+              sourceBuild.toolchainPackages.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw CondaLockfileError.invalidSpecification("Unsupported source-build recipe or missing toolchain for '\(toolID)'.")
+        }
+        let overlay = PackToolSourceOverlay(kind: kind, version: sourceBuild.version,
+            sourceURL: url, sha256: sourceBuild.sha256)
+        try overlay.validateRequestedIdentity()
+        return overlay
     }
 }
 

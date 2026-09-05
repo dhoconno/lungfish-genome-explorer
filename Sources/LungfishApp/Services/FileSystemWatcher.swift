@@ -125,8 +125,9 @@ public final class FileSystemWatcher {
     private struct CallbackSnapshot: Sendable {
         let watchedRootPath: String?
         let policy: StreamPolicy
+        let generation: UInt
 
-        static let inactive = CallbackSnapshot(watchedRootPath: nil, policy: .nativeVolume)
+        static let inactive = CallbackSnapshot(watchedRootPath: nil, policy: .nativeVolume, generation: 0)
     }
 
     /// Maps a live watcher to the token its streams carry in `FSEventStreamContext.info`.
@@ -181,6 +182,7 @@ public final class FileSystemWatcher {
 
     private let onChange: @MainActor (ChangedPaths) -> Void
     private let onRootChanged: (@MainActor () -> Void)?
+    private let onUnavailable: (@MainActor (String) -> Void)?
     private let streamLifecycle: StreamLifecycle
     /// Registry token for this watcher's streams. Assigned once in `init`
     /// after the stored properties are in place (registration needs `self`).
@@ -224,10 +226,12 @@ public final class FileSystemWatcher {
 
     public init(
         onChange: @escaping @MainActor (ChangedPaths) -> Void,
-        onRootChanged: (@MainActor () -> Void)? = nil
+        onRootChanged: (@MainActor () -> Void)? = nil,
+        onUnavailable: (@MainActor (String) -> Void)? = nil
     ) {
         self.onChange = onChange
         self.onRootChanged = onRootChanged
+        self.onUnavailable = onUnavailable
         self.streamLifecycle = .live
         self.callbackToken = CallbackRegistry.shared.register(self)
         logger.debug("FileSystemWatcher initialized")
@@ -236,10 +240,12 @@ public final class FileSystemWatcher {
     init(
         onChange: @escaping @MainActor (ChangedPaths) -> Void,
         onRootChanged: (@MainActor () -> Void)?,
+        onUnavailable: (@MainActor (String) -> Void)? = nil,
         streamLifecycle: StreamLifecycle
     ) {
         self.onChange = onChange
         self.onRootChanged = onRootChanged
+        self.onUnavailable = onUnavailable
         self.streamLifecycle = streamLifecycle
         self.callbackToken = CallbackRegistry.shared.register(self)
         logger.debug("FileSystemWatcher initialized")
@@ -268,6 +274,11 @@ public final class FileSystemWatcher {
             return
         }
 
+        // Every stream gets a fresh registry token; a retired stream cannot
+        // resolve the new watch even if its callback was delayed.
+        CallbackRegistry.shared.deregister(callbackToken)
+        callbackToken = CallbackRegistry.shared.register(self)
+        watchGeneration += 1
         watchedDirectory = directory
         let path = directory.path
         let volumeType = Self.volumeTypeName(of: directory)
@@ -275,7 +286,7 @@ public final class FileSystemWatcher {
         // Publish before the stream can start: the callback must never see a
         // root path from the previous watch.
         CallbackRegistry.shared.publish(
-            CallbackSnapshot(watchedRootPath: directory.standardizedFileURL.path, policy: streamPolicy),
+            CallbackSnapshot(watchedRootPath: directory.standardizedFileURL.path, policy: streamPolicy, generation: watchGeneration),
             for: callbackToken
         )
         logger.info(
@@ -283,7 +294,6 @@ public final class FileSystemWatcher {
         )
 
         hasClaimedWatch = true
-        watchGeneration += 1
         let generation = watchGeneration
         let lifecycle = streamLifecycle
         let policy = streamPolicy
@@ -399,13 +409,13 @@ public final class FileSystemWatcher {
             logger.error("startWatching: FSEventStreamCreate returned nil — watcher will be inactive")
             hasClaimedWatch = false
             CallbackRegistry.shared.publish(.inactive, for: callbackToken)
-            startPollingFallback(directory: directory)
+            reportUnavailable(directory: directory)
         case .startFailed:
             logger.error("startWatching: FSEventStreamStart failed — watcher will be inactive")
             hasClaimedWatch = false
             watchedDirectory = nil
             CallbackRegistry.shared.publish(.inactive, for: callbackToken)
-            startPollingFallback(directory: directory)
+            reportUnavailable(directory: directory)
         case .started(let stream):
             eventStream = stream
             logger.info("startWatching: FSEvents stream started successfully")
@@ -510,35 +520,30 @@ public final class FileSystemWatcher {
             watchedRootPath: entry.snapshot.watchedRootPath,
             policy: entry.snapshot.policy
         )
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { watcher.deliver(delivery, generation: entry.snapshot.generation) }
+        }
+    }
+
+    var testingCurrentGeneration: UInt { watchGeneration }
+
+    /// The same guard covers callbacks already queued when a watch is replaced.
+    func deliver(_ delivery: Delivery, generation: UInt) {
+        guard generation == watchGeneration else { return }
         switch delivery {
-        case .none:
-            return
+        case .none: break
         case .rootChanged:
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    logger.warning("FSEvents: Root directory changed — stopping watcher")
-                    watcher.stopWatching()
-                    watcher.onRootChanged?()
-                }
-            }
-        case .fullReload(let reason):
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    logger.info("FSEvents: \(reason, privacy: .public) — delivering empty ChangedPaths to trigger full reload")
-                    watcher.onChange(ChangedPaths(nonSidecar: [], all: []))
-                }
-            }
+            stopWatching()
+            onRootChanged?()
+        case .fullReload:
+            onChange(ChangedPaths(nonSidecar: [], all: []))
         case .paths(let changed):
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    watcher.onChange(changed)
-                }
-            }
+            onChange(changed)
         }
     }
 
     /// What one FSEvents delivery turns into.
-    enum Delivery: Equatable {
+    enum Delivery: Equatable, Sendable {
         case none
         case rootChanged
         case fullReload(reason: String)
@@ -564,7 +569,9 @@ public final class FileSystemWatcher {
         var allURLs: [URL] = []
         var mustScanSubDirs = false
         for (index, flag) in flags.enumerated() {
-            if flag & kFSEventStreamEventFlagRootChanged != 0 {
+            if flag & (kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagUnmount) != 0
+                || (index < paths.count && URL(fileURLWithPath: paths[index]).standardizedFileURL.path == watchedRootPath
+                    && flag & kFSEventStreamEventFlagItemRemoved != 0) {
                 return .rootChanged
             }
             if flag & kFSEventStreamEventFlagMustScanSubDirs != 0 {
@@ -600,7 +607,8 @@ public final class FileSystemWatcher {
 
     // MARK: - Polling Fallback
 
-    private func startPollingFallback(directory: URL) {
-        logger.error("startPollingFallback: FSEvents unavailable — no filesystem monitoring active for '\(directory.path, privacy: .public)'")
+    private func reportUnavailable(directory: URL) {
+        logger.error("FSEvents unavailable for '\(directory.path, privacy: .public)'")
+        onUnavailable?("Filesystem monitoring is unavailable. Retry to reconnect to this project folder.")
     }
 }

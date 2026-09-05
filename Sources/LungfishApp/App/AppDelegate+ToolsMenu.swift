@@ -451,18 +451,23 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
+        let request = sender as? ImportWizardRequest
         let routeContext = currentOperationRouteContext(for: controller)
 
         let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
         wizardPanel.title = "NAO-MGS Import"
         wizardPanel.isReleasedWhenClosed = false
 
-        var sheet = NaoMgsImportSheet(datasetURL: nil)
+        var sheet = NaoMgsImportSheet(datasetURL: nil, initialSourceURL: request?.sourceURL)
         sheet.onImport = { [weak self] (resultsDir: URL) in
             window.endSheet(wizardPanel)
-            self?.importNaoMgsResultFromURL(resultsDir, routeContext: routeContext)
+            self?.importNaoMgsResultFromURL(resultsDir, routeContext: routeContext, onDispatch: { outcome in
+                if outcome == .started { request?.started(sourceURL: resultsDir) }
+                else { request?.onOutcome(outcome) }
+            })
         }
         sheet.onCancel = {
+            request?.onOutcome(.cancelled)
             window.endSheet(wizardPanel)
         }
 
@@ -470,6 +475,7 @@ extension AppDelegate {
         wizardPanel.contentViewController = hostingController
         wizardPanel.setContentSize(NSSize(width: 520, height: 400))
         window.beginSheet(wizardPanel)
+        request?.presented()
     }
 
     @objc func launchPrimerSchemeImport(_ sender: Any?) {
@@ -479,6 +485,7 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
+        let request = sender as? ImportWizardRequest
         let routeContext = currentOperationRouteContext(for: controller)
         guard let projectURL = routeContext?.projectURL
                 ?? controller.projectSession.projectURL
@@ -510,14 +517,18 @@ extension AppDelegate {
                 window.endSheet(wizardPanel)
             },
             onCancel: {
+                request?.onOutcome(.cancelled)
                 window.endSheet(wizardPanel)
-            }
+            },
+            initialBEDURL: request?.sourceURL,
+            onAcceptedSource: { request?.started(sourceURL: $0) }
         )
 
         let hostingController = NSHostingController(rootView: view)
         wizardPanel.contentViewController = hostingController
         wizardPanel.setContentSize(NSSize(width: 540, height: 480))
         window.beginSheet(wizardPanel)
+        request?.presented()
     }
 
     @objc func launchNvdImport(_ sender: Any?) {
@@ -527,18 +538,23 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
+        let request = sender as? ImportWizardRequest
         let routeContext = currentOperationRouteContext(for: controller)
 
         let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
         wizardPanel.title = "NVD Import"
         wizardPanel.isReleasedWhenClosed = false
 
-        var sheet = NvdImportSheet(datasetURL: nil)
+        var sheet = NvdImportSheet(datasetURL: nil, initialSourceURL: request?.sourceURL)
         sheet.onImport = { [weak self] (nvdDir: URL) in
             window.endSheet(wizardPanel)
-            self?.importNvdResultFromURL(nvdDir, routeContext: routeContext)
+            self?.importNvdResultFromURL(nvdDir, routeContext: routeContext, onDispatch: { outcome in
+                if outcome == .started { request?.started(sourceURL: nvdDir) }
+                else { request?.onOutcome(outcome) }
+            })
         }
         sheet.onCancel = {
+            request?.onOutcome(.cancelled)
             window.endSheet(wizardPanel)
         }
 
@@ -546,6 +562,7 @@ extension AppDelegate {
         wizardPanel.contentViewController = hostingController
         wizardPanel.setContentSize(NSSize(width: 500, height: 450))
         window.beginSheet(wizardPanel)
+        request?.presented()
     }
 
     @objc func launchCzIdImport(_ sender: Any?) {
@@ -555,6 +572,7 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
+        let request = sender as? ImportWizardRequest
         let routeContext = currentOperationRouteContext(for: controller)
         guard let projectURL = routeContext?.projectURL
                 ?? controller.projectSession.projectURL
@@ -571,12 +589,16 @@ extension AppDelegate {
         wizardPanel.title = "CZ-ID Import"
         wizardPanel.isReleasedWhenClosed = false
 
-        var sheet = CzIdImportSheet(projectURL: projectURL, datasetURL: nil)
+        var sheet = CzIdImportSheet(projectURL: projectURL, datasetURL: nil, initialSourceURL: request?.sourceURL)
         sheet.onImport = { [weak self] sourceURL in
             window.endSheet(wizardPanel)
-            self?.importCzIdResultFromURL(sourceURL, routeContext: routeContext)
+            self?.importCzIdResultFromURL(sourceURL, routeContext: routeContext, onDispatch: { outcome in
+                if outcome == .started { request?.started(sourceURL: sourceURL) }
+                else { request?.onOutcome(outcome) }
+            })
         }
         sheet.onCancel = {
+            request?.onOutcome(.cancelled)
             window.endSheet(wizardPanel)
         }
 
@@ -584,14 +606,16 @@ extension AppDelegate {
         wizardPanel.contentViewController = hostingController
         wizardPanel.setContentSize(NSSize(width: 520, height: 460))
         window.beginSheet(wizardPanel)
+        request?.presented()
     }
 
-    func importNvdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+    func importNvdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil, onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
-        guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
+        guard let controller = targetMainWindowController(routeContext: routeContext),
               let projectURL = routeContext?.projectURL
                 ?? controller.projectSession.projectURL
                 ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            onDispatch?(.rejected("Open a project before importing results."))
             showAlert(
                 title: "No Project Open",
                 message: "Please open a project before importing NVD results.",
@@ -604,12 +628,16 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "NVD Import",
             presentingWindow: controller.window
-        ) else { return }
+        ) else {
+            onDispatch?(.rejected("This project is not writable."))
+            return
+        }
 
         let importsDir = projectURL.appendingPathComponent("Imports", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: importsDir, withIntermediateDirectories: true)
         } catch {
+            onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
             showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: controller.window)
             return
         }
@@ -624,6 +652,7 @@ extension AppDelegate {
             routeContext: routeContext
         )
 
+        onDispatch?(.started)
         let task = Task.detached { [weak self] in
             do {
                 let result = try await MetagenomicsImportHelperClient.importViaCLI(
@@ -644,11 +673,11 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: opID,
                             detail: result.detail,
                             bundleURLs: [result.resultDirectory]
-                        )
+                        ) else { return }
                         OperationCenter.shared.log(
                             id: opID,
                             level: .info,
@@ -661,6 +690,7 @@ extension AppDelegate {
             } catch is CancellationError {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
                         OperationCenter.shared.log(
                             id: opID,
                             level: .info,
@@ -671,7 +701,6 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         if let partialDir = (error as? MetagenomicsImportHelperClientError)?
                             .partialResultDirectory {
                             try? FileManager.default.removeItem(at: partialDir)
@@ -686,6 +715,7 @@ extension AppDelegate {
                             level: .error,
                             message: "NVD import failed: \(error.localizedDescription)"
                         )
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                         self?.showAlert(
                             title: "NVD Import Failed",
                             message: error.localizedDescription,
@@ -761,11 +791,11 @@ extension AppDelegate {
                 }
                 let capturedConfig = config
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped",
                         bundleURLs: [result.bamURL]
-                    )
+                    ) else { return }
 
                     // Record analysis in source bundle manifest
                     if let bundleURL = Self.findSourceBundle(for: capturedConfig.inputFiles) {
@@ -796,12 +826,13 @@ extension AppDelegate {
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
-    func importCzIdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+    func importCzIdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil, onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
-        guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
+        guard let controller = targetMainWindowController(routeContext: routeContext),
               let projectURL = routeContext?.projectURL
                 ?? controller.projectSession.projectURL
                 ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            onDispatch?(.rejected("Open a project before importing results."))
             showAlert(
                 title: "No Project Open",
                 message: "Please open a project before importing CZ-ID results.",
@@ -814,7 +845,10 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "CZ-ID Import",
             presentingWindow: controller.window
-        ) else { return }
+        ) else {
+            onDispatch?(.rejected("This project is not writable."))
+            return
+        }
 
         Task.detached { [weak self] in
             var opID: UUID?
@@ -855,6 +889,7 @@ extension AppDelegate {
 
                 if let opID {
                     await appPerformOnMainRunLoop {
+                        onDispatch?(.started)
                         _ = OperationCenter.shared.updateWithLog(
                             id: opID,
                             progress: 0.35,
@@ -872,11 +907,11 @@ extension AppDelegate {
                 let completedOpID = opID
                 await appPerformOnMainRunLoop {
                     guard let opID = completedOpID else { return }
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(imported.sampleName)",
                         bundleURLs: [imported.bundleURL]
-                    )
+                    ) else { return }
                     OperationCenter.shared.log(
                         id: opID,
                         level: .info,
@@ -891,6 +926,8 @@ extension AppDelegate {
                     await appPerformOnMainRunLoop {
                         _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                     }
+                } else {
+                    await appPerformOnMainRunLoop { onDispatch?(.cancelled) }
                 }
             } catch {
                 if let bundleURL {
@@ -901,6 +938,8 @@ extension AppDelegate {
                 await appPerformOnMainRunLoop {
                     if let opID = failedOpID {
                         _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                    } else {
+                        onDispatch?(.rejected(detail))
                     }
                     self?.showAlert(
                         title: "CZ-ID Import Failed",
@@ -1275,10 +1314,10 @@ extension AppDelegate {
                 let result = try AppUITestMappingBackend.writeResult(for: request)
                 let outputDirectory = request.outputDirectory
                 let capturedRequest = request
-                _ = OperationCenter.shared.complete(
+                guard OperationCenter.shared.complete(
                     id: opID,
                     detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
-                )
+                ) else { return false }
                 AppUITestConfiguration.current.appendEvent(
                     "mapping.operation.completed target=\(outputDirectory.lastPathComponent)"
                 )
@@ -1337,12 +1376,10 @@ extension AppDelegate {
             // true isPairedEnd (and other resolved fields), not the
             // wizard's pre-resolve pairedEnd:false placeholder.
             let capturedRequest = request
-            _ = OperationCenter.shared.complete(
-                id: opID,
-                detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
-                bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
-            )
-
+            guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                OperationCenter.shared.acknowledgeCancellation(id: opID)
+                return false
+            }
             if let bundleURL = Self.findSourceBundle(for: capturedRequest.inputFASTQURLs) {
                 let entry = AnalysisManifestEntry(
                     tool: capturedRequest.tool.rawValue,
@@ -1361,6 +1398,14 @@ extension AppDelegate {
                     appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)")
                 }
             }
+
+            guard OperationCenter.shared.complete(
+                id: opID,
+                detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
+                bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
+            ) else { return false }
+
+
 
             targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                 .sidebarController.requestReloadFromFilesystem()
@@ -1418,11 +1463,11 @@ extension AppDelegate {
                     operationID: opID
                 )
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "MAFFT complete: \(result.rowCount) rows, \(result.alignedLength) columns",
                         bundleURLs: [result.bundleURL]
-                    )
+                    ) else { return }
                     self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                         .sidebarController.requestReloadFromFilesystem()
                 }}
@@ -1600,10 +1645,10 @@ extension AppDelegate {
                     }}
                 }
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Orient complete: \(result.forwardCount) fwd, \(result.reverseComplementedCount) RC, \(result.unmatchedCount) unmatched"
-                    )
+                    ) else { return }
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {

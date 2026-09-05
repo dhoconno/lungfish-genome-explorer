@@ -1031,7 +1031,7 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
             try ToolAvailability.skipOrFail("Viral database not installed")
         }
 
-        guard let dbPath = viralDB?.path else {
+        guard let dbPath = try await ConformanceFixtures.viralKrakenDB() else {
             try ToolAvailability.skipOrFail("Viral database path not available")
         }
 

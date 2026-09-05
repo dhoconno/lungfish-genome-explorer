@@ -367,6 +367,7 @@ public final class TaxonomyReadExtractionAction {
                         )
                         DispatchQueue.main.async { [weak self] in
                             MainActor.assumeIsolated {
+                                guard OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads") else { return }
                                 self?.handleSuccess(
                                     outcome: outcome,
                                     opID: opID,
@@ -379,11 +380,7 @@ public final class TaxonomyReadExtractionAction {
                     } catch is CancellationError {
                         DispatchQueue.main.async { [weak model, weak hostWindow, weak sheetWindow] in
                             MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.fail(
-                                    id: opID,
-                                    detail: "Cancelled by user",
-                                    errorMessage: "Cancelled by user"
-                                )
+                                _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
                                 model?.isRunning = false
                                 model?.errorMessage = "Cancelled"
                                 // Dismiss the sheet now that the detached
@@ -405,16 +402,18 @@ public final class TaxonomyReadExtractionAction {
                         // than spawning a nested main-actor task while inside
                         // an `assumeIsolated` block.
                         DispatchQueue.main.async { [weak self, weak model] in
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.fail(
+                            let accepted = MainActor.assumeIsolated {
+                                let accepted = OperationCenter.shared.fail(
                                     id: opID,
                                     detail: errorDesc,
                                     errorMessage: errorDesc
                                 )
                                 OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
                                 model?.isRunning = false
-                                model?.errorMessage = errorDesc
+                                model?.errorMessage = accepted ? errorDesc : "Cancelled"
+                                return accepted
                             }
+                            guard accepted else { return }
                             // Spawn the alert-presentation Task from the GCD
                             // main queue, NOT from inside `assumeIsolated`.
                             // The Task body is implicitly @MainActor because
@@ -532,8 +531,6 @@ public final class TaxonomyReadExtractionAction {
         hostWindow: NSWindow,
         sheetWindow: NSPanel?
     ) {
-        _ = OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads")
-
         switch outcome {
         case .file(let url, let n):
             OperationCenter.shared.log(id: opID, level: .info, message: "File saved: \(url.path)")

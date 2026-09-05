@@ -68,12 +68,15 @@ public enum GUIImportedProvenanceRehydrator {
     @discardableResult
     public static func rehydrateRelocatedImportedCopy(
         from sourceURL: URL,
-        to destinationURL: URL
+        to destinationURL: URL,
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
+        requireCLIProvenance: Bool = true,
+        importStep: ProvenanceStep? = nil
     ) throws -> ProvenanceEnvelope {
         let sourceRoot = provenanceRoot(for: sourceURL)
         let destinationRoot = try finalProvenanceRoot(for: destinationURL)
         let source = try loadSourceEnvelopeRecord(for: destinationURL, sourceRoot: destinationRoot)
-        guard isLungfishCLIEnvelope(source.envelope) else {
+        guard !requireCLIProvenance || isLungfishCLIEnvelope(source.envelope) else {
             throw GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance(destinationURL.path)
         }
         let sourceDescriptors = outputDescriptors(from: source.envelope)
@@ -109,21 +112,25 @@ public enum GUIImportedProvenanceRehydrator {
         let withImportStep = try appendingGUIImportStep(
             to: rehydrated,
             sourceURL: sourceURL,
-            destinationURL: destinationURL
+            destinationURL: destinationURL,
+            suppliedImportStep: importStep
         )
         let rewrittenArguments = rewriteEnvelopeArguments(in: withImportStep, pathMap: argumentPathMap)
-        try ProvenanceWriter(signingProvider: nil).write(rewrittenArguments, to: destinationRoot)
+        try provenanceWriter.write(rewrittenArguments, to: destinationRoot)
         return rewrittenArguments
     }
 
     @discardableResult
     public static func rehydrateImportedFileSidecar(
         from sourceURL: URL,
-        to destinationURL: URL
+        to destinationURL: URL,
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
+        requireCLIProvenance: Bool = true,
+        importStep: ProvenanceStep? = nil
     ) throws -> ProvenanceEnvelope {
         let sourceRoot = provenanceRoot(for: sourceURL)
         let source = try loadSourceEnvelopeRecord(for: sourceURL, sourceRoot: sourceRoot)
-        guard isLungfishCLIEnvelope(source.envelope) else {
+        guard !requireCLIProvenance || isLungfishCLIEnvelope(source.envelope) else {
             throw GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance(sourceURL.path)
         }
 
@@ -149,10 +156,11 @@ public enum GUIImportedProvenanceRehydrator {
         let withImportStep = try appendingGUIImportStep(
             to: rehydrated,
             sourceURL: sourceURL,
-            destinationURL: destinationURL
+            destinationURL: destinationURL,
+            suppliedImportStep: importStep
         )
         let rewrittenArguments = rewriteEnvelopeArguments(in: withImportStep, pathMap: argumentPathMap)
-        try ProvenanceWriter(signingProvider: nil).write(
+        try provenanceWriter.write(
             rewrittenArguments,
             toSidecar: ProvenanceRecorder.fileSidecarURL(for: destinationURL)
         )
@@ -709,21 +717,27 @@ public enum GUIImportedProvenanceRehydrator {
     private static func appendingGUIImportStep(
         to envelope: ProvenanceEnvelope,
         sourceURL: URL,
-        destinationURL: URL
+        destinationURL: URL,
+        suppliedImportStep: ProvenanceStep? = nil
     ) throws -> ProvenanceEnvelope {
         let outputs = try importStepOutputs(from: envelope, destinationURL: destinationURL)
-        let importStep = ProvenanceStep(
-            toolName: "lungfish-app",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: ["lungfish-app", "gui-import", sourceURL.path, destinationURL.path],
-            durableReplayArgv: ["lungfish-app", "gui-import", destinationURL.path],
-            inputs: [try importStepInput(for: sourceURL)],
-            outputs: outputs,
-            exitStatus: 0,
-            wallTimeSeconds: 0,
-            startedAt: Date(),
-            completedAt: Date()
-        )
+        let importStep: ProvenanceStep
+        if let suppliedImportStep {
+            importStep = suppliedImportStep
+        } else {
+            importStep = ProvenanceStep(
+                toolName: "lungfish-app",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: ["lungfish-app", "gui-import", sourceURL.path, destinationURL.path],
+                durableReplayArgv: ["lungfish-app", "gui-import", destinationURL.path],
+                inputs: [try importStepInput(for: sourceURL)],
+                outputs: outputs,
+                exitStatus: 0,
+                wallTimeSeconds: 0,
+                startedAt: Date(),
+                completedAt: Date()
+            )
+        }
 
         return ProvenanceEnvelope(
             schemaVersion: envelope.schemaVersion,

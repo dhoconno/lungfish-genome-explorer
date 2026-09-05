@@ -105,8 +105,16 @@ public enum DatabaseUpdatePolicy: String, Sendable, Codable {
     case required
 }
 
-/// A pinned reference database: either a bundled sidecar (human-scrubber, deacon indexes)
-/// or a catalog entry the user downloads on demand (Kraken2 collections, EsViritu, etc.).
+/// A catalog label is not an artifact pin. Live and unpinned sources are
+/// identified by the actual received bytes and retained installed payload.
+public enum DatabaseSourcePolicy: String, Sendable, Codable, Hashable {
+    case pinnedArchive
+    case unpinnedArchive
+    case liveSnapshot
+    case localBuild
+    case bundledPayload
+}
+
 public struct DatabaseSpec: Sendable, Codable, Hashable, Identifiable {
     public let id: String
     public let tool: String
@@ -129,6 +137,31 @@ public struct DatabaseSpec: Sendable, Codable, Hashable, Identifiable {
     public let updatePolicy: DatabaseUpdatePolicy?
     /// Kraken2 collection raw value when this entry is a Kraken2 catalog entry (e.g. "standard-16").
     public let collection: String?
+
+    public var sourcePolicy: DatabaseSourcePolicy? = nil
+
+    public var effectiveSourcePolicy: DatabaseSourcePolicy {
+        sourcePolicy ?? ((sha256 != nil || md5 != nil) ? .pinnedArchive : (url != nil ? .unpinnedArchive : .localBuild))
+    }
+
+    func validateSourceIdentity() throws {
+        func validDigest(_ value: String?, length: Int) -> Bool {
+            guard let value else { return false }
+            return value.count == length && value.allSatisfy { $0.isASCII && $0.isHexDigit }
+        }
+        if (sha256 != nil && !validDigest(sha256, length: 64)) || (md5 != nil && !validDigest(md5, length: 32)) {
+            throw CondaLockfileError.invalidSpecification("Database '\(id)' has a malformed expected archive digest.")
+        }
+        if effectiveSourcePolicy == .pinnedArchive {
+            guard let url, let source = URL(string: url), source.scheme == "https", source.host != nil,
+                  validDigest(sha256, length: 64) || validDigest(md5, length: 32) else {
+                throw CondaLockfileError.invalidSpecification("Pinned database '\(id)' requires an HTTPS archive URL and an expected digest.")
+            }
+        }
+        if effectiveSourcePolicy == .liveSnapshot && (sha256 != nil || md5 != nil || version != "live") {
+            throw CondaLockfileError.invalidSpecification("Live database '\(id)' cannot claim a fixed version or expected snapshot digest.")
+        }
+    }
 
     public var effectiveUpdatePolicy: DatabaseUpdatePolicy { updatePolicy ?? .advisory }
 }

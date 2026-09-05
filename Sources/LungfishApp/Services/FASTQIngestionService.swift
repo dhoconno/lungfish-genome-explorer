@@ -330,7 +330,7 @@ public enum FASTQIngestionService {
         } catch is CancellationError {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
                 }
             }
         } catch {
@@ -465,14 +465,20 @@ public enum FASTQIngestionService {
                 switch result {
                 case .success(let bundleURL):
                     logger.info("runIngestAndBundle: completing operation for \(bundleURL.lastPathComponent)")
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(bundleURL.lastPathComponent)",
                         bundleURLs: [bundleURL]
-                    )
+                    ) else {
+                        completion(.failure(CancellationError()))
+                        return
+                    }
                     completion(.success(bundleURL))
                 case .failure(let error):
-                    _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                    guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else {
+                        completion(.failure(CancellationError()))
+                        return
+                    }
                     completion(.failure(error))
                 }
             }
@@ -1418,7 +1424,10 @@ public enum FASTQIngestionService {
 
                 let stderrState = OSAllocatedUnfairLock(initialState: Data())
                 let stderrHandle = stderrPipe.fileHandleForReading
+                let stderrReaders = DispatchGroup()
                 stderrHandle.readabilityHandler = { handle in
+                    stderrReaders.enter()
+                    defer { stderrReaders.leave() }
                     let data = handle.availableData
                     guard !data.isEmpty else { return }
                     stderrState.withLock { $0.append(data) }
@@ -1440,7 +1449,7 @@ public enum FASTQIngestionService {
                     cancellationHandle.clear(process)
                 }
 
-                try Task.checkCancellation()
+                // Cancellation is checked only after the launched child and its streams drain.
 
                 // Track last known progress so detail-only events can reuse it
                 var lastProgress: Double = 0.0
@@ -1502,21 +1511,27 @@ public enum FASTQIngestionService {
                 }
 
                 process.waitUntilExit()
-                if cancellationHandle.isTerminationRequested || Task.isCancelled {
-                    throw CancellationError()
-                }
-
                 stderrHandle.readabilityHandler = nil
+                await withCheckedContinuation { continuation in
+                    stderrReaders.notify(queue: .global()) { continuation.resume() }
+                }
                 let remainingStderr = stderrHandle.readDataToEndOfFile()
                 if !remainingStderr.isEmpty {
                     stderrState.withLock { $0.append(remainingStderr) }
                 }
 
+                cancellationHandle.clear(process)
+                if cancellationHandle.isTerminationRequested || Task.isCancelled {
+                    throw CancellationError()
+                }
                 let exitCode = process.terminationStatus
                 if exitCode == 0 {
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: [])
+                            guard OperationCenter.shared.complete(id: opID, detail: "Batch import complete", bundleURLs: []) else {
+                                completion(.failure(CancellationError()))
+                                return
+                            }
                             completion(.success(Int(exitCode)))
                         }
                     }
@@ -1527,7 +1542,10 @@ public enum FASTQIngestionService {
                     let truncated = String(stderrStr.suffix(500))
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)")
+                            guard OperationCenter.shared.fail(id: opID, detail: "Exit code \(exitCode): \(truncated)") else {
+                                completion(.failure(CancellationError()))
+                                return
+                            }
                             completion(.failure(BatchImportError.projectNotFound(projectDirectory)))
                         }
                     }
@@ -1539,7 +1557,7 @@ public enum FASTQIngestionService {
             logger.info("CLI subprocess import cancelled")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
                     completion(.failure(CancellationError()))
                 }
             }
@@ -1547,7 +1565,10 @@ public enum FASTQIngestionService {
             logger.error("CLI subprocess failed: \(error)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    guard OperationCenter.shared.fail(id: opID, detail: "\(error)") else {
+                        completion(.failure(CancellationError()))
+                        return
+                    }
                     completion(.failure(error))
                 }
             }

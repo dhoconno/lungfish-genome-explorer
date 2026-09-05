@@ -144,6 +144,9 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
+                        let detail = tracker.completedTrackName.map { "Created variant track \($0)" }
+                            ?? "Variant calling complete"
+                        guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                         if let self, let split = self.parent as? MainSplitViewController {
                             split.sidebarController.requestReloadFromFilesystem()
                             do {
@@ -159,27 +162,23 @@ extension InspectorViewController {
                                 )
                             }
                         }
-
-                        let detail = tracker.completedTrackName.map { "Created variant track \($0)" }
-                            ?? "Variant calling complete"
-                        _ = OperationCenter.shared.complete(id: opID, detail: detail)
                     }
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
                     }
                 }
             } catch {
                 let message = tracker.failureMessage ?? error.localizedDescription
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
+                        guard OperationCenter.shared.fail(
                             id: opID,
                             detail: message,
                             errorMessage: message
-                        )
+                        ) else { return }
                         self?.presentSimpleAlert(
                             title: "Variant Calling Failed",
                             message: message
@@ -249,6 +248,10 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
+                        guard OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Created variant track \(attachment.trackInfo.name)"
+                        ) else { return }
                         if let self, let split = self.parent as? MainSplitViewController {
                             split.sidebarController.requestReloadFromFilesystem()
                             do {
@@ -264,27 +267,22 @@ extension InspectorViewController {
                                 )
                             }
                         }
-
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Created variant track \(attachment.trackInfo.name)"
-                        )
                     }
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
                     }
                 }
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
+                        guard OperationCenter.shared.fail(
                             id: opID,
                             detail: error.localizedDescription,
                             errorMessage: error.localizedDescription
-                        )
+                        ) else { return }
                         self?.presentSimpleAlert(
                             title: "GATK Variant Calling Failed",
                             message: error.localizedDescription

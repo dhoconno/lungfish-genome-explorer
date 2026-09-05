@@ -109,9 +109,17 @@ actor CLIMSAActionRunner {
         }
     }
 
-    func run(arguments: [String], operationID: UUID) async throws -> CLIMSAActionResult {
+    func run(arguments: [String], operationID: UUID, ownsOperationLifecycle: Bool = true) async throws -> CLIMSAActionResult {
+        if await isOperationCancelled(operationID) {
+            if ownsOperationLifecycle {
+                await performCLIOperationCenterUpdate {
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                }
+            }
+            throw CancellationError()
+        }
         guard let binaryURL = cliURLOverride ?? CLIImportRunner.cliBinaryPath() else {
-            await failOperation(operationID, detail: RunError.cliNotFound.localizedDescription)
+            if ownsOperationLifecycle { await failOperation(operationID, detail: RunError.cliNotFound.localizedDescription) }
             throw RunError.cliNotFound
         }
 
@@ -253,7 +261,7 @@ actor CLIMSAActionRunner {
             stderrHandle.readabilityHandler = nil
             drainStreamHandlers()
             cancellationHandle.clear(proc)
-            await failOperation(opID, detail: error.localizedDescription)
+            if ownsOperationLifecycle { await failOperation(opID, detail: error.localizedDescription) }
             throw RunError.launchFailed(error.localizedDescription)
         }
 
@@ -271,6 +279,7 @@ actor CLIMSAActionRunner {
         }) {
             handleLine(trailing)
         }
+        let processWasCancelled = cancellationHandle.isTerminationRequested
         cancellationHandle.clear(proc)
 
         let snapshot = state.withLock { current in
@@ -283,39 +292,48 @@ actor CLIMSAActionRunner {
             )
         }
 
-        if await isOperationCancelled(opID) {
+        let operationWasCancelled = await isOperationCancelled(opID)
+        if processWasCancelled || operationWasCancelled {
+            if ownsOperationLifecycle {
+                await performCLIOperationCenterUpdate {
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
+                }
+            }
             throw CancellationError()
         }
         if let failedMessage = snapshot.failedMessage {
-            await failOperation(opID, detail: failedMessage)
+            if ownsOperationLifecycle { await failOperation(opID, detail: failedMessage) }
             throw RunError.failedEvent(failedMessage)
         }
         if proc.terminationStatus != 0 {
             let error = RunError.nonZeroExit(status: proc.terminationStatus, stderr: snapshot.stderr)
-            await failOperation(opID, detail: error.localizedDescription)
+            if ownsOperationLifecycle { await failOperation(opID, detail: error.localizedDescription) }
             throw error
         }
         guard let outputPath = snapshot.outputPath,
               !outputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            await failOperation(opID, detail: RunError.missingCompletion.localizedDescription)
+            if ownsOperationLifecycle { await failOperation(opID, detail: RunError.missingCompletion.localizedDescription) }
             throw RunError.missingCompletion
         }
 
         let outputURL = URL(fileURLWithPath: outputPath, isDirectory: Self.isNativeBundlePath(outputPath))
-        await performCLIOperationCenterUpdate {
-            if Self.isNativeBundleURL(outputURL) {
-                _ = OperationCenter.shared.complete(
-                    id: opID,
-                    detail: "MSA action complete",
-                    bundleURLs: [outputURL]
-                )
-            } else {
-                _ = OperationCenter.shared.complete(
-                    id: opID,
-                    detail: "MSA action complete",
-                    outputURLs: [outputURL]
-                )
+        if ownsOperationLifecycle {
+            await performCLIOperationCenterUpdate {
+                if Self.isNativeBundleURL(outputURL) {
+                    _ = OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "MSA action complete",
+                        bundleURLs: [outputURL]
+                    )
+                } else {
+                    _ = OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "MSA action complete",
+                        outputURLs: [outputURL]
+                    )
+                }
             }
+            if await isOperationCancelled(opID) { throw CancellationError() }
         }
 
         return CLIMSAActionResult(
@@ -331,7 +349,8 @@ actor CLIMSAActionRunner {
 
     @MainActor
     private func isOperationCancelled(_ id: UUID) -> Bool {
-        OperationCenter.shared.items.first { $0.id == id }?.state == .cancelled
+        let state = OperationCenter.shared.items.first { $0.id == id }?.state
+        return cancellationHandle.isTerminationRequested || state == .cancelling || state == .cancelled
     }
 
     @MainActor

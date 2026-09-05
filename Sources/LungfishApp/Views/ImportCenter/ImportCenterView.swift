@@ -25,6 +25,11 @@ struct ImportCenterView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         headerRow
+                        if let message = viewModel.dispatchMessage {
+                            Text(message)
+                                .foregroundStyle(Color.lungfishDangerFallback)
+                                .accessibilityIdentifier("import-center-dispatch-message")
+                        }
                         selectedSectionContent
                         Spacer(minLength: 0)
                     }

@@ -63,7 +63,7 @@ extension ViewerViewController {
         let destination = configuration.destination
         Task.detached {
             do {
-                _ = try await runner.run(arguments: arguments, operationID: operationID)
+                _ = try await runner.run(arguments: arguments, operationID: operationID, ownsOperationLifecycle: destination != .clipboard)
 
                 guard destination == .clipboard else {
                     if isBundleOutput {
@@ -90,6 +90,7 @@ extension ViewerViewController {
                 let data = try Data(contentsOf: outputURL)
                 guard MSAAlignmentExportSheet.isClipboardAvailable(estimatedBytes: data.count) else {
                     let message = MSAAlignmentExportSheet.clipboardUnavailableMessage(estimatedBytes: data.count)
+                    if isTemporaryOutput { try FileManager.default.removeItem(at: outputURL) }
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             _ = OperationCenter.shared.fail(
@@ -102,8 +103,10 @@ extension ViewerViewController {
                     return
                 }
                 let text = String(decoding: data, as: UTF8.self)
+                if isTemporaryOutput { try FileManager.default.removeItem(at: outputURL) }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
+                        guard OperationCenter.shared.complete(id: operationID, detail: "Copied the alignment to the clipboard", bundleURLs: []) else { return }
                         let pasteboard = NSPasteboard.general
                         pasteboard.clearContents()
                         pasteboard.setString(text, forType: .string)
@@ -117,16 +120,13 @@ extension ViewerViewController {
                             level: .info,
                             message: "Copied \(data.count) bytes to the clipboard."
                         )
-                        _ = OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "Copied the alignment to the clipboard",
-                            bundleURLs: []
-                        )
                     }
                 }
             } catch is CancellationError {
-                return
+                if isTemporaryOutput { try? FileManager.default.removeItem(at: outputURL) }
+                await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
             } catch {
+                if isTemporaryOutput { try? FileManager.default.removeItem(at: outputURL) }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         _ = OperationCenter.shared.fail(

@@ -294,11 +294,19 @@ enum SidebarProjectScanner {
         case analysesDirectory
     }
 
+    /// Package boundaries are recognized before content validation. Even an invalid
+    /// native package must never be traversed as a folder of independent inputs.
+    static func isNativePackage(_ url: URL) -> Bool {
+        bundleClassification(for: url) != nil
+    }
+
     static func bundleClassification(
         for url: URL,
         fileManager: FileManager = .default
     ) -> (type: SidebarItemType, icon: String)? {
         switch url.pathExtension.lowercased() {
+        case FASTQBundle.directoryExtension:
+            return (.fastqBundle, "doc.text")
         case "lungfishref":
             return (.referenceBundle, "cylinder.split.1x2")
         case MHCAmpliconReferenceBundle.directoryExtension:
@@ -318,10 +326,15 @@ enum SidebarProjectScanner {
             if fileManager.fileExists(atPath: manifestURL.path) {
                 return (.czIdResult, "c.circle")
             }
-            return nil
+            return (.document, "shippingbox")
         default:
             if FASTQBundle.isBundleURL(url) {
                 return (.fastqBundle, "doc.text")
+            }
+            // Native packages without a dedicated viewport remain atomic and use
+            // the existing document preview, never a tree of their private files.
+            if url.pathExtension.lowercased().hasPrefix("lungfish") {
+                return (.document, "shippingbox")
             }
             return nil
         }

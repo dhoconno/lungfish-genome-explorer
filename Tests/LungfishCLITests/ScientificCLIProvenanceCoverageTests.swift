@@ -5,6 +5,58 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ScientificCLIProvenanceCoverageTests: XCTestCase {
+    func testConvertForcePreservesPreviousPayloadAndSidecarsWhenPublicationFails() async throws {
+        for obstructRoot in [true, false] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("convert-rollback-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let input = root.appendingPathComponent("input.fa")
+            let output = root.appendingPathComponent("output.fa")
+            let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+            let rootProvenance = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            try ">fixture\nacgt\n".write(to: input, atomically: true, encoding: .utf8)
+            let oldPayload = Data("previous export\n".utf8)
+            let oldSidecar = Data("previous provenance\n".utf8)
+            try oldPayload.write(to: output)
+            let obstruction = obstructRoot ? rootProvenance : sidecar
+            let preservedSidecar = obstructRoot ? sidecar : rootProvenance
+            try oldSidecar.write(to: preservedSidecar)
+            try FileManager.default.createDirectory(at: obstruction, withIntermediateDirectories: true)
+            let marker = obstruction.appendingPathComponent("keep")
+            try Data("obstruction".utf8).write(to: marker)
+            let command = try ConvertCommand.parse([input.path, "--to", output.path, "--force", "--quiet"])
+            do {
+                try await command.run()
+                XCTFail("A sidecar directory must reject publication")
+            } catch {}
+            XCTAssertEqual(try Data(contentsOf: output), oldPayload)
+            XCTAssertEqual(try Data(contentsOf: preservedSidecar), oldSidecar)
+            XCTAssertEqual(try Data(contentsOf: marker), Data("obstruction".utf8))
+        }
+    }
+
+    func testConvertRejectsInputOutputAliasesWithoutChangingConsumedBytes() async throws {
+        for alias in ["same", "symlink", "hardlink"] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("convert-alias-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let input = root.appendingPathComponent("input.fa")
+            let bytes = Data(">fixture\nacgt\n".utf8)
+            try bytes.write(to: input)
+            let output = alias == "same" ? input : root.appendingPathComponent("alias.fa")
+            if alias == "symlink" { try FileManager.default.createSymbolicLink(at: output, withDestinationURL: input) }
+            if alias == "hardlink" { try FileManager.default.linkItem(at: input, to: output) }
+            let command = try ConvertCommand.parse([input.path, "--to", output.path, "--force", "--quiet"])
+            do {
+                try await command.run()
+                XCTFail("Input/output alias \(alias) must be rejected before conversion")
+            } catch {}
+            XCTAssertEqual(try Data(contentsOf: input), bytes)
+            XCTAssertEqual(try Data(contentsOf: output), bytes)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+        }
+    }
+
     func testSingleStepHelperPreservesCallerStatusAndPeakMemoryInCompatibilityRun() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("single-step-helper-provenance-\(UUID().uuidString)", isDirectory: true)

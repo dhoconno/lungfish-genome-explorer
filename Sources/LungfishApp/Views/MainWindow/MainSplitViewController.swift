@@ -484,6 +484,18 @@ public class MainSplitViewController: NSSplitViewController {
     /// cannot repaint the viewport after a tool result is displayed.
     var multiDocumentLoadTask: Task<Void, Never>?
 
+    /// An external file read belongs to this display request and this session.
+    var projectOpenTask: Task<Void, Never>?
+    var projectPreparation: @Sendable (URL) async -> Result<ProjectSession.PreparedProject, Error> = { url in
+        await Task.detached(priority: .userInitiated) {
+            Result { try ProjectSession.prepareProject(at: url, deferCleanup: true) }
+        }.value
+    }
+    var externalDocumentLoadTask: Task<Void, Never>?
+    var externalDocumentLoader: @MainActor (URL) async throws -> LoadedDocument = {
+        try await DocumentManager.shared.readDocument(at: $0)
+    }
+
     /// Cancellable off-main genotype bundle validation for the active sidebar selection.
     var genotypeResultLoadTask: Task<Void, Never>?
     var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
@@ -657,6 +669,8 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     deinit {
+        projectOpenTask?.cancel()
+        externalDocumentLoadTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 

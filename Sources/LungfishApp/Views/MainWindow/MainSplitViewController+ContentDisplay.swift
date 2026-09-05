@@ -14,6 +14,7 @@ import os.log
 
 extension MainSplitViewController {
     func displayContent(for item: SidebarItem) {
+        guard !projectSession.isFilesystemUnavailable else { return }
         if let genotypeController =
             viewerController.genotypeResultViewController,
            genotypeController.deferManualHaplotypeTransition(
@@ -23,6 +24,11 @@ extension MainSplitViewController {
                 self.displayContent(for: item)
             }
            ) {
+            return
+        }
+        if let documentID = item.userInfo["documentID"].flatMap(UUID.init(uuidString:)),
+           let document = projectSession.documents.first(where: { $0.id == documentID && $0.projectSequenceID != nil }) {
+            loadProjectDocument(document)
             return
         }
         clearClassifierMetadataPresentation()
@@ -166,6 +172,9 @@ extension MainSplitViewController {
                 displayViralReconAnalysisFromSidebar(at: url)
             case .unknown:
                 mainSplitLogger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
+                inspectorController.clearSelection()
+                inspectorController.updateProvenanceTarget(url: url, sidebarType: .analysisResult, displayName: item.title)
+                viewerController.clearViewport(statusMessage: "Unsupported analysis: \(toolId). Inspect or reveal \(dirName) from the sidebar.")
             }
             return
         }
@@ -175,11 +184,15 @@ extension MainSplitViewController {
             displayGenomicsFile(url: url)
         } else if item.type == .sequence || item.type == .annotation || item.type == .alignment {
             // Check for already-loaded document by name
-            if let document = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
+            if let documentID = item.userInfo["documentID"].flatMap(UUID.init(uuidString:)),
+               let document = projectSession.documents.first(where: { $0.id == documentID }) {
                 mainSplitLogger.info("displayContent: Found matching document by name, displaying")
                 viewerController.displayDocument(document)
                 projectSession.setActiveDocument(document)
-                DocumentManager.shared.setActiveDocument(document)
+                DocumentManager.shared.refreshMirror(ifOwnedBy: projectSession)
+            } else {
+                inspectorController.clearSelection()
+                viewerController.clearViewport(statusMessage: "This document is no longer available in this window.")
             }
         }
     }
@@ -196,13 +209,16 @@ extension MainSplitViewController {
         activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.activityIndicator.hide() }
+            defer {
+                if self.canCommitDisplayRequest(displayToken, identity: displayIdentity) {
+                    self.activityIndicator.hide()
+                }
+            }
             guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
             do {
                 self.inspectorController.clearSelection()
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: url)
-                self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
                 // `displayMultipleSequenceAlignmentBundle` reads the primary
                 // alignment FASTA off the main actor. A newer sidebar selection
                 // may supersede this load while that read is in flight, so the
@@ -214,13 +230,18 @@ extension MainSplitViewController {
                     return self.canCommitDisplayRequest(displayToken, identity: displayIdentity)
                 }
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
+                self.inspectorController.activeContentSelectionIdentity = displayIdentity
                 if let controller = self.viewerController.multipleSequenceAlignmentViewController {
                     controller.onSelectionStateChanged = { [weak self] state in
-                        self?.inspectorController.updateMultipleSequenceAlignmentSelection(state)
+                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                        self.inspectorController.updateMultipleSequenceAlignmentSelection(state)
                     }
                     controller.notifySelectionStateIfAvailable()
                 }
             } catch {
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                self.inspectorController.clearSelection()
                 mainSplitLogger.error(
                     "displayMultipleSequenceAlignmentBundle: Failed - \(error.localizedDescription, privacy: .public)"
                 )
@@ -243,7 +264,11 @@ extension MainSplitViewController {
         activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.activityIndicator.hide() }
+            defer {
+                if self.canCommitDisplayRequest(displayToken, identity: displayIdentity) {
+                    self.activityIndicator.hide()
+                }
+            }
             guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
             do {
@@ -260,11 +285,13 @@ extension MainSplitViewController {
                     guard let self else { return }
                     HaplotypeDefinitionManagerWindowController.show(
                         projectURL: self.sidebarController.currentProjectURL
-                            ?? DocumentManager.shared.activeProject?.url,
+                            ?? self.projectSession.projectURL,
                         editingBundleURL: url
                     )
                 }
             } catch {
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                self.inspectorController.clearSelection()
                 mainSplitLogger.error(
                     "displayMHCReferenceBundle: Failed - \(error.localizedDescription, privacy: .public)"
                 )
@@ -884,7 +911,11 @@ extension MainSplitViewController {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                defer { self.activityIndicator.hide() }
+                defer {
+                if self.canCommitDisplayRequest(displayToken, identity: displayIdentity) {
+                    self.activityIndicator.hide()
+                }
+            }
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
                 do {
@@ -991,7 +1022,7 @@ extension MainSplitViewController {
                 guard let self else { return }
                 HaplotypeDefinitionManagerWindowController.show(
                     projectURL: self.sidebarController.currentProjectURL
-                        ?? DocumentManager.shared.activeProject?.url,
+                        ?? projectSession.projectURL,
                     editingBundleURL: url
                 )
             }
@@ -1029,7 +1060,11 @@ extension MainSplitViewController {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                defer { self.activityIndicator.hide() }
+                defer {
+                if self.canCommitDisplayRequest(displayToken, identity: displayIdentity) {
+                    self.activityIndicator.hide()
+                }
+            }
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
                 do {
@@ -1100,7 +1135,7 @@ extension MainSplitViewController {
             inspectorController.updateAssemblyDocument(
                 result: result,
                 provenance: provenance,
-                projectURL: sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+                projectURL: projectSession.projectURL ?? sidebarController.currentProjectURL
             )
             viewerController.displayAssemblyResult(result)
             recordUITestEvent(
@@ -1130,7 +1165,7 @@ extension MainSplitViewController {
         do {
             let result = try MappingResult.load(from: url)
             let provenance = MappingProvenance.load(from: url)
-            let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+            let projectURL = projectSession.projectURL ?? sidebarController.currentProjectURL
             let route = ViewerDisplayRouteFactory.mappingResult(
                 result,
                 resultDirectoryURL: url,

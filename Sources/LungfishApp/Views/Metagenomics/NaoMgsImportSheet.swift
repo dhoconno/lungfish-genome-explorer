@@ -56,6 +56,7 @@ struct NaoMgsImportSheet: View {
 
     /// The FASTQ bundle URL that triggered this import (for context display).
     let datasetURL: URL?
+    var initialSourceURL: URL? = nil
 
     /// Called when the user clicks Run. Parameter: results URL.
     var onImport: ((URL) -> Void)?
@@ -120,6 +121,11 @@ struct NaoMgsImportSheet: View {
                 }
             }
         )
+        .onAppear {
+            guard selectedPath == nil, let initialSourceURL else { return }
+            selectedPath = initialSourceURL
+            validateResults(at: initialSourceURL)
+        }
     }
 
     // MARK: - Location

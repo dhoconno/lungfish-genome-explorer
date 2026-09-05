@@ -1113,6 +1113,163 @@ final class ProvenanceExportCommandTests: XCTestCase {
         }
     }
 
+    func testCanonicalDurableReplaySelectionWithAndWithoutStepsAcrossScriptFormats() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Isolated canonical fixture from the audit cli-probes.json, with local runtime defaults.
+        let audit = ["printf", "historical-execution"]
+        let replay = ["printf", "durable-replay"]
+        for includeSteps in [false, true] {
+            let envelope = ProvenanceEnvelope(workflowName: "Audit replay fixture", workflowVersion: "1",
+                toolName: "printf", toolVersion: "system", argv: audit, durableReplayArgv: replay,
+                steps: includeSteps ? [ProvenanceStep(toolName: "printf", toolVersion: "system",
+                    argv: audit, durableReplayArgv: replay, exitStatus: 0, wallTimeSeconds: 0)] : [],
+                wallTimeSeconds: 0, exitStatus: 0)
+            for format in [ProvenanceExportFormat.shell, .python, .nextflow, .snakemake] {
+                let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(envelope, format: format,
+                    to: directory.appendingPathComponent("\(includeSteps)-\(format.cliToken)"), sourceSidecarURL: nil)
+                let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+                XCTAssertTrue(script.contains("durable-replay"), script)
+                XCTAssertFalse(script.contains("historical-execution"), script)
+            }
+            XCTAssertEqual(envelope.argv, audit)
+            XCTAssertEqual(envelope.steps.first?.argv, includeSteps ? audit : nil)
+        }
+    }
+
+    func testLegacyDurableReplaySelectionAcrossScriptFormatsPreservesAuditCommand() throws {
+        let audit = ["printf", "historical-execution"]
+        let step = StepExecution(toolName: "printf", toolVersion: "system", command: audit,
+            durableReplayArgv: ["printf", "durable-replay"], inputs: [], exitCode: 0)
+        let run = WorkflowRun(name: "Legacy replay", status: .completed, steps: [step])
+        for format in [ProvenanceExportFormat.shell, .python, .nextflow, .snakemake] {
+            let script = try ProvenanceExporter(signingProvider: nil).export(run, format: format)
+            XCTAssertTrue(script.contains("durable-replay"), script)
+            XCTAssertFalse(script.contains("historical-execution"), script)
+        }
+        XCTAssertEqual(run.steps.first?.command, audit)
+    }
+
+    func testReplayChainIncludesDurableCommandForDependencyWithoutSteps() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let payload = directory.appendingPathComponent("dependency.txt")
+        try Data("synthetic dependency".utf8).write(to: payload)
+        let dependency = ProvenanceEnvelope(workflowName: "Dependency", toolName: "printf", argv: ["printf", "historical-dependency"],
+            durableReplayArgv: ["printf", "durable-dependency"],
+            output: try .file(url: payload, format: .text, role: .output), exitStatus: 0)
+        try ProvenanceJSON.encoder.encode(dependency).write(to: ProvenanceRecorder.fileSidecarURL(for: payload))
+        let input = try ProvenanceFileDescriptor.file(url: payload, format: .text, role: .input)
+        let envelope = ProvenanceEnvelope(workflowName: "Dependent", toolName: "printf", argv: ["printf", "historical-final"],
+            durableReplayArgv: ["printf", "durable-final"], files: [input],
+            steps: [ProvenanceStep(toolName: "printf", toolVersion: "system", argv: ["printf", "historical-final"],
+                durableReplayArgv: ["printf", "durable-final"], inputs: [input], exitStatus: 0)], exitStatus: 0)
+        let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(envelope, format: .shell,
+            to: directory.appendingPathComponent("chain"), sourceSidecarURL: nil)
+        let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+        XCTAssertTrue(script.contains("durable-dependency"), script)
+        XCTAssertTrue(script.contains("durable-final"), script)
+        XCTAssertFalse(script.contains("historical-dependency"), script)
+        XCTAssertFalse(script.contains("historical-final"), script)
+    }
+
+    func testHistoricalGUIActionIsExplicitlyUnavailableForReplay() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let envelope = ProvenanceEnvelope(workflowName: "Historical selected export", toolName: "Lungfish.app",
+            argv: ["Lungfish Genome Explorer", "export-bookmarked-variants", "--output", "previous.tsv"], exitStatus: 0)
+        for format in [ProvenanceExportFormat.shell, .python, .nextflow, .snakemake] {
+            let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(envelope, format: format,
+                to: directory.appendingPathComponent(format.cliToken), sourceSidecarURL: nil)
+            let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
+            XCTAssertTrue(script.contains("Replay unavailable"), script)
+        }
+    }
+
+    func testShellAndPythonReplayCopyLiteralFilenamesAfterStagingDeletion() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let retained = directory.appendingPathComponent("retained ' \" dollar $ backslash \\ newline\n.txt")
+        let staging = directory.appendingPathComponent("deleted-staging.txt")
+        let expected = Data("retained selected bytes".utf8)
+        try expected.write(to: retained)
+        try Data("old staged bytes".utf8).write(to: staging)
+        for format in [ProvenanceExportFormat.shell, .python] {
+            let destination = directory.appendingPathComponent("\(format.cliToken) ' \" dollar $ newline\n.txt")
+            let audit = ["/bin/cp", staging.path, destination.path]
+            let replay = ["/bin/cp", retained.path, destination.path]
+            let input = try ProvenanceFileDescriptor.file(url: retained, format: .text, role: .input)
+            let envelope = ProvenanceEnvelope(workflowName: "Retained selection snapshot replay", toolName: "cp", toolVersion: "system",
+                argv: audit, durableReplayArgv: replay, files: [input],
+                steps: [ProvenanceStep(toolName: "cp", toolVersion: "system", argv: audit,
+                    durableReplayArgv: replay, inputs: [input], exitStatus: 0)], exitStatus: 0)
+            let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(envelope, format: format,
+                to: directory.appendingPathComponent("copy-\(format.cliToken)"), sourceSidecarURL: nil)
+            if FileManager.default.fileExists(atPath: staging.path) { try FileManager.default.removeItem(at: staging) }
+            let executable = try (format == .shell ? URL(fileURLWithPath: "/bin/bash") : requireExecutable(named: "python3"))
+            let result = try runExternalCommand(executable, arguments: [bundle.primaryArtifactURL.path], workingDirectory: directory, timeout: .seconds(5))
+            XCTAssertEqual(result.exitStatus, 0, result.diagnostics)
+            XCTAssertEqual(try? Data(contentsOf: destination), expected)
+        }
+    }
+
+    func testNextflowRetainedSelectionReplayCopiesDifficultLiteralPaths() throws {
+        try verifyRetainedSelectionRuntimeReplay(format: .nextflow, executable: requireExecutable(named: "nextflow"))
+    }
+
+    func testSnakemakeRetainedSelectionReplayCopiesDifficultLiteralPaths() throws {
+        try verifyRetainedSelectionRuntimeReplay(format: .snakemake, executable: requireExecutable(named: "snakemake"))
+    }
+
+    func testHistoricalGUICommandStringIsUnavailableInEveryExecutableFormat() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let envelope = ProvenanceEnvelope(workflowName: "Historical selection export", toolName: "Lungfish.app",
+            toolVersion: "old", argv: [], reproducibleCommand: "'Lungfish Genome Explorer' export-bookmarked-variants --output prior.tsv", exitStatus: 0)
+        for format in [ProvenanceExportFormat.shell, .python, .nextflow, .snakemake] {
+            let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(envelope, format: format,
+                to: directory.appendingPathComponent(format.cliToken), sourceSidecarURL: nil)
+            XCTAssertTrue(try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8).contains("Replay unavailable"))
+        }
+    }
+
+    func testHistoricalGUIMethodsExplainReplayIsUnavailable() {
+        let envelope = ProvenanceEnvelope(workflowName: "Historical GUI export", toolName: "Lungfish.app", toolVersion: "old",
+            argv: ["Lungfish.app", "export-selected"], exitStatus: 0)
+        let methods = ProvenanceExporter(signingProvider: nil).exportMethods(envelope.legacyWorkflowRun(preferCanonicalSteps: true))
+        XCTAssertTrue(methods.contains("Replay unavailable"))
+        XCTAssertFalse(methods.contains("executable pipeline scripts"))
+    }
+
+    private func verifyRetainedSelectionRuntimeReplay(format: ProvenanceExportFormat, executable: URL) throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let retained = directory.appendingPathComponent("retained ' \" $ {literal} \\ tab\t newline\n.txt")
+        let destination = directory.appendingPathComponent("output ' \" $ {literal} \\ tab\t newline\n.tsv")
+        let staging = directory.appendingPathComponent("deleted-staging.txt")
+        let expected = Data("captured selection bytes\n".utf8)
+        try expected.write(to: retained)
+        try expected.write(to: staging)
+        let input = try ProvenanceFileDescriptor.file(url: retained, format: .text, role: .input)
+        let output = ProvenanceFileDescriptor(path: destination.path, format: .text, role: .output)
+        let audit = ["Lungfish.app", "export-selected", staging.path, "--output", destination.path]
+        let replay = ["/bin/cp", retained.path, destination.path]
+        let envelope = ProvenanceEnvelope(workflowName: "Retained selection", toolName: "Lungfish.app", toolVersion: "fixture",
+            argv: audit, durableReplayArgv: replay, files: [input, output], output: output, outputs: [output],
+            steps: [ProvenanceStep(toolName: "Lungfish.app", toolVersion: "fixture", argv: audit, durableReplayArgv: replay,
+                resolvedOptions: ["replayScope": .string("retained-selection snapshot byte replay"), "replaysUpstreamAnalysis": .boolean(false)],
+                inputs: [input], outputs: [output], exitStatus: 0)], exitStatus: 0)
+        let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(envelope, format: format,
+            to: directory.appendingPathComponent("replay"), sourceSidecarURL: nil)
+        try FileManager.default.removeItem(at: staging)
+        let arguments = format == .nextflow ? ["run", bundle.primaryArtifactURL.path]
+            : ["--cores", "1", "--latency-wait", "1", "--snakefile", bundle.primaryArtifactURL.path]
+        let result = try runExternalCommand(executable, arguments: arguments,
+            workingDirectory: bundle.primaryArtifactURL.deletingLastPathComponent(), environment: ["NXF_ANSI_LOG": "false"])
+        XCTAssertEqual(result.exitStatus, 0, result.diagnostics)
+        XCTAssertEqual(try? Data(contentsOf: destination), expected, result.diagnostics)
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-export-\(UUID().uuidString)", isDirectory: true)

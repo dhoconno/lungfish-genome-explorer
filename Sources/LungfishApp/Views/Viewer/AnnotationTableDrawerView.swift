@@ -261,6 +261,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Reference to the search index for direct SQL queries.
     var searchIndex: AnnotationSearchIndex?
+    var variantStorageMutationTask: Task<Void, Never>?
+    private var variantStorageOperationID: UUID?
     var appliedVariantToolbarDensity: VariantToolbarDensity?
 
     /// The currently active tab.
@@ -2872,9 +2874,54 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         menu.addItem(clearItem)
     }
 
+    /// The operation center owns bundle exclusion until the synchronous durable
+    /// worker has committed or rolled back. Only immutable inputs enter the worker.
+    @discardableResult
+    func runVariantStorageMutation<Value: Sendable>(
+        title: String, bundleURL: URL, center: OperationCenter = .shared,
+        work: @escaping @Sendable () throws -> Value,
+        publish: @escaping @MainActor (Value) -> Void
+    ) -> Task<Void, Never>? {
+        guard let source = searchIndex else { return nil }
+        let owner = window?.windowController as? MainWindowController
+        let session = owner?.projectSession
+        let generation = session?.documentGeneration
+        let sourceWindow = window
+        let scope = windowStateScope
+        let route = OperationRouteContext(
+            projectURL: session?.projectURL ?? owner?.mainSplitViewController?.sidebarController?.currentProjectURL
+                ?? ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: scope)
+        let operationID = center.start(title: title, detail: "Updating stored data and provenance", operationType: .workflow,
+            targetBundleURL: bundleURL, routeContext: route)
+        guard center.items.first(where: { $0.id == operationID })?.state == .running else { return nil }
+        variantStorageOperationID = operationID
+        let task = Task { @MainActor [weak self] in
+            defer {
+                if self?.variantStorageOperationID == operationID {
+                    self?.variantStorageOperationID = nil
+                    self?.variantStorageMutationTask = nil
+                }
+            }
+            do {
+                let result = try await Task.detached(priority: .userInitiated, operation: work).value
+                center.complete(id: operationID, detail: "Data and provenance updated")
+                guard let self, self.searchIndex === source, self.window === sourceWindow,
+                      self.windowStateScope == scope, session?.documentGeneration == generation else { return }
+                publish(result)
+            } catch {
+                center.fail(id: operationID, detail: "Stored data update failed", errorMessage: error.localizedDescription)
+                annotationDrawerLogger.error("Stored data update failed: \(error.localizedDescription)")
+            }
+        }
+        variantStorageMutationTask = task
+        return task
+    }
+
     // MARK: - Delete Actions
 
     @objc private func deleteSelectedVariantsAction(_ sender: NSMenuItem) {
+        guard let source = searchIndex else { return }
         let selectedRows = tableView.selectedRowIndexes
         let selectedVariants = selectedRows.compactMap { idx -> AnnotationSearchIndex.SearchResult? in
             guard idx < displayedAnnotations.count else { return nil }
@@ -2895,12 +2942,13 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         guard let window = window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            self?.performVariantDeletion(scopedIDs)
+            guard response == .alertFirstButtonReturn, let self, self.searchIndex === source else { return }
+            self.performVariantDeletion(scopedIDs)
         }
     }
 
     @objc private func deleteAllVariantsAction(_ sender: NSMenuItem) {
+        guard let source = searchIndex else { return }
         let count = totalVariantCount
         guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
         let alert = NSAlert()
@@ -2913,8 +2961,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         guard let window = window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            self?.performDeleteAllVariants()
+            guard response == .alertFirstButtonReturn, let self, self.searchIndex === source else { return }
+            self.performDeleteAllVariants()
         }
     }
 
@@ -2934,25 +2982,15 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 trackName: searchIndex.variantTrackName(for: $0.trackId)
             )
         }
-        let deletedCount: Int
-        do {
-            let result = try VariantDeletionMutationService().deleteVariants(
-                idsByTrack: idsByTrack,
-                bundleURL: bundleURL,
-                targets: targets
-            )
-            deletedCount = result.totalDeleted
-        } catch {
-            annotationDrawerLogger.error("performVariantDeletion: \(error.localizedDescription)")
-            return
-        }
-
-        if deletedCount > 0 {
-            totalVariantCount = max(0, totalVariantCount - deletedCount)
-            updateDisplayedAnnotations()
-            updateCountLabel()
-            delegate?.annotationDrawer(self, didDeleteVariants: deletedCount)
-        }
+        runVariantStorageMutation(title: "Variant deletion", bundleURL: bundleURL, work: {
+            try VariantDeletionMutationService().deleteVariants(idsByTrack: idsByTrack, bundleURL: bundleURL, targets: targets)
+        }, publish: { [weak self] result in
+            guard let self, result.totalDeleted > 0 else { return }
+            self.totalVariantCount = max(0, self.totalVariantCount - result.totalDeleted)
+            self.updateDisplayedAnnotations()
+            self.updateCountLabel()
+            self.delegate?.annotationDrawer(self, didDeleteVariants: result.totalDeleted)
+        })
     }
 
     private func performDeleteAllVariants() {
@@ -2970,24 +3008,15 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 trackName: searchIndex.variantTrackName(for: $0.trackId)
             )
         }
-        let deletedCount: Int
-        do {
-            let result = try VariantDeletionMutationService().deleteAllVariants(
-                bundleURL: bundleURL,
-                targets: targets
-            )
-            deletedCount = result.totalDeleted
-        } catch {
-            annotationDrawerLogger.error("performDeleteAllVariants: \(error.localizedDescription)")
-            return
-        }
-
-        if deletedCount > 0 {
-            totalVariantCount = 0
-            updateDisplayedAnnotations()
-            updateCountLabel()
-            delegate?.annotationDrawer(self, didDeleteVariants: deletedCount)
-        }
+        runVariantStorageMutation(title: "Delete all variants", bundleURL: bundleURL, work: {
+            try VariantDeletionMutationService().deleteAllVariants(bundleURL: bundleURL, targets: targets)
+        }, publish: { [weak self] result in
+            guard let self, result.totalDeleted > 0 else { return }
+            self.totalVariantCount = 0
+            self.updateDisplayedAnnotations()
+            self.updateCountLabel()
+            self.delegate?.annotationDrawer(self, didDeleteVariants: result.totalDeleted)
+        })
     }
 
     /// Groups selected variant row IDs by their owning track ID.
@@ -4287,7 +4316,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
-            guard let self, response == .OK, let fileURL = panel.url else { return }
+            guard let self, response == .OK, let fileURL = panel.url, self.searchIndex === searchIndex else { return }
             guard self.canWriteVariantDatabaseOutputs(workflowName: "Sample metadata import") else { return }
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
@@ -4296,24 +4325,18 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 annotationDrawerLogger.warning("importSampleMetadata: Could not resolve enclosing bundle for variant databases")
                 return
             }
-            do {
-                let targets = searchIndex.variantDatabaseHandles.map {
-                    VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
-                }
-                let result = try VariantSampleMetadataImportService().importMetadata(
-                    from: fileURL,
-                    format: format,
-                    bundleURL: bundleURL,
-                    targets: targets
-                )
-
+            let targets = searchIndex.variantDatabaseHandles.map {
+                VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
+            }
+            self.runVariantStorageMutation(title: "Sample metadata import", bundleURL: bundleURL, work: {
+                try VariantSampleMetadataImportService().importMetadata(from: fileURL, format: format, bundleURL: bundleURL, targets: targets)
+            }, publish: { [weak self] result in
+                guard let self else { return }
                 annotationDrawerLogger.info("importSampleMetadata: Updated \(result.totalUpdated) samples from \(fileURL.lastPathComponent)")
                 self.populateSampleData(from: searchIndex)
                 self.configureColumnsForTab(.samples)
                 self.updateDisplayedSamples()
-            } catch {
-                annotationDrawerLogger.warning("importSampleMetadata: \(error.localizedDescription)")
-            }
+            })
         }
     }
 

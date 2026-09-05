@@ -50,7 +50,7 @@ actor CLIApplicationExportImportRunner {
     }
 
     private let cliURLOverride: URL?
-    private var process: Process?
+    private let cancellationHandle = NativeProcessCancellationHandle()
 
     init(cliURLOverride: URL? = nil) {
         self.cliURLOverride = cliURLOverride
@@ -123,7 +123,7 @@ actor CLIApplicationExportImportRunner {
         let stderrPipe = Pipe()
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
-        process = proc
+        cancellationHandle.store(proc)
 
         applicationExportImportLogger.info("Launching application export import CLI")
 
@@ -240,11 +240,12 @@ actor CLIApplicationExportImportRunner {
 
         do {
             try proc.run()
+            cancellationHandle.terminateIfRequested()
         } catch {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
             drainStreamHandlers()
-            process = nil
+            cancellationHandle.clear(proc)
             await failOperation(opID, detail: error.localizedDescription)
             throw RunError.launchFailed(error.localizedDescription)
         }
@@ -264,7 +265,9 @@ actor CLIApplicationExportImportRunner {
             handleLine(trailing)
         }
 
-        process = nil
+        let wasCancelled = cancellationHandle.isTerminationRequested
+        cancellationHandle.clear(proc)
+        if wasCancelled { throw CancellationError() }
 
         let snapshot = state.withLock { current in
             (
@@ -294,9 +297,8 @@ actor CLIApplicationExportImportRunner {
         )
     }
 
-    func cancel() {
-        guard let process, process.isRunning else { return }
-        process.terminate()
+    nonisolated func cancel() {
+        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
     }
 
     @MainActor

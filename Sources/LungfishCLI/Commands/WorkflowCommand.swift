@@ -246,10 +246,16 @@ struct RunSubcommand: AsyncParsableCommand {
     )
 
     nonisolated(unsafe) static var localWorkflowProcessRunner: LocalWorkflowProcessRunning = ProcessLocalWorkflowProcessRunner()
+    nonisolated(unsafe) static var localWorkflowDirectoryReserver: @Sendable (URL) throws -> Void = {
+        try LocalWorkflowReplayReservation.reserveDirectory(at: $0)
+    }
     nonisolated(unsafe) static var nfCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning = ProcessNFCoreWorkflowProcessRunner()
 
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow: nf-core/viralrecon")
     var workflow: String
+
+    @Option(name: .customLong("repeat-from"), help: "Validate an original local run bundle before starting a fresh attempt")
+    var repeatFrom: String?
 
     @Option(
         name: .customLong("results-dir"),
@@ -354,6 +360,9 @@ struct RunSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        if repeatFrom != nil, workflow.contains("nf-core") || Self.normalizedViralReconWorkflowName(workflow) != nil {
+            throw CLIError.workflowFailed(reason: "--repeat-from supports identified local workflow packages only.")
+        }
 
         if !globalOptions.quiet {
             print(formatter.info("Preparing workflow: \(workflow)"))
@@ -470,14 +479,39 @@ struct RunSubcommand: AsyncParsableCommand {
             resume: resume,
             workDirectory: workDir.map { URL(fileURLWithPath: $0) },
             cpus: cpus,
-            memory: memory
+            memory: memory,
+            replaySourceBundleURL: repeatFrom.map { URL(fileURLWithPath: $0) }
         )
-        let runBundleURL = try resolveRunBundleURL(workflowName: request.workflowName)
+        // A repeat retains its original snapshot; recapture is validation, never a new baseline.
+        let sourceConfiguration = try request.replaySourceBundleURL.map { try LocalWorkflowReplayPreflight.load(from: $0) }
+        let runBundleURL: URL
+        if let sourceConfiguration, let sourceURL = request.replaySourceBundleURL {
+            runBundleURL = try resolveRunBundleURL(workflowName: request.workflowName)
+            try LocalWorkflowReplayPreflight.validate(request: request, configuration: sourceConfiguration,
+                sourceBundleURL: sourceURL,
+                runtimeURL: Self.localWorkflowProcessRunner.runtimeExecutableURL(named: request.engine.executableName),
+                runBundleURL: runBundleURL)
+        } else {
+            runBundleURL = try resolveRunBundleURL(workflowName: request.workflowName)
+        }
+        // Unsupported raw scripts keep ordinary execution, with no claimed package replay identity.
+        let replayIdentity = sourceConfiguration?.identity ?? (try? LocalWorkflowReplayIdentity.capture(for: request))
+        try Task.checkCancellation()
+        let capturedInputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
+            + request.inputURLs.map { ProvenanceRecorder.fileOrDirectoryRecord(url: $0, role: .input) }
+        let inputBindings = capturedInputs.dropFirst().map { LocalWorkflowInputBinding(record: $0) }
+        try replayIdentity?.validateCurrentInputs(for: request)
+        if request.replaySourceBundleURL != nil {
+            try FileManager.default.createDirectory(at: runBundleURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Self.localWorkflowDirectoryReserver(runBundleURL)
+        }
         let bundleCreatedAt = Date()
         let preparedEvent = LocalWorkflowRunStatusEvent(status: .prepared, timestamp: bundleCreatedAt)
         try LocalWorkflowRunBundleStore.write(
             request.manifest(
                 createdAt: bundleCreatedAt,
+                replayIdentity: replayIdentity,
+                inputBindings: inputBindings,
                 executionStatus: .prepared,
                 statusHistory: [preparedEvent]
             ),
@@ -491,6 +525,7 @@ struct RunSubcommand: AsyncParsableCommand {
         if prepareOnly {
             try writeLocalRunBundleProvenance(
                 request: request,
+                capturedInputs: capturedInputs,
                 bundleURL: runBundleURL,
                 prepareOnly: true,
                 status: .completed,
@@ -504,21 +539,39 @@ struct RunSubcommand: AsyncParsableCommand {
 
         let processStartedAt = Date()
         let runningEvent = LocalWorkflowRunStatusEvent(status: .running, timestamp: processStartedAt)
-        try LocalWorkflowRunBundleStore.write(
-            request.manifest(
-                createdAt: bundleCreatedAt,
-                executionStatus: .running,
-                statusHistory: [preparedEvent, runningEvent],
-                startedAt: processStartedAt
-            ),
-            to: runBundleURL
-        )
+        var statusHistory = [preparedEvent]
+        var ownsOutputDirectory = request.replaySourceBundleURL == nil
         let launch = request.processLaunch
-        let processResult = try await Self.localWorkflowProcessRunner.runWorkflow(
-            executableName: launch.executableName,
-            arguments: launch.arguments,
-            workingDirectory: launch.workingDirectory
-        )
+        let processResult: LocalWorkflowProcessResult
+        do {
+            if request.replaySourceBundleURL != nil {
+                try Self.localWorkflowDirectoryReserver(request.outputDirectory)
+                ownsOutputDirectory = true
+            }
+            statusHistory.append(runningEvent)
+            try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleCreatedAt,
+                replayIdentity: replayIdentity, inputBindings: inputBindings, executionStatus: .running,
+                statusHistory: statusHistory, startedAt: processStartedAt), to: runBundleURL)
+            processResult = try await Self.localWorkflowProcessRunner.runWorkflow(
+                executableName: launch.executableName,
+                arguments: launch.arguments,
+                workingDirectory: launch.workingDirectory
+            )
+        } catch {
+            let cancelled = error is CancellationError
+            let endedAt = Date()
+            let terminalStatus: NFCoreRunExecutionStatus = cancelled ? .cancelled : .failed
+            let message = cancelled ? "Workflow launch was cancelled before an exit status was returned." : error.localizedDescription
+            try message.write(to: runBundleURL.appendingPathComponent("logs/stderr.log"), atomically: true, encoding: .utf8)
+            try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleCreatedAt,
+                replayIdentity: replayIdentity, inputBindings: inputBindings, executionStatus: terminalStatus,
+                statusHistory: statusHistory + [.init(status: terminalStatus, timestamp: endedAt)],
+                startedAt: processStartedAt, completedAt: endedAt, exitCode: nil), to: runBundleURL)
+            try writeLocalRunBundleProvenance(request: request, capturedInputs: capturedInputs,
+                includeResultOutputs: ownsOutputDirectory, bundleURL: runBundleURL, prepareOnly: false, status: cancelled ? .cancelled : .failed,
+                exitCode: nil, wallTime: endedAt.timeIntervalSince(processStartedAt), stderr: message)
+            throw error
+        }
         try writeLocalProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
         let processCompletedAt = Date()
         let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed
@@ -526,6 +579,8 @@ struct RunSubcommand: AsyncParsableCommand {
         try LocalWorkflowRunBundleStore.write(
             request.manifest(
                 createdAt: bundleCreatedAt,
+                replayIdentity: replayIdentity,
+                inputBindings: inputBindings,
                 executionStatus: executionStatus,
                 statusHistory: [preparedEvent, runningEvent, completedEvent],
                 startedAt: processStartedAt,
@@ -538,6 +593,8 @@ struct RunSubcommand: AsyncParsableCommand {
         )
         try writeLocalRunBundleProvenance(
             request: request,
+            capturedInputs: capturedInputs,
+            runtimeEvidence: processResult.runtimeEvidence,
             bundleURL: runBundleURL,
             prepareOnly: false,
             status: processResult.exitCode == 0 ? .completed : .failed,
@@ -737,7 +794,7 @@ struct RunSubcommand: AsyncParsableCommand {
         }
         let root = URL(fileURLWithPath: bundleRoot ?? FileManager.default.currentDirectoryPath)
             .standardizedFileURL
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        if repeatFrom == nil { try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true) }
         let base = root.appendingPathComponent("\(workflowName).\(NFCoreRunBundleStore.directoryExtension)", isDirectory: true)
         guard FileManager.default.fileExists(atPath: base.path) else { return base }
         for index in 2...999 {
@@ -850,10 +907,13 @@ struct RunSubcommand: AsyncParsableCommand {
 
     private func writeLocalRunBundleProvenance(
         request: LocalWorkflowRunRequest,
+        capturedInputs: [FileRecord],
+        runtimeEvidence: LocalWorkflowRuntimeEvidence? = nil,
+        includeResultOutputs: Bool = true,
         bundleURL: URL,
         prepareOnly: Bool,
         status: RunStatus,
-        exitCode: Int32,
+        exitCode: Int32?,
         wallTime: TimeInterval,
         stderr: String?
     ) throws {
@@ -861,17 +921,16 @@ struct RunSubcommand: AsyncParsableCommand {
             bundlePath: bundleURL,
             prepareOnly: prepareOnly
         ) + (globalOptions.quiet ? ["--quiet"] : [])
-        let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
-            + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
+        let inputs = capturedInputs
         let outputs = [
             ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
-            ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
             ProvenanceRecorder.fileRecord(
                 url: bundleURL.appendingPathComponent("manifest.json"),
                 format: .json,
                 role: .output
             ),
-        ] + expectedOutputRecords(for: request.expectedOutputURLs)
+        ] + (includeResultOutputs ? [ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output)]
+            + expectedOutputRecords(for: request.expectedOutputURLs) : [])
         var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
         parameters["engine"] = .string(request.engine.rawValue)
         parameters["workflowPath"] = .file(request.workflowURL)
@@ -887,10 +946,18 @@ struct RunSubcommand: AsyncParsableCommand {
             parameters["memory"] = .string(memory)
         }
 
+        var runtimeDefaults: [String: ParameterValue] = [:]
+        if let runtimeEvidence {
+            runtimeDefaults["runtimeExecutablePath"] = .file(URL(fileURLWithPath: runtimeEvidence.executable.path))
+            if let sha = runtimeEvidence.executable.sha256 { runtimeDefaults["runtimeExecutableSHA256"] = .string(sha) }
+            if let size = runtimeEvidence.executable.sizeBytes { runtimeDefaults["runtimeExecutableSizeBytes"] = .string(String(size)) }
+            runtimeDefaults["runtimeEnvironment"] = .dictionary(runtimeEvidence.environment.mapValues(ParameterValue.string))
+        }
         let step = StepExecution(
             toolName: "\(CLICommandIdentity.executableName) workflow run",
             toolVersion: LungfishCLI.configuration.version,
             command: command,
+            resolvedOptions: runtimeDefaults,
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,
@@ -905,9 +972,9 @@ struct RunSubcommand: AsyncParsableCommand {
             steps: [step],
             parameters: parameters
         )
-        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(resolvedDefaults: runtimeDefaults), to: bundleURL)
         if !prepareOnly, status == .completed {
-            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
+            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs, resolvedDefaults: runtimeDefaults)
         }
     }
 
@@ -919,11 +986,12 @@ struct RunSubcommand: AsyncParsableCommand {
 
     private func writeExpectedOutputProvenance(
         _ run: WorkflowRun,
-        to outputURLs: [URL]
+        to outputURLs: [URL],
+        resolvedDefaults: [String: ParameterValue] = [:]
     ) throws {
         guard !outputURLs.isEmpty else { return }
         let writer = ProvenanceWriter(signingProvider: nil)
-        let envelope = run.canonicalEnvelope()
+        let envelope = run.canonicalEnvelope(resolvedDefaults: resolvedDefaults)
         for outputURL in outputURLs {
             guard FileManager.default.fileExists(atPath: outputURL.path) else {
                 throw CLIError.outputWriteFailed(
@@ -1025,9 +1093,19 @@ struct LocalWorkflowProcessResult: Sendable, Equatable {
     let exitCode: Int32
     let standardOutput: String
     let standardError: String
+    let runtimeEvidence: LocalWorkflowRuntimeEvidence?
+
+    init(exitCode: Int32, standardOutput: String, standardError: String,
+         runtimeEvidence: LocalWorkflowRuntimeEvidence? = nil) {
+        self.exitCode = exitCode
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.runtimeEvidence = runtimeEvidence
+    }
 }
 
 protocol LocalWorkflowProcessRunning: Sendable {
+    func runtimeExecutableURL(named executableName: String) -> URL?
     func runWorkflow(
         executableName: String,
         arguments: [String],
@@ -1035,8 +1113,19 @@ protocol LocalWorkflowProcessRunning: Sendable {
     ) async throws -> LocalWorkflowProcessResult
 }
 
+extension LocalWorkflowProcessRunning {
+    func runtimeExecutableURL(named executableName: String) -> URL? {
+        WorkflowEngineLaunch.resolve(executableName: executableName,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser).resolvedExecutableURL()
+    }
+}
+
 struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+
+    func runtimeExecutableURL(named executableName: String) -> URL? {
+        WorkflowEngineLaunch.resolve(executableName: executableName, homeDirectory: homeDirectory).resolvedExecutableURL()
+    }
 
     func runWorkflow(
         executableName: String,
@@ -1047,6 +1136,7 @@ struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
         if launch.usesManagedExecutable {
             await CondaManager.shared.repairManagedLaunchers(environment: executableName)
         }
+        let runtimeEvidence = LocalWorkflowRuntimeEvidence.capture(afterRepair: launch)
         return try await withCheckedThrowingContinuation { continuation in
             do {
                 try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
@@ -1074,7 +1164,8 @@ struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
                     continuation.resume(returning: LocalWorkflowProcessResult(
                         exitCode: process.terminationStatus,
                         standardOutput: stdout,
-                        standardError: stderr
+                        standardError: stderr,
+                        runtimeEvidence: runtimeEvidence
                     ))
                 }
                 try process.run()

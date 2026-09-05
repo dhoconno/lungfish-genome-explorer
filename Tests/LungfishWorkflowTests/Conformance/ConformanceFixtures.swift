@@ -7,6 +7,7 @@
 // per-tool version-check command table, and the installed Kraken2 viral DB.
 
 import Foundation
+import CryptoKit
 @testable import LungfishWorkflow
 
 enum ConformanceFixtures {
@@ -52,8 +53,13 @@ enum ConformanceFixtures {
     /// `ToolAvailability.requireDatabase` to skip or fail depending on
     /// `LUNGFISH_REQUIRE_TOOLS`.
     static func viralKrakenDB() async throws -> URL? {
-        try await MetagenomicsDatabaseRegistry.shared.loadIfNeeded()
-        guard let db = try await MetagenomicsDatabaseRegistry.shared.database(named: "Viral"),
+        try await installedDatabase(name: "Viral", registry: .shared)
+    }
+
+    /// Generic registry seam: conformance must validate identity at the point of use.
+    static func installedDatabase(name: String, registry: MetagenomicsDatabaseRegistry) async throws -> URL? {
+        try await registry.loadIfNeeded()
+        guard let db = try await registry.database(named: name),
               db.status == .ready,
               let path = db.path else {
             return nil
@@ -61,7 +67,33 @@ enum ConformanceFixtures {
         guard FileManager.default.fileExists(atPath: path.appendingPathComponent("hash.k2d").path) else {
             return nil
         }
+        let identity = try MetagenomicsDatabaseConformanceIdentity.verify(db)
+        // The release gate retains and hashes stdout with the selected test result.
+        print("LUNGFISH_DATABASE_CONFORMANCE_IDENTITY " + (try identity.evidenceJSON()))
         return path
+    }
+
+    /// Generic seam for installed standalone database files used by conformance.
+    static func installedManagedDatabaseFile(id: String, path: URL) throws -> URL {
+        let resolved = path.standardizedFileURL
+        let receiptURL = resolved.deletingLastPathComponent().appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let receiptBytes = try Data(contentsOf: receiptURL)
+        let receipt = try ProvenanceEnvelopeReader.decodeCanonical(receiptBytes)
+        let output = try ProvenanceFileDescriptor.file(url: resolved, role: .index)
+        guard receipt.exitStatus == 0,
+              receipt.options.explicit["databaseID"]?.stringValue == id,
+              receipt.outputs.contains(where: {
+                  $0.path == resolved.path && $0.checksumSHA256 == output.checksumSHA256 && $0.fileSize == output.fileSize
+              }) else { throw MetagenomicsDatabaseIdentityError.changed(id) }
+        let identity: [String: Any] = [
+            "schemaVersion": 1, "databaseID": id, "path": resolved.path,
+            "payloadSHA256": output.checksumSHA256 ?? "", "payloadSizeBytes": output.fileSize ?? 0,
+            "canonicalReceiptSHA256": SHA256.hash(data: receiptBytes).map { String(format: "%02x", $0) }.joined(),
+            "sourcePolicy": ManagedToolLock.bundled.database(id: id)?.effectiveSourcePolicy.rawValue ?? "userProvided",
+        ]
+        let json = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys, .withoutEscapingSlashes])
+        print("LUNGFISH_DATABASE_CONFORMANCE_IDENTITY " + String(decoding: json, as: UTF8.self))
+        return resolved
     }
 
     /// The version-check command for a manifest tool, keyed by tool id (the

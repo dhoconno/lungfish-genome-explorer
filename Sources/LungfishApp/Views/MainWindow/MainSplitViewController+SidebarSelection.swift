@@ -76,6 +76,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// filesystem refresh.
     var displayedContentWasRemovedFromDisk: Bool {
         guard let path = activeContentSelectionIdentity?.standardizedURLPath else { return false }
+        if activeContentSelectionIdentity?.kind == "projectSequence",
+           projectSession.documents.contains(where: { $0.projectSequenceID != nil && $0.url.standardizedFileURL.path == path }) { return false }
         return !FileManager.default.fileExists(atPath: path)
     }
 
@@ -110,6 +112,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         if activeContentSelectionIdentity != identity {
             clearTransientViewportState()
         }
+        projectOpenTask?.cancel()
+        projectOpenTask = nil
+        externalDocumentLoadTask?.cancel()
+        externalDocumentLoadTask = nil
         genotypeResultLoadTask?.cancel()
         genotypeResultLoadTask = nil
         activeContentSelectionIdentity = identity
@@ -118,6 +124,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
     func invalidateDisplayRequest() {
         clearTransientViewportState()
+        projectOpenTask?.cancel()
+        projectOpenTask = nil
+        externalDocumentLoadTask?.cancel()
+        externalDocumentLoadTask = nil
         genotypeResultLoadTask?.cancel()
         genotypeResultLoadTask = nil
         activeContentSelectionIdentity = nil
@@ -183,6 +193,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             }
         }
         let userInitiatedInSidebar = isLikelyUserDrivenSidebarSelectionChange()
+        // An accepted new intent supersedes pending reads before debounce ends.
+        invalidateDisplayRequest()
 
         // Debounce ALL selection changes (including nil/clear) to avoid
         // flickering when NSOutlineView fires deselect + reselect in quick
@@ -227,6 +239,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         // Increment generation counter
         selectionGeneration &+= 1
 
+        invalidateDisplayRequest()
         // Filter to displayable items
         let displayableItems = items.filter { item in
             item.type != .folder && item.type != .project && item.type != .group

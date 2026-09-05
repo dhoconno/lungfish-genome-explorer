@@ -56,7 +56,7 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingWatcherCount(for: projectURL), 0)
     }
 
-    func testRootChangedRemovesDeadSharedWatcherAndSubscriptions() throws {
+    func testRootChangedStopsDeadWatcherButRetainsSubscriptionIntentForRecovery() throws {
         let projectURL = tempRoot.appendingPathComponent("RootChanged.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
@@ -66,11 +66,25 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
         ProjectFilesystemRefreshCoordinator.shared.testingSimulateRootChanged(projectURL: projectURL)
 
         XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingWatcherCount(for: projectURL), 0)
-        XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingSubscriberCount(for: projectURL), 0)
+        XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingSubscriberCount(for: projectURL), 1,
+            "A lost root must retain the window's subscription so it can deliver unavailable state and recover")
 
         _ = ProjectFilesystemRefreshCoordinator.shared.register(projectURL: projectURL) { _ in }
-        XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingWatcherCount(for: projectURL), 1)
-        XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingSubscriberCount(for: projectURL), 1)
+        XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingSubscriberCount(for: projectURL), 2)
+    }
+
+    func testRootLossRetainsBothWindowsUntilEachExplicitlyUnsubscribes() throws {
+        let projectURL = tempRoot.appendingPathComponent("TwoWindows.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let coordinator = ProjectFilesystemRefreshCoordinator.shared
+        let first = coordinator.register(projectURL: projectURL) { _ in }
+        let second = coordinator.register(projectURL: projectURL) { _ in }
+        coordinator.testingSimulateRootChanged(projectURL: projectURL)
+        XCTAssertEqual(coordinator.testingSubscriberCount(for: projectURL), 2)
+        coordinator.unregister(first)
+        XCTAssertEqual(coordinator.testingSubscriberCount(for: projectURL), 1)
+        coordinator.unregister(second)
+        XCTAssertEqual(coordinator.testingSubscriberCount(for: projectURL), 0)
     }
 
     func testMustScanSubDirsChangesAreCoalescedIntoOneFullReload() async throws {
@@ -98,6 +112,83 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(receivedFullReloads.count, 1)
         XCTAssertTrue(receivedFullReloads[0].nonSidecar.isEmpty)
         XCTAssertTrue(receivedFullReloads[0].all.isEmpty)
+    }
+
+    func testUnavailableReachesBothWindowsAndRetryRecoversOriginalDirectory() async throws {
+        let url = tempRoot.appendingPathComponent("Original")
+        let moved = tempRoot.appendingPathComponent("Moved")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let coordinator = ProjectFilesystemRefreshCoordinator()
+        defer { coordinator.unregisterAll() }
+        var first: [String] = []
+        var second: [String] = []
+        let id = coordinator.registerEvents(projectURL: url) { first.append(Self.eventName($0)) }
+        _ = coordinator.registerEvents(projectURL: url) { second.append(Self.eventName($0)) }
+        await coordinator.testingWaitForIdentity(projectURL: url)
+        try FileManager.default.moveItem(at: url, to: moved)
+        coordinator.testingSimulateRootChanged(projectURL: url)
+        coordinator.testingSimulateRootChanged(projectURL: url)
+        coordinator.testingEmitChange(projectURL: url, changedPaths: .init(nonSidecar: [url], all: [url]))
+        XCTAssertEqual(first, ["unavailable"])
+        XCTAssertEqual(second, ["unavailable"])
+        try FileManager.default.moveItem(at: moved, to: url)
+        let recovered = await coordinator.rebind(id)
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(first, ["unavailable", "rebound"])
+        XCTAssertEqual(second, ["unavailable", "rebound"])
+    }
+
+    func testLocateRejectsReplacementAndRecoversSameMovedDirectory() async throws {
+        let url = tempRoot.appendingPathComponent("Original")
+        let moved = tempRoot.appendingPathComponent("Moved")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let coordinator = ProjectFilesystemRefreshCoordinator()
+        defer { coordinator.unregisterAll() }
+        var rebound: URL?
+        let id = coordinator.registerEvents(projectURL: url) { if case .rebound(let value) = $0 { rebound = value } }
+        await coordinator.testingWaitForIdentity(projectURL: url)
+        try FileManager.default.moveItem(at: url, to: moved)
+        coordinator.testingSimulateRootChanged(projectURL: url)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let replaced = await coordinator.rebind(id)
+        XCTAssertFalse(replaced)
+        XCTAssertNil(rebound)
+        let located = await coordinator.rebind(id, to: moved)
+        XCTAssertTrue(located)
+        XCTAssertEqual(rebound?.path, moved.path)
+    }
+
+    func testSupersededRecoveryCannotRebindNewSubscriptionAtSamePath() async throws {
+        let url = tempRoot.appendingPathComponent("Original")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let started = expectation(description: "revalidation suspended")
+        let finish = DispatchSemaphore(value: 0)
+        defer { finish.signal() }
+        let calls = FilesystemIdentityCallCounter()
+        let coordinator = ProjectFilesystemRefreshCoordinator(readIdentity: { url in
+            let identity = try ProjectFilesystemRefreshCoordinator.rootIdentity(at: url)
+            if calls.next() == 2 { started.fulfill(); _ = finish.wait(timeout: .now() + 10) }
+            return identity
+        })
+        defer { coordinator.unregisterAll() }
+        let old = coordinator.registerEvents(projectURL: url) { _ in }
+        await coordinator.testingWaitForIdentity(projectURL: url)
+        coordinator.testingSimulateRootChanged(projectURL: url)
+        let recovery = Task { await coordinator.rebind(old) }
+        await fulfillment(of: [started], timeout: 3)
+        coordinator.unregister(old)
+        var newEvents: [String] = []
+        _ = coordinator.registerEvents(projectURL: url) { newEvents.append(Self.eventName($0)) }
+        await coordinator.testingWaitForIdentity(projectURL: url)
+        finish.signal()
+        let result = await recovery.value
+        XCTAssertFalse(result)
+        XCTAssertTrue(newEvents.isEmpty)
+        XCTAssertEqual(coordinator.testingSubscriberCount(for: url), 1)
+    }
+
+    private static func eventName(_ event: ProjectFilesystemRefreshCoordinator.Event) -> String {
+        switch event { case .changed: "changed"; case .unavailable: "unavailable"; case .rebound: "rebound" }
     }
 
     func testMustScanSubDirsDebounceIsTrailing() async throws {
@@ -192,4 +283,10 @@ private func waitForCoordinatorCondition(
         try await Task.sleep(for: .milliseconds(10))
     }
     XCTAssertTrue(condition(), file: file, line: line)
+}
+
+private final class FilesystemIdentityCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
 }

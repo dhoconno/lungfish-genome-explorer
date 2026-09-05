@@ -465,6 +465,7 @@ public enum AssemblyRunner {
                 }
             }
 
+            guard await MainActor.run(body: { OperationCenter.shared.items.first { $0.id == opID }?.state == .completed }) else { return }
             postNotification(
                 title: completionNotificationTitle(for: result),
                 body: completionNotificationBody(
@@ -479,6 +480,7 @@ public enum AssemblyRunner {
                 _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
             }
+            guard await MainActor.run(body: { OperationCenter.shared.items.first { $0.id == opID }?.state == .failed }) else { return }
             postNotification(
                 title: "Assembly Failed",
                 body: error.localizedDescription,
@@ -724,6 +726,7 @@ public enum AssemblyRunner {
                 }
             }
 
+            guard await MainActor.run(body: { OperationCenter.shared.items.first { $0.id == opID }?.state == .completed }) else { return }
             postNotification(
                 title: completionNotificationTitle(for: normalizedResult),
                 body: completionNotificationBody(
@@ -736,7 +739,7 @@ public enum AssemblyRunner {
 
         } catch is CancellationError {
             await performAssemblyOperationCenterUpdate {
-                _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+                _ = OperationCenter.shared.acknowledgeCancellation(id: opID)
             }
         } catch {
             let errorMessage = "\(error)"
@@ -745,6 +748,7 @@ public enum AssemblyRunner {
                 _ = OperationCenter.shared.fail(id: opID, detail: errorMessage)
             }
 
+            guard await MainActor.run(body: { OperationCenter.shared.items.first { $0.id == opID }?.state == .failed }) else { return }
             postNotification(
                 title: "Assembly Failed",
                 body: "Project \"\(projectName)\" failed: \(errorMessage)",

@@ -362,7 +362,6 @@ extension SequenceViewerView {
         startedAt: Date = Date()
     ) throws -> URL {
         let fasta = sequenceFASTAText(sequence)
-        try fasta.write(to: outputURL, atomically: true, encoding: .utf8)
         var explicitOptions: [String: ParameterValue] = [
             "sourcePaths": .array(sourceURLs.map { .file($0) }),
             "outputPath": .file(outputURL),
@@ -373,7 +372,7 @@ extension SequenceViewerView {
         }
 
         do {
-            return try ScientificFileExportProvenance.write(.init(
+            return try ScientificFileExportProvenance.writeAtomically(.init(
                 workflowName: "lungfish app sequence fasta export",
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
@@ -391,9 +390,10 @@ extension SequenceViewerView {
                 ],
                 startedAt: startedAt,
                 completedAt: Date()
-            ))
+            )) { staged in
+                try fasta.write(to: staged, atomically: true, encoding: .utf8)
+            }
         } catch {
-            try? FileManager.default.removeItem(at: outputURL)
             throw error
         }
     }

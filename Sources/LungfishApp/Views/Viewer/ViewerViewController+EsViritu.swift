@@ -206,6 +206,7 @@ extension ViewerViewController {
                         }
                     )
 
+                    try FileManager.default.removeItem(at: tempDir)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.complete(

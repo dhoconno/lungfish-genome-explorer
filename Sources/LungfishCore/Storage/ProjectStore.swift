@@ -58,23 +58,27 @@ public enum ProjectAccessMode: Sendable, Equatable {
 /// // Retrieve version history
 /// let history = try store.getVersionHistory(for: sequenceId)
 /// ```
-@MainActor
-public final class ProjectStore {
+/// All SQLite access, complete transactions, snapshot validation, and leases are
+/// serialized by one recursive lock shared by live handles of a canonical project.
+/// The unchecked conformance is confined to this lock-protected storage owner;
+/// no pointer or mutable SQLite state is exposed to callers.
+public final class ProjectStore: @unchecked Sendable {
 
     // MARK: - Properties
 
     /// The project directory URL
     public let projectURL: URL
     public let accessMode: ProjectAccessMode
-    nonisolated private let snapshotDirectory: URL?
+    private let snapshotDirectory: URL?
     private let writerLease: ProjectStoreWriterLease?
-    private static var writerLeases: [String: WeakProjectStoreWriterLease] = [:]
+    private let synchronization: ProjectStoreSynchronization
+    private let deferCleanup: Bool
+    private static let synchronizationRegistry = ProjectStoreSynchronizationRegistry()
 
 
     /// The SQLite database connection
-    /// Note: nonisolated(unsafe) is needed because deinit in Swift 6 requires access to this
-    /// for cleanup, but OpaquePointer is not Sendable. The db is only accessed from MainActor.
-    nonisolated(unsafe) private var db: OpaquePointer?
+    /// Never escapes this class; every access owns the project synchronization lock.
+    private var db: OpaquePointer?
 
     /// Logger for store operations
     private static let logger = Logger(
@@ -85,19 +89,19 @@ public final class ProjectStore {
     /// Schema version for migrations
     private static let schemaVersion = 1
 
-    private static let iso8601FormatterWithFractionalSeconds: ISO8601DateFormatter = {
+    private let iso8601FormatterWithFractionalSeconds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
 
-    private static let iso8601Formatter: ISO8601DateFormatter = {
+    private let iso8601Formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter
     }()
 
-    private static let sqliteDateFormatter: DateFormatter = {
+    private let sqliteDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -106,7 +110,7 @@ public final class ProjectStore {
         return formatter
     }()
 
-    private static let sqliteDateFormatterWithFractionalSeconds: DateFormatter = {
+    private let sqliteDateFormatterWithFractionalSeconds: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -128,6 +132,9 @@ public final class ProjectStore {
     }
 
     public convenience init(creating url: URL) throws {
+        let synchronization = Self.synchronizationRegistry.domain(for: url)
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard !FileManager.default.fileExists(atPath: url.path) else {
             throw ProjectStoreError.databaseError(message: "Project already exists: \(url.path)")
         }
@@ -146,7 +153,10 @@ public final class ProjectStore {
         }
     }
 
-    public convenience init(opening url: URL, access: ProjectAccessMode = .writable, validateBeforeWrite: (() throws -> Void)? = nil) throws {
+    public convenience init(opening url: URL, access: ProjectAccessMode = .writable, deferCleanup: Bool = false, validateBeforeWrite: (() throws -> Void)? = nil) throws {
+        let synchronization = Self.synchronizationRegistry.domain(for: url)
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         let source = try Self.databaseURL(at: url)
         let snapshot = try Self.snapshot(of: source)
         do {
@@ -161,7 +171,7 @@ public final class ProjectStore {
             }
             if access == .readOnly {
                 try self.init(projectURL: url, databaseURL: snapshot.database,
-                              access: access, snapshot: snapshot.directory, lease: nil, create: false)
+                              access: access, snapshot: snapshot.directory, lease: nil, create: false, deferCleanup: deferCleanup)
                 // Both handles share the snapshot until this initializer returns. The
                 // inspection handle must not delete it before the retained connection.
                 inspection.retainsSnapshot = false
@@ -172,7 +182,7 @@ public final class ProjectStore {
                 }
                 try validateBeforeWrite?()
                 try self.init(projectURL: url, databaseURL: source, access: access,
-                              snapshot: nil, lease: lease, create: false)
+                              snapshot: nil, lease: lease, create: false, deferCleanup: deferCleanup)
             }
         } catch {
             try? FileManager.default.removeItem(at: snapshot.directory)
@@ -183,6 +193,9 @@ public final class ProjectStore {
     /// Explicit schema/layout migration. The complete source database set is
     /// retained in a recovery directory before publication. No open calls this.
     public static func migrate(at url: URL, access: ProjectAccessMode = .writable, validateBeforeWrite: (() throws -> Void)? = nil) throws {
+        let synchronization = Self.synchronizationRegistry.domain(for: url)
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard access == .writable else {
             throw ProjectStoreError.databaseError(message: "Migration requires writable access")
         }
@@ -298,14 +311,18 @@ public final class ProjectStore {
         }
     }
 
-    nonisolated(unsafe) private var retainsSnapshot = true
+    private var retainsSnapshot = true
 
     private init(projectURL: URL, databaseURL: URL, access: ProjectAccessMode,
-                 snapshot: URL?, lease: ProjectStoreWriterLease?, create: Bool, migrate: Bool = false) throws {
+                 snapshot: URL?, lease: ProjectStoreWriterLease?, create: Bool, migrate: Bool = false, deferCleanup: Bool = false) throws {
+        self.deferCleanup = deferCleanup
+        self.synchronization = Self.synchronizationRegistry.domain(for: projectURL)
         self.projectURL = projectURL
         self.accessMode = access
         self.snapshotDirectory = snapshot
         self.writerLease = lease
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var pointer: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | (create ? SQLITE_OPEN_CREATE : 0)
         let result = sqlite3_open_v2(databaseURL.path, &pointer, flags, nil)
@@ -385,13 +402,18 @@ public final class ProjectStore {
     }
 
     public static func ownsWriterLease(at url: URL) -> Bool {
-        guard let lease = writerLeases[url.resolvingSymlinksInPath().standardizedFileURL.path]?.value else { return false }
+        let synchronization = synchronizationRegistry.domain(for: url)
+        synchronization.leaseLock.lock()
+        defer { synchronization.leaseLock.unlock() }
+        guard let lease = synchronization.writerLease else { return false }
         return (try? ProjectLockManager().readLock(at: lease.lockURL)) == lease.record
     }
 
     private static func acquireWriterLease(at url: URL) throws -> ProjectStoreWriterLease {
-        let key = url.resolvingSymlinksInPath().standardizedFileURL.path
-        if let existing = writerLeases[key]?.value {
+        let synchronization = synchronizationRegistry.domain(for: url)
+        synchronization.leaseLock.lock()
+        defer { synchronization.leaseLock.unlock() }
+        if let existing = synchronization.writerLease {
             guard (try? ProjectLockManager().readLock(at: existing.lockURL)) == existing.record else {
                 throw ProjectStoreError.databaseError(message: "Project writer lease changed; reopen read-only")
             }
@@ -404,21 +426,24 @@ public final class ProjectStore {
               try manager.acquireLock(record, to: lockURL) else {
             throw ProjectStoreError.databaseError(message: "Project has a writer lock; open read-only or explicitly resolve the existing lock.")
         }
-        let lease = ProjectStoreWriterLease(lockURL: lockURL, record: record)
-        writerLeases[key] = WeakProjectStoreWriterLease(value: lease)
+        let lease = ProjectStoreWriterLease(lockURL: lockURL, record: record, synchronization: synchronization)
+        synchronization.writerLease = lease
         return lease
     }
 
     deinit {
-        if let db { sqlite3_close_v2(db) }
-        if retainsSnapshot, let snapshotDirectory {
-            try? FileManager.default.removeItem(at: snapshotDirectory)
-        }
+        let cleanup = ProjectStoreCleanup(database: db,
+            snapshotDirectory: retainsSnapshot ? snapshotDirectory : nil,
+            synchronization: synchronization, writerLease: writerLease)
+        if deferCleanup { ProjectStoreCleanup.queue.async { cleanup.perform() } }
+        else { cleanup.perform() }
     }
 
     // MARK: - Schema Management
 
     private func getSchemaVersion() throws -> Int {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var version: Int = 0
         try query("PRAGMA user_version") { stmt in
             version = Int(sqlite3_column_int(stmt, 0))
@@ -427,10 +452,14 @@ public final class ProjectStore {
     }
 
     private func setSchemaVersion(_ version: Int) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         try execute("PRAGMA user_version = \(version)")
     }
 
     private func createTables() throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         // Sequences table - stores original sequence content
         try execute("""
             CREATE TABLE IF NOT EXISTS sequences (
@@ -548,6 +577,8 @@ public final class ProjectStore {
         alphabet: String = "dna",
         metadata: [String: String]? = nil
     ) throws -> UUID {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         let id = UUID()
         let contentHash = computeHash(content)
         let metadataJSON = try metadata.map { try JSONEncoder().encode($0) }
@@ -582,6 +613,8 @@ public final class ProjectStore {
     /// - Parameter id: The sequence ID
     /// - Returns: The sequence content and metadata, or nil if not found
     public func getSequence(id: UUID) throws -> StoredSequence? {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var result: StoredSequence?
 
         try query("""
@@ -598,6 +631,8 @@ public final class ProjectStore {
     }
 
     private func sequenceExists(id: UUID) throws -> Bool {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var exists = false
         try query("SELECT 1 FROM sequences WHERE id = ? LIMIT 1", parameters: [id.uuidString]) { _ in
             exists = true
@@ -607,6 +642,8 @@ public final class ProjectStore {
 
     /// Lists all sequences in the project.
     public func listSequences() throws -> [SequenceSummary] {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var results: [SequenceSummary] = []
 
         try query("""
@@ -630,6 +667,41 @@ public final class ProjectStore {
         return results
     }
 
+    /// Returns one consistent selected-content value without exposing SQLite/UI objects.
+    /// Cache lookup happens under the same read transaction as version and annotations.
+    public func sequenceSnapshot(id: UUID, cachedContent: (String) -> String? = { _ in nil }) throws -> ProjectSequenceSnapshot {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
+        try execute("BEGIN DEFERRED")
+        do {
+            var name = ""
+            var alphabet = ""
+            var versionIndex = 0
+            var cacheKey: String?
+            try query("""
+                SELECT s.name, s.alphabet, s.content_hash, cs.version_hash, COALESCE(cs.version_index, 0)
+                FROM sequences s LEFT JOIN current_state cs ON s.id = cs.sequence_id WHERE s.id = ?
+                """, parameters: [id.uuidString]) { stmt in
+                name = try requiredTextColumn(stmt, 0, name: "sequences.name")
+                alphabet = try requiredTextColumn(stmt, 1, name: "sequences.alphabet")
+                let originalHash = try requiredTextColumn(stmt, 2, name: "sequences.content_hash")
+                let versionHash = try optionalTextColumn(stmt, 3, name: "current_state.version_hash") ?? originalHash
+                versionIndex = Int(sqlite3_column_int(stmt, 4))
+                cacheKey = "\(id.uuidString):\(originalHash):\(versionHash):\(versionIndex)"
+            }
+            guard let cacheKey else { throw ProjectStoreError.sequenceNotFound(id: id) }
+            let cached = cachedContent(cacheKey)
+            let content = try cached ?? reconstructSequence(id: id, atVersion: versionIndex)
+            let annotations = try getAnnotations(sequenceId: id)
+            try execute("COMMIT")
+            return ProjectSequenceSnapshot(id: id, name: name, alphabet: alphabet,
+                content: content, annotations: annotations, cacheKey: cacheKey, usedCachedContent: cached != nil)
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     // MARK: - Version Operations
 
     /// Records a new version of a sequence.
@@ -649,6 +721,8 @@ public final class ProjectStore {
         message: String? = nil,
         author: String? = nil
     ) throws -> UUID {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         // Encode diff
         let diffData = try JSONEncoder().encode(diff)
 
@@ -704,6 +778,8 @@ public final class ProjectStore {
 
     /// Gets the version history for a sequence.
     public func getVersionHistory(for sequenceId: UUID) throws -> [StoredVersion] {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var versions: [StoredVersion] = []
 
         try query("""
@@ -721,6 +797,8 @@ public final class ProjectStore {
 
     /// Gets the current version index for a sequence.
     public func getCurrentVersionIndex(for sequenceId: UUID) throws -> Int {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var index: Int = 0
         try query("""
             SELECT version_index FROM current_state WHERE sequence_id = ?
@@ -732,6 +810,8 @@ public final class ProjectStore {
 
     /// Reconstructs the sequence content at a specific version.
     public func reconstructSequence(id: UUID, atVersion versionIndex: Int) throws -> String {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard versionIndex >= 0 else {
             throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
         }
@@ -758,6 +838,8 @@ public final class ProjectStore {
 
     /// Checks out a specific version of a sequence.
     public func checkoutVersion(sequenceId: UUID, versionIndex: Int) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard versionIndex >= 0 else {
             throw ProjectStoreError.invalidVersionIndex(index: versionIndex)
         }
@@ -794,6 +876,8 @@ public final class ProjectStore {
         bases: String?,
         sessionId: String?
     ) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         try execute("""
             INSERT INTO edit_log (sequence_id, operation, position, length, bases, session_id)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -809,6 +893,8 @@ public final class ProjectStore {
 
     /// Gets recent edits for a sequence.
     public func getRecentEdits(sequenceId: UUID, limit: Int = 100) throws -> [EditLogEntry] {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var entries: [EditLogEntry] = []
 
         try query("""
@@ -847,6 +933,8 @@ public final class ProjectStore {
         qualifiers: [String: String]? = nil,
         color: String? = nil
     ) throws -> UUID {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         let id = UUID()
         let qualifiersJSON = try qualifiers.map { try JSONEncoder().encode($0) }
 
@@ -873,6 +961,8 @@ public final class ProjectStore {
         sequenceId: UUID,
         inRange range: Range<Int>? = nil
     ) throws -> [StoredAnnotation] {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var annotations: [StoredAnnotation] = []
 
         var sql = """
@@ -902,6 +992,8 @@ public final class ProjectStore {
 
     /// Sets a project metadata value.
     func setMetadata(key: String, value: String) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         try execute("""
             INSERT OR REPLACE INTO project_metadata (key, value) VALUES (?, ?)
         """, parameters: [key, value])
@@ -909,6 +1001,8 @@ public final class ProjectStore {
 
     /// Gets a project metadata value.
     func getMetadata(key: String) throws -> String? {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var value: String?
         try query("""
             SELECT value FROM project_metadata WHERE key = ?
@@ -921,6 +1015,8 @@ public final class ProjectStore {
     // MARK: - Helper Methods
 
     private func computeHash(_ content: String) -> String {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         let data = Data(content.utf8)
         var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
         data.withUnsafeBytes {
@@ -930,10 +1026,12 @@ public final class ProjectStore {
     }
 
     private func parseDate(_ string: String) -> Date {
-        if let date = Self.iso8601FormatterWithFractionalSeconds.date(from: string)
-            ?? Self.iso8601Formatter.date(from: string)
-            ?? Self.sqliteDateFormatterWithFractionalSeconds.date(from: string)
-            ?? Self.sqliteDateFormatter.date(from: string) {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
+        if let date = self.iso8601FormatterWithFractionalSeconds.date(from: string)
+            ?? self.iso8601Formatter.date(from: string)
+            ?? self.sqliteDateFormatterWithFractionalSeconds.date(from: string)
+            ?? self.sqliteDateFormatter.date(from: string) {
             return date
         }
 
@@ -946,6 +1044,8 @@ public final class ProjectStore {
     }
 
     private func parseStoredSequence(from stmt: OpaquePointer?) throws -> StoredSequence {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt = stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
@@ -976,6 +1076,8 @@ public final class ProjectStore {
     }
 
     private func parseStoredVersion(from stmt: OpaquePointer?) throws -> StoredVersion {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt = stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
@@ -995,6 +1097,8 @@ public final class ProjectStore {
     }
 
     private func parseStoredAnnotation(from stmt: OpaquePointer?) throws -> StoredAnnotation {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt = stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement")
         }
@@ -1017,6 +1121,8 @@ public final class ProjectStore {
     }
 
     private func requiredUUIDColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> UUID {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         let value = try requiredTextColumn(stmt, index, name: name)
         guard let uuid = UUID(uuidString: value) else {
             throw ProjectStoreError.queryError(message: "Invalid UUID in \(name): \(value)")
@@ -1025,6 +1131,8 @@ public final class ProjectStore {
     }
 
     private func requiredTextColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> String {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
         }
@@ -1036,6 +1144,8 @@ public final class ProjectStore {
     }
 
     private func optionalTextColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> String? {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
         }
@@ -1049,6 +1159,8 @@ public final class ProjectStore {
     }
 
     private func requiredBlobColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> Data {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
         }
@@ -1066,6 +1178,8 @@ public final class ProjectStore {
     }
 
     private func optionalBlobColumn(_ stmt: OpaquePointer?, _ index: Int32, name: String) throws -> Data? {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard let stmt else {
             throw ProjectStoreError.queryError(message: "Invalid statement while reading \(name)")
         }
@@ -1087,6 +1201,8 @@ public final class ProjectStore {
     /// - Parameter mode: The checkpoint mode. Defaults to `.truncate` which
     ///   checkpoints all frames and truncates the WAL file to zero bytes.
     func checkpoint(mode: CheckpointMode = .truncate) {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         guard accessMode == .writable, let db = db else { return }
 
         let modeValue: Int32
@@ -1137,6 +1253,8 @@ public final class ProjectStore {
     // MARK: - SQL Execution
 
     private func execute(_ sql: String, parameters: [Any] = []) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var stmt: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -1165,6 +1283,8 @@ public final class ProjectStore {
     }
 
     private func query(_ sql: String, parameters: [Any] = [], handler: (OpaquePointer?) throws -> Void) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         var stmt: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -1192,6 +1312,8 @@ public final class ProjectStore {
     }
 
     private func withTransaction<T>(_ body: () throws -> T) throws -> T {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         try execute("BEGIN IMMEDIATE")
         do {
             let result = try body()
@@ -1211,6 +1333,8 @@ public final class ProjectStore {
     private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private func bindParameter(_ stmt: OpaquePointer?, at index: Int32, value: Any) throws {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
         switch value {
         case is NSNull:
             sqlite3_bind_null(stmt, index)
@@ -1243,6 +1367,16 @@ public final class ProjectStore {
 // MARK: - Supporting Types
 
 /// A stored sequence with metadata.
+public struct ProjectSequenceSnapshot: Sendable {
+    public let id: UUID
+    public let name: String
+    public let alphabet: String
+    public let content: String
+    public let annotations: [StoredAnnotation]
+    public let cacheKey: String
+    public let usedCachedContent: Bool
+}
+
 public struct StoredSequence: Sendable {
     public let id: UUID
     public let name: String
@@ -1335,11 +1469,15 @@ public enum ProjectStoreError: Error, LocalizedError, Sendable {
 private final class ProjectStoreWriterLease: @unchecked Sendable {
     let lockURL: URL
     let record: ProjectLockRecord
-    init(lockURL: URL, record: ProjectLockRecord) {
+    private let synchronization: ProjectStoreSynchronization
+    init(lockURL: URL, record: ProjectLockRecord, synchronization: ProjectStoreSynchronization) {
         self.lockURL = lockURL
         self.record = record
+        self.synchronization = synchronization
     }
     deinit {
+        synchronization.leaseLock.lock()
+        defer { synchronization.leaseLock.unlock() }
         let manager = ProjectLockManager()
         if (try? manager.readLock(at: lockURL)) == record {
             try? manager.removeLockIfPresent(at: lockURL)
@@ -1347,6 +1485,49 @@ private final class ProjectStoreWriterLease: @unchecked Sendable {
     }
 }
 
-private struct WeakProjectStoreWriterLease {
-    weak var value: ProjectStoreWriterLease?
+private final class ProjectStoreSynchronization: @unchecked Sendable {
+    let lock = NSRecursiveLock()
+    let leaseLock = NSRecursiveLock()
+    // Access only while leaseLock is held. Each live store retains this domain.
+    weak var writerLease: ProjectStoreWriterLease?
+}
+
+private final class ProjectStoreSynchronizationRegistry: @unchecked Sendable {
+    private struct WeakDomain { weak var value: ProjectStoreSynchronization? }
+    private let lock = NSLock()
+    private var domains: [String: WeakDomain] = [:]
+
+    func domain(for url: URL) -> ProjectStoreSynchronization {
+        let key = url.resolvingSymlinksInPath().standardizedFileURL.path
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = domains[key]?.value { return existing }
+        if domains.count > 128 { domains = domains.filter { $0.value.value != nil } }
+        let domain = ProjectStoreSynchronization()
+        domains[key] = WeakDomain(value: domain)
+        return domain
+    }
+}
+
+/// The async UI path hands only storage resources to this cleanup job. Legacy
+/// synchronous APIs retain immediate cleanup, including last-writer lease tests.
+private final class ProjectStoreCleanup: @unchecked Sendable {
+    static let queue = DispatchQueue(label: "org.lungfish.project-storage-cleanup", qos: .utility, attributes: .concurrent)
+    let database: OpaquePointer?
+    let snapshotDirectory: URL?
+    let synchronization: ProjectStoreSynchronization
+    let writerLease: ProjectStoreWriterLease?
+    init(database: OpaquePointer?, snapshotDirectory: URL?, synchronization: ProjectStoreSynchronization, writerLease: ProjectStoreWriterLease?) {
+        self.database = database
+        self.snapshotDirectory = snapshotDirectory
+        self.synchronization = synchronization
+        self.writerLease = writerLease
+    }
+    func perform() {
+        synchronization.lock.lock()
+        defer { synchronization.lock.unlock() }
+        if let database { sqlite3_close_v2(database) }
+        if let snapshotDirectory { try? FileManager.default.removeItem(at: snapshotDirectory) }
+        withExtendedLifetime(writerLease) {}
+    }
 }

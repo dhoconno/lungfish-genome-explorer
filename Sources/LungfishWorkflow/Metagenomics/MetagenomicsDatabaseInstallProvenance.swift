@@ -25,19 +25,35 @@ public enum MetagenomicsDatabasePayloadDigestError: Error, Sendable, Equatable {
     case unsafePayload(path: String)
 }
 
-public enum MetagenomicsDatabaseInstallProvenanceError: Error, Sendable, Equatable {
+public enum MetagenomicsDatabaseInstallProvenanceError: Error, LocalizedError, Sendable, Equatable {
     case incompleteFileDescriptor(path: String)
+    case expectedArchiveIdentityUnavailable(String)
+    case archiveChecksumMismatch(expected: String, actual: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .incompleteFileDescriptor(let path): return "Incomplete provenance identity for \(path)."
+        case .expectedArchiveIdentityUnavailable(let id): return "Pinned database '\(id)' has no received archive identity to verify."
+        case .archiveChecksumMismatch(let expected, let actual): return "Database archive checksum mismatch: expected \(expected), received \(actual)."
+        }
+    }
 }
 
 public enum MetagenomicsDatabasePayloadDigester {
     public static func snapshot(at rootURL: URL) throws -> MetagenomicsDatabasePayloadSnapshot {
+        try snapshot(at: rootURL, excludingTransactionArtifacts: [])
+    }
+
+    fileprivate static func snapshot(
+        at rootURL: URL, excludingTransactionArtifacts excluded: Set<URL>
+    ) throws -> MetagenomicsDatabasePayloadSnapshot {
         let root = rootURL.standardizedFileURL
         guard fileType(at: root) == .directory else {
             throw MetagenomicsDatabasePayloadDigestError.unsafePayload(path: root.path)
         }
 
         var entries: [(relativePath: String, url: URL)] = []
-        try inspect(directory: root, root: root, entries: &entries)
+        try inspect(directory: root, root: root, excluded: excluded, entries: &entries)
         let files = try entries.sorted { $0.relativePath < $1.relativePath }.map { entry in
             ProvenanceFileDescriptor(
                 path: entry.relativePath,
@@ -64,6 +80,7 @@ public enum MetagenomicsDatabasePayloadDigester {
     private static func inspect(
         directory: URL,
         root: URL,
+        excluded: Set<URL>,
         entries: inout [(relativePath: String, url: URL)]
     ) throws {
         let children = try FileManager.default.contentsOfDirectory(
@@ -79,9 +96,10 @@ public enum MetagenomicsDatabasePayloadDigester {
             guard let type = fileType(at: standardized), type != .symbolicLink else {
                 throw MetagenomicsDatabasePayloadDigestError.unsafePayload(path: standardized.path)
             }
-            guard !isTransientOrProvenance(standardized.lastPathComponent) else { continue }
+            guard !excluded.contains(standardized),
+                  !isTransientOrProvenance(standardized.lastPathComponent) else { continue }
             if type == .directory {
-                try inspect(directory: standardized, root: root, entries: &entries)
+                try inspect(directory: standardized, root: root, excluded: excluded, entries: &entries)
                 continue
             }
             guard type == .regular else {
@@ -225,13 +243,16 @@ public protocol MetagenomicsDatabaseInstallProvenanceWriting: Sendable {
 }
 
 public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: MetagenomicsDatabaseInstallProvenanceWriting, Sendable {
+    private let manifest: ManagedToolLock
     private let now: @Sendable () -> Date
     private let uuid: @Sendable () -> UUID
 
     public init(
+        manifest: ManagedToolLock = .bundled,
         now: @escaping @Sendable () -> Date = Date.init,
         uuid: @escaping @Sendable () -> UUID = UUID.init
     ) {
+        self.manifest = manifest
         self.now = now
         self.uuid = uuid
     }
@@ -240,9 +261,19 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         _ attempt: MetagenomicsDatabaseInstallAttempt,
         snapshot: MetagenomicsDatabasePayloadSnapshot
     ) throws {
+        try writeSuccess(attempt, snapshot: snapshot, to: attempt.finalURL)
+    }
+
+    /// Write physically into a prepared staging directory while every payload path
+    /// in the envelope refers to the intended final destination.
+    func writeSuccess(
+        _ attempt: MetagenomicsDatabaseInstallAttempt,
+        snapshot: MetagenomicsDatabasePayloadSnapshot,
+        to publicationDirectory: URL
+    ) throws {
         try validateSuccessDescriptors(attempt, snapshot: snapshot)
         let envelope = makeSuccessEnvelope(attempt, snapshot: snapshot)
-        _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: attempt.finalURL)
+        _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: publicationDirectory)
     }
 
     public func writeFailure(
@@ -285,6 +316,32 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         resolved["intendedFinalPath"] = .string(final.path)
         resolved["payloadAggregateSHA256"] = .string(snapshot.aggregateSHA256)
         resolved["payloadTotalSizeBytes"] = .integer(Int(clamping: snapshot.totalSizeBytes))
+        switch attempt.database.installationRecipe {
+        case .archive(let source):
+            let spec = attempt.database.catalogID.flatMap { manifest.database(id: $0) }
+            // A stale or custom source must not inherit the current catalog's pin.
+            let matchingSpec = spec?.url == source.absoluteString ? spec : nil
+            let policy = matchingSpec?.effectiveSourcePolicy ?? .unpinnedArchive
+            resolved["databaseSourcePolicy"] = .string(policy.rawValue)
+            resolved["requestedSourceURL"] = .string(source.absoluteString)
+            resolved["requestedCatalogVersion"] = .string(attempt.database.version ?? "unspecified")
+            resolved["retrievedAt"] = .string(ISO8601DateFormatter().string(from: attempt.completedAt))
+            resolved["retrievalTimeBasis"] = .string("workflow-completion upper bound")
+            resolved["exactRemoteReconstruction"] = .boolean(policy == .pinnedArchive)
+            resolved["retainedPayloadPath"] = .string(final.path)
+            if let archive = attempt.steps.flatMap(\.inputs).first {
+                resolved["receivedArchiveSHA256"] = archive.checksumSHA256.map(ParameterValue.string)
+                resolved["receivedArchiveSizeBytes"] = archive.fileSize.map { .integer(Int(clamping: $0)) }
+                resolved["archiveIdentityStatus"] = .string("received")
+            } else {
+                resolved["archiveIdentityStatus"] = .string("unavailable")
+            }
+        case .kraken2Special:
+            resolved["databaseSourcePolicy"] = .string(DatabaseSourcePolicy.localBuild.rawValue)
+            resolved["retainedPayloadPath"] = .string(final.path)
+        case nil:
+            resolved["databaseSourcePolicy"] = .string("userProvided")
+        }
         return ProvenanceEnvelope(
             id: uuid(),
             createdAt: now(),
@@ -405,6 +462,26 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         _ attempt: MetagenomicsDatabaseInstallAttempt,
         snapshot: MetagenomicsDatabasePayloadSnapshot
     ) throws {
+        if case .archive(let source)? = attempt.database.installationRecipe,
+           let catalogID = attempt.database.catalogID, let spec = manifest.database(id: catalogID),
+           spec.url == source.absoluteString {
+            try spec.validateSourceIdentity()
+            if spec.sha256 != nil || spec.md5 != nil {
+                guard let archive = attempt.steps.flatMap(\.inputs).first else {
+                    throw MetagenomicsDatabaseInstallProvenanceError.expectedArchiveIdentityUnavailable(catalogID)
+                }
+                let expected = spec.sha256 ?? spec.md5!
+                let actual: String
+                if spec.sha256 != nil {
+                    actual = archive.checksumSHA256 ?? ""
+                } else {
+                    actual = try MetagenomicsDatabaseRegistry.fileChecksum(URL(fileURLWithPath: archive.path), .md5)
+                }
+                guard expected.caseInsensitiveCompare(actual) == .orderedSame else {
+                    throw MetagenomicsDatabaseInstallProvenanceError.archiveChecksumMismatch(expected: expected, actual: actual)
+                }
+            }
+        }
         let descriptors = snapshot.files + attempt.steps.flatMap { $0.inputs + $0.outputs }
         for descriptor in descriptors {
             guard descriptor.checksumSHA256?.isEmpty == false, descriptor.fileSize != nil else {
@@ -495,5 +572,129 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)
+    }
+}
+
+
+public enum MetagenomicsDatabaseIdentityError: Error, LocalizedError, Sendable {
+    case unbound(String)
+    case changed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unbound(let name):
+            return "Database '\(name)' has no bound canonical receipt and payload identity; reinstall or update it before conformance."
+        case .changed(let name):
+            return "Database '\(name)' receipt or retained payload differs from its recorded identity."
+        }
+    }
+}
+
+/// Compact evidence for the exact database snapshot used by a conformance run.
+/// Verification is explicit and may hash a large payload; it is never a UI refresh.
+public struct MetagenomicsDatabaseConformanceIdentity: Codable, Sendable, Equatable {
+    public let schemaVersion: Int
+    public let databaseName: String
+    public let catalogID: String?
+    public let catalogVersion: String?
+    public let installedVersion: String?
+    public let path: String
+    public let canonicalReceiptSHA256: String
+    public let payloadAggregateSHA256: String
+    public let sourcePolicy: String
+    public let requestedSourceURL: String?
+    public let receivedArchiveSHA256: String?
+    public let retrievedAt: String?
+
+    public static func verify(_ database: MetagenomicsDatabaseInfo) throws -> Self {
+        try verify(database, readingPayloadAt: nil)
+    }
+
+    /// A relocation validates bytes at the new physical location against the
+    /// original row and original receipt paths before any metadata is rewritten.
+    static func verify(
+        _ database: MetagenomicsDatabaseInfo, readingPayloadAt physicalRoot: URL?,
+        publication: ScientificFilePublicationTransaction? = nil
+    ) throws -> Self {
+        guard database.status == .ready, let path = database.path?.standardizedFileURL,
+              let expectedReceipt = database.canonicalReceiptSHA256,
+              let expectedPayload = database.payloadDigest else {
+            throw MetagenomicsDatabaseIdentityError.unbound(database.name)
+        }
+        let payloadRoot = physicalRoot?.standardizedFileURL ?? path
+        let sidecar = payloadRoot.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let receiptBytes = try Data(contentsOf: sidecar)
+        let receiptDigest = SHA256.hash(data: receiptBytes).map { String(format: "%02x", $0) }.joined()
+        guard receiptDigest == expectedReceipt else { throw MetagenomicsDatabaseIdentityError.changed(database.name) }
+        let receipt = try ProvenanceEnvelopeReader.decodeCanonical(receiptBytes)
+        let options = receipt.options.resolvedDefaults
+        guard receipt.workflowName == "metagenomics.database.install", receipt.exitStatus == 0,
+              options["payloadAggregateSHA256"]?.stringValue == expectedPayload,
+              options["intendedFinalPath"]?.stringValue == path.path,
+              let policy = options["databaseSourcePolicy"]?.stringValue else {
+            throw MetagenomicsDatabaseIdentityError.changed(database.name)
+        }
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: payloadRoot,
+            excludingTransactionArtifacts: Set(publication?.displacedArtifactURLs.map(\.standardizedFileURL) ?? []))
+        guard snapshot.aggregateSHA256 == expectedPayload,
+              receipt.outputs.count == snapshot.files.count else {
+            throw MetagenomicsDatabaseIdentityError.changed(database.name)
+        }
+        var recordedOutputs: [String: ProvenanceFileDescriptor] = [:]
+        for output in receipt.outputs {
+            guard recordedOutputs.updateValue(output, forKey: output.path) == nil else {
+                throw MetagenomicsDatabaseIdentityError.changed(database.name)
+            }
+        }
+        for file in snapshot.files {
+            let finalPath = path.appendingPathComponent(file.path).path
+            guard let output = recordedOutputs[finalPath], output.checksumSHA256 == file.checksumSHA256,
+                  output.fileSize == file.fileSize else {
+                throw MetagenomicsDatabaseIdentityError.changed(database.name)
+            }
+        }
+        return Self(schemaVersion: 1, databaseName: database.name, catalogID: database.catalogID,
+            catalogVersion: options["requestedCatalogVersion"]?.stringValue ?? receipt.workflowVersion,
+            installedVersion: database.version, path: path.path, canonicalReceiptSHA256: receiptDigest,
+            payloadAggregateSHA256: snapshot.aggregateSHA256, sourcePolicy: policy,
+            requestedSourceURL: options["requestedSourceURL"]?.stringValue,
+            receivedArchiveSHA256: options["receivedArchiveSHA256"]?.stringValue,
+            retrievedAt: options["retrievedAt"]?.stringValue)
+    }
+
+    public func evidenceJSON() throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(self), as: UTF8.self)
+    }
+}
+
+
+extension CanonicalMetagenomicsDatabaseInstallProvenanceWriter {
+    /// Preserve the original installation history and append the metadata
+    /// relocation actually performed by the registry.
+    static func appendingRelocation(
+        to envelope: ProvenanceEnvelope, databaseName: String, from source: URL, to destination: URL,
+        previousReceipt: ProvenanceFileDescriptor, startedAt: Date
+    ) -> ProvenanceEnvelope {
+        let completedAt = Date()
+        let step = ProvenanceStep(
+            toolName: "Lungfish database relocation", toolVersion: WorkflowRun.currentAppVersion,
+            argv: ["MetagenomicsDatabaseRegistry.relocateDatabase(name:to:)", databaseName, destination.path],
+            resolvedOptions: ["invocationKind": .string("swift-api"), "relocatedFrom": .file(source),
+                "relocatedTo": .file(destination), "previousCanonicalReceiptSHA256": .string(previousReceipt.checksumSHA256 ?? "")],
+            runtimeIdentity: .init(), inputs: [previousReceipt], outputs: envelope.outputs,
+            exitStatus: 0, wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt, completedAt: completedAt
+        )
+        return ProvenanceEnvelope(schemaVersion: envelope.schemaVersion, id: envelope.id, createdAt: envelope.createdAt,
+            workflowName: envelope.workflowName, workflowVersion: envelope.workflowVersion,
+            toolName: envelope.toolName, toolVersion: envelope.toolVersion, githubReleaseVersion: envelope.githubReleaseVersion,
+            tool: envelope.tool, argv: envelope.argv, durableReplayArgv: envelope.durableReplayArgv,
+            reproducibleCommand: envelope.reproducibleCommand, options: envelope.options,
+            runtimeIdentity: envelope.runtimeIdentity, files: envelope.files + [previousReceipt],
+            output: envelope.output, outputs: envelope.outputs, steps: envelope.steps + [step],
+            wallTimeSeconds: (envelope.wallTimeSeconds ?? 0) + completedAt.timeIntervalSince(startedAt),
+            exitStatus: envelope.exitStatus, stderr: envelope.stderr, signatures: [], legacyWorkflowRun: nil)
     }
 }

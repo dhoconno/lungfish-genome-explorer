@@ -237,6 +237,7 @@ extension InspectorViewController {
 
     @objc func handleFASTQDatasetLoaded(_ notification: Notification) {
         guard shouldAcceptScopedNotification(notification) else { return }
+        guard shouldAcceptCurrentContentNotification(notification) else { return }
         guard let stats = notification.userInfo?["statistics"] as? FASTQDatasetStatistics else { return }
         viewModel.documentSectionViewModel.updateFASTQStatistics(stats)
 
@@ -352,12 +353,26 @@ extension InspectorViewController {
     /// the Inspector status indicator from `.building` to `.cached`.
     @objc func handleBatchManifestCached(_ notification: Notification) {
         guard shouldAcceptScopedNotification(notification) else { return }
+        guard shouldAcceptCurrentContentNotification(notification) else { return }
         if viewModel.documentSectionViewModel.batchManifestStatus == .building {
             viewModel.documentSectionViewModel.batchManifestStatus = .cached
         }
     }
 
     /// Applies inspector tab selection from notification userInfo if provided.
+    /// Async producer identities are compared to the displayed object. Legacy
+    /// synchronous events without identities retain their existing scope policy.
+    func shouldAcceptCurrentContentNotification(_ notification: Notification) -> Bool {
+        if let identity = notification.userInfo?[NotificationUserInfoKey.contentSelectionIdentity] as? ContentSelectionIdentity {
+            return activeContentSelectionIdentity == identity
+        }
+        if let url = (notification.userInfo?["fastqSourceURL"] ?? notification.userInfo?["bundleURL"] ?? notification.userInfo?["batchURL"]) as? URL,
+           let currentPath = activeContentSelectionIdentity?.standardizedURLPath {
+            return url.standardizedFileURL.path == currentPath
+        }
+        return true
+    }
+
     private func applyInspectorTabSelection(from notification: Notification) {
         guard let tabName = notification.userInfo?[NotificationUserInfoKey.inspectorTab] as? String,
               let tab = InspectorTab(rawValue: tabName) else {

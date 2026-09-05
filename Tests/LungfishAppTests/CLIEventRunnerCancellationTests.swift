@@ -67,6 +67,58 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
         XCTAssertLessThan(elapsed, 0.1, "Cancellation requests should return without walking the process tree inline")
     }
 
+    func testCancelledBeforeLaunchAcknowledgesWithoutStartingMSAOrTreeHelpers() async throws {
+        for kind in 0..<3 {
+            let fakeCLI = try makeSleepingCLI(directoryPrefix: "cancel-before-launch")
+            let operationID = await MainActor.run {
+                let id = OperationCenter.shared.start(title: "Pre-cancelled helper", detail: "Pending", onCancel: {})
+                OperationCenter.shared.cancel(id: id)
+                return id
+            }
+            do {
+                switch kind {
+                case 0: _ = try await CLIMSAActionRunner(cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
+                case 1: _ = try await CLITreeInferenceRunner(cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
+                default: _ = try await CLITreeTransformRunner(cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
+                }
+                XCTFail("Cancelled helper must not return a successful result")
+            } catch is CancellationError {
+                // Expected worker-owned cancellation outcome.
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fakeCLI.startedMarker.path))
+            let item = await MainActor.run { OperationCenter.shared.items.first { $0.id == operationID } }
+            XCTAssertEqual(item?.state, .cancelled)
+            XCTAssertTrue(item?.outputURLs.isEmpty == true)
+            await clearOperation(operationID)
+        }
+    }
+
+    func testApplicationAndNativeImportCancellationDoesNotWaitForActorRun() async throws {
+        for kind in 0..<2 {
+            let fakeCLI = try makeSleepingCLI(directoryPrefix: "import-actor-cancel")
+            let operationID = await startOperation(type: .bundleBuild)
+            let applicationRunner = CLIApplicationExportImportRunner(cliURLOverride: fakeCLI.executable)
+            let nativeRunner = CLINativeBundleImportRunner(cliURLOverride: fakeCLI.executable)
+            let task = Task {
+                if kind == 0 {
+                    _ = try await applicationRunner.run(arguments: [], operationID: operationID)
+                } else {
+                    _ = try await nativeRunner.run(arguments: [], operationID: operationID)
+                }
+            }
+            try await waitUntilFileExists(fakeCLI.startedMarker)
+            let startedAt = Date()
+            if kind == 0 { applicationRunner.cancel() }
+            else { nativeRunner.cancel() }
+            XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5, "Signal must not queue behind a blocking actor run")
+            _ = try? await task.value
+            await MainActor.run {
+                OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                OperationCenter.shared.clearItem(id: operationID)
+            }
+        }
+    }
+
     private func makeSleepingCLI(directoryPrefix: String) throws -> (executable: URL, startedMarker: URL) {
         let directory = try makeTemporaryDirectory(prefix: directoryPrefix)
         let executable = directory.appendingPathComponent("lungfish-cli")

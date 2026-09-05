@@ -30,13 +30,82 @@ public struct CondaLockInstallResult: Sendable, Hashable {
     public let provenanceURL: URL
 }
 
+/// Requested inputs only. No package solve, platform resolution, artifact inventory,
+/// or compatibility with an external lock consumer is implied by this document.
+public struct CondaRequestedEnvironmentSpecification: Sendable, Codable, Equatable {
+    public let kind: String
+    public let schemaVersion: Int
+    public let resolution: String
+    public let packID: String
+    public let packName: String
+    public let platforms: [String]
+    public let channels: [String]
+    public let requirements: [PackToolRequirement]
+    public let postInstallHooks: [PostInstallHook]
+
+    fileprivate init(pack: PluginPack, platforms: [String], channels: [String]) {
+        kind = "lungfish.conda-request-specification"
+        schemaVersion = 1
+        resolution = "unresolved"
+        packID = pack.id
+        packName = pack.name
+        self.platforms = platforms
+        self.channels = channels
+        requirements = pack.toolRequirements
+        postInstallHooks = pack.postInstallHooks
+    }
+
+    fileprivate func validate() throws {
+        guard kind == "lungfish.conda-request-specification", schemaVersion == 1,
+              resolution == "unresolved" else {
+            throw CondaLockfileError.unsupportedSpecification
+        }
+        guard !packID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !platforms.isEmpty, Set(platforms).count == platforms.count,
+              platforms.allSatisfy({ ["osx-arm64", "osx-64", "linux-64", "linux-aarch64", "win-64"].contains($0) }),
+              !channels.isEmpty, channels.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              !requirements.isEmpty,
+              Set(requirements.map(\.id)).count == requirements.count else {
+            throw CondaLockfileError.invalidSpecification("Missing or unsupported pack, platform, channel, or requirement identity.")
+        }
+        for requirement in requirements {
+            guard !requirement.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !requirement.environment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  requirement.managedDatabaseID != nil || !requirement.installPackages.isEmpty,
+                  requirement.installPackages.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                throw CondaLockfileError.invalidSpecification("Requirement '\(requirement.id)' has no complete requested environment identity.")
+            }
+            try requirement.sourceOverlay?.validateRequestedIdentity()
+        }
+    }
+}
+
+public enum CondaLockfileError: Error, LocalizedError, Sendable, Equatable {
+    case unsupportedSpecification
+    case invalidSpecification(String)
+    case exactReconstructionUnsupported
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedSpecification:
+            return "Unsupported environment document; expected Lungfish requested specification version 1."
+        case .invalidSpecification(let reason):
+            return "Invalid requested environment specification: \(reason)"
+        case .exactReconstructionUnsupported:
+            return "Conda exact reconstruction from --from-lockfile is unsupported. 'conda lock' exports an unresolved Lungfish requested specification, not a resolved artifact lock. No environment was installed; use the normal pack installation workflow for a fresh solve."
+        }
+    }
+}
+
 public struct CondaLockfileService {
     private let fileManager: FileManager
     private let platforms: [String]
     private let channels: [String]
+    // Internal fault-injection seam; nil in normal callers.
+    var publicationDidOccur: ((URL) throws -> Void)?
 
     public init(
-        platforms: [String] = ["osx-arm64", "linux-64"],
+        platforms: [String] = ["osx-arm64"],
         channels: [String] = ["conda-forge", "bioconda"],
         fileManager: FileManager = .default
     ) {
@@ -45,190 +114,79 @@ public struct CondaLockfileService {
         self.fileManager = fileManager
     }
 
+    /// Compatibility API name: exports a requested specification, never a resolved lock.
     public func writeLockfile(
         for pack: PluginPack,
         to output: URL,
         commandLine: [String]
     ) throws -> CondaLockfileResult {
         let start = Date()
-        try fileManager.createDirectory(
-            at: output.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let yaml = lockfileYAML(for: pack)
-        try yaml.write(to: output, atomically: true, encoding: .utf8)
-
-        let provenanceURL = try writeProvenance(
-            name: "Conda Lockfile Export",
-            toolName: "lungfish conda lock",
-            commandLine: commandLine,
-            inputs: [],
-            outputs: [ProvenanceRecorder.fileRecord(url: output, format: .text, role: .output)],
-            parameters: [
-                "packID": .string(pack.id),
-                "packName": .string(pack.name),
-                "outputPath": .string(output.standardizedFileURL.path),
-                "platforms": .array(platforms.map { .string($0) }),
-                "channels": .array(channels.map { .string($0) }),
-                "runtimeUser": .string(WorkflowRun.currentUser),
-                "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
-            ],
-            outputDirectory: output.deletingLastPathComponent(),
-            start: start,
-            exitCode: 0,
-            stderr: nil
-        )
-        return CondaLockfileResult(lockfileURL: output, provenanceURL: provenanceURL)
+        let specification = CondaRequestedEnvironmentSpecification(pack: pack, platforms: platforms, channels: channels)
+        try specification.validate()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(specification)
+        try fileManager.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let provenanceURL = output.appendingPathExtension("lungfish-provenance.json")
+        let stage = output.deletingLastPathComponent().appendingPathComponent(".requested-specification-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: stage, withIntermediateDirectories: false)
+        defer { try? fileManager.removeItem(at: stage) }
+        let stagedOutput = stage.appendingPathComponent("specification.json")
+        let stagedReceipt = stage.appendingPathComponent("provenance.json")
+        let publication = try ScientificFilePublicationTransaction(
+            protectedURLs: [output, provenanceURL], fileDestinations: [output, provenanceURL])
+        do {
+            try data.write(to: stagedOutput, options: .atomic)
+            let outputRecord = FileRecord(path: output.standardizedFileURL.path,
+                sha256: try ProvenanceFileHasher.sha256(of: stagedOutput),
+                sizeBytes: try ProvenanceFileHasher.fileSize(of: stagedOutput), format: .text, role: .output)
+            _ = try writeProvenance(
+                name: "Conda Requested Specification Export",
+                toolName: "lungfish conda lock",
+                commandLine: commandLine,
+                inputs: [],
+                outputs: [outputRecord],
+                parameters: [
+                    "packID": .string(pack.id), "packName": .string(pack.name),
+                    "outputPath": .string(output.standardizedFileURL.path),
+                    "documentKind": .string(specification.kind), "resolution": .string(specification.resolution),
+                    "platforms": .array(platforms.map { .string($0) }),
+                    "channels": .array(channels.map { .string($0) }),
+                    "runtimeUser": .string(WorkflowRun.currentUser),
+                    "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
+                ],
+                provenanceURL: stagedReceipt,
+                start: start, exitCode: 0, stderr: nil
+            )
+            try publication.publish(stagedURL: stagedOutput, to: output)
+            try publicationDidOccur?(output)
+            try publication.publish(stagedURL: stagedReceipt, to: provenanceURL)
+            try publicationDidOccur?(provenanceURL)
+            publication.commit()
+            return CondaLockfileResult(lockfileURL: output, provenanceURL: provenanceURL)
+        } catch {
+            try publication.rollback(after: error)
+        }
     }
 
+    public func readSpecification(from input: URL) throws -> CondaRequestedEnvironmentSpecification {
+        let specification: CondaRequestedEnvironmentSpecification
+        do { specification = try JSONDecoder().decode(CondaRequestedEnvironmentSpecification.self, from: Data(contentsOf: input)) }
+        catch let error as CocoaError { throw error }
+        catch { throw CondaLockfileError.unsupportedSpecification }
+        try specification.validate()
+        return specification
+    }
+
+    /// Kept so existing callers receive a precise supported-contract error. Never
+    /// routes a partial external lock or requested specification to a fresh solver.
     public func install(
         fromLockfile lockfile: URL,
         condaRoot: URL,
         installer: any CondaLockInstalling = CondaManagerLockInstaller(),
         commandLine: [String]
     ) async throws -> CondaLockInstallResult {
-        let start = Date()
-        let packages = try parsePackages(from: lockfile)
-        var installed: [String] = []
-        for package in packages {
-            let spec: String = if let build = package.build, !build.isEmpty {
-                "\(package.name)=\(package.version)=\(build)"
-            } else {
-                "\(package.name)=\(package.version)"
-            }
-            try await installer.install(
-                environment: package.name,
-                packageSpecs: [spec],
-                condaRoot: condaRoot
-            )
-            installed.append(package.name)
-        }
-
-        let provenanceURL = try writeProvenance(
-            name: "Conda Lockfile Install",
-            toolName: "lungfish conda install",
-            commandLine: commandLine,
-            inputs: [ProvenanceRecorder.fileRecord(url: lockfile, format: .text, role: .input)],
-            outputs: installed.map {
-                FileRecord(
-                    path: condaRoot.standardizedFileURL.appendingPathComponent("envs/\($0)", isDirectory: true).path,
-                    role: .output
-                )
-            },
-            parameters: [
-                "lockfilePath": .string(lockfile.standardizedFileURL.path),
-                "destinationCondaRoot": .string(condaRoot.standardizedFileURL.path),
-                "environments": .array(installed.map { .string($0) }),
-                "runtimeUser": .string(WorkflowRun.currentUser),
-                "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
-            ],
-            outputDirectory: condaRoot.standardizedFileURL,
-            start: start,
-            exitCode: 0,
-            stderr: nil
-        )
-
-        return CondaLockInstallResult(installedEnvironments: installed, provenanceURL: provenanceURL)
-    }
-
-    private func lockfileYAML(for pack: PluginPack) -> String {
-        let requirements = pack.toolRequirements.sorted { $0.environment < $1.environment }
-        let specs = requirements.flatMap(\.installPackages).sorted()
-        let contentHash = DeterministicTarWriter.sha256(Data(specs.joined(separator: "\n").utf8))
-        var lines: [String] = [
-            "# Generated by lungfish conda lock",
-            "version: 1",
-            "metadata:",
-            "  pack: \(pack.id)",
-            "  content_hash:",
-        ]
-        for platform in platforms {
-            lines.append("    \(platform): \(contentHash)")
-        }
-        lines.append("  channels:")
-        for channel in channels {
-            lines.append("    - \(channel)")
-        }
-        lines.append("  platforms:")
-        for platform in platforms {
-            lines.append("    - \(platform)")
-        }
-        lines.append("package:")
-        for requirement in requirements {
-            let parsed = parsePackageSpec(requirement.installPackages.first ?? requirement.id)
-            for platform in platforms {
-                lines += [
-                    "  - name: \(parsed.name)",
-                    "    version: \"\(parsed.version ?? requirement.version ?? "0")\"",
-                ]
-                if let build = parsed.build, !build.isEmpty {
-                    lines.append("    build: \"\(build)\"")
-                }
-                lines += [
-                    "    manager: conda",
-                    "    platform: \(platform)",
-                    "    category: main",
-                    "    optional: false",
-                    "    dependencies: {}",
-                ]
-            }
-        }
-        lines.append("")
-        return lines.joined(separator: "\n")
-    }
-
-    private struct LockPackage {
-        let name: String
-        let version: String
-        let build: String?
-    }
-
-    private func parsePackages(from lockfile: URL) throws -> [LockPackage] {
-        let lines = try String(contentsOf: lockfile, encoding: .utf8).components(separatedBy: .newlines)
-        var packages: [LockPackage] = []
-        var currentName: String?
-        var currentVersion: String?
-        var currentBuild: String?
-
-        func flush() {
-            if let currentName, let currentVersion,
-               !packages.contains(where: { $0.name == currentName }) {
-                packages.append(.init(name: currentName, version: currentVersion, build: currentBuild))
-            }
-            currentName = nil
-            currentVersion = nil
-            currentBuild = nil
-        }
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("- name: ") {
-                flush()
-                currentName = String(trimmed.dropFirst("- name: ".count))
-            } else if trimmed.hasPrefix("version: ") {
-                currentVersion = String(trimmed.dropFirst("version: ".count))
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-            } else if trimmed.hasPrefix("build: ") {
-                currentBuild = String(trimmed.dropFirst("build: ".count))
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-            }
-        }
-        flush()
-        return packages
-    }
-
-    private func parsePackageSpec(_ spec: String) -> (name: String, version: String?, build: String?) {
-        let withoutChannel = spec.split(separator: "::").last.map(String.init) ?? spec
-        let parts = withoutChannel.split(separator: "=", maxSplits: 2).map(String.init)
-        // String.split on an empty string returns [], not [""], so an empty spec
-        // (or an empty requirement.id fallback) would trap on parts[0] without this
-        // guard (R3-R3ML-16).
-        guard let name = parts.first, !name.isEmpty else {
-            return (spec, nil, nil)
-        }
-        let version = parts.count > 1 ? parts[1] : nil
-        let build = parts.count > 2 ? parts[2] : nil
-        return (name, version, build)
+        throw CondaLockfileError.exactReconstructionUnsupported
     }
 
     private func writeProvenance(
@@ -238,12 +196,12 @@ public struct CondaLockfileService {
         inputs: [FileRecord],
         outputs: [FileRecord],
         parameters: [String: ParameterValue],
-        outputDirectory: URL,
+        provenanceURL: URL,
         start: Date,
         exitCode: Int32,
         stderr: String?
     ) throws -> URL {
-        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: provenanceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let end = Date()
         let step = StepExecution(
             toolName: toolName,
@@ -265,7 +223,6 @@ public struct CondaLockfileService {
             steps: [step],
             parameters: parameters
         )
-        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601

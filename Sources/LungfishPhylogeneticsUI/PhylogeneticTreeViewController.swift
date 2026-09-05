@@ -972,7 +972,6 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         to outputURL: URL,
         startedAt: Date = Date()
     ) throws -> URL {
-        try Data(export.newick.utf8).write(to: outputURL, options: .atomic)
         let sourceURLs = sourceBundleURL.map { [$0] } ?? []
         var argv = ["Lungfish Genome Explorer", "export-tree-subtree"]
         for sourceURL in sourceURLs {
@@ -981,7 +980,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         argv.append(contentsOf: ["--node", export.selectedNodeID, "--output", outputURL.path])
 
         do {
-            return try ScientificFileExportProvenance.write(.init(
+            return try ScientificFileExportProvenance.writeAtomically(.init(
                 workflowName: "lungfish app phylogenetic subtree export",
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
@@ -1002,9 +1001,10 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                 ],
                 startedAt: startedAt,
                 completedAt: Date()
-            ))
+            )) { staged in
+                try Data(export.newick.utf8).write(to: staged, options: .atomic)
+            }
         } catch {
-            try? FileManager.default.removeItem(at: outputURL)
             throw error
         }
     }

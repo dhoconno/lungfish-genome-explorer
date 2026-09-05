@@ -15,7 +15,7 @@ final class ProjectStoragePerformanceTests: XCTestCase {
     {
         let context = try makeOpenFixture()
         defer { try? FileManager.default.removeItem(at: context.root) }
-        let delegate = AppDelegate()
+        let delegate = makeAppDelegateWithTemporaryState()
         let calls = LockedCounter()
         delegate.projectStorageAutomaticCleanupRunner = { _ in
             calls.increment()
@@ -34,6 +34,7 @@ final class ProjectStoragePerformanceTests: XCTestCase {
         defer { controller.close() }
 
         delegate.openProject(context.fixture.projectURL, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
         XCTAssertEqual(calls.value, 0)
         await oneMainRunLoopTurn()
         XCTAssertEqual(calls.value, 0)
@@ -45,13 +46,14 @@ final class ProjectStoragePerformanceTests: XCTestCase {
         let before = try StorageFixtureSnapshot.capture(
             root: context.fixture.projectURL
         )
-        let delegate = AppDelegate()
+        let delegate = makeAppDelegateWithTemporaryState()
         let controller = MainWindowController(
             projectSession: ProjectSession()
         )
         defer { controller.close() }
 
         delegate.openProject(context.fixture.projectURL, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
         await oneMainRunLoopTurn()
 
         let after = try StorageFixtureSnapshot.capture(

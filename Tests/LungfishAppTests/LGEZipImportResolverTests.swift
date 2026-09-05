@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import LungfishIO
+import AppKit
 import XCTest
 @testable import LungfishApp
 
@@ -16,6 +17,57 @@ final class LGEZipImportResolverTests: XCTestCase {
         }
         tempRoots.removeAll()
         try super.tearDownWithError()
+    }
+
+    func testAllNativeFamiliesRemainOneObjectInsideZIP() throws {
+        for ext in ["lungfishref", "lungfishfastq", "lungfishmsa", "lungfishtree", "lungfishmhcref",
+                    "lungfishgenotype", "lungfish12s", "lungfish12sref", "lungfishprimers", "lungfishtax"] {
+            let root = try makeTempDirectory()
+            let source = root.appendingPathComponent("source", isDirectory: true)
+            let bundle = source.appendingPathComponent("Object.\(ext)", isDirectory: true)
+            try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try Data(">invented\nACGT\n".utf8).write(to: bundle.appendingPathComponent("internal.fa"))
+            let archive = root.appendingPathComponent("Object.zip")
+            try runZip(workingDirectory: source, archiveURL: archive, entries: [bundle.lastPathComponent])
+            let batch = try LGEZipImportResolver().resolve(urls: [archive], projectURL: nil)
+            defer { batch.cleanup() }
+            XCTAssertTrue(batch.failures.isEmpty, ext)
+            var detectorCalls = 0
+            let plan = SidebarImportPlanner.makePlan(for: batch.sourceURLs, ontDirectoryDetector: { _ in
+                detectorCalls += 1; return true
+            })
+            XCTAssertEqual(plan.sourceURLs.map(\.lastPathComponent), [bundle.lastPathComponent])
+            XCTAssertEqual(detectorCalls, 0, "Embedded ONT metadata must not route a native bundle into a raw-read configuration sheet")
+        }
+    }
+
+    @MainActor
+    func testProjectlessNativeZIPDropRejectsBeforeEphemeralImportSuccess() async throws {
+        _ = NSApplication.shared
+        let root = try makeTempDirectory()
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let bundle = source.appendingPathComponent("Object.lungfishmsa", isDirectory: true)
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try Data("invented opaque payload".utf8).write(to: bundle.appendingPathComponent("payload.txt"))
+        let archive = root.appendingPathComponent("Object.zip")
+        try runZip(workingDirectory: source, archiveURL: archive, entries: [bundle.lastPathComponent])
+        let split = MainSplitViewController(projectSession: ProjectSession())
+        _ = split.view
+        let completed = expectation(description: "drop rejected")
+        let observer = NotificationCenter.default.addObserver(forName: .sidebarFileDropCompleted, object: split, queue: .main) { notification in
+            let success = notification.userInfo?["success"] as? Bool
+            let message = notification.userInfo?["error"] as? String ?? ""
+            MainActor.assumeIsolated {
+                XCTAssertEqual(success, false)
+                XCTAssertTrue(message.localizedCaseInsensitiveContains("project"))
+                completed.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        split.handleSidebarFileDropped(Notification(name: .sidebarFileDropped, object: split.sidebarController,
+            userInfo: ["urls": [archive], "requestID": UUID().uuidString]))
+        await fulfillment(of: [completed], timeout: 5)
+        XCTAssertTrue(fileManager.fileExists(atPath: archive.path))
     }
 
     func testResolverExtractsSingleMHCReferenceBundleZipAndCleansTemporaryExtraction() throws {

@@ -10,6 +10,18 @@ import XCTest
 /// rather than from Swift literals.
 final class MetagenomicsCatalogManifestTests: XCTestCase {
 
+    func testUnpinnedCatalogSourcesAreExplicitAndMutableTaxonomyHasNoFixedVersionClaim() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        for spec in manifest.databases where spec.url != nil && spec.sha256 == nil && spec.md5 == nil {
+            let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(spec)) as? [String: Any])
+            XCTAssertNotNil(encoded["sourcePolicy"], "Unpinned source \(spec.id) needs an explicit retrieval contract")
+        }
+        let taxonomy = try XCTUnwrap(manifest.database(id: "ncbi-taxonomy"))
+        XCTAssertEqual(taxonomy.version, "live")
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(taxonomy)) as? [String: Any])
+        XCTAssertEqual(encoded["sourcePolicy"] as? String, "liveSnapshot")
+    }
+
     func testKrakenCatalogEntriesUseManifestURLs() throws {
         let manifest = try ManagedToolLock.loadFromBundle()
         let kraken2Collections = MetagenomicsDatabaseInfo.builtInCatalog.filter {

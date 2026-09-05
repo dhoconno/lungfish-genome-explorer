@@ -293,7 +293,7 @@ public final class OperationCenter: ObservableObject {
     /// Returns true if no running operation is currently targeting the given bundle.
     public func canStartOperation(on bundleURL: URL?) -> Bool {
         guard let bundleURL else { return true }
-        let key = bundleURL.standardizedFileURL.path
+        let key = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
         guard let lockHolder = bundleLocks[key] else { return true }
         // Verify the lock holder is still running (stale lock protection)
         return items.first(where: { $0.id == lockHolder && $0.state.isActive }) == nil
@@ -302,14 +302,14 @@ public final class OperationCenter: ObservableObject {
     /// Returns the running item that currently holds the lock on the given bundle, if any.
     public func activeLockHolder(for bundleURL: URL?) -> Item? {
         guard let bundleURL else { return nil }
-        let key = bundleURL.standardizedFileURL.path
+        let key = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
         guard let lockHolder = bundleLocks[key] else { return nil }
         return items.first(where: { $0.id == lockHolder && $0.state.isActive })
     }
 
     private func lockBundle(for id: UUID, url: URL?) {
         guard let url else { return }
-        let key = url.standardizedFileURL.path
+        let key = url.standardizedFileURL.resolvingSymlinksInPath().path
         bundleLocks[key] = id
     }
 
@@ -365,6 +365,7 @@ public final class OperationCenter: ObservableObject {
         detail: String,
         operationType: OperationType = .download,
         targetBundleURL: URL? = nil,
+        additionalLockedBundleURLs: [URL] = [],
         startedAt: Date = Date(),
         cliCommand: String? = nil,
         workflowRunID: UUID? = nil,
@@ -372,8 +373,22 @@ public final class OperationCenter: ObservableObject {
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
-        if let targetBundleURL,
-           let lockHolder = activeLockHolder(for: targetBundleURL) {
+        let lockPaths = Set(([targetBundleURL].compactMap { $0 } + additionalLockedBundleURLs)
+            .map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+        let lockURLs = lockPaths.sorted().map { URL(fileURLWithPath: $0) }
+        // Main-actor check of every key precedes acquisition, so refusal leaves no partial lease.
+        let exactHolder = lockURLs.compactMap { activeLockHolder(for: $0) }.first
+        // Additional output leases protect their whole trees. Keep the legacy
+        // exact-key contract for callers that do not request additional leases.
+        let overlappingHolder: Item? = additionalLockedBundleURLs.isEmpty ? nil : bundleLocks.keys.sorted().compactMap { path -> Item? in
+            let existing = URL(fileURLWithPath: path)
+            guard lockURLs.contains(where: { candidate in
+                candidate.pathComponents.starts(with: existing.pathComponents)
+                    || existing.pathComponents.starts(with: candidate.pathComponents)
+            }) else { return nil }
+            return activeLockHolder(for: existing)
+        }.first
+        if let lockHolder = exactHolder ?? overlappingHolder {
             let finishedAt = Date()
             let blockedDetail = "\"\(lockHolder.title)\" is currently running on this bundle. Please wait for it to finish."
             items.insert(
@@ -416,7 +431,7 @@ public final class OperationCenter: ObservableObject {
             ),
             at: 0
         )
-        lockBundle(for: id, url: targetBundleURL)
+        for url in lockURLs { lockBundle(for: id, url: url) }
         changes.send(.inserted(id: id, index: 0))
         notifyRemovedItems(trimCompletedItemsIfNeeded())
         postStateChangedNotification(id: id, state: .running)
@@ -426,7 +441,8 @@ public final class OperationCenter: ObservableObject {
     /// Sets the cancellation callback for an existing operation.
     /// Useful when the operation must be registered before the cancellable task handle exists.
     public func setCancelCallback(for id: UUID, callback: @escaping @Sendable () -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .running else { return }
         items[index].onCancel = callback
         changes.send(.updated(id: id, index: index))
     }
@@ -570,115 +586,38 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
+    /// The worker calls a terminal method only after process exit, stream drain
+    /// and owned output cleanup. Accepted cancellation always wins over its result.
     @discardableResult
     public func complete(id: UUID, detail: String, finishedAt: Date = Date()) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        guard items[index].state == .running else { return false }
-        let previousOrder = items.map(\.id)
-        items[index].state = .completed
-        items[index].progress = 1
-        items[index].detail = detail
-        finishItem(at: index, finishedAt: finishedAt)
-        unlockBundle(for: id)
-        _ = trimCompletedItemsIfNeeded()
-        publishTerminalChange(id: id, previousOrder: previousOrder)
-        postStateChangedNotification(id: id, state: .completed)
-        return true
+        finishWorker(id: id, state: .completed, detail: detail, finishedAt: finishedAt)
     }
 
-    /// Completes an operation in the warning state.
-    ///
-    /// The warning detail is surfaced both in the item's detail text and as a
-    /// warning log entry so the Operations UI presents "Completed with Warnings".
-    @discardableResult
-    public func completeWithWarning(id: UUID, detail: String) -> Bool {
-        guard appendWarningLogIfRunning(id: id, detail: detail) else { return false }
-        return complete(id: id, detail: detail)
-    }
-
-    /// Completes an operation and delivers bundle URLs to the app for import.
-    ///
-    /// This is the primary mechanism for getting built bundles from background
-    /// tasks to the AppDelegate for import into the sidebar. It avoids
-    /// fragile callback chains through sheet controllers that get deallocated.
     @discardableResult
     public func complete(id: UUID, detail: String, bundleURLs: [URL], finishedAt: Date = Date()) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        guard items[index].state == .running else { return false }
-        let previousOrder = items.map(\.id)
-        items[index].state = .completed
-        items[index].progress = 1
-        items[index].detail = detail
-        items[index].bundleURLs = bundleURLs
-        items[index].outputURLs = []
-        let routeContext = items[index].routeContext
-        finishItem(at: index, finishedAt: finishedAt)
-        unlockBundle(for: id)
-        _ = trimCompletedItemsIfNeeded()
-        publishTerminalChange(id: id, previousOrder: previousOrder)
-
-        if !bundleURLs.isEmpty {
-            if let onBundleReadyWithContext {
-                onBundleReadyWithContext(bundleURLs, routeContext)
-            } else {
-                onBundleReady?(bundleURLs)
-            }
-        }
-        postStateChangedNotification(id: id, state: .completed)
-        return true
+        finishWorker(id: id, state: .completed, detail: detail, bundleURLs: bundleURLs, finishedAt: finishedAt)
     }
 
-    /// Completes an operation in the warning state and delivers bundle URLs.
-    @discardableResult
-    public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL]) -> Bool {
-        guard appendWarningLogIfRunning(id: id, detail: detail) else { return false }
-        return complete(id: id, detail: detail, bundleURLs: bundleURLs)
-    }
-
-    /// Completes an operation and records non-bundle file outputs.
-    ///
-    /// Unlike ``complete(id:detail:bundleURLs:)``, these URLs are not sent to
-    /// `onBundleReady` because they are user-facing files rather than project
-    /// bundles that should be imported into the sidebar.
     @discardableResult
     public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        guard items[index].state == .running else { return false }
-        let previousOrder = items.map(\.id)
-        items[index].state = .completed
-        items[index].progress = 1
-        items[index].detail = detail
-        items[index].bundleURLs = []
-        items[index].outputURLs = outputURLs
-        finishItem(at: index, finishedAt: finishedAt)
-        unlockBundle(for: id)
-        _ = trimCompletedItemsIfNeeded()
-        publishTerminalChange(id: id, previousOrder: previousOrder)
-        postStateChangedNotification(id: id, state: .completed)
-        return true
+        finishWorker(id: id, state: .completed, detail: detail, outputURLs: outputURLs, finishedAt: finishedAt)
     }
 
-    /// Completes an operation in the warning state and records non-bundle file outputs.
+    @discardableResult
+    public func completeWithWarning(id: UUID, detail: String) -> Bool {
+        finishWorker(id: id, state: .completed, detail: detail, warning: true)
+    }
+
+    @discardableResult
+    public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL]) -> Bool {
+        finishWorker(id: id, state: .completed, detail: detail, bundleURLs: bundleURLs, warning: true)
+    }
+
     @discardableResult
     public func completeWithWarning(id: UUID, detail: String, outputURLs: [URL]) -> Bool {
-        guard appendWarningLogIfRunning(id: id, detail: detail) else { return false }
-        return complete(id: id, detail: detail, outputURLs: outputURLs)
+        finishWorker(id: id, state: .completed, detail: detail, outputURLs: outputURLs, warning: true)
     }
 
-    private func appendWarningLogIfRunning(id: UUID, detail: String) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        guard items[index].state == .running else { return false }
-        items[index].logEntries.append(OperationLogEntry(level: .warning, message: detail))
-        return true
-    }
-
-    /// Marks an operation as failed.
-    ///
-    /// - Parameters:
-    ///   - id: The operation that failed.
-    ///   - detail: Status detail text (shown in the detail row).
-    ///   - errorMessage: Optional user-facing error summary (shown prominently in red).
-    ///   - errorDetail: Optional extended diagnostic text (stderr, stack trace, etc.).
     @discardableResult
     public func fail(
         id: UUID,
@@ -687,25 +626,65 @@ public final class OperationCenter: ObservableObject {
         errorDetail: String? = nil,
         finishedAt: Date = Date()
     ) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        guard items[index].state == .running else { return false }
+        finishWorker(id: id, state: .failed, detail: detail, errorMessage: errorMessage,
+                     errorDetail: errorDetail, finishedAt: finishedAt)
+    }
+
+    /// Acknowledges cancellation after the owning worker (or idle UI phase)
+    /// has drained and cleaned up. This never invokes the cancellation signal.
+    @discardableResult
+    public func acknowledgeCancellation(id: UUID, detail: String = "Cancelled by user", finishedAt: Date = Date()) -> Bool {
+        finishWorker(id: id, state: .cancelled, detail: detail, finishedAt: finishedAt)
+    }
+
+    private func finishWorker(
+        id: UUID,
+        state requestedState: Item.State,
+        detail: String,
+        bundleURLs: [URL] = [],
+        outputURLs: [URL] = [],
+        warning: Bool = false,
+        errorMessage: String? = nil,
+        errorDetail: String? = nil,
+        finishedAt: Date = Date()
+    ) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state.isActive else { return false }
+        let cancellationWon = items[index].state == .cancelling
+        let state: Item.State = cancellationWon ? .cancelled : requestedState
         let previousOrder = items.map(\.id)
-        items[index].state = .failed
-        items[index].detail = detail
-        items[index].errorMessage = errorMessage
-        items[index].errorDetail = errorDetail
+        let routeContext = items[index].routeContext
+        items[index].state = state
+        items[index].detail = cancellationWon ? "Cancelled by user" : detail
+        items[index].onCancel = nil
+        items[index].bundleURLs = state == .completed ? bundleURLs : []
+        items[index].outputURLs = state == .completed ? outputURLs : []
+        items[index].errorMessage = state == .failed ? errorMessage : nil
+        items[index].errorDetail = state == .failed ? errorDetail : nil
+        if state == .completed {
+            items[index].progress = 1
+            if warning { items[index].logEntries.append(OperationLogEntry(level: .warning, message: detail)) }
+        }
         finishItem(at: index, finishedAt: finishedAt)
-        // Written before the item can be trimmed out of `items`, so the report
-        // survives even when a burst of failures pushes this row off the panel.
-        items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
+        if state == .failed {
+            items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
+        }
         unlockBundle(for: id)
         _ = trimCompletedItemsIfNeeded()
         publishTerminalChange(id: id, previousOrder: previousOrder)
-        postStateChangedNotification(id: id, state: .failed)
-        return true
+        if state == .completed, !bundleURLs.isEmpty {
+            if let onBundleReadyWithContext {
+                onBundleReadyWithContext(bundleURLs, routeContext)
+            } else {
+                onBundleReady?(bundleURLs)
+            }
+        }
+        postStateChangedNotification(id: id, state: state)
+        // Existing UI guards must reject suppressed success and failure results.
+        return state == requestedState
     }
 
-    /// Cancels a running operation by invoking its cancel callback before releasing any bundle lock.
+    /// Requests cancellation. Callback return never releases the worker's bundle lock.
     /// Running operations without a cancel callback are left unchanged because the
     /// center has no mechanism to stop their underlying work.
     public func cancel(id: UUID) {
@@ -718,13 +697,8 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
         postStateChangedNotification(id: id, state: .cancelling)
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async {
             onCancel()
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self?.finishCancellation(id: id)
-                }
-            }
         }
     }
 
@@ -771,19 +745,6 @@ public final class OperationCenter: ObservableObject {
     private func finishItem(at index: Int, finishedAt: Date) {
         items[index].finishedAt = finishedAt
         items[index].wallTimeSeconds = max(0, finishedAt.timeIntervalSince(items[index].startedAt))
-    }
-
-    private func finishCancellation(id: UUID, finishedAt: Date = Date()) {
-        guard let index = items.firstIndex(where: { $0.id == id }),
-              items[index].state == .cancelling else { return }
-        let previousOrder = items.map(\.id)
-        items[index].state = .cancelled
-        items[index].detail = "Cancelled by user"
-        finishItem(at: index, finishedAt: finishedAt)
-        unlockBundle(for: id)
-        _ = trimCompletedItemsIfNeeded()
-        publishTerminalChange(id: id, previousOrder: previousOrder)
-        postStateChangedNotification(id: id, state: .cancelled)
     }
 
     private func notifyRemovedItems(_ ids: [UUID]) {

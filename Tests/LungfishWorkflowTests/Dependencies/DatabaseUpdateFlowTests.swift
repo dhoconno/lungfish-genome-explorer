@@ -29,6 +29,267 @@ final class DatabaseUpdateFlowTests: XCTestCase {
 
     // MARK: - Metagenomics registry
 
+    func testRelocationRehydratesBoundIdentityBeforeConformanceUse() async throws {
+        let (registry, original) = try await makeBoundRelocationFixture()
+        let prior = try await registry.database(named: "Viral")
+        let destination = tempDir.appendingPathComponent("relocated-fixture")
+        try FileManager.default.moveItem(at: original, to: destination)
+        try await registry.relocateDatabase(name: "Viral", to: destination)
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        XCTAssertEqual(db.payloadDigest, prior?.payloadDigest)
+        XCTAssertNotEqual(db.canonicalReceiptSHA256, prior?.canonicalReceiptSHA256)
+        let selected = try await ConformanceFixtures.installedDatabase(name: "Viral", registry: registry)
+        XCTAssertEqual(selected?.standardizedFileURL, destination.standardizedFileURL)
+    }
+
+    func testRelocationCannotBlessChangedPayload() async throws {
+        let (registry, original) = try await makeBoundRelocationFixture()
+        let destination = tempDir.appendingPathComponent("changed-relocation")
+        try FileManager.default.moveItem(at: original, to: destination)
+        let sidecar = destination.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let priorReceipt = try Data(contentsOf: sidecar)
+        try Data("substituted index bytes".utf8).write(to: destination.appendingPathComponent("hash.k2d"))
+        await XCTAssertThrowsErrorAsync(try await registry.relocateDatabase(name: "Viral", to: destination))
+        let stored = try await registry.database(named: "Viral")
+        XCTAssertEqual(stored?.path?.standardizedFileURL, original.standardizedFileURL)
+        XCTAssertEqual(try Data(contentsOf: sidecar), priorReceipt)
+    }
+
+    func testRelocationRejectsForeignFileResemblingTransactionArtifact() async throws {
+        let (registry, original) = try await makeBoundRelocationFixture()
+        let destination = tempDir.appendingPathComponent("foreign-artifact-relocation")
+        try FileManager.default.moveItem(at: original, to: destination)
+        let foreign = destination.appendingPathComponent(
+            ".\(ProvenanceWriter.provenanceFilename).provenance-forward-\(UUID().uuidString)")
+        try Data("foreign unrecorded bytes".utf8).write(to: foreign)
+        await XCTAssertThrowsErrorAsync(try await registry.relocateDatabase(name: "Viral", to: destination))
+        let stored = try await registry.database(named: "Viral")
+        XCTAssertEqual(stored?.path?.standardizedFileURL, original.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: foreign.path))
+    }
+
+    func testRelocationPersistenceFailureRestoresReceiptPayloadAndRegistry() async throws {
+        let failure = RelocationManifestFailureSwitch()
+        let (registry, original) = try await makeBoundRelocationFixture { data, url in
+            if failure.shouldFail { throw CocoaError(.fileWriteUnknown) }
+            try data.write(to: url, options: .atomic)
+        }
+        let priorReceipt = try Data(contentsOf: original.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        let destination = tempDir.appendingPathComponent("failed-relocation")
+        try FileManager.default.moveItem(at: original, to: destination)
+        failure.enable()
+        await XCTAssertThrowsErrorAsync(try await registry.relocateDatabase(name: "Viral", to: destination))
+        let stored = try await registry.database(named: "Viral")
+        XCTAssertEqual(stored?.path?.standardizedFileURL, original.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: original.path))
+        if FileManager.default.fileExists(atPath: original.path) {
+            XCTAssertEqual(try Data(contentsOf: original.appendingPathComponent(ProvenanceWriter.provenanceFilename)), priorReceipt)
+        }
+    }
+
+    private func makeBoundRelocationFixture(
+        manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = MetagenomicsDatabaseRegistry.defaultManifestWriter
+    ) async throws -> (MetagenomicsDatabaseRegistry, URL) {
+        let original = try seedInstalledViralDatabase(in: tempDir, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir, manifestWriter: manifestWriter)
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "invented index bytes")
+            return nil
+        }
+        try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+        return (registry, original)
+    }
+
+    func testFreshInstallReceiptRejectsPinnedArchiveMismatch() throws {
+        let base = tempDir!
+        let source = "https://example.invalid/generic-archive.tar.gz"
+        let manifestJSON = """
+        {"packID":"fixture","displayName":"Fixture","version":"1","tools":[],"managedData":[],
+         "databases":[{"id":"fixture","tool":"fixture","displayName":"Fixture","version":"1",
+         "sourcePolicy":"pinnedArchive","url":"\(source)","sha256":"\(String(repeating: "b", count: 64))"}]}
+        """
+        let manifest = try JSONDecoder().decode(ManagedToolLock.self, from: Data(manifestJSON.utf8))
+        let archive = base.appendingPathComponent("received-archive")
+        try Data("different invented archive bytes".utf8).write(to: archive)
+        let payload = base.appendingPathComponent("payload")
+        try FileManager.default.createDirectory(at: payload, withIntermediateDirectories: true)
+        try Data("structurally valid invented payload".utf8).write(to: payload.appendingPathComponent("data.bin"))
+        let db = MetagenomicsDatabaseInfo(name: "Fixture", tool: "fixture", version: "1", sizeBytes: 1,
+            downloadURL: source, catalogID: "fixture", installationRecipe: .archive(url: URL(string: source)!),
+            description: "Generic fixture", recommendedRAM: 1)
+        let step = MetagenomicsDatabaseInstallStepEvidence(toolName: "fixture extraction", toolVersion: "1",
+            argv: [], durableReplayArgv: [], resolvedOptions: [:], runtimeIdentity: .init(),
+            inputs: [try .file(url: archive, role: .input)], outputs: [], exitStatus: 0,
+            startedAt: Date(), completedAt: Date(), stderr: "")
+        let attempt = MetagenomicsDatabaseInstallAttempt(database: db, finalURL: payload, recipeSource: source,
+            explicitOptions: [:], defaultOptions: [:], resolvedOptions: [:], steps: [step],
+            startedAt: Date(), completedAt: Date())
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: payload)
+        XCTAssertThrowsError(try CanonicalMetagenomicsDatabaseInstallProvenanceWriter(manifest: manifest)
+            .writeSuccess(attempt, snapshot: snapshot))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: payload.appendingPathComponent(ProvenanceWriter.provenanceFilename).path))
+    }
+
+    func testConformanceRejectsManagedFileWithoutReceipt() throws {
+        let file = tempDir.appendingPathComponent("generic-index.bin")
+        try Data("invented index bytes".utf8).write(to: file)
+        XCTAssertThrowsError(try ConformanceFixtures.installedManagedDatabaseFile(id: "fixture", path: file))
+    }
+
+    func testConformanceRejectsManagedFileWhoseBytesDifferFromReceipt() throws {
+        let file = tempDir.appendingPathComponent("generic-index.bin")
+        try Data("original index bytes".utf8).write(to: file)
+        let output = ProvenanceRecorder.fileRecord(url: file, format: .unknown, role: .index)
+        let step = StepExecution(toolName: "fixture", toolVersion: "1", command: ["fixture"],
+            inputs: [], outputs: [output], exitCode: 0)
+        let run = WorkflowRun(name: "Fixture database install", endTime: Date(), status: .completed,
+            steps: [step], parameters: ["databaseID": .string("fixture")])
+        _ = try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: tempDir)
+        try Data("changed index bytes".utf8).write(to: file)
+        XCTAssertThrowsError(try ConformanceFixtures.installedManagedDatabaseFile(id: "fixture", path: file))
+    }
+
+    func testConformanceEmitsBoundIdentityAndLegacyRegistryRowsDecodeWithoutIt() async throws {
+        let base = tempDir!
+        let directory = try seedInstalledViralDatabase(in: base, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        let archive = base.appendingPathComponent("generic-archive")
+        try Data("invented archive".utf8).write(to: archive)
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "invented index bytes")
+            return archive
+        }
+        try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+        let stored = try await registry.database(named: "Viral")
+        let db = try XCTUnwrap(stored)
+        let identity = try MetagenomicsDatabaseConformanceIdentity.verify(db)
+        let sidecar = directory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        XCTAssertEqual(identity.canonicalReceiptSHA256, try ProvenanceFileHasher.sha256(of: sidecar))
+        XCTAssertEqual(identity.payloadAggregateSHA256, db.payloadDigest)
+        XCTAssertNotNil(identity.receivedArchiveSHA256)
+        let emitted = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(identity.evidenceJSON().utf8)) as? [String: Any])
+        XCTAssertEqual(emitted["canonicalReceiptSHA256"] as? String, identity.canonicalReceiptSHA256)
+        let selected = try await ConformanceFixtures.installedDatabase(name: "Viral", registry: registry)
+        XCTAssertEqual(selected?.standardizedFileURL, directory.standardizedFileURL)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(db)) as? [String: Any])
+        legacy.removeValue(forKey: "canonicalReceiptSHA256")
+        let decoded = try JSONDecoder().decode(MetagenomicsDatabaseInfo.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(decoded.canonicalReceiptSHA256)
+        XCTAssertThrowsError(try MetagenomicsDatabaseConformanceIdentity.verify(decoded))
+    }
+
+    func testConformanceRejectsDatabaseWithoutRetainedIdentity() async throws {
+        let base = tempDir!
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        let directory = base.appendingPathComponent("generic-fixture")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeKraken2Payload(at: directory, marker: "invented index bytes")
+        _ = try await registry.registerExisting(at: directory, name: "Generic Fixture")
+        await XCTAssertThrowsErrorAsync(try await ConformanceFixtures.installedDatabase(name: "Generic Fixture", registry: registry))
+    }
+
+    func testConformanceRejectsChangedCanonicalReceipt() async throws {
+        let base = tempDir!
+        let directory = try seedInstalledViralDatabase(in: base, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "invented index bytes")
+            return nil
+        }
+        try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+        let sidecar = directory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        var changed = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sidecar)) as? [String: Any])
+        changed["workflowVersion"] = "different-valid-receipt-version"
+        try JSONSerialization.data(withJSONObject: changed, options: [.sortedKeys]).write(to: sidecar)
+        await XCTAssertThrowsErrorAsync(try await ConformanceFixtures.installedDatabase(name: "Viral", registry: registry))
+    }
+
+    func testConformanceRejectsChangedRetainedPayload() async throws {
+        let base = tempDir!
+        let directory = try seedInstalledViralDatabase(in: base, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "invented index bytes")
+            return nil
+        }
+        try await registry.updateDatabase(catalogID: "kraken2-viral") { _, _ in }
+        try Data("different bytes".utf8).write(to: directory.appendingPathComponent("hash.k2d"))
+        await XCTAssertThrowsErrorAsync(try await ConformanceFixtures.installedDatabase(name: "Viral", registry: registry))
+    }
+
+    func testUpdateBindsReceivedArchiveAndRetainedPayloadIdentity() async throws {
+        let base = tempDir!
+        let oldDir = try seedInstalledEsVirituDatabase(in: base, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        let archive = base.appendingPathComponent("fixture-archive.tar.gz")
+        let archiveBytes = Data("invented archive bytes".utf8)
+        try archiveBytes.write(to: archive)
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("invented payload".utf8).write(to: destination.appendingPathComponent("db.fna"))
+            return archive
+        }
+        try await registry.updateDatabase(catalogID: "esviritu-viral-v3") { _, _ in }
+        let stored = try await registry.database(named: "EsViritu Viral DB")
+        let db = try XCTUnwrap(stored)
+        let receipt = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(
+            fromSidecar: oldDir.appendingPathComponent(ProvenanceWriter.provenanceFilename)))
+        let options = receipt.options.resolvedDefaults
+        XCTAssertEqual(options["databaseSourcePolicy"]?.stringValue, "unpinnedArchive")
+        XCTAssertEqual(options["requestedSourceURL"]?.stringValue,
+            ManagedToolLock.bundled.database(id: "esviritu-viral-v3")?.url)
+        XCTAssertNotNil(options["retrievedAt"]?.stringValue)
+        XCTAssertEqual(options["receivedArchiveSHA256"]?.stringValue,
+            SHA256.hash(data: archiveBytes).map { String(format: "%02x", $0) }.joined())
+        XCTAssertNotNil(db.payloadDigest)
+        XCTAssertEqual(db.payloadDigest, options["payloadAggregateSHA256"]?.stringValue)
+        XCTAssertFalse(receipt.steps.isEmpty, "Update must retain executed workflow evidence")
+    }
+
+    func testExpectedChecksumCannotBeBypassedByMissingArchive() async throws {
+        let base = tempDir!
+        let oldDir = try seedInstalledEsVirituDatabase(in: base, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        await registry.setExpectedChecksumForTesting { _ in
+            .init(algorithm: .sha256, hex: String(repeating: "a", count: 64))
+        }
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("new".utf8).write(to: destination.appendingPathComponent("db.fna"))
+            return nil
+        }
+        await XCTAssertThrowsErrorAsync(try await registry.updateDatabase(catalogID: "esviritu-viral-v3") { _, _ in })
+        XCTAssertEqual(try String(contentsOf: oldDir.appendingPathComponent("db.fna"), encoding: .utf8), "old")
+    }
+
+    func testProvenanceFailureRetainsPreviousDatabase() async throws {
+        let base = tempDir!
+        let oldDir = try seedInstalledEsVirituDatabase(in: base, marker: "old")
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data("new".utf8).write(to: destination.appendingPathComponent("db.fna"))
+            try FileManager.default.createDirectory(
+                at: destination.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+                withIntermediateDirectories: true)
+            return nil
+        }
+        await XCTAssertThrowsErrorAsync(try await registry.updateDatabase(catalogID: "esviritu-viral-v3") { _, _ in })
+        XCTAssertEqual(try String(contentsOf: oldDir.appendingPathComponent("db.fna"), encoding: .utf8), "old")
+    }
+
     func testMetagenomicsUpdateSwapsAndRemovesOld() async throws {
         let base = tempDir!
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
@@ -847,4 +1108,12 @@ final class DatabaseUpdateFlowTests: XCTestCase {
     private static func md5Hex(_ data: Data) -> String {
         Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+}
+
+
+private final class RelocationManifestFailureSwitch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enabled = false
+    var shouldFail: Bool { lock.withLock { enabled } }
+    func enable() { lock.withLock { enabled = true } }
 }

@@ -13,6 +13,7 @@ public enum ScientificFileExportProvenance {
         public let outputURL: URL
         public let outputFormat: FileFormat
         public let argv: [String]
+        public let durableReplayArgv: [String]?
         public let explicitOptions: [String: ParameterValue]
         public let defaults: [String: ParameterValue]
         public let resolved: [String: ParameterValue]
@@ -26,6 +27,7 @@ public enum ScientificFileExportProvenance {
             outputURL: URL,
             outputFormat: FileFormat,
             argv: [String],
+            durableReplayArgv: [String]? = nil,
             explicitOptions: [String: ParameterValue] = [:],
             defaults: [String: ParameterValue] = [:],
             resolved: [String: ParameterValue] = [:],
@@ -38,6 +40,7 @@ public enum ScientificFileExportProvenance {
             self.outputURL = outputURL
             self.outputFormat = outputFormat
             self.argv = argv
+            self.durableReplayArgv = durableReplayArgv
             self.explicitOptions = explicitOptions
             self.defaults = defaults
             self.resolved = resolved
@@ -85,73 +88,31 @@ public enum ScientificFileExportProvenance {
         let inputDescriptors = try request.sourceURLs.map {
             try inputDescriptor(for: $0, excluding: excludedSourcePaths)
         }
-        let token = UUID().uuidString
-        // Keep staging names hidden. Directory source manifests skip hidden paths,
-        // and the final output/sidecar are excluded, so same-directory exports do
-        // not record their own payloads as scientific inputs.
-        let tempOutputURL = outputDirectoryURL
-            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).export.tmp")
-        let tempSidecarURL = outputDirectoryURL
-            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).lungfish-provenance.tmp")
-        let backupOutputURL = outputDirectoryURL
-            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).backup")
-        let backupSidecarURL = outputDirectoryURL
-            .appendingPathComponent(".\(finalSidecarURL.lastPathComponent).\(token).backup")
-        var outputBackedUp = false
-        var sidecarBackedUp = false
-        var outputInstalled = false
-
+        let tempOutputURL = outputDirectoryURL.appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID()).export.tmp")
+        defer { try? fileManager.removeItem(at: tempOutputURL) }
+        let sidecarArtifacts = ProvenancePublicationArtifacts.fileSidecarArtifacts(for: outputURL)
+        let publication = try ScientificFilePublicationTransaction(
+            protectedURLs: [outputURL] + sidecarArtifacts,
+            fileDestinations: [outputURL] + sidecarArtifacts
+        )
         do {
             try writeOutput(tempOutputURL)
-            let tempRecord = ProvenanceRecorder.fileRecord(
-                url: tempOutputURL,
-                format: request.outputFormat,
-                role: .output
-            )
+            guard try tempOutputURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+                throw CocoaError(.fileWriteInvalidFileName)
+            }
+            let tempRecord = ProvenanceRecorder.fileRecord(url: tempOutputURL, format: request.outputFormat, role: .output)
             let outputDescriptor = ProvenanceFileDescriptor(fileRecord: FileRecord(
-                path: outputURL.standardizedFileURL.path,
-                sha256: tempRecord.sha256,
-                sizeBytes: tempRecord.sizeBytes,
-                format: tempRecord.format,
-                role: tempRecord.role
-            ))
+                path: outputURL.standardizedFileURL.path, sha256: tempRecord.sha256,
+                sizeBytes: tempRecord.sizeBytes, format: tempRecord.format, role: tempRecord.role))
             let completedRequest = requestWithCompletedAt(Date(), basedOn: request)
-            let envelope = envelope(
-                for: completedRequest,
-                inputDescriptors: inputDescriptors,
-                outputDescriptor: outputDescriptor
-            )
-            try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: tempSidecarURL)
-
-            if fileManager.fileExists(atPath: outputURL.path) {
-                try fileManager.moveItem(at: outputURL, to: backupOutputURL)
-                outputBackedUp = true
-            }
-            if fileManager.fileExists(atPath: finalSidecarURL.path) {
-                try fileManager.moveItem(at: finalSidecarURL, to: backupSidecarURL)
-                sidecarBackedUp = true
-            }
-
-            try fileManager.moveItem(at: tempOutputURL, to: outputURL)
-            outputInstalled = true
-            try fileManager.moveItem(at: tempSidecarURL, to: finalSidecarURL)
-
-            try? fileManager.removeItem(at: backupOutputURL)
-            try? fileManager.removeItem(at: backupSidecarURL)
+            let envelope = envelope(for: completedRequest, inputDescriptors: inputDescriptors, outputDescriptor: outputDescriptor)
+            try publication.publish(stagedURL: tempOutputURL, to: outputURL)
+            try ProvenanceWriter(publicationMutationDidOccur: { try publication.observe($0) }, signingProvider: nil)
+                .write(envelope, toSidecar: finalSidecarURL)
+            publication.commit()
             return finalSidecarURL
         } catch {
-            if outputInstalled {
-                try? fileManager.removeItem(at: outputURL)
-            }
-            if outputBackedUp {
-                try? fileManager.moveItem(at: backupOutputURL, to: outputURL)
-            }
-            if sidecarBackedUp {
-                try? fileManager.moveItem(at: backupSidecarURL, to: finalSidecarURL)
-            }
-            try? fileManager.removeItem(at: tempOutputURL)
-            try? fileManager.removeItem(at: tempSidecarURL)
-            throw error
+            try publication.rollback(after: error)
         }
     }
 
@@ -178,7 +139,8 @@ public enum ScientificFileExportProvenance {
             toolName: request.toolName,
             toolVersion: toolVersion,
             argv: request.argv,
-            durableReplayArgv: request.argv,
+            durableReplayArgv: request.durableReplayArgv ?? request.argv,
+            resolvedOptions: request.resolved,
             inputs: inputDescriptors,
             outputs: [outputDescriptor],
             exitStatus: 0,
@@ -195,7 +157,7 @@ public enum ScientificFileExportProvenance {
             toolVersion: toolVersion,
             tool: ProvenanceToolIdentity(name: request.toolName, version: toolVersion, kind: "gui"),
             argv: request.argv,
-            durableReplayArgv: request.argv,
+            durableReplayArgv: request.durableReplayArgv ?? request.argv,
             options: ProvenanceOptions(
                 explicit: request.explicitOptions,
                 defaults: request.defaults,
@@ -221,6 +183,7 @@ public enum ScientificFileExportProvenance {
             outputURL: request.outputURL,
             outputFormat: request.outputFormat,
             argv: request.argv,
+            durableReplayArgv: request.durableReplayArgv,
             explicitOptions: request.explicitOptions,
             defaults: request.defaults,
             resolved: request.resolved,

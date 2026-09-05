@@ -1253,10 +1253,13 @@ public class ViewerViewController: NSViewController {
             )
         }
         if let currentDocument {
+            var payload = ["contentMode": contentMode.rawValue]
+            if let sequenceID = currentDocument.projectSequenceID { payload["projectSequenceID"] = sequenceID.uuidString }
+            else { payload["sourceKind"] = "external" }
             return RestorableContentState(
-                kind: "document",
+                kind: currentDocument.projectSequenceID == nil ? "document" : "projectSequence",
                 url: currentDocument.url,
-                payload: ["contentMode": contentMode.rawValue]
+                payload: payload
             )
         }
         return nil
@@ -1355,8 +1358,8 @@ public class ViewerViewController: NSViewController {
         controller.onOpenDedupDrawer = { [weak self] in
             self?.openDedupDrawer()
         }
-        controller.onStatisticsUpdated = { [weak self] updatedStats in
-            guard let self else { return }
+        controller.onStatisticsUpdated = { [weak self, weak controller] updatedStats in
+            guard let self, let controller, self.fastqDatasetController === controller else { return }
             var updatedUserInfo: [String: Any] = ["statistics": updatedStats]
             if let sra = sraRunInfo { updatedUserInfo["sraRunInfo"] = sra }
             if let ena = enaReadRecord { updatedUserInfo["enaReadRecord"] = ena }
@@ -1817,25 +1820,26 @@ public class ViewerViewController: NSViewController {
                     }
                 )
 
-                guard let self, let controller,
-                      self.activeFASTABlastRunID == runID else { return }
                 guard OperationCenter.shared.complete(
                     id: opID,
                     detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
                 ) else { return }
+                guard let self, let controller,
+                      self.activeFASTABlastRunID == runID else { return }
                 self.clearActiveFASTABlast(runID: runID)
                 controller.showBlastResults(result)
             } catch is CancellationError {
-                return
+                OperationCenter.shared.acknowledgeCancellation(id: opID)
+                self?.clearActiveFASTABlast(runID: runID)
             } catch {
-                guard let self, let controller,
-                      self.activeFASTABlastRunID == runID else { return }
                 let errorText = error.localizedDescription
                 guard OperationCenter.shared.fail(
                     id: opID,
                     detail: errorText,
                     errorMessage: errorText
                 ) else { return }
+                guard let self, let controller,
+                      self.activeFASTABlastRunID == runID else { return }
                 self.clearActiveFASTABlast(runID: runID)
                 controller.showBlastFailure(errorText)
             }
@@ -1885,8 +1889,7 @@ public class ViewerViewController: NSViewController {
             let normalized = records.joined(separator: "")
             let sourceURLs = self.fastaExportSourceURLs()
             do {
-                try normalized.write(to: destination, atomically: true, encoding: .utf8)
-                try ScientificFileExportProvenance.write(.init(
+                try ScientificFileExportProvenance.writeAtomically(.init(
                     workflowName: "lungfish app fasta export",
                     sourceURLs: sourceURLs,
                     outputURL: destination,
@@ -1902,9 +1905,10 @@ public class ViewerViewController: NSViewController {
                         "outputByteCount": .integer(normalized.utf8.count),
                     ],
                     startedAt: startedAt
-                ))
+                )) { staged in
+                    try normalized.write(to: staged, atomically: true, encoding: .utf8)
+                }
             } catch {
-                try? FileManager.default.removeItem(at: destination)
                 logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 self.presentBlockingAlert(
                     title: "FASTA Export Failed",
@@ -2439,15 +2443,15 @@ public class ViewerViewController: NSViewController {
                     }
                 }
             } catch LungfishCLIRunner.RunError.cancelled {
-                return
+                await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
+                        guard OperationCenter.shared.fail(
                             id: operationID,
                             detail: "Reference bundle creation failed",
                             errorMessage: error.localizedDescription
-                        )
+                        ) else { return }
                         self?.presentBlockingAlert(title: "Reference Bundle Creation Failed", message: error.localizedDescription)
                     }
                 }

@@ -574,6 +574,20 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
     }
 
+    func testDependencyFreeViewingDoesNotRequireInstalledToolsButHonorsInstallerExclusion() async {
+        let required = PluginPackStatus(pack: .requiredSetupPack, state: .needsInstall,
+            toolStatuses: [], failureMessage: nil)
+        let viewModel = WelcomeViewModel(statusProvider: StubWelcomePackStatusProvider(statuses: [required]),
+            debugLaunchConfiguration: AppDebugLaunchConfiguration(environment: [:]))
+        await viewModel.refreshSetup()
+        XCTAssertFalse(viewModel.canLaunch, "Tool readiness remains separate from viewing")
+        XCTAssertTrue(viewModel.canBrowseProjects)
+        viewModel.isInstallingRequiredSetup = true
+        XCTAssertFalse(viewModel.canBrowseProjects)
+        viewModel.isInstallingRequiredSetup = false
+        XCTAssertTrue(viewModel.canBrowseProjects)
+    }
+
     func testLaunchEnablesWhenRequiredSetupIsReady() async {
         let required = PluginPackStatus(
             pack: .requiredSetupPack,

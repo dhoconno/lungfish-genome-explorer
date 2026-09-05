@@ -1794,13 +1794,11 @@ extension ReferenceBundleViewportController: ResultViewportController {
         case .csv:
             let startedAt = Date()
             let content = MappingResultExportBuilder.delimitedContent(for: result, separator: ",")
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt)
+            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt, content: content)
         case .tsv:
             let startedAt = Date()
             let content = MappingResultExportBuilder.delimitedContent(for: result, separator: "\t")
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt)
+            try writeMappingResultExportProvenance(result: result, outputURL: url, format: format, startedAt: startedAt, content: content)
         case .json, .fasta:
             throw MappingResultExportError.unsupportedFormat(format)
         }
@@ -1810,10 +1808,11 @@ extension ReferenceBundleViewportController: ResultViewportController {
         result: MappingResult,
         outputURL: URL,
         format: ResultExportFormat,
-        startedAt: Date
+        startedAt: Date,
+        content: String
     ) throws {
         let sourceURLs = mappingResultExportSourceURLs(for: result)
-        try ScientificFileExportProvenance.write(.init(
+        try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app mapping result export",
             sourceURLs: sourceURLs,
             outputURL: outputURL,
@@ -1837,7 +1836,9 @@ extension ReferenceBundleViewportController: ResultViewportController {
                 "totalReads": .integer(result.totalReads),
             ],
             startedAt: startedAt
-        ))
+        )) { staged in
+            try content.write(to: staged, atomically: true, encoding: .utf8)
+        }
     }
 
     private func mappingResultExportSourceURLs(for result: MappingResult) -> [URL] {

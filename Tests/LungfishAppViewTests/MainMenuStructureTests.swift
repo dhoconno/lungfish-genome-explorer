@@ -6,6 +6,14 @@ import XCTest
 
 @MainActor
 final class MainMenuStructureTests: XCTestCase {
+    func testFileMenuExplainsPersistenceInsteadOfOfferingUnimplementedDocumentSave() throws {
+        _ = NSApplication.shared
+        let menu = try XCTUnwrap(MainMenu.createMainMenu().items.first { $0.title == "File" }?.submenu)
+        XCTAssertFalse(menu.items.contains { $0.action == #selector(NSDocument.save(_:)) || $0.action == #selector(NSDocument.saveAs(_:)) })
+        let explanation = try XCTUnwrap(menu.items.first { $0.title == "About Saving…" })
+        XCTAssertNotNil(explanation.action)
+    }
+
     func testFileMenuReplacesClearTemporaryFilesWithStorageManager() throws {
         _ = NSApplication.shared
         let fileMenu = try XCTUnwrap(

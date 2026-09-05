@@ -996,28 +996,15 @@ public actor ClassifierReadResolver {
                 progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
                 return .file(destinationURL, readCount: readCount)
             }
-            if fm.fileExists(atPath: destinationURL.path) {
-                do {
-                    try fm.removeItem(at: destinationURL)
-                } catch CocoaError.fileNoSuchFile {
-                    // Another actor/process already removed the stale destination.
-                } catch let error as NSError
-                    where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
-                    // Mirror the CocoaError handling above when bridging obscures the enum.
-                }
-            }
             try fm.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // Materialize a stable caller-owned file and leave temp-dir ownership
-            // with the extraction scratch space. This avoids rename/remove races
-            // on transient destinations and keeps the `.file` contract simple.
-            try fm.copyItem(at: sourceURL, to: destinationURL)
             try writeStandaloneFileProvenanceIfNeeded(
                 outputURL: destinationURL,
                 outputFormat: options.format.fileFormat,
                 readCount: readCount,
                 options: options,
                 sourceURLs: provenanceSourceURLs,
-                extractionStartedAt: extractionStartedAt
+                extractionStartedAt: extractionStartedAt,
+                preparedSourceURL: sourceURL
             )
             progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
             return .file(destinationURL, readCount: readCount)
@@ -1094,9 +1081,13 @@ public actor ClassifierReadResolver {
         readCount: Int,
         options: ExtractionOptions,
         sourceURLs: [URL],
-        extractionStartedAt: Date
+        extractionStartedAt: Date,
+        preparedSourceURL: URL? = nil
     ) throws {
         guard let fileProvenance = options.fileProvenance else {
+            if let preparedSourceURL {
+                try Self.publishStandaloneFile(from: preparedSourceURL, to: outputURL, provenance: nil)
+            }
             return
         }
         let provenance = fileProvenance.mergingResolved([
@@ -1112,7 +1103,7 @@ public actor ClassifierReadResolver {
         let argv = provenance.argv.contains(outputURL.path)
             ? provenance.argv
             : provenance.argv + ["--output", outputURL.path]
-        try ScientificFileExportProvenance.write(.init(
+        let request = ScientificFileExportProvenance.Request(
             workflowName: provenance.workflowName,
             toolName: provenance.toolName,
             sourceURLs: sourceURLs,
@@ -1123,7 +1114,42 @@ public actor ClassifierReadResolver {
             defaults: provenance.defaults,
             resolved: provenance.resolved,
             startedAt: extractionStartedAt
-        ))
+        )
+        if let preparedSourceURL {
+            try Self.publishStandaloneFile(from: preparedSourceURL, to: outputURL, provenance: request)
+        } else {
+            // Same-file and share outputs are already owned private scratch files.
+            try ScientificFileExportProvenance.write(request)
+        }
+    }
+
+    /// Publication seam used by direct file routing; does not execute extraction.
+    nonisolated static func publishStandaloneFile(
+        from source: URL, to output: URL, provenance: ScientificFileExportProvenance.Request?
+    ) throws {
+        let fm = FileManager.default
+        if let provenance {
+            try ScientificFileExportProvenance.writeAtomically(provenance) { staged in
+                try fm.copyItem(at: source, to: staged)
+            }
+            return
+        }
+        // Callers without file provenance may use a new private output. They
+        // cannot overwrite a user export or leave an old sidecar on new bytes.
+        guard !([output] + ProvenancePublicationArtifacts.fileSidecarArtifacts(for: output))
+            .contains(where: { fm.fileExists(atPath: $0.path) }) else {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: output.path])
+        }
+        let staged = output.deletingLastPathComponent().appendingPathComponent(".classifier-\(UUID()).tmp")
+        defer { try? fm.removeItem(at: staged) }
+        let publication = try ScientificFilePublicationTransaction(protectedURLs: [output], fileDestinations: [output])
+        do {
+            try fm.copyItem(at: source, to: staged)
+            try publication.publish(stagedURL: staged, to: output, replacingExisting: false)
+            publication.commit()
+        } catch {
+            try publication.rollback(after: error)
+        }
     }
 
     // MARK: - Test hooks

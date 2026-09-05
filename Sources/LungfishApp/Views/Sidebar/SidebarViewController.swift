@@ -87,11 +87,17 @@ public class SidebarViewController: NSViewController {
     private var advancedSearchButton: NSButton!
     /// Status label shown while universal search is running.
     private var searchingLabel: NSTextField!
+    private var projectStatusView: NSView!
+    private var projectStatusLabel: NSTextField!
+    private var projectStatusHeight: NSLayoutConstraint!
+    private var projectRetryButton: NSButton!
+    private var projectLocateButton: NSButton!
 
     // MARK: - Data
 
     /// Root items displayed in the sidebar
     var rootItems: [SidebarItem] = []
+    private var projectCatalogGroup: SidebarItem?
 
     /// Filtered copy of rootItems when search is active; nil when no filter.
     /// Internal (not private) so the surgical-delete path in the OutlineDataSource
@@ -111,6 +117,9 @@ public class SidebarViewController: NSViewController {
 
     /// Shared project refresh subscription for auto-refreshing when files change.
     private var projectRefreshSubscriptionID: ProjectFilesystemRefreshCoordinator.SubscriptionID?
+    private var projectBindingID = UUID()
+    private(set) var projectFilesystemUnavailableReason: String?
+    private var projectRecoverySnapshot: ProjectWindowSnapshot?
 
     /// Watcher-driven reloads take the background-scan path (F5/F7): they are
     /// already debounced and asynchronous, and nothing observes them synchronously.
@@ -310,6 +319,35 @@ public class SidebarViewController: NSViewController {
         searchingLabel.setAccessibilityLabel("Searching project")
         containerView.addSubview(searchingLabel)
 
+        projectStatusView = NSView()
+        projectStatusView.translatesAutoresizingMaskIntoConstraints = false
+        projectStatusView.isHidden = true
+        projectStatusView.setAccessibilityIdentifier("sidebar-project-unavailable-status")
+        containerView.addSubview(projectStatusView)
+        projectStatusLabel = NSTextField(wrappingLabelWithString: "")
+        projectStatusLabel.font = .systemFont(ofSize: 11)
+        projectStatusLabel.textColor = .secondaryLabelColor
+        projectStatusLabel.maximumNumberOfLines = 4
+        projectRetryButton = NSButton(title: "Retry", target: self, action: #selector(retryProjectFilesystemAction(_:)))
+        projectLocateButton = NSButton(title: "Locate…", target: self, action: #selector(locateProjectFilesystemAction(_:)))
+        let recoveryButtons = NSStackView(views: [projectRetryButton, projectLocateButton])
+        let recoveryContent = NSStackView(views: [projectStatusLabel, recoveryButtons])
+        recoveryContent.orientation = .vertical
+        recoveryContent.alignment = .leading
+        recoveryContent.spacing = 4
+        recoveryContent.translatesAutoresizingMaskIntoConstraints = false
+        projectStatusView.addSubview(recoveryContent)
+        projectStatusHeight = projectStatusView.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            projectStatusView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            projectStatusView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+            projectStatusView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+            projectStatusHeight,
+            recoveryContent.topAnchor.constraint(equalTo: projectStatusView.topAnchor),
+            recoveryContent.leadingAnchor.constraint(equalTo: projectStatusView.leadingAnchor),
+            recoveryContent.trailingAnchor.constraint(equalTo: projectStatusView.trailingAnchor),
+        ])
+
         // Layout constraints
         // Note: Top margin of 52 accounts for window title bar and traffic light buttons
         NSLayoutConstraint.activate([
@@ -327,7 +365,7 @@ public class SidebarViewController: NSViewController {
             searchingLabel.centerYAnchor.constraint(equalTo: spinner.centerYAnchor),
             searchingLabel.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 4),
 
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            scrollView.topAnchor.constraint(equalTo: projectStatusView.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
@@ -736,6 +774,7 @@ public class SidebarViewController: NSViewController {
     }
 
     func canWriteSidebarProjectOutputs(workflowName: String, targetURL: URL? = nil) -> Bool {
+        guard projectFilesystemUnavailableReason == nil else { return false }
         let resolvedProjectURL = projectURL
             ?? targetURL.flatMap(ProjectTempDirectory.findProjectRoot)
         return AppDelegate.shared?.canWriteProjectOutputs(
@@ -826,27 +865,49 @@ public class SidebarViewController: NSViewController {
     /// 3. Starts the file system watcher for auto-refresh
     ///
     /// - Parameter url: The URL of the project folder (.lungfish directory)
-    public func openProject(at url: URL) {
+    public func openProject(at url: URL, asyncScan: Bool = false) {
         sidebarLogger.info("openProject: Opening project at '\(url.path, privacy: .public)'")
 
         // Stop watching previous project, and invalidate any of its in-flight
         // background scans so they cannot land on the newly-opened project.
         refreshScheduler.cancel()
+        projectBindingID = UUID()
+        projectRecoverySnapshot = nil
+        setProjectUnavailableStatus(nil)
         sidebarScanGeneration &+= 1
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         clearUniversalSearchState(for: projectURL)
 
-        // Store the new project URL
+        // Store the new project URL and discard the previous catalog immediately.
+        projectCatalogGroup = nil
         projectURL = url
 
-        // Scan filesystem and build sidebar
-        reloadFromFilesystem()
+        // Async project opens use the existing scanner/publication generation gate.
+        if asyncScan {
+            rootItems = []
+            reloadOutlineView()
+            reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        } else {
+            reloadFromFilesystem()
+        }
         scheduleUniversalSearchRebuild(immediate: true)
 
         // Subscribe to shared project filesystem refreshes.
-        projectRefreshSubscriptionID = ProjectFilesystemRefreshCoordinator.shared.register(projectURL: url) { [weak self] changedPaths in
-            guard let self else { return }
+        let binding = projectBindingID
+        projectRefreshSubscriptionID = ProjectFilesystemRefreshCoordinator.shared.registerEvents(projectURL: url) { [weak self] event in
+            guard let self, self.projectBindingID == binding else { return }
+            self.handleProjectFilesystemEvent(event, binding: binding)
+        }
+
+        sidebarLogger.info("openProject: Project opened, subscribed for filesystem changes")
+    }
+
+    private func handleProjectFilesystemEvent(_ event: ProjectFilesystemRefreshCoordinator.Event, binding: UUID) {
+        guard binding == projectBindingID, let sourceURL = projectURL else { return }
+        switch event {
+        case .changed(let changedPaths):
+            guard projectFilesystemUnavailableReason == nil else { return }
             if changedPaths.nonSidecar.isEmpty && !changedPaths.all.isEmpty {
                 // Sidecar-only changes update metadata/search state without rebuilding the outline.
                 self.updateSearchIndex(changedPaths: changedPaths.all)
@@ -858,9 +919,104 @@ public class SidebarViewController: NSViewController {
                 // Non-sidecar changes detected — incremental sidebar update
                 self.updateSidebar(changedPaths: changedPaths)
             }
+        case .unavailable(let reason):
+            if projectRecoverySnapshot == nil,
+               let owner = view.window?.windowController as? MainWindowController,
+               let split = owner.mainSplitViewController {
+                projectRecoverySnapshot = split.captureProjectWindowSnapshot(id: owner.projectSession.id,
+                    projectURL: sourceURL, windowOrdinal: 1, windowOrder: 0, windowTitleSuffix: nil, frame: nil)
+            }
+            refreshScheduler.cancel()
+            sidebarScanGeneration &+= 1
+            searchScheduler.cancel()
+            cancelUniversalSearch(reason: "project unavailable")
+            setProjectUnavailableStatus(reason)
+            guard let owner = view.window?.windowController as? MainWindowController else { return }
+            let split = owner.mainSplitViewController
+            // A newer open has already invalidated the old source generation.
+            // Root loss must not cancel an unrelated project being prepared.
+            let pending = split?.activeContentSelectionIdentity
+            let openingAnotherProject = pending?.kind == "projectOpen"
+                && pending?.standardizedURLPath != sourceURL.standardizedFileURL.path
+            owner.projectSession.markFilesystemUnavailable(at: sourceURL, invalidateGeneration: !openingAnotherProject)
+            if !openingAnotherProject {
+                split?.invalidatePendingSelectionDebounce(reason: "project unavailable")
+                split?.invalidateDisplayRequest()
+                split?.viewerController?.hideProgress()
+            }
+            split?.inspectorController?.clearSelection()
+            split?.viewerController?.statusBar?.update(position: "Project folder unavailable — Retry or Locate in sidebar", selection: nil, scale: 1)
+        case .rebound(let url):
+            guard let subscription = projectRefreshSubscriptionID,
+                  let expected = ProjectFilesystemRefreshCoordinator.shared.validatedIdentity(for: subscription),
+                  let owner = view.window?.windowController as? MainWindowController,
+                  owner.projectSession.isFilesystemUnavailable,
+                  let app = AppDelegate.shared else { return }
+            setProjectUnavailableStatus("Reopening the verified project folder…")
+            app.openProject(url, in: owner, recovering: rebasedRecoverySnapshot(at: url), expectedRootIdentity: expected,
+                recoveryFailure: { [weak self] message in
+                    guard let self, self.projectBindingID == binding else { return }
+                    ProjectFilesystemRefreshCoordinator.shared.invalidate(subscription, reason: message)
+                })
         }
+    }
 
-        sidebarLogger.info("openProject: Project opened, subscribed for filesystem changes")
+    private func rebasedRecoverySnapshot(at url: URL) -> ProjectWindowSnapshot? {
+        guard var snapshot = projectRecoverySnapshot else { return nil }
+        let originalRoot = snapshot.projectURL.standardizedFileURL.pathComponents
+        func rebase(_ source: URL) -> URL {
+            let components = source.standardizedFileURL.pathComponents
+            guard components.starts(with: originalRoot) else { return source }
+            return components.dropFirst(originalRoot.count).reduce(url) { $0.appendingPathComponent($1) }
+        }
+        snapshot.projectURL = url
+        snapshot.selectedSidebarURL = snapshot.selectedSidebarURL.map(rebase)
+        snapshot.expandedSidebarURLs = snapshot.expandedSidebarURLs.map(rebase)
+        if let source = snapshot.activeContent?.url { snapshot.activeContent?.url = rebase(source) }
+        return snapshot
+    }
+
+    private func setProjectUnavailableStatus(_ reason: String?) {
+        projectFilesystemUnavailableReason = reason
+        projectStatusView?.isHidden = reason == nil
+        projectStatusLabel?.stringValue = reason.map { "Project unavailable. " + $0 } ?? ""
+        projectStatusLabel?.toolTip = reason
+        projectStatusHeight?.constant = reason == nil ? 0 : 100
+    }
+
+    @discardableResult
+    func retryProjectFilesystem(at candidate: URL? = nil) async -> Bool {
+        guard let subscription = projectRefreshSubscriptionID, projectFilesystemUnavailableReason != nil else { return false }
+        let binding = projectBindingID
+        projectRetryButton.isEnabled = false
+        projectLocateButton.isEnabled = false
+        defer {
+            if projectBindingID == binding {
+                projectRetryButton.isEnabled = true
+                projectLocateButton.isEnabled = true
+            }
+        }
+        return await ProjectFilesystemRefreshCoordinator.shared.rebind(subscription, to: candidate)
+    }
+
+    @objc private func retryProjectFilesystemAction(_ sender: Any?) {
+        Task { @MainActor [weak self] in await self?.retryProjectFilesystem() }
+    }
+
+    @objc private func locateProjectFilesystemAction(_ sender: Any?) {
+        guard let window = view.window else { return }
+        let binding = projectBindingID
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Locate"
+        panel.treatsFilePackagesAsDirectories = true
+        panel.message = "Locate the original project folder. A different folder with the same name will not be treated as the original."
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self, self.projectBindingID == binding, let url = panel.url else { return }
+            Task { @MainActor [weak self] in await self?.retryProjectFilesystem(at: url) }
+        }
     }
 
     /// Closes the current project and clears the sidebar.
@@ -868,6 +1024,9 @@ public class SidebarViewController: NSViewController {
         sidebarLogger.info("closeProject: Closing current project")
 
         let priorProjectURL = projectURL
+        projectBindingID = UUID()
+        projectRecoverySnapshot = nil
+        setProjectUnavailableStatus(nil)
         refreshScheduler.cancel()
         // Invalidate any in-flight background scan so it cannot repopulate the
         // sidebar for a project that is no longer open.
@@ -875,6 +1034,7 @@ public class SidebarViewController: NSViewController {
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         projectURL = nil
+        projectCatalogGroup = nil
         clearUniversalSearchState(for: priorProjectURL)
         rootItems = []
         filteredRootItems = nil
@@ -1105,6 +1265,7 @@ public class SidebarViewController: NSViewController {
         // Build the sidebar items from the project folder's contents (not the folder itself)
         // This shows the contents at the root level, similar to how Finder shows folder contents
         rootItems = materialize(nodes)
+        if let projectCatalogGroup { rootItems.insert(projectCatalogGroup, at: 0) }
 
         // Reload the outline view
         reloadOutlineView()
@@ -1674,8 +1835,31 @@ public class SidebarViewController: NSViewController {
         }
     }
 
+    /// Catalog entries are durable sidebar choices although their display paths
+    /// are not filesystem files. Reuse them across background filesystem refreshes.
+    func setProjectCatalog(_ documents: [LoadedDocument]) {
+        let children = documents.compactMap { document -> SidebarItem? in
+            guard document.projectSequenceID != nil else { return nil }
+            let item = SidebarItem(title: document.name, type: .sequence, icon: "doc.text", children: [], url: document.url)
+            item.userInfo["documentID"] = document.id.uuidString
+            return item
+        }
+        withSelectionSuppressed {
+            if let previous = projectCatalogGroup { rootItems.removeAll { $0 === previous } }
+            projectCatalogGroup = children.isEmpty ? nil : SidebarItem(title: "PROJECT SEQUENCES", type: .group, children: children)
+            if let projectCatalogGroup { rootItems.insert(projectCatalogGroup, at: 0) }
+            reloadOutlineView()
+            if let projectCatalogGroup { outlineView.expandItem(projectCatalogGroup) }
+        }
+    }
+
     /// Adds a loaded document to the sidebar
-    public func addLoadedDocument(_ document: LoadedDocument) {
+    public func addLoadedDocument(_ document: LoadedDocument, select: Bool = true, notify: Bool = true) {
+        if !notify {
+            withSelectionSuppressed { addLoadedDocument(document, select: select, notify: true) }
+            return
+        }
+        let previousSelection = selectedItems()
         sidebarLogger.info("addLoadedDocument: Adding '\(document.name, privacy: .public)' to sidebar")
 
         // Find or create the "Open Documents" group
@@ -1693,8 +1877,12 @@ public class SidebarViewController: NSViewController {
         let info = sidebarItemInfo(for: document.type)
 
         // Check if document already exists in sidebar
-        if openDocsGroup!.children.contains(where: { $0.url == document.url }) {
-            sidebarLogger.debug("addLoadedDocument: Document already in sidebar")
+        if let existing = openDocsGroup!.children.first(where: { $0.url == document.url }) {
+            if select {
+                outlineView.expandItem(openDocsGroup)
+                let row = outlineView.row(forItem: existing)
+                if row >= 0 { outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+            }
             return
         }
 
@@ -1707,16 +1895,19 @@ public class SidebarViewController: NSViewController {
             url: document.url
         )
 
+        item.userInfo["documentID"] = document.id.uuidString
         openDocsGroup!.children.append(item)
         sidebarLogger.info("addLoadedDocument: Added item to sidebar, reloading")
 
         reloadOutlineView()
 
-        // Expand the open documents group and select the new item
-        outlineView.expandItem(openDocsGroup)
-        let row = outlineView.row(forItem: item)
-        if row >= 0 {
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        if select {
+            outlineView.expandItem(openDocsGroup)
+            let row = outlineView.row(forItem: item)
+            if row >= 0 { outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+        } else {
+            let rows = previousSelection.map { outlineView.row(forItem: $0) }.filter { $0 >= 0 }
+            outlineView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
         }
     }
 

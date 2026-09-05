@@ -319,17 +319,17 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: opID,
                             detail: "Imported \(result.bundleURL.lastPathComponent)",
                             bundleURLs: [result.bundleURL]
-                        )
+                        ) else { return }
                     }
                 }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                         self?.showAlert(
                             title: "Reference Import Failed",
                             message: error.localizedDescription
@@ -368,7 +368,7 @@ extension AppDelegate {
             ),
             routeContext: routeContext,
             onCancel: {
-                Task { await runner.cancel() }
+                runner.cancel()
             }
         )
 
@@ -382,9 +382,9 @@ extension AppDelegate {
                             ? "Imported \(result.collectionURL.lastPathComponent)"
                             : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
                         if result.warningCount == 0 {
-                            _ = OperationCenter.shared.complete(id: opID, detail: detail)
+                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                         } else {
-                            _ = OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                            guard OperationCenter.shared.completeWithWarning(id: opID, detail: detail) else { return }
                         }
                         self?.refreshSidebarAndSelectImportedURL(
                             result.collectionURL,
@@ -395,7 +395,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                         self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
                     }
                 }
@@ -432,7 +432,7 @@ extension AppDelegate {
             ),
             routeContext: routeContext,
             onCancel: {
-                Task { await runner.cancel() }
+                runner.cancel()
             }
         )
 
@@ -446,9 +446,9 @@ extension AppDelegate {
                             ? "Imported \(result.collectionURL.lastPathComponent)"
                             : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
                         if result.warningCount == 0 {
-                            _ = OperationCenter.shared.complete(id: opID, detail: detail)
+                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                         } else {
-                            _ = OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                            guard OperationCenter.shared.completeWithWarning(id: opID, detail: detail) else { return }
                         }
                         self?.refreshSidebarAndSelectImportedURL(
                             result.collectionURL,
@@ -459,7 +459,7 @@ extension AppDelegate {
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                         self?.showAlert(title: "\(kind.displayName) Import Failed", message: error.localizedDescription)
                     }
                 }
@@ -507,7 +507,7 @@ extension AppDelegate {
             ),
             routeContext: routeContext,
             onCancel: {
-                Task { await runner.cancel() }
+                runner.cancel()
             }
         )
 
@@ -521,24 +521,24 @@ extension AppDelegate {
                             ? "Imported \(result.bundleURL.lastPathComponent)"
                             : "Imported \(result.bundleURL.lastPathComponent) with \(result.warningCount) warnings"
                         if result.warningCount == 0 {
-                            _ = OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: detail,
                                 bundleURLs: [result.bundleURL]
-                            )
+                            ) else { return }
                         } else {
-                            _ = OperationCenter.shared.completeWithWarning(
+                            guard OperationCenter.shared.completeWithWarning(
                                 id: opID,
                                 detail: detail,
                                 bundleURLs: [result.bundleURL]
-                            )
+                            ) else { return }
                         }
                     }
                 }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                         self?.showAlert(title: "\(kind.operationTitle) Failed", message: error.localizedDescription)
                     }
                 }
@@ -606,10 +606,10 @@ extension AppDelegate {
                     trackID: trackID,
                     trackName: trackName
                 )
-            _ = OperationCenter.shared.complete(
+            guard OperationCenter.shared.complete(
                 id: opID,
                 detail: "Imported \(result.featureCount) annotations"
-            )
+            ) else { return }
             let targetController = targetMainWindowController(routeContext: routeContext)
             refreshSidebarAndSelectImportedURL(bundleURL, in: targetController)
             if let viewerController = targetController?.mainSplitViewController?.viewerController,
@@ -617,7 +617,7 @@ extension AppDelegate {
                 try viewerController.displayBundle(at: bundleURL)
             }
         } catch {
-            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
             showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
         }
     }
@@ -652,14 +652,15 @@ extension AppDelegate {
         )
     }
 
-    internal func importNaoMgsResultFromURL(_ url: URL, routeContext: OperationRouteContext? = nil) {
+    internal func importNaoMgsResultFromURL(_ url: URL, routeContext: OperationRouteContext? = nil, onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil) {
         importClassifierResultFromURL(
             url,
             kind: .naomgs,
             operationTitle: "NAO-MGS Import",
             missingProjectMessage: "Please open a project before importing NAO-MGS results.",
             routeContext: routeContext,
-            naoMgsOptions: .init(fetchReferences: true)
+            naoMgsOptions: .init(fetchReferences: true),
+            onDispatch: onDispatch
         )
     }
 
@@ -670,12 +671,14 @@ extension AppDelegate {
         missingProjectMessage: String,
         preferredName: String? = nil,
         routeContext explicitRouteContext: OperationRouteContext? = nil,
-        naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions? = nil
+        naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions? = nil,
+        onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil
     ) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         let targetController = targetMainWindowController(routeContext: routeContext)
         guard let sidebarController = targetController?.mainSplitViewController?.sidebarController,
               let projectURL = sidebarController.currentProjectURL else {
+            onDispatch?(.rejected(missingProjectMessage))
             showAlert(title: "No Project Open", message: missingProjectMessage, presentingWindow: targetController?.window)
             return
         }
@@ -684,7 +687,10 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: operationTitle,
             presentingWindow: targetController?.window
-        ) else { return }
+        ) else {
+            onDispatch?(.rejected("This project is not writable."))
+            return
+        }
 
         // NAO-MGS results go to Analyses/ (they are analysis results, not raw imports)
         let outputDir: URL
@@ -692,6 +698,7 @@ extension AppDelegate {
             do {
                 outputDir = try AnalysesFolder.url(for: projectURL)
             } catch {
+                onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
                 showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
                 return
             }
@@ -700,6 +707,7 @@ extension AppDelegate {
             do {
                 try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
             } catch {
+                onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
                 showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
                 return
             }
@@ -727,6 +735,7 @@ extension AppDelegate {
             routeContext: routeContext
         )
 
+        onDispatch?(.started)
         let task = Task.detached { [weak self] in
             do {
                 let result = try await MetagenomicsImportHelperClient.importViaCLI(
@@ -749,11 +758,11 @@ extension AppDelegate {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: opID,
                             detail: result.detail,
                             bundleURLs: [result.resultDirectory]
-                        )
+                        ) else { return }
                         OperationCenter.shared.log(
                             id: opID,
                             level: .info,
@@ -764,6 +773,7 @@ extension AppDelegate {
             } catch is CancellationError {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
                         OperationCenter.shared.log(
                             id: opID,
                             level: .info,
@@ -775,8 +785,6 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         let detail = error.localizedDescription
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
-
                         // Cleanup partial result directory left by failed import
                         if let partialDir = (error as? MetagenomicsImportHelperClientError)?
                             .partialResultDirectory {
@@ -788,6 +796,7 @@ extension AppDelegate {
                             )
                         }
 
+                        guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
                         self?.showAlert(
                             title: "\(operationTitle) Failed",
                             message: detail,
@@ -1075,33 +1084,35 @@ extension AppDelegate {
 
         DispatchQueue.global(qos: .userInitiated).async {
             // All file I/O on background thread — no UI references captured
-            let result: Result<(variantCount: Int, trackInfo: VariantTrackInfo), Error>
+            let result: Result<(variantCount: Int, trackInfo: VariantTrackInfo, cleanupWarning: String?), Error>
             let isCancelled: @Sendable () -> Bool = { cancelFlag.withLock { $0 } }
 
-            // Compute dbURL before `do` so it's available for cleanup on cancellation
-            var baseURL = vcfURL
-            if baseURL.pathExtension.lowercased() == "gz" {
-                baseURL = baseURL.deletingPathExtension()
-            }
-            if baseURL.pathExtension.lowercased() == "vcf" {
-                baseURL = baseURL.deletingPathExtension()
-            }
-            let trackId = baseURL.lastPathComponent
+            let trackId = helperTrackID
             let dbFilename = "\(trackId).db"
             let variantsDir = bundleURL.appendingPathComponent("variants")
-            let dbURL = variantsDir.appendingPathComponent(dbFilename)
+            let finalDBURL = variantsDir.appendingPathComponent(dbFilename)
+            let stagingDirectory = variantsDir.appendingPathComponent(".import-\(opID.uuidString)", isDirectory: true)
+            let dbURL = stagingDirectory.appendingPathComponent(dbFilename)
+            var staging: OperationImportStaging?
 
             do {
-                // Create variants directory if needed
-                try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+                let ownedStaging = try OperationImportStaging(parentDirectory: variantsDir, operationID: opID)
+                staging = ownedStaging
+                // SQLite backup captures a coherent resumable database, including
+                // committed WAL pages, without copying live journal files.
+                let databasePublication = try ownedStaging.prepareSQLiteCopy(filename: dbFilename, from: finalDBURL)
+                if isCancelled() { throw VariantDatabaseError.cancelled }
 
                 let variantCount: Int
-                var helperInvocations: [VCFHelperInvocation] = []
-
-                func record(_ run: VCFHelperRunResult) -> Int {
-                    helperInvocations.append(run.invocation)
-                    return run.variantCount
+                let helperInvocations = OSAllocatedUnfairLock(initialState: [VCFHelperInvocation]())
+                let recordInvocation: @Sendable (VCFHelperInvocation) -> Void = { invocation in
+                    helperInvocations.withLock { $0.append(invocation) }
+                    scheduleOnMainRunLoop {
+                        OperationCenter.shared.log(id: opID, level: invocation.exitStatus == 0 ? .info : .warning,
+                            message: "\(invocation.argv.map(shellEscape).joined(separator: " ")) • exit \(invocation.exitStatus) • \(invocation.wallTimeSeconds)s\n\(invocation.stderr)")
+                    }
                 }
+                func record(_ run: VCFHelperRunResult) -> Int { run.variantCount }
 
                 // Check if there's a resumable incomplete import from a previous crash.
                 let detectedImportState = VariantDatabase.importState(at: dbURL)
@@ -1122,6 +1133,7 @@ extension AppDelegate {
                             sourceFile: vcfURL.lastPathComponent,
                             importProfile: selectedImportProfile,
                             shouldCancel: isCancelled,
+                            recordInvocation: recordInvocation,
                             progressHandler: { progress, message in
                                 let clampedProgress = max(0.0, min(1.0, progress))
                                 let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
@@ -1140,6 +1152,7 @@ extension AppDelegate {
                             importedCount = try record(Self.runVCFResumeViaHelper(
                                 outputDBURL: dbURL,
                                 shouldCancel: isCancelled,
+                                recordInvocation: recordInvocation,
                                 progressHandler: { progress, message in
                                     let clampedProgress = max(0.0, min(1.0, progress))
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
@@ -1156,13 +1169,14 @@ extension AppDelegate {
                     } catch {
                         // If helper failed during indexing, inserts are complete and only
                         // index creation needs recovery in a fresh process.
-                        if let importState = VariantDatabase.importState(at: dbURL),
+                        if !isCancelled(), let importState = VariantDatabase.importState(at: dbURL),
                            importState == "indexing" {
                             debugLog("performVCFImport: Helper failed during indexing, auto-resuming index creation...")
                             let resumeStartedAt = Date()
                             let resumedCount = try record(Self.runVCFResumeViaHelper(
                                 outputDBURL: dbURL,
                                 shouldCancel: isCancelled,
+                                recordInvocation: recordInvocation,
                                 progressHandler: { progress, message in
                                     let clampedProgress = max(0.0, min(1.0, progress))
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
@@ -1184,6 +1198,7 @@ extension AppDelegate {
                     variantCount = try record(Self.runVCFResumeViaHelper(
                         outputDBURL: dbURL,
                         shouldCancel: isCancelled,
+                        recordInvocation: recordInvocation,
                         progressHandler: { progress, message in
                             let clampedProgress = max(0.0, min(1.0, progress))
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
@@ -1207,6 +1222,7 @@ extension AppDelegate {
                     _ = try record(Self.runVCFMaterializeViaHelper(
                         outputDBURL: dbURL,
                         shouldCancel: isCancelled,
+                        recordInvocation: recordInvocation,
                         progressHandler: { progress, message in
                             let clampedProgress = max(0.0, min(1.0, progress))
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
@@ -1239,7 +1255,7 @@ extension AppDelegate {
                 // contig lengths stored in the database — this avoids slow UPDATE statements
                 // on very large databases.
                 let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
-                let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
+                var rwDB: VariantDatabase! = try VariantDatabase(url: dbURL, readWrite: true)
                 let vcfChroms = rwDB.allChromosomes()
                 let chromMapping = mapVCFChromosomes(vcfChroms, toBundleChromosomes: currentManifestForChrom.genome?.chromosomes ?? [])
                 if !chromMapping.isEmpty {
@@ -1259,6 +1275,7 @@ extension AppDelegate {
                     _ = try record(Self.runVCFMaterializeViaHelper(
                         outputDBURL: dbURL,
                         shouldCancel: isCancelled,
+                        recordInvocation: recordInvocation,
                         progressHandler: { progress, message in
                             // Map materialization progress to the tail end of the operation
                             let displayProgress = 0.95 + progress * 0.05
@@ -1288,33 +1305,25 @@ extension AppDelegate {
                     source: "VCF Import"
                 )
 
+                let provenanceRelativePath = "variants/\(trackId).lungfish-provenance.json"
+                let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
+                let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+                // Capture file ownership before consuming the manifest used to
+                // construct its replacement. A later edit must not be blessed
+                // by a fresh snapshot at publication time.
+                let filePublication = try ScientificFilePublicationTransaction(
+                    protectedURLs: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL),
+                    fileDestinations: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL))
+                var filePublicationTransferred = false
+                defer {
+                    if !filePublicationTransferred { filePublication.commit() }
+                }
+
                 // Load current manifest, add track, save
                 let currentManifest = try BundleManifest.load(from: bundleURL)
 
-                // Check for duplicate track ID — remove old entry if re-importing
-                let filteredVariants = currentManifest.variants.filter { $0.id != trackId }
-                let baseManifest: BundleManifest
-                if filteredVariants.count != currentManifest.variants.count {
-                    baseManifest = BundleManifest(
-                        formatVersion: currentManifest.formatVersion,
-                        name: currentManifest.name,
-                        identifier: currentManifest.identifier,
-                        description: currentManifest.description,
-                        createdDate: currentManifest.createdDate,
-                        modifiedDate: Date(),
-                        source: currentManifest.source,
-                        genome: currentManifest.genome,
-                        annotations: currentManifest.annotations,
-                        variants: filteredVariants,
-                        tracks: currentManifest.tracks,
-                        metadata: currentManifest.metadata
-                    )
-                } else {
-                    baseManifest = currentManifest
-                }
+                let updatedManifest = Self.vcfManifestReplacingTrack(trackInfo, in: currentManifest)
 
-                let provenanceRelativePath = "variants/\(trackId).lungfish-provenance.json"
-                let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
                 let createdAt = ISO8601DateFormatter().string(from: Date())
                 try rwDB.setMetadataValues([
                     "workflow_provenance_path": provenanceRelativePath,
@@ -1325,28 +1334,46 @@ extension AppDelegate {
                     "created_at": createdAt,
                 ])
 
-                try Self.writeVCFImportProvenance(
-                    vcfURL: vcfURL,
+                // Release the private writer before taking the coherent final
+                // snapshot. Publication checkpoints the final database before hashing.
+                rwDB = nil
+                if isCancelled() { throw VariantDatabaseError.cancelled }
+                filePublicationTransferred = true
+                try Self.publishVCFImportArtifacts(
+                    databasePublication: databasePublication,
                     bundleURL: bundleURL,
-                    dbURL: dbURL,
                     provenanceURL: provenanceURL,
-                    manifest: baseManifest,
-                    trackId: trackId,
-                    trackName: trackInfo.name,
-                    dbRelativePath: "variants/\(dbFilename)",
-                    provenanceRelativePath: provenanceRelativePath,
-                    importProfile: selectedImportProfile,
-                    variantCount: variantCount,
-                    helperInvocations: helperInvocations,
-                    startedAt: importStartedAt,
-                    completedAt: Date()
-                )
-
-                let updatedManifest = baseManifest.addingVariantTrack(trackInfo)
-                try updatedManifest.save(to: bundleURL)
-
-                result = .success((variantCount, trackInfo))
+                    updatedManifest: updatedManifest,
+                    filePublication: filePublication,
+                    shouldCancel: isCancelled
+                ) { writer in
+                    try Self.writeVCFImportProvenance(
+                        vcfURL: vcfURL,
+                        bundleURL: bundleURL,
+                        dbURL: finalDBURL,
+                        provenanceURL: provenanceURL,
+                        manifest: currentManifest,
+                        trackId: trackId,
+                        trackName: trackInfo.name,
+                        dbRelativePath: "variants/\(dbFilename)",
+                        provenanceRelativePath: provenanceRelativePath,
+                        importProfile: selectedImportProfile,
+                        variantCount: variantCount,
+                        helperInvocations: helperInvocations.withLock { $0 },
+                        startedAt: importStartedAt,
+                        completedAt: Date(),
+                        provenanceWriter: writer
+                    )
+                }
+                let cleanupWarning = ownedStaging.finishCommittedImport()
+                result = .success((variantCount, trackInfo, cleanupWarning))
             } catch {
+                // Cleanup is worker-owned and precedes terminal acknowledgement.
+                // It can never address another operation's deterministic final DB.
+                if !(error is OperationImportStaging.RecoveryRequired) && !(error is ScientificPublicationRecoveryRequired) {
+                    do { try staging?.cleanup() }
+                    catch { debugLog("performVCFImport: Private staging cleanup failed: \(error)") }
+                }
                 result = .failure(error)
             }
 
@@ -1356,11 +1383,19 @@ extension AppDelegate {
                 debugLog("performVCFImport: Main thread callback executing")
 
                 switch result {
-                case .success(let (variantCount, _)):
-                    _ = OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
+                case .success(let (variantCount, _, cleanupWarning)):
+                    let completed: Bool
+                    if let cleanupWarning {
+                        OperationCenter.shared.log(id: opID, level: .warning, message: cleanupWarning)
+                        completed = OperationCenter.shared.completeWithWarning(id: opID,
+                            detail: "\(variantCount) variants imported; private staging cleanup needs attention")
+                    } else {
+                        completed = OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
+                    }
+                    guard completed else { return }
 
-                    guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
-                        .mainSplitViewController?.viewerController else {
+                    guard let originController = self?.targetMainWindowController(routeContext: routeContext),
+                          let viewerController = originController.mainSplitViewController?.viewerController else {
                         debugLog("performVCFImport: No viewer controller")
                         return
                     }
@@ -1369,20 +1404,84 @@ extension AppDelegate {
                         debugLog("performVCFImport: Bundle reloaded with \(variantCount) variants")
                     } catch {
                         debugLog("performVCFImport: Bundle reload failed: \(error.localizedDescription)")
-                        self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)")
+                        if let window = originController.window {
+                            self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)", presentingWindow: window)
+                        }
                     }
 
                 case .failure(let error):
                     if let dbErr = error as? VariantDatabaseError, case .cancelled = dbErr {
-                        try? FileManager.default.removeItem(at: dbURL)
                         debugLog("performVCFImport: Cancelled by user")
-                        // cancel() already called fail() via onCancel callback
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
                     } else {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        let recoveryRequired = error is OperationImportStaging.RecoveryRequired || error is ScientificPublicationRecoveryRequired
+                        if recoveryRequired {
+                            OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
+                        }
+                        let failureAccepted = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        // A pending cancellation may acknowledge the worker here;
+                        // recovery artifacts still require an explicit visible error.
+                        guard failureAccepted || recoveryRequired else { return }
                         debugLog("performVCFImport: Failed: \(error.localizedDescription)")
-                        self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription)
+                        if let window = self?.targetMainWindowController(routeContext: routeContext)?.window {
+                            self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
+                        }
                     }
                 }
+            }
+        }
+    }
+
+    internal nonisolated static func vcfManifestReplacingTrack(
+        _ track: VariantTrackInfo, in currentManifest: BundleManifest
+    ) -> BundleManifest {
+        currentManifest.replacingVariantTrack(track)
+    }
+
+    /// Final VCF publication boundary, isolated from helper execution so its
+    /// database, receipt, and manifest failure behavior can be exercised directly.
+    internal nonisolated static func publishVCFImportArtifacts(
+        databasePublication: OperationImportStaging.SQLitePublication,
+        bundleURL: URL,
+        provenanceURL: URL,
+        updatedManifest: BundleManifest,
+        filePublication: ScientificFilePublicationTransaction? = nil,
+        shouldCancel: () -> Bool = { false },
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
+        writeProvenance: (ProvenanceWriter) throws -> Void
+    ) throws {
+        let stagingDirectory = databasePublication.staging.directory
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let files = try filePublication ?? ScientificFilePublicationTransaction(
+            protectedURLs: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL),
+            fileDestinations: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL)
+        )
+        let observedWriter = provenanceWriter.observingPublications { try files.observe($0) }
+        do {
+            // Validate the captured manifest generation before changing the DB,
+            // not only when rollback becomes necessary.
+            try files.validateCurrentOwnership()
+            let manifestDirectory = stagingDirectory.appendingPathComponent("manifest-publication", isDirectory: true)
+            try FileManager.default.createDirectory(at: manifestDirectory, withIntermediateDirectories: true)
+            try updatedManifest.save(to: manifestDirectory)
+            try databasePublication.publish(beforeRollback: { try files.validateCurrentOwnership() }) {
+                if shouldCancel() { throw VariantDatabaseError.cancelled }
+                try writeProvenance(observedWriter)
+                if shouldCancel() { throw VariantDatabaseError.cancelled }
+                try files.publish(stagedURL: manifestDirectory.appendingPathComponent(BundleManifest.filename), to: manifestURL)
+                if shouldCancel() { throw VariantDatabaseError.cancelled }
+            }
+            files.commit()
+        } catch let recovery as OperationImportStaging.RecoveryRequired {
+            // The database is still current or its restoration is uncertain.
+            // Preserve its matching files and both recovery owners together.
+            throw recovery.retainingRecoveryURLs([files.recoveryDirectoryURL] + files.displacedArtifactURLs)
+        } catch {
+            let original = error
+            do { try files.rollback(after: original) }
+            catch let recovery as ScientificPublicationRecoveryRequired {
+                throw OperationImportStaging.RecoveryRequired(directory: stagingDirectory,
+                    originalError: original, restorationError: recovery, additionalRecoveryURLs: recovery.recoveryURLs)
             }
         }
     }
@@ -1425,6 +1524,8 @@ extension AppDelegate {
         let stderr: String
         let startedAt: Date
         let completedAt: Date
+        let databaseInput: ProvenanceFileDescriptor?
+        let databaseOutput: ProvenanceFileDescriptor?
 
         var wallTimeSeconds: TimeInterval {
             completedAt.timeIntervalSince(startedAt)
@@ -1463,6 +1564,7 @@ extension AppDelegate {
         sourceFile: String,
         importProfile: VCFImportProfile,
         shouldCancel: @escaping @Sendable () -> Bool,
+        recordInvocation: @escaping @Sendable (VCFHelperInvocation) -> Void,
         progressHandler: @escaping @Sendable (Double, String) -> Void
     ) throws -> VCFHelperRunResult {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
@@ -1563,12 +1665,17 @@ extension AppDelegate {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        let readerGroup = DispatchGroup()
         stdoutHandle.readabilityHandler = { handle in
+            readerGroup.enter()
+            defer { readerGroup.leave() }
             let data = handle.availableData
             guard !data.isEmpty else { return }
             consumeStdoutData(data)
         }
         stderrHandle.readabilityHandler = { handle in
+            readerGroup.enter()
+            defer { readerGroup.leave() }
             let data = handle.availableData
             guard !data.isEmpty else { return }
             stderrState.withLock { $0.append(data) }
@@ -1579,7 +1686,13 @@ extension AppDelegate {
             }
         }
 
+        let databaseInput = try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .input)
         let startedAt = Date()
+        defer {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            readerGroup.wait()
+        }
         try process.run()
 
         while process.isRunning {
@@ -1597,6 +1710,9 @@ extension AppDelegate {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        readerGroup.wait()
+        let remainingStderr = stderrHandle.readDataToEndOfFile()
+        stderrState.withLock { $0.append(remainingStderr) }
         consumeStdoutData(stdoutHandle.readDataToEndOfFile())
 
         if let trailing = parseState.withLock({ state -> Data? in
@@ -1608,11 +1724,6 @@ extension AppDelegate {
         }
 
         let helperCancelled = parseState.withLock { $0.wasCancelled }
-        if shouldCancel() || helperCancelled {
-            debugLog("runVCFImportViaHelper: cancelled by caller/helper")
-            throw VariantDatabaseError.cancelled
-        }
-
         let stderrMessage = stderrState.withLock { data -> String in
             String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1622,8 +1733,16 @@ extension AppDelegate {
             exitStatus: process.terminationStatus,
             stderr: stderrMessage,
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            databaseInput: databaseInput,
+            databaseOutput: try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .output)
         )
+        recordInvocation(invocation)
+        if shouldCancel() || helperCancelled {
+            debugLog("runVCFImportViaHelper: cancelled by caller/helper")
+            throw VariantDatabaseError.cancelled
+        }
+
 
         guard process.terminationStatus == 0 else {
             let helperError = parseState.withLock { $0.helperError }
@@ -1654,6 +1773,7 @@ extension AppDelegate {
     private nonisolated static func runVCFResumeViaHelper(
         outputDBURL: URL,
         shouldCancel: @escaping @Sendable () -> Bool,
+        recordInvocation: @escaping @Sendable (VCFHelperInvocation) -> Void,
         progressHandler: @escaping @Sendable (Double, String) -> Void
     ) throws -> VCFHelperRunResult {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
@@ -1738,18 +1858,29 @@ extension AppDelegate {
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
+        let readerGroup = DispatchGroup()
         stdoutHandle.readabilityHandler = { handle in
+            readerGroup.enter()
+            defer { readerGroup.leave() }
             let data = handle.availableData
             guard !data.isEmpty else { return }
             consumeStdoutData(data)
         }
         stderrHandle.readabilityHandler = { handle in
+            readerGroup.enter()
+            defer { readerGroup.leave() }
             let data = handle.availableData
             guard !data.isEmpty else { return }
             stderrState.withLock { $0.append(data) }
         }
 
+        let databaseInput = try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .input)
         let startedAt = Date()
+        defer {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            readerGroup.wait()
+        }
         try process.run()
 
         while process.isRunning {
@@ -1767,6 +1898,9 @@ extension AppDelegate {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        readerGroup.wait()
+        let remainingStderr = stderrHandle.readDataToEndOfFile()
+        stderrState.withLock { $0.append(remainingStderr) }
         consumeStdoutData(stdoutHandle.readDataToEndOfFile())
         stderrState.withLock { $0.append(stderrHandle.readDataToEndOfFile()) }
 
@@ -1779,11 +1913,6 @@ extension AppDelegate {
         }
 
         let helperCancelled = parseState.withLock { $0.wasCancelled }
-        if shouldCancel() || helperCancelled {
-            debugLog("runVCFResumeViaHelper: cancelled by caller/helper")
-            throw VariantDatabaseError.cancelled
-        }
-
         let stderrMessage = stderrState.withLock { data -> String in
             String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1793,8 +1922,16 @@ extension AppDelegate {
             exitStatus: process.terminationStatus,
             stderr: stderrMessage,
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            databaseInput: databaseInput,
+            databaseOutput: try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .output)
         )
+        recordInvocation(invocation)
+        if shouldCancel() || helperCancelled {
+            debugLog("runVCFResumeViaHelper: cancelled by caller/helper")
+            throw VariantDatabaseError.cancelled
+        }
+
 
         guard process.terminationStatus == 0 else {
             let helperError = parseState.withLock { $0.helperError }
@@ -1820,6 +1957,7 @@ extension AppDelegate {
     private nonisolated static func runVCFMaterializeViaHelper(
         outputDBURL: URL,
         shouldCancel: @escaping @Sendable () -> Bool,
+        recordInvocation: @escaping @Sendable (VCFHelperInvocation) -> Void,
         progressHandler: @escaping @Sendable (Double, String) -> Void
     ) throws -> VCFHelperRunResult {
         guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
@@ -1904,18 +2042,29 @@ extension AppDelegate {
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
+        let readerGroup = DispatchGroup()
         stdoutHandle.readabilityHandler = { handle in
+            readerGroup.enter()
+            defer { readerGroup.leave() }
             let data = handle.availableData
             guard !data.isEmpty else { return }
             consumeStdoutData(data)
         }
         stderrHandle.readabilityHandler = { handle in
+            readerGroup.enter()
+            defer { readerGroup.leave() }
             let data = handle.availableData
             guard !data.isEmpty else { return }
             stderrState.withLock { $0.append(data) }
         }
 
+        let databaseInput = try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .input)
         let startedAt = Date()
+        defer {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            readerGroup.wait()
+        }
         try process.run()
 
         while process.isRunning {
@@ -1933,6 +2082,9 @@ extension AppDelegate {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        readerGroup.wait()
+        let remainingStderr = stderrHandle.readDataToEndOfFile()
+        stderrState.withLock { $0.append(remainingStderr) }
         consumeStdoutData(stdoutHandle.readDataToEndOfFile())
         stderrState.withLock { $0.append(stderrHandle.readDataToEndOfFile()) }
 
@@ -1945,11 +2097,6 @@ extension AppDelegate {
         }
 
         let helperCancelled = parseState.withLock { $0.wasCancelled }
-        if shouldCancel() || helperCancelled {
-            debugLog("runVCFMaterializeViaHelper: cancelled by caller/helper")
-            throw VariantDatabaseError.cancelled
-        }
-
         let stderrMessage = stderrState.withLock { data -> String in
             String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1959,8 +2106,16 @@ extension AppDelegate {
             exitStatus: process.terminationStatus,
             stderr: stderrMessage,
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            databaseInput: databaseInput,
+            databaseOutput: try? ProvenanceFileDescriptor.file(url: outputDBURL, format: .unknown, role: .output)
         )
+        recordInvocation(invocation)
+        if shouldCancel() || helperCancelled {
+            debugLog("runVCFMaterializeViaHelper: cancelled by caller/helper")
+            throw VariantDatabaseError.cancelled
+        }
+
 
         guard process.terminationStatus == 0 else {
             let helperError = parseState.withLock { $0.helperError }
@@ -1991,7 +2146,8 @@ extension AppDelegate {
         variantCount: Int,
         helperInvocations: [VCFHelperInvocation],
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) throws {
         let appVersion = WorkflowRun.currentAppVersion
         let argv = vcfImportProvenanceArgv(
@@ -2004,16 +2160,24 @@ extension AppDelegate {
             format: fileFormat(forVariantURL: vcfURL),
             role: .input
         )
-        let dbOutput = try ProvenanceFileDescriptor.file(url: dbURL, format: .unknown, role: .output)
-        let dbInput = dbOutput.withRole(.input)
+        let finalDescriptor = try ProvenanceFileDescriptor.file(url: dbURL, format: .unknown, role: .output)
+        let dbOutput = ProvenanceFileDescriptor(
+            path: finalDescriptor.path,
+            checksumSHA256: finalDescriptor.checksumSHA256,
+            fileSize: finalDescriptor.fileSize,
+            format: finalDescriptor.format,
+            role: .output,
+            originPath: helperInvocations.last?.databaseOutput?.path
+        )
+        let dbInput = helperInvocations.last?.databaseOutput?.withRole(.input) ?? dbOutput.withRole(.input)
         let helperSteps = helperInvocations.map { invocation in
             let isInitialImport = invocation.argv.contains("--vcf-import-helper")
             return ProvenanceStep(
                 toolName: "Lungfish.app",
                 toolVersion: appVersion,
                 argv: invocation.argv,
-                inputs: isInitialImport ? [input] : [dbInput],
-                outputs: [dbOutput],
+                inputs: isInitialImport ? [input] : invocation.databaseInput.map { [$0] } ?? [dbInput],
+                outputs: invocation.databaseOutput.map { [$0] } ?? [dbOutput],
                 exitStatus: Int(invocation.exitStatus),
                 wallTimeSeconds: invocation.wallTimeSeconds,
                 stderr: nonEmptyProvenanceText(invocation.stderr),
@@ -2069,7 +2233,7 @@ extension AppDelegate {
             exitStatus: 0,
             stderr: nonEmptyProvenanceText(helperInvocations.map(\.stderr).filter { !$0.isEmpty }.joined(separator: "\n"))
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
+        try provenanceWriter.write(envelope, toSidecar: provenanceURL)
     }
 
     private nonisolated static func vcfImportProvenanceArgv(
@@ -2184,7 +2348,7 @@ extension AppDelegate {
                 switch result {
                 case .success(let importResult):
                     let readCount = importResult.mappedReads + importResult.unmappedReads
-                    _ = OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported")
+                    guard OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported") else { return }
 
                     guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
                         .mainSplitViewController?.viewerController else {
@@ -2202,9 +2366,9 @@ extension AppDelegate {
                 case .failure(let error):
                     if cancelFlag.withLock({ $0 }) || error is CancellationError {
                         debugLog("performBAMImport: Cancelled by user")
-                        // cancel() already called fail() via onCancel callback
+                        OperationCenter.shared.acknowledgeCancellation(id: opID)
                     } else {
-                        _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                         debugLog("performBAMImport: Failed: \(error)")
                         self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
                     }
@@ -2214,108 +2378,75 @@ extension AppDelegate {
     }
 
     @objc func exportFASTA(_ sender: Any?) {
-        exportSequences(defaultFormat: .fasta)
+        exportSequences(defaultFormat: .fasta, controller: activeMainWindowController(sender: sender))
     }
 
     @objc func exportGenBank(_ sender: Any?) {
-        exportSequences(defaultFormat: .genbank)
+        exportSequences(defaultFormat: .genbank, controller: activeMainWindowController(sender: sender))
     }
 
     /// Unified sequence export supporting multi-selection, format choice, and compression.
-    private func exportSequences(defaultFormat: SequenceExportFormat) {
-        // Try sidebar multi-selection first. Partition rather than silently
-        // filter (task E2 / AS1): a mixed selection (e.g. a reference
-        // bundle plus a FASTQ bundle or classification result) must not
-        // export just the exportable subset while reporting success as if
-        // the whole selection was exported.
-        let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
-        let exportSelection = SequenceExportSelection.partition(rawSidebarSelection)
-        let sidebarItems = exportSelection.exportable
-
-        // Fall back to current document
-        let documents: [SequenceExportDocumentSnapshot]
-        if !sidebarItems.isEmpty {
-            // Will load from sidebar items
-            documents = []
-        } else if !rawSidebarSelection.isEmpty {
-            // A selection was made but none of it is exportable as sequences.
-            let skippedNames = exportSelection.skippedDescriptions.joined(separator: ", ")
-            showExportError(message: "None of the selected items can be exported as sequences: \(skippedNames).")
-            return
-        } else if let doc = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument,
-                  !doc.sequences.isEmpty {
-            documents = [SequenceExportDocumentSnapshot(
-                name: doc.name,
-                url: doc.url,
-                sequences: doc.sequences,
-                annotations: doc.annotations
-            )]
-        } else {
-            showExportError(message: "No sequences to export. Select files in the sidebar or open a document.")
+    private func exportSequences(defaultFormat: SequenceExportFormat, controller: MainWindowController?) {
+        guard let controller, let window = controller.window else { return }
+        let routeContext = currentOperationRouteContext(for: controller)
+        let selection = controller.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        let scope = SidebarExportSelection(selection, format: .sequences)
+        let document = controller.mainSplitViewController?.viewerController?.currentDocument
+        guard selection.isEmpty ? document?.sequences.isEmpty == false : scope.hasExportableItems else {
+            let detail = selection.isEmpty ? "Select files in the sidebar or open a document."
+                : "The selected items cannot be exported as sequences: \(scope.skippedDescriptions.joined(separator: ", "))."
+            showAnnotationExportMessage("No sequences to export", detail: detail, window: window)
             return
         }
-
-        guard let window = mainWindowController?.window else { return }
-
-        // A mixed selection with SOME exportable items: proceed with the
-        // exportable subset, but tell the user exactly what got skipped
-        // instead of silently narrowing scope.
-        if !exportSelection.skipped.isEmpty {
-            let skippedNames = exportSelection.skippedDescriptions.joined(separator: ", ")
-            let alert = NSAlert()
-            alert.messageText = "Some Selected Items Will Be Skipped"
-            alert.informativeText = "\(exportSelection.skipped.count) of \(rawSidebarSelection.count) selected item(s) cannot be exported as sequences and will be skipped: \(skippedNames)."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "Continue")
-            alert.addButton(withTitle: "Cancel")
-            alert.beginSheetModal(for: window) { [weak self] response in
-                guard response == .alertFirstButtonReturn else { return }
-                self?.continueExportSequences(
-                    sidebarItems: sidebarItems,
-                    documents: documents,
-                    defaultFormat: defaultFormat,
-                    window: window
-                )
+        do {
+            let request = try SequenceExportSourceResolver.capture(items: scope.exportable,
+                session: controller.projectSession, currentDocument: document)
+            let skippedMessage = scope.skipped.isEmpty ? nil
+                : "\(scope.skipped.count) of \(selection.count) selected items cannot be exported as sequences and will be skipped: \(scope.skippedDescriptions.joined(separator: ", "))."
+            Task { [weak self, weak window] in
+                do {
+                    let sources = try await request.resolve()
+                    guard let self, let window, window.isVisible, !sources.isEmpty else { return }
+                    if let skippedMessage {
+                        let alert = NSAlert()
+                        alert.messageText = "Some Selected Items Will Be Skipped"
+                        alert.informativeText = skippedMessage
+                        alert.addButton(withTitle: "Continue")
+                        alert.addButton(withTitle: "Cancel")
+                        alert.beginSheetModal(for: window) { [weak self, weak window] response in
+                            guard response == .alertFirstButtonReturn, let window else { return }
+                            self?.continueExportSequences(sources: sources, defaultFormat: defaultFormat, window: window, routeContext: routeContext)
+                        }
+                    } else {
+                        self.continueExportSequences(sources: sources, defaultFormat: defaultFormat, window: window, routeContext: routeContext)
+                    }
+                } catch is CancellationError {
+                    // A closed/switched source has no export destination to publish.
+                } catch {
+                    if let window { self?.showAnnotationExportMessage("Export unavailable", detail: error.localizedDescription, window: window) }
+                }
             }
-            return
+        } catch {
+            showAnnotationExportMessage("Export unavailable", detail: error.localizedDescription, window: window)
         }
-
-        continueExportSequences(
-            sidebarItems: sidebarItems,
-            documents: documents,
-            defaultFormat: defaultFormat,
-            window: window
-        )
     }
 
     /// Continuation of `exportSequences(defaultFormat:)` after the
     /// skipped-items confirmation (if any) has been accepted.
     private func continueExportSequences(
-        sidebarItems: [SidebarItem],
-        documents: [SequenceExportDocumentSnapshot],
+        sources: [SequenceExportSourceResolver.Source],
         defaultFormat: SequenceExportFormat,
-        window: NSWindow
+        window: NSWindow,
+        routeContext: OperationRouteContext?
     ) {
-        let selectedBundleURLs = sidebarItems.compactMap(\.url)
-        if sidebarItems.count > 1,
-           sidebarItems.allSatisfy({ $0.type == .referenceBundle }),
-           selectedBundleURLs.count == sidebarItems.count {
-            presentBatchSequenceExport(
-                bundleURLs: selectedBundleURLs,
-                defaultFormat: defaultFormat,
-                window: window
-            )
+        let selectedBundleURLs = sources.map { $0.metadata.url }
+        if sources.count > 1, sources.allSatisfy({ $0.document == nil && $0.metadata.url.pathExtension.lowercased() == "lungfishref" }) {
+            presentBatchSequenceExport(bundleURLs: selectedBundleURLs, defaultFormat: defaultFormat, window: window, routeContext: routeContext)
             return
         }
-
-        let baseName: String
-        if sidebarItems.count == 1 {
-            baseName = sidebarItems[0].title
-        } else if sidebarItems.count > 1 {
-            baseName = "exported_sequences"
-        } else {
-            baseName = documents[0].name.replacingOccurrences(of: ".\(documents[0].url.pathExtension)", with: "")
-        }
+        let baseName = sources.count == 1
+            ? (sources[0].document?.name ?? sources[0].metadata.url.deletingPathExtension().lastPathComponent)
+            : "exported_sequences"
 
         let panel = AppFilePanelFactory.sequenceExportPanel()
         let panelController = SequenceExportPanelController(
@@ -2331,19 +2462,19 @@ extension AppDelegate {
             let format = panelController.selectedFormat
             let compression = panelController.selectedCompression
 
-            let itemURLs = sidebarItems.compactMap(\.url)
+            let itemURLs = sources.filter { $0.document == nil }.map { $0.metadata.url }
             let exportTitle = "Exporting \(outputURL.lastPathComponent)"
             let opID = OperationCenter.shared.start(
                 title: exportTitle,
                 detail: "Preparing sequence export...",
                 operationType: .export,
                 cliCommand: Self.sequenceExportCLICommand(
-                    inputURL: itemURLs.count == 1 ? itemURLs[0] : nil,
+                    inputURL: sources.count == 1 && itemURLs.count == 1 ? itemURLs[0] : nil,
                     outputURL: outputURL,
                     format: format,
                     compression: compression
                 ),
-                routeContext: currentOperationRouteContext()
+                routeContext: routeContext
             )
 
             let task = Task.detached { [weak self] in
@@ -2352,8 +2483,7 @@ extension AppDelegate {
                         OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
                     }
                     let count = try await self?.performSequenceExport(
-                        sidebarURLs: itemURLs,
-                        documents: documents,
+                        sources: sources,
                         outputURL: outputURL,
                         format: format,
                         compression: compression
@@ -2361,10 +2491,10 @@ extension AppDelegate {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
-                            )
+                            ) else { return }
                             let alert = NSAlert()
                             alert.messageText = "Export Complete"
                             alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
@@ -2382,12 +2512,12 @@ extension AppDelegate {
                     debugLog("exportSequences: Failed - \(error)")
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(
+                            guard OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: "Sequence export failed",
                                 errorDetail: error.localizedDescription
-                            )
+                            ) else { return }
                             let alert = NSAlert()
                             alert.messageText = "Export Failed"
                             alert.informativeText = error.localizedDescription
@@ -2407,7 +2537,8 @@ extension AppDelegate {
     private func presentBatchSequenceExport(
         bundleURLs: [URL],
         defaultFormat: SequenceExportFormat,
-        window: NSWindow
+        window: NSWindow,
+        routeContext: OperationRouteContext?
     ) {
         let panel = AppFilePanelFactory.batchSequenceExportFolderPanel(itemCount: bundleURLs.count)
         let panelController = SequenceExportPanelController(
@@ -2443,7 +2574,7 @@ extension AppDelegate {
                     guard cliCommands.count > 1 else { return firstCommand }
                     return "\(firstCommand)\n# ... \(cliCommands.count - 1) more export command(s)"
                 },
-                routeContext: currentOperationRouteContext()
+                routeContext: routeContext
             )
 
             let task = Task.detached { [weak self] in
@@ -2462,8 +2593,8 @@ extension AppDelegate {
                             OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
                         }
                         count += try await self?.performSequenceExport(
-                            sidebarURLs: [bundleURL],
-                            documents: [],
+                            sources: [.init(metadata: .init(kind: .filesystem, url: bundleURL,
+                                documentID: nil, nativeSequenceID: nil, projectURL: nil), document: nil)],
                             outputURL: outputURL,
                             format: format,
                             compression: compression
@@ -2472,10 +2603,10 @@ extension AppDelegate {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: "Exported \(bundleURLs.count) file(s) with \(count) sequence(s)"
-                            )
+                            ) else { return }
                             let alert = NSAlert()
                             alert.messageText = "Export Complete"
                             alert.informativeText = "Exported \(bundleURLs.count) file(s) with \(count) sequence(s) to \(outputFolder.lastPathComponent)."
@@ -2493,12 +2624,12 @@ extension AppDelegate {
                     debugLog("presentBatchSequenceExport: Failed - \(error)")
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(
+                            guard OperationCenter.shared.fail(
                                 id: opID,
                                 detail: error.localizedDescription,
                                 errorMessage: "Batch sequence export failed",
                                 errorDetail: error.localizedDescription
-                            )
+                            ) else { return }
                             let alert = NSAlert()
                             alert.messageText = "Export Failed"
                             alert.informativeText = error.localizedDescription
@@ -2516,15 +2647,16 @@ extension AppDelegate {
     }
 
     /// Loads sequences from sidebar URLs or documents, writes to output file, and optionally compresses.
-    nonisolated private func performSequenceExport(
-        sidebarURLs: [URL],
-        documents: [SequenceExportDocumentSnapshot],
+    nonisolated func performSequenceExport(
+        sources: [SequenceExportSourceResolver.Source],
         outputURL: URL,
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
         let startedAt = Date()
-        if sidebarURLs.count == 1,
+        let sidebarURLs = sources.filter { $0.document == nil }.map { $0.metadata.url }
+        let containsCapturedDocuments = sources.contains { $0.document != nil }
+        if !containsCapturedDocuments, sidebarURLs.count == 1,
            let bundleURL = sidebarURLs.first,
            bundleURL.pathExtension.lowercased() == "lungfishref" {
             return try await performReferenceBundleSequenceExport(
@@ -2538,20 +2670,21 @@ extension AppDelegate {
         // Collect all sequences and annotations
         var allSequences: [LungfishCore.Sequence] = []
         var allAnnotations: [SequenceAnnotation] = []
+        var sourceRecords: [(LungfishCore.Sequence, [SequenceAnnotation])] = []
 
-        if !sidebarURLs.isEmpty {
-            for url in sidebarURLs {
-                try Task.checkCancellation()
-                let (seqs, annots) = try await loadSequencesForExport(from: url)
-                allSequences.append(contentsOf: seqs)
-                allAnnotations.append(contentsOf: annots)
+        for source in sources {
+            try Task.checkCancellation()
+            let sequences: [LungfishCore.Sequence]
+            let annotations: [SequenceAnnotation]
+            if let document = source.document {
+                sequences = document.sequences
+                annotations = document.annotations
+            } else {
+                (sequences, annotations) = try await loadSequencesForExport(from: source.metadata.url)
             }
-        } else {
-            for doc in documents {
-                try Task.checkCancellation()
-                allSequences.append(contentsOf: doc.sequences)
-                allAnnotations.append(contentsOf: doc.annotations)
-            }
+            allSequences.append(contentsOf: sequences)
+            allAnnotations.append(contentsOf: annotations)
+            sourceRecords.append(contentsOf: sequences.map { ($0, annotations) })
         }
 
         guard !allSequences.isEmpty else {
@@ -2559,15 +2692,9 @@ extension AppDelegate {
                           userInfo: [NSLocalizedDescriptionKey: "No sequences found in selected files."])
         }
 
-        // Determine write target (temp file if compressing, final file if not)
-        let writeURL: URL
-        if compression != .none {
-            let exportTempDir = try ProjectTempDirectory.createFromContext(
-                prefix: "export-", contextURL: outputURL)
-            writeURL = exportTempDir.appendingPathComponent("export.\(format == .genbank ? "gb" : "fa")")
-        } else {
-            writeURL = outputURL
-        }
+        let exportTempDir = try ProjectTempDirectory.createFromContext(prefix: "export-", contextURL: outputURL)
+        defer { try? FileManager.default.removeItem(at: exportTempDir) }
+        let writeURL = exportTempDir.appendingPathComponent("export.\(format == .genbank ? "gb" : "fa")")
 
         // Write the file
         switch format {
@@ -2577,8 +2704,8 @@ extension AppDelegate {
 
         case .genbank:
             var records: [GenBankRecord] = []
-            for sequence in allSequences {
-                let seqAnnotations = allAnnotations.filter {
+            for (sequence, sourceAnnotations) in sourceRecords {
+                let seqAnnotations = sourceAnnotations.filter {
                     $0.chromosome == nil || $0.chromosome == sequence.name
                 }
                 let moleculeType: MoleculeType
@@ -2608,20 +2735,8 @@ extension AppDelegate {
             try writer.write(records)
         }
 
-        // Apply compression if needed
-        if compression != .none {
-            defer { try? FileManager.default.removeItem(at: writeURL.deletingLastPathComponent()) }
-            switch compression {
-            case .gzip:
-                try compressExportFile(writeURL, to: outputURL, compression: .gzip)
-            case .zstd:
-                try compressExportFile(writeURL, to: outputURL, compression: .zstd)
-            case .none:
-                break
-            }
-        }
-
-        let sourceURLs = sidebarURLs.isEmpty ? documents.map(\.url) : sidebarURLs
+        let sourceURLs = sources.map { $0.metadata.url }
+        let selectionMetadata = try containsCapturedDocuments ? JSONEncoder().encode(sources.map(\.metadata)) : nil
         try Self.writeSequenceExportProvenance(
             sourceURLs: sourceURLs,
             outputURL: outputURL,
@@ -2629,8 +2744,17 @@ extension AppDelegate {
             compression: compression,
             sequenceCount: allSequences.count,
             annotationCount: allAnnotations.count,
-            startedAt: startedAt
-        )
+            startedAt: startedAt,
+            selectionMetadata: selectionMetadata
+        ) { staged in
+            try Task.checkCancellation()
+            if compression == .none {
+                try FileManager.default.copyItem(at: writeURL, to: staged)
+            } else {
+                try compressExportFile(writeURL, to: staged, compression: compression)
+            }
+            try Task.checkCancellation()
+        }
 
         return allSequences.count
     }
@@ -2764,16 +2888,9 @@ extension AppDelegate {
             return genome.chromosomes.count
         }
 
-        let writeURL: URL
-        if compression != .none {
-            let exportTempDir = try ProjectTempDirectory.createFromContext(
-                prefix: "export-", contextURL: outputURL)
-            writeURL = exportTempDir.appendingPathComponent("export.\(format.fileExtension)")
-        } else {
-            writeURL = outputURL
-        }
-
-        try? FileManager.default.removeItem(at: writeURL)
+        let exportTempDir = try ProjectTempDirectory.createFromContext(prefix: "export-", contextURL: outputURL)
+        defer { try? FileManager.default.removeItem(at: exportTempDir) }
+        let writeURL = exportTempDir.appendingPathComponent("export.\(format.fileExtension)")
 
         let bundle = try await ReferenceBundle(url: bundleURL)
         let annotations = try loadBundleAnnotations(bundleURL: bundleURL, manifest: manifest)
@@ -2814,11 +2931,6 @@ extension AppDelegate {
             }
         }
 
-        if compression != .none {
-            defer { try? FileManager.default.removeItem(at: writeURL.deletingLastPathComponent()) }
-            try compressExportFile(writeURL, to: outputURL, compression: compression)
-        }
-
         try Self.writeSequenceExportProvenance(
             sourceURLs: [bundleURL],
             outputURL: outputURL,
@@ -2827,7 +2939,11 @@ extension AppDelegate {
             sequenceCount: genome.chromosomes.count,
             annotationCount: annotations.count,
             startedAt: startedAt
-        )
+        ) { staged in
+            try Task.checkCancellation()
+            try compressExportFile(writeURL, to: staged, compression: compression)
+            try Task.checkCancellation()
+        }
 
         return genome.chromosomes.count
     }
@@ -2840,9 +2956,11 @@ extension AppDelegate {
         compression: SequenceExportCompression,
         sequenceCount: Int,
         annotationCount: Int,
-        startedAt: Date
+        startedAt: Date,
+        selectionMetadata: Data? = nil,
+        writeOutput: (URL) throws -> Void
     ) throws -> URL {
-        try ScientificFileExportProvenance.write(.init(
+        let request = ScientificFileExportProvenance.Request(
             workflowName: "lungfish app sequence export",
             sourceURLs: sourceURLs.map(\.standardizedFileURL),
             outputURL: outputURL,
@@ -2869,7 +2987,19 @@ extension AppDelegate {
                 "compression": .string(compression.provenanceValue),
             ],
             startedAt: startedAt
-        ))
+        )
+        if let selectionMetadata {
+            let snapshot = try RetainedSelectionExportSnapshot(outputURL: outputURL, selectionMetadata: selectionMetadata)
+            do {
+                try writeOutput(snapshot.payloadURL)
+                try snapshot.publish(request)
+                return ProvenanceRecorder.fileSidecarURL(for: outputURL)
+            } catch {
+                snapshot.discardAfterFailure(error)
+                throw error
+            }
+        }
+        return try ScientificFileExportProvenance.writeAtomically(request, writeOutput: writeOutput)
     }
 
     nonisolated private static func sequenceExportProvenanceArgv(
@@ -3042,78 +3172,125 @@ extension AppDelegate {
     }
 
     @objc func exportGFF3(_ sender: Any?) {
-        // Prefer the currently open document (existing behavior).
-        if let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument {
-            guard !document.annotations.isEmpty else {
-                showExportError(message: "The current document has no annotations to export.")
+        guard let controller = activeMainWindowController(sender: sender), let window = controller.window else { return }
+        let document = controller.mainSplitViewController?.viewerController?.currentDocument
+        let sidebarSelection = controller.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        if !sidebarSelection.isEmpty {
+            let scope = SidebarExportSelection.annotations(sidebarSelection,
+                loadedDocumentURL: document?.url, loadedDocumentID: document?.id,
+                loadedNativeSequenceID: document?.projectSequenceID,
+                hasLoadedAnnotations: document?.annotations.isEmpty == false)
+            guard !scope.exportable.isEmpty else {
+                showAnnotationExportMessage("No annotations to export", detail: "The selected items do not support annotation export: \(scope.skippedDescriptions.joined(separator: ", ")).", window: window)
                 return
             }
-            let suggestedName = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gff3"
-            beginGFF3Export(annotations: document.annotations, suggestedName: suggestedName)
+            let sources = scope.exportable.compactMap { item -> AnnotationExportSourceChoice? in
+                guard let url = item.url else { return nil }
+                if let document, !document.annotations.isEmpty,
+                   SidebarExportSelection.matchesLoadedDocument(item, url: document.url, id: document.id,
+                       nativeSequenceID: document.projectSequenceID) {
+                    return .init(source: .init(kind: .openDocument, urls: [document.url], name: document.name),
+                        annotations: document.annotations)
+                }
+                return .init(source: .init(kind: .sidebarBundle, urls: [url], name: item.title), annotations: nil)
+            }
+            if sources.count > 1 || !scope.skipped.isEmpty {
+                let choice = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 520, height: 28))
+                choice.addItems(withTitles: sources.map(\.displayTitle))
+                for (item, source) in zip(choice.itemArray, sources) { item.toolTip = source.displayTitle }
+                choice.setAccessibilityIdentifier("annotation-export-source-choice")
+                let alert = NSAlert()
+                alert.messageText = "Choose an annotation source"
+                alert.informativeText = "Export one of \(scope.exportable.count) supported sources from \(sidebarSelection.count) selected items. Each export contains one source's annotations."
+                if !scope.skipped.isEmpty {
+                    alert.informativeText += "\nUnsupported selections: \(scope.skippedDescriptions.joined(separator: ", "))."
+                }
+                alert.accessoryView = choice
+                alert.addButton(withTitle: "Choose Destination…")
+                alert.addButton(withTitle: "Cancel")
+                alert.beginSheetModal(for: window) { [weak self, weak window] response in
+                    guard response == .alertFirstButtonReturn, let window,
+                          sources.indices.contains(choice.indexOfSelectedItem) else { return }
+                    self?.exportAnnotationSource(sources[choice.indexOfSelectedItem], window: window)
+                }
+            } else {
+                exportAnnotationSource(sources[0], window: window)
+            }
             return
         }
-
-        // No document open in the viewer: fall back to a sidebar selection
-        // of annotation-bearing bundles (AS16 / task E4). Only
-        // .referenceBundle currently advertises canExportAnnotations —
-        // loadSequencesForExport only knows how to read that manifest
-        // shape (same scoping reasoning as canExportSequences).
-        let sidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
-        let exportableItems = sidebarSelection.filter { $0.type.bundleCapabilities.canExportAnnotations && $0.url != nil }
-        guard let item = exportableItems.first, let bundleURL = item.url else {
-            showExportError(message: "No document is currently open. Select a reference bundle in the sidebar or open a document to export annotations.")
+        guard let document, !document.annotations.isEmpty else {
+            showAnnotationExportMessage("No annotations to export", detail: "Open a document with annotations or select a supported reference bundle.", window: window)
             return
         }
+        beginGFF3Export(annotations: document.annotations,
+            source: .init(kind: .openDocument, urls: [document.url], name: document.name),
+            suggestedName: document.url.deletingPathExtension().lastPathComponent + ".gff3", window: window)
+    }
 
-        Task { [weak self] in
+    private func exportAnnotationSource(_ choice: AnnotationExportSourceChoice, window: NSWindow) {
+        let source = choice.source
+        guard let bundleURL = source.urls.first else { return }
+        if let annotations = choice.annotations {
+            beginGFF3Export(annotations: annotations, source: source,
+                suggestedName: bundleURL.deletingPathExtension().lastPathComponent + ".gff3", window: window)
+            return
+        }
+        Task { [weak self, weak window] in
+            guard let self else { return }
             do {
-                let (_, annotations) = try await self?.loadSequencesForExport(from: bundleURL) ?? ([], [])
-                await MainActor.run {
-                    guard !annotations.isEmpty else {
-                        self?.showExportError(message: "\(item.title) has no annotations to export.")
-                        return
-                    }
-                    let suggestedName = bundleURL.deletingPathExtension().lastPathComponent + ".gff3"
-                    self?.beginGFF3Export(annotations: annotations, suggestedName: suggestedName)
+                let (_, annotations) = try await self.loadSequencesForExport(from: bundleURL)
+                guard let window, window.isVisible else { return }
+                guard !annotations.isEmpty else {
+                    self.showAnnotationExportMessage("No annotations to export", detail: "\(source.name) has no annotations.", window: window)
+                    return
                 }
+                self.beginGFF3Export(annotations: annotations, source: source,
+                    suggestedName: bundleURL.deletingPathExtension().lastPathComponent + ".gff3", window: window)
             } catch {
-                await MainActor.run {
-                    debugLog("exportGFF3: Failed to load annotations from \(bundleURL.path) - \(error.localizedDescription)")
-                    self?.showExportError(message: "Failed to load annotations from \(item.title): \(error.localizedDescription)")
-                }
+                guard let window else { return }
+                self.showAnnotationExportMessage("Annotation export failed", detail: error.localizedDescription, window: window)
             }
         }
     }
 
-    /// Whether File > Export > Annotations (GFF3) has anything to act on:
-    /// either an open viewer document, or a sidebar selection containing an
-    /// annotation-exportable bundle. Used by validateMenuItem.
     func canExportGFF3() -> Bool {
-        if mainWindowController?.mainSplitViewController?.viewerController?.currentDocument != nil {
-            return true
+        let controller = activeMainWindowController()
+        let selection = controller?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        let document = controller?.mainSplitViewController?.viewerController?.currentDocument
+        if !selection.isEmpty {
+            return SidebarExportSelection.annotations(selection, loadedDocumentURL: document?.url,
+                loadedDocumentID: document?.id, loadedNativeSequenceID: document?.projectSequenceID,
+                hasLoadedAnnotations: document?.annotations.isEmpty == false).hasExportableItems
         }
-        let sidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
-        return sidebarSelection.contains { $0.type.bundleCapabilities.canExportAnnotations && $0.url != nil }
+        return document?.annotations.isEmpty == false
     }
 
-    private func beginGFF3Export(annotations: [SequenceAnnotation], suggestedName: String) {
+    private func showAnnotationExportMessage(_ title: String, detail: String, window: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.beginSheetModal(for: window, completionHandler: nil)
+    }
+
+    private func beginGFF3Export(annotations: [SequenceAnnotation], source: AnnotationExportService.Source, suggestedName: String, window: NSWindow) {
         let panel = AppFilePanelFactory.gff3ExportPanel(suggestedName: suggestedName)
 
-        panel.begin { [weak self] response in
+        panel.message = "\(AnnotationExportSourceChoice(source: source, annotations: nil).displayTitle)\n\(annotations.count) annotations from one source."
+        panel.beginSheetModal(for: window) { [weak self, weak window] response in
             guard response == .OK, let url = panel.url else { return }
 
             Task {
                 do {
-                    try await GFF3Writer.write(annotations, to: url, source: "Lungfish")
+                    try await AnnotationExportService.export(.init(source: source, annotations: annotations, outputURL: url))
 
                     await MainActor.run {
                         debugLog("exportGFF3: Successfully exported \(annotations.count) annotations to \(url.path)")
-                        self?.showExportSuccess(filename: url.lastPathComponent, count: annotations.count, itemType: "annotation")
+                        if let window { self?.showAnnotationExportMessage("Export complete", detail: "Exported \(annotations.count) annotations from \(source.name) to \(url.lastPathComponent).", window: window) }
                     }
                 } catch {
                     await MainActor.run {
                         debugLog("exportGFF3: Export failed - \(error.localizedDescription)")
-                        self?.showExportError(message: "Failed to export GFF3: \(error.localizedDescription)")
+                        if let window { self?.showAnnotationExportMessage("Annotation export failed", detail: error.localizedDescription, window: window) }
                     }
                 }
             }

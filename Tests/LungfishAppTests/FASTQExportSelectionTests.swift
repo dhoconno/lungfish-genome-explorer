@@ -5,9 +5,9 @@
 // Task E4 (2026-08-08 repo review fix campaign, finding AS15): File >
 // Export > FASTQ used to silently filter a mixed sidebar selection down to
 // .fastqBundle items with a bare `.filter`, reporting success as if the
-// whole selection had been exported. FASTQExportSelection.partition is the
-// pure helper that replaces that filter so the caller can report exactly
-// what was skipped, mirroring SequenceExportSelection (AS1/E2).
+// whole selection had been exported. SidebarExportSelection supplies the
+// same ordered partition contract for FASTQ and sequence exports so the
+// caller can report exactly what was skipped.
 
 import XCTest
 @testable import LungfishApp
@@ -23,7 +23,7 @@ final class FASTQExportSelectionTests: XCTestCase {
         let fastq1 = makeItem(type: .fastqBundle, title: "sample1")
         let fastq2 = makeItem(type: .fastqBundle, title: "sample2")
 
-        let selection = FASTQExportSelection.partition([fastq1, fastq2])
+        let selection = SidebarExportSelection([fastq1, fastq2], format: .fastq)
 
         XCTAssertEqual(selection.exportable.map(\.title), ["sample1", "sample2"])
         XCTAssertTrue(selection.skipped.isEmpty)
@@ -35,7 +35,7 @@ final class FASTQExportSelectionTests: XCTestCase {
         let refBundle = makeItem(type: .referenceBundle, title: "ref1")
         let classificationResult = makeItem(type: .classificationResult, title: "kraken-run1")
 
-        let selection = FASTQExportSelection.partition([fastqBundle, refBundle, classificationResult])
+        let selection = SidebarExportSelection([fastqBundle, refBundle, classificationResult], format: .fastq)
 
         XCTAssertEqual(selection.exportable.map(\.title), ["sample1"])
         XCTAssertEqual(Set(selection.skipped.map(\.title)), ["ref1", "kraken-run1"])
@@ -46,7 +46,7 @@ final class FASTQExportSelectionTests: XCTestCase {
     func testPartitionSkipsFASTQBundleMissingURL() {
         let fastqNoURL = makeItem(type: .fastqBundle, title: "orphan", hasURL: false)
 
-        let selection = FASTQExportSelection.partition([fastqNoURL])
+        let selection = SidebarExportSelection([fastqNoURL], format: .fastq)
 
         XCTAssertTrue(selection.exportable.isEmpty)
         XCTAssertEqual(selection.skipped.map(\.title), ["orphan"])
@@ -54,7 +54,7 @@ final class FASTQExportSelectionTests: XCTestCase {
     }
 
     func testPartitionOfEmptySelectionIsEmpty() {
-        let selection = FASTQExportSelection.partition([])
+        let selection = SidebarExportSelection([], format: .fastq)
         XCTAssertTrue(selection.exportable.isEmpty)
         XCTAssertTrue(selection.skipped.isEmpty)
         XCTAssertFalse(selection.hasExportableItems)

@@ -196,19 +196,11 @@ public final class MainMenu {
             keyEquivalent: "w"
         )
 
-        // Save
         fileMenu.addItem(
-            withTitle: "Save",
-            action: #selector(NSDocument.save(_:)),
-            keyEquivalent: "s"
+            withTitle: "About Saving…",
+            action: #selector(AppDelegate.showPersistenceInformation(_:)),
+            keyEquivalent: ""
         )
-
-        let saveAsItem = fileMenu.addItem(
-            withTitle: "Save As...",
-            action: #selector(NSDocument.saveAs(_:)),
-            keyEquivalent: "s"
-        )
-        saveAsItem.keyEquivalentModifierMask = [.command, .shift]
 
         fileMenu.addItem(.separator())
 

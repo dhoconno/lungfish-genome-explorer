@@ -2,6 +2,26 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class DependencyManifestTests: XCTestCase {
+    func testUnsupportedSourceOverlayCannotDecodeAsCondaFallback() throws {
+        let fixture = """
+        {"packID":"fixture","displayName":"Fixture","version":"1","tools":[],"managedData":[],
+         "packTools":[{"packID":"fixture","id":"unsupported-source-recipe","environment":"renamed",
+         "packageSpec":"conda-forge::python=3.12=fixture_0","executables":["fixture"],"version":"1",
+         "sourceBuild":{"version":"1","url":"https://example.invalid/source.tar.gz",
+         "sha256":"\(String(repeating: "a", count: 64))","toolchainPackages":["conda-forge::make=4.4=fixture_0"]}}]}
+        """
+        XCTAssertThrowsError(try JSONDecoder().decode(ManagedToolLock.self, from: Data(fixture.utf8)))
+    }
+
+    func testPinnedDatabaseWithoutExpectedDigestIsRejected() throws {
+        let fixture = """
+        {"packID":"fixture","displayName":"Fixture","version":"1","tools":[],"managedData":[],
+         "databases":[{"id":"fixture","tool":"fixture","displayName":"Fixture","version":"1",
+         "sourcePolicy":"pinnedArchive","url":"https://example.invalid/archive.tar.gz"}]}
+        """
+        XCTAssertThrowsError(try JSONDecoder().decode(ManagedToolLock.self, from: Data(fixture.utf8)))
+    }
+
     func testBundledManifestHasDependencySetAndSections() throws {
         let manifest = try ManagedToolLock.loadFromBundle()
         XCTAssertNotNil(manifest.dependencySet)

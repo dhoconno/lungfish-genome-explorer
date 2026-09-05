@@ -158,9 +158,25 @@ public struct ProvenanceWriter: Sendable {
         (@Sendable (URL) throws -> Void)?
     private let exclusivePublicationPreQuarantineRestoreHook:
         (@Sendable (URL, URL) throws -> Void)?
-    private let publicationMutationDidOccur:
+    private var publicationMutationDidOccur:
         (@Sendable (ProvenanceWriterMutation) throws -> Void)?
     private let durableAtomicFileStore: DurableAtomicFileStore
+
+    /// Adds an enclosing transaction observer while preserving signing and
+    /// injected writer behavior. Once its receipt is accepted, that transaction
+    /// owns restoration even if a downstream observer requests failure.
+    public func observingPublications(
+        _ observer: @escaping @Sendable (ProvenanceWriterMutation) throws -> Void
+    ) -> ProvenanceWriter {
+        var writer = self
+        let downstream = publicationMutationDidOccur
+        writer.publicationMutationDidOccur = { mutation in
+            try observer(mutation)
+            do { try downstream?(mutation) }
+            catch { throw ProvenanceWriterMutationAcceptedError(error) }
+        }
+        return writer
+    }
 
     public init(
         signingProvider: (any ProvenanceSigningProvider)? =
@@ -895,6 +911,17 @@ public struct ProvenanceWriter: Sendable {
                 fileManager: .default
             )
         } catch {
+            try Self.restoreDetachedAfterFailure(
+                detachedURL,
+                to: artifactURL,
+                originalError: error
+            )
+        }
+        guard case .file = priorState else {
+            let error = ProvenanceWriterError.unsafeExistingArtifact(
+                path: artifactURL.path,
+                reason: "the existing cleanup artifact is not a regular file"
+            )
             try Self.restoreDetachedAfterFailure(
                 detachedURL,
                 to: artifactURL,

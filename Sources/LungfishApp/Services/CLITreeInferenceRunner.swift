@@ -84,6 +84,12 @@ actor CLITreeInferenceRunner {
     }
 
     func run(arguments: [String], operationID: UUID) async throws -> CLITreeInferenceResult {
+        if await isOperationCancelled(operationID) {
+            await performCLIOperationCenterUpdate {
+                OperationCenter.shared.acknowledgeCancellation(id: operationID)
+            }
+            throw CancellationError()
+        }
         guard let binaryURL = cliURLOverride ?? CLIImportRunner.cliBinaryPath() else {
             await failOperation(operationID, detail: RunError.cliNotFound.localizedDescription)
             throw RunError.cliNotFound
@@ -224,6 +230,7 @@ actor CLITreeInferenceRunner {
         }) {
             handleLine(trailing)
         }
+        let processWasCancelled = cancellationHandle.isTerminationRequested
         cancellationHandle.clear(proc)
 
         let snapshot = state.withLock { current in
@@ -234,7 +241,11 @@ actor CLITreeInferenceRunner {
             )
         }
 
-        if await isOperationCancelled(opID) {
+        let operationWasCancelled = await isOperationCancelled(opID)
+        if processWasCancelled || operationWasCancelled {
+            await performCLIOperationCenterUpdate {
+                OperationCenter.shared.acknowledgeCancellation(id: opID)
+            }
             throw CancellationError()
         }
         if let failedMessage = snapshot.failedMessage {
@@ -270,7 +281,8 @@ actor CLITreeInferenceRunner {
 
     @MainActor
     private func isOperationCancelled(_ id: UUID) -> Bool {
-        OperationCenter.shared.items.first { $0.id == id }?.state == .cancelled
+        let state = OperationCenter.shared.items.first { $0.id == id }?.state
+        return cancellationHandle.isTerminationRequested || state == .cancelling || state == .cancelled
     }
 
     @MainActor

@@ -16,6 +16,7 @@ struct ConvertCommand: AsyncParsableCommand {
         discussion: """
             Convert sequences between FASTA, GenBank, GFF3, and other formats.
             Format is auto-detected from input file extension or can be specified.
+            Input and output must be different files; in-place, symlink and hard-link aliases are rejected.
 
             Examples:
               lungfish convert input.gb --to output.fa --to-format fasta
@@ -70,14 +71,16 @@ struct ConvertCommand: AsyncParsableCommand {
                 reason: "File already exists. Use --force to overwrite."
             )
         }
-        // R3-R3H-7: do NOT remove the existing --to file here. Input-format
-        // detection and output-format validation both happen after this
-        // point and can still throw (unrecognized input extension,
-        // unsupported --to-format, "No annotations to write to GFF3"), and
-        // until this function reaches an actual write call, the user's
-        // pre-existing output must survive a failed conversion. The
-        // existing file is instead removed immediately before each writer
-        // call below, mirroring TreeCommand's validate-first pattern.
+        let inputIdentity = try FileManager.default.attributesOfItem(atPath: inputURL.resolvingSymlinksInPath().path)
+        let outputIdentity = try? FileManager.default.attributesOfItem(atPath: outputURL.resolvingSymlinksInPath().path)
+        let sameInode = outputIdentity != nil
+            && (inputIdentity[.systemNumber] as? NSNumber) == (outputIdentity?[.systemNumber] as? NSNumber)
+            && (inputIdentity[.systemFileNumber] as? NSNumber) == (outputIdentity?[.systemFileNumber] as? NSNumber)
+        guard inputURL.resolvingSymlinksInPath().standardizedFileURL != outputURL.resolvingSymlinksInPath().standardizedFileURL,
+              !sameInode else {
+            throw CLIError.outputWriteFailed(path: outputFile,
+                reason: "Input and output must be different files. In-place, symlink and hard-link aliases are not supported.")
+        }
 
         // Show progress
         if !globalOptions.quiet {
@@ -93,6 +96,8 @@ struct ConvertCommand: AsyncParsableCommand {
             detectURL = detectURL.deletingPathExtension()
         }
         let ext = detectURL.pathExtension.lowercased()
+        let provenanceInputs = try Self.provenanceInputFiles(inputURL: inputURL, inputFormat: ext,
+            includeAnnotations: includeAnnotations)
         switch ext {
         case "fa", "fasta", "fna", "faa":
             let reader = try FASTAReader(url: inputURL)
@@ -129,6 +134,12 @@ struct ConvertCommand: AsyncParsableCommand {
             throw CLIError.formatDetectionFailed(path: input)
         }
 
+        let observedInputs = try Self.provenanceInputFiles(inputURL: inputURL, inputFormat: ext,
+            includeAnnotations: includeAnnotations)
+        guard observedInputs == provenanceInputs else {
+            throw CLIError.conversionFailed(reason: "Input files changed while conversion was reading them; retry with a stable source.")
+        }
+
         // Validate the output format (and any format-specific preconditions,
         // e.g. GFF3 needing non-empty annotations) BEFORE touching the
         // existing --to file. This is the validation half of the
@@ -146,21 +157,23 @@ struct ConvertCommand: AsyncParsableCommand {
             throw CLIError.unsupportedFormat(format: toFormat)
         }
 
-        // Only now -- after input-format detection and output-format
-        // validation have both succeeded -- remove any pre-existing --to
-        // file, immediately before writing the new content.
-        if outputAlreadyExists {
-            try FileManager.default.removeItem(at: outputURL)
-        }
-
+        let outputDirectory = outputURL.deletingLastPathComponent()
+        let stagedOutputURL = outputDirectory.appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID()).convert.tmp")
+        defer { try? FileManager.default.removeItem(at: stagedOutputURL) }
+        let rootArtifacts = ProvenancePublicationArtifacts.bundleRootArtifacts(for: outputDirectory)
+        let fileArtifacts = ProvenancePublicationArtifacts.fileSidecarArtifacts(for: outputURL)
+        let publication = try ScientificFilePublicationTransaction(
+            protectedURLs: [outputURL] + rootArtifacts + fileArtifacts,
+            fileDestinations: [outputURL] + Array(rootArtifacts.prefix(3)) + fileArtifacts)
+        do {
         // Write output
         switch normalizedToFormat {
         case "fasta", "fa":
-            let writer = FASTAWriter(url: outputURL)
+            let writer = FASTAWriter(url: stagedOutputURL)
             try writer.write(sequences)
 
         case "genbank", "gb":
-            let writer = GenBankWriter(url: outputURL)
+            let writer = GenBankWriter(url: stagedOutputURL)
             let records = sequences.map { seq in
                 GenBankRecord(
                     sequence: seq,
@@ -191,21 +204,18 @@ struct ConvertCommand: AsyncParsableCommand {
                     encoding: .phred33
                 )
             }
-            try FASTQWriter.write(fastqRecords, to: outputURL)
+            try FASTQWriter.write(fastqRecords, to: stagedOutputURL)
 
         case "gff3", "gff":
-            try await GFF3Writer.write(annotations, to: outputURL)
+            try await GFF3Writer.write(annotations, to: stagedOutputURL)
 
         default:
             // Unreachable: normalizedToFormat was already validated above.
             throw CLIError.unsupportedFormat(format: toFormat)
         }
         let completedAt = Date()
-        let provenanceInputs = try Self.provenanceInputFiles(
-            inputURL: inputURL,
-            inputFormat: ext,
-            includeAnnotations: includeAnnotations
-        )
+        try Task.checkCancellation()
+        try publication.publish(stagedURL: stagedOutputURL, to: outputURL, replacingExisting: force)
 
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish convert",
@@ -241,12 +251,19 @@ struct ConvertCommand: AsyncParsableCommand {
             outputs: [
                 ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
             ],
+            consumedInputSnapshotPaths: Set(provenanceInputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }),
             exitCode: 0,
             wallTime: completedAt.timeIntervalSince(startedAt),
             stderr: nil,
             status: .completed,
-            outputDirectory: outputURL.deletingLastPathComponent()
+            outputDirectory: outputDirectory,
+            publicationArtifactDidWrite: { try publication.observe($0) }
         )
+        try Task.checkCancellation()
+        publication.commit()
+        } catch {
+            try publication.rollback(after: error)
+        }
 
         // Success message
         if !globalOptions.quiet {

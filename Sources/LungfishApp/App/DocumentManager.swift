@@ -15,6 +15,14 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "DocumentMana
 
 @MainActor
 enum ProjectDocumentLoader {
+    static func catalogDocuments(_ summaries: [SequenceSummary], projectURL: URL) -> [LoadedDocument] {
+        summaries.map { summary in
+            let document = LoadedDocument(url: projectURL.appendingPathComponent(summary.name), type: .lungfishProject)
+            document.projectSequenceID = summary.id
+            return document
+        }
+    }
+
     static func loadSequences(from project: ProjectFile) throws -> [LoadedDocument] {
         let sequenceSummaries = try project.listSequences()
         logger.info("ProjectDocumentLoader: Found \(sequenceSummaries.count) sequences")
@@ -67,6 +75,9 @@ public final class LoadedDocument: Identifiable {
     public let url: URL
     public let name: String
     public let type: DocumentType
+
+    /// Stored identity for a catalog entry; its URL is a display path, not a file.
+    public var projectSequenceID: UUID?
 
     /// The loaded sequences
     public var sequences: [Sequence] = []
@@ -248,12 +259,24 @@ public final class DocumentManager {
     public func openProject(at url: URL) throws -> ProjectFile {
         logger.info("openProject: Opening project at \(url.path, privacy: .public)")
 
-        let openWarningState = ProjectOpenWarningState.evaluate(projectURL: url)
+        if let owner = mirroredSession {
+            let project = try owner.openProject(at: url)
+            mirrorProjectSession(owner)
+            NotificationCenter.default.post(name: Self.projectOpenedNotification, object: self, userInfo: [
+                "project": project, "openWarningState": owner.openWarningState,
+                "sessionID": owner.id
+            ])
+            return project
+        }
+        documentStateGeneration &+= 1
+        let openWarningState = ProjectStore.ownsWriterLease(at: url)
+            ? ProjectOpenWarningState.unlocked(projectURL: url)
+            : ProjectOpenWarningState.evaluate(projectURL: url)
         if let message = openWarningState.warningMessage {
             logger.warning("openProject: \(message, privacy: .public)")
         }
 
-        let project = try ProjectFile.open(at: url)
+        let project = try ProjectFile.open(at: url, access: openWarningState.isReadOnlyRecommended ? .readOnly : .writable)
         let projectDocuments = try loadSequencesFromProject(project)
 
         activeProject = project
@@ -286,11 +309,8 @@ public final class DocumentManager {
 
     /// Closes the active project.
     public func closeActiveProject() {
-        guard let project = activeProject else {
-            return
-        }
-
-        logger.info("closeActiveProject: Closing project '\(project.name, privacy: .public)'")
+        documentStateGeneration &+= 1
+        mirroredSession = nil
         activeProject = nil
         activeProjectOpenWarningState = .unlocked(projectURL: nil)
         transitionDocumentState(to: [], activeDocument: nil)
@@ -302,16 +322,19 @@ public final class DocumentManager {
     /// older workflows that still read ``DocumentManager.shared.activeProject``
     /// pointed at the frontmost project without sharing window-local selection.
     public func mirrorProjectSession(_ session: ProjectSession) {
-        guard let project = session.project else {
-            if activeProject?.url == nil {
-                transitionDocumentState(to: [], activeDocument: nil)
-            }
-            return
-        }
-
-        activeProject = project
+        documentStateGeneration &+= 1
+        mirroredSession = session
+        activeProject = session.project
         activeProjectOpenWarningState = session.openWarningState
         transitionDocumentState(to: session.documents, activeDocument: session.activeDocument)
+    }
+
+    private weak var mirroredSession: ProjectSession?
+    private var documentStateGeneration: UInt64 = 0
+
+    public func refreshMirror(ifOwnedBy session: ProjectSession) {
+        guard mirroredSession === session else { return }
+        mirrorProjectSession(session)
     }
 
     /// Loads sequences from a project into documents.
@@ -344,6 +367,30 @@ public final class DocumentManager {
     /// - Throws: Error if the file cannot be read or parsed
     @discardableResult
     public func loadDocument(at url: URL) async throws -> LoadedDocument {
+        if DocumentType.detect(from: url) == .lungfishProject {
+            _ = try openProject(at: url)
+            return activeDocument ?? LoadedDocument(url: url, type: .lungfishProject)
+        }
+        let owner = mirroredSession
+        let stateGeneration = documentStateGeneration
+        let generation = owner?.documentGeneration
+        let document = try await readDocument(at: url)
+        if let owner {
+            guard owner.documentGeneration == generation, !Task.isCancelled else { throw CancellationError() }
+            let registered = owner.registerDocument(document, replaceContent: true)
+            refreshMirror(ifOwnedBy: owner)
+            return registered
+        }
+        try Task.checkCancellation()
+        guard mirroredSession == nil, documentStateGeneration == stateGeneration else { throw CancellationError() }
+        registerDocument(document)
+        setActiveDocument(document)
+        NotificationCenter.default.post(name: Self.documentLoadedNotification, object: self, userInfo: ["document": document])
+        return document
+    }
+
+    /// Parses without modifying any session, global document list, or selection.
+    public func readDocument(at url: URL) async throws -> LoadedDocument {
         logger.info("loadDocument: Starting load for \(url.path, privacy: .public)")
 
         // Check if file exists
@@ -399,10 +446,7 @@ public final class DocumentManager {
                 logger.info("loadDocument: BAM/CRAM files are imported as alignment tracks via File > Import Center…")
                 throw DocumentLoadError.unsupportedFormat("BAM/CRAM files are imported as alignment tracks. Use File \u{203A} Import Center\u{2026} with a bundle open.")
             case .lungfishProject:
-                // For .lungfish projects, use openProject instead
-                logger.info("loadDocument: Opening Lungfish project...")
-                _ = try openProject(at: url)
-                return activeDocument ?? document
+                throw DocumentLoadError.unsupportedFormat("Use the project-open route for .lungfish projects")
             case .lungfishReferenceBundle:
                 logger.info("loadDocument: Loading reference bundle...")
                 try loadReferenceBundle(into: document)
@@ -423,28 +467,16 @@ public final class DocumentManager {
 
         logger.info("loadDocument: Loaded \(document.sequences.count) sequences, \(document.annotations.count) annotations")
 
-        // Add to documents list
-        documents.append(document)
-        logger.info("loadDocument: Added to documents list (total: \(self.documents.count))")
-
-        // Set as active
-        setActiveDocument(document)
-        logger.info("loadDocument: Set as active document")
-
-        // Post notifications
-        NotificationCenter.default.post(
-            name: Self.documentLoadedNotification,
-            object: self,
-            userInfo: ["document": document]
-        )
-        logger.info("loadDocument: Posted documentLoadedNotification")
-
-        logger.info("loadDocument: Successfully completed loading \(document.name, privacy: .public)")
         return document
     }
 
     /// Closes a document.
     public func closeDocument(_ document: LoadedDocument) {
+        if let mirroredSession {
+            mirroredSession.closeDocument(document)
+            refreshMirror(ifOwnedBy: mirroredSession)
+            return
+        }
         logger.info("closeDocument: Closing \(document.name, privacy: .public)")
         let wasActiveDocument = activeDocument?.id == document.id
         documents.removeAll { $0.id == document.id }
@@ -467,6 +499,11 @@ public final class DocumentManager {
     /// Registers a pre-loaded document with the document manager.
     /// Used when documents are loaded synchronously outside the normal async flow.
     public func registerDocument(_ document: LoadedDocument) {
+        if let mirroredSession {
+            mirroredSession.registerDocument(document, makeActive: false)
+            refreshMirror(ifOwnedBy: mirroredSession)
+            return
+        }
         // Check if already registered
         if documents.contains(where: { $0.url == document.url }) {
             logger.debug("registerDocument: Document already registered: \(document.name, privacy: .public)")

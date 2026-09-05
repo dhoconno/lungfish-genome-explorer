@@ -652,6 +652,36 @@ final class DocumentManagerTests: XCTestCase {
         XCTAssertFalse(manager.documents.contains(where: { $0.url == staleURL }))
     }
 
+    func testMirroringProjectlessSessionClearsPreviousMutationDestination() throws {
+        let owned = ProjectSession()
+        _ = try owned.createProject(at: tempDir.appendingPathComponent("Owned.lungfish"), name: "Owned")
+        manager.mirrorProjectSession(owned)
+        XCTAssertNotNil(manager.activeProject)
+        let projectless = ProjectSession()
+        manager.mirrorProjectSession(projectless)
+        XCTAssertNil(manager.activeProject)
+        XCTAssertNil(manager.activeProjectOpenWarningState.projectURL)
+        XCTAssertTrue(manager.documents.isEmpty)
+        XCTAssertNil(manager.activeDocument)
+        XCTAssertThrowsError(try manager.addSequenceToProject(makeSequence(name: "invented", bases: "ACGT")))
+    }
+
+    func testDocumentLoadRegistersOnlyInCapturedMirroredSession() async throws {
+        let first = ProjectSession()
+        let second = ProjectSession()
+        manager.mirrorProjectSession(first)
+        let url = tempDir.appendingPathComponent("session-owned.fa")
+        try ">invented\nACGT\n".write(to: url, atomically: true, encoding: .utf8)
+        let document = try await manager.loadDocument(at: url)
+        XCTAssertEqual(first.documents.map(\.id), [document.id])
+        XCTAssertEqual(first.activeDocument?.id, document.id)
+        XCTAssertTrue(second.documents.isEmpty)
+        manager.mirrorProjectSession(second)
+        XCTAssertTrue(manager.documents.isEmpty)
+        manager.mirrorProjectSession(first)
+        XCTAssertEqual(manager.documents.map(\.id), [document.id])
+    }
+
     // MARK: - 5. DocumentManager State Tests
 
     func testCloseDocumentRemovesFromList() async throws {

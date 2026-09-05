@@ -3,6 +3,35 @@ import XCTest
 
 final class WorkflowEngineLaunchTests: XCTestCase {
 
+    func testAvailabilityRejectsRelativePATHBeforeAResolvedAbsoluteEngine() throws {
+        let home = try makeTemporaryHome("relative-path")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let launch = WorkflowEngineLaunch.resolve(executableName: "invented-fixture-engine", homeDirectory: home,
+            baseEnvironment: ["PATH": "relative-bin:/fixture/absolute"])
+        XCTAssertEqual(launch.executableURL.path, "/usr/bin/env", "Ordinary launch behavior remains unchanged")
+        XCTAssertNil(launch.resolvedExecutableURL(isExecutable: { $0 == "/fixture/absolute/invented-fixture-engine" }),
+                     "A relative earlier entry may resolve differently in the eventual engine working directory")
+    }
+
+    func testAvailabilityUsesManagedExecutableWithoutLaunchingIt() throws {
+        let home = try makeTemporaryHome("availability-managed")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let executable = try installStubExecutable(named: "nextflow",
+            in: home.appendingPathComponent(".lungfish/conda/envs/nextflow/bin"))
+        let launch = WorkflowEngineLaunch.resolve(executableName: "nextflow", homeDirectory: home)
+        XCTAssertEqual(launch.resolvedExecutableURL()?.path, executable.path)
+    }
+
+    func testAvailabilityUsesEffectivePATHOrderAndRejectsMissingEngine() throws {
+        let home = try makeTemporaryHome("availability-path")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let launch = WorkflowEngineLaunch.resolve(executableName: "invented-fixture-engine", homeDirectory: home,
+            baseEnvironment: ["PATH": "/fixture/first:/fixture/second"])
+        let paths = ["/fixture/first/invented-fixture-engine", "/fixture/second/invented-fixture-engine"]
+        XCTAssertEqual(launch.resolvedExecutableURL(isExecutable: { paths.contains($0) })?.path, paths[0])
+        XCTAssertNil(launch.resolvedExecutableURL(isExecutable: { _ in false }))
+    }
+
     private func makeTemporaryHome(_ label: String) throws -> URL {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("workflow-engine-launch-\(label)-\(UUID().uuidString)", isDirectory: true)

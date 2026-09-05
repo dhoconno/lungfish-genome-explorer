@@ -51,6 +51,18 @@ extension MainSplitViewController {
         requestID: String?,
         displayAfterImport: Bool
     ) async {
+        if ["lungfish", "lungfishflowpkg"].contains(url.pathExtension.lowercased()) {
+            let message = url.pathExtension.lowercased() == "lungfish"
+                ? "Use Open Project to open this Lungfish project. Projects cannot be imported inside another project."
+                : "Use Link Workflow in the Workflow Library to register this workflow package."
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: message)
+            let alert = NSAlert()
+            alert.messageText = "Use the Appropriate Open Action"
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            if let window = view.window { await alert.beginSheetModal(for: window) }
+            return
+        }
         if ReferenceBundleImportService.isStandaloneReferenceSource(url) {
             guard let projectURL else {
                 let errorMessage = "Open a project before importing standalone reference files."
@@ -65,41 +77,26 @@ extension MainSplitViewController {
 
             do {
                 let refsDir = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
-                let cliCmd = OperationCenter.buildCLICommand(
-                    subcommand: "import",
-                    args: ["fasta", url.path, "--output-dir", refsDir.path]
-                )
-                let opID = OperationCenter.shared.start(
-                    title: "Reference Import",
-                    detail: "Importing \(url.lastPathComponent)...",
-                    operationType: .bundleBuild,
-                    cliCommand: cliCmd,
-                    routeContext: operationRouteContext
-                )
-
-                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
+                let outcome = await ReferenceImportOperationLifecycle.run(
+                    center: .shared,
                     sourceURL: url,
-                    outputDirectory: refsDir
-                ) { progress, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.updateWithLog(
-                                id: opID,
-                                progress: progress,
-                                detail: message
-                            )
+                    outputDirectory: refsDir,
+                    routeContext: operationRouteContext
+                ) { opID in
+                    let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
+                        sourceURL: url,
+                        outputDirectory: refsDir
+                    ) { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.updateWithLog(id: opID, progress: progress, detail: message)
+                            }
                         }
                     }
+                    return result.bundleURL
                 }
-
-                _ = OperationCenter.shared.complete(
-                    id: opID,
-                    detail: "Imported \(result.bundleURL.lastPathComponent)"
-                )
-                sidebarController.requestReloadFromFilesystem()
-                if displayAfterImport {
-                    loadGenomicsFileInBackground(url: result.bundleURL)
-                }
+                _ = try outcome.get()
+                // OperationCenter delivers and routes the final bundle once.
                 postSidebarFileDropCompleted(
                     requestID: requestID,
                     sourceURL: url,
@@ -157,10 +154,10 @@ extension MainSplitViewController {
                         trackID: importConfiguration.trackID,
                         trackName: importConfiguration.trackName
                     )
-                _ = OperationCenter.shared.complete(
+                guard OperationCenter.shared.complete(
                     id: opID,
                     detail: "Imported \(result.featureCount) annotations"
-                )
+                ) else { return }
                 sidebarController.requestReloadFromFilesystem()
                 if viewerController?.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
                     try? viewerController?.displayBundle(at: bundleURL)
@@ -241,8 +238,7 @@ extension MainSplitViewController {
                 switch resolution {
                 case .replace:
                     do {
-                        try fileManager.removeItem(at: destinationURL)
-                        urlToLoad = try copyProjectItemForImport(from: url, to: destinationURL)
+                        urlToLoad = try copyProjectItemForImport(from: url, to: destinationURL, replaceExisting: true)
                         sidebarController.requestReloadFromFilesystem()
                     } catch {
                         mainSplitLogger.error("handleSidebarFileDropped: Failed to replace file: \(error.localizedDescription, privacy: .public)")
@@ -268,7 +264,7 @@ extension MainSplitViewController {
         // Imported project files should route through the same sidebar display path
         // as manual selection so generic files use QuickLook and genomics files use
         // the appropriate native handler.
-        if displayAfterImport {
+        if importSucceeded && displayAfterImport {
             displayImportedProjectFile(at: urlToLoad)
         }
         postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
@@ -288,8 +284,15 @@ extension MainSplitViewController {
         }
     }
 
-    func copyProjectItemForImport(from sourceURL: URL, to destinationURL: URL) throws -> URL {
-        if FASTQBundle.isBundleURL(sourceURL) {
+    func copyProjectItemForImport(from sourceURL: URL, to destinationURL: URL, replaceExisting: Bool = false) throws -> URL {
+        let sourcePath = sourceURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let destinationPath = destinationURL.resolvingSymlinksInPath().standardizedFileURL.path
+        guard sourcePath != destinationPath,
+              !destinationPath.hasPrefix(sourcePath + "/"), !sourcePath.hasPrefix(destinationPath + "/") else {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSLocalizedDescriptionKey: "Source and destination must be separate locations."])
+        }
+        if FASTQBundle.isBundleURL(sourceURL),
+           (try sourceURL.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true {
             let argv = [
                 CLICommandIdentity.executableName,
                 "fastq",
@@ -325,13 +328,13 @@ extension MainSplitViewController {
                         "caller": .string("app")
                     ],
                     runtimeIdentity: ProvenanceRuntimeIdentity()
-                )
+                ),
+                replaceExisting: replaceExisting
             )
             return result.bundleURL
         }
 
-        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-        return destinationURL
+        return try NativeProjectCopyImportService.copy(from: sourceURL, to: destinationURL, replaceExisting: replaceExisting)
     }
 
     // MARK: - FASTQ Import Sheet
@@ -468,6 +471,7 @@ extension MainSplitViewController {
                     viewerController?.hideProgress()
                     mainSplitLogger.error("importFASTQBatch: \(error)")
                     self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
+                    guard !(error is CancellationError) else { return }
                     let alert = NSAlert()
                     alert.messageText = "Failed to Import FASTQ"
                     alert.informativeText = "\(error)"
@@ -641,6 +645,7 @@ extension MainSplitViewController {
             case .failure(let error):
                 mainSplitLogger.error("importFASTQFileInBackground: \(error)")
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+                guard !(error is CancellationError) else { return }
                 let alert = NSAlert()
                 alert.messageText = "Failed to Import FASTQ"
                 alert.informativeText = "\(error)"
@@ -918,10 +923,13 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
-                        )
+                        ) else {
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
+                            return
+                        }
                         self?.refreshSidebarAndSelectDerivedURL(completionTarget)
                         self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
                         self?.requestInspectorDocumentModeAfterDownload()
@@ -939,7 +947,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        _ = OperationCenter.shared.fail(
+                        let accepted = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,
@@ -947,6 +955,7 @@ extension MainSplitViewController {
                         )
                         self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
 
+                        guard accepted else { return }
                         let alert = NSAlert()
                         alert.messageText = "ONT Sample Split Failed"
                         alert.informativeText = "\(error)"
@@ -1047,10 +1056,13 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        _ = OperationCenter.shared.complete(
+                        guard OperationCenter.shared.complete(
                             id: opID,
                             detail: "Done in \(String(format: "%.1f", elapsed))s"
-                        )
+                        ) else {
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
+                            return
+                        }
                         self?.refreshSidebarAndSelectDerivedURL(completionTarget)
                         self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
                         self?.requestInspectorDocumentModeAfterDownload()
@@ -1068,7 +1080,7 @@ extension MainSplitViewController {
                             level: .error,
                             message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
                         )
-                        _ = OperationCenter.shared.fail(
+                        let accepted = OperationCenter.shared.fail(
                             id: opID,
                             detail: "Failed after \(String(format: "%.1f", elapsed))s",
                             errorMessage: errorDesc,
@@ -1076,6 +1088,7 @@ extension MainSplitViewController {
                         )
                         self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
 
+                        guard accepted else { return }
                         let alert = NSAlert()
                         alert.messageText = "ONT PacBio Barcode Demultiplex Failed"
                         alert.informativeText = "\(error)"

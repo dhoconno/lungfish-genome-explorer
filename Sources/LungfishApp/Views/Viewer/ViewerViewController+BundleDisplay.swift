@@ -826,15 +826,15 @@ extension ViewerViewController {
                     }
                 }
             } catch LungfishCLIRunner.RunError.cancelled {
-                return
+                await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
             } catch {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
+                        guard OperationCenter.shared.fail(
                             id: operationID,
                             detail: "Sequence extraction failed",
                             errorMessage: error.localizedDescription
-                        )
+                        ) else { return }
                         self?.presentBlockingAlert(
                             title: "Extract Sequences Failed",
                             message: error.localizedDescription

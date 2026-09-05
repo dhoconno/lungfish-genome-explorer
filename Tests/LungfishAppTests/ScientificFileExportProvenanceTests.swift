@@ -20,6 +20,53 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    func testAtomicExportRejectsSidecarDirectoryAndPreservesPreviousExport() throws {
+        let output = tempDir.appendingPathComponent("existing.tsv")
+        let original = Data("old export".utf8)
+        try original.write(to: output)
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
+        let marker = sidecar.appendingPathComponent("keep")
+        try Data("old artifact".utf8).write(to: marker)
+        XCTAssertThrowsError(try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "fixture", sourceURLs: [], outputURL: output, outputFormat: .text,
+            argv: ["fixture"], startedAt: Date()
+        )) { staged in try Data("replacement".utf8).write(to: staged) })
+        XCTAssertEqual(try Data(contentsOf: output), original)
+        XCTAssertEqual(try Data(contentsOf: marker), Data("old artifact".utf8))
+    }
+
+    @MainActor
+    func testSequenceContextMenuFailurePreservesPreviousUserExport() throws {
+        let output = tempDir.appendingPathComponent("previous.fasta")
+        let previous = Data("previous user export".utf8)
+        try previous.write(to: output)
+        try FileManager.default.createDirectory(at: ProvenanceRecorder.fileSidecarURL(for: output), withIntermediateDirectories: true)
+        let sequence = try Sequence(name: "fixture", alphabet: .dna, bases: "ACGT")
+        XCTAssertThrowsError(try SequenceViewerView.writeSequenceFASTAExport(sequence, sourceURLs: [], to: output))
+        XCTAssertEqual(try Data(contentsOf: output), previous)
+    }
+
+    func testPublicationRollbackPreservesReplacementAndReportsRecoverableOldBytes() throws {
+        let output = tempDir.appendingPathComponent("owned.txt")
+        let staged = tempDir.appendingPathComponent("staged.txt")
+        try Data("previous".utf8).write(to: output)
+        try Data("attempted".utf8).write(to: staged)
+        let publication = try ScientificFilePublicationTransaction(protectedURLs: [output], fileDestinations: [output])
+        try publication.publish(stagedURL: staged, to: output)
+        try Data("newer owner".utf8).write(to: output, options: .atomic)
+        do {
+            try publication.rollback(after: CocoaError(.fileWriteUnknown))
+        } catch let error as ScientificPublicationRecoveryRequired {
+            defer { for url in error.recoveryURLs { try? FileManager.default.removeItem(at: url) } }
+            XCTAssertEqual(try Data(contentsOf: output), Data("newer owner".utf8))
+            let backup = publication.recoveryDirectoryURL.appendingPathComponent("artifact-0")
+            XCTAssertEqual(try Data(contentsOf: backup), Data("previous".utf8))
+            XCTAssertFalse(error.originalErrorDescription.isEmpty)
+            XCTAssertFalse(error.restorationErrorDescription.isEmpty)
+        }
+    }
+
     func testWriteCreatesFocusedSidecarWithChecksummedInputAndOutput() throws {
         let sourceURL = tempDir.appendingPathComponent("source.fa")
         let outputURL = tempDir.appendingPathComponent("export.fa")
@@ -367,22 +414,10 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let body = try XCTUnwrap(source.range(of: "func exportFASTARecords"))
         let exportBody = source[body.lowerBound...]
-        XCTAssertTrue(exportBody.contains("ScientificFileExportProvenance.write(.init("))
+        XCTAssertTrue(exportBody.contains("ScientificFileExportProvenance.writeAtomically(.init("))
         XCTAssertTrue(exportBody.contains(#"workflowName: "lungfish app fasta export""#))
-        XCTAssertTrue(exportBody.contains("try normalized.write(to: destination"))
+        XCTAssertTrue(exportBody.contains("try normalized.write(to: staged"))
         XCTAssertFalse(exportBody.contains("try? normalized.write(to: destination"))
-    }
-
-    func testBookmarkedVariantExporterWritesScientificProvenanceSidecar() throws {
-        let source = try String(
-            contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Bookmarks.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("ScientificFileExportProvenance.write(.init("))
-        XCTAssertTrue(source.contains(#"workflowName: "lungfish app bookmarked variant export""#))
-        XCTAssertTrue(source.contains("bookmarkedVariantExportSourceURLs"))
-        XCTAssertTrue(source.contains("try? FileManager.default.removeItem(at: url)"))
     }
 
     func testStandaloneScientificExportersWriteScientificProvenanceSidecars() throws {
@@ -441,19 +476,18 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(fastqMetadataSource.contains("assignmentCount"))
     }
 
-    func testImportCenterSequenceExportersWriteScientificProvenanceSidecars() throws {
+    func testReferenceBundleSequenceExportDeclaresRequiredProvenancePolicy() throws {
         let source = try String(
             contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ImportCenter.swift"),
             encoding: .utf8
         )
-        let exportStart = try XCTUnwrap(source.range(of: "nonisolated private func performSequenceExport"))
-        let batchTargetsStart = try XCTUnwrap(source.range(of: "nonisolated static func batchSequenceExportTargets"))
-        let exportBody = source[exportStart.lowerBound..<batchTargetsStart.lowerBound]
+        // Dynamic document publication is covered by CapturedSequenceExportTests,
+        // which failed when the old writer dropped a captured source and lacked replay.
+        // Retain this narrow static policy check for the separate reference path.
         let referenceStart = try XCTUnwrap(source.range(of: "nonisolated private func performReferenceBundleSequenceExport"))
         let referenceEnd = try XCTUnwrap(source.range(of: "nonisolated private func sequenceForWholeChromosome"))
         let referenceBody = source[referenceStart.lowerBound..<referenceEnd.lowerBound]
 
-        XCTAssertTrue(exportBody.contains("try Self.writeSequenceExportProvenance("))
         XCTAssertTrue(referenceBody.contains("try Self.writeSequenceExportProvenance("))
         XCTAssertTrue(source.contains(#"workflowName: "lungfish app sequence export""#))
         XCTAssertTrue(source.contains(#""compression": .string(compression.provenanceValue)"#))

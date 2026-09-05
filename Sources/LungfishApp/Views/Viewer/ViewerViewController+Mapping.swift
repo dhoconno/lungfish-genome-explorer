@@ -28,6 +28,17 @@ private final class AlignmentConsensusConfirmationGate {
 }
 
 extension ViewerViewController {
+    /// Capture the originating session before presenting an async destination
+    /// sheet; later focus changes cannot retarget this scientific action.
+    private func alignmentOperationRouteContext() -> OperationRouteContext {
+        let windowController = view.window?.windowController as? MainWindowController
+        let split = windowController?.mainSplitViewController ?? (parent as? MainSplitViewController)
+        let session = windowController?.projectSession ?? split?.projectSession
+        return OperationRouteContext(
+            projectURL: session?.projectURL ?? split?.sidebarController?.currentProjectURL,
+            windowStateScope: session?.windowStateScope ?? windowStateScope)
+    }
+
     /// Starts a selected-region action exclusively from immutable full-viewer
     /// evidence; missing evidence/selection is reported instead of ignored.
     func extractReadsInSelectedAlignmentRegion() {
@@ -40,6 +51,7 @@ extension ViewerViewController {
             return
         }
         let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: selection.contig, start: selection.start, end: selection.end)
+        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: alignmentOperationRouteContext())
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -52,7 +64,7 @@ extension ViewerViewController {
                     region: region,
                     destination: destination,
                     outputBaseName: "selected-region",
-                    reporter: .operationCenter
+                    reporter: reporter
                 )
             } catch AlignmentScientificActionError.destinationCancelled {
                 return
@@ -136,7 +148,10 @@ extension ViewerViewController {
                         message: "\(record.reproducibleCommand)\n\(record.stderr ?? "")"
                     )
                 }
-                guard let self else { return }
+                guard let self else {
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
+                    return
+                }
                 if generation.requiresAllLowDepthWarning {
                     guard let window = view.window else {
                         throw AlignmentScientificActionError.destinationUnavailable(
@@ -159,14 +174,17 @@ extension ViewerViewController {
                     operationID: operationID
                 )
             } catch is CancellationError {
-                self?.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+                OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                self?.clearConsensusWorkflow(operationID: operationID)
             } catch {
                 self?.logConsensusFailure(error, operationID: operationID)
-                _ = OperationCenter.shared.fail(
+                let accepted = OperationCenter.shared.fail(
                     id: operationID,
                     detail: "Alignment consensus failed",
                     errorMessage: error.localizedDescription
                 )
+                self?.clearConsensusWorkflow(operationID: operationID)
+                guard accepted else { return }
                 self?.presentExtractionFailureAlert(
                     title: "Generate Consensus Failed",
                     message: error.localizedDescription
@@ -202,6 +220,7 @@ extension ViewerViewController {
         on window: NSWindow,
         operationID: UUID
     ) async -> Bool {
+        guard OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else { return false }
         return await withCheckedContinuation { continuation in
             let gate = AlignmentConsensusConfirmationGate(continuation)
             let alert = NSAlert()
@@ -210,13 +229,12 @@ extension ViewerViewController {
             alert.informativeText = message
             alert.addButton(withTitle: "Continue")
             alert.addButton(withTitle: "Cancel")
-            OperationCenter.shared.setCancelCallback(for: operationID) { [weak self, weak window, weak alertWindow = alert.window] in
+            OperationCenter.shared.setCancelCallback(for: operationID) { [weak window, weak alertWindow = alert.window] in
                 DispatchQueue.main.async {
                     if let window, let alertWindow, window.attachedSheet === alertWindow {
                         window.endSheet(alertWindow, returnCode: .cancel)
                     }
                     gate.resolve(false)
-                    self?.clearConsensusWorkflow(operationID: operationID)
                 }
             }
             alert.beginSheetModal(for: window) { response in
@@ -232,6 +250,7 @@ extension ViewerViewController {
     ) {
         guard activeConsensusGenerationOperationID == operationID,
               OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else {
+            OperationCenter.shared.acknowledgeCancellation(id: operationID)
             return
         }
         guard let window = view.window, window.attachedSheet == nil else {
@@ -295,6 +314,7 @@ extension ViewerViewController {
                     window.endSheet(sheet)
                 }
                 self?.clearConsensusWorkflow(operationID: operationID)
+                OperationCenter.shared.acknowledgeCancellation(id: operationID)
             }
         }
     }
@@ -346,11 +366,13 @@ extension ViewerViewController {
                     suggestedName: "\(ExtractionBundleNaming.sanitizeFilename(suggestedName)).\(ext)",
                     on: window
                 ) else {
-                    self?.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                self?.clearConsensusWorkflow(operationID: operationID)
                     return
                 }
                 guard !Task.isCancelled else {
-                    self?.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                self?.clearConsensusWorkflow(operationID: operationID)
                     return
                 }
                 let finalURL = self?.normalizedConsensusDestination(chosen, extension: ext) ?? chosen
@@ -366,24 +388,46 @@ extension ViewerViewController {
                     }
                     self?.clearConsensusWorkflow(operationID: operationID)
                 } catch is CancellationError {
-                    self?.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                    self?.clearConsensusWorkflow(operationID: operationID)
                 } catch {
                     self?.logConsensusFailure(error, operationID: operationID)
-                    _ = OperationCenter.shared.fail(id: operationID, detail: "Consensus publication failed", errorMessage: error.localizedDescription)
+                    let accepted = OperationCenter.shared.fail(id: operationID, detail: "Consensus publication failed", errorMessage: error.localizedDescription)
+                    self?.clearConsensusWorkflow(operationID: operationID)
+                    guard accepted else { return }
                     self?.presentExtractionFailureAlert(title: "Publish Consensus Failed", message: error.localizedDescription)
                     self?.clearConsensusWorkflow(operationID: operationID)
                 }
             }
             activeConsensusGenerationTask = task
-            OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
+            OperationCenter.shared.setCancelCallback(for: operationID) { [weak window] in
+                task.cancel()
+                DispatchQueue.main.async {
+                    if let window, let sheet = window.attachedSheet as? NSSavePanel {
+                        window.endSheet(sheet, returnCode: .cancel)
+                    }
+                }
+            }
         case .share:
             let task = Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
+                    return
+                }
                 do {
                     try Task.checkCancellation()
                     let directory = try TempFileManager.shared.createRegisteredTempDirectory(prefix: "lungfish-consensus-share-")
+                    var transferredToShareSession = false
+                    defer {
+                        if !transferredToShareSession {
+                            TempFileManager.shared.unregisterSessionTempDirectory(directory)
+                            try? FileManager.default.removeItem(at: directory)
+                        }
+                    }
                     let url = directory.appendingPathComponent("\(ExtractionBundleNaming.sanitizeFilename(suggestedName)).fasta")
                     let published = try await coordinator.publishConsensus(generation, destination: .fasta(url))
+                    try Task.checkCancellation()
+                    guard OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else { throw CancellationError() }
                     let sessionID = UUID()
                     let session = AlignmentConsensusShareSession(
                         cleanup: {
@@ -391,20 +435,20 @@ extension ViewerViewController {
                             try? FileManager.default.removeItem(at: directory)
                         },
                         finish: { [weak self] outcome in
-                            guard let self else { return }
-                            activeConsensusShareSessions[sessionID] = nil
+                            self?.activeConsensusShareSessions[sessionID] = nil
                             switch outcome {
                             case .shared:
                                 _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus shared")
                             case .cancelled:
-                                OperationCenter.shared.cancel(id: operationID)
+                                OperationCenter.shared.acknowledgeCancellation(id: operationID)
                             case .failed(let message):
                                 _ = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: message)
                             }
-                            clearConsensusWorkflow(operationID: operationID)
+                            self?.clearConsensusWorkflow(operationID: operationID)
                         }
                     )
                     activeConsensusShareSessions[sessionID] = session
+                    transferredToShareSession = true
                     OperationCenter.shared.setCancelCallback(for: operationID) {
                         DispatchQueue.main.async { session.cancel() }
                     }
@@ -417,7 +461,9 @@ extension ViewerViewController {
                     finishConsensusWorkflow(operationID: operationID, cancellation: true)
                 } catch {
                     logConsensusFailure(error, operationID: operationID)
-                    _ = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: error.localizedDescription)
+                    let accepted = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: error.localizedDescription)
+                    clearConsensusWorkflow(operationID: operationID)
+                    guard accepted else { return }
                     presentExtractionFailureAlert(title: "Share Consensus Failed", message: error.localizedDescription)
                     clearConsensusWorkflow(operationID: operationID)
                 }
@@ -428,7 +474,7 @@ extension ViewerViewController {
     }
 
     private func finishConsensusWorkflow(operationID: UUID, cancellation: Bool) {
-        if cancellation { OperationCenter.shared.cancel(id: operationID) }
+        if cancellation { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         clearConsensusWorkflow(operationID: operationID)
     }
 
@@ -699,11 +745,11 @@ extension ViewerViewController {
             } catch {
                 mappingDisplayLogger.error("extractOverlappingReads failed: \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
+                    guard OperationCenter.shared.fail(
                         id: opID,
                         detail: "Extract Overlapping Reads failed",
                         errorMessage: error.localizedDescription
-                    )
+                    ) else { return }
                     self?.presentExtractOverlappingReadsFailureAlert(error)
                 }}
             }
@@ -743,6 +789,7 @@ extension ViewerViewController {
             return
         }
         let outputBaseName = "\(ExtractionBundleNaming.sanitizeFilename(context.presentationLabel))_selected_\(Set(reads.map(\.name)).count)reads"
+        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: alignmentOperationRouteContext())
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -755,7 +802,7 @@ extension ViewerViewController {
                     records: reads,
                     destination: destination,
                     outputBaseName: outputBaseName,
-                    reporter: .operationCenter
+                    reporter: reporter
                 )
             } catch AlignmentScientificActionError.destinationCancelled {
                 return

@@ -13,13 +13,19 @@ final class LocalWorkflowExecutionService {
 
     private let operationCenter: OperationCenter
     private let processRunner: LocalWorkflowCLIProcessRunning
+    private let runtimeResolver: @Sendable (WorkflowEngineType) -> URL?
 
     init(
         operationCenter: OperationCenter = .shared,
-        processRunner: LocalWorkflowCLIProcessRunning = ProcessLocalWorkflowCLIProcessRunner()
+        processRunner: LocalWorkflowCLIProcessRunning = ProcessLocalWorkflowCLIProcessRunner(),
+        runtimeResolver: @escaping @Sendable (WorkflowEngineType) -> URL? = { engine in
+            WorkflowEngineLaunch.resolve(executableName: engine.executableName,
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser).resolvedExecutableURL()
+        }
     ) {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
+        self.runtimeResolver = runtimeResolver
     }
 
     func prepare(
@@ -74,38 +80,88 @@ final class LocalWorkflowExecutionService {
     func run(
         _ request: LocalWorkflowRunRequest,
         bundleRoot: URL,
-        routeContext: OperationRouteContext? = nil
+        routeContext: OperationRouteContext? = nil,
+        beforeRegister: @escaping @MainActor () throws -> Void = {}
     ) async throws -> RunResult {
-        try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
+        let replay = request.replaySourceBundleURL != nil
+        if !replay { try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true) }
         let bundleURL = try availableBundleURL(for: request, in: bundleRoot)
+        if let source = request.replaySourceBundleURL {
+            let runtimeResolver = runtimeResolver
+            let worker = Task.detached(priority: .userInitiated) {
+                let configuration = try LocalWorkflowReplayPreflight.load(from: source)
+                try LocalWorkflowReplayPreflight.validate(request: request, configuration: configuration,
+                    sourceBundleURL: source, runtimeURL: runtimeResolver(request.engine), runBundleURL: bundleURL)
+                guard (try? FileManager.default.attributesOfItem(atPath: bundleRoot.path)) == nil else {
+                    throw LocalWorkflowReplayError.repairRequired("Choose a fresh private history directory for this attempt.")
+                }
+            }
+            try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+            try Task.checkCancellation()
+            try beforeRegister()
+        }
         let commandPreview = cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: false)
+        let cancelWorker: (@Sendable () -> Void)?
+        if replay {
+            cancelWorker = { [weak self] in
+                Task { @MainActor in self?.processRunner.cancel() }
+            }
+        } else {
+            cancelWorker = nil
+        }
         let operationID = operationCenter.start(
             title: "Local Workflow",
             detail: "Running \(request.engine.displayName) workflow",
             operationType: .workflow,
             targetBundleURL: bundleURL,
+            additionalLockedBundleURLs: replay ? [request.outputDirectory] : [],
             cliCommand: commandPreview,
-            routeContext: routeContext
+            routeContext: routeContext,
+            onCancel: cancelWorker
         )
+        guard operationCenter.items.first(where: { $0.id == operationID })?.state == .running else {
+            throw LocalWorkflowReplayError.repairRequired("The output or run bundle is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: "Run bundle: \(bundleURL.path)")
         operationCenter.log(id: operationID, level: .info, message: request.commandPreview)
         operationCenter.log(id: operationID, level: .info, message: "Status: running")
         operationCenter.log(id: operationID, level: .info, message: commandPreview)
 
         do {
+            if replay {
+                try FileManager.default.createDirectory(at: bundleRoot.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try LocalWorkflowReplayReservation.reserveDirectory(at: bundleRoot)
+            }
             let result = try await processRunner.runLungfishCLI(
                 arguments: request.cliArguments(bundlePath: bundleURL),
-                workingDirectory: bundleURL
+                workingDirectory: replay ? bundleRoot : bundleURL
             )
+            if replay, operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             logProcessOutput(result, operationID: operationID)
             if result.exitCode == 0 {
                 try verifyCompletedRunBundle(at: bundleURL)
+                if replay {
+                    let completed = try await Task.detached {
+                        try LocalWorkflowReplayPreflight.load(from: bundleURL)
+                    }.value
+                    guard completed.request.engine == request.engine,
+                          completed.request.params == request.params,
+                          completed.request.cliArguments(bundlePath: bundleURL) == request.cliArguments(bundlePath: bundleURL) else {
+                        throw LocalWorkflowExecutionError.incompleteRunBundle(bundleURL.path)
+                    }
+                }
                 operationCenter.log(id: operationID, level: .info, message: "Status: completed")
                 _ = operationCenter.complete(
                     id: operationID,
                     detail: "Local workflow completed. Run bundle: \(bundleURL.path)",
                     bundleURLs: [bundleURL]
                 )
+                if replay, operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelled {
+                    throw CancellationError()
+                }
             } else {
                 let detail = "Local workflow failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: detail)
@@ -118,7 +174,9 @@ final class LocalWorkflowExecutionService {
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
         } catch {
-            if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
+            let state = operationCenter.items.first(where: { $0.id == operationID })?.state
+            let cancellationAccepted = replay && (state == .cancelling || state == .cancelled)
+            if state?.isActive == true {
                 _ = operationCenter.fail(
                     id: operationID,
                     detail: "Local workflow failed",
@@ -126,6 +184,7 @@ final class LocalWorkflowExecutionService {
                     errorDetail: String(describing: error)
                 )
             }
+            if cancellationAccepted { throw CancellationError() }
             throw error
         }
 

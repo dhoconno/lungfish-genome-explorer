@@ -110,6 +110,7 @@ extension ViewerViewController {
                             }
                         }
                     )
+                    try Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             let accepted = OperationCenter.shared.complete(
@@ -122,13 +123,16 @@ extension ViewerViewController {
                         }
                     }
                 } catch LungfishCLIRunner.RunError.cancelled {
+                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
+                            OperationCenter.shared.acknowledgeCancellation(id: operationID)
                             OperationCenter.shared.log(id: operationID, level: .info, message: "12S BLAST preparation cancelled")
                             controller.onUnresolvedBlastCancelRequested = nil
                         }
                     }
                 } catch {
+                    try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
                     let message = error.localizedDescription
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {

@@ -78,18 +78,9 @@ public enum SidebarImportPlanner {
         }
 
         if isDirectory.boolValue {
-            if ontDirectoryDetector(standardizedURL) {
+            if SidebarProjectScanner.isNativePackage(standardizedURL)
+                || ontDirectoryDetector(standardizedURL) {
                 appendAtomicSource(standardizedURL, seenPaths: &seenPaths, expanded: &expanded)
-                return
-            }
-
-            let ext = standardizedURL.pathExtension.lowercased()
-            if ext == "lungfishref"
-                || ext == FASTQBundle.directoryExtension
-                || ext == MHCAmpliconReferenceBundle.directoryExtension {
-                if isTopLevel {
-                    appendAtomicSource(standardizedURL, seenPaths: &seenPaths, expanded: &expanded)
-                }
                 return
             }
 

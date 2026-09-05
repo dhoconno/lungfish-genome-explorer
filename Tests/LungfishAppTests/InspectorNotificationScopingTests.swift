@@ -70,6 +70,22 @@ final class InspectorNotificationScopingTests: XCTestCase {
         XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .building)
     }
 
+    func testInspectorRejectsLateSameWindowBatchEventForDifferentContent() {
+        let inspector = InspectorViewController()
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
+        inspector.activeContentSelectionIdentity = ContentSelectionIdentity(
+            url: URL(fileURLWithPath: "/tmp/current-batch"), kind: "batch", windowID: scope.id)
+        inspector.viewModel.documentSectionViewModel.batchManifestStatus = .building
+        inspector.testingHandleBatchManifestCached(Notification(
+            name: .batchManifestCached, object: nil, userInfo: [
+                NotificationUserInfoKey.windowStateScope: scope,
+                NotificationUserInfoKey.contentSelectionIdentity: ContentSelectionIdentity(
+                    url: URL(fileURLWithPath: "/tmp/old-batch"), kind: "batch", windowID: scope.id)
+            ]))
+        XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .building)
+    }
+
     func testInspectorStillAcceptsLegacyUnscopedBatchManifestCached() {
         let inspector = InspectorViewController()
         _ = inspector.view

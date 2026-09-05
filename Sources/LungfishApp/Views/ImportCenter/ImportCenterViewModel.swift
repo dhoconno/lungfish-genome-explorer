@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import UniformTypeIdentifiers
 import LungfishCore
+import LungfishKit
 import LungfishWorkflow
 import os.log
 import Observation
@@ -13,9 +14,29 @@ import Observation
 /// Logger for the Import Center view model.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "ImportCenterVM")
 
+/// Dispatch is distinct from scientific completion, which belongs to Operation Center.
+enum ImportDispatchOutcome: Equatable, Sendable {
+    case configuring, started, cancelled
+    case rejected(String)
+}
+
+@MainActor
+final class ImportWizardRequest {
+    let sourceURL: URL?
+    var onOutcome: (ImportDispatchOutcome) -> Void
+    private(set) var acceptedSourceURL: URL?
+    var didPresent = false
+    init(sourceURL: URL?, onOutcome: @escaping (ImportDispatchOutcome) -> Void) {
+        self.sourceURL = sourceURL
+        self.onOutcome = onOutcome
+    }
+    func presented() { didPresent = true; onOutcome(.configuring) }
+    func started(sourceURL: URL) { acceptedSourceURL = sourceURL; onOutcome(.started) }
+}
+
 // MARK: - Import History Entry
 
-/// A persisted record of a single completed (or failed) import operation.
+/// A persisted record of an import dispatch; completion is shown in Operation Center.
 struct ImportHistoryEntry: Identifiable, Sendable, Codable {
     let id: UUID
     /// Human-readable label matching the import action, e.g. "BAM", "VCF", "NAO-MGS".
@@ -87,7 +108,7 @@ struct ImportCardInfo: Identifiable, Sendable {
     }
 
     /// Identifies which import action to dispatch.
-    enum ImportAction: Sendable {
+    enum ImportAction: Sendable, Equatable {
         case fastq
         case fastqSampleSheet
         case ontRun
@@ -185,6 +206,9 @@ final class ImportCenterViewModel {
 
     /// Currently selected tab.
     var selectedTab: Tab = .sequencingReads
+    var lastDispatchOutcome: ImportDispatchOutcome?
+    var dispatchMessage: String?
+
 
     // MARK: - Import History
 
@@ -467,7 +491,7 @@ final class ImportCenterViewModel {
             description: "Import Novel Virus Diagnostics (NVD) classification results. Parses blast_concatenated.csv or .csv.gz with BLAST hit rankings and mapped reads.",
             sfSymbol: "microscope",
             customImage: TextBadgeIcon.image(text: "NVD", size: NSSize(width: 28, height: 28)),
-            fileHint: "*_blast_concatenated.csv(.gz)",
+            fileHint: "NVD run folder containing *_blast_concatenated.csv(.gz)",
             tab: .classificationResults,
             importKind: .wizardSheet(action: .nvd)
         ),
@@ -609,7 +633,6 @@ final class ImportCenterViewModel {
     /// Extracts URLs from the provided item providers and dispatches them
     /// through the same path as a file-panel selection.
     func performDropImport(urls: [URL], for card: ImportCardInfo) {
-        guard !urls.isEmpty else { return }
         dispatchFileImport(urls: urls, action: card.importAction)
     }
 
@@ -666,9 +689,21 @@ final class ImportCenterViewModel {
     /// Dispatches imported file URLs to the appropriate app delegate method
     /// and records the operation in import history.
     func dispatchFileImport(urls: [URL], action: ImportCardInfo.ImportAction) {
+        guard let card = allCards.first(where: { $0.importAction == action }) else {
+            rejectDispatch("This import action is not available in Import Center.")
+            return
+        }
+        if let error = Self.validationError(urls: urls, card: card) {
+            rejectDispatch(error)
+            return
+        }
+        if case .wizardSheet = card.importKind {
+            openWizardSheet(action: action, sourceURL: urls.first)
+            return
+        }
         guard let appDelegate = NSApp.delegate as? AppDelegate else {
+            rejectDispatch("No application window is available for this import.")
             logger.error("Cannot access AppDelegate for import dispatch")
-            recordHistory(urls: urls, action: action, succeeded: false)
             return
         }
 
@@ -747,39 +782,104 @@ final class ImportCenterViewModel {
             break // Handled by wizard sheet path
         }
 
+        lastDispatchOutcome = .started
+        dispatchMessage = nil
         recordHistory(urls: urls, action: action, succeeded: true)
         logger.info("Dispatched \(urls.count) file(s) for \(String(describing: action)) import")
     }
 
     // MARK: - Wizard Sheets
 
-    private func openWizardSheet(action: ImportCardInfo.ImportAction) {
+    private func openWizardSheet(action: ImportCardInfo.ImportAction, sourceURL: URL? = nil) {
         guard let appDelegate = NSApp.delegate as? AppDelegate else {
-            logger.error("Cannot access AppDelegate for wizard sheet")
+            rejectDispatch("No application window is available for this import.")
             return
         }
-
-        // Close the Import Center window so the wizard sheet isn't hidden behind it
-        ImportCenterWindowController.close()
-
+        let request = makeWizardRequest(action: action, sourceURL: sourceURL)
         switch action {
-        case .naoMgs:
-            appDelegate.launchNaoMgsImport(nil)
-        case .nvd:
-            appDelegate.launchNvdImport(nil)
-        case .czId:
-            appDelegate.launchCzIdImport(nil)
-        case .primerScheme:
-            appDelegate.launchPrimerSchemeImport(nil)
-        case .kraken2:
-            appDelegate.launchKraken2Classification(nil)
-        case .esViritu:
-            appDelegate.launchEsVirituDetection(nil)
-        case .taxTriage:
-            appDelegate.launchTaxTriage(nil)
+        case .naoMgs: appDelegate.launchNaoMgsImport(request)
+        case .nvd: appDelegate.launchNvdImport(request)
+        case .czId: appDelegate.launchCzIdImport(request)
+        case .primerScheme: appDelegate.launchPrimerSchemeImport(request)
         default:
-            logger.warning("No wizard sheet defined for action: \(String(describing: action))")
+            rejectDispatch("This action has no import configuration sheet.")
+            return
         }
+        if request.didPresent {
+            ImportCenterWindowController.close()
+        } else {
+            rejectDispatch("Open a writable project window before configuring this import.")
+        }
+    }
+
+    func makeWizardRequest(action: ImportCardInfo.ImportAction, sourceURL: URL?) -> ImportWizardRequest {
+        let request = ImportWizardRequest(sourceURL: sourceURL) { _ in }
+        request.onOutcome = { [weak self, weak request] outcome in
+            guard let self else { return }
+            self.lastDispatchOutcome = outcome
+            if case .rejected(let message) = outcome {
+                self.dispatchMessage = message
+            } else {
+                self.dispatchMessage = nil
+            }
+            if outcome == .started, let sourceURL = request?.acceptedSourceURL {
+                self.recordHistory(urls: [sourceURL], action: action, succeeded: true)
+            }
+        }
+        return request
+    }
+
+    private func rejectDispatch(_ message: String) {
+        lastDispatchOutcome = .rejected(message)
+        dispatchMessage = message
+    }
+
+    /// Both panel selections and drops use the card's cardinality and type policy.
+    static func validationError(urls: [URL], card: ImportCardInfo) -> String? {
+        guard !urls.isEmpty else { return "Choose an input for \(card.title)." }
+        let configuration: ImportCardInfo.OpenPanelConfiguration
+        switch card.importKind {
+        case .openPanel(let value, _): configuration = value
+        case .wizardSheet(let action):
+            switch action {
+            case .naoMgs:
+                configuration = .init(allowedTypes: MetagenomicsFilePanelFactory.naoMgsImportContentTypes,
+                    canChooseDirectories: true, allowsMultipleSelection: false)
+            case .nvd:
+                configuration = .init(canChooseFiles: false, canChooseDirectories: true,
+                    allowsMultipleSelection: false)
+            case .czId:
+                configuration = .init(allowedTypes: MetagenomicsFilePanelFactory.czIdImportContentTypes,
+                    canChooseDirectories: true, allowsMultipleSelection: false)
+            case .primerScheme:
+                configuration = .init(allowedTypes: [UTType(filenameExtension: "bed") ?? .data],
+                    allowsMultipleSelection: false)
+            default: return "This action does not accept dropped inputs."
+            }
+        }
+        if !configuration.allowsMultipleSelection && urls.count != 1 {
+            return "Choose exactly one input for \(card.title)."
+        }
+        for url in urls {
+            var directory: ObjCBool = false
+            guard url.isFileURL, FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else {
+                return "The input is unavailable: \(url.lastPathComponent)."
+            }
+            if directory.boolValue {
+                guard configuration.canChooseDirectories else { return "\(card.title) requires a file." }
+            } else {
+                guard configuration.canChooseFiles else { return "\(card.title) requires a folder." }
+                if !configuration.allowsOtherFileTypes, let allowed = configuration.allowedTypes,
+                   let type = UTType(filenameExtension: url.pathExtension) {
+                    guard allowed.contains(where: { type.conforms(to: $0) }) else {
+                        return "\(url.lastPathComponent) is not an accepted input for \(card.title)."
+                    }
+                } else if !configuration.allowsOtherFileTypes, configuration.allowedTypes != nil {
+                    return "\(url.lastPathComponent) has an unsupported file type."
+                }
+            }
+        }
+        return nil
     }
 
     private func applicationExportKind(for action: ImportCardInfo.ImportAction) -> ApplicationExportKind? {

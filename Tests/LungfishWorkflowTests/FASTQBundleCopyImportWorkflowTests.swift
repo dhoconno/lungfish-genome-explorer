@@ -10,7 +10,7 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("copyItem(at: sourceBundleURL, to: stagingBundleURL)"))
-        XCTAssertTrue(source.contains("moveItem(at: stagingBundleURL, to: destinationBundleURL)"))
+        XCTAssertTrue(source.contains("publication.publish(stagedURL: stagingBundleURL, to: destinationBundleURL, replacingExisting: replaceExisting)"))
         XCTAssertFalse(
             source.contains("copyItem(at: sourceBundleURL, to: destinationBundleURL)"),
             "FASTQ bundle import must not publish a visible destination before provenance is written."
@@ -26,8 +26,8 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
 
         XCTAssertTrue(source.contains("removeItem(at: stagingBundleURL)"))
         XCTAssertTrue(
-            source.contains("if didPublishBundle"),
-            "Destination cleanup must only run after this workflow has published its owned staging bundle."
+            source.contains("publication.rollback(after: error)"),
+            "Destination restoration must use the transaction receipt and preserve recovery artifacts."
         )
     }
 
@@ -217,6 +217,63 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
             candidate.deleteLastPathComponent()
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+
+    func testReplacingExistingBundlePublishesNewPayloadAndFinalProvenance() throws {
+        let fixture = try replacementFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let result = try FASTQBundleCopyImportWorkflow().importBundle(sourceBundleURL: fixture.source,
+            outputURL: fixture.output, context: replacementContext(), replaceExisting: true)
+        XCTAssertEqual(try Data(contentsOf: result.bundleURL.appendingPathComponent("reads.fastq")),
+            try Data(contentsOf: fixture.source.appendingPathComponent("reads.fastq")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.output.appendingPathComponent("old.txt").path))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.output))
+        XCTAssertTrue(envelope.outputs.contains { $0.path == fixture.output.appendingPathComponent("reads.fastq").path })
+    }
+
+    func testReplacementProvenanceFailurePreservesOldBundle() throws {
+        let fixture = try replacementFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let writer = ProvenanceWriter(publicationMutationDidOccur: { _ in
+            throw NSError(domain: "replacement-writer-fixture", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "replacement writer fixture"])
+        }, signingProvider: nil)
+        XCTAssertThrowsError(try FASTQBundleCopyImportWorkflow(provenanceWriter: writer).importBundle(
+            sourceBundleURL: fixture.source, outputURL: fixture.output, context: replacementContext(), replaceExisting: true)) { error in
+            XCTAssertTrue(String(reflecting: error).contains("replacement"), "Must reach injected writer failure: \(error)")
+        }
+        XCTAssertEqual(try String(contentsOf: fixture.output.appendingPathComponent("old.txt"), encoding: .utf8), "previous")
+        XCTAssertEqual(try String(contentsOf: fixture.output.appendingPathComponent(ProvenanceWriter.provenanceFilename), encoding: .utf8), "previous provenance")
+    }
+
+    func testReplacementRejectsSourceDestinationAlias() throws {
+        let fixture = try replacementFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let alias = fixture.root.appendingPathComponent("alias.lungfishfastq")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: fixture.source)
+        for output in [fixture.source, alias] {
+            XCTAssertThrowsError(try FASTQBundleCopyImportWorkflow().importBundle(sourceBundleURL: fixture.source,
+                outputURL: output, context: replacementContext(), replaceExisting: true))
+        }
+        XCTAssertEqual(try String(contentsOf: fixture.source.appendingPathComponent("reads.fastq"), encoding: .utf8), "@fixture\nACGT\n+\n!!!!\n")
+    }
+
+    private func replacementContext() -> FASTQBundleCopyImportWorkflow.CommandContext {
+        .init(workflowName: "replacement fixture", toolName: "fixture", argv: ["fixture"])
+    }
+
+    private func replacementFixture() throws -> (root: URL, source: URL, output: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("fastq-replace-\(UUID())")
+        let source = root.appendingPathComponent("source.lungfishfastq")
+        let output = root.appendingPathComponent("output.lungfishfastq")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let reads = source.appendingPathComponent("reads.fastq")
+        try "@fixture\nACGT\n+\n!!!!\n".write(to: reads, atomically: true, encoding: .utf8)
+        try writeSourceFASTQBundleProvenance(bundleURL: source, fastqURL: reads)
+        try "previous".write(to: output.appendingPathComponent("old.txt"), atomically: true, encoding: .utf8)
+        try "previous provenance".write(to: output.appendingPathComponent(ProvenanceWriter.provenanceFilename), atomically: true, encoding: .utf8)
+        return (root, source, output)
     }
 
     private func writeSourceFASTQBundleProvenance(bundleURL: URL, fastqURL: URL) throws {

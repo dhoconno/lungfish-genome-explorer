@@ -133,7 +133,7 @@ final class SidebarImportPlannerTests: XCTestCase {
         XCTAssertTrue(plan.shouldAutoDisplayImportedContent)
     }
 
-    func testPlanSkipsNestedBundleDescendantsWhenExpandingFolder() throws {
+    func testPlanIncludesNestedBundleWithoutItsDescendantsWhenExpandingFolder() throws {
         let droppedFolder = tempDir.appendingPathComponent("decompressed")
         let nestedBundle = droppedFolder.appendingPathComponent("Existing.lungfishref")
         let nestedBundleGenome = nestedBundle.appendingPathComponent("genome")
@@ -150,10 +150,10 @@ final class SidebarImportPlannerTests: XCTestCase {
 
         let plan = SidebarImportPlanner.makePlan(for: [droppedFolder])
 
-        XCTAssertEqual(plan.sourceURLs.map(\.lastPathComponent), ["plain.fa"])
+        XCTAssertEqual(plan.sourceURLs.map(\.lastPathComponent), ["Existing.lungfishref", "plain.fa"])
     }
 
-    func testPlanSkipsNestedMHCReferenceBundleWhenExpandingFolder() throws {
+    func testPlanIncludesNestedMHCReferenceBundleWithoutItsDescendants() throws {
         let droppedFolder = tempDir.appendingPathComponent("decompressed")
         let nestedBundle = droppedFolder.appendingPathComponent("Existing.lungfishmhcref")
         let nestedBundleHaplotypes = nestedBundle.appendingPathComponent("haplotypes")
@@ -174,6 +174,26 @@ final class SidebarImportPlannerTests: XCTestCase {
 
         let plan = SidebarImportPlanner.makePlan(for: [droppedFolder])
 
-        XCTAssertEqual(plan.sourceURLs.map(\.lastPathComponent), ["plain.fa"])
+        XCTAssertEqual(plan.sourceURLs.map(\.lastPathComponent), ["Existing.lungfishmhcref", "plain.fa"])
+    }
+
+    func testEveryAdvertisedNativeDirectoryIsAtomicBeforeONTDetection() throws {
+        let extensions = ["lungfishref", "lungfishfastq", "lungfishmsa", "lungfishtree", "lungfishmhcref",
+                          "lungfishgenotype", "lungfish12s", "lungfish12sref", "lungfishprimers"]
+        for ext in extensions {
+            let bundle = tempDir.appendingPathComponent("Fixture.\(ext)", isDirectory: true)
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try ">internal\nAC\n".write(to: bundle.appendingPathComponent("internal.fa"), atomically: true, encoding: .utf8)
+            var consultedONTDetector = false
+            let plan = SidebarImportPlanner.makePlan(for: [bundle], ontDirectoryDetector: { _ in
+                consultedONTDetector = true
+                return false
+            })
+            XCTAssertEqual(plan.sourceURLs, [bundle.standardizedFileURL], ext)
+            XCTAssertFalse(consultedONTDetector, "Native identity must take precedence: \(ext)")
+        }
+        let nested = SidebarImportPlanner.makePlan(for: [tempDir])
+        XCTAssertEqual(nested.sourceURLs.count, extensions.count)
+        XCTAssertTrue(nested.sourceURLs.allSatisfy { extensions.contains($0.pathExtension) })
     }
 }

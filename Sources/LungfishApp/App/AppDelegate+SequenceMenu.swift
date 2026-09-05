@@ -578,10 +578,10 @@ extension AppDelegate {
                 annotation,
                 toBundleAt: bundleURL
             )
-            _ = OperationCenter.shared.complete(
+            guard OperationCenter.shared.complete(
                 id: opID,
                 detail: "Added annotation to \(result.track.name)"
-            )
+            ) else { return }
             let targetController = targetMainWindowController(routeContext: routeContext)
             let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
             if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
@@ -597,7 +597,7 @@ extension AppDelegate {
                 try targetViewerController.displayBundle(at: bundleURL)
             }
         } catch {
-            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
             showAlert(title: "Add Annotation Failed", message: error.localizedDescription)
         }
     }
@@ -771,10 +771,10 @@ extension AppDelegate {
                     if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
                     }
-                    _ = OperationCenter.shared.complete(
+                    guard OperationCenter.shared.complete(
                         id: opID,
                         detail: "Created annotation track in \(request.bundleURL.lastPathComponent)"
-                    )
+                    ) else { return }
                     self?.refreshReferenceBundleAfterSequenceAnnotation(
                         bundleURL: request.bundleURL,
                         viewerController: viewerController,
@@ -782,21 +782,23 @@ extension AppDelegate {
                     )
                 }}
             } catch LungfishCLIRunner.RunError.cancelled {
-                // OperationCenter owns the final Cancelled transition after teardown returns.
+                // The runner has exited and drained; acknowledge worker cancellation.
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
                 }}
             } catch is CancellationError {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
                 }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
+                    guard OperationCenter.shared.fail(
                         id: opID,
                         detail: "\(request.operation.displayName) failed",
                         errorMessage: error.localizedDescription
-                    )
+                    ) else { return }
                     self?.showAlert(
                         title: "\(request.operation.displayName) Failed",
                         message: error.localizedDescription,

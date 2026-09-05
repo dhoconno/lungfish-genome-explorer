@@ -138,7 +138,7 @@ struct LGEZipImportResolver {
 
             let values = try url.resourceValues(forKeys: [.isDirectoryKey])
             guard values.isDirectory == true else { continue }
-            guard Self.recognizedBundleExtensions.contains(url.pathExtension.lowercased()) else {
+            guard SidebarProjectScanner.isNativePackage(url) else {
                 continue
             }
 
@@ -151,14 +151,4 @@ struct LGEZipImportResolver {
         }
     }
 
-    private static let recognizedBundleExtensions: Set<String> = [
-        "lungfishref",
-        "lungfishtree",
-        FASTQBundle.directoryExtension,
-        MultipleSequenceAlignmentBundle.directoryExtension,
-        MHCAmpliconReferenceBundle.directoryExtension,
-        ONTGenotypeResultBundle.directoryExtension,
-        TwelveSAmpliconResultBundle.directoryExtension,
-        TwelveSReferenceBundle.directoryExtension
-    ]
 }

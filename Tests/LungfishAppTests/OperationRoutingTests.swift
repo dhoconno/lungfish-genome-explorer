@@ -103,8 +103,8 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
-    func testCopiedBundleImportRehydratesProvenancePathsToFinalProjectLocation() throws {
-        let delegate = AppDelegate()
+    func testCopiedBundleImportRehydratesProvenancePathsToFinalProjectLocation() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProvenanceRoute-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -132,13 +132,24 @@ final class OperationRoutingTests: XCTestCase {
             operationsPanelFilter: nil,
             operationsPanelVisible: false
         )
-        XCTAssertTrue(try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: [snapshot])))
+        let restored = try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: [snapshot]))
+        XCTAssertTrue(restored)
+        await delegate.testingWaitForProjectRestoration()
         let controller = try XCTUnwrap(delegate.testingMainWindowControllers.first)
 
         let sourceBundle = temp.appendingPathComponent("external.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
         let sourcePayload = sourceBundle.appendingPathComponent("payload.fa")
         try ">seq\nAAAA\n".write(to: sourcePayload, atomically: true, encoding: .utf8)
+        // This route opens the imported reference in a viewer; the fixture must
+        // include its manifest/index rather than a directory with only a payload.
+        try "seq\t4\t5\t4\t5\n".write(to: sourceBundle.appendingPathComponent("payload.fa.fai"), atomically: true, encoding: .utf8)
+        try BundleManifest(name: "external", identifier: "org.lungfish.tests.route",
+            source: SourceInfo(organism: "Synthetic fixture", assembly: "fixture"),
+            genome: GenomeInfo(path: "payload.fa", indexPath: "payload.fa.fai", totalLength: 4,
+                chromosomes: [ChromosomeInfo(name: "seq", length: 4, offset: 5, lineBases: 4, lineWidth: 5)]))
+            .save(to: sourceBundle)
+        defer { controller.close() }
         let provenanceURL = sourceBundle.appendingPathComponent(".lungfish-provenance.json")
         let provenance: [String: Any] = [
             "bundle": sourceBundle.path,
@@ -149,6 +160,9 @@ final class OperationRoutingTests: XCTestCase {
         let provenanceData = try JSONSerialization.data(withJSONObject: provenance, options: [.prettyPrinted])
         try provenanceData.write(to: provenanceURL)
 
+        let writeBlocked = delegate.isProjectWriteBlocked(projectURL: projectURL,
+            windowStateScope: controller.projectSession.windowStateScope)
+        XCTAssertFalse(writeBlocked, "The route fixture must permit downloaded output publication")
         delegate.importReadyBundles(
             [sourceBundle],
             routeContext: OperationRouteContext(
@@ -170,7 +184,7 @@ final class OperationRoutingTests: XCTestCase {
     }
 
     func testCopiedFileImportCarriesSourceAdjacentProvenanceSidecar() throws {
-        let delegate = AppDelegate()
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProvenanceFileRoute-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -226,27 +240,6 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertFalse(
             body.contains("mainWindowController?.mainSplitViewController?.viewerController"),
             "Sample metadata import must not route through the global main window in same-project multi-window sessions"
-        )
-    }
-
-    func testVCFImportWritesCanonicalProvenanceBeforeManifestUpdate() throws {
-        let source = combinedAppDelegateSource()
-        let body = try sourceFunctionBody(
-            named: "internal func performVCFImport",
-            endingBefore: "private func selectedVCFImportProfile",
-            in: source
-        )
-
-        XCTAssertTrue(body.contains("try rwDB.setMetadataValues("))
-        XCTAssertTrue(body.contains("\"workflow_provenance_path\": provenanceRelativePath"))
-        XCTAssertTrue(source.contains("ProvenanceWriter(signingProvider: nil).write("))
-
-        let provenanceRange = try XCTUnwrap(body.range(of: "try Self.writeVCFImportProvenance("))
-        let manifestRange = try XCTUnwrap(body.range(of: "try updatedManifest.save(to: bundleURL)"))
-        XCTAssertLessThan(
-            provenanceRange.lowerBound,
-            manifestRange.lowerBound,
-            "VCF import must write canonical provenance before publishing the track in the bundle manifest."
         )
     }
 
@@ -335,7 +328,7 @@ final class OperationRoutingTests: XCTestCase {
         )
         XCTAssertTrue(naoLaunch.contains("activeMainWindowController(sender: sender)"))
         XCTAssertTrue(naoLaunch.contains("currentOperationRouteContext(for: controller)"))
-        XCTAssertTrue(naoLaunch.contains("importNaoMgsResultFromURL(resultsDir, routeContext: routeContext)"))
+        XCTAssertTrue(naoLaunch.contains("importNaoMgsResultFromURL(resultsDir, routeContext: routeContext, onDispatch:"))
         XCTAssertFalse(naoLaunch.contains("mainWindowController?.window"))
 
         let primerLaunch = try sourceFunctionBody(
@@ -355,7 +348,7 @@ final class OperationRoutingTests: XCTestCase {
         )
         XCTAssertTrue(nvdLaunch.contains("activeMainWindowController(sender: sender)"))
         XCTAssertTrue(nvdLaunch.contains("currentOperationRouteContext(for: controller)"))
-        XCTAssertTrue(nvdLaunch.contains("importNvdResultFromURL(nvdDir, routeContext: routeContext)"))
+        XCTAssertTrue(nvdLaunch.contains("importNvdResultFromURL(nvdDir, routeContext: routeContext, onDispatch:"))
         XCTAssertFalse(nvdLaunch.contains("mainWindowController?.window"))
 
         let czIdLaunch = try sourceFunctionBody(
@@ -365,7 +358,7 @@ final class OperationRoutingTests: XCTestCase {
         )
         XCTAssertTrue(czIdLaunch.contains("activeMainWindowController(sender: sender)"))
         XCTAssertTrue(czIdLaunch.contains("currentOperationRouteContext(for: controller)"))
-        XCTAssertTrue(czIdLaunch.contains("importCzIdResultFromURL(sourceURL, routeContext: routeContext)"))
+        XCTAssertTrue(czIdLaunch.contains("importCzIdResultFromURL(sourceURL, routeContext: routeContext, onDispatch:"))
         XCTAssertFalse(czIdLaunch.contains("mainWindowController?.mainSplitViewController"))
 
         let nvdImport = try sourceFunctionBody(

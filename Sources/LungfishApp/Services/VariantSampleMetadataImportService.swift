@@ -31,15 +31,16 @@ struct VariantSampleMetadataImportResult: Sendable, Equatable {
 
 struct VariantSampleMetadataImportService {
     private let fileManager: FileManager
-    private let writeProvenance: (ProvenanceEnvelope, URL) throws -> URL
+    private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
     init(
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) {
         self.fileManager = fileManager
-        self.writeProvenance = { envelope, bundleURL in
-            try provenanceWriter.write(envelope, to: bundleURL)
+        self.writeProvenance = { envelope, bundleURL, publication in
+            try provenanceWriter.observingPublications { try publication.observeProvenance($0) }
+                .write(envelope, to: bundleURL)
         }
     }
 
@@ -48,7 +49,7 @@ struct VariantSampleMetadataImportService {
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
         self.fileManager = fileManager
-        self.writeProvenance = writeProvenance
+        self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
     func importMetadata(
@@ -69,24 +70,25 @@ struct VariantSampleMetadataImportService {
         }
 
         let startedAt = Date()
-        let backupDirectory = try makeBackupDirectory()
-        defer { try? fileManager.removeItem(at: backupDirectory) }
-        let backups = try targets.map { try backupDatabase($0.databaseURL, in: backupDirectory) }
-
-        let metadataInput = try ProvenanceFileDescriptor.file(url: metadataURL, format: .text, role: .input)
-        let contextInputs = try contextInputDescriptors(bundleURL: bundleURL, targets: targets)
-        let databaseInputs = try targets.map {
-            try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .input)
-        }
+        let publication = try VariantMutationPublication(databaseURLs: targets.map(\.databaseURL),
+            bundleURL: bundleURL, fileManager: fileManager)
 
         do {
+            let retainedMetadataURL = publication.inputDirectory.appendingPathComponent("metadata-" + metadataURL.lastPathComponent)
+            try fileManager.copyItem(at: metadataURL, to: retainedMetadataURL)
+            let retained = try ProvenanceFileDescriptor.file(url: retainedMetadataURL, format: .text, role: .input)
+            let metadataInput = ProvenanceFileDescriptor(path: retained.path, checksumSHA256: retained.checksumSHA256,
+                fileSize: retained.fileSize, format: .text, role: .input, originPath: metadataURL.path)
+            let contextInputs = try contextInputDescriptors(bundleURL: bundleURL, targets: targets)
+            let databaseInputs = try targets.map { try publication.inputDescriptor(for: $0.databaseURL) }
             var updatedCounts: [String: Int] = [:]
             for target in targets {
-                let database = try VariantDatabase(url: target.databaseURL, readWrite: true)
-                let count = try database.importSampleMetadata(from: metadataURL, format: format)
+                let database = publication.database(at: target.databaseURL)
+                let count = try database.importSampleMetadata(from: retainedMetadataURL, format: format)
                 updatedCounts[target.databaseURL.path] = count
             }
 
+            try publication.checkpoint()
             let databaseOutputs = try targets.map {
                 try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .output)
             }
@@ -104,14 +106,14 @@ struct VariantSampleMetadataImportService {
                 startedAt: startedAt,
                 completedAt: completedAt
             )
-            let provenanceURL = try writeProvenance(envelope, bundleURL)
+            let provenanceURL = try writeProvenance(envelope, bundleURL, publication)
+            publication.commit()
             return VariantSampleMetadataImportResult(
                 updatedCountsByDatabase: updatedCounts,
                 provenanceURL: provenanceURL
             )
         } catch {
-            restore(backups)
-            throw error
+            try publication.rollback(after: error)
         }
     }
 
@@ -189,10 +191,9 @@ struct VariantSampleMetadataImportService {
         .runtime(ProvenanceRuntimeIdentity())
         .step(step)
 
-        builder = try builder.input(metadataURL, format: .text, role: .input)
-        for contextURL in contextURLs(bundleURL: bundleURL, targets: targets) {
-            builder = try builder.input(contextURL, format: formatForContextURL(contextURL), role: .input)
-        }
+        builder = try builder.consumedInputSnapshot(metadataInput)
+        for input in databaseInputs { builder = try builder.consumedInputSnapshot(input) }
+        for input in contextInputs { builder = try builder.consumedInputSnapshot(input) }
         for target in targets {
             builder = try builder.output(target.databaseURL, format: .unknown, role: .output)
         }
@@ -218,12 +219,6 @@ struct VariantSampleMetadataImportService {
         let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
         if fileManager.fileExists(atPath: manifestURL.path) {
             urls.append(manifestURL)
-        }
-        for target in targets {
-            let indexURL = URL(fileURLWithPath: target.databaseURL.path + "-shm")
-            if fileManager.fileExists(atPath: indexURL.path) {
-                urls.append(indexURL)
-            }
         }
         return uniqueURLs(urls)
     }
@@ -258,45 +253,6 @@ struct VariantSampleMetadataImportService {
         return result
     }
 
-    private func makeBackupDirectory() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("variant-sample-metadata-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private func backupDatabase(_ databaseURL: URL, in backupDirectory: URL) throws -> DatabaseBackup {
-        let backupURL = backupDirectory.appendingPathComponent(UUID().uuidString + "-" + databaseURL.lastPathComponent)
-        try fileManager.copyItem(at: databaseURL, to: backupURL)
-        let sidecarBackups = try databaseSidecarSuffixes.compactMap { suffix -> DatabaseSidecarBackup? in
-            let sourceURL = URL(fileURLWithPath: databaseURL.path + suffix)
-            guard fileManager.fileExists(atPath: sourceURL.path) else {
-                return nil
-            }
-            let copiedURL = backupDirectory.appendingPathComponent(UUID().uuidString + "-" + databaseURL.lastPathComponent + suffix)
-            try fileManager.copyItem(at: sourceURL, to: copiedURL)
-            return DatabaseSidecarBackup(originalURL: sourceURL, backupURL: copiedURL)
-        }
-        return DatabaseBackup(originalURL: databaseURL, backupURL: backupURL, sidecars: sidecarBackups)
-    }
-
-    private func restore(_ backups: [DatabaseBackup]) {
-        for backup in backups {
-            try? fileManager.removeItem(at: backup.originalURL)
-            try? fileManager.copyItem(at: backup.backupURL, to: backup.originalURL)
-            for suffix in databaseSidecarSuffixes {
-                try? fileManager.removeItem(at: URL(fileURLWithPath: backup.originalURL.path + suffix))
-            }
-            for sidecar in backup.sidecars {
-                try? fileManager.copyItem(at: sidecar.backupURL, to: sidecar.originalURL)
-            }
-        }
-    }
-
-    private var databaseSidecarSuffixes: [String] {
-        ["-wal", "-shm"]
-    }
-
     private func shellEscape(_ value: String) -> String {
         guard !value.isEmpty else { return "''" }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/._-:=,+"))
@@ -305,15 +261,4 @@ struct VariantSampleMetadataImportService {
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
-}
-
-private struct DatabaseBackup {
-    let originalURL: URL
-    let backupURL: URL
-    let sidecars: [DatabaseSidecarBackup]
-}
-
-private struct DatabaseSidecarBackup {
-    let originalURL: URL
-    let backupURL: URL
 }

@@ -71,7 +71,7 @@ final class ViralReconWorkflowExecutionService {
             cliCommand: commandPreview,
             routeContext: routeContext
         )
-        let cancellation = ViralReconWorkflowProcessCancellation(runner: processRunner)
+        let cancellation = ViralReconWorkflowProcessCancellation(runner: processRunner, operationCenter: operationCenter, operationID: operationID)
         operationCenter.setCancelCallback(for: operationID) {
             cancellation.cancel()
         }
@@ -102,7 +102,7 @@ final class ViralReconWorkflowExecutionService {
             }
 
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
-                await waitForOperationCancellation(operationID)
+                operationCenter.acknowledgeCancellation(id: operationID)
             } else if processResult.exitCode == 0 {
                 operationCenter.log(id: operationID, level: .info, message: "Viral Recon completed")
                 await ingestResults(
@@ -133,7 +133,7 @@ final class ViralReconWorkflowExecutionService {
                 throw ViralReconWorkflowExecutionError.nonZeroExit(processResult.exitCode)
             }
         } catch {
-            if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
+            if operationCenter.items.first(where: { $0.id == operationID })?.state.isActive == true {
                 _ = operationCenter.fail(
                     id: operationID,
                     detail: "Viral Recon failed",
@@ -246,18 +246,6 @@ final class ViralReconWorkflowExecutionService {
         }
         if let publicationFailure {
             throw publicationFailure
-        }
-    }
-
-    private func waitForOperationCancellation(_ operationID: UUID) async {
-        for _ in 0..<50 {
-            guard let item = operationCenter.items.first(where: { $0.id == operationID }) else {
-                return
-            }
-            if !item.state.isActive {
-                return
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
 
@@ -619,15 +607,20 @@ final class ViralReconWorkflowExecutionService {
 
 private final class ViralReconWorkflowProcessCancellation: @unchecked Sendable {
     private let runner: ViralReconWorkflowProcessRunning
+    private let operationCenter: OperationCenter
+    private let operationID: UUID
 
     @MainActor
-    init(runner: ViralReconWorkflowProcessRunning) {
+    init(runner: ViralReconWorkflowProcessRunning, operationCenter: OperationCenter, operationID: UUID) {
         self.runner = runner
+        self.operationCenter = operationCenter
+        self.operationID = operationID
     }
 
     func cancel() {
         DispatchQueue.main.async { [self] in
             MainActor.assumeIsolated {
+                guard operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
                 runner.cancel()
             }
         }

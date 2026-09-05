@@ -29,10 +29,10 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
         XCTAssertEqual(envelope.workflowName, "Variant deletion")
         XCTAssertEqual(envelope.options.explicit["scope"]?.stringValue, "selected")
-        XCTAssertTrue(envelope.files.contains { $0.path == fixture.databaseURL.path && $0.role == .input })
+        XCTAssertTrue(envelope.files.contains { $0.originPath == fixture.databaseURL.path && $0.role == .input })
         XCTAssertTrue(envelope.outputs.contains { $0.path == fixture.databaseURL.path && $0.role == .output })
         let inputDB = try XCTUnwrap(envelope.files.first {
-            $0.path == fixture.databaseURL.path && $0.role == .input
+            $0.originPath == fixture.databaseURL.path && $0.role == .input
         })
         let outputDB = try XCTUnwrap(envelope.outputs.first {
             $0.path == fixture.databaseURL.path && $0.role == .output
@@ -91,6 +91,41 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
         ))
+    }
+
+    func testProvenanceFailureRestoresLiveReaderAndPreviousProvenance() throws {
+        let fixture = try makeVariantBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let reader = try VariantDatabase(url: fixture.databaseURL)
+        let provenanceURL = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try ProvenanceWriter(signingProvider: nil).write(ProvenanceEnvelope(workflowName: "Previous fixture",
+            toolName: "fixture", toolVersion: "1", argv: ["/bin/true"], exitStatus: 0), to: fixture.bundleURL)
+        let original = try Data(contentsOf: provenanceURL)
+        let service = VariantDeletionMutationService(provenanceWriter: ProvenanceWriter(publicationMutationDidOccur: { mutation in
+            if mutation.affectedURLs.contains(provenanceURL) { throw IntentionalVariantDeletionProvenanceFailure.write }
+        }, signingProvider: nil))
+        XCTAssertThrowsError(try service.deleteAllVariants(bundleURL: fixture.bundleURL, targets: [
+            VariantDeletionMutationTarget(trackId: "trackA", databaseURL: fixture.databaseURL)
+        ]))
+        XCTAssertEqual(reader.totalCount(), 2, "An existing reader must observe the rolled-back database")
+        XCTAssertEqual(try VariantDatabase(url: fixture.databaseURL).totalCount(), 2)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), original)
+    }
+
+    func testUnsignedMutationRejectsSigningDirectoryAndRestoresLiveDatabase() throws {
+        let fixture = try makeVariantBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let reader = try VariantDatabase(url: fixture.databaseURL)
+        let receipt = fixture.bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let obstruction = ProvenanceSigningConfiguration.signatureURL(for: receipt)
+        try FileManager.default.createDirectory(at: obstruction, withIntermediateDirectories: true)
+        let marker = obstruction.appendingPathComponent("retained.txt")
+        try Data("retained directory".utf8).write(to: marker)
+        XCTAssertThrowsError(try VariantDeletionMutationService().deleteAllVariants(bundleURL: fixture.bundleURL,
+            targets: [VariantDeletionMutationTarget(trackId: "trackA", databaseURL: fixture.databaseURL)]))
+        XCTAssertEqual(reader.totalCount(), 2)
+        XCTAssertEqual(try? Data(contentsOf: marker), Data("retained directory".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: receipt.path))
     }
 
     private func makeVariantBundle() throws -> (root: URL, bundleURL: URL, databaseURL: URL) {

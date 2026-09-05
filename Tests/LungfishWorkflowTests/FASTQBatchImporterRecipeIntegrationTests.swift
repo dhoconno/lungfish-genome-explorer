@@ -208,9 +208,10 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
 
     func testRunBatchImportVSP2RetainsDeaconSummaryArtifactAndProvenance() async throws {
         try await requireManagedTools([.fastp, .seqkit, .deacon])
-        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
+        guard let installedDatabase = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
             try ToolAvailability.skipOrFail("Deacon human-read removal index (deacon-panhuman) not installed")
         }
+        _ = try ConformanceFixtures.installedManagedDatabaseFile(id: "deacon-panhuman", path: installedDatabase)
         let recipe = try XCTUnwrap(
             RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
         )

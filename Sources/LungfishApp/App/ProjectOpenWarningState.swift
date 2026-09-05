@@ -46,6 +46,11 @@ public struct ProjectOpenWarningState: Sendable, Equatable {
         lockManager: ProjectLockManager = ProjectLockManager()
     ) -> ProjectOpenWarningState {
         let standardizedProjectURL = projectURL.standardizedFileURL
+        // Only the exact retained lease record is ours. A matching PID alone
+        // cannot exempt a replaced lock or another writer in this process.
+        if ProjectStore.ownsWriterLease(at: standardizedProjectURL) {
+            return .unlocked(projectURL: standardizedProjectURL)
+        }
         do {
             let readResult = try lockManager.readLockResult(forProjectAt: standardizedProjectURL)
             guard case .valid(let record) = readResult else {

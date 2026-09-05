@@ -641,6 +641,13 @@ extension BundleManifest {
         copy(modifiedDate: Date(), variants: variants + [track], browserSummary: .some(nil))
     }
 
+    /// Replaces the selected variant track while retaining unrelated bundle
+    /// fields. A new track is appended when its identifier is not present.
+    public func replacingVariantTrack(_ track: VariantTrackInfo) -> BundleManifest {
+        copy(modifiedDate: Date(), variants: variants.filter { $0.id != track.id } + [track],
+            browserSummary: .some(nil))
+    }
+
     /// Returns a new manifest with the variant count updated for a specific track.
     public func updatingVariantCount(trackId: String, newCount: Int) -> BundleManifest {
         let updatedVariants = variants.map { track -> VariantTrackInfo in

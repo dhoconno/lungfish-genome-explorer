@@ -133,8 +133,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         XCTAssertEqual(splitFrameInContent.width, contentView.bounds.width, accuracy: 1)
     }
 
-    func testRestoreCreatesTwoControllersForSameProjectSnapshots() throws {
-        let delegate = AppDelegate()
+    func testRestoreCreatesTwoControllersForSameProjectSnapshots() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RestoreSameProject-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -186,6 +186,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         ]
 
         try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: snapshots))
+        await delegate.testingWaitForProjectRestoration()
 
         XCTAssertEqual(delegate.testingMainWindowControllers.count, 2)
         XCTAssertEqual(
@@ -194,8 +195,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
     }
 
-    func testRestoreDoesNotDeleteProjectTempDirectory() throws {
-        let delegate = AppDelegate()
+    func testRestoreDoesNotDeleteProjectTempDirectory() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RestorePreservesProjectTemp-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -235,14 +236,15 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: [snapshot])))
+        await delegate.testingWaitForProjectRestoration()
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: pendingTempFile.path),
             "Persistent window restore must not delete project-scoped workflow temp state"
         )
     }
 
-    func testOpeningFirstProjectDoesNotDeleteTerminalTempDirectory() throws {
-        let delegate = AppDelegate()
+    func testOpeningFirstProjectDoesNotDeleteTerminalTempDirectory() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "FirstOpenPreservesProjectTemp-\(UUID().uuidString)",
@@ -297,6 +299,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         defer { controller.close() }
 
         delegate.testingOpenProject(projectURL, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
 
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: pending.path),
@@ -304,8 +307,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
     }
 
-    func testOpeningDuplicateProjectWindowDoesNotDeleteProjectTempDirectory() throws {
-        let delegate = AppDelegate()
+    func testOpeningDuplicateProjectWindowDoesNotDeleteProjectTempDirectory() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("DuplicateOpenPreservesProjectTemp-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -322,6 +325,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         }
 
         delegate.testingOpenProject(projectURL, in: first)
+        await delegate.testingWaitForProjectOpen(in: first)
 
         let pendingTempFile = projectURL
             .appendingPathComponent(".tmp", isDirectory: true)
@@ -334,6 +338,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         try "pending".write(to: pendingTempFile, atomically: true, encoding: .utf8)
 
         delegate.testingOpenProject(projectURL, in: second)
+        await delegate.testingWaitForProjectOpen(in: second)
 
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: pendingTempFile.path),
@@ -342,8 +347,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
     }
 
     @MainActor
-    func testSwitchingControllerStopsOldProjectCleanupLifecycle() throws {
-        let delegate = AppDelegate()
+    func testSwitchingControllerStopsOldProjectCleanupLifecycle() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "SwitchCleanupLifecycle-\(UUID().uuidString)",
@@ -376,12 +381,14 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         defer { controller.close() }
 
         delegate.testingOpenProject(first, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
         XCTAssertTrue(
             delegate
                 .testingHasAutomaticProjectStorageCleanupLifecycle(first)
         )
 
         delegate.testingOpenProject(second, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
 
         XCTAssertFalse(
             delegate
@@ -394,8 +401,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
     }
 
     @MainActor
-    func testFilesystemFallbackOwnsNoCleanupLifecycle() throws {
-        let delegate = AppDelegate()
+    func testFilesystemFallbackOwnsNoCleanupLifecycle() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "FallbackCleanupLifecycle-\(UUID().uuidString)",
@@ -428,9 +435,13 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         defer { controller.close() }
 
         delegate.testingOpenProject(valid, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
         delegate.testingOpenProject(fallback, in: controller)
+        await delegate.testingWaitForProjectOpen(in: controller)
 
-        XCTAssertNil(controller.projectSession.projectURL)
+        XCTAssertEqual(controller.projectSession.projectURL?.standardizedFileURL.path, fallback.standardizedFileURL.path)
+        XCTAssertTrue(controller.projectSession.isReadOnlyFilesystemFallback)
+        XCTAssertTrue(controller.projectSession.isReadOnlyRecommended)
         XCTAssertFalse(
             delegate
                 .testingHasAutomaticProjectStorageCleanupLifecycle(valid)
@@ -441,8 +452,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
     }
 
-    func testClosingDuplicateWindowRetitlesRemainingSameProjectWindows() throws {
-        let delegate = AppDelegate()
+    func testClosingDuplicateWindowRetitlesRemainingSameProjectWindows() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RetitleSameProjectWindows-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -473,6 +484,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
             )
         }
         XCTAssertTrue(try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: snapshots)))
+        await delegate.testingWaitForProjectRestoration()
 
         let secondWindow = try XCTUnwrap(delegate.testingMainWindowControllers.dropFirst().first?.window)
         let notification = Notification(name: NSWindow.willCloseNotification, object: secondWindow)
@@ -502,8 +514,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
     }
 
-    func testRestoreSkipsCorruptSavedProjectAndKeepsRestoringOtherWindows() throws {
-        let delegate = AppDelegate()
+    func testRestoreSkipsCorruptSavedProjectAndKeepsRestoringOtherWindows() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RestoreCorruptProject-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -558,6 +570,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         ]
 
         XCTAssertTrue(try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: snapshots)))
+        await delegate.testingWaitForProjectRestoration()
         XCTAssertEqual(delegate.testingMainWindowControllers.count, 1)
         XCTAssertEqual(
             delegate.testingMainWindowControllers.first?.projectSession.projectURL?.standardizedFileURL,

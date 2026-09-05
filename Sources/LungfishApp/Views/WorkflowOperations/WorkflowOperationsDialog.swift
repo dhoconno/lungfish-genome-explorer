@@ -9,6 +9,8 @@ struct WorkflowOperationsDialog: View {
     @Bindable var state: WorkflowOperationDialogState
     let onRun: (WorkflowOperationLaunchRequest) -> Void
     let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
+    let onOpenPreviousRun: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
         DatasetOperationsDialog(
@@ -21,12 +23,13 @@ struct WorkflowOperationsDialog: View {
             isRunEnabled: state.isRunEnabled,
             accessibilityNamespace: "workflow-operations",
             onSelectTool: state.selectTool(_:),
-            onCancel: { NSApp.keyWindow?.close() },
+            onCancel: onCancel,
             onRun: runSelectedWorkflow
         ) {
             WorkflowOperationsDetailPane(
                 state: state,
-                onCreateTwelveSReferenceBundle: onCreateTwelveSReferenceBundle
+                onCreateTwelveSReferenceBundle: onCreateTwelveSReferenceBundle,
+                onOpenPreviousRun: onOpenPreviousRun
             )
         }
         .alert(
@@ -53,6 +56,7 @@ struct WorkflowOperationsDialog: View {
 private struct WorkflowOperationsDetailPane: View {
     @Bindable var state: WorkflowOperationDialogState
     let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
+    let onOpenPreviousRun: () -> Void
     @State private var showingTwelveSReferenceBuilder = false
     @State private var twelveSReferenceDraft = TwelveSReferenceBundleDraft()
     @State private var multiBundleRunMode: MultiBundleRunMode = .combined
@@ -74,6 +78,21 @@ private struct WorkflowOperationsDetailPane: View {
                 section(DatasetOperationSection.overview.title) {
                     Text(state.selectedToolSummary)
                         .foregroundStyle(.secondary)
+                    Button("Open Previous Run…", action: onOpenPreviousRun)
+                        .accessibilityIdentifier("workflow-operations-open-previous-run")
+                    if let configuration = state.replayConfiguration, let source = state.replaySourceBundleURL {
+                        Text("Run Again: \(configuration.identity.packageManifest.name), version \(configuration.identity.packageManifest.version)")
+                            .font(.headline)
+                        Text(source.path).font(.caption).textSelection(.enabled)
+                        Text("\(configuration.request.inputURLs.count) retained inputs · \(configuration.request.cpus ?? 0) cores · fresh output directory")
+                            .font(.caption)
+                        Text("Only the original package and input bytes are accepted. Locate missing copies, then check the configuration. The previous run stays unchanged.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Open Workflow Library…") { WorkflowLibraryWindowController.show() }
+                            Button("Open Tool Setup…") { PluginManagerWindowController.show() }
+                        }
+                    }
                 }
 
                 section(DatasetOperationSection.inputs.title) {
@@ -101,9 +120,15 @@ private struct WorkflowOperationsDetailPane: View {
                 }
 
                 section(DatasetOperationSection.readiness.title) {
-                    Text(state.readinessText)
+                    Text(state.isSubmittingReplay ? "Validating the captured configuration before launch…" : state.readinessText)
                         .font(.callout)
                         .foregroundStyle(state.isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
+                    if state.replayConfiguration != nil {
+                        Button("Check Configuration") { Task { await state.checkReplayConfiguration() } }
+                            .disabled(state.isCheckingReplay || state.isSubmittingReplay)
+                            .accessibilityIdentifier("workflow-operations-check-repeat")
+                        if state.isCheckingReplay || state.isSubmittingReplay { ProgressView().controlSize(.small) }
+                    }
                 }
             }
             .padding(.horizontal, 24)
@@ -190,6 +215,10 @@ private struct WorkflowOperationsDetailPane: View {
                     policy: Self.multiBundleRunPolicy,
                     selection: $multiBundleRunMode
                 )
+            }
+            if state.replayConfiguration != nil {
+                Button("Locate Original Reads…") { browseForReplayReads() }
+                    .accessibilityIdentifier("workflow-operations-locate-repeat-reads")
             }
             Text(state.selectedReadsDisplay)
                 .font(.caption)
@@ -305,7 +334,9 @@ private struct WorkflowOperationsDetailPane: View {
         case .workflowPackage(let package):
             VStack(alignment: .leading, spacing: 8) {
                 labeledTextField("Output Name", text: $state.outputName)
+                    .disabled(state.replayConfiguration != nil)
                 labeledCompactTextField("Cores", value: $state.threads)
+                    .disabled(state.replayConfiguration != nil)
                 Text("\(package.manifest.runner.kind.rawValue.capitalized) package, version \(package.manifest.version).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -677,7 +708,26 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
+    private func browseForReplayReads() {
+        let sessionID = state.replaySessionID
+        let panel = NSOpenPanel()
+        panel.title = "Locate Original FASTQ Bundle"
+        panel.message = "Choose the original .lungfishfastq bundle or an identical relocated copy."
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.treatsFilePackagesAsDirectories = true
+        panel.allowsMultipleSelection = false
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, state.replaySessionID == sessionID, let url = panel.url else { return }
+            state.setReads([url])
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else { panel.begin(completionHandler: completion) }
+    }
+
     private func browseForReference() {
+        let sessionID = state.replaySessionID
         let panel = NSOpenPanel()
         panel.title = "Choose Reference"
         panel.message = "Select a .lungfishref bundle or FASTA file."
@@ -685,7 +735,7 @@ private struct WorkflowOperationsDetailPane: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK else { return }
+            guard response == .OK, state.replaySessionID == sessionID else { return }
             state.setReference(panel.url)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -749,13 +799,14 @@ private struct WorkflowOperationsDetailPane: View {
     }
 
     private func browseForOutputDirectory() {
+        let sessionID = state.replaySessionID
         let panel = NSOpenPanel()
-        panel.title = "Choose Output Directory"
+        panel.title = state.replayConfiguration == nil ? "Choose Output Directory" : "Choose Parent for New Attempt"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK else { return }
+            guard response == .OK, state.replaySessionID == sessionID else { return }
             state.setOutputDirectory(panel.url)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {

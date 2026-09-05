@@ -7,7 +7,10 @@ public struct LocalWorkflowInputBinding: Codable, Sendable, Equatable {
     public let role: FileRole
 
     public init(url: URL, role: FileRole = .input) {
-        let record = ProvenanceRecorder.fileRecord(url: url.standardizedFileURL, role: role)
+        self.init(record: ProvenanceRecorder.fileRecord(url: url.standardizedFileURL, role: role))
+    }
+
+    public init(record: FileRecord) {
         self.path = record.path
         self.sha256 = record.sha256
         self.sizeBytes = record.sizeBytes
@@ -41,6 +44,9 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
     public static let schemaVersion = 1
 
     public let schemaVersion: Int
+    /// Exact typed configuration; legacy manifests remain readable without replay support.
+    public let request: LocalWorkflowRunRequest?
+    public let replayIdentity: LocalWorkflowReplayIdentity?
     public let workflowName: String
     public let workflowDisplayName: String
     public let workflowPath: String
@@ -64,6 +70,8 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
 
     public init(
         request: LocalWorkflowRunRequest,
+        replayIdentity: LocalWorkflowReplayIdentity? = nil,
+        inputBindings: [LocalWorkflowInputBinding]? = nil,
         executionStatus: NFCoreRunExecutionStatus = .prepared,
         statusHistory: [LocalWorkflowRunStatusEvent]? = nil,
         startedAt: Date? = nil,
@@ -74,6 +82,8 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
         createdAt: Date = Date()
     ) {
         self.schemaVersion = Self.schemaVersion
+        self.request = request
+        self.replayIdentity = replayIdentity
         self.workflowName = request.workflowName
         self.workflowDisplayName = request.workflowDisplayName
         self.workflowPath = request.workflowURL.path
@@ -81,7 +91,7 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
         self.appVersion = Self.hostAppVersion
         self.appBuildVersion = Self.hostAppBuildVersion
         self.params = request.effectiveParams
-        self.inputBindings = request.inputURLs.map { LocalWorkflowInputBinding(url: $0) }
+        self.inputBindings = inputBindings ?? request.inputURLs.map { LocalWorkflowInputBinding(url: $0) }
         self.outputDirectoryName = request.outputDirectory.lastPathComponent
         self.commandPreview = request.commandPreview
         self.resume = request.resume
@@ -148,6 +158,7 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
     public let workDirectory: URL?
     public let cpus: Int?
     public let memory: String?
+    public let replaySourceBundleURL: URL?
 
     public var workflowName: String {
         let stem = workflowURL.deletingPathExtension().lastPathComponent
@@ -245,7 +256,8 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
         resume: Bool = false,
         workDirectory: URL? = nil,
         cpus: Int? = nil,
-        memory: String? = nil
+        memory: String? = nil,
+        replaySourceBundleURL: URL? = nil
     ) {
         let standardizedWorkflow = workflowURL.standardizedFileURL
         self.workflowURL = standardizedWorkflow
@@ -258,10 +270,13 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
         self.workDirectory = workDirectory?.standardizedFileURL
         self.cpus = cpus
         self.memory = memory
+        self.replaySourceBundleURL = replaySourceBundleURL?.standardizedFileURL
     }
 
     public func manifest(
         createdAt: Date = Date(),
+        replayIdentity: LocalWorkflowReplayIdentity? = nil,
+        inputBindings: [LocalWorkflowInputBinding]? = nil,
         executionStatus: NFCoreRunExecutionStatus = .prepared,
         statusHistory: [LocalWorkflowRunStatusEvent]? = nil,
         startedAt: Date? = nil,
@@ -272,6 +287,8 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
     ) -> LocalWorkflowRunBundleManifest {
         LocalWorkflowRunBundleManifest(
             request: self,
+            replayIdentity: replayIdentity,
+            inputBindings: inputBindings,
             executionStatus: executionStatus,
             statusHistory: statusHistory,
             startedAt: startedAt,
@@ -314,6 +331,9 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
         }
         if let memory {
             args += ["--memory", memory]
+        }
+        if let replaySourceBundleURL {
+            args += ["--repeat-from", replaySourceBundleURL.path]
         }
         if prepareOnly {
             args.append("--prepare-only")

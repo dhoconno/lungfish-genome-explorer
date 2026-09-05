@@ -43,6 +43,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private let projectSessionRegistry = ProjectSessionRegistry()
     internal let projectOpenCoordinator = ProjectOpenCoordinator()
+    /// Production retains its existing location; lifecycle tests inject a temp store.
+    var projectWindowStateStore = ProjectWindowStateStore()
     private var projectStorageCoordinators:
         [ObjectIdentifier: ProjectStorageCoordinator] = [:]
     private var projectStorageBindingGenerations:
@@ -348,10 +350,24 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     func targetMainWindowController(routeContext: OperationRouteContext?) -> MainWindowController? {
-        controller(forWindowStateScopeID: routeContext?.windowStateScopeID)
-            ?? controller(forProjectURL: routeContext?.projectURL)
-            ?? (NSApp.keyWindow?.windowController as? MainWindowController)
-            ?? mainWindowController
+        if let routeContext {
+            // An explicit owner that has closed must not fall through to an
+            // unrelated window. Project-only requests may resolve a project peer.
+            if let scoped = controller(forWindowStateScopeID: routeContext.windowStateScopeID) {
+                let currentProject = scoped.projectSession.projectURL
+                    ?? scoped.mainSplitViewController?.sidebarController?.currentProjectURL
+                if let projectURL = routeContext.projectURL {
+                    guard currentProject.map(ProjectSessionRegistry.canonicalProjectURL)
+                        == ProjectSessionRegistry.canonicalProjectURL(projectURL) else { return nil }
+                } else if currentProject != nil {
+                    return nil
+                }
+                return scoped
+            }
+            guard routeContext.windowStateScopeID == nil else { return nil }
+            return controller(forProjectURL: routeContext.projectURL)
+        }
+        return (NSApp.keyWindow?.windowController as? MainWindowController) ?? mainWindowController
     }
 
     internal func activeMainWindowController(sender: Any? = nil) -> MainWindowController? {
@@ -366,12 +382,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     internal func currentOperationRouteContext(for controller: MainWindowController? = nil) -> OperationRouteContext? {
-        let controller = controller ?? activeMainWindowController()
+        guard let controller = controller ?? activeMainWindowController() else { return nil }
         return OperationRouteContext(
-            projectURL: controller?.projectSession.projectURL
-                ?? controller?.mainSplitViewController?.sidebarController?.currentProjectURL
-                ?? workingDirectoryURL,
-            windowStateScope: controller?.projectSession.windowStateScope
+            projectURL: controller.projectSession.projectURL
+                ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL,
+            windowStateScope: controller.projectSession.windowStateScope
         )
     }
 
@@ -394,13 +409,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return false
     }
 
-    private func isProjectWriteBlocked(projectURL: URL?, windowStateScope: WindowStateScope?) -> Bool {
+    func isProjectWriteBlocked(projectURL: URL?, windowStateScope: WindowStateScope?) -> Bool {
         if let projectURL {
+            if ProjectFilesystemRefreshCoordinator.shared.isUnavailable(projectURL: projectURL) { return true }
             let canonicalProjectURL = ProjectSessionRegistry.canonicalProjectURL(projectURL)
             if let scopedController = controller(forWindowStateScopeID: windowStateScope?.id),
-               scopedController.projectSession.projectURL.map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL,
-               scopedController.projectSession.isReadOnlyRecommended {
-                return true
+               (scopedController.projectSession.projectURL
+                    ?? scopedController.mainSplitViewController?.sidebarController?.currentProjectURL)
+                    .map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL {
+                // The explicit window owns this decision. A read-only peer of
+                // the same project must not override its writable session.
+                if scopedController.projectSession.isReadOnlyRecommended { return true }
+                return ProjectOpenWarningState.evaluate(projectURL: projectURL).isReadOnlyRecommended
             }
             if let projectController = controller(forProjectURL: projectURL),
                projectController.projectSession.isReadOnlyRecommended {
@@ -415,31 +435,103 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return false
     }
 
-    internal func openProject(_ projectURL: URL, in controller: MainWindowController) {
+    internal func openProject(_ projectURL: URL, in controller: MainWindowController,
+                              restoring snapshot: ProjectWindowSnapshot? = nil,
+                              recovering recoverySnapshot: ProjectWindowSnapshot? = nil,
+                              expectedRootIdentity: ProjectFilesystemRefreshCoordinator.RootIdentity? = nil,
+                              recoveryFailure: (@MainActor (String) -> Void)? = nil) {
+        // An ordinary open must not accept a new writable session into an old
+        // unavailable subscription. Explicit Retry carries continuity evidence.
+        if expectedRootIdentity == nil,
+           ProjectFilesystemRefreshCoordinator.shared.isUnavailable(projectURL: projectURL) {
+            let alert = NSAlert()
+            alert.messageText = "Project Still Open in an Unavailable Window"
+            alert.informativeText = "Use Retry or Locate in the existing project window to recover the original folder. To open a replacement as a new project, close all windows for the unavailable project first, then open the replacement."
+            alert.addButton(withTitle: "OK")
+            if let window = controller.window { alert.beginSheetModal(for: window, completionHandler: nil) }
+            if snapshot != nil { finishProjectRestoration() }
+            return
+        }
+        let transitionGeneration = controller.projectSession.documentGeneration
         if controller.deferManualHaplotypeTransition(
             .projectSwitch,
             mutation: { [weak self, weak controller] in
-                guard let self, let controller else { return }
-                self.openProject(projectURL, in: controller)
+                guard let self, let controller,
+                      controller.projectSession.documentGeneration == transitionGeneration else { return }
+                self.openProject(projectURL, in: controller, restoring: snapshot,
+                    recovering: recoverySnapshot,
+                    expectedRootIdentity: expectedRootIdentity, recoveryFailure: recoveryFailure)
             }
         ) {
             return
         }
+        guard let split = controller.mainSplitViewController else { return }
+        split.invalidatePendingSelectionDebounce(reason: "project open")
+        let identity = split.contentSelectionIdentity(url: projectURL, kind: "projectOpen")
+        let token = split.beginDisplayRequest(identity: identity)
+        let session = controller.projectSession
+        let generation = session.beginProjectOpen()
+        let previousProjectURL = session.projectURL.map(ProjectSessionRegistry.canonicalProjectURL)
         invalidateProjectStorage(for: controller)
-        let previousProjectURL = controller.projectSession.projectURL
-            .map(ProjectSessionRegistry.canonicalProjectURL)
-        // Keep global working directory in sync with most recently activated project.
-        workingDirectoryURL = projectURL
         mainWindowController = controller
-        // Opening is inspection/access resolution only. Legacy analysis migration
-        // must be invoked explicitly after writable access has been established.
+        DocumentManager.shared.mirrorProjectSession(session)
+        split.viewerController.showProgress("Opening \(projectURL.lastPathComponent)...")
+        let prepare = split.projectPreparation
+        split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in
+            defer { if snapshot != nil { self?.finishProjectRestoration() } }
+            let preparation: Result<ProjectSession.PreparedProject, Error>
+            var recoveryIdentityValidated = expectedRootIdentity == nil
+            if let expectedRootIdentity {
+                let before = try? await Task.detached(priority: .utility) {
+                    try ProjectFilesystemRefreshCoordinator.rootIdentity(at: projectURL)
+                }.value
+                if before == expectedRootIdentity {
+                    let prepared = await prepare(projectURL)
+                    let after = try? await Task.detached(priority: .utility) {
+                        try ProjectFilesystemRefreshCoordinator.rootIdentity(at: projectURL)
+                    }.value
+                    recoveryIdentityValidated = after == expectedRootIdentity
+                    preparation = after == expectedRootIdentity ? prepared : .failure(CocoaError(.fileReadUnknown))
+                } else {
+                    preparation = .failure(CocoaError(.fileReadUnknown))
+                }
+            } else {
+                preparation = await prepare(projectURL)
+            }
+            guard let self, let controller, let split, !Task.isCancelled,
+                  session.documentGeneration == generation,
+                  split.canCommitDisplayRequest(token, identity: identity) else { return }
+            split.projectOpenTask = nil
+            split.viewerController.hideProgress()
+            if expectedRootIdentity != nil, case .failure(let error) = preparation,
+               !recoveryIdentityValidated || projectURL.pathExtension.lowercased() == ProjectFile.fileExtension {
+                recoveryFailure?("Could not reopen the original project folder: \(error.localizedDescription)")
+                return
+            }
+            if snapshot != nil, case .failure(let error) = preparation {
+                appDelegateLogger.warning("Skipping saved project window: \(error.localizedDescription, privacy: .public)")
+                if let window = controller.window {
+                    self.windowWillClose(Notification(name: NSWindow.willCloseNotification, object: window))
+                }
+                controller.close()
+                return
+            }
+            do {
+                let result = try self.projectOpenCoordinator.completePreparedOpen(preparation, at: projectURL, using: session, generation: generation)
+                // Session acceptance and all matching UI state commit in this turn.
+                if self.mainWindowController === controller { self.workingDirectoryURL = projectURL }
+                self.completeProjectOpen(result, in: controller, previousProjectURL: previousProjectURL, restoring: snapshot ?? recoverySnapshot)
+                if snapshot != nil || recoverySnapshot != nil { await split.externalDocumentLoadTask?.value }
+            } catch { /* Superseded/cancelled preparations have no publication. */ }
+        }
+    }
 
-        let result = projectOpenCoordinator.openProject(at: projectURL, using: controller.projectSession)
+    private func completeProjectOpen(_ result: ProjectOpenCoordinator.OpenResult, in controller: MainWindowController, previousProjectURL: URL?, restoring snapshot: ProjectWindowSnapshot?) {
         switch result {
         case .opened(let project):
             let openedProjectURL =
                 ProjectSessionRegistry.canonicalProjectURL(project.url)
-            DocumentManager.shared.mirrorProjectSession(controller.projectSession)
+            DocumentManager.shared.refreshMirror(ifOwnedBy: controller.projectSession)
             projectSessionRegistry.register(controller.projectSession, projectURL: project.url)
             if let previousProjectURL,
                previousProjectURL != openedProjectURL,
@@ -450,7 +542,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     for: previousProjectURL
                 )
             }
-            controller.mainSplitViewController?.applyProjectSessionState()
+            controller.mainSplitViewController?.applyProjectSessionState(restoring: snapshot)
             updateProjectWindowTitle(controller)
             startProjectTempCleanupTimer(for: openedProjectURL)
             debugLog("openProject: Opened project via ProjectSession")
@@ -475,7 +567,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             let accessSuffix = isNativeProject ? " (Read Only)" : ""
             controller.window?.title = "\(fallback.name)\(accessSuffix) - \(LungfishAppIdentity.current.fullName)"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
-            controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url)
+            controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url, asyncScan: true)
+            if let snapshot { controller.mainSplitViewController?.applyProjectWindowSnapshot(snapshot) }
             if let error = fallback.error as? ProjectStoreError,
                case .migrationRequired = error,
                let window = controller.window {
@@ -484,19 +577,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 alert.informativeText = "This project uses an older database schema. Migrating updates its database and retains the original database files and a provenance record in .lungfish/migrations inside the project. Close other writers before continuing."
                 alert.addButton(withTitle: "Migrate and Open")
                 alert.addButton(withTitle: "Keep Browsing Files")
+                let migrationGeneration = controller.projectSession.documentGeneration
                 alert.beginSheetModal(for: window) { [weak self, weak controller] response in
                     guard response == .alertFirstButtonReturn, let self, let controller,
+                          controller.projectSession.documentGeneration == migrationGeneration,
                           controller.mainSplitViewController?.sidebarController.projectFolderURL?.standardizedFileURL == fallback.url.standardizedFileURL else { return }
-                    do {
-                        try ProjectFile.migrate(at: fallback.url)
-                        self.openProject(fallback.url, in: controller)
-                    } catch {
-                        let failure = NSAlert()
-                        failure.messageText = "Project Migration Did Not Finish"
-                        failure.informativeText = error.localizedDescription
-                        failure.addButton(withTitle: "OK")
-                        if let window = controller.window { failure.beginSheetModal(for: window) }
-                    }
+                    self.migrateProject(at: fallback.url, in: controller)
                 }
             }
         }
@@ -505,6 +591,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // The timer's first fire occurs later and runs the proof-based cleanup
         // service off the main actor.
         saveApplicationState()
+    }
+
+    private func migrateProject(at url: URL, in controller: MainWindowController) {
+        guard let split = controller.mainSplitViewController else { return }
+        let generation = controller.projectSession.documentGeneration
+        let identity = split.contentSelectionIdentity(url: url, kind: "projectMigration")
+        let token = split.beginDisplayRequest(identity: identity)
+        split.viewerController.showProgress("Migrating \(url.lastPathComponent)...")
+        split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in
+            // Migration owns its durable transaction through completion even if
+            // the originating UI goes away; only publication to UI is cancelled.
+            let result = await Task.detached(priority: .userInitiated) { Result { try ProjectFile.migrate(at: url) } }.value
+            guard let self, let controller, let split, !Task.isCancelled,
+                  controller.projectSession.documentGeneration == generation,
+                  split.canCommitDisplayRequest(token, identity: identity) else { return }
+            split.projectOpenTask = nil
+            split.viewerController.hideProgress()
+            switch result {
+            case .success:
+                self.openProject(url, in: controller)
+            case .failure(let error):
+                let failure = NSAlert()
+                failure.messageText = "Project Migration Did Not Finish"
+                failure.informativeText = error.localizedDescription
+                failure.addButton(withTitle: "OK")
+                if let window = controller.window { failure.beginSheetModal(for: window, completionHandler: nil) }
+            }
+        }
     }
 
     internal func updateProjectWindowTitle(_ controller: MainWindowController) {
@@ -1515,6 +1629,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let affectedProjectURLs = Set(closedControllers.compactMap { $0.projectSession.projectURL })
         for controller in closedControllers {
+            controller.mainSplitViewController?.invalidateDisplayRequest()
+            controller.mainSplitViewController?.sidebarController?.closeProject()
+            controller.projectSession.closeProject()
             projectSessionRegistry.unregister(controller.projectSession)
         }
 
@@ -1551,14 +1668,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         DocumentManager.shared.mirrorProjectSession(controller.projectSession)
     }
 
+    private var pendingProjectRestorations = 0
+
+    private func finishProjectRestoration() {
+        pendingProjectRestorations = max(0, pendingProjectRestorations - 1)
+        if pendingProjectRestorations == 0 { saveApplicationState() }
+    }
+
     internal func saveApplicationState() {
+        guard pendingProjectRestorations == 0 else { return }
         let snapshots = mainWindowControllers.enumerated().compactMap { index, controller -> ProjectWindowSnapshot? in
             let ordinal = projectSessionRegistry.windowNumber(for: controller.projectSession)
             return controller.captureProjectWindowSnapshot(windowOrdinal: ordinal, windowOrder: index)
         }
 
         do {
-            try ProjectWindowStateStore().save(ProjectWindowStateEnvelope(windows: snapshots))
+            try projectWindowStateStore.save(ProjectWindowStateEnvelope(windows: snapshots))
         } catch {
             appDelegateLogger.error("Failed to save project window state: \(error.localizedDescription, privacy: .public)")
         }
@@ -1566,7 +1691,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private func restoreProjectWindowsFromSavedState() -> Bool {
         do {
-            let envelope = try ProjectWindowStateStore().load()
+            let envelope = try projectWindowStateStore.load()
             return try restoreProjectWindows(from: envelope)
         } catch {
             appDelegateLogger.error("Failed to restore project windows: \(error.localizedDescription, privacy: .public)")
@@ -1581,37 +1706,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             .sorted { $0.windowOrder < $1.windowOrder }
         guard !existingWindows.isEmpty else { return false }
 
-        var restoredAnyWindow = false
+        pendingProjectRestorations += existingWindows.count
         for snapshot in existingWindows {
             let session = ProjectSession(id: snapshot.id)
-            do {
-                try session.openProject(at: snapshot.projectURL)
-            } catch {
-                appDelegateLogger.warning(
-                    "Skipping saved project window for \(snapshot.projectURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-                continue
-            }
-
             let controller = createAndShowMainWindow(projectSession: session)
-            DocumentManager.shared.mirrorProjectSession(session)
-            workingDirectoryURL = snapshot.projectURL
-            controller.mainSplitViewController?.applyProjectSessionState(restoring: snapshot)
-            updateProjectWindowTitle(controller)
-            startProjectTempCleanupTimer(for: snapshot.projectURL)
             if let frame = snapshot.frame {
-                controller.window?.setFrame(
-                    NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height),
-                    display: true
-                )
+                controller.window?.setFrame(NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height), display: true)
             }
             if snapshot.isFullScreen, controller.window?.styleMask.contains(.fullScreen) == false {
                 controller.window?.toggleFullScreen(nil)
             }
-            restoredAnyWindow = true
+            openProject(snapshot.projectURL, in: controller, restoring: snapshot)
         }
 
-        return restoredAnyWindow
+        return true
     }
 
     var testingMainWindowControllers: [MainWindowController] {
@@ -1660,6 +1768,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     func testingOpenProject(_ projectURL: URL, in controller: MainWindowController) {
         openProject(projectURL, in: controller)
+    }
+
+    func testingWaitForProjectOpen(in controller: MainWindowController) async {
+        await controller.mainSplitViewController?.projectOpenTask?.value
+    }
+
+    func testingWaitForProjectRestoration() async {
+        let tasks = mainWindowControllers.compactMap { $0.mainSplitViewController?.projectOpenTask }
+        for task in tasks { await task.value }
     }
 
     func testingRehydrateCopiedProvenance(from sourceURL: URL, to destinationURL: URL) {
@@ -1712,66 +1829,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return true
         }
 
-        let controller = ensureMainWindowForDocumentOpen()
-        let splitViewController = controller.mainSplitViewController
-        let viewerController = splitViewController?.viewerController
+        return openDocument(at: url, type: type, in: ensureMainWindowForDocumentOpen())
+    }
 
-        if type == .lungfishReferenceBundle || type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle || type == .lungfishMHCReferenceBundle {
-            Task {
-                viewerController?.showProgress("Loading \(url.lastPathComponent)...")
-                do {
-                    switch type {
-                    case .lungfishReferenceBundle:
-                        try splitViewController?.displayReferenceBundleFromExternalOpen(at: url)
-                    case .lungfishMultipleSequenceAlignmentBundle:
-                        try await viewerController?.displayMultipleSequenceAlignmentBundle(at: url)
-                    case .lungfishPhylogeneticTreeBundle:
-                        try viewerController?.displayPhylogeneticTreeBundle(at: url)
-                    case .lungfishMHCReferenceBundle:
-                        splitViewController?.displayMHCReferenceBundleFromExternalOpen(at: url)
-                    default:
-                        break
-                    }
-                    viewerController?.hideProgress()
-                } catch {
-                    viewerController?.hideProgress()
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open Bundle"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    if let window = self.mainWindowController?.window ?? NSApp.keyWindow {
-                        await alert.beginSheetModal(for: window)
-                    }
-                }
+    private func openDocument(at url: URL, type: DocumentType, in controller: MainWindowController) -> Bool {
+        guard let split = controller.mainSplitViewController else { return false }
+        let projectGeneration = controller.projectSession.documentGeneration
+        if controller.deferManualHaplotypeTransition(
+            .bundleSwitch,
+            mutation: { [weak self, weak controller] in
+                guard let self, let controller,
+                      controller.projectSession.documentGeneration == projectGeneration else { return }
+                _ = self.openDocument(at: url, type: type, in: controller)
             }
+        ) {
             return true
         }
-
-        Task {
-            // Show progress indicator
-            viewerController?.showProgress("Loading \(url.lastPathComponent)...")
-
-            do {
-                let document = try await DocumentManager.shared.loadDocument(at: url)
-                debugLog("Loaded document: \(document.name) with \(document.sequences.count) sequences")
-
-                // Hide progress and display document
-                viewerController?.hideProgress()
-                viewerController?.displayDocument(document)
-            } catch {
-                // Hide progress and show error
-                viewerController?.hideProgress()
-
-                let alert = NSAlert()
-                alert.messageText = "Failed to Open File"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                if let window = self.mainWindowController?.window ?? NSApp.keyWindow {
-                    await alert.beginSheetModal(for: window)
-                }
-            }
+        split.invalidatePendingSelectionDebounce(reason: "external document open")
+        switch type {
+        case .lungfishReferenceBundle:
+            split.displayReferenceBundleViewportFromSidebar(at: url)
+        case .lungfishMultipleSequenceAlignmentBundle:
+            split.displayMultipleSequenceAlignmentBundleFromSidebar(at: url)
+        case .lungfishPhylogeneticTreeBundle:
+            split.displayPhylogeneticTreeBundleFromSidebar(at: url)
+        case .lungfishMHCReferenceBundle:
+            split.displayMHCReferenceBundleFromSidebar(at: url)
+        default:
+            split.loadExternalDocument(at: url)
         }
         return true
     }
@@ -1930,8 +2015,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Export FASTQ — task E4 / AS15, AS32: disable proactively when the
         // sidebar selection has nothing exportable as a FASTQ bundle.
         if menuItem.action == #selector(exportFASTQ(_:)) {
-            let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
-            return FASTQExportSelection.partition(rawSidebarSelection).hasExportableItems
+            let rawSidebarSelection = activeMainWindowController()?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+            return SidebarExportSelection(rawSidebarSelection, format: .fastq).hasExportableItems
         }
 
         // Export Annotations (GFF3) — task E4 / AS16, AS32: disable
@@ -1948,11 +2033,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// on: either an exportable sidebar selection, or (with no sidebar
     /// selection at all) a currently open document with sequences.
     private func canExportSequences() -> Bool {
-        let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        let controller = activeMainWindowController()
+        let rawSidebarSelection = controller?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
         if !rawSidebarSelection.isEmpty {
-            return SequenceExportSelection.partition(rawSidebarSelection).hasExportableItems
+            return SidebarExportSelection(rawSidebarSelection, format: .sequences).hasExportableItems
         }
-        let currentDocument = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument
+        let currentDocument = controller?.mainSplitViewController?.viewerController?.currentDocument
         return !(currentDocument?.sequences.isEmpty ?? true)
     }
 

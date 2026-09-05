@@ -877,7 +877,7 @@ extension MainSplitViewController {
                         id: opID, level: .info,
                         message: "Completed in \(String(format: "%.1f", elapsed))s"
                     )
-                    _ = OperationCenter.shared.complete(id: opID, detail: doneDetail)
+                    guard OperationCenter.shared.complete(id: opID, detail: doneDetail) else { return }
                     if let last = derivedURLs.last {
                         self.refreshSidebarAndSelectDerivedURL(last)
                     } else {
@@ -1297,7 +1297,6 @@ extension MainSplitViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        guard let self else { return }
                         OperationCenter.shared.log(
                             id: opID,
                             level: .info,
@@ -1305,17 +1304,18 @@ extension MainSplitViewController {
                         )
                         let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
                         if case .savont = result.resolvedRequest {
-                            _ = OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: completionDetail,
                                 outputURLs: result.importedURLs
-                            )
+                            ) else { return }
                         } else {
-                            _ = OperationCenter.shared.complete(
+                            guard OperationCenter.shared.complete(
                                 id: opID,
                                 detail: completionDetail
-                            )
+                            ) else { return }
                         }
+                        guard let self else { return }
                         if let completionTarget {
                             self.recordUITestEvent(
                                 "fastq.operation.completed target=\(completionTarget.lastPathComponent)"
@@ -1344,7 +1344,7 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Cancelled after \(String(format: "%.1f", elapsed))s"
                         )
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+                        _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
                     }
                 }
             } catch {
@@ -1425,8 +1425,14 @@ extension MainSplitViewController {
             if !item.state.isActive {
                 return
             }
-            if Task.isCancelled { return }
-            try? await Task.sleep(for: pollInterval)
+            // A cancelled waiter still owns its child-drain barrier. An
+            // uncancelled delay avoids a busy loop while the child tears down.
+            await withCheckedContinuation { continuation in
+                let seconds = Double(pollInterval.components.seconds) + Double(pollInterval.components.attoseconds) / 1e18
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(0.001, seconds)) {
+                    continuation.resume()
+                }
+            }
         }
     }
 
@@ -1576,66 +1582,6 @@ extension MainSplitViewController {
 
     /// Loads a genomics file in the background using structured concurrency.
     func loadGenomicsFileInBackground(url: URL) {
-        mainSplitLogger.info("loadGenomicsFileInBackground: Loading '\(url.lastPathComponent, privacy: .public)'")
-
-        // Guard that controllers are available
-        guard let viewerController = self.viewerController,
-              let sidebarController = self.sidebarController else {
-            mainSplitLogger.warning("loadGenomicsFileInBackground: Controllers not available")
-            return
-        }
-
-        // Capture the current selection generation so we can discard stale results
-        let generation = self.selectionGeneration
-
-        viewerController.showProgress("Loading \(url.lastPathComponent)...")
-
-        // Use detached task for background loading without inheriting actor context.
-        // UI callbacks use GCD main queue + MainActor.assumeIsolated (not await MainActor.run)
-        // because the cooperative executor doesn't reliably schedule from Task.detached.
-        Task.detached(priority: .userInitiated) { [weak self] in
-            do {
-                let document = try await DocumentManager.shared.loadDocument(at: url)
-
-                // Update UI via GCD main queue (guaranteed to drain)
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        // Check generation counter — if the user has selected something else
-                        // while we were loading, discard this result
-                        guard let self = self, self.selectionGeneration == generation else {
-                            mainSplitLogger.info("loadGenomicsFileInBackground: Discarding stale result for '\(url.lastPathComponent, privacy: .public)' (generation moved on)")
-                            viewerController.hideProgress()
-                            return
-                        }
-                        viewerController.hideProgress()
-                        viewerController.displayDocument(document)
-                        self.projectSession.setActiveDocument(document)
-                        sidebarController.refreshItem(for: url)
-                        mainSplitLogger.info("loadGenomicsFileInBackground: Loaded and displayed")
-                    }
-                }
-            } catch {
-                let errorMessage = error.localizedDescription
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self = self, self.selectionGeneration == generation else {
-                            viewerController.hideProgress()
-                            return
-                        }
-                        viewerController.hideProgress()
-                        mainSplitLogger.error("loadGenomicsFileInBackground: Failed - \(errorMessage)")
-
-                        let alert = NSAlert()
-                        alert.messageText = "Failed to Open File"
-                        alert.informativeText = errorMessage
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
-                }
-            }
-        }
+        loadExternalDocument(at: url)
     }
 }

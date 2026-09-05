@@ -91,6 +91,7 @@ enum CzIdImportDialogActions {
 struct CzIdImportSheet: View {
     let projectURL: URL?
     let datasetURL: URL?
+    var initialSourceURL: URL? = nil
     var onImport: ((URL) -> Void)?
     var onCancel: (() -> Void)?
 
@@ -132,6 +133,11 @@ struct CzIdImportSheet: View {
                 contentSections
             }
         )
+        .onAppear {
+            guard selectedPath == nil, let initialSourceURL else { return }
+            selectedPath = initialSourceURL
+            scan(initialSourceURL)
+        }
         .accessibilityIdentifier("czid-import-sheet")
         .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)
     }

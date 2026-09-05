@@ -355,6 +355,24 @@ public struct ProvenancePublicationSnapshot {
         )
     }
 
+    /// Inspects the operation-derived witness without adopting the current
+    /// pathname state as owned. Multi-resource owners call this before
+    /// restoring any database; restore still rechecks each filesystem claim.
+    public func changedArtifacts(comparedTo witness: ProvenancePublicationRollbackWitness) throws -> [URL] {
+        guard witness.snapshotID == snapshotID else {
+            throw ProvenancePublicationSnapshotError.invalidRollbackWitness
+        }
+        var changed: [URL] = []
+        for entry in entries {
+            guard let expected = witness.states[entry.originalURL.path],
+                  Self.statesMatch(expected, try Self.artifactState(at: entry.originalURL, fileManager: fileManager)) else {
+                changed.append(entry.originalURL)
+                continue
+            }
+        }
+        return changed
+    }
+
     public func restore() throws {
         for entry in entries.reversed() {
             try restore(entry)
@@ -387,6 +405,17 @@ public struct ProvenancePublicationSnapshot {
             preservedExternalChanges.append(contentsOf: preserved)
         }
         return preservedExternalChanges.reversed()
+    }
+
+    /// Retained when restoration fails so a caller can recover the last valid artifacts.
+    public var recoveryDirectoryURL: URL { backupDirectory }
+
+    public func writeRecoveryManifest() throws {
+        let records = entries.map { entry in
+            ["destination": entry.originalURL.path, "backup": entry.backupURL?.path ?? ""]
+        }
+        try JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
+            .write(to: backupDirectory.appendingPathComponent("recovery-manifest.json"), options: .atomic)
     }
 
     public func discard() {

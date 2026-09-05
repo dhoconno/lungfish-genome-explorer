@@ -270,7 +270,14 @@ final class WorkflowOperationDialogState {
 
     var tools: [WorkflowOperationTool] {
         _ = workflowAvailabilityRevision
-        return cachedTools
+        guard let replayConfiguration,
+              !cachedTools.contains(where: { $0.id == "package.\(replayConfiguration.identity.packageManifest.id)" }) else { return cachedTools }
+        let identity = replayConfiguration.identity
+        let package = WorkflowPackageValidationResult(packageURL: identity.packageURL,
+            manifestURL: identity.packageURL.appendingPathComponent("manifest.json"), manifest: identity.packageManifest)
+        return cachedTools + [WorkflowOperationTool(id: "package.\(identity.packageManifest.id)",
+            title: identity.packageManifest.name, subtitle: identity.packageURL.path,
+            kind: .workflowPackage(package), availability: .disabled(reason: "Locate package in Library"))]
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
@@ -512,6 +519,14 @@ final class WorkflowOperationDialogState {
     }
 
     var readinessText: String {
+        if replayConfiguration != nil {
+            if selectedTool?.availability != .available { return "Locate and enable the original package in Workflow Library." }
+            if isCheckingReplay { return "Checking retained sources and destination…" }
+            let current = currentReplayRequest()
+            if let validatedReplayRequest, validatedReplayRequest == current { return "Ready to run." }
+            if checkedReplayRequest == current, let replayValidationError { return replayValidationError }
+            return "Check the retained package, inputs, runtime and new destination before running again."
+        }
         if selectedTool == nil {
             return "Enable a workflow in the Workflow Library before running."
         }
@@ -598,11 +613,13 @@ final class WorkflowOperationDialogState {
     }
 
     var isRunEnabled: Bool {
-        readinessText == "Ready to run."
+        !isSubmittingReplay && readinessText == "Ready to run."
     }
 
     func selectTool(_ id: String) {
+        if replayConfiguration != nil, id == selectedToolID { return }
         guard tools.first(where: { $0.id == id })?.availability == .available else { return }
+        if let replayConfiguration, id != "package.\(replayConfiguration.identity.packageManifest.id)" { clearReplayConfiguration() }
         let previousToolKind = selectedTool?.kind
         let previousDefaultOutputDirectory = Self.defaultOutputDirectory(
             projectURL: projectURL,
@@ -657,6 +674,124 @@ final class WorkflowOperationDialogState {
             selectedAmpliconAnalysisMode = .genotypeOnly
         }
         applyReferenceDefaultsForCurrentAmpliconMode()
+    }
+
+    private(set) var replaySourceBundleURL: URL? = nil
+    private(set) var replayConfiguration: LocalWorkflowReplayConfiguration? = nil
+    private(set) var replaySessionID = UUID()
+    private(set) var isCheckingReplay = false
+    var isSubmittingReplay = false
+    private var validatedReplayRequest: LocalWorkflowRunRequest?
+    private var checkedReplayRequest: LocalWorkflowRunRequest?
+    private var replayValidationError: String?
+    private var replayRunDirectoryName = "attempt-" + UUID().uuidString
+    @ObservationIgnored private var replayValidationTask: Task<Void, Error>?
+    @ObservationIgnored private var replayValidationGeneration = UUID()
+
+    func checkReplayConfiguration(
+        runtimeResolver: @escaping @Sendable (WorkflowEngineType) -> URL? = { engine in
+            WorkflowEngineLaunch.resolve(executableName: engine.executableName,
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser).resolvedExecutableURL()
+        }
+    ) async {
+        replayValidationTask?.cancel()
+        replayValidationTask = nil
+        isCheckingReplay = false
+        let generation = UUID()
+        replayValidationGeneration = generation
+        validatedReplayRequest = nil
+        replayValidationError = nil
+        guard let configuration = replayConfiguration, let source = replaySourceBundleURL else {
+            checkedReplayRequest = nil
+            return
+        }
+        let sessionID = replaySessionID
+        isCheckingReplay = true
+        defer {
+            if replayValidationGeneration == generation {
+                isCheckingReplay = false
+                replayValidationTask = nil
+            }
+        }
+        // Locate can keep an already-enabled ID unchanged, so it emits no
+        // enablement notification. Explicit Check refreshes the existing store.
+        let packages = await packageStore.validatedPackagesInBackground()
+        guard !Task.isCancelled, replayValidationGeneration == generation,
+              replaySessionID == sessionID, replayConfiguration == configuration,
+              replaySourceBundleURL == source else { return }
+        cachedTools = Self.makeTools(enablementStore: enablementStore, packages: packages)
+        workflowAvailabilityRevision &+= 1
+        guard let request = currentReplayRequest() else {
+            checkedReplayRequest = nil
+            replayValidationError = "Choose the original package and inputs before checking the configuration."
+            return
+        }
+        checkedReplayRequest = request
+        isCheckingReplay = true
+        let worker = Task.detached(priority: .userInitiated) {
+            try LocalWorkflowReplayPreflight.validate(request: request, configuration: configuration,
+                sourceBundleURL: source, runtimeURL: runtimeResolver(request.engine))
+        }
+        replayValidationTask = worker
+        do {
+            try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+            guard replayValidationGeneration == generation, replayConfiguration == configuration,
+                  replaySourceBundleURL == source, currentReplayRequest() == request else { return }
+            validatedReplayRequest = request
+        } catch {
+            guard replayValidationGeneration == generation, replayConfiguration == configuration,
+                  replaySourceBundleURL == source, currentReplayRequest() == request else { return }
+            replayValidationError = error.localizedDescription
+        }
+    }
+
+    func restoreReplayConfiguration(
+        _ configuration: LocalWorkflowReplayConfiguration, sourceBundleURL: URL
+    ) throws {
+        let name = try WorkflowRunAgainPresentation.outputName(for: configuration)
+        clearReplayConfiguration()
+        workflowPackageRefreshTask?.cancel()
+        workflowPackageRefreshGeneration &+= 1
+        projectDiscoveryTask?.cancel()
+        let request = configuration.request
+        replayConfiguration = configuration
+        replaySourceBundleURL = sourceBundleURL.standardizedFileURL
+        selectedToolID = "package.\(configuration.identity.packageManifest.id)"
+        selectedReferenceURL = request.inputURLs[0]
+        selectedReadURLs = [request.inputURLs[1]]
+        threads = request.cpus!
+        outputName = name
+        outputDirectoryURL = WorkflowRunAgainPresentation.freshOutput(
+            in: request.outputDirectory.deletingLastPathComponent(), originalName: request.outputDirectory.lastPathComponent)
+        workflowAvailabilityRevision &+= 1
+    }
+
+    func clearReplayConfiguration() {
+        replayValidationTask?.cancel()
+        replayValidationTask = nil
+        replayValidationGeneration = UUID()
+        replaySessionID = UUID()
+        replayRunDirectoryName = "attempt-" + UUID().uuidString
+        isCheckingReplay = false
+        validatedReplayRequest = nil
+        checkedReplayRequest = nil
+        replayValidationError = nil
+        replayConfiguration = nil
+        replaySourceBundleURL = nil
+        isSubmittingReplay = false
+    }
+
+    func matchesReplayLaunchRequest(_ launch: WorkflowOperationLaunchRequest) -> Bool {
+        guard case .workflowPackage(let request, _) = launch else { return false }
+        return currentReplayRequest() == request
+    }
+
+    private func currentReplayRequest() -> LocalWorkflowRunRequest? {
+        guard replayConfiguration != nil, selectedTool?.availability == .available,
+              case .workflowPackage(let package) = selectedTool?.kind,
+              Self.packageIsRunnable(package), selectedReferenceURL != nil,
+              selectedReadURLs.count == 1, outputDirectoryURL != nil else { return nil }
+        return try? makeLocalWorkflowRunRequest(package: package)
     }
 
     func refreshWorkflowAvailability() {
@@ -822,7 +957,8 @@ final class WorkflowOperationDialogState {
                 enablementStore: self.enablementStore,
                 packages: packages
             )
-            if self.cachedTools.first(where: { $0.id == self.selectedToolID })?.availability != .available,
+            if self.replayConfiguration == nil,
+               self.cachedTools.first(where: { $0.id == self.selectedToolID })?.availability != .available,
                let firstAvailable = self.cachedTools.first(where: { $0.availability == .available }) {
                 self.selectTool(firstAvailable.id)
             }
@@ -1044,7 +1180,12 @@ final class WorkflowOperationDialogState {
     }
 
     func setOutputDirectory(_ url: URL?) {
-        outputDirectoryURL = url?.standardizedFileURL
+        if let replayConfiguration, let url {
+            outputDirectoryURL = WorkflowRunAgainPresentation.freshOutput(in: url,
+                originalName: replayConfiguration.request.outputDirectory.lastPathComponent)
+        } else {
+            outputDirectoryURL = url?.standardizedFileURL
+        }
     }
 
     func setTwelveSSampleMetadata(_ url: URL?) {
@@ -1056,6 +1197,7 @@ final class WorkflowOperationDialogState {
         selectedReadURLs: [URL],
         sidebarInputSelection: WorkflowSidebarInputSelection? = nil
     ) {
+        clearReplayConfiguration()
         let standardizedProjectURL = projectURL?.standardizedFileURL
         let projectChanged = self.projectURL != standardizedProjectURL
         let resolvedReadURLs = sidebarInputSelection?.selectedReadURLs(includeSubfolders: false) ?? selectedReadURLs
@@ -1253,7 +1395,10 @@ final class WorkflowOperationDialogState {
         case .workflowPackage(let package):
             return .workflowPackage(
                 try makeLocalWorkflowRunRequest(package: package),
-                bundleRoot: outputDirectoryURL.appendingPathComponent("Workflow Runs", isDirectory: true)
+                bundleRoot: replayConfiguration == nil
+                    ? outputDirectoryURL.appendingPathComponent("Workflow Runs", isDirectory: true)
+                    : outputDirectoryURL.deletingLastPathComponent().appendingPathComponent("Workflow Runs", isDirectory: true)
+                        .appendingPathComponent(replayRunDirectoryName, isDirectory: true)
             )
         }
     }
@@ -1292,18 +1437,8 @@ final class WorkflowOperationDialogState {
             throw WorkflowOperationError.unsupportedPackage(package.manifest.name)
         }
 
-        var params: [String: String] = [:]
-        for input in package.manifest.inputs {
-            if input.bundleTypes.contains(.lungfishref) {
-                params[input.id] = referenceURL.path
-                params["reference_bundle"] = referenceURL.path
-            }
-            if input.bundleTypes.contains(.lungfishfastq) {
-                params[input.id] = readURL.path
-                params["reads_bundle"] = readURL.path
-            }
-        }
-        params["outdir"] = outputDirectoryURL.path
+        let params = WorkflowRunAgainPresentation.parameters(package: package.manifest,
+            referenceURL: referenceURL, readURL: readURL, outputDirectory: outputDirectoryURL)
 
         return LocalWorkflowRunRequest(
             workflowURL: entrypointURL,
@@ -1312,7 +1447,8 @@ final class WorkflowOperationDialogState {
             outputDirectory: outputDirectoryURL,
             expectedOutputURLs: expectedOutputURLs(for: package, outputDirectoryURL: outputDirectoryURL),
             params: params,
-            cpus: threads
+            cpus: threads,
+            replaySourceBundleURL: replaySourceBundleURL
         )
     }
 
@@ -1398,9 +1534,7 @@ final class WorkflowOperationDialogState {
     }
 
     private func renderPathTemplate(_ template: String) -> String {
-        template
-            .replacingOccurrences(of: "{outputName}", with: outputName)
-            .replacingOccurrences(of: "{{outputName}}", with: outputName)
+        WorkflowRunAgainPresentation.render(template, outputName: outputName)
     }
 
     private static let ontGenotypingID = "builtin.ont-genotyping"

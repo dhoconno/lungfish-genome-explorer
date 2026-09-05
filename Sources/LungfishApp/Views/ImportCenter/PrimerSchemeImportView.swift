@@ -19,6 +19,8 @@ struct PrimerSchemeImportView: View {
     let windowStateScope: WindowStateScope?
     let onComplete: (PrimerSchemeImportViewModel.ImportResult) -> Void
     let onCancel: () -> Void
+    var initialBEDURL: URL? = nil
+    var onAcceptedSource: ((URL) -> Void)? = nil
 
     @State private var bedURL: URL?
     @State private var fastaURL: URL?
@@ -80,6 +82,7 @@ struct PrimerSchemeImportView: View {
         }
         .padding(20)
         .frame(minWidth: 520, minHeight: 420)
+        .onAppear { if bedURL == nil { bedURL = initialBEDURL } }
     }
 
     private var canRun: Bool {
@@ -111,6 +114,7 @@ struct PrimerSchemeImportView: View {
                 equivalentAccessions: equivalents,
                 projectURL: projectURL
             )
+            onAcceptedSource?(bedURL)
             onComplete(result)
         } catch {
             errorMessage = error.localizedDescription

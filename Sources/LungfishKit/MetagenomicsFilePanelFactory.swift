@@ -7,13 +7,25 @@ import UniformTypeIdentifiers
 
 @MainActor
 public enum MetagenomicsFilePanelFactory {
+    public static var naoMgsImportContentTypes: [UTType] {
+        [UTType(filenameExtension: "tsv") ?? .tabSeparatedText,
+         UTType(filenameExtension: "gz") ?? .gzip, .folder]
+    }
+
+    public static var czIdImportContentTypes: [UTType] {
+        [UTType(filenameExtension: "zip") ?? .zip,
+         UTType(filenameExtension: "tsv") ?? .tabSeparatedText,
+         UTType(filenameExtension: "txt") ?? .plainText,
+         UTType(filenameExtension: "csv") ?? .commaSeparatedText]
+    }
+
     public static func naoMgsResultsImportPanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.title = "Select NAO-MGS Results"
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.data, .folder]
+        panel.allowedContentTypes = naoMgsImportContentTypes
         panel.message = "Select a virus_hits_final.tsv.gz file or results directory"
         return panel
     }
@@ -35,13 +47,8 @@ public enum MetagenomicsFilePanelFactory {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "zip") ?? .zip,
-            UTType(filenameExtension: "tsv") ?? .tabSeparatedText,
-            UTType(filenameExtension: "txt") ?? .plainText,
-            UTType(filenameExtension: "csv") ?? .commaSeparatedText,
-        ]
-        panel.allowsOtherFileTypes = true
+        panel.allowedContentTypes = czIdImportContentTypes
+        panel.allowsOtherFileTypes = false
         return panel
     }
 

@@ -18,6 +18,7 @@ public enum FASTQBundleCopyImportError: Error, LocalizedError, Sendable, Equatab
     case sourceIsNotFASTQBundle(String)
     case sourceProvenanceMissing(String)
     case destinationExists(String)
+    case sourceDestinationAlias(String)
     case cannotCreateDestinationParent(String)
     case unsupportedSymlinkPayload(String)
 
@@ -27,6 +28,8 @@ public enum FASTQBundleCopyImportError: Error, LocalizedError, Sendable, Equatab
             return "Source is not a .lungfishfastq bundle: \(path)"
         case .sourceProvenanceMissing(let path):
             return "Source FASTQ bundle is missing readable provenance: \(path)"
+        case .sourceDestinationAlias(let path):
+            return "Source and destination bundles must be separate locations: \(path)"
         case .destinationExists(let path):
             return "Destination FASTQ bundle already exists: \(path)"
         case .cannotCreateDestinationParent(let path):
@@ -95,7 +98,8 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
     public func importBundle(
         sourceBundleURL: URL,
         outputURL: URL,
-        context: CommandContext
+        context: CommandContext,
+        replaceExisting: Bool = false
     ) throws -> FASTQBundleCopyImportResult {
         let sourceBundleURL = sourceBundleURL.standardizedFileURL
         guard FASTQBundle.isBundleURL(sourceBundleURL) else {
@@ -106,7 +110,14 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             outputURL: outputURL.standardizedFileURL,
             sourceBundleURL: sourceBundleURL
         )
-        guard !fileManager.fileExists(atPath: destinationBundleURL.path) else {
+        let sourcePath = sourceBundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let destinationPath = destinationBundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        guard sourcePath != destinationPath,
+              !destinationPath.hasPrefix(sourcePath + "/"),
+              !sourcePath.hasPrefix(destinationPath + "/") else {
+            throw FASTQBundleCopyImportError.sourceDestinationAlias(destinationBundleURL.path)
+        }
+        guard replaceExisting || !fileManager.fileExists(atPath: destinationBundleURL.path) else {
             throw FASTQBundleCopyImportError.destinationExists(destinationBundleURL.path)
         }
 
@@ -119,7 +130,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
 
         let startedAt = Date()
         let stagingBundleURL = stagingBundleURL(for: destinationBundleURL)
-        var didPublishBundle = false
+        let publication = try ScientificFilePublicationTransaction(protectedURLs: [destinationBundleURL], fileDestinations: [])
         do {
             let sourceProvenanceURL = try requiredSourceProvenanceURL(in: sourceBundleURL)
             try fileManager.copyItem(at: sourceBundleURL, to: stagingBundleURL)
@@ -176,9 +187,10 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             let totalCopiedBytes = copiedFiles.reduce(UInt64(0)) {
                 $0 + ((try? ProvenanceFileHasher.fileSize(of: $1)) ?? 0)
             }
-            try fileManager.moveItem(at: stagingBundleURL, to: destinationBundleURL)
-            didPublishBundle = true
-            try provenanceWriter.write(envelope, to: destinationBundleURL)
+            try publication.publish(stagedURL: stagingBundleURL, to: destinationBundleURL, replacingExisting: replaceExisting)
+            try provenanceWriter.observingPublications { try publication.observe($0) }
+                .write(envelope, to: destinationBundleURL)
+            publication.commit()
             return FASTQBundleCopyImportResult(
                 sourceBundleURL: sourceBundleURL,
                 bundleURL: destinationBundleURL,
@@ -189,10 +201,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             )
         } catch {
             try? fileManager.removeItem(at: stagingBundleURL)
-            if didPublishBundle {
-                try? fileManager.removeItem(at: destinationBundleURL)
-            }
-            throw error
+            try publication.rollback(after: error)
         }
     }
 

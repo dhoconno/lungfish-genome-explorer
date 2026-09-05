@@ -163,13 +163,34 @@ final class FileSystemWatcherTests: XCTestCase {
             invalidate: { _ in },
             release: { _ in }
         )
-        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: nil, streamLifecycle: lifecycle)
+        var unavailable: String?
+        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: nil,
+            onUnavailable: { unavailable = $0 }, streamLifecycle: lifecycle)
 
         watcher.startWatching(directory: tempDir)
         await watcher.waitForPendingStreamSetup()
 
         XCTAssertFalse(watcher.isWatching)
         XCTAssertEqual(counters.count("start"), 0, "A nil stream must never be started")
+        XCTAssertNotNil(unavailable, "A setup failure must be visible to subscribers")
+    }
+
+    func testStaleRootDeliveryCannotStopReplacementWatch() async throws {
+        let first = try createTempDirectory()
+        let second = try createTempDirectory()
+        defer { removeTempDirectory(first); removeTempDirectory(second) }
+        var rootChanges = 0
+        let watcher = FileSystemWatcher(onChange: { _ in }, onRootChanged: { rootChanges += 1 })
+        watcher.startWatching(directory: first)
+        let oldGeneration = watcher.testingCurrentGeneration
+        watcher.startWatching(directory: second)
+        watcher.deliver(.rootChanged, generation: oldGeneration)
+        XCTAssertTrue(watcher.isWatching)
+        XCTAssertEqual(rootChanges, 0)
+        watcher.deliver(.rootChanged, generation: watcher.testingCurrentGeneration)
+        XCTAssertFalse(watcher.isWatching)
+        XCTAssertEqual(rootChanges, 1)
+        await watcher.waitForPendingStreamSetup()
     }
 
     /// The launch hang: `FSEventStreamCreate` can wedge inside

@@ -189,6 +189,7 @@ struct DefaultWorkflowOperationResultRefresher: WorkflowOperationResultRefreshin
 final class WorkflowOperationExecutionService {
     private let operationCenter: OperationCenter
     private let processRunner: LocalWorkflowCLIProcessRunning
+    private let localWorkflowRuntimeResolver: @Sendable (WorkflowEngineType) -> URL?
     private let viewerBundlePreparer: WorkflowOperationViewerBundlePreparing
     private let bamImporter: WorkflowOperationBAMImporting
     private let resultRefresher: WorkflowOperationResultRefreshing
@@ -204,10 +205,15 @@ final class WorkflowOperationExecutionService {
         resultRefresher: WorkflowOperationResultRefreshing = DefaultWorkflowOperationResultRefresher(),
         aiHaplotyper: WorkflowOperationAIHaplotypingRunning? = nil,
         workbookUpdater: WorkflowOperationWorkbookUpdating = DefaultWorkflowOperationWorkbookUpdater(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        localWorkflowRuntimeResolver: @escaping @Sendable (WorkflowEngineType) -> URL? = { engine in
+            WorkflowEngineLaunch.resolve(executableName: engine.executableName,
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser).resolvedExecutableURL()
+        }
     ) {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
+        self.localWorkflowRuntimeResolver = localWorkflowRuntimeResolver
         self.viewerBundlePreparer = viewerBundlePreparer
         self.bamImporter = bamImporter
         self.resultRefresher = resultRefresher
@@ -219,7 +225,8 @@ final class WorkflowOperationExecutionService {
     @discardableResult
     func run(
         _ request: WorkflowOperationLaunchRequest,
-        routeContext: OperationRouteContext? = nil
+        routeContext: OperationRouteContext? = nil,
+        beforeRegister: @escaping @MainActor () throws -> Void = {}
     ) async throws -> [URL] {
         switch request {
         case .ontGenotyping(let request):
@@ -231,9 +238,11 @@ final class WorkflowOperationExecutionService {
         case .workflowPackage(let request, let bundleRoot):
             let service = LocalWorkflowExecutionService(
                 operationCenter: operationCenter,
-                processRunner: processRunner
+                processRunner: processRunner,
+                runtimeResolver: localWorkflowRuntimeResolver
             )
-            let result = try await service.run(request, bundleRoot: bundleRoot, routeContext: routeContext)
+            let result = try await service.run(request, bundleRoot: bundleRoot, routeContext: routeContext,
+                beforeRegister: beforeRegister)
             return [result.bundleURL]
         }
     }
@@ -428,10 +437,11 @@ final class WorkflowOperationExecutionService {
         // Registering a cancel callback is what makes the Operations panel
         // show a Cancel button. Without it a stalled cohort could only be
         // ended by quitting the app. The callback runs on a global queue.
-        operationCenter.setCancelCallback(for: operationID) { [weak self] in
+        operationCenter.setCancelCallback(for: operationID) { [self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self?.processRunner.cancel()
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
                 }
             }
         }
@@ -444,6 +454,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }
@@ -514,11 +528,11 @@ final class WorkflowOperationExecutionService {
                 )
             }
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
-            _ = operationCenter.complete(
+            guard operationCenter.complete(
                 id: operationID,
                 detail: "miSeq amplicon MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
-            )
+            ) else { throw CancellationError() }
             resultRefresher.refresh(
                 routeContext: routeContext,
                 preferredSelectionURL: preferredSelectionURL(

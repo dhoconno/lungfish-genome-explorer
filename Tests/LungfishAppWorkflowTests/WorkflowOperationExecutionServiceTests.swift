@@ -519,12 +519,16 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             bamImporter: StubWorkflowOperationBAMImporter(),
             resultRefresher: StubWorkflowOperationResultRefresher()
         )
+        let cancelSignalled = expectation(description: "CLI cancellation signalled")
+        var drain: CheckedContinuation<Void, Never>?
+        runner.onCancel = { cancelSignalled.fulfill(); drain?.resume(); drain = nil }
         var wasCancellableWhileRunning: Bool?
-        runner.onRun = {
-            let item = operationCenter.items.first
-            wasCancellableWhileRunning = item?.isCancellable
-            if let id = item?.id {
-                operationCenter.cancel(id: id)
+        runner.onRunAsync = {
+            await withCheckedContinuation { continuation in
+                drain = continuation
+                let item = operationCenter.items.first
+                wasCancellableWhileRunning = item?.isCancellable
+                if let id = item?.id { operationCenter.cancel(id: id) }
             }
         }
 
@@ -532,9 +536,8 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
 
         XCTAssertEqual(wasCancellableWhileRunning, true,
                        "the Operations panel shows Cancel only for a running operation with a cancel callback")
-        for _ in 0..<200 where runner.cancelCount == 0 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        await fulfillment(of: [cancelSignalled], timeout: 5)
+        withExtendedLifetime(service) {}
         XCTAssertEqual(runner.cancelCount, 1, "cancelling the row must terminate the lungfish-cli process")
     }
 
@@ -1075,6 +1078,8 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
     private(set) var fullLengthOutputDirectoryExistedAtInvocation: [Bool] = []
     /// Runs while the CLI is 'executing', so a test can observe the operation mid-run.
     var onRun: (@MainActor () -> Void)?
+    var onRunAsync: (@MainActor () async -> Void)?
+    var onCancel: (@MainActor () -> Void)?
     private(set) var cancelCount = 0
     private let exitCode: Int32
     private let stdout: String?
@@ -1104,6 +1109,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
 
     func cancel() {
         cancelCount += 1
+        onCancel?()
     }
 
     func runLungfishCLI(
@@ -1112,7 +1118,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> LocalWorkflowCLIProcessResult {
         didReceiveOutputHandler = outputHandler != nil
-        onRun?()
+        if let onRunAsync { await onRunAsync() } else { onRun?() }
         invocations.append(Invocation(
             arguments: arguments,
             workingDirectory: workingDirectory.standardizedFileURL

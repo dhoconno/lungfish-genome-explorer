@@ -297,6 +297,11 @@ final class WelcomeViewModel: ObservableObject {
         scheduleSetupRefresh(requiresFreshRead: true)
     }
 
+    /// Viewing uses built-in readers; installation and storage changes still exclude entry.
+    var canBrowseProjects: Bool {
+        !isInstallingRequiredSetup && !isDependencyReconciliationRunning && !isApplyingStorageSelection
+    }
+
     var canLaunch: Bool {
         let requiredSetupReady = requiredSetupStatus?.state == .ready
         return (requiredSetupReady || debugLaunchConfiguration.bypassRequiredSetup)
@@ -829,7 +834,7 @@ struct WelcomeView: View {
                         LaunchActionTile(
                             action: action,
                             isHovered: hoveredAction == action,
-                            isEnabled: viewModel.canLaunch,
+                            isEnabled: viewModel.canBrowseProjects,
                             onTap: { performAction(action) }
                         )
                         .accessibilityIdentifier(action.accessibilityIdentifier)
@@ -838,6 +843,10 @@ struct WelcomeView: View {
                         }
                     }
                 }
+
+                Text("Open projects with built-in viewers before installing tools. Analyses that need external tools will show their setup requirements.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.lungfishWelcomeSecondaryText)
 
                 if viewModel.isRefreshingRequiredSetup && viewModel.requiredSetupStatus == nil {
                     SetupLoadingCard(
@@ -867,12 +876,12 @@ struct WelcomeView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.lungfishCreamsicleFallback)
-                        Text("Checking core setup before recent projects become available.")
+                        Text("Checking tool setup. You can open projects with built-in viewers while this check runs.")
                             .font(.subheadline)
                             .foregroundColor(.lungfishWelcomeSecondaryText)
                     }
-                } else if !viewModel.canLaunch {
-                    Text("Finish required setup before opening a recent project.")
+                } else if !viewModel.canBrowseProjects {
+                    Text("Wait for the current installation or storage change to finish before opening a project.")
                         .font(.subheadline)
                         .foregroundColor(.lungfishWelcomeSecondaryText)
                 }
@@ -884,7 +893,7 @@ struct WelcomeView: View {
                         ForEach(viewModel.recentProjects.recentProjects) { project in
                             RecentProjectCard(
                                 project: project,
-                                isEnabled: viewModel.canLaunch
+                                isEnabled: viewModel.canBrowseProjects
                             ) {
                                 viewModel.onOpenProject?(project.url)
                             }
@@ -1017,7 +1026,7 @@ struct WelcomeView: View {
     }
 
     private func performAction(_ action: WelcomeAction) {
-        guard viewModel.canLaunch else { return }
+        guard viewModel.canBrowseProjects else { return }
 
         switch action {
         case .createProject:
@@ -1749,39 +1758,24 @@ public final class WelcomeWindowController: NSWindowController {
         }
     }
 
-    private func openProject(at url: URL) {
-        do {
-            // Open the project
-            let project = try DocumentManager.shared.openProject(at: url)
-
-            // Add to recent projects
-            RecentProjectsManager.shared.addRecentProject(
-                url: project.url,
-                name: project.name
-            )
-
-            // Close welcome window and notify
+    func openProject(at url: URL) {
+        // The selected URL reaches AppDelegate's async preparation exactly once.
+        // Welcome must not open into the last mirrored window session first.
+        if url.pathExtension.lowercased() == ProjectFile.fileExtension {
             window?.close()
-            onProjectSelected?(project.url)
-
-        } catch {
-            // If it's not a valid .lungfish project, treat it as a working directory
-            let alert = NSAlert()
-            alert.messageText = "Open as Working Directory?"
-            alert.informativeText = "This folder is not a Lungfish project. Would you like to use it as a working directory for downloads and file operations?"
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "Use as Working Directory")
-            alert.addButton(withTitle: "Cancel")
-
-            if let window = self.window {
-                alert.beginSheetModal(for: window) { [weak self] response in
-                    if response == .alertFirstButtonReturn {
-                        // Set as working directory without creating a full project
-                        MainActor.assumeIsolated {
-                            self?.setWorkingDirectory(url)
-                        }
-                    }
-                }
+            onProjectSelected?(url)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Open as Working Directory?"
+        alert.informativeText = "Use this folder for project data, downloads and file operations?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Use as Working Directory")
+        alert.addButton(withTitle: "Cancel")
+        if let window {
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.setWorkingDirectory(url)
             }
         }
     }

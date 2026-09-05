@@ -18,7 +18,7 @@ final class MetagenomicsFilePanelFactoryTests: XCTestCase {
         XCTAssertTrue(panel.canChooseFiles)
         XCTAssertTrue(panel.canChooseDirectories)
         XCTAssertFalse(panel.allowsMultipleSelection)
-        XCTAssertEqual(panel.allowedContentTypes, [.data, .folder])
+        XCTAssertEqual(panel.allowedContentTypes, MetagenomicsFilePanelFactory.naoMgsImportContentTypes)
     }
 
     func testNvdResultsImportPanelSelectsDirectory() {
@@ -31,7 +31,7 @@ final class MetagenomicsFilePanelFactoryTests: XCTestCase {
         XCTAssertFalse(panel.allowsMultipleSelection)
     }
 
-    func testCzIdExportImportPanelAcceptsKnownExportsAndOtherFiles() throws {
+    func testCzIdExportImportPanelAcceptsKnownExports() throws {
         let panel = MetagenomicsFilePanelFactory.czIdExportImportPanel()
 
         XCTAssertEqual(panel.title, "Select CZ-ID Export")
@@ -39,7 +39,7 @@ final class MetagenomicsFilePanelFactoryTests: XCTestCase {
         XCTAssertTrue(panel.canChooseFiles)
         XCTAssertTrue(panel.canChooseDirectories)
         XCTAssertFalse(panel.allowsMultipleSelection)
-        XCTAssertTrue(panel.allowsOtherFileTypes)
+        XCTAssertFalse(panel.allowsOtherFileTypes)
         let contentTypes = try XCTUnwrap(panel.allowedContentTypes)
         for fileExtension in ["zip", "tsv", "txt", "csv"] {
             XCTAssertTrue(contentTypes.contains(try XCTUnwrap(UTType(filenameExtension: fileExtension))))

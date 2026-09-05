@@ -89,16 +89,16 @@ public final class ProjectFile: ObservableObject {
     @Published public private(set) var isDirty: Bool = false
 
     /// Logger for project operations
-    private static let logger = Logger(
+    private nonisolated static let logger = Logger(
         subsystem: "com.lungfish.browser",
         category: "ProjectFile"
     )
 
     /// File extension for Lungfish projects
-    public static let fileExtension = "lungfish"
+    public nonisolated static let fileExtension = "lungfish"
 
     /// Project file format version
-    public static let formatVersion = "1.0"
+    public nonisolated static let formatVersion = "1.0"
 
     // MARK: - Initialization
 
@@ -164,48 +164,53 @@ public final class ProjectFile: ObservableObject {
     ///
     /// - Parameter url: The project directory URL
     /// - Returns: The opened project
-    public static func open(at url: URL, access: ProjectAccessMode = .writable) throws -> ProjectFile {
-        logger.info("Opening project at \(url.path, privacy: .public)")
+    public struct PreparedOpen: Sendable {
+        public let url: URL
+        public let catalog: [SequenceSummary]
+        fileprivate let metadata: ProjectMetadata
+        fileprivate let store: ProjectStore
+    }
 
-        // Verify it's a directory
+    /// Heavy metadata/database validation and catalog reads can run on a worker.
+    /// The result owns its lease/snapshot until the UI accepts or discards it.
+    public nonisolated static func prepareOpen(at url: URL, access: ProjectAccessMode = .writable, deferCleanup: Bool = false) throws -> PreparedOpen {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw ProjectFileError.notAProject(url: url)
         }
-
-        // Compatibility must be established before acquiring a lease or opening
-        // SQLite writable; unknown fields/versions are never normalized on open.
         let metadata = try loadMetadata(from: url)
         guard metadata.formatVersion == formatVersion else {
             throw ProjectFileError.incompatibleVersion(found: metadata.formatVersion, required: formatVersion)
         }
-        let store = try ProjectStore(opening: url, access: access) {
-            let current = try loadMetadata(from: url)
-            guard current == metadata else {
+        let store = try ProjectStore(opening: url, access: access, deferCleanup: deferCleanup) {
+            guard try loadMetadata(from: url) == metadata else {
                 throw ProjectFileError.loadError(message: "Project metadata changed during access validation. Reopen the project.")
             }
         }
+        return PreparedOpen(url: url, catalog: try store.listSequences(), metadata: metadata, store: store)
+    }
 
-        let project = ProjectFile(
-            url: url,
-            name: metadata.name,
-            store: store,
-            createdAt: metadata.createdAt,
-            modifiedAt: metadata.modifiedAt
-        )
+    public static func open(at url: URL, access: ProjectAccessMode = .writable) throws -> ProjectFile {
+        acceptPreparedOpen(try prepareOpen(at: url, access: access))
+    }
 
+    /// Only observable object construction remains on the UI actor.
+    public static func acceptPreparedOpen(_ prepared: PreparedOpen) -> ProjectFile {
+        let metadata = prepared.metadata
+        let project = ProjectFile(url: prepared.url, name: metadata.name, store: prepared.store,
+            createdAt: metadata.createdAt, modifiedAt: metadata.modifiedAt)
         project.description = metadata.description
         project.author = metadata.author
         project.version = metadata.version
         project.customMetadata = metadata.customMetadata
-
-        logger.info("Project opened: \(metadata.name, privacy: .public)")
         return project
     }
 
+    /// Safe serialized storage ownership for selected hydration workers.
+    public var hydrationStore: ProjectStore { store }
+
     /// Performs a supported migration only when explicitly requested.
-    public static func migrate(at url: URL, access: ProjectAccessMode = .writable) throws {
+    public nonisolated static func migrate(at url: URL, access: ProjectAccessMode = .writable) throws {
         let metadata = try loadMetadata(from: url)
         guard metadata.formatVersion == formatVersion else {
             throw ProjectFileError.incompatibleVersion(found: metadata.formatVersion, required: formatVersion)
@@ -390,7 +395,7 @@ public final class ProjectFile: ObservableObject {
         modifiedAt = metadata.modifiedAt
     }
 
-    private static func loadMetadata(from url: URL) throws -> ProjectMetadata {
+    private nonisolated static func loadMetadata(from url: URL) throws -> ProjectMetadata {
         let metadataURL = url.appendingPathComponent("metadata.json")
 
         guard FileManager.default.fileExists(atPath: metadataURL.path) else {
@@ -451,7 +456,7 @@ public final class ProjectFile: ObservableObject {
 // MARK: - ProjectMetadata
 
 /// Serializable project metadata.
-private struct ProjectMetadata: Codable, Equatable {
+fileprivate struct ProjectMetadata: Codable, Equatable, Sendable {
     let formatVersion: String
     let name: String
     let description: String?

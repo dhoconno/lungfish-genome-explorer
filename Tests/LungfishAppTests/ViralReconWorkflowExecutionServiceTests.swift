@@ -1207,13 +1207,17 @@ private final class StreamingStubViralReconProcessRunner: ViralReconWorkflowProc
 private final class CancelRecordingViralReconProcessRunner: ViralReconWorkflowProcessRunning {
     private(set) var cancelCallCount = 0
     var onRun: (() -> Void)?
+    private var cancellationBarrier: CheckedContinuation<Void, Never>?
 
     func runLungfishCLI(
         arguments: [String],
         workingDirectory: URL,
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> ViralReconWorkflowProcessResult {
-        onRun?()
+        await withCheckedContinuation { continuation in
+            cancellationBarrier = continuation
+            onRun?()
+        }
         return ViralReconWorkflowProcessResult(
             exitCode: 0,
             standardOutput: "cancelled",
@@ -1224,6 +1228,8 @@ private final class CancelRecordingViralReconProcessRunner: ViralReconWorkflowPr
 
     func cancel() {
         cancelCallCount += 1
+        cancellationBarrier?.resume()
+        cancellationBarrier = nil
     }
 }
 
