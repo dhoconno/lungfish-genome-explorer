@@ -60,10 +60,38 @@ struct AIServicesSettingsTab: View {
     ]
 
     @State private var settings = AppSettings.shared
+    @State private var credentialPersistence: AICredentialPersistence
+    private let credentialLoader: @Sendable () async throws -> [String: String]
+    @State private var trackedCredentialValues: [String: String] = [:]
 
-    @State private var openAIKey: String = ""
-    @State private var anthropicKey: String = ""
-    @State private var geminiKey: String = ""
+    init(credentialPersistence: AICredentialPersistence = .shared,
+         credentialLoader: @escaping @Sendable () async throws -> [String: String] = Self.loadKeychainValues) {
+        self._credentialPersistence = State(initialValue: credentialPersistence)
+        self.credentialLoader = credentialLoader
+    }
+
+    nonisolated private static func loadKeychainValues() async throws -> [String: String] {
+        var values: [String: String] = [:]
+        for key in [KeychainSecretStorage.openAIAPIKey, KeychainSecretStorage.anthropicAPIKey,
+                    KeychainSecretStorage.geminiAPIKey] {
+            values[key] = try await KeychainSecretStorage.shared.retrieve(forKey: key) ?? ""
+        }
+        return values
+    }
+
+    @State private var credentialFields = AICredentialFields()
+    private var openAIKey: String {
+        get { credentialFields.openAIKey }
+        nonmutating set { credentialFields.openAIKey = newValue }
+    }
+    private var anthropicKey: String {
+        get { credentialFields.anthropicKey }
+        nonmutating set { credentialFields.anthropicKey = newValue }
+    }
+    private var geminiKey: String {
+        get { credentialFields.geminiKey }
+        nonmutating set { credentialFields.geminiKey = newValue }
+    }
     @State private var keychainErrorMessage: String?
     @State private var showClearConfirmation = false
     @State private var isLoadingKeys = false
@@ -71,7 +99,7 @@ struct AIServicesSettingsTab: View {
     @State private var anthropicValidation: KeyValidationState = .empty
     @State private var geminiValidation: KeyValidationState = .empty
 
-    // Debounce tasks for Keychain writes (avoid writing on every keystroke)
+    // Only remote credential validation is debounced; writes are independently owned.
     @State private var openAISaveTask: Task<Void, Never>?
     @State private var anthropicSaveTask: Task<Void, Never>?
     @State private var geminiSaveTask: Task<Void, Never>?
@@ -101,8 +129,9 @@ struct AIServicesSettingsTab: View {
             Section("Anthropic") {
                 HStack {
                     statusIndicator(state: anthropicValidation)
-                    SecureField("API Key", text: $anthropicKey, prompt: Text("sk-ant-..."))
+                    SecureField("API Key", text: $credentialFields.anthropicKey, prompt: Text("sk-ant-..."))
                         .accessibilityIdentifier(SettingsAccessibilityID.aiAnthropicKeyField)
+                        .disabled(isLoadingKeys || credentialFields.isClearing)
                 }
                 validationText(for: anthropicValidation)
                 Picker("Model:", selection: $settings.anthropicModel) {
@@ -114,8 +143,9 @@ struct AIServicesSettingsTab: View {
             Section("OpenAI") {
                 HStack {
                     statusIndicator(state: openAIValidation)
-                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
+                    SecureField("API Key", text: $credentialFields.openAIKey, prompt: Text("sk-..."))
                         .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIKeyField)
+                        .disabled(isLoadingKeys || credentialFields.isClearing)
                 }
                 validationText(for: openAIValidation)
                 Picker("Model:", selection: $settings.openAIModel) {
@@ -127,8 +157,9 @@ struct AIServicesSettingsTab: View {
             Section("Google Gemini") {
                 HStack {
                     statusIndicator(state: geminiValidation)
-                    SecureField("API Key", text: $geminiKey, prompt: Text("AIza..."))
+                    SecureField("API Key", text: $credentialFields.geminiKey, prompt: Text("AIza..."))
                         .accessibilityIdentifier(SettingsAccessibilityID.aiGeminiKeyField)
+                        .disabled(isLoadingKeys || credentialFields.isClearing)
                 }
                 validationText(for: geminiValidation)
                 Picker("Model:", selection: $settings.geminiModel) {
@@ -152,6 +183,7 @@ struct AIServicesSettingsTab: View {
                 }
                 .foregroundStyle(Color.lungfishOrangeFallback)
                 .accessibilityIdentifier(SettingsAccessibilityID.aiClearKeysButton)
+                .disabled(isLoadingKeys || credentialFields.isClearing)
                 Spacer()
                 Button("Restore Defaults") {
                     settings.resetSection(.aiServices)
@@ -159,6 +191,17 @@ struct AIServicesSettingsTab: View {
                 .accessibilityIdentifier(SettingsAccessibilityID.aiRestoreDefaultsButton)
             }
 
+            if credentialPersistence.isSaving {
+                Text("Saving API key changes to Keychain…")
+                    .font(.caption)
+            }
+            if let persistenceError = credentialPersistence.lastError {
+                Text(persistenceError)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishDangerFallback)
+                Button("Retry Saving Keys") { credentialPersistence.retryFailedWrites() }
+                    .disabled(credentialPersistence.isSaving)
+            }
             if let keychainErrorMessage {
                 Text(keychainErrorMessage)
                     .font(.caption)
@@ -187,12 +230,13 @@ struct AIServicesSettingsTab: View {
         .onChange(of: settings.openAIHostedDeployment) { _, _ in settings.save() }
         .onDisappear {
             cancelPendingSaves()
+            credentialPersistence.departed()
         }
         .alert("Clear All API Keys?", isPresented: $showClearConfirmation) {
             Button("Clear") { clearAllKeys() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will remove all stored API keys from the Keychain. You will need to re-enter them to use AI features.")
+            Text("This will remove the three AI provider keys from Keychain. You will need to re-enter them to use AI features.")
         }
     }
 
@@ -236,7 +280,7 @@ struct AIServicesSettingsTab: View {
         case .empty:
             EmptyView()
         case .unverified:
-            Text("Key saved. Enter a full key to validate automatically.")
+            Text("Key entered. Enter a full key to validate automatically.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .validating:
@@ -256,13 +300,19 @@ struct AIServicesSettingsTab: View {
 
     @MainActor
     private func loadKeys() {
+        isLoadingKeys = true
         Task {
-            isLoadingKeys = true
             defer { isLoadingKeys = false }
+            await credentialPersistence.flush()
             do {
-                openAIKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.openAIAPIKey) ?? ""
-                anthropicKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey) ?? ""
-                geminiKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.geminiAPIKey) ?? ""
+                var values = try await credentialLoader()
+                for key in AICredentialPersistence.aiKeys {
+                    if let pending = credentialPersistence.unstoredValue(forKey: key) { values[key] = pending }
+                }
+                trackedCredentialValues = values
+                openAIKey = values[KeychainSecretStorage.openAIAPIKey] ?? ""
+                anthropicKey = values[KeychainSecretStorage.anthropicAPIKey] ?? ""
+                geminiKey = values[KeychainSecretStorage.geminiAPIKey] ?? ""
                 openAIValidation = openAIKey.isEmpty ? .empty : .unverified
                 anthropicValidation = anthropicKey.isEmpty ? .empty : .unverified
                 geminiValidation = geminiKey.isEmpty ? .empty : .unverified
@@ -273,52 +323,39 @@ struct AIServicesSettingsTab: View {
         }
     }
 
-    /// Debounces Keychain writes by 500ms to avoid writing on every keystroke.
+    /// Persist committed field changes immediately; debounce only remote validation.
     @MainActor
     private func debouncedStore(_ value: String, forKey key: String, task: inout Task<Void, Never>?) {
-        guard !isLoadingKeys else { return }
+        guard !isLoadingKeys, trackedCredentialValues[key] != value else { return }
+        trackedCredentialValues[key] = value
+        credentialPersistence.edit(value, forKey: key)
         let provider = providerForKey(key)
         setValidationState(value.isEmpty ? .empty : .unverified, for: provider)
         task?.cancel()
         task = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            do {
-                try await KeychainSecretStorage.shared.store(secret: value, forKey: key)
-                keychainErrorMessage = nil
-                guard !Task.isCancelled else { return }
-                if shouldValidate(keyValue: value, provider: provider),
-                   shouldApplyValidationResult(expectedKey: value, provider: provider) {
-                    await validateKey(value, provider: provider)
-                }
-            } catch {
-                keychainErrorMessage = error.localizedDescription
-                if shouldApplyValidationResult(expectedKey: value, provider: provider) {
-                    setValidationState(.invalid(error.localizedDescription), for: provider)
-                }
+            await credentialPersistence.flush()
+            guard !Task.isCancelled, credentialPersistence.lastError == nil else { return }
+            if shouldValidate(keyValue: value, provider: provider),
+               shouldApplyValidationResult(expectedKey: value, provider: provider) {
+                await validateKey(value, provider: provider)
             }
         }
     }
 
     @MainActor
     private func clearAllKeys() {
+        guard !isLoadingKeys, !credentialFields.isClearing else { return }
         cancelPendingSaves()
-        Task {
-            do {
-                try await KeychainSecretStorage.shared.deleteAll()
-                isLoadingKeys = true
-                defer { isLoadingKeys = false }
-                openAIKey = ""
-                anthropicKey = ""
-                geminiKey = ""
-                openAIValidation = .empty
-                anthropicValidation = .empty
-                geminiValidation = .empty
-                keychainErrorMessage = nil
-            } catch {
-                keychainErrorMessage = error.localizedDescription
-            }
-        }
+        trackedCredentialValues = Dictionary(uniqueKeysWithValues: AICredentialPersistence.aiKeys.map { ($0, "") })
+        openAIValidation = .empty
+        anthropicValidation = .empty
+        geminiValidation = .empty
+        keychainErrorMessage = nil
+        // Keep the requested empty fields visible even if a deletion needs retry.
+        // This synchronously excludes edits before any Keychain suspension.
+        _ = credentialFields.clear(using: credentialPersistence)
     }
 
     private func providerForKey(_ keychainKey: String) -> ProviderKind {

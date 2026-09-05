@@ -53,6 +53,31 @@ public final class AIAssistantService {
         self.providerResolverOverride = providerResolver
     }
 
+    /// Local preview only; never resolves or contacts a provider.
+    /// Local preview only: never reads credentials, validates keys, or contacts a provider.
+    func contextDisclosure() -> String {
+        let settings = AppSettings.shared
+        let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .anthropic
+        let order: [AIProviderIdentifier] = [preferred] + [.anthropic, .openAI, .gemini].filter { $0 != preferred }
+        let recipients = order.map(\.displayName).joined(separator: " → ")
+        var endpoint = ""
+        if settings.openAIHostedEndpointEnabled {
+            let host = URLComponents(string: settings.openAIHostedEndpoint)?.host ?? "invalid endpoint"
+            endpoint = "\nOpenAI uses the configured hosted endpoint: \(host)."
+        }
+        let context = Self.contextDescription(for: toolRegistry.getCurrentViewState?() ?? AIToolRegistry.ViewerState())
+        return """
+        When you send a message, the request includes your message, this conversation's history, app instructions, and the current context below. Read and navigation tools may add results, including selected table rows and sample names, to subsequent requests.
+
+        Possible configured recipients, in fallback order: \(recipients). Only providers with configured, validated credentials are used. A failed request may already have reached one provider before another provider receives the fallback request.\(endpoint)
+
+        Current context
+        \(context)
+
+        This local preview sends nothing. Context is refreshed when you send a message; changing views or selections can change what is included.
+        """
+    }
+
     // MARK: - Conversation Management
 
     /// Sends a user message and processes the response, including any tool calls.
@@ -415,10 +440,7 @@ public final class AIAssistantService {
 
     // MARK: - System Prompt
 
-    /// Builds a context-aware system prompt based on the current app state.
-    private func buildSystemPrompt(for userMessage: String) -> String {
-        let viewerState = toolRegistry.getCurrentViewState?() ?? AIToolRegistry.ViewerState()
-
+    private static func contextDescription(for viewerState: AIToolRegistry.ViewerState) -> String {
         var contextLines: [String] = []
 
         if let organism = viewerState.organism {
@@ -466,9 +488,16 @@ public final class AIAssistantService {
             }
         }
 
-        let dataContext = contextLines.isEmpty
+        return contextLines.isEmpty
             ? "No genome data is currently loaded."
             : contextLines.joined(separator: "\n")
+    }
+
+    /// Builds a context-aware system prompt based on the current app state.
+    private func buildSystemPrompt(for userMessage: String) -> String {
+        let viewerState = toolRegistry.getCurrentViewState?() ?? AIToolRegistry.ViewerState()
+
+        let dataContext = Self.contextDescription(for: viewerState)
         let assayGuidance = speciesAwareAssayAndReagentGuidance(
             organism: viewerState.organism,
             assembly: viewerState.assembly

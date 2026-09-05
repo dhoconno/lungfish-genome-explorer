@@ -133,6 +133,8 @@ final class AIAssistantViewController: NSViewController {
     private let suggestedQueriesContainer = NSStackView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let clearButton = NSButton()
+    private let disclosureButton = NSButton()
+    private var disclosurePopover: NSPopover?
     private var thinkingIndicator: NSProgressIndicator?
     private var documentMinHeightConstraint: NSLayoutConstraint?
     private var documentContentHeightConstraint: NSLayoutConstraint?
@@ -292,10 +294,44 @@ final class AIAssistantViewController: NSViewController {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         header.addArrangedSubview(spacer)
+        disclosureButton.title = "Data sent…"
+        disclosureButton.bezelStyle = .accessoryBarAction
+        disclosureButton.font = .systemFont(ofSize: 11)
+        disclosureButton.target = self
+        disclosureButton.action = #selector(showContextDisclosure)
+        disclosureButton.setAccessibilityIdentifier("ai-assistant-context-disclosure")
+        disclosureButton.toolTip = "Preview current context and possible AI recipients without sending data"
+        header.addArrangedSubview(disclosureButton)
         header.addArrangedSubview(clearButton)
 
         statusLabel.setAccessibilityIdentifier(AIAssistantAccessibilityID.status)
         return header
+    }
+
+    @objc private func showContextDisclosure() {
+        let controller = NSViewController()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 430, height: 350))
+        scroll.hasVerticalScroller = true
+        let text = NSTextView(frame: scroll.bounds)
+        text.isEditable = false
+        text.isSelectable = true
+        text.font = .systemFont(ofSize: 12)
+        text.textContainerInset = NSSize(width: 12, height: 12)
+        text.autoresizingMask = [.width]
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.textContainer?.widthTracksTextView = true
+        text.string = service.contextDisclosure()
+        text.setAccessibilityIdentifier("ai-assistant-context-preview")
+        scroll.documentView = text
+        controller.view = scroll
+        controller.preferredContentSize = scroll.frame.size
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = controller
+        disclosurePopover?.close()
+        disclosurePopover = popover
+        popover.show(relativeTo: disclosureButton.bounds, of: disclosureButton, preferredEdge: .maxY)
     }
 
     private func createInputBar() -> NSView {
