@@ -1323,7 +1323,8 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.coordinator = load_coordinator_module()
 
     class RecordingOperations:
-        def __init__(self, ci_error=None, sparkle_error_on_call=None):
+        def __init__(self, coordinator, ci_error=None, sparkle_error_on_call=None):
+            self.coordinator = coordinator
             self.events = []
             self.ci_error = ci_error
             self.sparkle_error_on_call = sparkle_error_on_call
@@ -1337,6 +1338,10 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         def run_local_gates(self, _request):
             self.events.append("local-release-gates")
+            self.gates = self.coordinator.GateEvidence(
+                Path("/retained/manifest.json"), "d" * 64
+            )
+            return self.gates
 
         def verify_source_history(self, _request):
             self.events.append("source-history")
@@ -1356,6 +1361,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
         def package_only(self, request):
             self.events.append("package-only")
+            assert request.gate_evidence is self.gates
             return request.receipt
 
         def verify_candidate_receipt(self, request):
@@ -1463,7 +1469,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         )
 
     def test_package_then_publish_uses_local_gates_and_never_waits_for_ci(self):
-        operations = self.RecordingOperations()
+        operations = self.RecordingOperations(self.coordinator)
         transaction = self.coordinator.ReleaseCoordinator(operations)
 
         transaction.package(self.request())
@@ -1493,7 +1499,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
 
     def test_publish_verifies_receipt_and_never_rebuilds(self):
-        operations = self.RecordingOperations()
+        operations = self.RecordingOperations(self.coordinator)
         transaction = self.coordinator.ReleaseCoordinator(operations)
         request = self.request(mode="publish")
 
@@ -1513,7 +1519,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertEqual(operations.events.count("credentialed-resume-publish"), 1)
 
     def test_feed_advance_after_tag_push_blocks_publication(self):
-        operations = self.RecordingOperations(sparkle_error_on_call=2)
+        operations = self.RecordingOperations(self.coordinator, sparkle_error_on_call=2)
         transaction = self.coordinator.ReleaseCoordinator(operations)
         request = self.request(mode="publish")
         identity = transaction.preflight_publish_candidate(request)
