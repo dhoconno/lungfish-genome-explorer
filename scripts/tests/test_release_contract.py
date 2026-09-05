@@ -68,6 +68,8 @@ EXPECTED_TOOLCHAIN = {
 }
 
 EXPECTED_GATES = {
+    "appSmokeAccount": "lungfish-release-qa",
+    "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser'],
     "focusedReleaseTests": [
         "scripts.tests.test_release_contract",
         "scripts.tests.test_release_cache_fingerprint",
@@ -78,6 +80,7 @@ EXPECTED_GATES = {
         "scripts.tests.test_release_smoke",
         "scripts.tests.test_sparkle_release_packaging",
         "scripts.tests.test_nightly_prerelease_release",
+        "scripts.tests.test_app_smoke_gate",
     ],
     "channels": {
         "preview": [

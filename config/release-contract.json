@@ -60,17 +60,38 @@
       "scripts.tests.test_release_builder_phases",
       "scripts.tests.test_release_smoke",
       "scripts.tests.test_sparkle_release_packaging",
-      "scripts.tests.test_nightly_prerelease_release"
+      "scripts.tests.test_nightly_prerelease_release",
+      "scripts.tests.test_app_smoke_gate"
     ],
     "channels": {
       "preview": [
-        {"tier": "unit", "requireTools": false},
-        {"tier": "integration", "requireTools": false}
+        {
+          "tier": "unit",
+          "requireTools": false
+        },
+        {
+          "tier": "integration",
+          "requireTools": false
+        }
       ],
       "stable": [
-        {"tier": "full", "requireTools": false},
-        {"tier": "conformance", "requireTools": true}
+        {
+          "tier": "full",
+          "requireTools": false
+        },
+        {
+          "tier": "conformance",
+          "requireTools": true
+        }
       ]
-    }
+    },
+    "appSmokeTests": [
+      "LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity",
+      "LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus",
+      "LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen",
+      "LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership",
+      "LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser"
+    ],
+    "appSmokeAccount": "lungfish-release-qa"
   }
 }

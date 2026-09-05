@@ -59,6 +59,7 @@ fi
         relative_paths = (
             "config/release-contract.json",
             "scripts/release/release.py",
+            "scripts/release/gate_evidence.py",
             "scripts/release/release_contract.py",
             "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_cache_security.py",
@@ -120,6 +121,13 @@ fi
 
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(expected.lower(), (result.stdout + result.stderr).lower())
+
+    def test_validator_rejects_graphical_account_authority_drift(self):
+        self.assert_authority_mutation_fails(
+            "docs/release/sparkle-updates.md",
+            lambda text: text.replace("`lungfish-release-qa` macOS account", "`personal-user` macOS account"),
+            "graphical",
+        )
 
     def test_real_repository_validates(self):
         result = self.run_validator(REPO_ROOT)

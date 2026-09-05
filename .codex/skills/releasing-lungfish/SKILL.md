@@ -131,7 +131,7 @@ validate the actual artifact's portability and smoke behavior, and create and
 verify a candidate receipt at
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json`.
 
-GitHub Actions is advisory only. Main and pull requests run the fast structural
+GitHub Actions is advisory only. Main and pull requests run script contracts and a narrow Swift compile/behavior
 gate, and explicitly dispatched diagnostic jobs may do more work. Tag pushes do
 not start release gates, and Actions never authorizes or blocks publication.
 
@@ -181,3 +181,8 @@ smoke/portability, cleanup, and residual blockers.
 Run `scripts/install.sh` from this skill directory to link the repository-owned
 skill into the personal skill root. Re-run the validator whenever release
 tooling or authority changes.
+
+### Stable graphical evidence
+
+Stable packaging requires the contract-selected real-app smoke methods against the exact assembled candidate in an active logged-in macOS graphical session. The receipt retains the source and app payload identities, selected/completed XCTest counts, command logs and xcresult hashes. Missing graphical access, any skipped/empty/incomplete selection, or changed evidence blocks Stable readiness. The Release candidate uses ordinary UI actions; DEBUG fixture hooks and invented parser fixtures do not count as graphical evidence. Signing and embedded-tool smoke alone do not establish full release readiness.
+The graphical session must belong to the disposable `lungfish-release-qa` macOS account declared by `gates.appSmokeAccount`, provisioned on a dedicated test Mac or VM with no user projects or credentials. Before launch the gate rejects existing Lungfish preferences, saved windows, application support and managed storage; it records the account name, UID, real account home and clean-state result. Provision or restore a fresh disposable account/VM before each run. The gate does not erase state. A `HOME` override does not isolate macOS preferences, keychain or application support, and an ordinary personal account must never run this smoke.

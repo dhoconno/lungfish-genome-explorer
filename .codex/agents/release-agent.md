@@ -106,7 +106,7 @@ feed and Preview bridge, and independently verifies local and remote state.
 Preview requires strict Alpha and Beta build floors. Stable also requires Beta
 as a migration floor and permits absence only for an uninitialized Stable feed.
 
-GitHub Actions is advisory: main and pull requests run fast structural tests,
+GitHub Actions is advisory: main and pull requests run script contracts and a narrow Swift compile/behavior gate,
 tag pushes do not start release gates, and no Actions result authorizes or
 blocks publication. Nightly
 prepares version/source state and calls `package` then `publish`; partial recovery
@@ -126,3 +126,8 @@ candidate receipt, archive/app/DMG absolute paths, SHA-256, signature/notary/
 staple results, exact bundle metadata and feed URL, selected Sparkle feed and
 Preview bridge, local contract gates, optional advisory CI status, artifact smoke/portability, repository
 cleanliness, retained work, and unresolved blockers.
+
+### Stable graphical evidence
+
+Stable packaging requires the contract-selected real-app smoke methods against the exact assembled candidate in an active logged-in macOS graphical session. The receipt retains the source and app payload identities, selected/completed XCTest counts, command logs and xcresult hashes. Missing graphical access, any skipped/empty/incomplete selection, or changed evidence blocks Stable readiness. The Release candidate uses ordinary UI actions; DEBUG fixture hooks and invented parser fixtures do not count as graphical evidence. Signing and embedded-tool smoke alone do not establish full release readiness.
+The graphical session must belong to the disposable `lungfish-release-qa` macOS account declared by `gates.appSmokeAccount`, provisioned on a dedicated test Mac or VM with no user projects or credentials. Before launch the gate rejects existing Lungfish preferences, saved windows, application support and managed storage; it records the account name, UID, real account home and clean-state result. Provision or restore a fresh disposable account/VM before each run. The gate does not erase state. A `HOME` override does not isolate macOS preferences, keychain or application support, and an ordinary personal account must never run this smoke.

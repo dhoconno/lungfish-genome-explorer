@@ -101,3 +101,32 @@ final class MainWindowNavigationXCUITests: XCTestCase {
         return ""
     }
 }
+
+extension MainWindowNavigationXCUITests {
+    @MainActor
+    func testReleaseCandidateLaunchAndChannelIdentity() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        defer { robot.app.terminate() }
+        try robot.launch()
+    }
+
+    @MainActor
+    func testReleaseCandidateImportFailureStatus() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "ReleaseFailure-\(UUID().uuidString)")
+        let invalid = project.deletingLastPathComponent().appendingPathComponent("invalid.csv")
+        try "invented,unsupported,columns\ninvalid,row,only\n".write(to: invalid, atomically: true, encoding: .utf8)
+        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        try robot.launch()
+        robot.openProject(project)
+        robot.menu("File", item: "Import Center…")
+        let button = robot.app.buttons["import-center-button-fastq-sample-sheet"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5))
+        button.click()
+        robot.chooseNativePath(invalid)
+        XCTAssertTrue(robot.app.staticTexts["Invalid FASTQ Sample Sheet"].waitForExistence(timeout: 10))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("invalid.csv").path))
+        robot.app.buttons["OK"].firstMatch.click()
+        XCTAssertTrue(robot.window(project).exists)
+    }
+}

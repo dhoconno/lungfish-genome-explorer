@@ -17,15 +17,33 @@ class CIWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-    def test_script_test_environments_install_pyyaml(self):
+    def test_script_test_environments_use_shared_hashed_input(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        requirements = (ROOT / "scripts/requirements-test.txt").read_text()
+        self.assertIn("PyYAML==", requirements)
+        self.assertIn("--hash=sha256:", requirements)
         for job_name in ("fast", "build-smoke"):
-            install = next(
-                step
-                for step in wf["jobs"][job_name]["steps"]
-                if step.get("name") == "Install script test dependencies"
-            )
-            self.assertIn("PyYAML", install.get("run", ""), job_name)
+            install = next(step for step in wf["jobs"][job_name]["steps"]
+                           if step.get("name") == "Install script test dependencies")
+            self.assertIn("--require-hashes", install["run"], job_name)
+            self.assertIn("scripts/requirements-test.txt", install["run"], job_name)
+            self.assertNotIn("--upgrade pip", install["run"])
+
+    def test_actions_are_pinned_to_full_reviewable_commits(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        for job in wf["jobs"].values():
+            for step in job["steps"]:
+                if "uses" in step:
+                    self.assertRegex(step["uses"], r"^actions/[a-z-]+@[0-9a-f]{40}$")
+
+    def test_automatic_swift_gate_runs_compiler_negative_control_and_behavior(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["fast"]
+        self.assertNotIn("if", job)
+        steps = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("scripts/ci-swift-smoke.py", steps)
+        self.assertIn("--compile-error-control", steps)
+        self.assertTrue(any(step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "always()" for step in job["steps"]))
 
     def test_fast_gate_repairs_xcode_lockfile_before_and_after_xcodebuild_then_checks_afterward(
         self,
@@ -82,7 +100,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(job["needs"], ["fast", "toolset-conformance"])
         self.assertIn("swift build --product lungfish-cli", steps)
         self.assertIn("tools update --apply --yes --required-only", steps)
-        self.assertIn("pip install numpy biopython scipy pandas", steps)
+        self.assertIn("--require-hashes --only-binary=:all: -r scripts/requirements-parity.txt", steps)
         self.assertIn("GITHUB_PATH", steps)
 
         cache_steps = [
@@ -146,51 +164,13 @@ class CIWorkflowTests(unittest.TestCase):
         )
         self.assertIn(expected_filter, steps)
 
-    def test_ci_filter_and_gate_allowlist_name_the_same_suites(self):
-        """The job filter and the gate's --require-tools allowlist must agree.
-
-        A suite in the filter but not the allowlist can skip silently under
-        --require-tools; a suite in the allowlist but not the filter never
-        runs in this job, so its skips are never checked at all.
-        """
-        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        job = wf["jobs"]["toolset-conformance"]
-        steps = " ".join(step.get("run", "") for step in job["steps"])
-        gate = (ROOT / "scripts/full-suite-gate.sh").read_text(encoding="utf-8")
-
-        # Class names the allowlist regex enumerates, minus the generic
-        # ".*Conformance.*" alternative that the filter spells "Conformance".
-        allowlist_line = next(
-            line
-            for line in gate.splitlines()
-            if line.startswith("CONFORMANCE_ALLOWLIST=")
-        )
-        allowlist_names = {
-            name
-            for name in allowlist_line.split("(", 1)[1].split(")", 1)[0].split("|")
-            if name.endswith("Tests")
-        }
-
-        filter_line = next(line for line in steps.split("\n") if "--filter" in line)
-        filter_names = {
-            name
-            for name in filter_line.split("'")[1].split("|")
-            if name.endswith("Tests")
-        }
-
-        # MAFFTAlignmentPipelineTests is deliberately in the filter only: its
-        # sole skip guards fixture creation, not tool availability.
-        filter_only_by_design = {"MAFFTAlignmentPipelineTests"}
-        self.assertEqual(
-            allowlist_names - filter_names,
-            set(),
-            "suites in the gate allowlist but missing from the CI filter never run in this job",
-        )
-        self.assertEqual(
-            filter_names - allowlist_names - filter_only_by_design,
-            set(),
-            "suites in the CI filter but missing from the gate allowlist can skip silently",
-        )
+    def test_conformance_skip_policy_has_no_suite_exemptions(self):
+        # Task01 deliberately removed the old MAFFT fixture-skip exception.
+        # Every selected test must execute under require-tools.
+        gate = (ROOT / "scripts/full-suite-gate.sh").read_text()
+        self.assertNotIn("CONFORMANCE_ALLOWLIST=", gate)
+        evidence = (ROOT / "scripts/release/gate_evidence.py").read_text()
+        self.assertIn('if require_tools and h["skipped"]:', evidence)
 
     def test_toolset_conformance_provisions_variant_calling_pack(self):
         # ivar/lofreq back ReadsToVariantsEndToEndTests and
@@ -212,7 +192,7 @@ class CIWorkflowTests(unittest.TestCase):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
         steps = " ".join(step.get("run", "") for step in job["steps"])
-        self.assertIn("pip install numpy biopython scipy pandas", steps)
+        self.assertIn("--require-hashes --only-binary=:all: -r scripts/requirements-parity.txt", steps)
         # The parity test resolves python via `/usr/bin/env python3`, so the
         # venv only helps if it is on PATH.
         self.assertIn("GITHUB_PATH", steps)
@@ -229,7 +209,7 @@ class CIWorkflowTests(unittest.TestCase):
         for needle in (
             "conda install --pack variant-calling",
             "db install-managed deacon-panhuman",
-            "pip install numpy biopython scipy pandas",
+            "--require-hashes --only-binary=:all: -r scripts/requirements-parity.txt",
         ):
             provision_index = next(
                 index for index, run in enumerate(runs) if needle in run

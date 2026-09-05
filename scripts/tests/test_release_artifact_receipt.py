@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from scripts.tests.gate_fixtures import make_gate_fixture
+from scripts.tests.gate_fixtures import make_gate_fixture, make_app_smoke_fixture
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -495,6 +495,14 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(fixture["receipt"].exists())
 
+    def test_stable_candidate_requires_retained_real_app_smoke_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._make_fixture(Path(temporary))
+            result = self._create(fixture, include_app_smoke=False)
+            self.assertNotEqual(result.returncode, 0,
+                "Stable must not authorize a candidate without real graphical app checks")
+            self.assertFalse(fixture["receipt"].exists())
+
     def test_candidate_retains_and_verifies_exact_gate_logs_and_manifest(self):
         for changed in ("manifest.json", "0/runner.log", "0/gate.result.json", "dependency-receipt.json"):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
@@ -756,7 +764,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             changed_build = self._verify(fixture)
 
             self.assertEqual(changed_build.returncode, 1)
-            self.assertIn("receipt does not match", changed_build.stderr)
+            self.assertRegex(changed_build.stderr, "receipt does not match|app smoke identity")
 
     def test_verify_detects_each_payload_or_toolchain_mutation(self):
         mutations = {
@@ -883,7 +891,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             changed = self._verify(fixture)
 
             self.assertEqual(changed.returncode, 1)
-            self.assertIn("receipt does not match", changed.stderr)
+            self.assertRegex(changed.stderr, "receipt does not match|app smoke identity")
 
             fixture["link"].unlink()
             fixture["link"].symlink_to("/etc/passwd")
@@ -954,6 +962,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release-candidate-receipt.py",
             "scripts/release/gate_evidence.py",
+            "scripts/release/app_smoke_gate.py",
             "scripts/full-suite-gate.sh",
             "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_cache_security.py",
@@ -1139,7 +1148,13 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "info_plist": info_plist,
         }
 
-    def _create(self, fixture, scratch=None):
+    def _create(self, fixture, scratch=None, include_app_smoke=True):
+        smoke_args = []
+        if include_app_smoke:
+            smoke = fixture["release"].parent / "staged-app-smoke" / "app-smoke.result.json"
+            if not smoke.exists():
+                make_app_smoke_fixture(smoke.parent, {"commit": fixture["commit"], "clean": True}, fixture["app"], fixture["contract"])
+            smoke_args = ["--app-smoke", str(smoke), "--app-smoke-sha256", hashlib.sha256(smoke.read_bytes()).hexdigest()]
         return self._run(
             fixture,
             "create",
@@ -1153,6 +1168,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             str(scratch if scratch is not None else fixture["scratch"]),
             "--gate-manifest", str(fixture["gate_manifest"]),
             "--gate-manifest-sha256", hashlib.sha256(fixture["gate_manifest"].read_bytes()).hexdigest(),
+            *smoke_args,
         )
 
     def _verify(self, fixture, channel="stable"):

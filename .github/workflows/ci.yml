@@ -20,21 +20,15 @@ permissions:
 
 jobs:
   fast:
-    # Push/PR gate: fast, deterministic, and free of Swift compilation. The old
-    # gate compiled the app, the CLI, the whole Xcode project, and five test
-    # invocations; it could not finish inside its 30 minute timeout, so every
-    # push run since beta25 was cancelled at the limit and gated nothing.
-    # Releases are verified locally (full 14k-test suite and the dependency
-    # regression tiers); CI's job on push is to catch cheap structural drift
-    # quickly. The Swift build work now lives in the release/dispatch
-    # build-smoke job.
+    # Automatic narrow Swift compilation/behavior plus script contracts.
+    # Full app and dependency conformance remain separate release/dispatch gates.
     name: Fast gate
     runs-on: macos-26
     timeout-minutes: 10
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
@@ -72,13 +66,26 @@ jobs:
         run: |
           brew install ripgrep
           python3 -m venv .ci-python
-          .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow openpyxl PyYAML
+          .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-test.txt
 
       - name: Run release and fixture script tests
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: .ci-python/bin/python -B -m unittest discover -s scripts/tests
+
+      - name: Select supported Xcode
+        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
+
+      - name: Compile and execute narrow Swift behavior with compiler failure control
+        run: .ci-python/bin/python scripts/ci-swift-smoke.py --compile-error-control --output .build/ci-swift-smoke
+
+      - name: Retain automatic source and executed-check evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: automatic-swift-evidence
+          path: .build/ci-swift-smoke
+          if-no-files-found: error
 
   build-smoke:
     name: Build and smoke tests
@@ -88,7 +95,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
@@ -153,8 +160,7 @@ jobs:
         run: |
           brew install ripgrep
           python3 -m venv .ci-python
-          .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install Pillow openpyxl PyYAML
+          .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-test.txt
 
       - name: Run release and fixture script tests
         env:
@@ -182,7 +188,7 @@ jobs:
 
       - name: Upload project-storage skip comparison
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: project-storage-skip-comparison
           path: |
@@ -203,7 +209,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
@@ -226,7 +232,7 @@ jobs:
         run: echo "hash=$(shasum -a 256 Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore managed toolset
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.lungfish/conda
@@ -241,8 +247,7 @@ jobs:
       - name: Install full-suite Python dependencies
         run: |
           python3 -m venv .ci-python
-          .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install numpy biopython scipy pandas
+          .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-parity.txt
           echo "$PWD/.ci-python/bin" >> "$GITHUB_PATH"
 
       - name: Run full package tests
@@ -256,7 +261,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
@@ -274,7 +279,7 @@ jobs:
         run: echo "hash=$(shasum -a 256 Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache managed tools and viral DB
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.lungfish/conda
@@ -357,8 +362,7 @@ jobs:
         # resolve to it, matching how the fast job provisions its script tests.
         run: |
           python3 -m venv .ci-python
-          .ci-python/bin/python -m pip install --upgrade pip
-          .ci-python/bin/python -m pip install numpy biopython scipy pandas
+          .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-parity.txt
           echo "$PWD/.ci-python/bin" >> "$GITHUB_PATH"
 
       - name: Verify parity test python dependencies are importable
@@ -380,7 +384,7 @@ jobs:
           bash scripts/deps/regenerate-goldens.sh --set "$dependency_set" --out .build/goldens
           python3 scripts/deps/diff_goldens.py --recipes scripts/deps/goldens.json --candidate .build/goldens --set "$dependency_set"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: toolset-conformance-logs

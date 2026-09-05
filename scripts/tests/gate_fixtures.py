@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import plistlib
 import subprocess
 import sys
 from pathlib import Path
@@ -54,3 +55,43 @@ def make_gate_fixture(directory, source, channel="stable", modules=None):
                 "files": [record(p, directory) for p in sorted(directory.rglob("*")) if p.is_file()]}
     write_json(directory / "manifest.json", manifest)
     return directory / "manifest.json"
+
+
+def make_app_smoke_fixture(directory, source, app, contract_path):
+    """Invented parser/receipt fixture; never represents a graphical test run."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
+    from app_smoke_gate import receipt_authority
+    from gate_evidence import analyze_attempt
+    directory.mkdir(parents=True)
+    identifiers = json.loads(contract_path.read_text())["gates"]["appSmokeTests"]
+    for name in ("xcode-version", "sdk-version", "build-ui-runner"):
+        (directory / (name + ".log")).write_text("fixture completed\n")
+    (directory / "sdk-version.log").write_text("26.5\n")
+    log = directory / "real-app-tests.log"
+    log.write_text("".join("Test Case '-[" + name.replace("/", ".", 1).replace("/", " ") + "]' passed (0.1 seconds).\n" for name in identifiers)
+                   + "Test Suite 'Selected tests' passed\nExecuted " + str(len(identifiers)) + " tests, with 0 failures\n** TEST SUCCEEDED **\n")
+    (directory / "run.xcresult").mkdir()
+    (directory / "run.xcresult/fixture.txt").write_text("invented result bundle\n")
+    runfile = directory / "candidate.xctestrun"
+    runfile.write_bytes(plistlib.dumps({"TestConfigurations": [{"TestTargets": [{
+        "BlueprintName": "LungfishXCUITests", "UITargetAppPath": str(app),
+        "OnlyTestIdentifiers": [i.split("/", 1)[1] for i in identifiers], "SkipTestIdentifiers": [],
+        "EnvironmentVariables": {"LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": "stable"}}]}]}))
+    commands = [{"argv": argv, "exitStatus": 0, "files": [record(directory / (name + ".log"), directory)]}
+                for name, argv in (("xcode-version", ["xcodebuild", "-version"]),
+                                   ("sdk-version", ["xcrun", "--sdk", "macosx", "--show-sdk-version"]),
+                                   ("build-ui-runner", ["xcodebuild", "build-for-testing"]),
+                                   ("real-app-tests", ["xcodebuild", "test-without-building", "-xctestrun", str(runfile)] + ["-only-testing:" + i for i in identifiers]))]
+    analyze_attempt(directory, commands[-1], {"xctest": [i.replace("/", ".", 1) for i in identifiers], "swift-testing": []}, False, True)
+    result = {"schemaVersion": 1, "kind": "xcode-real-app", "source": source, "channel": "stable",
+              "appPath": str(app), "appPayloadSHA256": receipt_authority(Path(__file__).resolve().parents[2])._payload_digest(app),
+              "sdkVersion": "26.5", "runnerIdentity": [
+                  {"path": "Release/LungfishXCUITests-Runner.app/Contents/MacOS/LungfishXCUITests-Runner", "sha256": "a" * 64, "sizeBytes": 1},
+                  {"path": "Release/LungfishXCUITests-Runner.app/Contents/PlugIns/LungfishXCUITests.xctest/Contents/MacOS/LungfishXCUITests", "sha256": "b" * 64, "sizeBytes": 1}],
+              "selectedTests": identifiers, "graphicalSession": {"active": True, "uid": 501,
+                  "username": json.loads(contract_path.read_text())["gates"]["appSmokeAccount"],
+                  "home": "/Users/lungfish-release-qa", "cleanState": True, "existingState": []},
+              "authorized": True, "errors": [], "commands": commands,
+              "files": [record(p, directory) for p in sorted(directory.rglob("*")) if p.is_file()]}
+    write_json(directory / "app-smoke.result.json", result)
+    return directory / "app-smoke.result.json"

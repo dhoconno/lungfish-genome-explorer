@@ -52,7 +52,7 @@ TOOLCHAIN_FIELDS = frozenset(
         "minimumFreeDiskGiB",
     }
 )
-GATE_FIELDS = frozenset({"focusedReleaseTests", "channels"})
+GATE_FIELDS = frozenset({"focusedReleaseTests", "channels", "appSmokeTests", "appSmokeAccount"})
 GATE_STEP_FIELDS = frozenset({"tier", "requireTools"})
 
 
@@ -117,6 +117,8 @@ class GateStep:
 class GateContract:
     focusedReleaseTests: tuple[str, ...]
     channels: Mapping[str, tuple[GateStep, ...]]
+    appSmokeTests: tuple[str, ...]
+    appSmokeAccount: str
 
     def for_channel(self, name: str) -> tuple[GateStep, ...]:
         try:
@@ -127,6 +129,8 @@ class GateContract:
     def to_dict(self) -> dict[str, Any]:
         return {
             "focusedReleaseTests": list(self.focusedReleaseTests),
+            "appSmokeTests": list(self.appSmokeTests),
+            "appSmokeAccount": self.appSmokeAccount,
             "channels": {
                 name: [step.to_dict() for step in steps]
                 for name, steps in self.channels.items()
@@ -293,7 +297,16 @@ def _parse_gates(raw: Any) -> GateContract:
         if len(tiers) != len(set(tiers)):
             raise ValueError(f"duplicate release gate tier for {name}")
         channels[name] = tuple(steps)
-    return GateContract(tuple(focused), MappingProxyType(channels))
+    app_smoke = value["appSmokeTests"]
+    if not isinstance(app_smoke, list) or not app_smoke or any(
+        not isinstance(test, str) or re.fullmatch(r"LungfishXCUITests/[A-Za-z0-9_]+/test[A-Za-z0-9_]+", test) is None
+        for test in app_smoke
+    ) or len(set(app_smoke)) != len(app_smoke):
+        raise ValueError("app smoke must select unique explicit XCTest methods")
+    account = value["appSmokeAccount"]
+    if not isinstance(account, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,30}", account) is None:
+        raise ValueError("app smoke requires an explicit disposable account name")
+    return GateContract(tuple(focused), MappingProxyType(channels), tuple(app_smoke), account)
 
 
 def _reject_duplicates(channels: Mapping[str, ChannelContract]) -> None:

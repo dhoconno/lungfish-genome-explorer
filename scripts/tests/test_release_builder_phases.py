@@ -63,6 +63,7 @@ class ReleaseBuilderFixture:
             "scripts/release/check-sparkle-build-number.py",
             "scripts/release/release-candidate-receipt.py",
             "scripts/release/gate_evidence.py",
+            "scripts/release/app_smoke_gate.py",
             "scripts/full-suite-gate.sh",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
@@ -136,7 +137,6 @@ class ReleaseBuilderFixture:
             #!/usr/bin/python3
             import os
             from pathlib import Path
-from scripts.tests.gate_fixtures import make_gate_fixture
             import sys
 
             events = Path(os.environ["BUILDER_EVENTS"])
@@ -468,7 +468,6 @@ from scripts.tests.gate_fixtures import make_gate_fixture
             import json
             import os
             from pathlib import Path
-from scripts.tests.gate_fixtures import make_gate_fixture
             import re
             import shutil
             import sys
@@ -564,6 +563,10 @@ from scripts.tests.gate_fixtures import make_gate_fixture
                 save()
                 raise SystemExit(0)
             if action == "upload":
+                interrupted = tag + ":" + Path(arguments[3]).name
+                if os.environ.get("BUILDER_FAIL_MUTABLE_ASSET") == interrupted:
+                    print("injected mutable interruption: " + interrupted, file=sys.stderr)
+                    raise SystemExit(93)
                 if tag.startswith("sparkle-") and os.environ.get("BUILDER_FAIL_FEED_UPLOAD") == "1":
                     raise SystemExit(92)
                 replacement = asset(arguments[3])
@@ -594,6 +597,21 @@ from scripts.tests.gate_fixtures import make_gate_fixture
     def _adapt_canonical_tools_for_fixture(self):
         """Redirect only this disposable builder copy to explicit test doubles."""
         source = self.builder.read_text(encoding="utf-8")
+        # The real graphical gate is replaced only in this disposable fixture.
+        # Its retained records exercise receipts, and never count as GUI evidence.
+        self._write(self.repo / "scripts/release/app-smoke-fixture.py", "\n".join([
+            "import argparse, json, os, pathlib, subprocess, sys",
+            "sys.path.insert(0, " + repr(str(ROOT)) + ")",
+            "from scripts.tests.gate_fixtures import make_app_smoke_fixture",
+            "p=argparse.ArgumentParser()",
+            "[p.add_argument('--'+key, required=True) for key in ('root','app','channel','output','derived-data')]",
+            "a=p.parse_args()",
+            "if os.environ.get('BUILDER_FAIL_APP_SMOKE'): raise SystemExit(94)",
+            "commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.root,text=True).strip()",
+            "make_app_smoke_fixture(pathlib.Path(a.output), {'commit':commit,'clean':True}, pathlib.Path(a.app), pathlib.Path(a.root)/'config/release-contract.json')",
+            "",
+        ]))
+        source = source.replace('/scripts/release/app_smoke_gate.py', '/scripts/release/app-smoke-fixture.py')
         # Production Python helpers are bound to the front-door interpreter.
         # These two fixture doubles are intentionally Bash scripts, so retain
         # their executable shebangs in the disposable copy.
@@ -781,6 +799,13 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--sparkle-generate-appcast",
             str(selected.bin / "generate_appcast"),
         )
+
+    def test_stable_gui_failure_blocks_candidate_receipt_and_package_success(self):
+        result = self.fixture.run("--package-only", "--channel", "stable",
+                                  extra_env={"BUILDER_FAIL_APP_SMOKE": "1"})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
+        self.assertNotIn("Unsigned package complete", result.stdout)
 
     def test_package_only_needs_no_credentials_and_stops_before_private_or_remote_tools(
         self,
@@ -1727,6 +1752,53 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     ),
                     "stale\n",
                 )
+
+    def test_corrective_higher_build_test_channel_drill_recovers_each_mutable_stage(self):
+        # All release/tool/network surfaces are local doubles. This demonstrates
+        # publication continuity, not installed Sparkle client or schema behavior.
+        from scripts.tests.test_sparkle_build_number_gate import SparkleBuildNumberGateTests
+        floor = SparkleBuildNumberGateTests()
+        self.assertNotEqual(floor.run_gate("42", "42").returncode, 0)
+        self.assertEqual(floor.run_gate("43", "42").returncode, 0)
+        for failed_asset in ("sparkle-beta:appcast-beta.xml", "sparkle-beta:Lungfish-2026.8.1-arm64.md", "sparkle-alpha:appcast-alpha.xml"):
+            with self.subTest(failed_asset=failed_asset):
+                fixture = ReleaseBuilderFixture(self)
+                try:
+                    evidence = fixture.root / "installed-bad-build-42.json"
+                    bad_bytes = b'{"installedBuild":42,"promotionPaused":true,"fixture":true}\n'
+                    evidence.write_bytes(bad_bytes)
+                    notes = fixture.repo / "docs/release-notes/2026.8.1.md"
+                    notes.write_text(notes.read_text().replace("Channel: Stable", "Channel: Preview"))
+                    fixture._git("add", str(notes))
+                    fixture._git("commit", "-q", "-m", "local corrective Preview fixture")
+                    fixture.prepare_remote_tag()
+                    packaged = fixture.run("--package-only", "--channel", "preview", extra_env={"LUNGFISH_BUILD_NUMBER": "43"})
+                    self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+                    candidate = fixture.release / "Lungfish Preview.app"
+                    info = plistlib.loads((candidate / "Contents/Info.plist").read_bytes())
+                    self.assertEqual(info["CFBundleVersion"], "43")
+                    self.assertTrue(info["SUFeedURL"].endswith("/sparkle-beta/appcast-beta.xml"))
+                    resume = list(self._stable_resume_args(fixture))
+                    resume[resume.index("stable")] = "preview"
+                    failed = fixture.run(*resume, extra_env={"BUILDER_FAIL_MUTABLE_ASSET": failed_asset})
+                    self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+                    self.assertIn("injected mutable interruption", failed.stderr)
+                    receipt = fixture.release / "unsigned-candidate-receipt.json"
+                    receipt_before = receipt.read_bytes()
+                    before_retry = len(fixture.event_lines())
+                    recovered = fixture.run(*resume, "--recover-existing-release")
+                    self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
+                    self.assertEqual(receipt.read_bytes(), receipt_before)
+                    self.assertEqual(evidence.read_bytes(), bad_bytes)
+                    state = json.loads(fixture.gh_state.read_text())["releases"]
+                    primary = {a["name"]: a for a in state["sparkle-beta"]["assets"]}
+                    legacy = {a["name"]: a for a in state["sparkle-alpha"]["assets"]}
+                    self.assertIn("Lungfish-2026.8.1-arm64.md", primary)
+                    self.assertEqual(primary["appcast-beta.xml"]["digest"], legacy["appcast-alpha.xml"]["digest"])
+                    retry = fixture.event_lines()[before_retry:]
+                    self.assertFalse(any(line.startswith(("xcodebuild:", "swift:")) or "notarytool submit" in line for line in retry))
+                finally:
+                    fixture.cleanup()
 
     def test_immutable_release_recovery_reuses_exact_dmg_without_signing_or_notarizing(
         self,

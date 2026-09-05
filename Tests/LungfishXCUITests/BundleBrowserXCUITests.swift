@@ -21,3 +21,19 @@ final class BundleBrowserXCUITests: XCTestCase {
         robot.waitForSelectedBrowserRow(named: "chr2")
     }
 }
+
+extension BundleBrowserXCUITests {
+    @MainActor
+    func testReleaseCandidateNativeBundleBrowser() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "ReleaseBrowser-\(UUID().uuidString)")
+        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        try robot.launch()
+        robot.openProject(project)
+        let browser = BundleBrowserRobot(app: robot.app)
+        browser.openBundle(named: "TestGenome.lungfishref")
+        browser.waitForBrowserRow(named: "chr1")
+        browser.selectBrowserRow(named: "chr2")
+        browser.waitForSelectedBrowserRow(named: "chr2")
+    }
+}

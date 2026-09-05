@@ -1304,16 +1304,25 @@ if [ -z "$RESUME_CANDIDATE" ]; then
         exit 65
     fi
 
-    "$RELEASE_PYTHON" "$CANDIDATE_RECEIPT_SCRIPT" create \
-        --app "$RELEASE_APP_PATH" \
-        --output "$CANDIDATE_RECEIPT_PATH" \
-        --gate-manifest "$GATE_MANIFEST" \
-        --gate-manifest-sha256 "$GATE_MANIFEST_SHA256" \
-        --channel "$CHANNEL" \
-        --scratch-path "$SCRATCH_PATH" \
-        --cache-root "$CACHE_ROOT" \
-        --remote "$GIT_REMOTE" \
-        --github-repository "$GITHUB_REPOSITORY"
+    CANDIDATE_CREATE_ARGS=(create
+        --app "$RELEASE_APP_PATH"
+        --output "$CANDIDATE_RECEIPT_PATH"
+        --gate-manifest "$GATE_MANIFEST"
+        --gate-manifest-sha256 "$GATE_MANIFEST_SHA256"
+        --channel "$CHANNEL"
+        --scratch-path "$SCRATCH_PATH"
+        --cache-root "$CACHE_ROOT"
+        --remote "$GIT_REMOTE"
+        --github-repository "$GITHUB_REPOSITORY")
+    if [ "$CHANNEL" = "stable" ]; then
+        APP_SMOKE_PATH="${RELEASE_DIR}/app-smoke-evidence/app-smoke.result.json"
+        "$RELEASE_PYTHON" "${PROJECT_ROOT}/scripts/release/app_smoke_gate.py" \
+            --root "$PROJECT_ROOT" --app "$RELEASE_APP_PATH" --channel "$CHANNEL" \
+            --output "${RELEASE_DIR}/app-smoke-evidence" --derived-data "$DERIVED_DATA_PATH"
+        APP_SMOKE_SHA256=$(/usr/bin/shasum -a 256 "$APP_SMOKE_PATH" | /usr/bin/awk '{print $1}')
+        CANDIDATE_CREATE_ARGS+=(--app-smoke "$APP_SMOKE_PATH" --app-smoke-sha256 "$APP_SMOKE_SHA256")
+    fi
+    "$RELEASE_PYTHON" "$CANDIDATE_RECEIPT_SCRIPT" "${CANDIDATE_CREATE_ARGS[@]}"
 
     COMMIT_SHA=$(git rev-parse HEAD)
     cat >"$PACKAGE_METADATA_PATH" <<EOF

@@ -29,6 +29,7 @@ from release_cache_fingerprint import (
 )
 from release_contract import CONTRACT_PATH, load_contract
 from gate_evidence import EvidenceError, retain_manifest, verify_manifest
+from app_smoke_gate import retain_result as retain_app_smoke, verify_result as verify_app_smoke
 from release_repository import RepositoryIdentityError, resolve_repository_identity
 
 
@@ -79,6 +80,7 @@ RECEIPT_FIELDS = frozenset(
         "artifacts",
         "cache",
         "gates",
+        "appSmoke",
     }
 )
 
@@ -471,6 +473,8 @@ def _build_receipt(
     gate_manifest: Path,
     gate_digest: str,
     retain_to: Path | None = None,
+    app_smoke: Path | None = None,
+    app_smoke_digest: str | None = None,
 ) -> dict[str, Any]:
     source = _source_identity()
     if retain_to is None:
@@ -520,8 +524,21 @@ def _build_receipt(
         "micromamba": _artifact_file(app, _micromamba_relative_path(app)),
         "packagedAppPayloadSha256": _payload_digest(app),
     }
+    smoke_binding = None
+    if channel == "stable":
+        if app_smoke is None or app_smoke_digest is None:
+            raise ReceiptError("Stable requires retained exact-candidate real-app smoke evidence")
+        smoke_arguments = (source, channel, artifacts["packagedAppPayloadSha256"], load_contract(CONTRACT_PATH))
+        if retain_to is None:
+            verify_app_smoke(app_smoke, app_smoke_digest, *smoke_arguments)
+        else:
+            retain_app_smoke(app_smoke, app_smoke_digest, retain_to.parent / "app-smoke-evidence", *smoke_arguments)
+        smoke_binding = {"path": "app-smoke-evidence/app-smoke.result.json", "sha256": app_smoke_digest}
+    elif app_smoke is not None or app_smoke_digest is not None:
+        raise ReceiptError("app smoke evidence is required only by the Stable contract")
     receipt = {
         "schemaVersion": 1,
+        "appSmoke": smoke_binding,
         "source": source,
         "gates": {"path": "gate-evidence/manifest.json", "sha256": gate_digest},
         **identities,
@@ -545,7 +562,7 @@ def _build_receipt(
     return receipt
 
 
-def _write_receipt(path: Path, payload: dict[str, Any], app_path: Path) -> None:
+def _validate_receipt_output(path: Path, app_path: Path) -> Path:
     output = _safe_output_path(path)
     app = _normalize_app(app_path)
     current = output.parent
@@ -562,6 +579,11 @@ def _write_receipt(path: Path, payload: dict[str, Any], app_path: Path) -> None:
         if current == current.parent:
             break
         current = current.parent
+    return output
+
+
+def _write_receipt(path: Path, payload: dict[str, Any], app_path: Path) -> None:
+    output = _validate_receipt_output(path, app_path)
     temporary: Path | None = None
     try:
         descriptor, raw_path = tempfile.mkstemp(
@@ -633,6 +655,8 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--scratch-path", required=True, type=Path)
     create.add_argument("--gate-manifest", required=True, type=Path)
     create.add_argument("--gate-manifest-sha256", required=True)
+    create.add_argument("--app-smoke", type=Path)
+    create.add_argument("--app-smoke-sha256")
     configured_cache_root = Path(
         os.environ.get("LUNGFISH_RELEASE_CACHE_ROOT", str(DEFAULT_CACHE_ROOT))
     )
@@ -653,6 +677,7 @@ def main() -> int:
     args = _parser().parse_args()
     try:
         if args.operation == "create":
+            _validate_receipt_output(args.output, args.app)
             payload = _build_receipt(
                 args.app,
                 args.channel,
@@ -663,6 +688,8 @@ def main() -> int:
                 args.gate_manifest,
                 args.gate_manifest_sha256,
                 _safe_output_path(args.output).parent / "gate-evidence",
+                args.app_smoke,
+                args.app_smoke_sha256,
             )
             _write_receipt(args.output, payload, args.app)
             print("PASS unsigned candidate receipt created")
@@ -670,6 +697,10 @@ def main() -> int:
             receipt = _read_receipt(args.receipt)
             if receipt.get("gates", {}).get("path") != "gate-evidence/manifest.json":
                 raise ReceiptError("gate evidence path is invalid")
+            smoke = receipt.get("appSmoke")
+            if smoke is not None and (not isinstance(smoke, dict) or set(smoke) != {"path", "sha256"}
+                    or smoke.get("path") != "app-smoke-evidence/app-smoke.result.json"):
+                raise ReceiptError("app smoke evidence path is invalid")
             observed = _build_receipt(
                 args.app,
                 args.channel,
@@ -679,6 +710,8 @@ def main() -> int:
                 args.github_repository,
                 args.receipt.parent / "gate-evidence/manifest.json",
                 receipt["gates"]["sha256"],
+                app_smoke=args.receipt.parent / smoke["path"] if smoke else None,
+                app_smoke_digest=smoke["sha256"] if smoke else None,
             )
             if (
                 receipt.get("build") != observed["build"]

@@ -433,6 +433,16 @@ def validate_authority_texts(
         if re.search(r"(?:both|preview and stable)[^\n.]{0,120}(?:retain|use)[^\n.]{0,40}com\.lungfish\.browser(?:`|\s|;)", text, re.IGNORECASE):
             errors.append(f"{relative} falsely claims Preview and Stable share a bundle identifier")
 
+    graphical_authorities = PRIMARY_AUTHORITIES[:4]
+    graphical_sections = [markdown_section(texts[name], "Stable graphical evidence")
+                          for name in graphical_authorities]
+    account = contract.get("gates", {}).get("appSmokeAccount")
+    for name, section in zip(graphical_authorities, graphical_sections):
+        if not section or not account or f"`{account}` macOS account" not in section:
+            errors.append(f"{name} omits canonical graphical account isolation")
+        elif section.strip() != graphical_sections[0].strip():
+            errors.append(f"{name} graphical authority differs from the release skill")
+
     agent = texts[".codex/agents/release-agent.md"]
     mirror = texts["agents/definitions/codex/release-agent.md"]
     if agent != mirror:
