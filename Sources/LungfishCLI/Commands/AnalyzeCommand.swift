@@ -51,9 +51,9 @@ struct StatsSubcommand: AsyncParsableCommand {
     var perSequence: Bool = false
 
     @Flag(
-        name: .customLong("no-gc"),
+        name: .customLong("gc"),
         inversion: .prefixedNo,
-        help: "Skip GC content calculation"
+        help: "Calculate GC content (use --no-gc to skip)"
     )
     var calculateGCContent: Bool = true
 
@@ -75,143 +75,128 @@ struct StatsSubcommand: AsyncParsableCommand {
 
         let inputURL = URL(fileURLWithPath: input)
 
-        // Read sequences - strip .gz extension for format detection
-        let sequences: [Sequence]
-        var detectURL = inputURL
-        if detectURL.pathExtension.lowercased() == "gz" {
-            detectURL = detectURL.deletingPathExtension()
+        var summary = SequenceStatsAccumulator(calculateGC: calculateGCContent, includeRecords: perSequence)
+        try await SequenceSummaryInput.forEachRecord(at: inputURL) { sequence in
+            summary.add(sequence)
         }
-        let ext = detectURL.pathExtension.lowercased()
+        let stats = summary.result(includeLengthDistribution: lengthDistribution)
 
-        switch ext {
-        case "fa", "fasta", "fna", "faa":
-            let reader = try FASTAReader(url: inputURL)
-            sequences = try await reader.readAll()
-        case "fastq", "fq":
-            let reader = FASTQReader()
-            let fastqRecords = try await reader.readAll(from: inputURL)
-            // Convert FASTQRecord to Sequence
-            sequences = try fastqRecords.map { record in
-                try Sequence(
-                    name: record.identifier,
-                    description: record.description,
-                    alphabet: .dna,
-                    bases: record.sequence
-                )
-            }
-        case "gb", "gbk", "genbank":
-            let reader = try GenBankReader(url: inputURL)
-            let records = try await reader.readAll()
-            sequences = records.map { $0.sequence }
-        default:
-            throw CLIError.formatDetectionFailed(path: input)
-        }
-
-        // Calculate statistics
-        let stats = calculateStats(sequences: sequences)
-
-        // Output based on format
         switch globalOptions.outputFormat {
         case .json:
-            let handler = JSONOutputHandler()
-            handler.writeData(stats, label: nil)
-
+            JSONOutputHandler().writeData(stats, label: nil)
         case .tsv:
-            print("file\tsequences\ttotal_length\tgc_content\tn50\tmin_length\tmax_length")
-            print("\(inputURL.lastPathComponent)\t\(stats.sequenceCount)\t\(stats.totalLength)\t\(String(format: "%.3f", stats.gcContent))\t\(stats.n50)\t\(stats.minLength)\t\(stats.maxLength)")
-
+            print("file\tsequences\ttotal_length\tgc_content\tn50\tn90\tmin_length\tmax_length")
+            let gc = stats.gcContent.map { String(format: "%.3f", $0) } ?? "."
+            print("\(inputURL.lastPathComponent)\t\(stats.sequenceCount)\t\(stats.totalLength)\t\(gc)\t\(stats.n50)\t\(stats.n90 ?? 0)\t\(stats.minLength)\t\(stats.maxLength)")
+            if let records = stats.perSequence {
+                print("\nname\tlength\tgc_content")
+                for record in records {
+                    let gc = record.gcContent.map { String(format: "%.3f", $0) } ?? "."
+                    print("\(record.name)\t\(record.length)\t\(gc)")
+                }
+            }
+            if let distribution = stats.lengthDistribution {
+                print("\nlength\tcount")
+                for length in distribution.keys.sorted() { print("\(length)\t\(distribution[length] ?? 0)") }
+            }
         case .text:
             print(formatter.header("Sequence Statistics"))
-            print(formatter.keyValueTable([
+            var rows = [
                 ("File", inputURL.lastPathComponent),
                 ("Sequences", formatter.number(stats.sequenceCount)),
                 ("Total length", "\(formatter.number(stats.totalLength)) bp"),
-                ("GC content", String(format: "%.1f%%", stats.gcContent * 100)),
                 ("N50", "\(formatter.number(stats.n50)) bp"),
+                ("N90", "\(formatter.number(stats.n90 ?? 0)) bp"),
                 ("Min length", "\(formatter.number(stats.minLength)) bp"),
                 ("Max length", "\(formatter.number(stats.maxLength)) bp"),
                 ("Mean length", String(format: "%.0f bp", stats.meanLength)),
-            ]))
-
-            if perSequence && sequences.count <= 50 {
+            ]
+            if let gc = stats.gcContent { rows.insert(("GC content", String(format: "%.1f%%", gc * 100)), at: 3) }
+            print(formatter.keyValueTable(rows))
+            if let records = stats.perSequence {
                 print("\n" + formatter.header("Per-Sequence Statistics"))
-                let headers = ["Name", "Length", "GC%"]
-                let rows = sequences.map { seq -> [String] in
-                    let seqStr = seq.asString()
-                    let gc = calculateGC(seqStr)
-                    return [seq.name, "\(seq.length)", String(format: "%.1f", gc * 100)]
+                let rows = records.map { record in
+                    [record.name, String(record.length)] + (calculateGCContent ? [String(format: "%.1f", (record.gcContent ?? 0) * 100)] : [])
                 }
-                print(formatter.table(headers: headers, rows: rows))
+                print(formatter.table(headers: ["Name", "Length"] + (calculateGCContent ? ["GC%"] : []), rows: rows))
+            }
+            if let distribution = stats.lengthDistribution {
+                print("\n" + formatter.header("Length Distribution"))
+                print(formatter.table(headers: ["Length", "Count"], rows: distribution.keys.sorted().map {
+                    [String($0), String(distribution[$0] ?? 0)]
+                }))
             }
         }
-    }
-
-    private func calculateStats(sequences: [Sequence]) -> SequenceStats {
-        let lengths = sequences.map { $0.length }
-        let totalLength = lengths.reduce(0, +)
-
-        // Calculate GC
-        var gcCount = 0
-        var atCount = 0
-        for seq in sequences {
-            let str = seq.asString().uppercased()
-            for char in str {
-                if char == "G" || char == "C" {
-                    gcCount += 1
-                } else if char == "A" || char == "T" || char == "U" {
-                    atCount += 1
-                }
-            }
-        }
-        let gcContent = Double(gcCount) / Double(max(gcCount + atCount, 1))
-
-        // Calculate N50
-        let sortedLengths = lengths.sorted(by: >)
-        var cumulativeLength = 0
-        var n50 = 0
-        for length in sortedLengths {
-            cumulativeLength += length
-            if cumulativeLength >= totalLength / 2 {
-                n50 = length
-                break
-            }
-        }
-
-        return SequenceStats(
-            sequenceCount: sequences.count,
-            totalLength: totalLength,
-            gcContent: gcContent,
-            n50: n50,
-            minLength: lengths.min() ?? 0,
-            maxLength: lengths.max() ?? 0,
-            meanLength: Double(totalLength) / Double(max(sequences.count, 1))
-        )
-    }
-
-    private func calculateGC(_ sequence: String) -> Double {
-        var gc = 0
-        var total = 0
-        for char in sequence.uppercased() {
-            if char == "G" || char == "C" {
-                gc += 1
-                total += 1
-            } else if char == "A" || char == "T" || char == "U" {
-                total += 1
-            }
-        }
-        return Double(gc) / Double(max(total, 1))
     }
 }
 
-/// Statistics result
+struct SequenceRecordStats: Codable {
+    let name: String
+    let length: Int
+    let gcContent: Double?
+}
+
+/// Optional fields preserve the distinction between a measured zero and a skipped calculation.
 struct SequenceStats: Codable {
     let sequenceCount: Int
     let totalLength: Int
-    let gcContent: Double
+    let gcContent: Double?
     let n50: Int
     let minLength: Int
     let maxLength: Int
     let meanLength: Double
+    var n90: Int? = nil
+    var lengthDistribution: [Int: Int]? = nil
+    var perSequence: [SequenceRecordStats]? = nil
+}
+
+private struct SequenceStatsAccumulator {
+    let calculateGC: Bool
+    let includeRecords: Bool
+    var recordCount = 0
+    var totalLength = 0
+    var gcCount = 0
+    var knownBaseCount = 0
+    var histogram: [Int: Int] = [:]
+    var records: [SequenceRecordStats] = []
+
+    mutating func add(_ sequence: Sequence) {
+        recordCount += 1
+        totalLength += sequence.length
+        histogram[sequence.length, default: 0] += 1
+        var gc = 0
+        var known = 0
+        if calculateGC {
+            for base in sequence.asString().uppercased() {
+                switch base {
+                case "G", "C": gc += 1; known += 1
+                case "A", "T", "U": known += 1
+                default: break
+                }
+            }
+            gcCount += gc
+            knownBaseCount += known
+        }
+        if includeRecords {
+            records.append(SequenceRecordStats(
+                name: sequence.name, length: sequence.length,
+                gcContent: calculateGC ? Double(gc) / Double(max(known, 1)) : nil
+            ))
+        }
+    }
+
+    func result(includeLengthDistribution: Bool) -> SequenceStats {
+        SequenceStats(
+            sequenceCount: recordCount, totalLength: totalLength,
+            gcContent: calculateGC ? Double(gcCount) / Double(max(knownBaseCount, 1)) : nil,
+            n50: SequenceLengthStatistics.nx(histogram: histogram, totalBases: Int64(totalLength)),
+            minLength: histogram.keys.min() ?? 0, maxLength: histogram.keys.max() ?? 0,
+            meanLength: Double(totalLength) / Double(max(recordCount, 1)),
+            n90: SequenceLengthStatistics.nx(histogram: histogram, totalBases: Int64(totalLength), percentage: 90),
+            lengthDistribution: includeLengthDistribution ? histogram : nil,
+            perSequence: includeRecords ? records : nil
+        )
+    }
 }
 
 // MARK: - Validate Subcommand

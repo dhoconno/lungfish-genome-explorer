@@ -490,16 +490,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
     }
 
     private static func n50ReadLength(from histogram: [Int: Int], baseCount: Int64) -> Int {
-        guard baseCount > 0 else { return 0 }
-        let target = baseCount / 2
-        var cumulative: Int64 = 0
-        for length in histogram.keys.sorted(by: >) {
-            cumulative += Int64(length) * Int64(histogram[length] ?? 0)
-            if cumulative >= target {
-                return length
-            }
-        }
-        return 0
+        SequenceLengthStatistics.nx(histogram: histogram, totalBases: baseCount)
     }
 
     private struct SampleOutput: Sendable {

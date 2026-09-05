@@ -34,7 +34,7 @@ final class SequenceStatsTests: XCTestCase {
 
         XCTAssertEqual(decoded.sequenceCount, stats.sequenceCount)
         XCTAssertEqual(decoded.totalLength, stats.totalLength)
-        XCTAssertEqual(decoded.gcContent, stats.gcContent, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(decoded.gcContent), try XCTUnwrap(stats.gcContent), accuracy: 0.0001)
         XCTAssertEqual(decoded.n50, stats.n50)
         XCTAssertEqual(decoded.minLength, stats.minLength)
         XCTAssertEqual(decoded.maxLength, stats.maxLength)
@@ -42,7 +42,7 @@ final class SequenceStatsTests: XCTestCase {
     }
 
     /// Verifies that all SequenceStats fields store the correct values upon initialization.
-    func testSequenceStatsValues() {
+    func testSequenceStatsValues() throws {
         let stats = SequenceStats(
             sequenceCount: 3,
             totalLength: 30000,
@@ -55,7 +55,7 @@ final class SequenceStatsTests: XCTestCase {
 
         XCTAssertEqual(stats.sequenceCount, 3)
         XCTAssertEqual(stats.totalLength, 30000)
-        XCTAssertEqual(stats.gcContent, 0.55, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(stats.gcContent), 0.55, accuracy: 0.0001)
         XCTAssertEqual(stats.n50, 12000)
         XCTAssertEqual(stats.minLength, 5000)
         XCTAssertEqual(stats.maxLength, 15000)
@@ -63,7 +63,7 @@ final class SequenceStatsTests: XCTestCase {
     }
 
     /// Verifies that SequenceStats handles edge case of zero-length sequences.
-    func testSequenceStatsZeroValues() {
+    func testSequenceStatsZeroValues() throws {
         let stats = SequenceStats(
             sequenceCount: 0,
             totalLength: 0,
@@ -76,7 +76,7 @@ final class SequenceStatsTests: XCTestCase {
 
         XCTAssertEqual(stats.sequenceCount, 0)
         XCTAssertEqual(stats.totalLength, 0)
-        XCTAssertEqual(stats.gcContent, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(stats.gcContent), 0.0, accuracy: 0.0001)
     }
 
     /// Verifies that SequenceStats JSON encoding produces expected keys.

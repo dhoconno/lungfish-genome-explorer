@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 // MARK: - AssemblyStatistics
 
@@ -177,7 +178,7 @@ public enum AssemblyStatisticsCalculator {
 
     /// Computes Nx and Lx from sorted (descending) contig lengths.
     private static func computeNx(sorted: [Int64], total: Int64, x: Int) -> (Int64, Int) {
-        let threshold = Int64(Double(total) * Double(x) / 100.0)
+        let threshold = SequenceLengthStatistics.threshold(totalBases: total, percentage: x)
         var cumulative: Int64 = 0
         for (index, length) in sorted.enumerated() {
             cumulative += length

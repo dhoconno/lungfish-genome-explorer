@@ -475,11 +475,11 @@ Sequence-level operations that read a file or a bundle directly.
 
 `lungfish analyze stats <input> [--per-sequence] [--no-gc] [--length-distribution]`
 
-Computes sequence statistics: count, total length, GC content, and N50. `--per-sequence` adds a per-record table, `--no-gc` skips the GC calculation, and `--length-distribution` adds a length histogram. `stats` is the default subcommand, so `lungfish analyze <input>` runs it. `analyze` also exposes `composition` and `validate`.
+Computes sequence statistics: count, total length, GC content, N50, and N90. Nx is the length at which records sorted longest first cover at least x% of all bases; fractional base thresholds round up. `--per-sequence` adds all per-record summaries, `--no-gc` skips the GC calculation (the JSON field is omitted and TSV uses `.`), and `--length-distribution` adds a length histogram. These options apply to text, JSON, and TSV output. Input records are processed incrementally; requested per-record summaries and distinct lengths still require memory proportional to their counts. `stats` is the default subcommand, so `lungfish analyze <input>` runs it. `analyze` also exposes `composition` and `validate`.
 
 `lungfish analyze composition <input> [--codons] [--dinucleotides] [--alphabet dna|rna|protein]`
 
-Reports detailed per-residue composition: base counts and percentages, plus purine/pyrimidine ratios and GC/AT skew for nucleotides. `--codons` adds a codon usage table and `--dinucleotides` adds dinucleotide frequencies, both nucleotide-only. `--alphabet` overrides the alphabet, which otherwise auto-detects from the file extension (`.faa` is protein, everything else DNA).
+Reports detailed per-residue composition: base counts and percentages, plus purine/pyrimidine ratios and GC/AT skew for nucleotides. `--codons` adds a codon usage table and `--dinucleotides` adds dinucleotide frequencies, both nucleotide-only. Positional windows never cross record boundaries. Codons use frame +1 independently for each record; incomplete terminal codons and windows containing ambiguous symbols are excluded from frequency denominators. A requested table with no valid windows is empty. `--alphabet` overrides the alphabet, which otherwise auto-detects from the file extension (`.faa` is protein, everything else DNA).
 
 `lungfish analyze validate <file>... [--strict]`
 

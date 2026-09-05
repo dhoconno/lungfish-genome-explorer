@@ -142,6 +142,14 @@ final class FASTQStatisticsCollectorTests: XCTestCase {
         XCTAssertEqual(stats.n50ReadLength, 300)
     }
 
+    func testN50RequiresAtLeastHalfOfOddTotalBases() {
+        let collector = FASTQStatisticsCollector()
+        for (index, sequence) in ["AAA", "CC", "GG"].enumerated() {
+            collector.process(makeRecord(id: "r\(index)", sequence: sequence))
+        }
+        XCTAssertEqual(collector.finalize().n50ReadLength, 2)
+    }
+
     func testN50WithUniformLengths() {
         let collector = FASTQStatisticsCollector()
         for i in 0..<5 {

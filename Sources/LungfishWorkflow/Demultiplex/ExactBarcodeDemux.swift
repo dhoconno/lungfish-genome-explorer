@@ -408,17 +408,7 @@ public enum ExactBarcodeDemux {
             }
         }
 
-        // Compute N50 from histogram
-        var n50Length = 0
-        let halfBases = baseCount / 2
-        var cumulativeBases: Int64 = 0
-        for (length, count) in sortedLengths.reversed() {
-            cumulativeBases += Int64(length) * Int64(count)
-            if cumulativeBases >= halfBases {
-                n50Length = length
-                break
-            }
-        }
+        let n50Length = SequenceLengthStatistics.nx(histogram: readLengthHistogram, totalBases: baseCount)
 
         return FASTQDatasetStatistics(
             readCount: readCount,

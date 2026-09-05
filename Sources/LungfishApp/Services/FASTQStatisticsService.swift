@@ -253,15 +253,8 @@ public enum FASTQStatisticsService {
     }
 
     private static func n50Length(histogram: [Int: Int]) -> Int {
-        let totalBases = histogram.reduce(Int64(0)) { $0 + Int64($1.key * $1.value) }
-        guard totalBases > 0 else { return 0 }
-        let target = Double(totalBases) / 2.0
-        var cumulative = 0.0
-        for (length, count) in histogram.sorted(by: { $0.key > $1.key }) {
-            cumulative += Double(length * count)
-            if cumulative >= target { return length }
-        }
-        return histogram.keys.max() ?? 0
+        let totalBases = histogram.reduce(Int64(0)) { $0 + Int64($1.key) * Int64($1.value) }
+        return SequenceLengthStatistics.nx(histogram: histogram, totalBases: totalBases)
     }
 
     private static func fetchSeqkitSummary(
@@ -416,14 +409,7 @@ public enum FASTQStatisticsService {
         }
 
         func n50Length() -> Int {
-            guard baseCount > 0 else { return 0 }
-            let target = Double(baseCount) / 2.0
-            var cumulative = 0.0
-            for (length, count) in histogram.sorted(by: { $0.key > $1.key }) {
-                cumulative += Double(length * count)
-                if cumulative >= target { return length }
-            }
-            return histogram.keys.max() ?? 0
+            SequenceLengthStatistics.nx(histogram: histogram, totalBases: baseCount)
         }
 
         return FASTQDatasetStatistics(

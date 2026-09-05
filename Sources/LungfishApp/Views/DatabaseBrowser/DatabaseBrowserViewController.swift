@@ -3426,16 +3426,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
     }
 
     private func histogramN50(_ histogram: [Int: Int], totalBases: Int64) -> Int {
-        guard totalBases > 0 else { return 0 }
-        let target = Double(totalBases) / 2.0
-        var cumulative: Double = 0
-        for (length, count) in histogram.sorted(by: { $0.key > $1.key }) {
-            cumulative += Double(length * count)
-            if cumulative >= target {
-                return length
-            }
-        }
-        return histogram.keys.max() ?? 0
+        SequenceLengthStatistics.nx(histogram: histogram, totalBases: totalBases)
     }
 }
 

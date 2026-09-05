@@ -20,7 +20,9 @@ struct CompositionSubcommand: AsyncParsableCommand {
             - Codon usage table (nucleotides, --codons)
             - Dinucleotide frequencies (nucleotides, --dinucleotides)
 
-            This is the CLI equivalent of the Sequence Statistics plugin.
+            Positional counts reset at every record boundary. Codons use frame +1
+            of each record; incomplete terminal codons and windows containing
+            ambiguous symbols are excluded from frequency denominators.
 
             Examples:
               lungfish analyze composition genome.fasta
@@ -92,47 +94,23 @@ struct CompositionSubcommand: AsyncParsableCommand {
 
         let isNucleotide = alphabet == .dna || alphabet == .rna
 
-        // Read sequences
-        let sequences: [Sequence]
-        switch ext {
-        case "fa", "fasta", "fna", "faa":
-            let reader = try FASTAReader(url: inputURL)
-            sequences = try await reader.readAll(alphabet: alphabet)
-        case "fastq", "fq":
-            let reader = FASTQReader()
-            let fastqRecords = try await reader.readAll(from: inputURL)
-            sequences = try fastqRecords.map { record in
-                try Sequence(
-                    name: record.identifier,
-                    description: record.description,
-                    alphabet: alphabet,
-                    bases: record.sequence
-                )
-            }
-        case "gb", "gbk", "genbank":
-            let reader = try GenBankReader(url: inputURL)
-            let records = try await reader.readAll()
-            sequences = records.map { $0.sequence }
-        default:
-            throw CLIError.formatDetectionFailed(path: input)
+        var summary = CompositionAccumulator(
+            countCodons: showCodons && isNucleotide,
+            countDinucleotides: showDinucleotides && isNucleotide
+        )
+        try await SequenceSummaryInput.forEachRecord(at: inputURL, alphabet: alphabet) { sequence in
+            summary.add(sequence.asString())
         }
-
-        guard !sequences.isEmpty else {
+        guard summary.recordCount > 0 else {
             throw CLIError.conversionFailed(reason: "No sequences found in input file")
         }
-
-        if !globalOptions.quiet {
+        if !globalOptions.quiet && globalOptions.outputFormat == .text {
             print(formatter.info(
-                "Analyzing composition of \(sequences.count) sequence(s) from \(inputURL.lastPathComponent)..."
+                "Analyzing composition of \(summary.recordCount) sequence(s) from \(inputURL.lastPathComponent)..."
             ))
         }
-
-        // Concatenate all sequences for aggregate stats
-        let concatenated = sequences.map { $0.asString().uppercased() }.joined()
-
-        // Build composition data
         let compositionData = buildComposition(
-            concatenated,
+            summary,
             isNucleotide: isNucleotide,
             alphabetName: alphabet.rawValue,
             showCodons: showCodons,
@@ -170,8 +148,8 @@ struct CompositionSubcommand: AsyncParsableCommand {
             print(formatter.header("Sequence Composition"))
             print(formatter.keyValueTable([
                 ("File", inputURL.lastPathComponent),
-                ("Sequences", "\(sequences.count)"),
-                ("Total length", "\(concatenated.count) \(isNucleotide ? "bp" : "aa")"),
+                ("Sequences", "\(summary.recordCount)"),
+                ("Total length", "\(summary.totalLength) \(isNucleotide ? "bp" : "aa")"),
                 ("Alphabet", alphabet.rawValue),
             ]))
 
@@ -226,19 +204,14 @@ struct CompositionSubcommand: AsyncParsableCommand {
     // MARK: - Composition Analysis
 
     private func buildComposition(
-        _ sequence: String,
+        _ summary: CompositionAccumulator,
         isNucleotide: Bool,
         alphabetName: String,
         showCodons: Bool,
         showDinucleotides: Bool
     ) -> CompositionData {
-        let total = Double(sequence.count)
-
-        // Base composition
-        var counts: [Character: Int] = [:]
-        for char in sequence {
-            counts[char, default: 0] += 1
-        }
+        let total = Double(max(summary.totalLength, 1))
+        let counts = summary.baseCounts
         let baseComposition = counts.keys.sorted().map { char -> BaseCompositionEntry in
             let count = counts[char]!
             return BaseCompositionEntry(
@@ -274,16 +247,8 @@ struct CompositionSubcommand: AsyncParsableCommand {
 
         // Codon usage
         var codonUsage: [CodonUsageEntry]?
-        if showCodons && isNucleotide && sequence.count >= 3 {
-            var codonCounts: [String: Int] = [:]
-            let chars = Array(sequence)
-            for i in stride(from: 0, to: chars.count - 2, by: 3) {
-                let codon = String(chars[i..<(i + 3)])
-                if codon.allSatisfy({ "ATCGU".contains($0) }) {
-                    codonCounts[codon, default: 0] += 1
-                }
-            }
-
+        if showCodons && isNucleotide {
+            let codonCounts = summary.codonCounts
             let totalCodons = Double(codonCounts.values.reduce(0, +))
             codonUsage = codonCounts.sorted { $0.key < $1.key }.map { codon, count in
                 let aa = String(CodonTable.standard.translate(codon))
@@ -298,16 +263,8 @@ struct CompositionSubcommand: AsyncParsableCommand {
 
         // Dinucleotide frequencies
         var dinucFreqs: [DinucleotideEntry]?
-        if showDinucleotides && isNucleotide && sequence.count >= 2 {
-            var dinucCounts: [String: Int] = [:]
-            let chars = Array(sequence)
-            for i in 0..<(chars.count - 1) {
-                let dinuc = String(chars[i..<(i + 2)])
-                if dinuc.allSatisfy({ "ATCGU".contains($0) }) {
-                    dinucCounts[dinuc, default: 0] += 1
-                }
-            }
-
+        if showDinucleotides && isNucleotide {
+            let dinucCounts = summary.dinucleotideCounts
             let totalDinucs = Double(dinucCounts.values.reduce(0, +))
             dinucFreqs = dinucCounts.sorted { $0.key < $1.key }.map { dinuc, count in
                 DinucleotideEntry(
@@ -319,13 +276,50 @@ struct CompositionSubcommand: AsyncParsableCommand {
         }
 
         return CompositionData(
-            totalLength: sequence.count,
+            totalLength: summary.totalLength,
             alphabet: alphabetName,
             baseComposition: baseComposition,
             nucleotideStats: nucStats,
             codonUsage: codonUsage,
             dinucleotideFrequencies: dinucFreqs
         )
+    }
+}
+
+/// Counts positional windows within each record, with frame reset at its boundary.
+/// Ambiguous windows and incomplete terminal codons are excluded from frequency denominators.
+private struct CompositionAccumulator {
+    let countCodons: Bool
+    let countDinucleotides: Bool
+    private(set) var recordCount = 0
+    private(set) var totalLength = 0
+    private(set) var baseCounts: [Character: Int] = [:]
+    private(set) var codonCounts: [String: Int] = [:]
+    private(set) var dinucleotideCounts: [String: Int] = [:]
+
+    mutating func add(_ sequence: String) {
+        recordCount += 1
+        var previous: Character?
+        var codon = ""
+        for base in sequence.uppercased() {
+            totalLength += 1
+            baseCounts[base, default: 0] += 1
+            if countDinucleotides, let previous, Self.isNucleotide(previous), Self.isNucleotide(base) {
+                dinucleotideCounts[String(previous) + String(base), default: 0] += 1
+            }
+            previous = base
+            if countCodons {
+                codon.append(base)
+                if codon.count == 3 {
+                    if codon.allSatisfy(Self.isNucleotide) { codonCounts[codon, default: 0] += 1 }
+                    codon.removeAll(keepingCapacity: true)
+                }
+            }
+        }
+    }
+
+    private static func isNucleotide(_ base: Character) -> Bool {
+        base == "A" || base == "C" || base == "G" || base == "T" || base == "U"
     }
 }
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 // MARK: - Per-Position Quality Summary
 
@@ -287,18 +288,7 @@ public final class FASTQStatisticsCollector {
     /// N50 is the length such that reads of this length or longer cover
     /// at least 50% of total bases.
     static func computeN50FromHistogram(_ histogram: [Int: Int], totalBases: Int64) -> Int {
-        guard totalBases > 0 else { return 0 }
-        let halfBases = totalBases / 2
-        var cumulative: Int64 = 0
-        // Sort by length descending to accumulate from longest reads
-        for key in histogram.keys.sorted(by: >) {
-            let count = histogram[key]!
-            cumulative += Int64(key) * Int64(count)
-            if cumulative >= halfBases {
-                return key
-            }
-        }
-        return 0
+        SequenceLengthStatistics.nx(histogram: histogram, totalBases: totalBases)
     }
 
     /// Compute per-position quality summaries from accumulated histograms.

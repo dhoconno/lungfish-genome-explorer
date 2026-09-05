@@ -3,9 +3,20 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 final class AssemblyStatisticsTests: XCTestCase {
+
+    func testHistogramNxKeepsPrecisionBeyondDoubleIntegerRange() {
+        let half = 9_007_199_254_740_992
+        XCTAssertEqual(SequenceLengthStatistics.nx(
+            histogram: [half: 1, half - 1: 1, 2: 1],
+            totalBases: 18_014_398_509_481_985
+        ), half - 1)
+        XCTAssertEqual(SequenceLengthStatistics.nx(histogram: [3: 2], totalBases: 6), 3)
+        XCTAssertEqual(SequenceLengthStatistics.nx(histogram: [:], totalBases: 0), 0)
+    }
 
     // MARK: - Basic Computation
 
@@ -54,6 +65,22 @@ final class AssemblyStatisticsTests: XCTestCase {
         XCTAssertEqual(stats.largestContigBP, 500)
         XCTAssertEqual(stats.smallestContigBP, 100)
         XCTAssertEqual(stats.n50, 400)
+    }
+
+    func testNxRequiresCeilingOfFractionalBaseThreshold() {
+        let stats = AssemblyStatisticsCalculator.computeFromLengths([3, 2, 2])
+        XCTAssertEqual(stats.n50, 2)
+        XCTAssertEqual(stats.l50, 2)
+        let n90 = AssemblyStatisticsCalculator.computeFromLengths([9, 1, 1])
+        XCTAssertEqual(n90.n90, 1)
+    }
+
+    func testNxRetainsIntegerPrecisionForLargeTotals() {
+        let half = Int64.max / 2
+        let stats = AssemblyStatisticsCalculator.computeFromLengths([half, half - 1, 2])
+        XCTAssertEqual(stats.totalLengthBP, Int64.max)
+        XCTAssertEqual(stats.n50, half - 1)
+        XCTAssertEqual(stats.l50, 2)
     }
 
     // MARK: - GC Content
