@@ -1,0 +1,157 @@
+{
+  "temporary_root": "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid",
+  "cli": "/Users/dho/Documents/lungfish-genome-explorer/.build/arm64-apple-macosx/debug/lungfish-cli",
+  "probes": [
+    {
+      "label": "N50 odd total",
+      "argv": [
+        "analyze",
+        "stats",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/stats.fa",
+        "--format",
+        "json"
+      ],
+      "exit": 0,
+      "stdout": "{\n  \"gcContent\" : 0.5714285714285714,\n  \"maxLength\" : 3,\n  \"meanLength\" : 2.3333333333333335,\n  \"minLength\" : 2,\n  \"n50\" : 3,\n  \"sequenceCount\" : 3,\n  \"totalLength\" : 7\n}\n",
+      "stderr": ""
+    },
+    {
+      "label": "Composition independent records",
+      "argv": [
+        "analyze",
+        "composition",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/composition.fa",
+        "--codons",
+        "--dinucleotides",
+        "--quiet",
+        "--format",
+        "json"
+      ],
+      "exit": 0,
+      "stdout": "{\n  \"alphabet\" : \"dna\",\n  \"baseComposition\" : [\n    {\n      \"count\" : 2,\n      \"percentage\" : 0.5,\n      \"residue\" : \"A\"\n    },\n    {\n      \"count\" : 2,\n      \"percentage\" : 0.5,\n      \"residue\" : \"C\"\n    }\n  ],\n  \"codonUsage\" : [\n    {\n      \"aminoAcid\" : \"N\",\n      \"codon\" : \"AAC\",\n      \"count\" : 1,\n      \"frequency\" : 1\n    }\n  ],\n  \"dinucleotideFrequencies\" : [\n    {\n      \"count\" : 1,\n      \"dinucleotide\" : \"AA\",\n      \"frequency\" : 0.3333333333333333\n    },\n    {\n      \"count\" : 1,\n      \"dinucleotide\" : \"AC\",\n      \"frequency\" : 0.3333333333333333\n    },\n    {\n      \"count\" : 1,\n      \"dinucleotide\" : \"CC\",\n      \"frequency\" : 0.3333333333333333\n    }\n  ],\n  \"nucleotideStats\" : {\n    \"atSkew\" : 1,\n    \"gcSkew\" : -1,\n    \"purinePercent\" : 0.5,\n    \"purines\" : 2,\n    \"pyrimidinePercent\" : 0.5,\n    \"pyrimidines\" : 2\n  },\n  \"totalLength\" : 4\n}\n",
+      "stderr": ""
+    },
+    {
+      "label": "Failed overwrite publication",
+      "argv": [
+        "convert",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/publication/input.fa",
+        "--to",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/publication/out.fa",
+        "--to-format",
+        "fasta",
+        "--force",
+        "--quiet"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: Unsafe existing provenance artifact at /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/publication/.lungfish-provenance.json: the existing destination is not a regular file.\n",
+      "output_after": ">new\nACGT\n",
+      "output_before": "OLD OUTPUT\n"
+    },
+    {
+      "label": "In-place input checksum",
+      "argv": [
+        "convert",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/inplace/input.fa",
+        "--to",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/inplace/input.fa",
+        "--to-format",
+        "fasta",
+        "--force",
+        "--quiet"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "",
+      "actual_input_checksum_before": "48b26bb1b081d74658d4d112cdf572ebdfdf6f6ec62bb7b38e5373ff2de198b9",
+      "actual_output_checksum_after": "0ced0c610892c2528c5ec78ab57e7a19982c155d1400ee76b8ce84c5cbe12bd5",
+      "recorded_files": [
+        {
+          "checksumSHA256": "0ced0c610892c2528c5ec78ab57e7a19982c155d1400ee76b8ce84c5cbe12bd5",
+          "fileSize": 27,
+          "format": "fasta",
+          "path": "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/inplace/input.fa",
+          "role": "input",
+          "sha256": "0ced0c610892c2528c5ec78ab57e7a19982c155d1400ee76b8ce84c5cbe12bd5",
+          "sizeBytes": 27
+        },
+        {
+          "checksumSHA256": "0ced0c610892c2528c5ec78ab57e7a19982c155d1400ee76b8ce84c5cbe12bd5",
+          "fileSize": 27,
+          "format": "fasta",
+          "path": "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/inplace/input.fa",
+          "role": "output",
+          "sha256": "0ced0c610892c2528c5ec78ab57e7a19982c155d1400ee76b8ce84c5cbe12bd5",
+          "sizeBytes": 27
+        }
+      ]
+    },
+    {
+      "label": "Durable replay argv selection (isolated canonical fixture)",
+      "fixture": {
+        "schemaVersion": 1,
+        "createdAt": "2026-09-05T12:22:54Z",
+        "runtimeIdentity": {
+          "appVersion": "Lungfish dev (0)",
+          "architecture": "arm64",
+          "dependencySet": "2026.2",
+          "executablePath": "/Users/dho/Documents/lungfish-genome-explorer/.build/arm64-apple-macosx/debug/lungfish-cli",
+          "operatingSystemVersion": "macOS 26.6.2 (arm64)",
+          "processIdentifier": 63123,
+          "user": "dho"
+        },
+        "id": "c690ddb2-9771-4929-9b4a-fda4cb05a36c",
+        "workflowName": "Audit replay fixture",
+        "workflowVersion": "1",
+        "toolName": "printf",
+        "toolVersion": "system",
+        "argv": [
+          "printf",
+          "historical-execution"
+        ],
+        "durableReplayArgv": [
+          "printf",
+          "durable-replay"
+        ],
+        "options": {},
+        "files": [],
+        "outputs": [],
+        "exitStatus": 0,
+        "wallTimeSeconds": 0,
+        "steps": [
+          {
+            "id": "16e9dff1-c071-4912-a136-12f730989ffd",
+            "toolName": "printf",
+            "toolVersion": "system",
+            "argv": [
+              "printf",
+              "historical-execution"
+            ],
+            "durableReplayArgv": [
+              "printf",
+              "durable-replay"
+            ],
+            "inputs": [],
+            "outputs": [],
+            "exitStatus": 0,
+            "wallTimeSeconds": 0
+          }
+        ]
+      },
+      "argv": [
+        "provenance",
+        "export",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/isolated.json",
+        "--format",
+        "shell",
+        "--output",
+        "/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/isolated-export"
+      ],
+      "exit": 0,
+      "stdout": "Exported provenance Shell Script to /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/isolated-export/run.sh\nWrote provenance artifact to /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lge-audit-current-mbancpid/isolated-export/provenance/.lungfish-provenance.json\n",
+      "stderr": "",
+      "generated_script": "#!/usr/bin/env bash\n#\n# Audit replay fixture\n# Generated by Lungfish dev (0)\n# Original run: 2026-09-05T12:22:54Z\n# Host: macOS 26.6.2 (arm64)\n# User: dho\n#\n# This script reproduces the analysis performed in Lungfish.\n# Ensure the required tools are installed or use the container\n# images specified in the comments.\n#\nset -euo pipefail\n\n# Output directory\nOUTDIR=\"results\"\nmkdir -p \"$OUTDIR\"\n\n# Step 1: printf system\n# Wall time: 0.0s\nprintf \\\n    historical-execution\n\necho \"Pipeline complete.\"\n"
+    }
+  ]
+}

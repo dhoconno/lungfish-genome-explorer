@@ -1,0 +1,216 @@
+[0/1] Planning build
+[1/1] Compiling plugin SwiftProtobufPlugin
+[2/2] Compiling plugin GRPCSwiftPlugin
+[3/3] Compiling plugin GenerateManual
+[4/4] Compiling plugin GenerateDoccReference
+Building for debugging...
+[4/10] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (7.97s)
+Test Suite 'Selected tests' started at 2026-09-05 07:16:56.512.
+Test Suite 'LungfishGenomeBrowserPackageTests.xctest' started at 2026-09-05 07:16:56.513.
+Test Suite 'ScientificCLIProvenanceCoverageTests' started at 2026-09-05 07:16:56.513.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testBundleExtractAnnotationsRecordsDurableSourceInputs]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testBundleExtractAnnotationsRecordsDurableSourceInputs]' passed (0.380 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testConvertForceTruncatesExistingGFF3Output]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testConvertForceTruncatesExistingGFF3Output]' passed (0.023 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testConvertReferenceBundleWritesPayloadInputProvenance]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testConvertReferenceBundleWritesPayloadInputProvenance]' passed (0.010 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testDatabaseDownloadDelegatesToTheProvenanceEnforcingRegistryAPI]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testDatabaseDownloadDelegatesToTheProvenanceEnforcingRegistryAPI]' passed (0.001 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testDirectFileSidecarsProtectMultipleOutputsInSameDirectory]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testDirectFileSidecarsProtectMultipleOutputsInSameDirectory]' passed (0.017 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testDirectScientificOutputCommandsWriteCanonicalProvenanceSidecars]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testDirectScientificOutputCommandsWriteCanonicalProvenanceSidecars]' passed (0.041 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testExtractBundleCommandsRecordFinalStoredPayloads]' started.
+/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/scientific-extract-bundle-provenance-50B656F6-D52A-44A1-9E61-A0B38EBDCC5B/Reference Sequences/contig-subset.lungfishref
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testExtractBundleCommandsRecordFinalStoredPayloads]' passed (0.132 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testExtractReadAndContigCommandsWriteCanonicalProvenanceSidecars]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testExtractReadAndContigCommandsWriteCanonicalProvenanceSidecars]' passed (0.059 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testFASTQSearchCommandsWriteNativeToolProvenanceSidecarsWithRealFixture]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testFASTQSearchCommandsWriteNativeToolProvenanceSidecarsWithRealFixture]' passed (0.068 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testFASTQSwiftCommandsWriteProvenanceSidecarsWithRealFixture]' started.
+Reverse-complemented reads written to /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/scientific-fastq-swift-provenance-B3856252-C82D-442F-8672-9CB1963A5A2F/reverse.fastq
+Translated reads written to /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/scientific-fastq-swift-provenance-B3856252-C82D-442F-8672-9CB1963A5A2F/translate.fasta
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testFASTQSwiftCommandsWriteProvenanceSidecarsWithRealFixture]' passed (0.016 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testGUIRoutedFASTQDerivativeCommandsAreRegisteredForProvenance]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testGUIRoutedFASTQDerivativeCommandsAreRegisteredForProvenance]' passed (0.010 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testMultiOutputFileSidecarsUseAdjacentFileAsPrimaryOutput]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testMultiOutputFileSidecarsUseAdjacentFileAsPrimaryOutput]' passed (0.005 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testScientificTopLevelCommandsHavePolicyEntries]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testScientificTopLevelCommandsHavePolicyEntries]' passed (0.004 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testSingleStepHelperPreservesCallerStatusAndPeakMemoryInCompatibilityRun]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testSingleStepHelperPreservesCallerStatusAndPeakMemoryInCompatibilityRun]' passed (0.002 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testSingleStepRunPreservesCompleteRemoteInputDescriptor]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testSingleStepRunPreservesCompleteRemoteInputDescriptor]' passed (0.002 seconds).
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testTopLevelScientificCommandPolicyRequiresProvenance]' started.
+Test Case '-[LungfishCLITests.ScientificCLIProvenanceCoverageTests testTopLevelScientificCommandPolicyRequiresProvenance]' passed (0.000 seconds).
+Test Suite 'ScientificCLIProvenanceCoverageTests' passed at 2026-09-05 07:16:57.284.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 0.770 (0.771) seconds
+Test Suite 'ScientificFileExportProvenanceTests' started at 2026-09-05 07:16:57.284.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testBookmarkedVariantExporterWritesScientificProvenanceSidecar]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testBookmarkedVariantExporterWritesScientificProvenanceSidecar]' passed (0.002 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testFASTAExporterWritesScientificProvenanceSidecar]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testFASTAExporterWritesScientificProvenanceSidecar]' passed (0.004 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testImportCenterSequenceExportersWriteScientificProvenanceSidecars]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testImportCenterSequenceExportersWriteScientificProvenanceSidecars]' passed (0.014 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuFASTAExportRemovesPayloadWhenProvenanceSidecarFails]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuFASTAExportRemovesPayloadWhenProvenanceSidecarFails]' passed (0.004 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuFASTAExportWritesScientificProvenanceSidecar]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuFASTAExportWritesScientificProvenanceSidecar]' passed (0.242 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuSourceURLsUseSelectedDocumentInMultiDocumentStack]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuSourceURLsUseSelectedDocumentInMultiDocumentStack]' passed (0.091 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuSourceURLsUseSingleDocumentOnlyWhenUnambiguous]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testSequenceContextMenuSourceURLsUseSingleDocumentOnlyWhenUnambiguous]' passed (0.011 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testStandaloneScientificExportersWriteScientificProvenanceSidecars]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testStandaloneScientificExportersWriteScientificProvenanceSidecars]' passed (0.070 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyCompletedAtIncludesPayloadWrite]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyCompletedAtIncludesPayloadWrite]' passed (0.232 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyExcludesExistingOutputAndSidecarFromDirectoryInputs]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyExcludesExistingOutputAndSidecarFromDirectoryInputs]' passed (0.209 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyKeepsExistingOutputWhenPayloadWriteFails]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyKeepsExistingOutputWhenPayloadWriteFails]' passed (0.203 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyPublishesFinalOutputAndSidecarDescriptors]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyPublishesFinalOutputAndSidecarDescriptors]' passed (0.203 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyRefusesToReplaceExistingDirectory]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallyRefusesToReplaceExistingDirectory]' passed (0.001 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallySnapshotsDirectoryInputsBeforePayloadWrite]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteAtomicallySnapshotsDirectoryInputsBeforePayloadWrite]' passed (0.202 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteCreatesAggregateDescriptorForDirectoryInputs]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteCreatesAggregateDescriptorForDirectoryInputs]' passed (0.200 seconds).
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteCreatesFocusedSidecarWithChecksummedInputAndOutput]' started.
+Test Case '-[LungfishAppTests.ScientificFileExportProvenanceTests testWriteCreatesFocusedSidecarWithChecksummedInputAndOutput]' passed (0.204 seconds).
+Test Suite 'ScientificFileExportProvenanceTests' passed at 2026-09-05 07:16:59.177.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 1.892 (1.893) seconds
+Test Suite 'LungfishGenomeBrowserPackageTests.xctest' passed at 2026-09-05 07:16:59.177.
+	 Executed 32 tests, with 0 failures (0 unexpected) in 2.662 (2.664) seconds
+Test Suite 'Selected tests' passed at 2026-09-05 07:16:59.177.
+	 Executed 32 tests, with 0 failures (0 unexpected) in 2.662 (2.665) seconds
+Annotation Sequence Extraction
+
+Source bundle     : tiny.lungfishref
+Source track      : Genes
+Feature type      : gene
+Extracted features: 1
+Output bundle     : /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/scientific-annotation-extract-provenance-4304BB94-F560-407B-B692-4F7BFAD017C9/genes-only.lungfishref
+Read ID Extraction
+
+Source files   : reads.fastq
+Read IDs       : 1
+Keep read pairs: no
+
+
+✓ Created bundle: bundle-reads-extract.lungfishfastq
+
+Extraction Summary
+Strategy       : Read ID
+Reads extracted: 1
+Paired-end     : no
+Output files   : bundle-reads.fastq.gz
+  /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/scientific-extract-bundle-provenance-50B656F6-D52A-44A1-9E61-A0B38EBDCC5B/bundle-reads.fastq.gz (0 B)
+
+✓ Extraction complete
+Read ID Extraction
+
+Source files   : reads.fastq
+Read IDs       : 1
+Keep read pairs: no
+
+
+Extraction Summary
+Strategy       : Read ID
+Reads extracted: 1
+Paired-end     : no
+Output files   : extracted.fastq.gz
+  /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/scientific-extract-provenance-93F74A90-AAF4-482C-9F21-2B79297BC8FC/extracted.fastq.gz (54 B)
+
+✓ Extraction complete
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite "Provenance File Hasher" started.
+◇ Suite "Provenance Builder" started.
+◇ Test "recorder SHA-256 uses full file hashing for large files" started.
+◇ Test "streaming SHA-256 checks cancellation between chunks" started.
+◇ Test "recorder file record follows symlink payload while preserving path" started.
+◇ Test "directory manifest records deterministic visible regular files" started.
+◇ Test "direct file descriptor follows symlink payload while preserving path" started.
+◇ Test "directory manifest applies explicit role to each file" started.
+◇ Test "Recorder does not match unrelated sibling outputs by filename" started.
+◇ Test "Writer bundle rollup replaces stale primary output metadata" started.
+◇ Test "computes full SHA-256 and byte size descriptors" started.
+◇ Test "Writer focused bundle sidecars prune unrelated step outputs" started.
+◇ Test "Successful output without runtime identity is rejected" started.
+◇ Test "Successful argv run without output is rejected" started.
+◇ Test "Descriptor overloads reject local file paths" started.
+◇ Test "Writer creates documented bundle provenance rollup and output sidecars" started.
+◇ Test "Writer skips per-output sidecars for large bundle output sets" started.
+◇ Test "Successful hidden incomplete step output is rejected" started.
+◇ Test "Recorder rejects unrelated parent provenance for directories without sidecars" started.
+◇ Test "Builder accepts complete non-file URL descriptors" started.
+◇ Test "Recorder finds provenance when selected output is a bundle directory" started.
+◇ Test "Repeated step output paths keep final metadata" started.
+◇ Test "Long stderr is truncated with marker" started.
+◇ Test "Writer replaces stale signature references for the same provider" started.
+◇ Test "Builder retains step resolved options and runtime identity" started.
+◇ Test "Unreadable input file is rejected while building descriptors" started.
+◇ Test "Publication rollback helper reports rollback failure details" started.
+◇ Test "Unsigned writer removes stale signature artifacts when replacing unsigned provenance" started.
+◇ Test "Successful scientific output without argv is rejected" started.
+◇ Test "Writer bundle sidecars keep final metadata for repeated output paths" started.
+◇ Test "Invalid time range is rejected with workflow context" started.
+◇ Test "Successful path-only step output is rejected" started.
+◇ Test "Step-only multi-step workflow chooses terminal output as primary" started.
+◇ Test "Short stderr is preserved" started.
+◇ Test "Relocated output accepts a verified staging file while the final path is absent" started.
+◇ Test "Bundle provenance writer prunes focused sidecars when output count exceeds focused sidecar cap" started.
+◇ Test "Relocated output rejects staging content that does not match its descriptor" started.
+◇ Test "Nil and empty stderr are omitted" started.
+◇ Test "Builder writes canonical signed sidecar with argv options files runtime and signature reference" started.
+◇ Test "Publication rollback helper preserves original failure when restore succeeds" started.
+◇ Test "Bundle provenance writer prunes focused sidecars for dropped outputs" started.
+◇ Test "Consumed input snapshots accept only complete absolute local descriptors" started.
+◇ Test "Successful path-only step input is rejected" started.
+✔ Test "Descriptor overloads reject local file paths" passed after 0.038 seconds.
+✔ Test "Successful output without runtime identity is rejected" passed after 0.038 seconds.
+✔ Test "recorder file record follows symlink payload while preserving path" passed after 0.038 seconds.
+✔ Test "direct file descriptor follows symlink payload while preserving path" passed after 0.038 seconds.
+✔ Test "computes full SHA-256 and byte size descriptors" passed after 0.038 seconds.
+✔ Test "streaming SHA-256 checks cancellation between chunks" passed after 0.038 seconds.
+✔ Test "directory manifest applies explicit role to each file" passed after 0.038 seconds.
+✔ Test "directory manifest records deterministic visible regular files" passed after 0.038 seconds.
+✔ Test "Successful argv run without output is rejected" passed after 0.038 seconds.
+✔ Test "Builder accepts complete non-file URL descriptors" passed after 0.038 seconds.
+✔ Test "Unreadable input file is rejected while building descriptors" passed after 0.038 seconds.
+✔ Test "Repeated step output paths keep final metadata" passed after 0.038 seconds.
+✔ Test "Long stderr is truncated with marker" passed after 0.038 seconds.
+✔ Test "Successful hidden incomplete step output is rejected" passed after 0.038 seconds.
+✔ Test "Publication rollback helper reports rollback failure details" passed after 0.038 seconds.
+✔ Test "Invalid time range is rejected with workflow context" passed after 0.038 seconds.
+✔ Test "Successful path-only step output is rejected" passed after 0.038 seconds.
+✔ Test "Successful scientific output without argv is rejected" passed after 0.038 seconds.
+✔ Test "Step-only multi-step workflow chooses terminal output as primary" passed after 0.038 seconds.
+✔ Test "Short stderr is preserved" passed after 0.038 seconds.
+✔ Test "Builder retains step resolved options and runtime identity" passed after 0.038 seconds.
+✔ Test "Relocated output accepts a verified staging file while the final path is absent" passed after 0.038 seconds.
+✔ Test "Relocated output rejects staging content that does not match its descriptor" passed after 0.038 seconds.
+✔ Test "Nil and empty stderr are omitted" passed after 0.038 seconds.
+✔ Test "Publication rollback helper preserves original failure when restore succeeds" passed after 0.038 seconds.
+✔ Test "Writer bundle sidecars keep final metadata for repeated output paths" passed after 0.038 seconds.
+✔ Test "Consumed input snapshots accept only complete absolute local descriptors" passed after 0.038 seconds.
+✔ Test "Successful path-only step input is rejected" passed after 0.038 seconds.
+✔ Test "Writer bundle rollup replaces stale primary output metadata" passed after 0.040 seconds.
+✔ Test "Recorder finds provenance when selected output is a bundle directory" passed after 0.040 seconds.
+✔ Test "Writer focused bundle sidecars prune unrelated step outputs" passed after 0.042 seconds.
+✔ Test "Writer creates documented bundle provenance rollup and output sidecars" passed after 0.043 seconds.
+✔ Test "Writer replaces stale signature references for the same provider" passed after 0.048 seconds.
+✔ Test "Builder writes canonical signed sidecar with argv options files runtime and signature reference" passed after 0.051 seconds.
+✔ Test "Unsigned writer removes stale signature artifacts when replacing unsigned provenance" passed after 0.053 seconds.
+✔ Test "Writer skips per-output sidecars for large bundle output sets" passed after 0.070 seconds.
+✔ Test "recorder SHA-256 uses full file hashing for large files" passed after 0.095 seconds.
+✔ Suite "Provenance File Hasher" passed after 0.095 seconds.
+✔ Test "Recorder rejects unrelated parent provenance for directories without sidecars" passed after 0.431 seconds.
+✔ Test "Recorder does not match unrelated sibling outputs by filename" passed after 0.431 seconds.
+✔ Test "Bundle provenance writer prunes focused sidecars for dropped outputs" passed after 0.447 seconds.
+✔ Test "Bundle provenance writer prunes focused sidecars when output count exceeds focused sidecar cap" passed after 0.464 seconds.
+✔ Suite "Provenance Builder" passed after 0.465 seconds.
+✔ Test run with 41 tests in 2 suites passed after 0.465 seconds.

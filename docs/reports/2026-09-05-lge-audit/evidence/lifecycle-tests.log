@@ -1,0 +1,91 @@
+[0/1] Planning build
+[1/1] Compiling plugin SwiftProtobufPlugin
+[2/2] Compiling plugin GRPCSwiftPlugin
+[3/3] Compiling plugin GenerateManual
+[4/4] Compiling plugin GenerateDoccReference
+Building for debugging...
+[4/10] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (6.29s)
+Test Suite 'Selected tests' started at 2026-09-05 07:34:18.901.
+Test Suite 'LungfishGenomeBrowserPackageTests.xctest' started at 2026-09-05 07:34:18.902.
+Test Suite 'OperationCenterLockingTests' started at 2026-09-05 07:34:18.902.
+Test Case '-[LungfishAppTests.OperationCenterLockingTests testAnnotationImportCallSitesPassTargetBundleURLForLocking]' started.
+Test Case '-[LungfishAppTests.OperationCenterLockingTests testAnnotationImportCallSitesPassTargetBundleURLForLocking]' passed (0.004 seconds).
+Test Case '-[LungfishAppTests.OperationCenterLockingTests testStartWithLockedBundleRecordsBlockedOperationWithoutReplacingLockHolder]' started.
+Test Case '-[LungfishAppTests.OperationCenterLockingTests testStartWithLockedBundleRecordsBlockedOperationWithoutReplacingLockHolder]' passed (0.007 seconds).
+Test Suite 'OperationCenterLockingTests' passed at 2026-09-05 07:34:18.913.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.011 (0.011) seconds
+Test Suite 'ProjectFileTests' started at 2026-09-05 07:34:18.913.
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddAnnotation]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddAnnotation]' passed (0.192 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddSequence]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddSequence]' passed (0.104 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddSequenceWithHistory]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddSequenceWithHistory]' passed (0.022 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddSequenceWithHistoryUsesHistoryOriginalContentAndHashesIncrementally]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testAddSequenceWithHistoryUsesHistoryOriginalContentAndHashesIncrementally]' passed (0.042 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testCheckoutVersion]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testCheckoutVersion]' passed (0.014 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testCreateProject]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testCreateProject]' passed (0.027 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testCustomMetadata]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testCustomMetadata]' passed (0.005 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testDirtyFlag]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testDirtyFlag]' passed (0.026 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testEditLog]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testEditLog]' passed (0.007 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testGetSequenceContent]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testGetSequenceContent]' passed (0.007 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testOpenProject]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testOpenProject]' passed (0.007 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testProjectMetadataWritesAreAtomic]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testProjectMetadataWritesAreAtomic]' passed (0.002 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testRecordEdit]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testRecordEdit]' passed (0.033 seconds).
+Test Case '-[LungfishCoreTests.ProjectFileTests testSaveAndReload]' started.
+Test Case '-[LungfishCoreTests.ProjectFileTests testSaveAndReload]' passed (0.005 seconds).
+Test Suite 'ProjectFileTests' passed at 2026-09-05 07:34:19.407.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.493 (0.494) seconds
+Test Suite 'ProjectSessionRegistryTests' started at 2026-09-05 07:34:19.407.
+Test Case '-[LungfishAppTests.ProjectSessionRegistryTests testRegistersMultipleSessionsForSameCanonicalProjectURL]' started.
+Test Case '-[LungfishAppTests.ProjectSessionRegistryTests testRegistersMultipleSessionsForSameCanonicalProjectURL]' passed (0.001 seconds).
+Test Case '-[LungfishAppTests.ProjectSessionRegistryTests testUnregisterRemovesOnlyThatSession]' started.
+Test Case '-[LungfishAppTests.ProjectSessionRegistryTests testUnregisterRemovesOnlyThatSession]' passed (0.000 seconds).
+Test Suite 'ProjectSessionRegistryTests' passed at 2026-09-05 07:34:19.409.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SidebarImportPlannerTests' started at 2026-09-05 07:34:19.409.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanAutoDisplaysSingleSource]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanAutoDisplaysSingleSource]' passed (0.008 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanExpandsFolderRecursivelyAndSuppressesAutoDisplay]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanExpandsFolderRecursivelyAndSuppressesAutoDisplay]' passed (0.003 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanKeepsExplicitReferenceBundleAtomic]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanKeepsExplicitReferenceBundleAtomic]' passed (0.001 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanKeepsMHCReferenceBundleAtomic]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanKeepsMHCReferenceBundleAtomic]' passed (0.002 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanKeepsONTDirectoryAtomic]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanKeepsONTDirectoryAtomic]' passed (0.001 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanRoutesBAMReadInputButExcludesOtherScientificTracks]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanRoutesBAMReadInputButExcludesOtherScientificTracks]' passed (0.002 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanSkipsNestedBundleDescendantsWhenExpandingFolder]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanSkipsNestedBundleDescendantsWhenExpandingFolder]' passed (0.001 seconds).
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanSkipsNestedMHCReferenceBundleWhenExpandingFolder]' started.
+Test Case '-[LungfishAppTests.SidebarImportPlannerTests testPlanSkipsNestedMHCReferenceBundleWhenExpandingFolder]' passed (0.002 seconds).
+Test Suite 'SidebarImportPlannerTests' passed at 2026-09-05 07:34:19.428.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.019 (0.020) seconds
+Test Suite 'VariantDeletionMutationServiceTests' started at 2026-09-05 07:34:19.429.
+Test Case '-[LungfishAppTests.VariantDeletionMutationServiceTests testDeleteAllVariantsWritesProvenance]' started.
+Test Case '-[LungfishAppTests.VariantDeletionMutationServiceTests testDeleteAllVariantsWritesProvenance]' passed (0.065 seconds).
+Test Case '-[LungfishAppTests.VariantDeletionMutationServiceTests testDeletionRestoresDatabaseWhenProvenanceWriteFails]' started.
+Test Case '-[LungfishAppTests.VariantDeletionMutationServiceTests testDeletionRestoresDatabaseWhenProvenanceWriteFails]' passed (0.018 seconds).
+Test Case '-[LungfishAppTests.VariantDeletionMutationServiceTests testSelectedVariantDeletionWritesProvenanceForMutatedDatabase]' started.
+Test Case '-[LungfishAppTests.VariantDeletionMutationServiceTests testSelectedVariantDeletionWritesProvenanceForMutatedDatabase]' passed (0.018 seconds).
+Test Suite 'VariantDeletionMutationServiceTests' passed at 2026-09-05 07:34:19.529.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.100 (0.100) seconds
+Test Suite 'LungfishGenomeBrowserPackageTests.xctest' passed at 2026-09-05 07:34:19.529.
+	 Executed 29 tests, with 0 failures (0 unexpected) in 0.624 (0.627) seconds
+Test Suite 'Selected tests' passed at 2026-09-05 07:34:19.529.
+	 Executed 29 tests, with 0 failures (0 unexpected) in 0.624 (0.628) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

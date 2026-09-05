@@ -1,0 +1,13 @@
+zero_tests 0 GATE PASS (audit) - suite - log: /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lungfish-audit-gate-itedmsxy/main.log
+ Full-suite gate starting at Sat Sep  5 07:53:17 CDT 2026 for audit
+Log: /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lungfish-audit-gate-itedmsxy/main.log
+Tier: full
+
+crash_then_retry 0 GATE PASS (audit) - suite - flaky under load, passed isolated serial retry: LungfishCoreTests.ExampleTests - log: /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lungfish-audit-gate-j2o7_h8h/main.log
+ Full-suite gate starting at Sat Sep  5 07:53:17 CDT 2026 for audit
+Log: /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lungfish-audit-gate-j2o7_h8h/main.log
+Tier: full
+Run had 1 failing class(es); retrying each in its own process
+Isolated serial retry: ^LungfishCoreTests\.ExampleTests(/|$)
+
+
