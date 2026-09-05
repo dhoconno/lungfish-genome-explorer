@@ -273,8 +273,18 @@ public final class OperationCenter: ObservableObject {
     /// Tests substitute a store rooted in a temporary directory.
     public var failureReportStore = OperationFailureReportStore()
 
-    /// Maps bundle path string to the operation ID that holds the lock.
-    private var bundleLocks: [String: UUID] = [:]
+    private enum BundleLockScope {
+        case exact
+        case tree
+    }
+
+    private struct BundleLock {
+        let operationID: UUID
+        let scope: BundleLockScope
+    }
+
+    /// Canonical paths and their active owner/scope share one lock authority.
+    private var bundleLocks: [String: BundleLock] = [:]
 
     /// Creates an empty operation center.
     ///
@@ -290,31 +300,39 @@ public final class OperationCenter: ObservableObject {
 
     // MARK: - Bundle Locking
 
-    /// Returns true if no running operation is currently targeting the given bundle.
+    /// Returns whether an ordinary exact-target operation can start without
+    /// conflicting with an active exact target or overlapping tree lease.
     public func canStartOperation(on bundleURL: URL?) -> Bool {
-        guard let bundleURL else { return true }
-        let key = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
-        guard let lockHolder = bundleLocks[key] else { return true }
-        // Verify the lock holder is still running (stale lock protection)
-        return items.first(where: { $0.id == lockHolder && $0.state.isActive }) == nil
+        activeLockHolder(for: bundleURL) == nil
     }
 
-    /// Returns the running item that currently holds the lock on the given bundle, if any.
+    /// Returns the active owner blocking an ordinary exact-target operation.
     public func activeLockHolder(for bundleURL: URL?) -> Item? {
         guard let bundleURL else { return nil }
-        let key = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
-        guard let lockHolder = bundleLocks[key] else { return nil }
-        return items.first(where: { $0.id == lockHolder && $0.state.isActive })
+        return activeLockHolder(forCanonicalPath: canonicalLockPath(bundleURL), requestedScope: .exact)
     }
 
-    private func lockBundle(for id: UUID, url: URL?) {
-        guard let url else { return }
-        let key = url.standardizedFileURL.resolvingSymlinksInPath().path
-        bundleLocks[key] = id
+    private func canonicalLockPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private func activeLockHolder(forCanonicalPath path: String, requestedScope: BundleLockScope) -> Item? {
+        let requestedComponents = URL(fileURLWithPath: path).pathComponents
+        for existingPath in bundleLocks.keys.sorted() {
+            guard let lock = bundleLocks[existingPath] else { continue }
+            let existingComponents = URL(fileURLWithPath: existingPath).pathComponents
+            let conflicts = path == existingPath || ((requestedScope == .tree || lock.scope == .tree)
+                && (requestedComponents.starts(with: existingComponents)
+                    || existingComponents.starts(with: requestedComponents)))
+            guard conflicts,
+                  let owner = items.first(where: { $0.id == lock.operationID && $0.state.isActive }) else { continue }
+            return owner
+        }
+        return nil
     }
 
     private func unlockBundle(for id: UUID) {
-        bundleLocks = bundleLocks.filter { $0.value != id }
+        bundleLocks = bundleLocks.filter { $0.value.operationID != id }
     }
 
     private func postStateChangedNotification(id: UUID, state: Item.State) {
@@ -373,22 +391,16 @@ public final class OperationCenter: ObservableObject {
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
-        let lockPaths = Set(([targetBundleURL].compactMap { $0 } + additionalLockedBundleURLs)
-            .map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
-        let lockURLs = lockPaths.sorted().map { URL(fileURLWithPath: $0) }
-        // Main-actor check of every key precedes acquisition, so refusal leaves no partial lease.
-        let exactHolder = lockURLs.compactMap { activeLockHolder(for: $0) }.first
-        // Additional output leases protect their whole trees. Keep the legacy
-        // exact-key contract for callers that do not request additional leases.
-        let overlappingHolder: Item? = additionalLockedBundleURLs.isEmpty ? nil : bundleLocks.keys.sorted().compactMap { path -> Item? in
-            let existing = URL(fileURLWithPath: path)
-            guard lockURLs.contains(where: { candidate in
-                candidate.pathComponents.starts(with: existing.pathComponents)
-                    || existing.pathComponents.starts(with: candidate.pathComponents)
-            }) else { return nil }
-            return activeLockHolder(for: existing)
-        }.first
-        if let lockHolder = exactHolder ?? overlappingHolder {
+        var requestedLocks: [String: BundleLockScope] = [:]
+        if let targetBundleURL { requestedLocks[canonicalLockPath(targetBundleURL)] = .exact }
+        // An additional URL protects the whole tree, including when it is an
+        // alias/duplicate of the target. Ordinary targets retain exact scope.
+        for url in additionalLockedBundleURLs { requestedLocks[canonicalLockPath(url)] = .tree }
+        let requests = requestedLocks.sorted { $0.key < $1.key }
+        // The main-actor conflict check completes before any key is acquired.
+        if let lockHolder = requests.compactMap({ request in
+            activeLockHolder(forCanonicalPath: request.key, requestedScope: request.value)
+        }).first {
             let finishedAt = Date()
             let blockedDetail = "\"\(lockHolder.title)\" is currently running on this bundle. Please wait for it to finish."
             items.insert(
@@ -431,7 +443,9 @@ public final class OperationCenter: ObservableObject {
             ),
             at: 0
         )
-        for url in lockURLs { lockBundle(for: id, url: url) }
+        for request in requests {
+            bundleLocks[request.key] = BundleLock(operationID: id, scope: request.value)
+        }
         changes.send(.inserted(id: id, index: 0))
         notifyRemovedItems(trimCompletedItemsIfNeeded())
         postStateChangedNotification(id: id, state: .running)
