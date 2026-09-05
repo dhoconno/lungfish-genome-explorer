@@ -340,31 +340,17 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(viewModel.userWorkflowSections.first?.groups.first?.title, "Templates")
     }
 
-    func testWorkflowPackageImportValidatesOffMainAndCachesResult() throws {
-        let root = repositoryRoot()
-        let viewModelSource = try String(
-            contentsOf: root.appendingPathComponent(
-                "Sources/LungfishApp/Views/WorkflowLibrary/WorkflowLibraryViewModel.swift"
-            ),
-            encoding: .utf8
-        )
-        let storeSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Services/WorkflowLibrary.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(viewModelSource.contains("Task.detached(priority: .userInitiated)"))
-        XCTAssertTrue(viewModelSource.contains("packageStore.addValidatedPackage(result)"))
-        XCTAssertTrue(viewModelSource.contains("packageStore.cachedValidatedPackages()"))
-        XCTAssertTrue(viewModelSource.contains("packageStore.validatedPackagesInBackground()"))
-        XCTAssertTrue(storeSource.contains("private var validationCache"))
-        XCTAssertTrue(storeSource.contains("func addValidatedPackage(_ result: WorkflowPackageValidationResult)"))
-        XCTAssertTrue(storeSource.contains("func cachedValidatedPackages()"))
-        XCTAssertTrue(storeSource.contains("func validatedPackagesInBackground() async"))
-        XCTAssertTrue(storeSource.contains("let fingerprint = Self.packageFingerprint(for: url)"))
-        XCTAssertTrue(storeSource.contains("cache(result, fingerprint: fingerprint)"))
-        XCTAssertTrue(storeSource.contains("withTaskCancellationHandler"))
-        XCTAssertTrue(storeSource.contains("manifestSHA256"))
+    func testCachedPackageStopsBeingRunnableWhenEntrypointDisappears() throws {
+        let defaults = try makeDefaults()
+        let package = try makeUserWorkflowPackageOnDisk(id: "missing-entrypoint", runnerKind: .nextflow)
+        defer { try? FileManager.default.removeItem(at: package.packageURL.deletingLastPathComponent()) }
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        store.addValidatedPackage(package)
+        XCTAssertEqual(store.cachedValidatedPackages().map(\.manifest.id), [package.manifest.id])
+        try FileManager.default.removeItem(at: package.packageURL.appendingPathComponent(package.manifest.runner.entrypoint))
+        XCTAssertTrue(store.cachedValidatedPackages().isEmpty)
+        XCTAssertTrue(store.validatedPackages().isEmpty)
+        XCTAssertEqual(store.registrationSnapshot.first?.status, .invalid)
     }
 
     func testViewModelLoadsColdImportedWorkflowPackagesAsynchronously() async throws {
@@ -459,6 +445,7 @@ final class WorkflowLibraryTests: XCTestCase {
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let temp = try temporaryDirectory()
         let packageURL = temp.appendingPathComponent("cached.lungfishflowpkg", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
         try FileManager.default.copyItem(at: helloWorldNextflowPackageURL(), to: packageURL)
         packageStore.addPackage(at: packageURL)
 
@@ -470,15 +457,15 @@ final class WorkflowLibraryTests: XCTestCase {
         let manifestURL = packageURL.appendingPathComponent(WorkflowPackageValidator.manifestFilename)
         let originalManifest = try String(contentsOf: manifestURL, encoding: .utf8)
         let updatedManifest = originalManifest.replacingOccurrences(
-            of: "org.lungfish.templates.hello-world-nextflow",
-            with: "org.lungfish.templates.hello-world-nextflaw"
+            of: "Hello World Nextflow",
+            with: "Hello World Nextflaw"
         )
         XCTAssertEqual(originalManifest.utf8.count, updatedManifest.utf8.count)
         try updatedManifest.write(to: manifestURL, atomically: true, encoding: .utf8)
 
         XCTAssertEqual(
-            packageStore.validatedPackages().map(\.manifest.id),
-            ["org.lungfish.templates.hello-world-nextflaw"]
+            packageStore.validatedPackages().map(\.manifest.name),
+            ["Hello World Nextflaw"]
         )
     }
 
@@ -542,18 +529,21 @@ final class WorkflowLibraryTests: XCTestCase {
         let statusProvider = InstallingWorkflowLibraryPluginStatusProvider(states: [
             "lungfish-tools": .needsInstall,
         ])
-        let viewModel = WorkflowLibraryViewModel(
-            store: store,
-            packageStore: packageStore,
-            statusProvider: statusProvider
-        )
-        let package = makeUserWorkflowPackage(
+        let package = try makeUserWorkflowPackageOnDisk(
             id: "org.example.command-workflow",
             runnerKind: .command,
             entrypoint: "run.sh",
             requiredPluginPackIDs: ["lungfish-tools"]
         )
 
+        defer { try? FileManager.default.removeItem(at: package.packageURL.deletingLastPathComponent()) }
+        packageStore.addValidatedPackage(package)
+        let viewModel = WorkflowLibraryViewModel(
+            store: store,
+            packageStore: packageStore,
+            statusProvider: statusProvider,
+            automaticallyRefreshUserWorkflowPackages: false
+        )
         XCTAssertFalse(package.supportsWorkflowLibraryExecution)
         let enablementResult = await store.enableUserWorkflow(package, using: statusProvider)
         XCTAssertEqual(enablementResult, .unsupportedRunner(kind: .command))
@@ -604,6 +594,194 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(statusProvider.installedPackIDs, ["lungfish-tools"])
         XCTAssertTrue(viewModel.isEnabled(package))
         XCTAssertTrue(viewModel.missingRequiredPluginPackIDs(for: package).isEmpty)
+    }
+
+    func testReplacingManifestIdentityPersistsOnlyLatestLinkedSource() throws {
+        let defaults = try makeDefaults()
+        let first = try makeUserWorkflowPackageOnDisk(id: "replacement", runnerKind: .nextflow)
+        let second = try makeUserWorkflowPackageOnDisk(id: "replacement", runnerKind: .nextflow)
+        defer {
+            try? FileManager.default.removeItem(at: first.packageURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: second.packageURL.deletingLastPathComponent())
+        }
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        store.addValidatedPackage(first)
+        store.addValidatedPackage(second)
+        let reloaded = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        XCTAssertEqual(reloaded.packageURLSnapshot, [second.packageURL])
+        XCTAssertEqual(reloaded.validatedPackages().map(\.manifest.id), ["replacement"])
+    }
+
+    func testMissingOrMalformedRegistrationRemainsRemovableAfterReload() throws {
+        for removeManifest in [true, false] {
+            let defaults = try makeDefaults()
+            let package = try makeUserWorkflowPackageOnDisk(id: "unavailable", runnerKind: .nextflow)
+            defer { try? FileManager.default.removeItem(at: package.packageURL.deletingLastPathComponent()) }
+            WorkflowLibraryImportedPackageStore(userDefaults: defaults).addValidatedPackage(package)
+            if removeManifest {
+                try FileManager.default.removeItem(at: package.manifestURL)
+            } else {
+                try Data("invalid json".utf8).write(to: package.manifestURL)
+            }
+            let reloaded = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+            XCTAssertEqual(reloaded.packageURLSnapshot, [package.packageURL])
+            reloaded.removePackage(withManifestID: package.manifest.id)
+            XCTAssertTrue(reloaded.packageURLSnapshot.isEmpty)
+            XCTAssertTrue(WorkflowLibraryImportedPackageStore(userDefaults: defaults).packageURLSnapshot.isEmpty)
+        }
+    }
+
+    func testUnavailableRegistrationRetainsMetadataIdentityAndCanBeRelocated() throws {
+        let defaults = try makeDefaults()
+        let package = try makeUserWorkflowPackageOnDisk(id: "relocated", runnerKind: .nextflow)
+        let relocated = try makeUserWorkflowPackageOnDisk(id: "relocated", runnerKind: .nextflow)
+        defer {
+            try? FileManager.default.removeItem(at: package.packageURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: relocated.packageURL.deletingLastPathComponent())
+        }
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        store.addValidatedPackage(package)
+        let id = try XCTUnwrap(store.registrationSnapshot.first?.id)
+        try FileManager.default.removeItem(at: package.packageURL)
+        let reloaded = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        XCTAssertTrue(reloaded.validatedPackages().isEmpty)
+        let unavailable = try XCTUnwrap(reloaded.registrationSnapshot.first)
+        XCTAssertEqual(unavailable.id, id)
+        XCTAssertEqual(unavailable.status, .missing)
+        XCTAssertEqual(unavailable.lastKnownManifest?.version, "1.0.0")
+        XCTAssertNotNil(unavailable.diagnostic)
+        try reloaded.relocateRegistration(id: id, to: relocated)
+        XCTAssertEqual(reloaded.registrationSnapshot.first?.id, id)
+        XCTAssertEqual(reloaded.validatedPackages().map(\.packageURL), [relocated.packageURL])
+    }
+
+    func testLegacyDisconnectedPathHasStableRemovableRegistrationID() throws {
+        let defaults = try makeDefaults()
+        let missing = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).lungfishflowpkg")
+        defaults.set([missing.path], forKey: "WorkflowLibrary.importedWorkflowPackagePaths")
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let id = try XCTUnwrap(store.registrationSnapshot.first?.id)
+        let reloaded = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        XCTAssertEqual(reloaded.registrationSnapshot.first?.id, id)
+        reloaded.removeRegistration(id: id)
+        XCTAssertTrue(WorkflowLibraryImportedPackageStore(userDefaults: defaults).registrationSnapshot.isEmpty)
+    }
+
+    func testRelinkingChangedIdentityReconcilesVisiblePackagesWithStore() async throws {
+        let defaults = try makeDefaults()
+        let package = try makeUserWorkflowPackageOnDisk(id: "before", runnerKind: .nextflow)
+        defer { try? FileManager.default.removeItem(at: package.packageURL.deletingLastPathComponent()) }
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let model = WorkflowLibraryViewModel(packageStore: store,
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:]), automaticallyRefreshUserWorkflowPackages: false)
+        try await model.importWorkflowPackage(at: package.packageURL)
+        let text = try String(contentsOf: package.manifestURL, encoding: .utf8)
+        try text.replacingOccurrences(of: "before", with: "after").write(to: package.manifestURL, atomically: true, encoding: .utf8)
+        try await model.importWorkflowPackage(at: package.packageURL)
+        XCTAssertEqual(model.userWorkflowPackages.map(\.manifest.id), ["after"])
+        XCTAssertEqual(store.registrationSnapshot.compactMap { $0.lastKnownManifest?.id }, ["after"])
+    }
+
+    func testLateLinkValidationCannotReplaceNewerLinkedSource() async throws {
+        let defaults = try makeDefaults()
+        let first = try makeUserWorkflowPackageOnDisk(id: "ordered", runnerKind: .nextflow)
+        let second = try makeUserWorkflowPackageOnDisk(id: "ordered", runnerKind: .nextflow)
+        defer {
+            try? FileManager.default.removeItem(at: first.packageURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: second.packageURL.deletingLastPathComponent())
+        }
+        let barrier = WorkflowLibraryTestBarrier()
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let model = WorkflowLibraryViewModel(packageStore: store,
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:]), automaticallyRefreshUserWorkflowPackages: false,
+            packageValidator: { url in
+                if url == first.packageURL { await barrier.pause(); return first }
+                return second
+            })
+        let firstTask = Task { try await model.importWorkflowPackage(at: first.packageURL) }
+        await barrier.waitUntilEntered()
+        try await model.importWorkflowPackage(at: second.packageURL)
+        await barrier.release()
+        try await firstTask.value
+        XCTAssertEqual(store.packageURLSnapshot, [second.packageURL])
+        XCTAssertEqual(model.userWorkflowPackages.map(\.packageURL), [second.packageURL])
+    }
+
+    func testNewerLinkWinsWhenOlderValidationCompletesFirst() async throws {
+        let defaults = try makeDefaults()
+        let first = try makeUserWorkflowPackageOnDisk(id: "ordered", runnerKind: .nextflow)
+        let second = try makeUserWorkflowPackageOnDisk(id: "ordered", runnerKind: .nextflow)
+        defer {
+            try? FileManager.default.removeItem(at: first.packageURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: second.packageURL.deletingLastPathComponent())
+        }
+        let barrier = WorkflowLibraryTestBarrier()
+        let secondBarrier = WorkflowLibraryTestBarrier()
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let model = WorkflowLibraryViewModel(packageStore: store,
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:]), automaticallyRefreshUserWorkflowPackages: false,
+            packageValidator: { url in
+                if url == first.packageURL { await barrier.pause(); return first }
+                await secondBarrier.pause()
+                return second
+            })
+        let firstTask = Task { try await model.importWorkflowPackage(at: first.packageURL) }
+        await barrier.waitUntilEntered()
+        let secondTask = Task { try await model.importWorkflowPackage(at: second.packageURL) }
+        await secondBarrier.waitUntilEntered()
+        await barrier.release()
+        try await firstTask.value
+        await secondBarrier.release()
+        try await secondTask.value
+        XCTAssertEqual(store.packageURLSnapshot, [second.packageURL])
+        XCTAssertEqual(model.userWorkflowPackages.map(\.packageURL), [second.packageURL])
+    }
+
+    func testConcurrentLinksForIndependentIdentitiesAreBothRetained() async throws {
+        let defaults = try makeDefaults()
+        let first = try makeUserWorkflowPackageOnDisk(id: "first-independent", runnerKind: .nextflow)
+        let second = try makeUserWorkflowPackageOnDisk(id: "second-independent", runnerKind: .nextflow)
+        defer {
+            try? FileManager.default.removeItem(at: first.packageURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: second.packageURL.deletingLastPathComponent())
+        }
+        let barrier = WorkflowLibraryTestBarrier()
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let model = WorkflowLibraryViewModel(packageStore: store,
+            statusProvider: StubWorkflowLibraryPluginStatusProvider(states: [:]), automaticallyRefreshUserWorkflowPackages: false,
+            packageValidator: { url in
+                if url == first.packageURL { await barrier.pause(); return first }
+                return second
+            })
+        let firstTask = Task { try await model.importWorkflowPackage(at: first.packageURL) }
+        await barrier.waitUntilEntered()
+        try await model.importWorkflowPackage(at: second.packageURL)
+        await barrier.release()
+        try await firstTask.value
+        XCTAssertEqual(Set(store.packageURLSnapshot), Set([first.packageURL, second.packageURL]))
+        XCTAssertEqual(Set(model.userWorkflowPackages.map(\.packageURL)), Set([first.packageURL, second.packageURL]))
+    }
+
+    func testPendingEnableCannotResurrectRemovedRegistration() async throws {
+        let defaults = try makeDefaults()
+        let package = try makeUserWorkflowPackageOnDisk(id: "removed", runnerKind: .nextflow,
+            requiredPluginPackIDs: ["read-mapping"])
+        defer { try? FileManager.default.removeItem(at: package.packageURL.deletingLastPathComponent()) }
+        let store = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        store.addValidatedPackage(package)
+        let enablement = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let barrier = WorkflowLibraryTestBarrier()
+        let provider = StubWorkflowLibraryPluginStatusProvider(states: ["read-mapping": .ready])
+        provider.statusBarrier = { await barrier.pause() }
+        let model = WorkflowLibraryViewModel(store: enablement, packageStore: store,
+            statusProvider: provider, automaticallyRefreshUserWorkflowPackages: false)
+        let task = Task { await model.setWorkflow(package, enabled: true) }
+        await barrier.waitUntilEntered()
+        model.removeRegistration(try XCTUnwrap(store.registrationSnapshot.first))
+        await barrier.release()
+        await task.value
+        XCTAssertFalse(enablement.enabledUserWorkflowIDSnapshot.contains(package.manifest.id))
+        XCTAssertTrue(store.registrationSnapshot.isEmpty)
     }
 
     private func makeDefaults() throws -> UserDefaults {
@@ -719,6 +897,7 @@ final class WorkflowLibraryTests: XCTestCase {
 
 private final class StubWorkflowLibraryPluginStatusProvider: PluginPackStatusProviding, @unchecked Sendable {
     let states: [String: PluginPackState]
+    var statusBarrier: (@Sendable () async -> Void)?
 
     init(states: [String: PluginPackState]) {
         self.states = states
@@ -740,6 +919,7 @@ private final class StubWorkflowLibraryPluginStatusProvider: PluginPackStatusPro
     }
 
     func status(forPackID packID: String) async -> PluginPackStatus? {
+        await statusBarrier?()
         guard let pack = PluginPack.builtInPack(id: packID) else { return nil }
         return PluginPackStatus(pack: pack, state: states[packID] ?? .needsInstall, toolStatuses: [], failureMessage: nil)
     }
@@ -791,5 +971,28 @@ private final class InstallingWorkflowLibraryPluginStatusProvider: PluginPackSta
     ) async throws {
         installedPackIDs.append(pack.id)
         states[pack.id] = .ready
+    }
+}
+
+private actor WorkflowLibraryTestBarrier {
+    private var entered = false
+    private var released = false
+    private var blocked: [CheckedContinuation<Void, Never>] = []
+    private var observers: [CheckedContinuation<Void, Never>] = []
+    func pause() async {
+        guard !released else { return }
+        entered = true
+        observers.forEach { $0.resume() }
+        observers.removeAll()
+        await withCheckedContinuation { blocked.append($0) }
+    }
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { observers.append($0) }
+    }
+    func release() {
+        released = true
+        blocked.forEach { $0.resume() }
+        blocked.removeAll()
     }
 }

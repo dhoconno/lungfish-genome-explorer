@@ -71,7 +71,20 @@ struct WorkflowLibraryPanelView: View {
                     userSection(section)
                 }
 
-                if viewModel.userWorkflowSections.isEmpty {
+                ForEach(viewModel.registrations.filter { $0.status != .available }) { registration in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(registration.title).font(.headline)
+                        Text(registration.diagnostic ?? "Checking linked package...")
+                            .font(.callout).foregroundStyle(.secondary)
+                        registrationControls(registration)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.lungfishCardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                if viewModel.registrations.isEmpty {
                     emptyUserWorkflowCard
                 }
             }
@@ -121,7 +134,7 @@ struct WorkflowLibraryPanelView: View {
 
             Spacer()
 
-            Button("Add Workflow...") {
+            Button("Link Workflow...") {
                 addWorkflowPackage()
             }
             .controlSize(.small)
@@ -143,6 +156,9 @@ struct WorkflowLibraryPanelView: View {
                     ForEach(group.packages, id: \.manifest.id) { package in
                         UserWorkflowPackageCard(package: package, viewModel: viewModel)
                             .accessibilityIdentifier(WorkflowLibraryAccessibilityID.workflowCard(package.manifest.id))
+                        if let registration = viewModel.registration(for: package) {
+                            registrationControls(registration)
+                        }
                     }
                 }
             }
@@ -155,9 +171,11 @@ struct WorkflowLibraryPanelView: View {
                 .font(.headline)
             Text(
                 """
-                Import a .lungfishflowpkg package to catalog Nextflow, Snakemake, \
+                Link a .lungfishflowpkg package to catalog Nextflow, Snakemake, \
                 or command-based workflows. In beta builds, only Nextflow and Snakemake \
-                packages with a reference-plus-FASTQ contract can be enabled.
+                packages with a reference-plus-FASTQ contract can be enabled. Packages \
+                stay at their original location. Linking the same workflow identity \
+                replaces its previous source and version while preserving enablement.
                 """
             )
                 .font(.callout)
@@ -175,8 +193,9 @@ struct WorkflowLibraryPanelView: View {
 
     private func addWorkflowPackage() {
         let panel = NSOpenPanel()
-        panel.title = "Add Workflow Package"
-        panel.prompt = "Add Workflow"
+        panel.title = "Link Workflow Package"
+        panel.prompt = "Link Workflow"
+        panel.message = "The package stays at this location. Linking an existing workflow identity replaces its prior source and version."
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -200,6 +219,41 @@ struct WorkflowLibraryPanelView: View {
                 viewModel.showingError = true
             }
         }
+    }
+
+    private func registrationControls(_ registration: WorkflowPackageRegistration) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(registration.sourceURL.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            HStack {
+                Button("Locate...") { locateRegistration(registration) }
+                Button("Revalidate") { Task { await viewModel.refreshUserWorkflowPackages() } }
+                Button("Remove") { viewModel.removeRegistration(registration) }
+                Spacer()
+                Text(registration.status.rawValue.capitalized).font(.caption)
+            }.controlSize(.small)
+        }
+    }
+
+    private func locateRegistration(_ registration: WorkflowPackageRegistration) {
+        let panel = NSOpenPanel()
+        panel.title = "Locate Linked Workflow"
+        panel.prompt = "Locate"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task {
+                do { try await viewModel.locateRegistration(registration, at: url) }
+                catch {
+                    viewModel.errorMessage = error.localizedDescription
+                    viewModel.showingError = true
+                }
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else { panel.begin(completionHandler: completion) }
     }
 }
 

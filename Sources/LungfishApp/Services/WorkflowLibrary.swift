@@ -285,6 +285,7 @@ protocol WorkflowLibraryEnabling: AnyObject {
 
 enum WorkflowLibraryEnablementResult: Equatable, Sendable {
     case enabled
+    case superseded
     case blocked(missingPackIDs: [String])
     case unsupportedRunner(kind: WorkflowPackageRunnerKind)
 }
@@ -452,12 +453,14 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
 
     func enableUserWorkflow(
         _ package: WorkflowPackageValidationResult,
-        using provider: any PluginPackStatusProviding
+        using provider: any PluginPackStatusProviding,
+        shouldCommit: () -> Bool = { true }
     ) async -> WorkflowLibraryEnablementResult {
         guard package.supportsWorkflowLibraryExecution else {
             return .unsupportedRunner(kind: package.manifest.runner.kind)
         }
         let missingPackIDs = await missingRequiredPluginPackIDs(for: package, using: provider)
+        guard shouldCommit() else { return .superseded }
         guard missingPackIDs.isEmpty else {
             return .blocked(missingPackIDs: missingPackIDs)
         }
@@ -537,118 +540,189 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     }
 }
 
+enum WorkflowRegistrationStatus: String, Codable, Sendable {
+    case unchecked, available, missing, invalid
+}
+
+/// A linked package remains visible and removable even when its source disappears.
+struct WorkflowPackageRegistration: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var sourceURL: URL
+    var lastKnownManifest: WorkflowPackageManifest?
+    var status: WorkflowRegistrationStatus
+    var diagnostic: String?
+
+    var title: String { lastKnownManifest?.name ?? sourceURL.deletingPathExtension().lastPathComponent }
+}
+
 @MainActor
 final class WorkflowLibraryImportedPackageStore {
     static let shared = WorkflowLibraryImportedPackageStore()
-
     private static let importedPackagePathsKey = "WorkflowLibrary.importedWorkflowPackagePaths"
+    private static let registrationsKey = "WorkflowLibrary.packageRegistrations.v1"
 
     private struct PackageValidationFingerprint: Equatable, Sendable {
         let manifestSHA256: String?
     }
-
     private struct CachedPackageValidation: Sendable {
         let fingerprint: PackageValidationFingerprint
         let result: WorkflowPackageValidationResult
     }
+    private struct ValidationOutcome: Sendable {
+        var registration: WorkflowPackageRegistration
+        let result: WorkflowPackageValidationResult?
+        let fingerprint: PackageValidationFingerprint
+    }
 
     private let userDefaults: UserDefaults
     private var validationCache: [URL: CachedPackageValidation] = [:]
-    private var packagePaths: [String] {
+    private var revision: UInt64 = 0
+    private var registrations: [WorkflowPackageRegistration] {
         didSet {
-            userDefaults.set(packagePaths, forKey: Self.importedPackagePathsKey)
+            guard registrations != oldValue else { return }
+            revision &+= 1
+            // One encoded value replaces the registry; no intermediate duplicate identity.
+            do { userDefaults.set(try JSONEncoder().encode(registrations), forKey: Self.registrationsKey) }
+            catch { preconditionFailure("Unable to encode workflow registrations: \(error)") }
         }
     }
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        self.packagePaths = userDefaults.stringArray(forKey: Self.importedPackagePathsKey) ?? []
+        if let data = userDefaults.data(forKey: Self.registrationsKey),
+           let decoded = try? JSONDecoder().decode([WorkflowPackageRegistration].self, from: data) {
+            self.registrations = decoded.map { value in
+                var value = value
+                if value.status == .available { value.status = .unchecked }
+                return value
+            }
+        } else {
+            var seen = Set<String>()
+            self.registrations = (userDefaults.stringArray(forKey: Self.importedPackagePathsKey) ?? []).compactMap { path in
+                let url = URL(fileURLWithPath: path).standardizedFileURL
+                guard seen.insert(url.path).inserted else { return nil }
+                return WorkflowPackageRegistration(id: UUID(), sourceURL: url, status: .unchecked)
+            }
+            // Persist IDs before validation so disconnected legacy paths also remain stable.
+            if let encoded = try? JSONEncoder().encode(registrations) {
+                userDefaults.set(encoded, forKey: Self.registrationsKey)
+            }
+        }
     }
 
-    var packageURLSnapshot: [URL] {
-        packagePaths.map { URL(fileURLWithPath: $0).standardizedFileURL }
-    }
+    var registrationSnapshot: [WorkflowPackageRegistration] { registrations }
+    var registrationRevision: UInt64 { revision }
+    var packageURLSnapshot: [URL] { registrations.map(\.sourceURL) }
 
     func cachedValidatedPackages() -> [WorkflowPackageValidationResult] {
-        packageURLSnapshot.compactMap { url in
-            let packageURL = url.standardizedFileURL
-            guard let cached = validationCache[packageURL],
-                  cached.fingerprint == Self.packageFingerprint(for: packageURL),
-                  cachedValidationStillHasRequiredFiles(cached.result) else {
-                return nil
-            }
+        registrations.compactMap { registration in
+            guard registration.status == .available,
+                  let cached = validationCache[registration.sourceURL],
+                  cached.fingerprint == Self.packageFingerprint(for: registration.sourceURL),
+                  cachedValidationStillHasRequiredFiles(cached.result) else { return nil }
             return cached.result
         }
     }
 
     func validatedPackages() -> [WorkflowPackageValidationResult] {
-        packageURLSnapshot.compactMap { try? validatedPackage(at: $0) }
+        applyValidation(registrations.map(Self.validate))
     }
 
     func validatedPackagesInBackground() async -> [WorkflowPackageValidationResult] {
-        let packageURLs = packageURLSnapshot
+        let snapshot = registrations
+        let expectedRevision = revision
         let workerTask = Task.detached(priority: .userInitiated) {
-            packageURLs.compactMap { url -> (WorkflowPackageValidationResult, PackageValidationFingerprint)? in
-                guard !Task.isCancelled else { return nil }
-                let fingerprint = Self.packageFingerprint(for: url)
-                guard let result = try? WorkflowPackageValidator.validatePackage(at: url) else {
-                    return nil
-                }
-                guard !Task.isCancelled else { return nil }
-                return (result, fingerprint)
-            }
+            snapshot.map(Self.validate)
         }
-        let validationResults = await withTaskCancellationHandler {
+        let outcomes = await withTaskCancellationHandler {
             await workerTask.value
-        } onCancel: {
-            workerTask.cancel()
-        }
-        for (result, fingerprint) in validationResults {
-            cache(result, fingerprint: fingerprint)
-        }
-        return validationResults.map(\.0)
+        } onCancel: { workerTask.cancel() }
+        guard !Task.isCancelled, expectedRevision == revision else { return cachedValidatedPackages() }
+        return applyValidation(outcomes)
     }
 
+    /// Registration means linking to this location, never copying the package.
     func addPackage(at packageURL: URL) {
-        let path = packageURL.standardizedFileURL.path
-        packagePaths.removeAll { $0 == path }
-        packagePaths.append(path)
+        let url = packageURL.standardizedFileURL
+        guard !registrations.contains(where: { $0.sourceURL == url }) else { return }
+        registrations.append(WorkflowPackageRegistration(id: UUID(), sourceURL: url, status: .unchecked))
     }
 
+    /// One active source/version per manifest ID; replacement preserves its local ID and enablement.
     func addValidatedPackage(_ result: WorkflowPackageValidationResult) {
+        let url = result.packageURL.standardizedFileURL
+        let existing = registrations.first { $0.lastKnownManifest?.id == result.manifest.id }
+            ?? registrations.first { $0.sourceURL == url }
+        var updated = registrations.filter { $0.lastKnownManifest?.id != result.manifest.id && $0.sourceURL != url }
+        updated.append(WorkflowPackageRegistration(id: existing?.id ?? UUID(), sourceURL: url,
+            lastKnownManifest: result.manifest, status: .available))
+        registrations = updated
         cache(result)
-        addPackage(at: result.packageURL)
+    }
+
+    func removeRegistration(id: UUID) {
+        registrations.removeAll { $0.id == id }
     }
 
     func removePackage(withManifestID manifestID: String) {
-        packagePaths.removeAll { path in
-            let url = URL(fileURLWithPath: path).standardizedFileURL
-            guard let result = try? validatedPackage(at: url) else { return false }
-            return result.manifest.id == manifestID
+        registrations.removeAll { $0.lastKnownManifest?.id == manifestID }
+    }
+
+    func relocateRegistration(id: UUID, to result: WorkflowPackageValidationResult) throws {
+        guard let index = registrations.firstIndex(where: { $0.id == id }) else { return }
+        if let expected = registrations[index].lastKnownManifest?.id, expected != result.manifest.id {
+            throw NSError(domain: "WorkflowLibrary", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "This package has identity \(result.manifest.id), but the selected registration expects \(expected). Add it separately instead."])
+        }
+        guard !registrations.contains(where: { $0.id != id && $0.lastKnownManifest?.id == result.manifest.id }) else {
+            throw NSError(domain: "WorkflowLibrary", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                "This workflow identity is already registered. Remove its other registration first."])
+        }
+        registrations[index] = WorkflowPackageRegistration(id: id, sourceURL: result.packageURL.standardizedFileURL,
+            lastKnownManifest: result.manifest, status: .available)
+        cache(result)
+    }
+
+    private nonisolated static func validate(_ source: WorkflowPackageRegistration) -> ValidationOutcome {
+        var registration = source
+        let fingerprint = packageFingerprint(for: source.sourceURL)
+        do {
+            try Task.checkCancellation()
+            let result = try WorkflowPackageValidator.validatePackage(at: source.sourceURL)
+            if let expected = source.lastKnownManifest?.id, expected != result.manifest.id {
+                throw NSError(domain: "WorkflowLibrary", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                    "Package identity changed from \(expected) to \(result.manifest.id). Remove and add the new package explicitly."])
+            }
+            registration.lastKnownManifest = result.manifest
+            registration.status = .available
+            registration.diagnostic = nil
+            return ValidationOutcome(registration: registration, result: result, fingerprint: fingerprint)
+        } catch {
+            registration.status = FileManager.default.fileExists(atPath: source.sourceURL.path) ? .invalid : .missing
+            registration.diagnostic = error.localizedDescription
+            return ValidationOutcome(registration: registration, result: nil, fingerprint: fingerprint)
         }
     }
 
-    private func validatedPackage(at packageURL: URL) throws -> WorkflowPackageValidationResult {
-        let packageURL = packageURL.standardizedFileURL
-        let fingerprint = Self.packageFingerprint(for: packageURL)
-        if let cached = validationCache[packageURL],
-           cached.fingerprint == fingerprint,
-           cachedValidationStillHasRequiredFiles(cached.result) {
-            return cached.result
+    private func applyValidation(_ outcomes: [ValidationOutcome]) -> [WorkflowPackageValidationResult] {
+        // Legacy path lists may contain the same identity more than once. Latest link wins,
+        // matching Add's replacement rule; invalid/missing registrations remain diagnosable.
+        var seen = Set<String>()
+        let retained = outcomes.reversed().filter { outcome in
+            guard let id = outcome.registration.lastKnownManifest?.id else { return true }
+            return seen.insert(id).inserted
+        }.reversed()
+        registrations = retained.map(\.registration)
+        validationCache.removeAll()
+        for outcome in retained {
+            if let result = outcome.result { cache(result, fingerprint: outcome.fingerprint) }
         }
-        let result = try WorkflowPackageValidator.validatePackage(at: packageURL)
-        cache(result, fingerprint: fingerprint)
-        return result
+        return retained.compactMap(\.result)
     }
 
-    private func cache(
-        _ result: WorkflowPackageValidationResult,
-        fingerprint: PackageValidationFingerprint? = nil
-    ) {
+    private func cache(_ result: WorkflowPackageValidationResult, fingerprint: PackageValidationFingerprint? = nil) {
         validationCache[result.packageURL.standardizedFileURL] = CachedPackageValidation(
-            fingerprint: fingerprint ?? Self.packageFingerprint(for: result.packageURL),
-            result: result
-        )
+            fingerprint: fingerprint ?? Self.packageFingerprint(for: result.packageURL), result: result)
     }
 
     private nonisolated static func packageFingerprint(for packageURL: URL) -> PackageValidationFingerprint {
