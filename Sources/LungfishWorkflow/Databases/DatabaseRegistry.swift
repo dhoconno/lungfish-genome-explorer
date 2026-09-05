@@ -19,6 +19,28 @@ struct ManagedDatabaseToolResult: Sendable {
     let stderr: String
     let exitCode: Int32
     let wallTime: TimeInterval
+    var toolVersion: String? = nil
+    var command: [String]? = nil
+    var runtimeIdentity: ProvenanceRuntimeIdentity? = nil
+    var resolvedOptions: [String: ParameterValue]? = nil
+
+    func provenanceStep(arguments: [String], durableArguments: [String], inputs: [FileRecord], outputs: [FileRecord]) throws -> StepExecution {
+        guard let toolVersion, !toolVersion.isEmpty, toolVersion != "unknown",
+              let command, command.first?.hasPrefix("/") == true,
+              Array(command.suffix(arguments.count)) == arguments,
+              let runtimeIdentity, runtimeIdentity.condaPrefix?.hasPrefix("/") == true,
+              let root = resolvedOptions?["MAMBA_ROOT_PREFIX"]?.stringValue, root.hasPrefix("/") else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey:
+                "Managed database runtime provenance is unavailable; no measured tool version or resolved invocation was supplied."])
+        }
+        let durableCommand = Array(command.dropLast(arguments.count)) + durableArguments
+        return StepExecution(toolName: "deacon", toolVersion: toolVersion,
+            command: command,
+            durableReplayArgv: ["/usr/bin/env", "MAMBA_ROOT_PREFIX=\(root)"] + durableCommand,
+            resolvedOptions: resolvedOptions, runtimeIdentity: runtimeIdentity,
+            inputs: inputs, outputs: outputs, exitCode: exitCode,
+            wallTime: wallTime, stderr: stderr, endTime: Date())
+    }
 }
 
 typealias ManagedDatabaseDownloadProgress = @Sendable (Double, Int64, Int64) -> Void
@@ -654,12 +676,6 @@ public actor DatabaseRegistry {
         let durableFetchArgs = ["index", "fetch", manifest.version, "-o", destinationURL.path]
         let infoArgs = ["index", "info", tempOutputURL.path]
         let durableInfoArgs = ["index", "info", destinationURL.path]
-        var fetchWallTime: TimeInterval = 0
-        var fetchExitCode: Int32 = 1
-        var fetchStderr = ""
-        var infoWallTime: TimeInterval = 0
-        var infoExitCode: Int32 = 1
-        var infoStderr = ""
 
         do {
             progress?(0.08, "Downloading \(manifest.displayName)…")
@@ -676,9 +692,6 @@ public actor DatabaseRegistry {
                     }
                 }
             )
-            fetchWallTime = fetchResult.wallTime
-            fetchExitCode = fetchResult.exitCode
-            fetchStderr = fetchResult.stderr
             guard fetchResult.exitCode == 0 else {
                 let message = fetchResult.stderr.isEmpty ? fetchResult.stdout : fetchResult.stderr
                 throw HumanScrubberDatabaseError.installationFailed(
@@ -703,9 +716,6 @@ public actor DatabaseRegistry {
                 environment: "deacon",
                 timeout: 300
             )
-            infoWallTime = infoResult.wallTime
-            infoExitCode = infoResult.exitCode
-            infoStderr = infoResult.stderr
             guard infoResult.exitCode == 0 else {
                 throw HumanScrubberDatabaseError.installationFailed(
                     databaseID: databaseID,
@@ -722,18 +732,13 @@ public actor DatabaseRegistry {
             try writeManagedDatabaseInstallProvenance(
                 installDirectory: installDirectory,
                 manifest: manifest,
-                steps: deaconManagedDatabaseInstallSteps(
+                steps: try deaconManagedDatabaseInstallSteps(
+                    fetchResult: fetchResult, infoResult: infoResult,
                     fetchArgs: fetchArgs,
                     durableFetchArgs: durableFetchArgs,
                     infoArgs: infoArgs,
                     durableInfoArgs: durableInfoArgs,
-                    outputURL: destinationURL,
-                    fetchExitCode: fetchExitCode,
-                    fetchWallTime: fetchWallTime,
-                    fetchStderr: fetchStderr,
-                    infoExitCode: infoExitCode,
-                    infoWallTime: infoWallTime,
-                    infoStderr: infoStderr
+                    outputURL: destinationURL
                 ),
                 totalWallTime: Date().timeIntervalSince(totalStart),
                 extraParameters: [
@@ -812,12 +817,6 @@ public actor DatabaseRegistry {
         let totalStart = Date()
         var downloadWallTime: TimeInterval = 0
         let downloadExitCode: Int32 = 0
-        var buildWallTime: TimeInterval = 0
-        var buildExitCode: Int32 = 1
-        var buildStderr = ""
-        var infoWallTime: TimeInterval = 0
-        var infoExitCode: Int32 = 1
-        var infoStderr = ""
         let buildArgs = [
             "index", "build",
             "-k", "31",
@@ -846,16 +845,12 @@ public actor DatabaseRegistry {
             try fileManager.moveItem(at: tempReferenceURL, to: referenceURL)
 
             progress?(0.64, "Building \(manifest.displayName)…")
-            let buildStarted = Date()
             let buildResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: buildArgs,
                 environment: "deacon",
                 timeout: 7200
             )
-            buildWallTime = buildResult.wallTime > 0 ? buildResult.wallTime : Date().timeIntervalSince(buildStarted)
-            buildExitCode = buildResult.exitCode
-            buildStderr = buildResult.stderr
             guard buildResult.exitCode == 0 else {
                 let message = buildResult.stderr.isEmpty ? buildResult.stdout : buildResult.stderr
                 throw HumanScrubberDatabaseError.installationFailed(
@@ -874,16 +869,12 @@ public actor DatabaseRegistry {
             }
 
             progress?(0.88, "Checking \(manifest.displayName)…")
-            let infoStarted = Date()
             let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: ["index", "info", tempOutputURL.path],
                 environment: "deacon",
                 timeout: 300
             )
-            infoWallTime = infoResult.wallTime > 0 ? infoResult.wallTime : Date().timeIntervalSince(infoStarted)
-            infoExitCode = infoResult.exitCode
-            infoStderr = infoResult.stderr
             guard infoResult.exitCode == 0 else {
                 throw HumanScrubberDatabaseError.installationFailed(
                     databaseID: databaseID,
@@ -900,7 +891,8 @@ public actor DatabaseRegistry {
             try writeManagedDatabaseInstallProvenance(
                 installDirectory: installDirectory,
                 manifest: manifest,
-                steps: ribokmersManagedDatabaseInstallSteps(
+                steps: try ribokmersManagedDatabaseInstallSteps(
+                    buildResult: buildResult, infoResult: infoResult,
                     sourceURL: sourceURL,
                     referenceURL: referenceURL,
                     indexURL: destinationURL,
@@ -908,13 +900,7 @@ public actor DatabaseRegistry {
                     infoArgs: ["index", "info", tempOutputURL.path],
                     durableInfoArgs: ["index", "info", destinationURL.path],
                     downloadExitCode: downloadExitCode,
-                    downloadWallTime: downloadWallTime,
-                    buildExitCode: buildExitCode,
-                    buildWallTime: buildWallTime,
-                    buildStderr: buildStderr,
-                    infoExitCode: infoExitCode,
-                    infoWallTime: infoWallTime,
-                    infoStderr: infoStderr
+                    downloadWallTime: downloadWallTime
                 ),
                 totalWallTime: Date().timeIntervalSince(totalStart),
                 extraParameters: [
@@ -1152,50 +1138,25 @@ public actor DatabaseRegistry {
     }
 
     private func deaconManagedDatabaseInstallSteps(
+        fetchResult: ManagedDatabaseToolResult, infoResult: ManagedDatabaseToolResult,
         fetchArgs: [String],
         durableFetchArgs: [String],
         infoArgs: [String],
         durableInfoArgs: [String],
-        outputURL: URL,
-        fetchExitCode: Int32,
-        fetchWallTime: TimeInterval,
-        fetchStderr: String,
-        infoExitCode: Int32,
-        infoWallTime: TimeInterval,
-        infoStderr: String
-    ) -> [StepExecution] {
-        let now = Date()
+        outputURL: URL
+    ) throws -> [StepExecution] {
         let outputRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .unknown, role: .index)
         let finalOutputRecords = FileManager.default.fileExists(atPath: outputURL.path) ? [outputRecord] : []
         return [
-            StepExecution(
-                toolName: "deacon",
-                toolVersion: "0.15.0",
-                command: micromambaDeaconCommand(fetchArgs),
-                durableReplayArgv: micromambaDeaconCommand(durableFetchArgs),
-                inputs: [],
-                outputs: finalOutputRecords,
-                exitCode: fetchExitCode,
-                wallTime: fetchWallTime,
-                stderr: fetchStderr,
-                endTime: now
-            ),
-            StepExecution(
-                toolName: "deacon",
-                toolVersion: "0.15.0",
-                command: micromambaDeaconCommand(infoArgs),
-                durableReplayArgv: micromambaDeaconCommand(durableInfoArgs),
-                inputs: finalOutputRecords,
-                outputs: [],
-                exitCode: infoExitCode,
-                wallTime: infoWallTime,
-                stderr: infoStderr,
-                endTime: now
-            ),
+            try fetchResult.provenanceStep(arguments: fetchArgs, durableArguments: durableFetchArgs,
+                inputs: [], outputs: finalOutputRecords),
+            try infoResult.provenanceStep(arguments: infoArgs, durableArguments: durableInfoArgs,
+                inputs: finalOutputRecords, outputs: []),
         ]
     }
 
     private func ribokmersManagedDatabaseInstallSteps(
+        buildResult: ManagedDatabaseToolResult, infoResult: ManagedDatabaseToolResult,
         sourceURL: URL,
         referenceURL: URL,
         indexURL: URL,
@@ -1203,14 +1164,8 @@ public actor DatabaseRegistry {
         infoArgs: [String],
         durableInfoArgs: [String],
         downloadExitCode: Int32,
-        downloadWallTime: TimeInterval,
-        buildExitCode: Int32,
-        buildWallTime: TimeInterval,
-        buildStderr: String,
-        infoExitCode: Int32,
-        infoWallTime: TimeInterval,
-        infoStderr: String
-    ) -> [StepExecution] {
+        downloadWallTime: TimeInterval
+    ) throws -> [StepExecution] {
         let now = Date()
         var steps: [StepExecution] = [
             StepExecution(
@@ -1234,44 +1189,17 @@ public actor DatabaseRegistry {
             ),
         ]
 
-        let buildCommand = micromambaDeaconCommand(buildArgs)
         let durableBuildArgs = buildArgs.map { argument in
             argument == indexURL.path + ".partial" ? indexURL.path : argument
         }
-        steps.append(
-            StepExecution(
-                toolName: "deacon",
-                toolVersion: "0.15.0",
-                command: buildCommand,
-                durableReplayArgv: micromambaDeaconCommand(durableBuildArgs),
-                inputs: FileManager.default.fileExists(atPath: referenceURL.path)
-                    ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
-                    : [],
-                outputs: FileManager.default.fileExists(atPath: indexURL.path)
-                    ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)]
-                    : [],
-                exitCode: buildExitCode,
-                wallTime: buildWallTime,
-                stderr: buildStderr,
-                endTime: now
-            )
-        )
-        steps.append(
-            StepExecution(
-                toolName: "deacon",
-                toolVersion: "0.15.0",
-                command: micromambaDeaconCommand(infoArgs),
-                durableReplayArgv: micromambaDeaconCommand(durableInfoArgs),
-                inputs: FileManager.default.fileExists(atPath: indexURL.path)
-                    ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)]
-                    : [],
-                outputs: [],
-                exitCode: infoExitCode,
-                wallTime: infoWallTime,
-                stderr: infoStderr,
-                endTime: now
-            )
-        )
+        steps.append(try buildResult.provenanceStep(arguments: buildArgs, durableArguments: durableBuildArgs,
+            inputs: FileManager.default.fileExists(atPath: referenceURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)] : [],
+            outputs: FileManager.default.fileExists(atPath: indexURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)] : []))
+        steps.append(try infoResult.provenanceStep(arguments: infoArgs, durableArguments: durableInfoArgs,
+            inputs: FileManager.default.fileExists(atPath: indexURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)] : [], outputs: []))
         return steps
     }
 
@@ -1332,10 +1260,6 @@ public actor DatabaseRegistry {
             format: format,
             role: role
         )
-    }
-
-    private func micromambaDeaconCommand(_ arguments: [String]) -> [String] {
-        ["micromamba", "run", "-n", "deacon", "deacon"] + arguments
     }
 
     private func md5Hex(
@@ -1434,20 +1358,81 @@ public actor DatabaseRegistry {
             return try await managedDatabaseToolRunner(name, arguments, environment, timeout, stderrHandler)
         }
 
+        let manager = CondaManager.shared
+        // Bind the version probe and operation to the same resolved runtime bytes.
+        // A launcher repair that changes those bytes fails closed; a fresh attempt
+        // can then observe the repaired runtime without attributing an old version.
+        let tool = try await manager.toolPath(name: name, environment: environment)
+        let prefix = await manager.environmentURL(named: environment)
+        let root = manager.rootPrefix
+        let launcher = await manager.micromambaPath
+        let toolHash = try ProvenanceFileHasher.sha256(of: tool)
+        let launcherHash = try ProvenanceFileHasher.sha256(of: launcher)
+        // These repeated observations detect ordinary resolver changes. They are
+        // not an atomic lock against ABA changes or noncooperating external writers.
+        func validateRuntime() async throws {
+            let observedRootBefore = manager.rootPrefix
+            let observedTool = try await manager.toolPath(name: name, environment: environment)
+            let observedPrefix = await manager.environmentURL(named: environment)
+            let observedLauncher = await manager.micromambaPath
+            let observedRootAfter = manager.rootPrefix
+            guard observedRootBefore == root, observedRootAfter == root,
+                  observedTool == tool, observedPrefix == prefix, observedLauncher == launcher,
+                  try ProvenanceFileHasher.sha256(of: tool) == toolHash,
+                  try ProvenanceFileHasher.sha256(of: launcher) == launcherHash else {
+                throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey:
+                    "Managed database runtime changed; its provenance cannot be certified. Retry after tool repair completes."])
+            }
+        }
+        try await validateRuntime()
+        let probeStarted = Date()
+        let versionResult = try await manager.runTool(name: name, arguments: ["--version"],
+            environment: environment, timeout: 30)
+        let probeWallTime = Date().timeIntervalSince(probeStarted)
+        let version = try Self.observedManagedToolVersion(name: name, stdout: versionResult.stdout,
+            stderr: versionResult.stderr, exitCode: versionResult.exitCode)
+        try await validateRuntime()
         let started = Date()
-        let result = try await CondaManager.shared.runTool(
+        let result = try await manager.runTool(
             name: name,
             arguments: arguments,
             environment: environment,
             timeout: timeout,
             stderrHandler: stderrHandler
         )
+        let wallTime = Date().timeIntervalSince(started)
+        try await validateRuntime()
         return ManagedDatabaseToolResult(
             stdout: result.stdout,
             stderr: result.stderr,
             exitCode: result.exitCode,
-            wallTime: Date().timeIntervalSince(started)
+            wallTime: wallTime,
+            toolVersion: version,
+            command: [launcher.path, "run", "-n", environment, name] + arguments,
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: tool.path,
+                condaEnvironment: environment, condaPrefix: prefix.path),
+            resolvedOptions: ["MAMBA_ROOT_PREFIX": .string(root.path),
+                "toolExecutableSHA256": .string(toolHash), "launcherSHA256": .string(launcherHash),
+                "versionProbeArgv": .array([launcher.path, "run", "-n", environment, name, "--version"].map(ParameterValue.string)),
+                "versionProbeStdout": .string(versionResult.stdout),
+                "versionProbeStderr": .string(versionResult.stderr),
+                "versionProbeExitStatus": .integer(Int(versionResult.exitCode)),
+                "versionProbeWallTimeSeconds": .number(probeWallTime)]
         )
+    }
+
+    static func observedManagedToolVersion(name: String, stdout: String, stderr: String, exitCode: Int32) throws -> String {
+        let pattern = "(?m)^" + NSRegularExpression.escapedPattern(for: name)
+            + #"\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?[^\s]*)\s*$"#
+        let text = stdout + "\n" + stderr
+        let expression = try NSRegularExpression(pattern: pattern)
+        let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let versions = Set(matches.compactMap { Range($0.range(at: 1), in: text).map { String(text[$0]) } })
+        guard exitCode == 0, versions.count == 1, let version = versions.first else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey:
+                "Could not measure the managed \(name) runtime version; repair the tool before installing database data."])
+        }
+        return version
     }
 
     private static func normalizedDatabaseID(_ id: String) -> String {

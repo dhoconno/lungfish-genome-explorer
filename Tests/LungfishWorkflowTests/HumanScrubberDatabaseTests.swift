@@ -10,6 +10,7 @@ import CryptoKit
 final class HumanScrubberDatabaseTests: XCTestCase {
 
     private var tempDir: URL!
+    private var savedOverrides: [String: String] = [:]
     private let managedDatabaseOverrideKeys = [
         "database.human-scrubber.overrideFilename",
         "database.deacon-panhuman.overrideFilename",
@@ -21,15 +22,40 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("human-scrubber-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        savedOverrides = Dictionary(uniqueKeysWithValues: managedDatabaseOverrideKeys.compactMap { key in
+            UserDefaults.standard.string(forKey: key).map { (key, $0) }
+        })
         clearManagedDatabaseOverrideDefaults()
     }
 
     override func tearDown() async throws {
         clearManagedDatabaseOverrideDefaults()
+        for (key, value) in savedOverrides { UserDefaults.standard.set(value, forKey: key) }
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
         try await super.tearDown()
+    }
+
+    func testManagedDatabaseProvenanceRefusesUnmeasuredRuntime() throws {
+        let result = ManagedDatabaseToolResult(stdout: "ok", stderr: "", exitCode: 0, wallTime: 0.1)
+        XCTAssertThrowsError(try result.provenanceStep(arguments: ["fixture"], durableArguments: ["fixture"],
+            inputs: [], outputs: [])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("runtime provenance is unavailable"))
+        }
+    }
+
+    func testManagedDatabaseVersionProbeUsesObservedValueAndRejectsUnknown() throws {
+        XCTAssertEqual(try DatabaseRegistry.observedManagedToolVersion(name: "deacon",
+            stdout: "deacon 9.8.7-fixture\n", stderr: "", exitCode: 0), "9.8.7-fixture")
+        XCTAssertEqual(try DatabaseRegistry.observedManagedToolVersion(name: "deacon",
+            stdout: "", stderr: "deacon version 0.16.2\n", exitCode: 0), "0.16.2")
+        for output in ["", "unknown", "another-tool 0.16.0", "deacon 0.16.0\ndeacon 0.17.0"] {
+            XCTAssertThrowsError(try DatabaseRegistry.observedManagedToolVersion(name: "deacon",
+                stdout: output, stderr: "", exitCode: 0))
+        }
+        XCTAssertThrowsError(try DatabaseRegistry.observedManagedToolVersion(name: "deacon",
+            stdout: "deacon 0.16.0", stderr: "", exitCode: 1))
     }
 
     func testManagedDatabaseInstallerClassifiesURLSessionCancellation() {
@@ -273,7 +299,12 @@ final class HumanScrubberDatabaseTests: XCTestCase {
                 stdout: "ok",
                 stderr: "",
                 exitCode: 0,
-                wallTime: 0.25
+                wallTime: 0.25,
+                toolVersion: "9.8.7-fixture",
+                command: ["/fixture/runtime/bin/micromamba", "run", "-n", environment, name] + arguments,
+                runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/fixture/runtime/envs/deacon/bin/deacon",
+                    condaEnvironment: environment, condaPrefix: "/fixture/runtime/envs/deacon"),
+                resolvedOptions: ["MAMBA_ROOT_PREFIX": .string("/fixture/runtime")]
             )
         }
         let registry = DatabaseRegistry(
@@ -293,6 +324,17 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertEqual(run.parameters["databaseID"]?.stringValue, "deacon-panhuman")
         XCTAssertEqual(run.parameters["condaEnvironment"]?.stringValue, "deacon")
         XCTAssertEqual(run.steps.map(\.toolName), ["deacon", "deacon"])
+        XCTAssertFalse(run.steps.contains { $0.toolVersion == "0.15.0" }, "An unmeasured legacy version must never be emitted as actual runtime evidence")
+        XCTAssertTrue(run.steps.allSatisfy { $0.command.first?.hasPrefix("/") == true }, "Provenance must identify the resolved runtime executable")
+        XCTAssertEqual(run.steps.map(\.toolVersion), ["9.8.7-fixture", "9.8.7-fixture"])
+        XCTAssertEqual(run.steps.first?.runtimeIdentity?.condaPrefix, "/fixture/runtime/envs/deacon")
+        XCTAssertEqual(run.steps.first?.runtimeIdentity?.executablePath, "/fixture/runtime/envs/deacon/bin/deacon")
+        XCTAssertEqual(run.steps.first?.resolvedOptions?["MAMBA_ROOT_PREFIX"]?.stringValue, "/fixture/runtime")
+        XCTAssertEqual(Array(run.steps.first!.durableReplayArgv!.prefix(3)),
+            ["/usr/bin/env", "MAMBA_ROOT_PREFIX=/fixture/runtime", "/fixture/runtime/bin/micromamba"])
+        let canonical = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: provenanceURL))
+        XCTAssertEqual(canonical.steps.first?.toolVersion, "9.8.7-fixture")
+        XCTAssertEqual(canonical.steps.first?.runtimeIdentity?.condaPrefix, "/fixture/runtime/envs/deacon")
         XCTAssertEqual(run.steps.first?.outputs.first?.path, installed.path)
         XCTAssertEqual(run.steps.first?.durableReplayArgv?.suffix(2), ["-o", installed.path])
         XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, UInt64(indexPayload.count))
@@ -312,7 +354,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             progress(1.0, Int64(referencePayload.count), Int64(referencePayload.count))
             return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
         }
-        let toolRunner: ManagedDatabaseToolRunner = { _, arguments, _, _, _ in
+        let toolRunner: ManagedDatabaseToolRunner = { name, arguments, environment, _, _ in
             if arguments.starts(with: ["index", "build"]),
                let outputFlagIndex = arguments.firstIndex(of: "-o"),
                arguments.indices.contains(outputFlagIndex + 1) {
@@ -322,7 +364,12 @@ final class HumanScrubberDatabaseTests: XCTestCase {
                 stdout: "ok",
                 stderr: "",
                 exitCode: 0,
-                wallTime: 0.25
+                wallTime: 0.25,
+                toolVersion: "9.8.7-fixture",
+                command: ["/fixture/runtime/bin/micromamba", "run", "-n", environment, name] + arguments,
+                runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/fixture/runtime/envs/deacon/bin/deacon",
+                    condaEnvironment: environment, condaPrefix: "/fixture/runtime/envs/deacon"),
+                resolvedOptions: ["MAMBA_ROOT_PREFIX": .string("/fixture/runtime")]
             )
         }
         let registry = DatabaseRegistry(
@@ -416,7 +463,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             progress(1.0, Int64(referencePayload.count), Int64(referencePayload.count))
             return ManagedDatabaseDownloadResult(fileURL: outputURL, wallTime: 0.125)
         }
-        let toolRunner: ManagedDatabaseToolRunner = { _, arguments, _, _, _ in
+        let toolRunner: ManagedDatabaseToolRunner = { name, arguments, environment, _, _ in
             if arguments.starts(with: ["index", "build"]),
                let outputFlagIndex = arguments.firstIndex(of: "-o"),
                arguments.indices.contains(outputFlagIndex + 1) {
@@ -426,7 +473,12 @@ final class HumanScrubberDatabaseTests: XCTestCase {
                 stdout: "ok",
                 stderr: "",
                 exitCode: 0,
-                wallTime: 0.25
+                wallTime: 0.25,
+                toolVersion: "9.8.7-fixture",
+                command: ["/fixture/runtime/bin/micromamba", "run", "-n", environment, name] + arguments,
+                runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/fixture/runtime/envs/deacon/bin/deacon",
+                    condaEnvironment: environment, condaPrefix: "/fixture/runtime/envs/deacon"),
+                resolvedOptions: ["MAMBA_ROOT_PREFIX": .string("/fixture/runtime")]
             )
         }
         let provenanceWriter: ManagedDatabaseProvenanceWriter = { _, _ in
