@@ -393,6 +393,8 @@ Run, list, and validate Lungfish workflows.
 
 `lungfish workflow run <workflow> --input <path> --expected-output <path> [--executor <docker|conda|local>] [--bundle-root <dir>] [--bundle-path <path>]`
 
+For a supported bound local run, `--repeat-from <previous.lungfishrun>` validates the retained typed configuration and source identity before a fresh attempt. Supply a fresh results destination and run-bundle path; destinations that already exist or overlap retained sources/history are refused. The prior command text is never parsed to reconstruct options, and an unsupported or unbound history cannot bypass validation.
+
 Runs a supported workflow or workflow file. Executed runs require at least one `--expected-output` so Lungfish can write focused provenance for the final scientific output; `--dry-run` and `--prepare-only` do not require it. `nf-core/viralrecon` and `viralrecon` are accepted for the Viral Recon adapter; that path requires exactly one `--input` samplesheet.
 
 ```bash
@@ -410,13 +412,15 @@ Useful viralrecon flags include `--results-dir`, `--expected-output`, `--version
 
 Runs `lungfish workflow run --quiet <workflow> ...` as a discoverable CI-friendly alias. Pass workflow-run flags after the workflow path, including `--expected-output` for executed scientific runs. See [Running in CI](06-running-in-ci.md).
 
-`lungfish workflow list`
+`lungfish workflow list [--nf-core]`
 
-Lists workflows in the project.
+With `--nf-core`, lists the supported Viral Recon pipeline. Without the flag,
+prints a usage hint; it does not inventory project workflows.
 
-`lungfish workflow validate <workflow.yaml>`
+`lungfish workflow validate <file>`
 
-Validates a workflow file without running it.
+Checks a local Nextflow file or Snakefile without running it. YAML workflow
+definitions are not accepted by this command.
 
 `lungfish workflow diff <old.lungfishflow> <new.lungfishflow> [--format text|json|tsv]`
 
@@ -432,14 +436,19 @@ Manage tool dependencies through Lungfish's conda wrapper.
 
 Installs one or more plugin packs into `~/.lungfish/conda`. `--pack` is a boolean mode toggle; the pack names are positional arguments after it (for example `lungfish conda install --pack read-mapping variant-calling`). Without `--pack`, the positional arguments are treated as individual bioconda packages.
 
-`lungfish conda lock --pack <name> --output <lockfile.yml>`
+`lungfish conda lock --pack <name> --output <requested-environment.json>`
 
-Writes a conda-lock-compatible lockfile for a built-in plugin pack.
+Exports a versioned Lungfish requested environment specification in JSON. It retains
+requested environment names, all packages, target platforms, channels, supported
+source overlays, and post-install-hook commands and metadata. It is unresolved: it does not contain a complete installed artifact
+inventory or claim compatibility with conda-lock. Export provenance is retained in
+`<output>.lungfish-provenance.json` for each exported document.
 
-`lungfish conda install --from-lockfile <lockfile.yml>`
+`lungfish conda install --from-lockfile <file>`
 
-Recreates the environments pinned in a lockfile without resolving fresh
-package versions. The install writes provenance to the conda root.
+Exact reconstruction is currently unsupported and fails before creating or changing
+an environment. The normal `conda install --pack` workflow performs a fresh solve;
+its result is not guaranteed to reproduce a previous environment byte for byte.
 
 `lungfish conda list`
 

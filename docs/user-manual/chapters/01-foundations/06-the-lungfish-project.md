@@ -43,7 +43,7 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-A Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is one folder on disk. It holds everything for a single analysis: the sequencing reads you imported, the references you downloaded, the alignments you produced, the variant tracks, the classification results, and the provenance records that tie every output back to a reproducible command. Nothing hides in a separate database somewhere on your Mac. Open the folder in Finder and you see everything LGE knows about the project.
+A Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) keeps imported files, derived bundles, and their provenance together in a project folder. Native projects also store the sequence catalog and version history in an internal project database. The sidebar can show both stored sequences and files; a stored sequence is not necessarily a separate FASTA file in Finder.
 
 A handful of analyses lean on large reference databases: Kraken2 classification, EsViritu, and similar metagenomics workflows. LGE installs those databases once and shares them across every project on the machine. They sit outside the project folder on purpose, because copying tens of gigabytes into every project would be wasteful. The project's provenance still records the database name and version it used, so the analysis stays reproducible. Re-running it on another Mac takes a compatible LGE version, the installed plugin packs, and the same external databases the project references.
 
@@ -57,9 +57,15 @@ Read this chapter once before any other UI chapter. Every later chapter assumes 
 
 Five ideas carry through the rest of the manual. You will create a new LGE project from the Welcome window and learn to recognise the top-level project folders and what each holds. You will locate the Inspector pane and see how its contents shift with your selection. You will find the Operations Panel and read a progress row. And you will learn that a [bundle](../../GLOSSARY.md#bundle) in LGE is a folder, not a single file. Every later chapter builds on these.
 
+## Saving and exporting
+
+Project changes are stored when an import or edit completes successfully. Check the Operations Panel for running or failed work. Editing tools may ask you to apply or discard a draft before leaving. Lungfish remembers project windows and views when they close or the app quits. **File > About Saving…** explains this behavior; there is no separate document Save or Save As command.
+
+Exports create separate files. Sequence and annotation exports use an explicit sidebar selection before falling back to the current document. Annotation export asks you to choose a source when several supported sources are selected, reports unsupported selections, and names the source and annotation count on the destination sheet. It does not silently combine annotations from different sources.
+
 ## The Welcome window
 
-Launch LGE with no project open and the Welcome window greets you. It offers two main actions and a list of recent projects.
+Launch LGE with no project open and the Welcome window greets you. It offers two main actions and a list of recent projects. You can open projects with built-in viewers before installing external tools. Actions that need tools retain their setup requirements. Opening waits while an installation or storage change is in progress.
 
 <!-- SHOT: welcome-window -->
 ![The Lungfish Genome Explorer Welcome window, with Create Project and Open Project actions and a sidebar of recent projects.](../../assets/screenshots/01-foundations/06-the-lungfish-project/welcome-window.png)
