@@ -757,8 +757,10 @@ class SubprocessRunner:
                 stderr=subprocess.PIPE if capture else None, check=False,
             )
         phase = Path(command[0]).name
-        if len(command) > 1 and Path(command[1]).suffix in {".py", ".sh"}:
-            phase = Path(command[1]).name
+        for argument in command[1:3]:
+            if Path(argument).suffix in {".py", ".sh"}:
+                phase = Path(argument).name
+                break
         _record_timing(phase, time.monotonic() - started, result.returncode)
         if capture and len((result.stdout or "").encode()) > MAX_JSON_BYTES:
             raise ReleaseError(f"command output exceeded bound: {command[0]}")

@@ -1,21 +1,8 @@
-"""Pin the full-suite gate's tier regexes against the CI workflow's copies.
+"""Pin legacy gate selections against the committed compatibility fixture.
 
-The gate's named tiers (smoke/unit/integration/conformance/full) select suites
-with filter regexes that also appear in .github/workflows/ci.yml. A drift
-between the two silently changes what a tier covers, so this test asserts the
-load-bearing equalities:
-
-- the conformance tier's filter is byte-identical to the toolset-conformance
-  job's --filter,
-- the smoke tier's filter is byte-identical to the build-smoke job's smoke
-  regex,
-- the storage-suite list is byte-identical to the project-storage
-  --no-parallel filter,
-- the unit tier's skip regex is composed from the integration + conformance
-  variables (so unit/integration/conformance partition the suite by
-  construction),
-- --parallel stays rejected for selections containing the ProjectStorage
-  suites.
+CI profile routing is covered by test_ci_workflow. These tests independently
+preserve the original named tiers' exact filters, skips, tool requirements,
+and scheduling, including serial coverage for storage suites.
 """
 
 import re
@@ -35,14 +22,19 @@ def _gate_text() -> str:
     return (ROOT / "scripts/full-suite-gate.sh").read_text(encoding="utf-8")
 
 
-def _workflow_text() -> str:
-    return (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+def _legacy_selection(tier: str) -> dict:
+    result = subprocess.run(
+        ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"),
+         "--tier", tier, "--describe-selection"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+        env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable},
+    )
+    return json.loads(result.stdout)
 
 
-def _gate_var(name: str) -> str:
-    match = re.search(rf"^{name}='([^']*)'", _gate_text(), re.MULTILINE)
-    assert match, f"gate does not define {name} as a single-quoted variable"
-    return match.group(1)
+def _frozen_legacy_selection(tier: str) -> dict:
+    fixture = ROOT / "scripts/tests/fixtures/legacy-tier-options.json"
+    return json.loads(fixture.read_text(encoding="utf-8"))[tier]
 
 
 class FullSuiteGateTierTests(unittest.TestCase):
@@ -57,41 +49,22 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "the unknown-tier error must enumerate the five tiers",
         )
 
-    def test_conformance_tier_matches_the_ci_toolset_conformance_filter(self):
-        workflow = _workflow_text()
-        match = re.search(
-            r"full-suite-gate\.sh --require-tools --filter '([^']*)'", workflow
-        )
-        self.assertIsNotNone(match, "CI no longer runs the conformance filter")
+    def test_conformance_tier_matches_frozen_legacy_selection(self):
         self.assertEqual(
-            _gate_var("CONFORMANCE_FILTER"),
-            match.group(1),
-            "gate CONFORMANCE_FILTER drifted from the toolset-conformance job",
+            _legacy_selection("conformance"),
+            _frozen_legacy_selection("conformance"),
         )
 
-    def test_smoke_tier_matches_the_ci_smoke_regex(self):
-        workflow = _workflow_text()
-        match = re.search(
-            r"swift test --filter '(\^\(LungfishCoreTests[^']*)'", workflow
-        )
-        self.assertIsNotNone(match, "CI no longer runs the smoke regex")
+    def test_smoke_tier_matches_frozen_legacy_selection(self):
         self.assertEqual(
-            _gate_var("SMOKE_FILTER"),
-            match.group(1),
-            "gate SMOKE_FILTER drifted from the build-smoke job's smoke regex",
+            _legacy_selection("smoke"),
+            _frozen_legacy_selection("smoke"),
         )
 
-    def test_storage_suites_match_the_ci_no_parallel_filter(self):
-        workflow = _workflow_text()
-        match = re.search(
-            r"swift test --no-parallel --filter \\\n\s*'([^']*)'", workflow
-        )
-        self.assertIsNotNone(match, "CI no longer runs the storage --no-parallel filter")
-        self.assertEqual(
-            _gate_var("STORAGE_SUITES"),
-            match.group(1),
-            "gate STORAGE_SUITES drifted from the project-storage job",
-        )
+    def test_storage_suites_keep_frozen_serial_integration_selection(self):
+        selection = _legacy_selection("integration")
+        self.assertEqual(selection, _frozen_legacy_selection("integration"))
+        self.assertFalse(selection["parallel"])
 
     def test_unit_tier_skip_is_composed_from_integration_and_conformance(self):
         gate = _gate_text()
