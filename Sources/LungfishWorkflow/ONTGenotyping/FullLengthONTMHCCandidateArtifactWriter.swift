@@ -2079,7 +2079,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             role: "caller-staged raw unmatched consensus FASTA"
         )
         defer { Darwin.close(descriptor) }
-        let descriptorURL = URL(fileURLWithPath: "/dev/fd/\(descriptor)")
+        let inputHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
 
         func finishRecord() throws {
             guard let header = currentHeader else { return }
@@ -2113,7 +2113,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             currentSequence = ""
         }
 
-        try descriptorURL.forEachLineAutoDecompressing { line in
+        try inputHandle.forEachPlainTextLine { line in
             try Task.checkCancellation()
             lineNumber += 1
             guard line.utf8.count <= Self.maximumCanonicalFASTALineBytes else {

@@ -386,6 +386,11 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         let source = (insideProject ? url : root).appendingPathComponent("external.fa")
         try Data(">invented-external\nGGGG\n".utf8).write(to: source)
         let window = MainWindowController()
+        window.window?.setFrameAutosaveName("")
+        defer {
+            window.projectSession.closeProject()
+            window.close()
+        }
         app.openProject(url, in: window)
         await app.testingWaitForProjectOpen(in: window)
         let split = try XCTUnwrap(window.mainSplitViewController)
@@ -404,8 +409,6 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         XCTAssertEqual(split.viewerController.currentDocument?.url.path,
             (insideProject ? moved.appendingPathComponent("external.fa") : source).path)
         XCTAssertEqual(split.viewerController.currentDocument?.sequences.first?.asString(), "GGGG")
-        window.projectSession.closeProject()
-        window.close()
     }
 }
 

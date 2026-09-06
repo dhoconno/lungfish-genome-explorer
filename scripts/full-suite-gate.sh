@@ -116,7 +116,11 @@ CLI_E2E_SUITES='CLIExitCodeProcessTests|ToolsCommandTests|DbCommandUpdateTargetT
 # 2026-09-05 release-cy69qq7k: the four trailing suites failed parallel
 # UI/defaults or fake-child readiness checks; complete serial diagnostic runs
 # passed 25/19/35/31 cases. Keep every case in serial integration, not skipped.
-PARALLEL_HAZARD_SUITES='AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests'
+# 2026-09-05 release-f5ew8hq0: real-window CoreText redraw and a fake-process
+# three-second deadline failed under parallel load; all 99 cases across the
+# three affected classes passed serially. Serialize these two load-sensitive
+# classes; the third class receives a direct descriptor-reader correction.
+PARALLEL_HAZARD_SUITES='AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests'
 INTEGRATION_FILTER="^LungfishIntegrationTests\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}"
 
 if [ -n "$TIER" ] && [ -n "$FILTER" ]; then

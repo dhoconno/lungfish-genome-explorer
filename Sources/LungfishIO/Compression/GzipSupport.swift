@@ -384,6 +384,28 @@ public final class GzipInputStream: Sendable {
 
 // MARK: - Plain Text Input Stream
 
+public extension FileHandle {
+    /// Streams UTF-8 lines from this already-open handle's current offset.
+    /// The caller retains ownership: this method advances the offset but never
+    /// closes the handle, including on cancellation, read failure, or callback error.
+    func forEachPlainTextLine(_ body: (String) throws -> Void) throws {
+        let chunkSize = 1_048_576 // 1 MB
+        var partial = Data()
+
+        while true {
+            try Task.checkCancellation()
+
+            guard let chunk = try read(upToCount: chunkSize), !chunk.isEmpty else { break }
+
+            partial.append(chunk)
+            try GzipInputStream.emitCompleteLines(from: &partial, body)
+        }
+
+        try Task.checkCancellation()
+        try GzipInputStream.emitFinalLine(from: partial, body)
+    }
+}
+
 private struct PlainTextInputStream {
     let url: URL
 
@@ -396,21 +418,7 @@ private struct PlainTextInputStream {
             try? handle.close()
         }
 
-        let chunkSize = 1_048_576 // 1 MB
-        var partial = Data()
-
-        while true {
-            try Task.checkCancellation()
-
-            let chunk = handle.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
-
-            partial.append(chunk)
-            try GzipInputStream.emitCompleteLines(from: &partial, body)
-        }
-
-        try Task.checkCancellation()
-        try GzipInputStream.emitFinalLine(from: partial, body)
+        try handle.forEachPlainTextLine(body)
     }
 
     func forEachChunk(
