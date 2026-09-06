@@ -1,0 +1,178 @@
+/*-- scss:defaults --*/
+// =========================================================================
+// House style for the Lungfish Genome Explorer landing site. The same system
+// as dholab.github.io/team-canada-world-cup-2026: warm-neutral, calm,
+// editorial. Cream canvas, deep-teal ink, one terracotta accent per element.
+// Georgia display + Arial text.
+// =========================================================================
+
+// Palette: the only hues allowed. Swap these five values to rebrand the site.
+$cream:            #F8F4E9;  // background canvas
+$teal:             #163139;  // primary ink (titles, body, graphic lines)
+$terracotta:       #C16A3C;  // accent (eyebrows, links, active markers)
+$terracotta-soft:  #D98E60;  // lighter accent fill
+$white:            #FFFFFF;  // surface: the download card
+
+// Derived, kept within the family (tints/shades of teal, no new hues).
+$teal-70:  #45585f;
+$teal-40:  #8a969b;
+$rule:     #e4dccb;          // hairline on cream (a warm neutral)
+
+// Bootstrap / Quarto variable overrides
+$body-bg:            $cream;
+$body-color:         $teal;
+$link-color:         $terracotta;
+$link-hover-color:   darken($terracotta, 10%);
+
+// Type. Georgia (display) and Arial (text), each followed by its open,
+// metric-compatible clone (Gelasio / Arimo) so the look holds whether or not
+// the reader has the proprietary Microsoft faces installed.
+$font-family-serif:      Georgia, Gelasio, "Times New Roman", serif;
+$font-family-sans-serif: Arial, Arimo, "Helvetica Neue", Helvetica, sans-serif;
+$font-family-base:       $font-family-sans-serif;
+$headings-font-family:   $font-family-serif;
+$headings-font-weight:   700;
+$headings-color:         $teal;
+$font-size-root:         17px;
+$line-height-base:       1.62;
+
+$toc-color:              $teal;
+$toc-active-border:      $terracotta;
+
+// Code (used rarely here) kept quiet and on-brand.
+$code-color:             $teal;
+$code-bg:                rgba($teal, 0.05);
+
+/*-- scss:rules --*/
+// -------------------------------------------------------------------------
+// Reading canvas
+// -------------------------------------------------------------------------
+body {
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.005em;
+}
+
+// Title block: Georgia title in teal, left-aligned; a terracotta ALL-CAPS
+// eyebrow rendered from the subtitle. No accent underline (house rule).
+.quarto-title-block {
+  .quarto-title .title {
+    font-family: $font-family-serif;
+    font-weight: 700;
+    color: $teal;
+    font-size: clamp(2rem, 4.4vw, 2.75rem);
+    line-height: 1.14;
+    letter-spacing: -0.01em;
+    margin-bottom: 0.35rem;
+  }
+  // The subtitle becomes the terracotta eyebrow: small caps, tracked.
+  .quarto-title .subtitle {
+    font-family: $font-family-sans-serif;
+    font-weight: 700;
+    color: $terracotta;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 0.78rem;
+    margin-top: 0.9rem;
+  }
+  .quarto-title-meta {
+    color: $teal-70;
+    font-size: 0.9rem;
+  }
+}
+
+// A single hairline under the whole title block: a divider, not an accent bar.
+#title-block-header {
+  border-bottom: 1px solid $rule;
+  padding-bottom: 1.4rem;
+  margin-bottom: 2.2rem;
+}
+
+// -------------------------------------------------------------------------
+// Headings: Georgia, sentence case, generous air above.
+// -------------------------------------------------------------------------
+h1, h2, h3, h4 {
+  font-family: $font-family-serif;
+  color: $teal;
+  letter-spacing: -0.005em;
+}
+h2 {
+  font-size: 1.6rem;
+  margin-top: 2.6rem;
+  border-top: 1px solid $rule;   // structural divider between sections
+  padding-top: 1.2rem;
+}
+h3 {
+  font-size: 1.2rem;
+  margin-top: 1.8rem;
+  color: $teal;
+}
+
+p { max-width: 68ch; }
+.lead, p { color: $teal; }
+strong { color: $teal; }
+
+// -------------------------------------------------------------------------
+// Links: terracotta, a soft underline that firms up on hover.
+// -------------------------------------------------------------------------
+a { text-decoration: none; border-bottom: 1px solid rgba($terracotta, 0.35); }
+a:hover { border-bottom-color: $terracotta; }
+h1 a, h2 a, h3 a, .toc a { border-bottom: none; }
+
+// -------------------------------------------------------------------------
+// Callout (the download card): a white surface card, exactly one accent
+// detail (the terracotta left edge).
+// -------------------------------------------------------------------------
+.callout.callout-style-simple, .callout {
+  background: $white;
+  border: 1px solid $rule;
+  border-left: 3px solid $terracotta;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba($teal, 0.06);
+  color: $teal;
+}
+.callout .callout-body, .callout p { color: $teal; }
+// Quarto paints callout-note's left edge Bootstrap blue with a more specific
+// selector than the rule above; the house palette has no blue, so force it.
+div.callout.callout-note, div.callout-note.callout-style-simple {
+  border-left-color: $terracotta !important;
+}
+
+// The app icon sits at the left of the download card, the text wraps beside
+// it. The icon is the only image on the page and is kept small on purpose.
+.download-card {
+  .callout-body-container { display: flex; align-items: flex-start; gap: 1rem; }
+  .download-icon {
+    flex: 0 0 auto;
+    width: 72px; height: 72px;
+    margin: 0.15rem 0 0;
+    border-radius: 16px;
+  }
+  .download-icon p, p.download-icon { margin: 0; }
+  .download-text p:last-child { margin-bottom: 0; }
+}
+
+img { max-width: 100%; height: auto; border-radius: 8px; }
+
+// -------------------------------------------------------------------------
+// Table of contents: quiet teal, terracotta active marker.
+// -------------------------------------------------------------------------
+#TOC, .toc-active { color: $teal; }
+#toc-title { font-family: $font-family-serif; color: $teal; }
+.sidebar nav[role="doc-toc"] ul > li > a {
+  color: $teal-70;
+  border-bottom: none;
+}
+.sidebar nav[role="doc-toc"] ul > li > a.active,
+.sidebar nav[role="doc-toc"] ul > li > a:hover {
+  color: $terracotta;
+  border-left: 2px solid $terracotta;
+}
+
+// -------------------------------------------------------------------------
+// Small screens: let the cream breathe.
+// -------------------------------------------------------------------------
+@media (max-width: 700px) {
+  h2 { font-size: 1.4rem; }
+  .download-card .callout-body-container { flex-direction: column; gap: 0.6rem; }
+  .download-card .download-icon { width: 56px; height: 56px; }
+}

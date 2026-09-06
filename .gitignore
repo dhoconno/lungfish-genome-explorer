@@ -135,6 +135,9 @@ Tests/Fixtures/naomgs/MU-CASPER-*.tsv.gz
 
 # User manual build outputs
 .docs-site/
+# Quarto output for the landing site (docs/site); the source is tracked.
+docs/site/_site/
+docs/site/.quarto/
 docs/user-manual/build/indesign/stories/
 docs/user-manual/build/scripts/lint/node_modules/
 docs/user-manual/build/scripts/shot/node_modules/

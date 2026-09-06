@@ -1,0 +1,42 @@
+# Lungfish Genome Explorer landing site, published to GitHub Pages by
+# .github/workflows/pages.yml. Render locally with `quarto render docs/site`.
+project:
+  type: default
+  output-dir: _site
+  render:
+    - index.qmd
+  # assets/ holds the app icon, which the OG/favicon tags in the header reach
+  # by path, so it must be copied into _site even though no Markdown image
+  # references it directly.
+  resources:
+    - assets/**
+
+format:
+  html:
+    # House style shared with dholab.github.io/team-canada-world-cup-2026:
+    # cream canvas, deep-teal ink, one terracotta accent per element,
+    # Georgia display + Arial text. theme-house.scss carries the full system.
+    theme: theme-house.scss
+    toc: true
+    toc-location: left
+    toc-depth: 2
+    toc-title: "On this page"
+    page-layout: article
+    embed-resources: false
+    include-in-header:
+      - text: |
+          <link rel="icon" type="image/png" href="assets/app-icon.png">
+          <meta name="description" content="An open-source, native Mac app that puts state-of-the-art bioinformatics tools behind a graphical interface, with reproducible projects you can share and extend.">
+          <meta property="og:type" content="website">
+          <meta property="og:title" content="Lungfish Genome Explorer">
+          <meta property="og:description" content="An open-source, native Mac app that puts state-of-the-art bioinformatics tools behind a graphical interface, with reproducible projects you can share and extend.">
+          <meta property="og:url" content="https://dhoconno.github.io/lungfish-genome-explorer/">
+          <meta property="og:image" content="https://dhoconno.github.io/lungfish-genome-explorer/assets/app-icon.png">
+          <meta name="twitter:card" content="summary">
+    # Opens every outbound link in a new tab (see the file for why this is
+    # done in script rather than relying on link-external-newwindow alone).
+    include-after-body: site-enhance.html
+    grid:
+      body-width: 820px
+      margin-width: 260px
+    link-external-newwindow: true

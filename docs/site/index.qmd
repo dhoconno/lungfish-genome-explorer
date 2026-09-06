@@ -1,15 +1,21 @@
-# Lungfish Genome Explorer
+---
+title: "Lungfish Genome Explorer"
+subtitle: "An open-source, native Mac app for genomic data"
+---
 
-[![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org)
-[![CI](https://github.com/dhoconno/lungfish-genome-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/dhoconno/lungfish-genome-explorer/actions/workflows/ci.yml)
-[![macOS 26+](https://img.shields.io/badge/macOS-26_Tahoe+-blue.svg)](https://www.apple.com/macos)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+<!-- The download card is regenerated from the GitHub Releases API by
+     fetch_downloads.py (CI runs it on every push to main that touches the
+     site and on every published release), so the versions never go stale. -->
+::: {.callout-note .download-card appearance="simple" icon="false"}
+::: {.download-icon}
+![](assets/app-icon.png){alt="Lungfish Genome Explorer app icon"}
+:::
+::: {.download-text}
+{{< include _downloads.md >}}
+:::
+:::
 
-**Project site:** <https://dhoconno.github.io/lungfish-genome-explorer/> ·
-**User manual:** <https://lungfish-genome-explorer.readthedocs.io/en/latest/> ·
-**Download:** [Releases](https://github.com/dhoconno/lungfish-genome-explorer/releases)
-
-<!-- The introduction below is also the landing page in docs/site/index.qmd.
+<!-- The introduction below is also the top of the repository README.md.
      Keep the two in sync when editing either one. -->
 
 ## TL;DR
@@ -50,72 +56,12 @@ One of the things I'm most excited about is how extensible LGE is. It can run to
 
 I'm also unabashed about hoping that others will make LGE their own by forking it and bolting on other features that they find useful. I expect that I'm going to be the primary maintainer of LGE and that I'll continue developing it for my projects, but I also know that feature bloat is a very real risk. Instead of trying to take requests for new tools or workflows, I encourage you to create forks that you can tailor to your own needs by vibe coding the features you want it to have.
 
-## Getting the app
+## Where to go next
 
-That's the why. Here is the how.
+The download links are in the card at the top of this page. Beyond an Apple Silicon Mac on macOS 26, you will want 8 GB of RAM (16 GB or more for large genomes or metagenomics), an SSD, and an internet connection so the app can fetch its tools and pull data from NCBI, SRA, and Pathoplexus. On first launch it offers to install its core tools into `~/.lungfish`; mappers, assemblers, and classifiers download the first time a workflow needs them. After that, Lungfish Genome Explorer > Check for Updates keeps you current.
 
-Download the newest signed and notarized `.dmg` from the
-[Releases](https://github.com/dhoconno/lungfish-genome-explorer/releases) page,
-drag the app to Applications, and launch it. The release marked **Latest** is
-the stable channel; releases marked **Pre-release** are the preview channel,
-which ships more often. On first launch the app offers to install its core
-tools into `~/.lungfish`. Mappers, assemblers, and classifiers download the
-first time a workflow needs them. After that,
-**Lungfish Genome Explorer > Check for Updates...** keeps you current.
+The [user manual](https://lungfish-genome-explorer.readthedocs.io/en/latest/) on Read the Docs is the place for step-by-step guidance. It is being written alongside the app, so expect gaps. The repository's [capabilities page](https://github.com/dhoconno/lungfish-genome-explorer/blob/main/docs/capabilities.md) lists what each viewport, CLI command, and bundled tool does.
 
-LGE needs an Apple Silicon Mac running macOS 26 Tahoe or later, 8 GB of RAM
-(16 GB or more for large genomes or metagenomic work), an SSD, and internet
-access for tool installation and NCBI, SRA, and Pathoplexus downloads. Expect
-rough edges, especially with large local datasets and long-running workflow
-tools. When something breaks, tell me; see Reporting issues below.
+LGE is MIT licensed. Bug reports, failed workflows, and half-formed notes are all welcome on the [issue tracker](https://github.com/dhoconno/lungfish-genome-explorer/issues); please keep private sequence data and credentials out of public issues. I'm not taking pull requests, but if you fork it, the repository has the scripts to sign and publish your own build.
 
-## Documentation
-
-Start with the [user manual](https://lungfish-genome-explorer.readthedocs.io/en/latest/).
-It is being written alongside the app, so expect gaps.
-[What LGE does](docs/capabilities.md) lists every viewport, CLI command, file
-format, and tool. [Developing LGE](docs/development.md) covers building, the
-debug and release scripts, the module layout, and the tests that run real
-tools. [Release notes](docs/release-notes/) has one file per shipped version.
-
-## Building from source
-
-```bash
-git clone https://github.com/dhoconno/lungfish-genome-explorer.git
-cd lungfish-genome-explorer
-swift build -c release --arch arm64
-```
-
-`python3 scripts/release/release.py debug` assembles a self-contained
-`Lungfish Debug.app` for local work. Packaging, notarization, Sparkle
-updates, and fork configuration are covered in
-[docs/development.md](docs/development.md).
-
-## Reporting issues
-
-Open an issue for bugs, crashes, failed workflows, or anything that surprised
-you. Partial reports are welcome; the templates exist to make triage easier,
-not to make reporting harder. Include your macOS version and Mac model, the app
-version (**Lungfish Genome Explorer > About Lungfish Genome Explorer**), the
-dataset type and rough size, and the steps you took with the log from
-**Operations > Show Operations Panel**.
-Please keep private sequence data, PHI, credentials, API keys, and unpublished
-datasets out of public issues; public accessions, synthetic examples,
-screenshots, or redacted logs work well instead.
-
-## Forks and contributions
-
-LGE is open source under the [MIT License](LICENSE). If you fork it,
-`scripts/release/release.py configure-fork` renames the product, bundle
-namespace, and update feed so your fork can ship its own signed builds. I'm
-not taking pull requests, but issue reports shape what I work on next.
-
-## Acknowledgements
-
-LGE is mostly a friendly face on other people's tools. Every bundled and
-on-demand tool is listed with its license in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES), and
-`lungfish-cli version --tools` prints the versions in the running build.
-
-Development is supported by [Inkfish](https://ink.fish). Lungfish Genome
-Explorer is developed in association with the
-[Lungfish Research Collaboratory](https://lung.fish).
+Development is supported by [Inkfish](https://ink.fish). Lungfish Genome Explorer is developed in association with the [Lungfish Research Collaboratory](https://lung.fish).

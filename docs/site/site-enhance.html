@@ -1,0 +1,18 @@
+<script>
+// Open every outbound link in a new tab, so following a reference or a download
+// does not navigate the reader away from the page. Quarto's
+// link-external-newwindow does not reach links that arrive through
+// {{< include >}} partials (the download card does), so apply it here across
+// the whole page. rel="noopener" is required with target=_blank: without it the
+// opened page can reach back through window.opener.
+document.addEventListener("DOMContentLoaded", function () {
+  var here = window.location.hostname;
+  Array.prototype.forEach.call(document.querySelectorAll("a[href]"), function (a) {
+    var href = a.getAttribute("href") || "";
+    if (!/^https?:\/\//i.test(href)) return;            // in-page or relative
+    if (a.hostname === here) return;                     // same site
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer");
+  });
+});
+</script>
