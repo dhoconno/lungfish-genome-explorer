@@ -64,3 +64,7 @@ The packaging sanitizer now reads each Mach-O once, applies its existing ordered
 Cold compilation is dominated by the large `LungfishApp` module (479 Swift inputs and roughly 226,000 lines in the measured build). The scheme already parallelizes targets and the compiler uses 14 threads on this 14-core host. Whole-module optimization still has serial frontend phases; profile those phases before changing optimization settings or extracting modules. The current evidence identifies the module, not a particular slow function. SwiftPM discovery also still compiles the broader test graph even though routine execution is compact. General source-test evidence reuse needs complete runtime/binary bindings before it can safely reduce that cost.
 
 The standalone `test.py` release diagnostic has four Python modules; authoritative package qualification adds the identity module for a total of five modules and 57 checks. Broad headless, extended, graphical and real-tool diagnostics were retained but were not all rerun during this redesign.
+
+## September 6 publication follow-through
+
+After the operator completed explicit setup, Preview 2026.9.9 (build 4502) was published from `5ec6c2473aa35af082fcd50bc910af7141d5fafc` without rebuilding. Publication took 275.150 seconds; both notarizations were Accepted and signature, staple, portability, CLI and remote asset checks passed. Preview and legacy Alpha feeds were updated. The earlier missing-setup blocker is resolved. See the release handoff for retained artifacts, checksum and host verification limitations.

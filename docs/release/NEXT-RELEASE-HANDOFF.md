@@ -1,6 +1,12 @@
 # Next Release Handoff
 
-## September 5 redesign handoff
+## September 6 publication completed
+
+Preview [2026.9.9](https://github.com/dhoconno/lungfish-genome-explorer/releases/tag/v2026.9.9), build 4502, was published from `5ec6c2473aa35af082fcd50bc910af7141d5fafc` after the operator completed explicit setup. Publication reused the retained candidate without rebuilding and completed in 275.150 seconds. App and DMG notarization were Accepted, stapling and signature checks passed, and the GitHub prerelease, Preview feed and legacy Alpha bridge were verified. The historical setup blocker below is resolved.
+
+The DMG is `Lungfish-2026.9.9-arm64.dmg` (166,399,416 bytes), SHA-256 `457922b8325ca62e6217aac217ab9da6b99df4efc45080147c5f8de70671530d`. Retained artifacts and signing journals are under `build/Release/preview/5ec6c2473aa35af082fcd50bc910af7141d5fafc/`. The signed app and both feeds agree on build 4502; the legacy text metadata's `build_number` field is empty and must not be used as build-number authority. Gatekeeper reported the notarized identity but also `override=security disabled` on this host; explicit signature and staple validation passed independently.
+
+## September 5 redesign handoff (historical)
 
 The redesign is integrated into main with the prior app remediation. Version 2026.9.9 is still an unpublished Preview. The archive-action prototype passed at `c8d6b8126fc5f1297d0ef5fffc78a86937f9e53b` in 15 minutes 8 seconds; its exact candidate reuse took 1.474 seconds. That package timing does not measure the subsequent incremental Release build path. The corrected native package passed at `f4f0d78caecb346dd9e02020c85512516384fba7` in 96.224 seconds with retained compiler products: Xcode took 3.358 seconds and compiled zero Swift/C files. Cold native compilation itself took 665.871 seconds; its initial package correctly failed on unstripped debug-map paths, since corrected and validated. No final end-to-end cold-package timing is claimed. Warm Debug measured 17 seconds, or 24 seconds with full portability checks.
 
