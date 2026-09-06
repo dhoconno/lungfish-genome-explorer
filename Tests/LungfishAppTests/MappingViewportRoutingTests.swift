@@ -598,18 +598,9 @@ final class MappingViewportRoutingTests: XCTestCase {
         let routeEnd = try XCTUnwrap(appDelegateSource.range(of: "case .lungfishMultipleSequenceAlignmentBundle:"))
         let routeSource = String(appDelegateSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // AppDelegate.openDocument(at:) IS a real, testable seam this tranche already
-        // converted a test through (see SettingsAndImportXCUIReadinessTests.
-        // testAppDelegateFinderOpenPathUsesPreflightAndProjectRouting), but the
-        // .lungfishReferenceBundle branch specifically dispatches into an un-awaitable
-        // `Task { ... }` before calling displayReferenceBundleFromExternalOpen(at:), so
-        // asserting on the routed outcome requires polling viewerController state after
-        // a real reference-bundle fixture is opened -- a larger lift than this task's
-        // scope; displayReferenceBundleFromExternalOpen(at:) itself is a real method,
-        // already covered similarly by testReferenceBundlesRouteThroughHarmonizedReferenceViewport
-        // (via the sidebar entry point) elsewhere in this file.
-        XCTAssertTrue(routeSource.contains("displayReferenceBundleFromExternalOpen(at: url)"))
+        // Finder/open dispatch shares the sidebar display route so both entrypoints
+        // receive the same selection-token and Inspector publication guards.
+        XCTAssertTrue(routeSource.contains("displayReferenceBundleViewportFromSidebar(at: url)"))
         XCTAssertFalse(routeSource.contains("BundleManifest.load(from: url)"))
         XCTAssertFalse(routeSource.contains("ViewerDisplayRouteFactory.directReferenceBundle"))
 
@@ -2447,20 +2438,9 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         let routeSource = String(appDelegateSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // displayMHCReferenceBundleFromExternalOpen(at:)'s *effects*
-        // (updateMHCReferenceBundleDocument, displayMHCReferenceBundle) ARE already
-        // covered behaviorally by testExternalOpenMHCReferenceBundlePopulatesInspectorAndProvenanceTarget
-        // just above, which calls the same method directly and asserts on
-        // documentSectionViewModel.mhcReferenceBundleDocument /
-        // provenanceSectionViewModel.currentItem / viewerController.mhcReferenceBundleViewController.
-        // What that behavioral test does NOT cover is the AppDelegate dispatch itself --
-        // that the .lungfishMHCReferenceBundle document-open case routes to this method
-        // rather than an inline manifest load -- which is a different SUT (AppDelegate,
-        // not MainSplitViewController) and is dispatched inside an un-awaitable
-        // `Task { ... }` (see testExternalOpenReferenceBundleUsesValidatedDisplayPathAndInspectorTarget
-        // above for the same AppDelegate-dispatch limitation).
-        XCTAssertTrue(routeSource.contains("displayMHCReferenceBundleFromExternalOpen(at: url)"))
+        // External open now delegates to the same generation-guarded route used
+        // by sidebar selection, preserving its viewport/Inspector pairing.
+        XCTAssertTrue(routeSource.contains("displayMHCReferenceBundleFromSidebar(at: url)"))
         XCTAssertFalse(routeSource.contains("MHCAmpliconReferenceBundle.loadManifest(from: url)"))
 
         let mainWindowSource = combinedMainSplitViewControllerSource()

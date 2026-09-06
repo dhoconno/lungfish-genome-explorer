@@ -190,7 +190,12 @@ enum BBToolsArgumentStaging {
     ///   system temp directory itself contains whitespace. Refusing is
     ///   deliberate: running anyway would reproduce the very mis-parse this
     ///   exists to prevent, but with a path the user cannot recognise.
-    static func plan(arguments: [String]) throws -> Plan {
+    static func plan(
+        arguments: [String],
+        makeTemporaryRoot: () throws -> URL = {
+            try ProjectTempDirectory.create(prefix: "bbtools-", contextURL: nil, policy: .systemOnly)
+        }
+    ) throws -> Plan {
         let needsStaging = arguments.contains { argument in
             guard let (key, value) = split(argument: argument) else { return false }
             guard inputParameters.contains(key) || outputParameters.contains(key) else {
@@ -202,11 +207,7 @@ enum BBToolsArgumentStaging {
             return Plan(arguments: arguments, temporaryRoot: nil, outputMoves: [])
         }
 
-        let root = try ProjectTempDirectory.create(
-            prefix: "bbtools-",
-            contextURL: nil,
-            policy: .systemOnly
-        ).standardizedFileURL
+        let root = try makeTemporaryRoot().standardizedFileURL
         guard !containsWhitespace(root.path) else {
             try? FileManager.default.removeItem(at: root)
             throw StagingError.stagingRootContainsWhitespace(root)

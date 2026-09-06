@@ -477,7 +477,7 @@ final class DatabasesTabTests: XCTestCase {
         let home = tempDir.appendingPathComponent("managed-storage-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         let customRoot = home.appendingPathComponent("External/Lungfish", isDirectory: true)
         try store.setActiveRoot(customRoot)
         ManagedStorageConfigStore.overrideSharedForTesting(store)
@@ -494,7 +494,7 @@ final class DatabasesTabTests: XCTestCase {
         let home = tempDir.appendingPathComponent("managed-storage-notification-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         ManagedStorageConfigStore.overrideSharedForTesting(store)
 
         let vm = PluginManagerViewModel(automaticallyRefresh: false)

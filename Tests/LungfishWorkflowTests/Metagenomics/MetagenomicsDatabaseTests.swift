@@ -507,7 +507,8 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let home = tempDir.appendingPathComponent("shared-home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        try store.setActiveRoot(store.defaultLocation.rootURL)
         let registry = MetagenomicsDatabaseRegistry(storageConfigStore: store)
 
         let legacyDatabase = createMockKraken2Database(name: "legacy-only")
@@ -546,7 +547,8 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
             }
         }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        try store.setActiveRoot(store.defaultLocation.rootURL)
         let registry = MetagenomicsDatabaseRegistry(storageConfigStore: store)
         let targetRoot = home.appendingPathComponent("custom-root", isDirectory: true)
 

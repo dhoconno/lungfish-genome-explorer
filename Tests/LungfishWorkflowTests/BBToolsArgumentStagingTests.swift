@@ -108,21 +108,14 @@ final class BBToolsArgumentStagingTests: XCTestCase {
     func testACleanRunCreatesNoTemporaryDirectory() throws {
         let clean = try makeCleanDirectory()
         let input = try writeFile("sample.fastq", in: clean)
-        let systemTemp = FileManager.default.temporaryDirectory
-
-        let before = Set(
-            (try? FileManager.default.contentsOfDirectory(atPath: systemTemp.path)) ?? []
-        )
-        let plan = try BBToolsArgumentStaging.plan(arguments: ["in=\(input.path)"])
+        var requestedTemporaryRoot = false
+        let plan = try BBToolsArgumentStaging.plan(arguments: ["in=\(input.path)"]) {
+            requestedTemporaryRoot = true
+            throw CocoaError(.fileWriteUnknown)
+        }
         defer { plan.cleanUp() }
-        let after = Set(
-            (try? FileManager.default.contentsOfDirectory(atPath: systemTemp.path)) ?? []
-        )
-
-        XCTAssertTrue(
-            after.subtracting(before).filter { $0.hasPrefix("bbtools-") }.isEmpty,
-            "a clean path must not create a staging directory"
-        )
+        XCTAssertFalse(requestedTemporaryRoot, "A clean path must not request a staging directory")
+        XCTAssertNil(plan.temporaryRoot)
     }
 
     /// Whitespace in a non-path argument is not a reason to stage: `threads=4`

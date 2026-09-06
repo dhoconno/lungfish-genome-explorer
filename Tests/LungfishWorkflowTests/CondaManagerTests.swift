@@ -480,8 +480,10 @@ final class CondaManagerTests: XCTestCase {
         let manager = CondaManager.shared
         let rootPrefix = manager.rootPrefix
 
-        XCTAssertTrue(rootPrefix.path.contains(".lungfish/conda"),
-                      "Root prefix should use .lungfish/conda (no spaces)")
+        let configuredRoot = await ManagedStorageConfigStore.shared.currentCondaRootURL()
+        XCTAssertEqual(rootPrefix.standardizedFileURL,
+                       configuredRoot.standardizedFileURL,
+                       "The shared manager must honor the configured managed storage root")
         XCTAssertFalse(rootPrefix.path.contains("Application Support"),
                        "Root prefix should NOT contain 'Application Support' (spaces break tools)")
     }
@@ -506,7 +508,7 @@ final class CondaManagerTests: XCTestCase {
             isDirectory: true
         )
         let configuredRoot = home.appendingPathComponent("custom-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try store.setActiveRoot(configuredRoot)
 
         let manager = CondaManager(

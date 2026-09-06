@@ -4,6 +4,20 @@ import XCTest
 
 @MainActor
 final class AppKitModalPresenterSemanticsTests: XCTestCase {
+    func testDetachedPersistenceInformationRetainsAlertAndOKDismissesWithoutModalSession() throws {
+        _ = NSApplication.shared
+        let appDelegate = AppDelegate()
+        let alert = NSAlert()
+        alert.addButton(withTitle: "OK")
+        appDelegate.retainDetachedPersistenceInformationAlert(alert)
+        XCTAssertTrue(appDelegate.persistenceInformationAlert === alert)
+        XCTAssertTrue(alert.buttons.first?.target === appDelegate)
+        XCTAssertFalse(alert.window.isVisible, "Preparing presentation must not launch GUI in this test")
+        alert.buttons.first?.performClick(nil)
+        XCTAssertNil(appDelegate.persistenceInformationAlert)
+        XCTAssertFalse(alert.window.isVisible)
+    }
+
     func testReferenceAnnotationPresenterBuildsConfigurationOnlyForImportResponse() {
         let bundleURL = URL(fileURLWithPath: "/tmp/project/ref.lungfishref")
 

@@ -538,7 +538,7 @@ final class DownloadCenterTests: XCTestCase {
 
     // MARK: - Cancel
 
-    func testCancelInvokesCallbackAndMarksCancelled() async throws {
+    func testCancelSignalsCallbackAndWorkerAcknowledgesCancellation() async throws {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let id = center.start(
             title: "Import",
@@ -552,18 +552,18 @@ final class DownloadCenterTests: XCTestCase {
         try await waitUntil(timeout: 2) {
             cancelFlag.withLock { $0 }
         }
-        try await waitUntil(timeout: 2) {
-            self.center.items.first(where: { $0.id == id })?.state == .cancelled
-        }
+        XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelling)
+        XCTAssertTrue(center.acknowledgeCancellation(id: id))
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.detail, "Cancelled by user")
         XCTAssertEqual(item?.displayStateLabel, "Cancelled")
     }
 
-    func testCancelKeepsBundleLockUntilCallbackReturns() async throws {
+    func testCancelKeepsBundleLockUntilWorkerAcknowledgesDrain() async throws {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
         let callbackStarted = DispatchSemaphore(value: 0)
         let callbackMayReturn = DispatchSemaphore(value: 0)
+        let callbackReturned = OSAllocatedUnfairLock(initialState: false)
         let id = center.start(
             title: "Import",
             detail: "...",
@@ -572,6 +572,7 @@ final class DownloadCenterTests: XCTestCase {
             onCancel: {
                 callbackStarted.signal()
                 callbackMayReturn.wait()
+                callbackReturned.withLock { $0 = true }
             }
         )
 
@@ -584,10 +585,9 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.displayStateLabel, "Cancelling")
 
         callbackMayReturn.signal()
-
-        try await waitUntil(timeout: 2) {
-            self.center.items.first(where: { $0.id == id })?.state == .cancelled
-        }
+        try await waitUntil(timeout: 2) { callbackReturned.withLock { $0 } }
+        XCTAssertFalse(center.canStartOperation(on: bundleURL))
+        XCTAssertTrue(center.acknowledgeCancellation(id: id))
         XCTAssertTrue(center.canStartOperation(on: bundleURL))
         XCTAssertNil(center.activeLockHolder(for: bundleURL))
     }
@@ -625,7 +625,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.state, .completed)
     }
 
-    func testCancellingOperationRejectsLateProgressCompletionAndFailure() async throws {
+    func testWorkerCompletionAcknowledgesCancellationWithoutPublishingLateSuccess() async throws {
         let callbackMayReturn = DispatchSemaphore(value: 0)
         let id = center.start(
             title: "BLAST",
@@ -644,8 +644,10 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertFalse(center.fail(id: id, detail: "Late failure"))
 
         let item = center.items.first { $0.id == id }
-        XCTAssertEqual(item?.state, .cancelling)
-        XCTAssertEqual(item?.detail, "Cancelling...")
+        XCTAssertEqual(item?.state, .cancelled)
+        XCTAssertEqual(item?.detail, "Cancelled by user")
+        XCTAssertTrue(item?.bundleURLs.isEmpty ?? false)
+        XCTAssertTrue(item?.outputURLs.isEmpty ?? false)
         XCTAssertTrue(item?.logEntries.isEmpty ?? false)
 
         callbackMayReturn.signal()
@@ -657,14 +659,17 @@ final class DownloadCenterTests: XCTestCase {
     func testCancelAllCancelsAllRunning() async throws {
         let flag1 = OSAllocatedUnfairLock(initialState: false)
         let flag2 = OSAllocatedUnfairLock(initialState: false)
-        _ = center.start(title: "A", detail: "", onCancel: { flag1.withLock { $0 = true } })
-        _ = center.start(title: "B", detail: "", onCancel: { flag2.withLock { $0 = true } })
+        let first = center.start(title: "A", detail: "", onCancel: { flag1.withLock { $0 = true } })
+        let second = center.start(title: "B", detail: "", onCancel: { flag2.withLock { $0 = true } })
 
         center.cancelAll()
 
         try await waitUntil(timeout: 2) {
             flag1.withLock { $0 } && flag2.withLock { $0 }
         }
+        XCTAssertEqual(center.activeCount, 2, "A signal callback is not worker drain")
+        XCTAssertTrue(center.acknowledgeCancellation(id: first))
+        XCTAssertTrue(center.acknowledgeCancellation(id: second))
         try await waitUntil(timeout: 2) {
             self.center.activeCount == 0
         }
@@ -683,13 +688,14 @@ final class DownloadCenterTests: XCTestCase {
             cancelFlag.withLock { $0 }
         }
         try await waitUntil(timeout: 2) {
-            self.center.items.first(where: { $0.id == cancellableID })?.state == .cancelled
+            self.center.items.first(where: { $0.id == cancellableID })?.state == .cancelling
         }
+        XCTAssertTrue(center.acknowledgeCancellation(id: cancellableID))
         XCTAssertEqual(center.items.first { $0.id == uncancellableID }?.state, .running)
         XCTAssertEqual(center.activeCount, 1)
     }
 
-    func testCancelAllKeepsRowsCancellingBeforeSlowCallbacksReturn() async throws {
+    func testCancelAllKeepsRowsCancellingUntilWorkerDrainAcknowledgments() async throws {
         let callbackCount = OSAllocatedUnfairLock(initialState: 0)
         let callbackMayReturn = DispatchSemaphore(value: 0)
         for index in 0..<3 {
@@ -713,6 +719,8 @@ final class DownloadCenterTests: XCTestCase {
         for _ in 0..<3 {
             callbackMayReturn.signal()
         }
+        XCTAssertTrue(center.items.allSatisfy { $0.state == .cancelling })
+        for id in center.items.map(\.id) { XCTAssertTrue(center.acknowledgeCancellation(id: id)) }
         try await waitUntil(timeout: 2) {
             self.center.activeCount == 0
         }

@@ -54,15 +54,27 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
     private let fileManager: FileManager
     private let homeDirectory: URL
     private let appIdentity: LungfishAppIdentity
+    private let environmentProvider: @Sendable () -> [String: String]
 
-    public init(
+    public convenience init(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         appIdentity: LungfishAppIdentity = .current
     ) {
+        self.init(fileManager: fileManager, homeDirectory: homeDirectory, appIdentity: appIdentity,
+            environmentProvider: { ProcessInfo.processInfo.environment })
+    }
+
+    public init(
+        fileManager: FileManager = .default,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current,
+        environmentProvider: @escaping @Sendable () -> [String: String]
+    ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory.standardizedFileURL
         self.appIdentity = appIdentity
+        self.environmentProvider = environmentProvider
         self.configURL = self.homeDirectory
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent(appIdentity.managedStorageConfigDirectoryName, isDirectory: true)
@@ -90,9 +102,11 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         }
     }
 
-    public func currentLocation(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> ManagedStorageLocation {
+    public func currentLocation() -> ManagedStorageLocation {
+        currentLocation(environment: environmentProvider())
+    }
+
+    public func currentLocation(environment: [String: String]) -> ManagedStorageLocation {
         if let override = environment["LUNGFISH_STORAGE_ROOT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
@@ -117,9 +131,11 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         }
     }
 
-    public func currentCondaRootURL(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> URL {
+    public func currentCondaRootURL() -> URL {
+        currentCondaRootURL(environment: environmentProvider())
+    }
+
+    public func currentCondaRootURL(environment: [String: String]) -> URL {
         if let override = environment["LUNGFISH_CONDA_ROOT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {

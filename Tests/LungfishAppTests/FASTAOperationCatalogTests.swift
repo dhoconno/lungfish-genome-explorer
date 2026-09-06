@@ -219,25 +219,20 @@ final class FASTAOperationCatalogTests: XCTestCase {
     }
 
     func testTemporaryInputBundleRemovesWholeSessionRootWhenMaterializationFails() throws {
-        let systemTemp = FileManager.default.temporaryDirectory
-        let before = try Set(
-            FileManager.default.contentsOfDirectory(atPath: systemTemp.path)
-                .filter { $0.hasPrefix("lungfish-fasta-ops-") }
+        let temporaryRoot = try TempFileManager.shared.createRegisteredTempDirectory(
+            prefix: "lungfish-fasta-ops-cleanup-test-"
         )
-
+        defer { TempFileManager.shared.cleanupTempDirectorySynchronously(temporaryRoot) }
         XCTAssertThrowsError(
             try FASTAOperationCatalog.createTemporaryInputBundle(
                 fastaRecords: [">selected\nACGT\n"],
                 suggestedName: String(repeating: "x", count: 1_024),
-                projectURL: nil
+                projectURL: nil,
+                makeTemporaryRoot: { temporaryRoot }
             )
         )
-
-        let after = try Set(
-            FileManager.default.contentsOfDirectory(atPath: systemTemp.path)
-                .filter { $0.hasPrefix("lungfish-fasta-ops-") }
-        )
-        XCTAssertEqual(after, before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.path))
+        XCTAssertFalse(TempFileManager.shared.isSessionTempDirectoryRegistered(temporaryRoot))
     }
 
     private func makeReferenceBundle(

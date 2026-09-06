@@ -185,7 +185,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testChooseAlternateStorageLocationShowsChooser() {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let viewModel = WelcomeViewModel(
             statusProvider: SequencedWelcomeStorageStatusProvider(sequences: [[requiredStatus(state: .needsInstall)]]),
             storageConfigStore: store
@@ -202,7 +202,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testStorageChooserReferenceUsesDefaultLocationWhenCurrentRootIsDefault() {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let viewModel = WelcomeViewModel(
             statusProvider: SequencedWelcomeStorageStatusProvider(sequences: [[requiredStatus(state: .ready)]]),
             storageConfigStore: store
@@ -218,7 +218,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testStorageChooserReferenceUsesCurrentLocationWhenCustomRootIsActive() throws {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let customRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
         try store.setActiveRoot(customRoot)
         let viewModel = WelcomeViewModel(
@@ -236,7 +236,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testChooseAlternateStorageLocationPrefillsCurrentCustomRoot() throws {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let customRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
         try store.setActiveRoot(customRoot)
         let viewModel = WelcomeViewModel(
@@ -253,7 +253,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testCannotConfirmSelectionWhenResolvedPathContainsSpaces() async throws {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let defaultRoot = store.defaultLocation.rootURL
         let invalidSelection = URL(fileURLWithPath: "/Volumes/My SSD/Lungfish", isDirectory: true)
         let coordinator = ManagedStorageCoordinator(
@@ -289,7 +289,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testResolvedSelectionMatchingCurrentRootIsRejected() async throws {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let currentRoot = store.defaultLocation.rootURL
         try FileManager.default.createDirectory(at: currentRoot, withIntermediateDirectories: true)
 
@@ -329,7 +329,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testConfirmAlternateStorageLocationChangesStorageAndRefreshesSetup() async throws {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
         let provider = SequencedWelcomeStorageStatusProvider(sequences: [
             [requiredStatus(state: .needsInstall)],
@@ -362,7 +362,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testApplyPendingStorageSelectionReportsInFlightMigrationState() async {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
         let gate = DelayedMigrationGate()
         let coordinator = ManagedStorageCoordinator(
@@ -411,7 +411,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
             var errorDescription: String? { "Storage move failed for testing." }
         }
 
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
         let coordinator = ManagedStorageCoordinator(
             configStore: store,
@@ -440,7 +440,7 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
     @MainActor
     func testApplyPendingStorageSelectionStartsRequiredSetupAutomatically() async {
-        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, environmentProvider: { [:] })
         let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
         let provider = DelayedInstallWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
         let coordinator = ManagedStorageCoordinator(

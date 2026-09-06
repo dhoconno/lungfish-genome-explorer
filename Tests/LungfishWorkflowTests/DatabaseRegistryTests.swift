@@ -103,7 +103,7 @@ final class DatabaseRegistryTests: XCTestCase {
     func testEffectiveDatabasePathUsesConfiguredManagedStorageRoot() async throws {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let configuredRoot = home.appendingPathComponent("shared-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try store.setActiveRoot(configuredRoot)
 
         let bundledRoot = try makeBundledDatabasesRoot()

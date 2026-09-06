@@ -414,12 +414,12 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(controllerSource.contains("ImportCenterAccessibilityID.window"))
     }
 
-    func testAppDelegateFinderOpenPathUsesPreflightAndProjectRouting() throws {
+    func testAppDelegateFinderOpenPathUsesPreflightAndProjectRouting() async throws {
         // Behavioral replacement for a prior source-text assertion (tranche 1,
         // 2026-08-21): exercises the real Finder-open preflight guard and
         // project-routing path through AppDelegate.openDocument(at:), rather
         // than checking for the presence of the guard/routing source lines.
-        let delegate = AppDelegate()
+        let delegate = makeAppDelegateWithTemporaryState()
 
         // Preflight guard: a nonexistent path must be refused before any
         // window is created (no mainWindowController should be set).
@@ -436,10 +436,17 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temp) }
         let projectURL = temp.appendingPathComponent("Finder.lungfish", isDirectory: true)
-        _ = try DocumentManager.shared.createProject(at: projectURL, name: "Finder")
+        _ = try ProjectFile.create(at: projectURL, name: "Finder")
 
         XCTAssertTrue(delegate.openDocument(at: projectURL))
         let controller = try XCTUnwrap(delegate.mainWindowController)
+        defer {
+            controller.projectSession.closeProject()
+            controller.window?.setFrameAutosaveName("")
+            controller.close()
+        }
+        let opening = try XCTUnwrap(controller.mainSplitViewController?.projectOpenTask)
+        await opening.value
         XCTAssertEqual(
             controller.projectSession.projectURL?.standardizedFileURL,
             projectURL.standardizedFileURL

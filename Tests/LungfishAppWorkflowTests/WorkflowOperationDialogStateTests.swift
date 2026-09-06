@@ -1717,7 +1717,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
     }
 
-    func testWorkflowOperationsDialogTreatsFASTQBundlesAsSidebarOnlySelection() throws {
+    func testWorkflowOperationsDialogLimitsReadRelocationToRetainedReplay() throws {
         let source = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
@@ -1735,7 +1735,12 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
 
         XCTAssertTrue(readPicker.contains("Text(state.selectedReadsDisplay)"))
-        XCTAssertFalse(readPicker.contains("Button("), "FASTQ bundles must be fixed to the project sidebar selection for the dialog lifetime.")
+        let replayControls = try sourceBlock(
+            startingAt: "            if state.replayConfiguration != nil {",
+            endingBefore: "            Text(state.selectedReadsDisplay)", in: readPicker)
+        XCTAssertTrue(replayControls.contains("Button(\"Locate Original Reads…\")"))
+        XCTAssertFalse(readPicker.replacingOccurrences(of: replayControls, with: "").contains("Button("),
+            "Ordinary launches retain the sidebar reads; only retained replay can locate its original input.")
         XCTAssertFalse(source.contains("browseForReads"))
         XCTAssertFalse(source.contains("Choose FASTQ Bundles"))
         XCTAssertFalse(source.contains("state.setReads([])"))
@@ -1808,24 +1813,23 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(matchingModePicker.contains(".pickerStyle(.segmented)"))
     }
 
-    func testWorkflowOperationsRunClosesWindowAsSoonAsLaunchIsAccepted() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsWindowController.swift"),
-            encoding: .utf8
-        )
-        let runStart = try XCTUnwrap(
-            source.range(of: "    private func run(_ request: WorkflowOperationLaunchRequest) {")
-        )
+    func testWorkflowOperationsDismissalPreservesAcceptedReplayOwnership() throws {
+        let source = try String(contentsOf: repositoryRoot()
+            .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsWindowController.swift"), encoding: .utf8)
+        let runStart = try XCTUnwrap(source.range(of: "    private func run(_ request: WorkflowOperationLaunchRequest) {"))
         let runSuffix = source[runStart.lowerBound...]
-        let closeRange = try XCTUnwrap(runSuffix.range(of: "window?.close()"))
+        let dismissRange = try XCTUnwrap(runSuffix.range(of: "if !replay { window?.orderOut(nil) }"))
         let taskRange = try XCTUnwrap(runSuffix.range(of: "Task { @MainActor [weak self] in"))
-
-        XCTAssertLessThan(
-            closeRange.lowerBound,
-            taskRange.lowerBound,
-            "The workflow operations window should dismiss immediately after accepting Run, before waiting on the async operation."
-        )
+        XCTAssertLessThan(dismissRange.lowerBound, taskRange.lowerBound)
+        let replayStart = try XCTUnwrap(source.range(of: "    func executeReplay("))
+        let replay = source[replayStart.lowerBound..<runStart.lowerBound]
+        let register = try XCTUnwrap(replay.range(of: "beforeRegister:"))
+        let writeValidation = try XCTUnwrap(replay.range(of: "try validateWrite()"))
+        let dismiss = try XCTUnwrap(replay.range(of: "window?.orderOut(nil)"))
+        XCTAssertLessThan(register.lowerBound, writeValidation.lowerBound)
+        XCTAssertLessThan(writeValidation.lowerBound, dismiss.lowerBound,
+            "A rejected replay stays inspectable; only accepted registration hides its window.")
+        XCTAssertFalse(replay.contains("window?.close()"), "Native close invalidates the captured replay session")
     }
 
     func testWorkflowOperationDialogStateCachesToolListAcrossUnrelatedEdits() throws {

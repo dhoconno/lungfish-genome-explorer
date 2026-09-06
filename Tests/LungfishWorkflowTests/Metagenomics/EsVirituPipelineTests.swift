@@ -678,8 +678,13 @@ final class EsVirituPipelineErrorTests: XCTestCase {
 /// Tests for ``EsVirituDatabaseManager`` path computation and status.
 final class EsVirituDatabaseManagerTests: XCTestCase {
 
-    func testDatabaseURLPath() async {
-        let manager = EsVirituDatabaseManager.shared
+    func testDatabaseURLPath() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("esviritu-default-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        try store.setActiveRoot(store.defaultLocation.rootURL)
+        let manager = EsVirituDatabaseManager(storageConfigStore: store)
         let dbURL = await manager.databaseURL
 
         XCTAssertTrue(dbURL.path.contains(".lungfish/databases/esviritu"))
@@ -781,7 +786,7 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
             .appendingPathComponent("esviritu-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let configuredRoot = home.appendingPathComponent("managed-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try store.setActiveRoot(configuredRoot)
 
         let manager = EsVirituDatabaseManager(storageConfigStore: store)
@@ -802,8 +807,10 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: home) }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         let manager = EsVirituDatabaseManager(storageConfigStore: store)
+
+        try store.setActiveRoot(store.defaultLocation.rootURL)
 
         let initialURL = await manager.databaseURL
         try fm.createDirectory(at: initialURL, withIntermediateDirectories: true)

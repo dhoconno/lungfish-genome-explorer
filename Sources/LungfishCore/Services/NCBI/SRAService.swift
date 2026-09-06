@@ -586,8 +586,13 @@ public actor SRAService {
         executableName: String,
         homeDirectory: URL
     ) -> URL {
-        ManagedStorageConfigStore(homeDirectory: homeDirectory)
-            .currentCondaRootURL()
+        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory)
+        // Match CoreToolLocator: an explicit nondefault home pins tool discovery
+        // to that home, while normal app/CLI discovery honors ambient overrides.
+        let defaultHome = FileManager.default.homeDirectoryForCurrentUser
+        let environment = homeDirectory.standardizedFileURL == defaultHome.standardizedFileURL
+            ? ProcessInfo.processInfo.environment : [:]
+        return store.currentCondaRootURL(environment: environment)
             .appendingPathComponent("envs", isDirectory: true)
             .appendingPathComponent("sra-tools", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)

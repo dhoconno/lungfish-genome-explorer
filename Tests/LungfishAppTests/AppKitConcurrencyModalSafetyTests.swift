@@ -105,7 +105,11 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             } else {
                 source = try String(contentsOf: url, encoding: .utf8)
             }
-            if source.contains("Task { @MainActor") {
+            // Owned project-open/migration tasks are asynchronous transactions,
+            // not completion callbacks. Exempt only their declaration token;
+            // their entire bodies remain subject to the remaining checks.
+            let callbackSource = callbackTaskScanSource(source, path: path)
+            if callbackSource.contains("Task { @MainActor") {
                 violations.append("\(path): contains Task { @MainActor")
             }
             if mainActorRunForbiddenPaths.contains(path), source.contains("await MainActor.run") {
@@ -115,8 +119,15 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             for index in lines.indices where lines[index].contains("Task.detached") {
                 let upperBound = min(lines.endIndex, index + 80)
                 let context = lines[index..<upperBound].joined(separator: "\n")
-                if context.contains("await MainActor.run") {
-                    violations.append("\(path):\(index + 1) Task.detached block contains await MainActor.run")
+                // An isolated terminal acknowledgment touches OperationCenter only;
+                // it presents no AppKit UI and must follow worker cleanup.
+                let uiContext = path == "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"
+                    ? context.replacingOccurrences(
+                        of: #"await\s+MainActor\.run\s*\{\s*OperationCenter\.shared\.acknowledgeCancellation\(id:\s*operationID\)\s*\}"#,
+                        with: "", options: .regularExpression)
+                    : context
+                if uiContext.contains("await MainActor.run") {
+                    violations.append("\(path):\(index + 1) detached callback contains an unreviewed UI actor hop")
                 }
             }
             if operationCenterMainQueueIsolationRequiredPaths.contains(path) {
@@ -147,6 +158,22 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Unsafe AppKit callback actor hops must use DispatchQueue.main/MainActor.assumeIsolated or performOnMainRunLoop:\n"
                 + violations.joined(separator: "\n")
         )
+    }
+
+    func testCallbackPolicyExemptsOnlyOwnedProjectTaskDeclaration() {
+        let owned = "split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in"
+        let nestedCallback = "Task { @MainActor in callback() }"
+        let path = "Sources/LungfishApp/App/AppDelegate.swift"
+        XCTAssertFalse(callbackTaskScanSource(owned, path: path).contains("Task { @MainActor"))
+        XCTAssertTrue(callbackTaskScanSource(owned + "\n" + nestedCallback, path: path).contains("Task { @MainActor"))
+        XCTAssertTrue(callbackTaskScanSource(owned, path: "Other.swift").contains("Task { @MainActor"))
+    }
+
+    private func callbackTaskScanSource(_ source: String, path: String) -> String {
+        guard path == "Sources/LungfishApp/App/AppDelegate.swift" else { return source }
+        return source.replacingOccurrences(
+            of: "split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in",
+            with: "split.projectOpenTask = Task { [weak self, weak controller, weak split] in")
     }
 
     func testMainActorNotificationObserversUseMainQueueDelivery() throws {
@@ -196,26 +223,56 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
 
         for file in swiftFiles {
             let source = try String(contentsOf: file, encoding: .utf8)
-            let lines = source.components(separatedBy: .newlines)
-            for index in lines.indices {
-                let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
-                guard trimmed.contains("Task { @MainActor"), !trimmed.hasPrefix("//") else {
-                    continue
-                }
-
-                let upperBound = min(lines.endIndex, index + 20)
-                let context = lines[index..<upperBound].joined(separator: "\n")
-                if context.contains("await"), context.contains("beginSheetModal") {
-                    violations.append(relativePath(file, root: root) + ":\(index + 1)")
-                }
+            if containsAwaitedSheetInMainActorTask(source) {
+                violations.append(relativePath(file, root: root))
             }
         }
 
         XCTAssertTrue(
             violations.isEmpty,
-            "Sheet callbacks must use completion-handler sheets instead of Task { @MainActor ... await beginSheetModal }:\n"
+            "Explicit MainActor Task blocks must use completion-handler sheet presentation rather than await beginSheetModal:\n"
                 + violations.joined(separator: "\n")
         )
+    }
+
+    func testSheetPolicyDistinguishesAwaitedPresentationFromAdjacentAsyncWork() {
+        XCTAssertTrue(containsAwaitedSheetInMainActorTask("Task { @MainActor in let result = await alert.beginSheetModal(for: window) }"))
+        XCTAssertTrue(containsAwaitedSheetInMainActorTask("Task { @MainActor [weak self] in if ready { await alert.beginSheetModal(for: window) } }"))
+        XCTAssertTrue(containsAwaitedSheetInMainActorTask("Task { @MainActor in let label = \"}\"; await alert.beginSheetModal(for: window) }"))
+        XCTAssertFalse(containsAwaitedSheetInMainActorTask("Task { @MainActor in await load(); alert.beginSheetModal(for: window, completionHandler: nil) }"))
+        XCTAssertFalse(containsAwaitedSheetInMainActorTask("Task { @MainActor in await load() }\nfunc choose() async { await panel.beginSheetModal(for: window) }"))
+        XCTAssertFalse(containsAwaitedSheetInMainActorTask("func choose() async { await alert.beginSheetModal(for: window) }"))
+        XCTAssertFalse(containsAwaitedSheetInMainActorTask("Task { await alert.beginSheetModal(for: window) }"))
+        XCTAssertFalse(containsAwaitedSheetInMainActorTask("// Task { @MainActor in await alert.beginSheetModal(for: window) }"))
+        XCTAssertFalse(containsAwaitedSheetInMainActorTask("Task { @MainActor in /* await alert.beginSheetModal(for: window) } */ await load() }"))
+    }
+
+    private func containsAwaitedSheetInMainActorTask(_ source: String) -> Bool {
+        // This is a targeted source policy, not a general Swift parser. Mask
+        // ordinary literals/comments so their braces cannot end a Task body.
+        let ignoredTokens = #"\"(?:\\.|[^\"\\])*\"|//[^\n]*|/\*[\s\S]*?\*/"#
+        let code = source.replacingOccurrences(of: ignoredTokens, with: " ", options: .regularExpression)
+        let taskPattern = #"\bTask\s*\{\s*@MainActor\b"#
+        let awaitedSheetPattern = #"\bawait\s+[A-Za-z_][A-Za-z0-9_.?]*\.beginSheetModal\s*\("#
+        var searchStart = code.startIndex
+        while searchStart < code.endIndex,
+              let task = code.range(of: taskPattern, options: .regularExpression,
+                  range: searchStart..<code.endIndex),
+              let openingBrace = code[task].firstIndex(of: "{") {
+            var depth = 1
+            var cursor = code.index(after: openingBrace)
+            let bodyStart = cursor
+            while cursor < code.endIndex, depth > 0 {
+                if code[cursor] == "{" { depth += 1 }
+                if code[cursor] == "}" { depth -= 1 }
+                if depth == 0 { break }
+                cursor = code.index(after: cursor)
+            }
+            if code.range(of: awaitedSheetPattern, options: .regularExpression,
+                range: bodyStart..<cursor) != nil { return true }
+            searchStart = task.upperBound
+        }
+        return false
     }
 
     func testAppDelegateVolatileImportProgressDoesNotUseUpdateWithLog() throws {

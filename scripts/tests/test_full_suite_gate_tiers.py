@@ -107,6 +107,25 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "unit tier must skip exactly the integration + conformance selections",
         )
 
+    def test_viewer_gutter_preference_suite_moves_to_serial_integration_without_losing_coverage(self):
+        def selection(tier):
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", tier, "--describe-selection"],
+                cwd=ROOT, capture_output=True, text=True, check=True,
+                env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable},
+            )
+            return json.loads(result.stdout)
+
+        unit = selection("unit")
+        integration = selection("integration")
+        case = "LungfishAppTests.ViewerBundleRoutingTests/testGutterWidthPersistsAcrossControllers"
+        self.assertRegex(case, unit["skip"])
+        self.assertRegex(case, integration["filter"])
+        self.assertFalse(integration["parallel"])
+        self.assertEqual(integration["skip"], "")
+        self.assertFalse(unit["requireTools"])
+        self.assertFalse(integration["requireTools"])
+
     def test_unit_tier_implies_parallel(self):
         gate = _gate_text()
         unit_arm = gate.split("unit)", 1)[1].split(";;", 1)[0]

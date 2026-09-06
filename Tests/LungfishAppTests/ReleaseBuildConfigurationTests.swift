@@ -1218,7 +1218,15 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        #expect(workflow.contains(".ci-python/bin/python -m pip install Pillow openpyxl"))
+        #expect(workflow.contains(".ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-test.txt"))
+        let requirements = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/requirements-test.txt"),
+            encoding: .utf8
+        )
+        let entries = requirements.split(separator: "\n")
+        #expect(entries.contains { $0.hasPrefix("Pillow==") })
+        #expect(entries.contains { $0.hasPrefix("openpyxl==") })
     }
 
     @Test("CI fast gate runs scientific CLI provenance coverage")

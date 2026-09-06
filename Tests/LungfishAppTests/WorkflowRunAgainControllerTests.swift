@@ -102,6 +102,8 @@ final class WorkflowRunAgainControllerTests: XCTestCase {
         do { outputs = try await controller.executeReplay(request) }
         catch { return XCTFail("Controller execute: " + String(reflecting: error)) }
         XCTAssertEqual(runner.launchCount, 1)
+        XCTAssertNotNil(fixture.state.replayConfiguration,
+            "Accepted launch hides the configuration without invalidating the owning replay session")
         XCTAssertEqual(deliveredRoute, route)
         XCTAssertEqual(center.items.first?.routeContext, route)
         XCTAssertEqual(center.items.first?.state, .completed)

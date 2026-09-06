@@ -24,9 +24,30 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
         XCTAssertEqual(config.migrationState, .pending)
     }
 
+    func testInjectedEnvironmentPreservesExplicitOverridePrecedence() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let injectedRoot = home.appendingPathComponent("injected-root", isDirectory: true)
+        let injectedConda = home.appendingPathComponent("injected-conda", isDirectory: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: {
+            ["LUNGFISH_STORAGE_ROOT": injectedRoot.path, "LUNGFISH_CONDA_ROOT": injectedConda.path]
+        })
+        try store.setActiveRoot(home.appendingPathComponent("configured-root", isDirectory: true))
+
+        XCTAssertEqual(store.currentLocation().rootURL.standardizedFileURL, injectedRoot.standardizedFileURL)
+        XCTAssertEqual(store.currentCondaRootURL().standardizedFileURL, injectedConda.standardizedFileURL)
+        let explicitRoot = home.appendingPathComponent("explicit-root", isDirectory: true)
+        let explicitEnvironment = ["LUNGFISH_STORAGE_ROOT": explicitRoot.path]
+        XCTAssertEqual(store.currentLocation(environment: explicitEnvironment).rootURL.standardizedFileURL,
+            explicitRoot.standardizedFileURL)
+        XCTAssertEqual(store.currentCondaRootURL(environment: explicitEnvironment).standardizedFileURL,
+            explicitRoot.appendingPathComponent("conda", isDirectory: true).standardizedFileURL)
+        XCTAssertEqual(store.currentLocation(environment: [:]).rootURL.standardizedFileURL,
+            home.appendingPathComponent("configured-root", isDirectory: true).standardizedFileURL)
+    }
+
     func testBootstrapConfigLoadStateDistinguishesMissingAndMalformedBootstrap() throws {
         let home = try makeTemporaryHomeDirectory()
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
 
         XCTAssertEqual(store.bootstrapConfigLoadState(), .missing)
 
@@ -41,7 +62,7 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
 
     func testCurrentLocationDefaultsToDotLungfishUnderHome() throws {
         let home = try makeTemporaryHomeDirectory()
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
 
         XCTAssertEqual(store.configURL.path, home.appendingPathComponent(".config/lungfish/storage-location.json").path)
         XCTAssertEqual(store.currentLocation().rootURL.path, home.appendingPathComponent(".lungfish").path)
@@ -73,7 +94,7 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: legacyKey)
         }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { [:] })
 
         XCTAssertEqual(
             store.currentLocation(environment: [:]).rootURL.standardizedFileURL,
@@ -91,7 +112,7 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: legacyKey)
         }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         XCTAssertEqual(store.currentLocation().rootURL.standardizedFileURL.path, home.appendingPathComponent(".lungfish").standardizedFileURL.path)
     }
 
@@ -105,13 +126,13 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: legacyKey)
         }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         XCTAssertEqual(store.currentLocation().rootURL.standardizedFileURL.path, legacyRoot.standardizedFileURL.path)
     }
 
     func testCurrentCondaRootRejectsEnvironmentOverrideWithSpaces() throws {
         let home = try makeTemporaryHomeDirectory()
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         let invalidOverride = "/tmp/Lungfish Conda Root"
 
         let resolved = store.currentCondaRootURL(environment: [
@@ -134,7 +155,7 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: legacyKey)
         }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try store.setActiveRoot(home.appendingPathComponent(".lungfish", isDirectory: true))
 
         XCTAssertEqual(store.currentLocation().rootURL.standardizedFileURL.path, home.appendingPathComponent(".lungfish").standardizedFileURL.path)
@@ -151,10 +172,10 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
         let home = try makeTemporaryHomeDirectory()
         let customRoot = URL(fileURLWithPath: "/tmp/custom-lungfish", isDirectory: true)
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try store.setActiveRoot(customRoot)
 
-        let reloaded = ManagedStorageConfigStore(homeDirectory: home)
+        let reloaded = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         XCTAssertEqual(reloaded.currentLocation().rootURL.standardizedFileURL.path, customRoot.standardizedFileURL.path)
     }
 
@@ -185,7 +206,7 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
 
     func testStorageRootEnvironmentOverrideWithSpacesIsIgnored() throws {
         let home = try makeTemporaryHomeDirectory()
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         let invalidOverride = "/tmp/Lungfish Storage Root"
 
         let resolved = store.currentLocation(environment: [

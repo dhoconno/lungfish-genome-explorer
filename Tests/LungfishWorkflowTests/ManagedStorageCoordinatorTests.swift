@@ -24,11 +24,35 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    private func requireContainedStorage(_ store: ManagedStorageConfigStore, destination: URL? = nil) throws {
+        let fixturePath = tempDir.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        var roots = [store.currentLocation().rootURL]
+        if let destination { roots.append(destination) }
+        if case .loaded(let config) = store.bootstrapConfigLoadState() {
+            roots.append(URL(fileURLWithPath: config.activeRootPath))
+            if let previousRoot = config.previousRootPath {
+                roots.append(URL(fileURLWithPath: previousRoot))
+            }
+        }
+        guard roots.allSatisfy({ $0.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(fixturePath) }) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey:
+                "Storage fixture refuses to mutate a root outside its temporary directory."])
+        }
+    }
+
+    func testFixtureRejectsAmbientRootBeforeStorageMutation() throws {
+        let home = tempDir.appendingPathComponent("home", isDirectory: true)
+        let outsideRoot = tempDir.deletingLastPathComponent().appendingPathComponent("outside-fixture").path
+        let store = ManagedStorageConfigStore(homeDirectory: home,
+            environmentProvider: { ["LUNGFISH_STORAGE_ROOT": outsideRoot] })
+        XCTAssertThrowsError(try requireContainedStorage(store))
+    }
+
     func testChangeLocationCopiesDatabasesReinstallsToolsAndSwitchesRootAfterVerification() async throws {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)
         let newRoot = tempDir.appendingPathComponent("new-root", isDirectory: true)
-        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try configStore.setActiveRoot(oldRoot)
 
         actor Recorder {
@@ -70,6 +94,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
             }
         )
 
+        try requireContainedStorage(configStore, destination: newRoot)
         try await coordinator.changeLocation(to: newRoot)
 
         let snapshot = await recorder.snapshot()
@@ -97,7 +122,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)
         let newRoot = tempDir.appendingPathComponent("new-root", isDirectory: true)
-        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try configStore.setActiveRoot(oldRoot)
 
         let coordinator = ManagedStorageCoordinator(
@@ -109,6 +134,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         )
 
         do {
+            try requireContainedStorage(configStore, destination: newRoot)
             try await coordinator.changeLocation(to: newRoot)
             XCTFail("Expected verification failure")
         } catch is ExpectedFailure {
@@ -129,7 +155,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("managed-root", isDirectory: true)
         let newRoot = oldRoot.appendingPathComponent("nested-child", isDirectory: true)
-        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try configStore.setActiveRoot(oldRoot)
 
         let coordinator = ManagedStorageCoordinator(
@@ -141,6 +167,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         )
 
         do {
+            try requireContainedStorage(configStore, destination: newRoot)
             try await coordinator.changeLocation(to: newRoot)
             XCTFail("Expected nested-root migration to fail")
         } catch let error as ManagedStorageCoordinator.Error {
@@ -158,7 +185,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)
         let newRoot = tempDir.appendingPathComponent("new-root", isDirectory: true)
-        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try configStore.setActiveRoot(oldRoot)
         try FileManager.default.createDirectory(at: oldRoot.appendingPathComponent("conda"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: oldRoot.appendingPathComponent("databases"), withIntermediateDirectories: true)
@@ -175,9 +202,11 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
             verifier: { _ in }
         )
 
+        try requireContainedStorage(configStore, destination: newRoot)
         try await coordinator.changeLocation(to: newRoot)
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldRoot.path))
 
+        try requireContainedStorage(configStore)
         try await coordinator.removeOldLocalCopies()
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldRoot.path))
@@ -196,7 +225,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)
         let newRoot = tempDir.appendingPathComponent("new-root", isDirectory: true)
-        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
         try configStore.setActiveRoot(oldRoot)
         try FileManager.default.createDirectory(at: oldRoot, withIntermediateDirectories: true)
         let receiptPayload = Data(#"{"schemaVersion":1}"#.utf8)
@@ -213,6 +242,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
             verifier: { _ in }
         )
 
+        try requireContainedStorage(configStore, destination: newRoot)
         try await coordinator.changeLocation(to: newRoot)
 
         let movedReceipt = ManagedStorageLocation(rootURL: newRoot).dependencyReceiptURL
@@ -220,6 +250,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: movedReceipt), receiptPayload)
 
         // Cleanup takes the stale copy with the rest of the managed content.
+        try requireContainedStorage(configStore)
         try await coordinator.removeOldLocalCopies()
         XCTAssertFalse(
             FileManager.default.fileExists(
@@ -232,7 +263,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let oldRoot = tempDir.appendingPathComponent("old-root", isDirectory: true)
         let activeRoot = oldRoot.appendingPathComponent("nested-active", isDirectory: true)
-        let configStore = ManagedStorageConfigStore(homeDirectory: home)
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
 
         try FileManager.default.createDirectory(at: oldRoot.appendingPathComponent("conda"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: oldRoot.appendingPathComponent("databases"), withIntermediateDirectories: true)
@@ -253,6 +284,7 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         let coordinator = ManagedStorageCoordinator(configStore: configStore)
 
         do {
+            try requireContainedStorage(configStore)
             try await coordinator.removeOldLocalCopies()
             XCTFail("Expected nested-root cleanup to fail")
         } catch let error as ManagedStorageCoordinator.Error {

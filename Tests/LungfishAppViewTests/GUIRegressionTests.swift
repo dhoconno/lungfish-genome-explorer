@@ -891,8 +891,10 @@ final class OperationsPanelTests: XCTestCase {
 
         _ = OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
 
-        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelling)
-        try await waitForOperation(operationID, toReach: .cancelled)
+        // Worker completion is the drain acknowledgment; accepted cancellation
+        // wins over the requested success and is terminal immediately.
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
+        XCTAssertTrue(OperationCenter.shared.items.first { $0.id == operationID }?.bundleURLs.isEmpty == true)
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
         OperationCenter.shared.clearCompleted()
     }

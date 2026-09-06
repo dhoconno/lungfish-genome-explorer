@@ -56,6 +56,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Settings window controller (lazy singleton)
     internal var settingsWindowController: SettingsWindowController?
     internal var aboutWindowController: AboutWindowController?
+    /// Retains the detached informational alert until its explicit dismissal.
+    internal var persistenceInformationAlert: NSAlert?
     internal var workflowBuilderWindowController: NSWindowController?
 
     /// App-executable updater hooks. Sparkle is linked by the graphical target,
@@ -367,7 +369,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             guard routeContext.windowStateScopeID == nil else { return nil }
             return controller(forProjectURL: routeContext.projectURL)
         }
-        return (NSApp.keyWindow?.windowController as? MainWindowController) ?? mainWindowController
+        return (NSApp?.keyWindow?.windowController as? MainWindowController) ?? mainWindowController
     }
 
     internal func activeMainWindowController(sender: Any? = nil) -> MainWindowController? {
@@ -376,8 +378,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
            let controller = window.windowController as? MainWindowController {
             return controller
         }
-        return (NSApp.keyWindow?.windowController as? MainWindowController)
-            ?? (NSApp.mainWindow?.windowController as? MainWindowController)
+        return (NSApp?.keyWindow?.windowController as? MainWindowController)
+            ?? (NSApp?.mainWindow?.windowController as? MainWindowController)
             ?? mainWindowController
     }
 

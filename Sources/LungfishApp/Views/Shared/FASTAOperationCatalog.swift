@@ -31,7 +31,10 @@ enum FASTAOperationCatalog {
         fastaRecords: [String],
         suggestedName: String,
         projectURL: URL?,
-        durableSourceURLs: [URL] = []
+        durableSourceURLs: [URL] = [],
+        makeTemporaryRoot: () throws -> URL = {
+            try TempFileManager.shared.createRegisteredTempDirectory(prefix: "lungfish-fasta-ops-")
+        }
     ) throws -> URL {
         guard !fastaRecords.isEmpty else {
             throw Error.emptyInput
@@ -42,9 +45,7 @@ enum FASTAOperationCatalog {
         // temp area rather than the project's attested work area: it remains
         // available to the consumer, is removed on app termination, and never
         // appears as an active, undeletable project-storage item.
-        let tempRoot = try TempFileManager.shared.createRegisteredTempDirectory(
-            prefix: "lungfish-fasta-ops-"
-        )
+        let tempRoot = try makeTemporaryRoot()
         do {
             let bundleName = sanitizedBundleStem(from: suggestedName)
             let bundleURL = tempRoot.appendingPathComponent(
