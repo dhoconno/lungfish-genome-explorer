@@ -13,9 +13,9 @@ project:
 
 format:
   html:
-    # House style shared with dholab.github.io/team-canada-world-cup-2026:
-    # cream canvas, deep-teal ink, one terracotta accent per element,
-    # Georgia display + Arial text. theme-house.scss carries the full system.
+    # Lungfish brand palette and type on the editorial layout used for
+    # dholab.github.io/team-canada-world-cup-2026. theme-house.scss carries
+    # the full system; the fonts are the brand's Google Fonts faces.
     theme: theme-house.scss
     toc: true
     toc-location: left
@@ -25,6 +25,9 @@ format:
     embed-resources: false
     include-in-header:
       - text: |
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
           <link rel="icon" type="image/png" href="assets/app-icon.png">
           <meta name="description" content="An open-source, native Mac app that puts state-of-the-art bioinformatics tools behind a graphical interface, with reproducible projects you can share and extend.">
           <meta property="og:type" content="website">

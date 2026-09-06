@@ -1,47 +1,48 @@
 /*-- scss:defaults --*/
 // =========================================================================
-// House style for the Lungfish Genome Explorer landing site. The same system
-// as dholab.github.io/team-canada-world-cup-2026: warm-neutral, calm,
-// editorial. Cream canvas, deep-teal ink, one terracotta accent per element.
-// Georgia display + Arial text.
+// Lungfish brand theme for the Lungfish Genome Explorer landing site.
+// The editorial structure (cream canvas, one accent per element, hairline
+// section dividers, left table of contents) follows the house style used for
+// dholab.github.io/team-canada-world-cup-2026; palette and type follow the
+// Lungfish Brand Identity Manual (five colours, Space Grotesk + Inter +
+// IBM Plex Mono). The same palette drives the user manual's stylesheet in
+// docs/user-manual/css/extra.css.
 // =========================================================================
 
-// Palette: the only hues allowed. Swap these five values to rebrand the site.
-$cream:            #F8F4E9;  // background canvas
-$teal:             #163139;  // primary ink (titles, body, graphic lines)
-$terracotta:       #C16A3C;  // accent (eyebrows, links, active markers)
-$terracotta-soft:  #D98E60;  // lighter accent fill
-$white:            #FFFFFF;  // surface: the download card
+// The five brand colours. That is the whole system.
+$creamsicle: #EE8B4F;  // primary accent: title bar, links, active markers
+$peach:      #F6B088;  // secondary warm tint: callout fill
+$deep-ink:   #1F1A17;  // primary text, headings. Warm near-black, never pure black
+$cream:      #FAF4EA;  // page background, card surfaces. Never pure white
+$warm-grey:  #8A847A;  // captions, secondary text, metadata
 
-// Derived, kept within the family (tints/shades of teal, no new hues).
-$teal-70:  #45585f;
-$teal-40:  #8a969b;
-$rule:     #e4dccb;          // hairline on cream (a warm neutral)
+// Derived neutrals (tints of the palette, no new hues).
+$rule:     #E6DCCB;    // hairline on cream
+$code-fill: #F2EADA;   // code background, as in the manual
 
 // Bootstrap / Quarto variable overrides
 $body-bg:            $cream;
-$body-color:         $teal;
-$link-color:         $terracotta;
-$link-hover-color:   darken($terracotta, 10%);
+$body-color:         $deep-ink;
+$link-color:         $creamsicle;
+$link-hover-color:   darken($creamsicle, 12%);
 
-// Type. Georgia (display) and Arial (text), each followed by its open,
-// metric-compatible clone (Gelasio / Arimo) so the look holds whether or not
-// the reader has the proprietary Microsoft faces installed.
-$font-family-serif:      Georgia, Gelasio, "Times New Roman", serif;
-$font-family-sans-serif: Arial, Arimo, "Helvetica Neue", Helvetica, sans-serif;
+// Type: Space Grotesk for display, Inter for text, IBM Plex Mono for code,
+// each with the fallbacks the brand manual names.
+$font-family-display:    "Space Grotesk", Arial, sans-serif;
+$font-family-sans-serif: Inter, Arial, sans-serif;
+$font-family-monospace:  "IBM Plex Mono", Consolas, monospace;
 $font-family-base:       $font-family-sans-serif;
-$headings-font-family:   $font-family-serif;
-$headings-font-weight:   700;
-$headings-color:         $teal;
+$headings-font-family:   $font-family-display;
+$headings-font-weight:   500;
+$headings-color:         $deep-ink;
 $font-size-root:         17px;
 $line-height-base:       1.62;
 
-$toc-color:              $teal;
-$toc-active-border:      $terracotta;
+$toc-color:              $deep-ink;
+$toc-active-border:      $creamsicle;
 
-// Code (used rarely here) kept quiet and on-brand.
-$code-color:             $teal;
-$code-bg:                rgba($teal, 0.05);
+$code-color:             $deep-ink;
+$code-bg:                $code-fill;
 
 /*-- scss:rules --*/
 // -------------------------------------------------------------------------
@@ -52,35 +53,47 @@ body {
   letter-spacing: 0.005em;
 }
 
-// Title block: Georgia title in teal, left-aligned; a terracotta ALL-CAPS
-// eyebrow rendered from the subtitle. No accent underline (house rule).
+// Title block: Space Grotesk Bold title in Deep Ink, the brand's Creamsicle
+// bar beneath it, and the subtitle as a tracked eyebrow in Warm Grey (the
+// manual reserves Creamsicle for accents, never for running text).
 .quarto-title-block {
   .quarto-title .title {
-    font-family: $font-family-serif;
+    font-family: $font-family-display;
     font-weight: 700;
-    color: $teal;
+    color: $deep-ink;
     font-size: clamp(2rem, 4.4vw, 2.75rem);
     line-height: 1.14;
     letter-spacing: -0.01em;
     margin-bottom: 0.35rem;
+    padding-bottom: 0.45rem;
+    position: relative;
+    &::after {
+      content: "";
+      display: block;
+      width: 96px;
+      height: 5px;
+      background: $creamsicle;
+      position: absolute;
+      left: 0;
+      bottom: 0;
+    }
   }
-  // The subtitle becomes the terracotta eyebrow: small caps, tracked.
   .quarto-title .subtitle {
     font-family: $font-family-sans-serif;
-    font-weight: 700;
-    color: $terracotta;
+    font-weight: 600;
+    color: $warm-grey;
     text-transform: uppercase;
     letter-spacing: 0.16em;
     font-size: 0.78rem;
-    margin-top: 0.9rem;
+    margin-top: 1.1rem;
   }
   .quarto-title-meta {
-    color: $teal-70;
+    color: $warm-grey;
     font-size: 0.9rem;
   }
 }
 
-// A single hairline under the whole title block: a divider, not an accent bar.
+// A single hairline under the whole title block: a divider, not an accent.
 #title-block-header {
   border-bottom: 1px solid $rule;
   padding-bottom: 1.4rem;
@@ -88,53 +101,54 @@ body {
 }
 
 // -------------------------------------------------------------------------
-// Headings: Georgia, sentence case, generous air above.
+// Headings: Space Grotesk Medium, sentence case, generous air above.
 // -------------------------------------------------------------------------
 h1, h2, h3, h4 {
-  font-family: $font-family-serif;
-  color: $teal;
+  font-family: $font-family-display;
+  color: $deep-ink;
   letter-spacing: -0.005em;
 }
 h2 {
   font-size: 1.6rem;
+  font-weight: 500;
   margin-top: 2.6rem;
   border-top: 1px solid $rule;   // structural divider between sections
   padding-top: 1.2rem;
 }
 h3 {
   font-size: 1.2rem;
+  font-weight: 500;
   margin-top: 1.8rem;
-  color: $teal;
 }
 
 p { max-width: 68ch; }
-.lead, p { color: $teal; }
-strong { color: $teal; }
+.lead, p, strong { color: $deep-ink; }
+code { font-family: $font-family-monospace; font-size: 0.92em; }
 
 // -------------------------------------------------------------------------
-// Links: terracotta, a soft underline that firms up on hover.
+// Links: Creamsicle, a soft underline that firms up on hover.
 // -------------------------------------------------------------------------
-a { text-decoration: none; border-bottom: 1px solid rgba($terracotta, 0.35); }
-a:hover { border-bottom-color: $terracotta; }
+a { text-decoration: none; border-bottom: 1px solid rgba($creamsicle, 0.45); }
+a:hover { border-bottom-color: $creamsicle; }
 h1 a, h2 a, h3 a, .toc a { border-bottom: none; }
 
 // -------------------------------------------------------------------------
-// Callout (the download card): a white surface card, exactly one accent
-// detail (the terracotta left edge).
+// Callout (the download card): a Peach wash on the cream canvas with one
+// Creamsicle edge, matching the manual's admonition treatment.
 // -------------------------------------------------------------------------
 .callout.callout-style-simple, .callout {
-  background: $white;
-  border: 1px solid $rule;
-  border-left: 3px solid $terracotta;
+  background: rgba($peach, 0.28);
+  border: 1px solid rgba($peach, 0.6);
+  border-left: 4px solid $creamsicle;
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba($teal, 0.06);
-  color: $teal;
+  box-shadow: none;
+  color: $deep-ink;
 }
-.callout .callout-body, .callout p { color: $teal; }
+.callout .callout-body, .callout p { color: $deep-ink; }
 // Quarto paints callout-note's left edge Bootstrap blue with a more specific
-// selector than the rule above; the house palette has no blue, so force it.
+// selector than the rule above; the palette has no blue, so force it.
 div.callout.callout-note, div.callout-note.callout-style-simple {
-  border-left-color: $terracotta !important;
+  border-left-color: $creamsicle !important;
 }
 
 // The app icon sits at the left of the download card, the text wraps beside
@@ -154,18 +168,25 @@ div.callout.callout-note, div.callout-note.callout-style-simple {
 img { max-width: 100%; height: auto; border-radius: 8px; }
 
 // -------------------------------------------------------------------------
-// Table of contents: quiet teal, terracotta active marker.
+// Table of contents: quiet ink, Creamsicle active marker.
 // -------------------------------------------------------------------------
-#TOC, .toc-active { color: $teal; }
-#toc-title { font-family: $font-family-serif; color: $teal; }
+#TOC, .toc-active { color: $deep-ink; }
+#toc-title {
+  font-family: $font-family-sans-serif;
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: $warm-grey;
+}
 .sidebar nav[role="doc-toc"] ul > li > a {
-  color: $teal-70;
+  color: $warm-grey;
   border-bottom: none;
 }
 .sidebar nav[role="doc-toc"] ul > li > a.active,
 .sidebar nav[role="doc-toc"] ul > li > a:hover {
-  color: $terracotta;
-  border-left: 2px solid $terracotta;
+  color: $deep-ink;
+  border-left: 2px solid $creamsicle;
 }
 
 // -------------------------------------------------------------------------

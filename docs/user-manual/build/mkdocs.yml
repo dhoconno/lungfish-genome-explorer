@@ -1,6 +1,6 @@
 site_name: Lungfish Genome Explorer User Manual
 site_description: Documentation for Lungfish Genome Explorer, the macOS app for viral genome analysis.
-site_url: https://lungfish.readthedocs.io/
+site_url: https://lungfish-genome-explorer.readthedocs.io/
 docs_dir: ../
 site_dir: ../../../.docs-site/user-manual/
 exclude_docs: |
