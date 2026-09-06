@@ -78,6 +78,9 @@ extension ViewerViewController {
         controller.onExportMSASelectionRequested = { [weak self] request in
             self?.exportMSASelectionViaCLI(request)
         }
+        controller.onCopyMSASelectionRequested = { [weak self] request in
+            self?.copyMSASubalignment(request)
+        }
         controller.onCreateBundleRequested = { [weak self] fastaRecords, suggestedName in
             self?.createReferenceBundle(from: fastaRecords, suggestedName: suggestedName)
         }
@@ -145,6 +148,7 @@ extension ViewerViewController {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
             multipleSequenceAlignmentViewController = nil
+            revealAnnotationDrawerUnlessNativeBundleInstalled()
         }
         if let controller = phylogeneticTreeViewController {
             controller.view.removeFromSuperview()

@@ -2,6 +2,34 @@ import XCTest
 @testable import LungfishApp
 
 final class CLIMSAActionCommandBuilderTests: XCTestCase {
+    func testAlignedSelectionExportUsesSupportedCommandAndExactScope() {
+        let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
+        let output = URL(fileURLWithPath: "/exports/subalignment.fasta")
+        let request = MultipleSequenceAlignmentSelectionExportRequest(
+            bundleURL: bundle, outputKind: "aligned-fasta", rows: "row-a,row-c",
+            columns: "2-5", suggestedName: "subalignment.fasta", displayName: "Selection"
+        )
+        XCTAssertEqual(CLIMSAActionCommandBuilder.buildSelectionExportArguments(request: request, outputURL: output), [
+            "msa", "export", bundle.path, "--output-format", "aligned-fasta",
+            "--output", output.path, "--rows", "row-a,row-c", "--columns", "2-5",
+            "--force", "--format", "json",
+        ])
+    }
+
+    func testSelectionBundleCreationKeepsExtractCommand() {
+        let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
+        let output = URL(fileURLWithPath: "/exports/subalignment.lungfishmsa")
+        let request = MultipleSequenceAlignmentSelectionExportRequest(
+            bundleURL: bundle, outputKind: "msa", rows: "row-a,row-c",
+            columns: nil, suggestedName: "subalignment.lungfishmsa", displayName: "Selection"
+        )
+        XCTAssertEqual(CLIMSAActionCommandBuilder.buildSelectionExportArguments(request: request, outputURL: output), [
+            "msa", "extract", bundle.path, "--output-kind", "msa",
+            "--output", output.path, "--rows", "row-a,row-c", "--name", "subalignment",
+            "--force", "--format", "json",
+        ])
+    }
+
     func testBuildExtractArgumentsUseSelectionAndJSONProgress() {
         let bundle = URL(fileURLWithPath: "/project/Multiple Sequence Alignments/example.lungfishmsa", isDirectory: true)
         let output = URL(fileURLWithPath: "/project/Exports/example-selection.fasta")

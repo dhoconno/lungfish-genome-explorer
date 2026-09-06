@@ -2,6 +2,31 @@ import Foundation
 import LungfishKit
 
 enum CLIMSAActionCommandBuilder {
+    static func buildSelectionExportArguments(
+        request: MultipleSequenceAlignmentSelectionExportRequest,
+        outputURL: URL
+    ) -> [String] {
+        if request.outputKind == "aligned-fasta" {
+            return buildExportArguments(
+                bundleURL: request.bundleURL,
+                outputURL: outputURL,
+                outputFormat: "aligned-fasta",
+                rows: request.rows,
+                columns: request.columns,
+                force: true
+            )
+        }
+        return buildExtractArguments(
+            bundleURL: request.bundleURL,
+            outputURL: outputURL,
+            outputKind: request.outputKind,
+            rows: request.rows,
+            columns: request.columns,
+            name: outputURL.deletingPathExtension().lastPathComponent,
+            force: true
+        )
+    }
+
     static func buildExtractArguments(
         bundleURL: URL,
         outputURL: URL,

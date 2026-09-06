@@ -63,12 +63,28 @@ final class MSAAlignmentExportSheetTests: XCTestCase {
         )
         XCTAssertTrue(selected.contains("--rows"))
         XCTAssertTrue(selected.contains("r1,r2"))
+        XCTAssertTrue(selected.contains("10-40"))
 
         let entire = MSAAlignmentExportSheet.cliArguments(
             for: configuration(destination: .file, scope: .entireAlignment),
             bundleURL: bundleURL, outputURL: outputURL, rows: "r1,r2", columns: "10-40"
         )
         XCTAssertFalse(entire.contains("--rows"))
+        XCTAssertFalse(entire.contains("--columns"))
+    }
+
+    @MainActor
+    func testExportStartsWithTheSelectedSubalignmentScope() {
+        let model = MSAAlignmentExportModel(
+            name: "Subset", estimatedBytes: 100, hasSelection: true,
+            selectedRowCount: 2, totalRowCount: 2
+        )
+        let arguments = MSAAlignmentExportSheet.cliArguments(
+            for: model.configuration, bundleURL: bundleURL, outputURL: outputURL,
+            rows: "r1,r2", columns: "10-40"
+        )
+        XCTAssertTrue(arguments.contains("--rows"))
+        XCTAssertTrue(arguments.contains("10-40"))
     }
 
     func testClipboardIsUnavailableAboveTheCap() {

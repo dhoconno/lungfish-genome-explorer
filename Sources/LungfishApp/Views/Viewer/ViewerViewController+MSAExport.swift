@@ -14,15 +14,14 @@ private let msaExportLogger = Logger(subsystem: LogSubsystem.app, category: "Vie
 extension ViewerViewController {
     /// Runs an alignment export to a bundle, a file, or the clipboard.
     ///
-    /// The clipboard leg reads the exported file and checks its size off the
-    /// main actor, then hops back carrying only the resulting string.
+    /// The clipboard leg retains the exported file and provenance in Application
+    /// Support, then publishes the text with its evidence and a durable file URL.
     func exportMSAAlignment(
         bundleURL: URL,
         configuration: MSAAlignmentExportConfiguration,
         outputURL: URL,
         rows: String?,
-        columns: String?,
-        isTemporaryOutput: Bool
+        columns: String?
     ) {
         let arguments = MSAAlignmentExportSheet.cliArguments(
             for: configuration,
@@ -80,17 +79,12 @@ extension ViewerViewController {
                     return
                 }
 
-                // Read and size-check off the main actor; only the resulting
-                // string crosses back.
-                defer {
-                    if isTemporaryOutput {
-                        try? FileManager.default.removeItem(at: outputURL)
-                    }
-                }
-                let data = try Data(contentsOf: outputURL)
-                guard MSAAlignmentExportSheet.isClipboardAvailable(estimatedBytes: data.count) else {
-                    let message = MSAAlignmentExportSheet.clipboardUnavailableMessage(estimatedBytes: data.count)
-                    if isTemporaryOutput { try FileManager.default.removeItem(at: outputURL) }
+                // Read, verify provenance, and size-check off the main actor.
+                // Both files remain available even if clipboard publication is
+                // refused, so a successful CLI export keeps valid evidence.
+                let artifact = try MSAClipboardExportArtifact.load(from: outputURL)
+                guard MSAAlignmentExportSheet.isClipboardAvailable(estimatedBytes: artifact.byteCount) else {
+                    let message = MSAAlignmentExportSheet.clipboardUnavailableMessage(estimatedBytes: artifact.byteCount)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             _ = OperationCenter.shared.fail(
@@ -102,14 +96,10 @@ extension ViewerViewController {
                     }
                     return
                 }
-                let text = String(decoding: data, as: UTF8.self)
-                if isTemporaryOutput { try FileManager.default.removeItem(at: outputURL) }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard OperationCenter.shared.complete(id: operationID, detail: "Copied the alignment to the clipboard", bundleURLs: []) else { return }
-                        let pasteboard = NSPasteboard.general
-                        pasteboard.clearContents()
-                        pasteboard.setString(text, forType: .string)
+                        artifact.write(to: NSPasteboard.general)
                         _ = OperationCenter.shared.update(
                             id: operationID,
                             progress: 1.0,
@@ -118,15 +108,13 @@ extension ViewerViewController {
                         OperationCenter.shared.log(
                             id: operationID,
                             level: .info,
-                            message: "Copied \(data.count) bytes to the clipboard."
+                            message: "Copied \(artifact.byteCount) bytes to the clipboard. Export and provenance retained at \(outputURL.deletingLastPathComponent().path)."
                         )
                     }
                 }
             } catch is CancellationError {
-                if isTemporaryOutput { try? FileManager.default.removeItem(at: outputURL) }
                 await MainActor.run { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
             } catch {
-                if isTemporaryOutput { try? FileManager.default.removeItem(at: outputURL) }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         _ = OperationCenter.shared.fail(
@@ -158,7 +146,7 @@ extension ViewerViewController {
         let model = MSAAlignmentExportModel(
             name: bundleURL.deletingPathExtension().lastPathComponent,
             estimatedBytes: estimatedBytes ?? 0,
-            hasSelection: rows != nil && selectedRowCount > 0 && selectedRowCount < totalRowCount,
+            hasSelection: rows != nil && selectedRowCount > 0 && (selectedRowCount < totalRowCount || columns != nil),
             selectedRowCount: selectedRowCount,
             totalRowCount: totalRowCount
         )
@@ -205,25 +193,21 @@ extension ViewerViewController {
         let configuration = model.configuration
         switch configuration.destination {
         case .clipboard:
-            // Export into a registered temp file, then read it back.
-            guard let tempDirectory = try? TempFileManager.shared.createRegisteredTempDirectory(
-                prefix: "lungfish-msa-clipboard-"
-            ) else {
+            do {
+                let outputURL = try MSAClipboardExportArtifact.createOutputURL()
+                exportMSAAlignment(
+                    bundleURL: bundleURL,
+                    configuration: configuration,
+                    outputURL: outputURL,
+                    rows: rows,
+                    columns: columns
+                )
+            } catch {
                 presentBlockingAlert(
                     title: "Export Alignment Failed",
-                    message: "Could not create a temporary file for the export."
+                    message: error.localizedDescription
                 )
-                return
             }
-            let outputURL = tempDirectory.appendingPathComponent("alignment.fasta")
-            exportMSAAlignment(
-                bundleURL: bundleURL,
-                configuration: configuration,
-                outputURL: outputURL,
-                rows: rows,
-                columns: columns,
-                isTemporaryOutput: true
-            )
 
         case .file, .bundle:
             let suggestedName = configuration.destination == .bundle
@@ -241,10 +225,30 @@ extension ViewerViewController {
                     configuration: configuration,
                     outputURL: destinationURL,
                     rows: rows,
-                    columns: columns,
-                    isTemporaryOutput: false
+                    columns: columns
                 )
             }
+        }
+    }
+
+    func copyMSASubalignment(_ request: MultipleSequenceAlignmentExportRequest) {
+        do {
+            let outputURL = try MSAClipboardExportArtifact.createOutputURL()
+            exportMSAAlignment(
+                bundleURL: request.bundleURL,
+                configuration: MSAAlignmentExportConfiguration(
+                    destination: .clipboard,
+                    layout: .aligned,
+                    format: "aligned-fasta",
+                    scope: .selectedRows,
+                    name: "alignment-selection"
+                ),
+                outputURL: outputURL,
+                rows: request.rows,
+                columns: request.columns
+            )
+        } catch {
+            presentBlockingAlert(title: "Copy Subalignment Failed", message: error.localizedDescription)
         }
     }
 

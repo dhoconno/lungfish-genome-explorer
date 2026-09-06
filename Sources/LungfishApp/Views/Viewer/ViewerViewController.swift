@@ -1966,15 +1966,9 @@ public class ViewerViewController: NSViewController {
                 return
             }
 
-            let outputName = destination.deletingPathExtension().lastPathComponent
-            let args = CLIMSAActionCommandBuilder.buildExtractArguments(
-                bundleURL: request.bundleURL,
-                outputURL: destination,
-                outputKind: request.outputKind,
-                rows: request.rows,
-                columns: request.columns,
-                name: outputName,
-                force: true
+            let args = CLIMSAActionCommandBuilder.buildSelectionExportArguments(
+                request: request,
+                outputURL: destination
             )
             let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
             let isBundleOutput = ["reference", "msa"].contains(request.outputKind)

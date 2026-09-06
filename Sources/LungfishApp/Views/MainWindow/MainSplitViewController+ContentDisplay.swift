@@ -233,6 +233,12 @@ extension MainSplitViewController {
                 self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
                 self.inspectorController.activeContentSelectionIdentity = displayIdentity
                 if let controller = self.viewerController.multipleSequenceAlignmentViewController {
+                    controller.onReferenceRowChanged = { [weak self] rowID in
+                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                        let settings = self.inspectorController.viewModel.readStyleSectionViewModel
+                        settings.selectedMSAReferenceRowID = rowID
+                        settings.msaResidueIdentityDisplayMode = .dotsToReference
+                    }
                     controller.onSelectionStateChanged = { [weak self] state in
                         guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                         self.inspectorController.updateMultipleSequenceAlignmentSelection(state)

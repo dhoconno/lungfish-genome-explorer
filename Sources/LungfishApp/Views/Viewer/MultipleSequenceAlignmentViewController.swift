@@ -335,6 +335,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     var onExtractAnnotatedSequenceRequested: (([String], String, [String: [SequenceAnnotation]]) -> Void)?
     var onExportFASTARequested: (([String], String) -> Void)?
     var onExportMSASelectionRequested: ((MultipleSequenceAlignmentSelectionExportRequest) -> Void)?
+    var onCopyMSASelectionRequested: ((MultipleSequenceAlignmentExportRequest) -> Void)?
+    var onReferenceRowChanged: ((String) -> Void)?
     var onExportAlignmentRequested: ((MultipleSequenceAlignmentExportRequest) -> Void)?
     var onCreateBundleRequested: (([String], String) -> Void)?
     var onCreateAnnotatedBundleRequested: (([String], String, [String: [SequenceAnnotation]]) -> Void)?
@@ -354,7 +356,12 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
     private var selectedRowIndex: Int?
     private var selectedAlignmentColumn: Int?
-    private var selectedRowRange: ClosedRange<Int>?
+    private var selectedRowIndices = IndexSet()
+    private var rowSelectionAnchor: Int?
+    private var isWholeRowSelection = false
+    private var contextReferenceRowIndex: Int?
+    private var fitsViewport = true
+    private var updatingViewportSize = false
     private var selectedAlignmentColumnRange: ClosedRange<Int>?
     private var selectionAnchor: (row: Int, alignmentColumn: Int)?
     private var alignmentColumnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
@@ -447,7 +454,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         displayedColumns = Array(0..<columnSummaries.count)
         selectedRowIndex = parsedRows.isEmpty ? nil : 0
         selectedAlignmentColumn = displayedColumns.first
-        selectedRowRange = selectedRowIndex.map { $0...$0 }
+        selectedRowIndices = selectedRowIndex.map { IndexSet(integer: $0) } ?? []
+        rowSelectionAnchor = selectedRowIndex
+        isWholeRowSelection = false
         selectedAlignmentColumnRange = selectedAlignmentColumn.map { $0...$0 }
         selectionAnchor = selectedRowIndex.flatMap { row in selectedAlignmentColumn.map { (row, $0) } }
         colorScheme = .nucleotide
@@ -516,6 +525,12 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     public func zoomToFit() {
+        fitsViewport = true
+        updateFittedColumnWidth()
+        centerDisplayColumn(0)
+    }
+
+    private func updateFittedColumnWidth() {
         guard !displayedColumns.isEmpty else { return }
         let visibleWidth = effectiveVisibleMatrixWidth()
         let fittedWidth = min(
@@ -525,8 +540,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                 (visibleWidth - 8) / CGFloat(max(displayedColumns.count, 1))
             )
         )
-        setAlignmentColumnWidth(fittedWidth, centeredOnDisplayColumn: 0)
-        centerDisplayColumn(0)
+        setAlignmentColumnWidth(fittedWidth, centeredOnDisplayColumn: 0, preservingFit: true)
     }
 
     public func resetZoom() {
@@ -561,6 +575,19 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureCanvasViews()
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateViewportSize()
+    }
+
+    private func updateViewportSize() {
+        guard !updatingViewportSize else { return }
+        updatingViewportSize = true
+        defer { updatingViewportSize = false }
+        if fitsViewport { updateFittedColumnWidth() }
+        alignmentMatrixView.resizeToFitViewport(alignmentScrollView.contentView.bounds.size)
+    }
+
     private func configureLayout() {
         let toolbar = configureToolbar()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
@@ -571,7 +598,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         view.addSubview(toolbar)
         view.addSubview(canvasContainer)
         view.addSubview(annotationDrawer)
-        let drawerHeightConstraint = annotationDrawer.heightAnchor.constraint(equalToConstant: 126)
+        let drawerHeightConstraint = annotationDrawer.heightAnchor.constraint(equalToConstant: 0)
         annotationDrawerHeightConstraint = drawerHeightConstraint
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -719,6 +746,23 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentMatrixView.setAccessibilityElement(true)
         alignmentMatrixView.setAccessibilityRole(.group)
         alignmentMatrixView.setAccessibilityLabel("Multiple sequence alignment matrix")
+        rowGutterView.onRowSelected = { [weak self] row, modifiers in
+            self?.selectWholeRows(at: row, modifiers: modifiers)
+        }
+        rowGutterView.onRowDrag = { [weak self] row in
+            self?.selectWholeRows(at: row, modifiers: [.shift])
+        }
+        rowGutterView.contextMenuProvider = { [weak self] row in
+            self?.rowContextMenu(row: row)
+        }
+        alignmentMatrixView.onWholeRowSelection = { [weak self] row, modifiers in
+            self?.selectWholeRows(at: row, modifiers: modifiers)
+        }
+        alignmentMatrixView.rowContextMenuProvider = { [weak self] row in
+            self?.rowContextMenu(row: row)
+        }
+        alignmentMatrixView.onCopy = { [weak self] in self?.copySelectedFASTAToPasteboard() }
+        alignmentMatrixView.onSelectAll = { [weak self] in self?.selectAllRows() }
         alignmentMatrixView.onSelectionChanged = { [weak self] row, alignmentColumn in
             self?.select(row: row, alignmentColumn: alignmentColumn)
         }
@@ -738,6 +782,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         }
         alignmentMatrixView.contextMenuProvider = { [weak self] row, alignmentColumn in
             guard let self else { return nil }
+            self.contextReferenceRowIndex = row
             if !self.selectionContains(row: row, alignmentColumn: alignmentColumn) {
                 self.select(row: row, alignmentColumn: alignmentColumn)
             }
@@ -830,8 +875,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     /// Clamps, persists, and applies a new sequence-name gutter width.
     ///
-    /// Only the two width constants change, so a live drag never triggers a
-    /// matrix relayout; the gutter already redraws on every scroll.
+    /// Layout updates the fitted columns and document bounds after the gutter changes.
     private func setGutterWidth(_ width: CGFloat) {
         let clamped = min(max(width, Self.minimumGutterWidth), Self.maximumGutterWidth)
         guard clamped != gutterWidth else { return }
@@ -849,6 +893,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func configureAnnotationDrawer() {
+        annotationDrawer.isHidden = true
         annotationDrawer.translatesAutoresizingMaskIntoConstraints = false
         annotationDrawer.delegate = self
         annotationDrawer.allowsAnnotationEditing = false
@@ -856,6 +901,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     @objc private func alignmentClipViewBoundsDidChange(_ notification: Notification) {
+        updateViewportSize()
         let origin = alignmentScrollView.contentView.bounds.origin
         rowGutterView.verticalOffset = origin.y
         rowGutterView.horizontalOffset = origin.x
@@ -865,6 +911,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func configureCanvasViews() {
+        rowGutterView.referenceRowIndex = referenceRowIndex()
         let consensusResidues = displayedConsensusResidues()
         cornerHeaderView.configure(title: numberingMode.showsSourceCoordinates ? "Consensus / Coordinates" : "Consensus")
         rowGutterView.configure(
@@ -961,6 +1008,48 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         select(row: selectedRowIndex ?? 0, alignmentColumn: variableColumns[nextIndex])
     }
 
+    private func selectWholeRows(at row: Int, modifiers: NSEvent.ModifierFlags) {
+        guard alignmentRows.indices.contains(row) else { return }
+        if modifiers.contains(.shift) {
+            let anchor = rowSelectionAnchor ?? selectedRowIndex ?? row
+            let range = min(anchor, row)...max(anchor, row)
+            if modifiers.contains(.command) {
+                selectedRowIndices.formUnion(IndexSet(integersIn: range))
+            } else {
+                selectedRowIndices = IndexSet(integersIn: range)
+            }
+            rowSelectionAnchor = anchor
+        } else if modifiers.contains(.command) {
+            if selectedRowIndices.contains(row) { selectedRowIndices.remove(row) }
+            else { selectedRowIndices.insert(row) }
+            rowSelectionAnchor = row
+        } else {
+            selectedRowIndices = IndexSet(integer: row)
+            rowSelectionAnchor = row
+        }
+        isWholeRowSelection = true
+        selectedRowIndex = selectedRowIndices.contains(row) ? row : selectedRowIndices.first
+        selectedAlignmentColumn = selectedRowIndex == nil ? nil : (selectedAlignmentColumn ?? displayedColumns.first)
+        selectedAlignmentColumnRange = nil
+        selectionAnchor = nil
+        applySelectionToCanvasViews()
+        refreshAnnotationDrawer()
+        notifySelectionStateIfAvailable()
+        view.window?.makeFirstResponder(alignmentMatrixView)
+    }
+
+    private func selectAllRows() {
+        guard !alignmentRows.isEmpty else { return }
+        rowSelectionAnchor = 0
+        selectWholeRows(at: alignmentRows.count - 1, modifiers: [.shift])
+    }
+
+    private func rowContextMenu(row: Int) -> NSMenu {
+        contextReferenceRowIndex = row
+        if !selectedRowIndices.contains(row) { selectWholeRows(at: row, modifiers: []) }
+        return selectionContextMenu()
+    }
+
     private func select(row: Int, alignmentColumn: Int?) {
         guard row >= 0, row < alignmentRows.count else { return }
         if let alignmentColumn {
@@ -968,7 +1057,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         } else {
             selectedRowIndex = row
             selectedAlignmentColumn = nil
-            selectedRowRange = row...row
+            selectedRowIndices = IndexSet(integer: row)
+            rowSelectionAnchor = row
+            isWholeRowSelection = true
             selectedAlignmentColumnRange = nil
             selectionAnchor = nil
             applySelectionToCanvasViews()
@@ -984,7 +1075,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         let normalizedColumnRange = min(alignmentColumnRange.lowerBound, alignmentColumnRange.upperBound)...max(alignmentColumnRange.lowerBound, alignmentColumnRange.upperBound)
         selectedRowIndex = rowRange.lowerBound
         selectedAlignmentColumn = normalizedColumnRange.lowerBound
-        selectedRowRange = rowRange
+        selectedRowIndices = IndexSet(integersIn: rowRange)
+        rowSelectionAnchor = rowRange.lowerBound
+        isWholeRowSelection = false
         selectedAlignmentColumnRange = normalizedColumnRange
         selectionAnchor = (rowRange.lowerBound, normalizedColumnRange.lowerBound)
         applySelectionToCanvasViews()
@@ -1042,7 +1135,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             let columnRange = min(anchor.alignmentColumn, targetColumn)...max(anchor.alignmentColumn, targetColumn)
             selectedRowIndex = clampedRow
             selectedAlignmentColumn = targetColumn
-            selectedRowRange = rowRange
+            selectedRowIndices = IndexSet(integersIn: rowRange)
+            isWholeRowSelection = false
             selectedAlignmentColumnRange = columnRange
             selectionAnchor = anchor
             applySelectionToCanvasViews()
@@ -1061,11 +1155,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func selectionContains(row: Int, alignmentColumn: Int) -> Bool {
-        guard let rowRange = selectedRowRange,
-              let columnRange = selectedAlignmentColumnRange else {
-            return false
-        }
-        return rowRange.contains(row) && columnRange.contains(alignmentColumn)
+        guard selectedRowIndices.contains(row) else { return false }
+        if isWholeRowSelection { return true }
+        return selectedAlignmentColumnRange?.contains(alignmentColumn) == true
     }
 
     func notifySelectionStateIfAvailable() {
@@ -1113,10 +1205,17 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             let ungapped = coordinateMap.alignmentToUngapped[column].map { "\($0 + 1)" } ?? "gap"
             detailRows.insert(("Ungapped Coordinate", ungapped), at: 1)
         }
-        if let rowRange = selectedRowRange,
+        if !selectedRowIndices.isEmpty,
            let columnRange = selectedAlignmentColumnRange,
-           (rowRange.count > 1 || columnRange.count > 1) {
-            detailRows.insert(("Selection", "\(rowRange.count) row\(rowRange.count == 1 ? "" : "s"), columns \(columnRange.lowerBound + 1)-\(columnRange.upperBound + 1)"), at: 0)
+           (selectedRowIndices.count > 1 || columnRange.count > 1) {
+            detailRows.insert(("Selection", "\(selectedRowIndices.count) row\(selectedRowIndices.count == 1 ? "" : "s"), columns \(columnRange.lowerBound + 1)-\(columnRange.upperBound + 1)"), at: 0)
+        }
+        if isWholeRowSelection {
+            detailRows.insert(("Selection", "\(selectedRowIndices.count) whole row\(selectedRowIndices.count == 1 ? "" : "s")"), at: 0)
+        }
+        let annotations = selectedAnnotations()
+        if !annotations.isEmpty {
+            detailRows.append(("Annotations", annotations.map { "\($0.name) (\($0.type))" }.joined(separator: ", ")))
         }
         return MultipleSequenceAlignmentSelectionState(
             title: selectedSelectionTitle(),
@@ -1127,12 +1226,13 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     private func applySelectionToCanvasViews() {
         rowGutterView.selectedRowIndex = selectedRowIndex
-        rowGutterView.selectedRowRange = selectedRowRange
-        columnHeaderView.selectedAlignmentColumn = selectedAlignmentColumn
+        rowGutterView.selectedRowIndices = selectedRowIndices
+        rowGutterView.referenceRowIndex = referenceRowIndex()
+        columnHeaderView.selectedAlignmentColumn = isWholeRowSelection ? nil : selectedAlignmentColumn
         columnHeaderView.selectedAlignmentColumnRange = selectedAlignmentColumnRange
         alignmentMatrixView.selectedRowIndex = selectedRowIndex
-        alignmentMatrixView.selectedAlignmentColumn = selectedAlignmentColumn
-        alignmentMatrixView.selectedRowRange = selectedRowRange
+        alignmentMatrixView.selectedAlignmentColumn = isWholeRowSelection ? nil : selectedAlignmentColumn
+        alignmentMatrixView.selectedRowIndices = selectedRowIndices
         alignmentMatrixView.selectedAlignmentColumnRange = selectedAlignmentColumnRange
         alignmentMatrixView.updateAccessibilityOverlays()
         rowGutterView.needsDisplay = true
@@ -1151,8 +1251,10 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     private func setAlignmentColumnWidth(
         _ requestedWidth: CGFloat,
-        centeredOnDisplayColumn displayColumn: Int?
+        centeredOnDisplayColumn displayColumn: Int?,
+        preservingFit: Bool = false
     ) {
+        if !preservingFit { fitsViewport = false }
         let clampedWidth = min(
             MSAAlignmentCanvasMetrics.maximumColumnWidth,
             max(MSAAlignmentCanvasMetrics.minimumOverviewColumnWidth, requestedWidth)
@@ -1201,9 +1303,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func selectedSelectionTitle() -> String {
-        guard let rowRange = selectedRowRange else {
-            return selectedRowIndex.flatMap { alignmentRows[safe: $0]?.name } ?? "Alignment selection"
-        }
+        let rowRange = selectedRowIndices
         if rowRange.count == 1, let rowIndex = rowRange.first {
             return alignmentRows[safe: rowIndex]?.name ?? "Alignment selection"
         }
@@ -1239,6 +1339,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             guard let consensus = displayedConsensusResidues()[safe: alignmentColumn] else { return residue }
             return residuesMatch(residue, consensus) ? "." : residue
         case .dotsToReference:
+            if rowIndex == referenceRowIndex() { return residue }
             guard let referenceRowIndex = referenceRowIndex(),
                   let referenceResidue = alignmentRows[safe: referenceRowIndex]?.sequence[safe: alignmentColumn] else {
                 return residue
@@ -1327,8 +1428,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private func selectedAnnotations() -> [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] {
         let allAnnotations = annotationStore.allAnnotations
         guard !allAnnotations.isEmpty else { return [] }
-        guard let rowRange = selectedRowRange else { return allAnnotations }
-        let selectedRowIDs = Set(rowRange.compactMap { rowIDsByIndex[safe: $0] })
+        let selectedRowIDs = Set(selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] })
         let columnRange = selectedAlignmentColumnRange
         return allAnnotations.filter { annotation in
             guard selectedRowIDs.contains(annotation.rowID) else { return false }
@@ -1421,6 +1521,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             max(MSAAlignmentCanvasMetrics.defaultColumnWidth, floor((visibleWidth - 80) / CGFloat(max(columnRange.count, 1))))
         )
         guard targetWidth > alignmentColumnWidth else { return }
+        fitsViewport = false
         alignmentColumnWidth = targetWidth
         configureCanvasViews()
     }
@@ -1456,7 +1557,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     private func selectionContextMenu() -> NSMenu {
         let menu = FASTASequenceActionMenuBuilder.buildMenu(
-            selectionCount: selectedFASTARecords().count,
+            selectionCount: selectedRowIndices.count,
             handlers: FASTASequenceActionHandlers(
                 onExtractSequence: { [weak self] in self?.extractSelectedSequences() },
                 // Deliberately nil: BLAST of aligned rows would query gapped
@@ -1473,6 +1574,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                 exportMenuTitle: "Export Selected Residues…"
             )
         )
+        menu.items.first { $0.title == "Copy FASTA" }?.title = "Copy Subalignment"
         let exportAlignmentItem = NSMenuItem(
             title: "Export Alignment\u{2026}",
             action: #selector(exportAlignmentFromMenu(_:)),
@@ -1481,6 +1583,10 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         exportAlignmentItem.target = self
         exportAlignmentItem.isEnabled = bundleURL != nil
         menu.addItem(exportAlignmentItem)
+        let referenceItem = NSMenuItem(title: "Use as Reference", action: #selector(useSelectedRowAsReference(_:)), keyEquivalent: "")
+        referenceItem.target = self
+        referenceItem.isEnabled = (contextReferenceRowIndex ?? selectedRowIndex) != nil
+        menu.addItem(referenceItem)
         menu.addItem(.separator())
 
         let treeItem = NSMenuItem(
@@ -1489,7 +1595,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         treeItem.target = self
-        treeItem.isEnabled = bundleURL != nil
+        treeItem.isEnabled = bundleURL != nil && selectedRowIndices.count >= 2
         menu.addItem(treeItem)
         menu.addItem(.separator())
         let addAnnotationItem = NSMenuItem(
@@ -1505,9 +1611,17 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         applyAnnotationItem.target = self
-        applyAnnotationItem.isEnabled = selectedRowRange?.count ?? 0 > 1 && !selectedAnnotations().isEmpty
+        applyAnnotationItem.isEnabled = selectedRowIndices.count > 1 && !selectedAnnotations().isEmpty
         menu.addItem(applyAnnotationItem)
         return menu
+    }
+
+    @objc private func useSelectedRowAsReference(_ sender: Any?) {
+        guard let row = contextReferenceRowIndex ?? selectedRowIndex,
+              let rowID = rowIDsByIndex[safe: row] else { return }
+        applyReferenceRowID(rowID)
+        applyResidueIdentityDisplayMode(.dotsToReference)
+        onReferenceRowChanged?(rowID)
     }
 
     @objc private func addAnnotationFromMenu(_ sender: Any?) {
@@ -1524,12 +1638,12 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     @objc private func exportAlignmentFromMenu(_ sender: Any?) {
         guard let bundleURL else { return }
-        let rowIDs = selectedRowRange?.compactMap { rowIDsByIndex[safe: $0] } ?? []
+        let rowIDs = selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }
         onExportAlignmentRequested?(
             MultipleSequenceAlignmentExportRequest(
                 bundleURL: bundleURL,
                 rows: rowIDs.isEmpty ? nil : rowIDs.joined(separator: ","),
-                columns: nil,
+                columns: selectedExportColumns,
                 selectedRowCount: rowIDs.count,
                 totalRowCount: alignmentRows.count
             )
@@ -1540,22 +1654,28 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         inferTreeFromAlignment()
     }
 
+    private var isResidueBlockSelection: Bool {
+        !isWholeRowSelection && selectedAlignmentColumnRange != nil
+    }
+
+    // Sequence extraction retains the established single-cell shortcut to the
+    // complete ungapped sequence. Alignment copy/export always uses exact cells.
+    private var isExtractionBlockSelection: Bool {
+        !isWholeRowSelection && (selectedRowIndices.count > 1 || (selectedAlignmentColumnRange?.count ?? 0) > 1)
+    }
+
+    private var selectedExportColumns: String? {
+        guard isResidueBlockSelection, let range = selectedAlignmentColumnRange else { return nil }
+        return "\(range.lowerBound + 1)-\(range.upperBound + 1)"
+    }
+
     private func selectedFASTARecords() -> [String] {
-        guard let rowRange = selectedRowRange,
-              let selectedAlignmentColumn,
-              alignmentRows.indices.contains(rowRange.lowerBound),
-              alignmentRows.indices.contains(rowRange.upperBound) else {
-            return []
-        }
-        let isBlock = rowRange.count > 1 || (selectedAlignmentColumnRange?.count ?? 1) > 1
-        if !isBlock {
-            let row = alignmentRows[rowRange.lowerBound]
-            return [Self.fastaRecord(name: row.name, sequence: row.ungappedSequenceString)]
-        }
-        let columnRange = selectedAlignmentColumnRange ?? selectedAlignmentColumn...selectedAlignmentColumn
-        return rowRange.compactMap { rowIndex in
+        selectedRowIndices.compactMap { rowIndex in
             guard let row = alignmentRows[safe: rowIndex] else { return nil }
-            let sliced = columnRange.compactMap { column in row.sequence[safe: column] }
+            guard isExtractionBlockSelection, let columnRange = selectedAlignmentColumnRange else {
+                return Self.fastaRecord(name: row.name, sequence: row.ungappedSequenceString)
+            }
+            let sliced = columnRange.compactMap { row.sequence[safe: $0] }
             let ungapped = sliced.filter { Self.isGap($0) == false }.map(String.init).joined()
             let name = selectedFASTARecordName(row: row, columnRange: columnRange, isBlock: true)
             return Self.fastaRecord(name: name, sequence: ungapped)
@@ -1582,11 +1702,14 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func copySelectedFASTAToPasteboard() {
-        let records = selectedFASTARecords()
-        guard !records.isEmpty else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(records.joined(separator: ""), forType: .string)
+        guard let bundleURL, !selectedRowIndices.isEmpty else { return }
+        onCopyMSASelectionRequested?(MultipleSequenceAlignmentExportRequest(
+            bundleURL: bundleURL,
+            rows: selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }.joined(separator: ","),
+            columns: selectedExportColumns,
+            selectedRowCount: selectedRowIndices.count,
+            totalRowCount: alignmentRows.count
+        ))
     }
 
     private func exportSelectedSequences() {
@@ -1594,7 +1717,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         guard !records.isEmpty else { return }
         if let request = selectedMSASelectionExportRequest(
             suggestedName: "\(selectedFASTAName()).fasta",
-            outputKind: "fasta"
+            outputKind: "aligned-fasta"
         ) {
             onExportMSASelectionRequested?(request)
             return
@@ -1606,16 +1729,11 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         suggestedName: String,
         outputKind: String
     ) -> MultipleSequenceAlignmentSelectionExportRequest? {
-        guard let bundleURL,
-              let rowRange = selectedRowRange,
-              alignmentRows.indices.contains(rowRange.lowerBound),
-              alignmentRows.indices.contains(rowRange.upperBound) else {
-            return nil
-        }
-        let rowIDs = rowRange.compactMap { rowIDsByIndex[safe: $0] }
+        guard let bundleURL else { return nil }
+        let rowIDs = selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }
         guard rowIDs.isEmpty == false else { return nil }
 
-        let isBlock = rowRange.count > 1 || (selectedAlignmentColumnRange?.count ?? 1) > 1
+        let isBlock = outputKind == "reference" ? isExtractionBlockSelection : isResidueBlockSelection
         let columns: String?
         if isBlock, let columnRange = selectedAlignmentColumnRange {
             columns = "\(columnRange.lowerBound + 1)-\(columnRange.upperBound + 1)"
@@ -1658,23 +1776,18 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func inferTreeFromAlignment() {
-        guard let bundleURL else { return }
+        guard let bundleURL, selectedRowIndices.count >= 2 else { return }
         let displayName = bundle?.manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? bundle?.manifest.name ?? bundleURL.deletingPathExtension().lastPathComponent
             : bundleURL.deletingPathExtension().lastPathComponent
         let selectedRows: String?
-        if let selectedRowRange, selectedRowRange.count > 1 {
-            let rowIDs = selectedRowRange.compactMap { rowIDsByIndex[safe: $0] }
+        if !selectedRowIndices.isEmpty {
+            let rowIDs = selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }
             selectedRows = rowIDs.isEmpty ? nil : rowIDs.joined(separator: ",")
         } else {
             selectedRows = nil
         }
-        let selectedColumns: String?
-        if let columnRange = selectedAlignmentColumnRange, columnRange.count > 1 {
-            selectedColumns = "\(columnRange.lowerBound + 1)-\(columnRange.upperBound + 1)"
-        } else {
-            selectedColumns = nil
-        }
+        let selectedColumns = selectedExportColumns
         onInferTreeRequested?(
             MultipleSequenceAlignmentTreeInferenceRequest(
                 bundleURL: bundleURL,
@@ -1691,7 +1804,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     func presentAddAnnotationDialog(window: NSWindow?) {
-        guard selectedRowRange?.count == 1,
+        guard selectedRowIndices.count == 1,
               selectedAlignmentColumnRange != nil else {
             presentErrorMessage(
                 title: "No Alignment Range",
@@ -1747,8 +1860,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         strand: String = "."
     ) throws -> MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord? {
         guard let bundle,
-              let rowIndex = selectedRowRange?.lowerBound,
-              selectedRowRange?.count == 1,
+              let rowIndex = selectedRowIndices.first,
+              selectedRowIndices.count == 1,
               let rowID = rowIDsByIndex[safe: rowIndex],
               let columnRange = selectedAlignmentColumnRange else {
             throw MultipleSequenceAlignmentBundle.ImportError.malformedInput("Select one row and one or more alignment columns.")
@@ -1795,11 +1908,10 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     @discardableResult
     func applySelectedAnnotationsToSelectedRows() throws -> [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] {
         guard let bundle,
-              let rowRange = selectedRowRange,
-              rowRange.count > 1 else {
+              selectedRowIndices.count > 1 else {
             return []
         }
-        let selectedRowIDs = rowRange.compactMap { rowIDsByIndex[safe: $0] }
+        let selectedRowIDs = selectedRowIndices.compactMap { rowIDsByIndex[safe: $0] }
         let selectedRowIDSet = Set(selectedRowIDs)
         let annotationsToProject = selectedAnnotations()
             .filter { selectedRowIDSet.contains($0.rowID) }
@@ -1855,13 +1967,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func selectedExtractionAnnotationsByRecord() -> [String: [SequenceAnnotation]] {
-        guard let rowRange = selectedRowRange,
-              alignmentRows.indices.contains(rowRange.lowerBound),
-              alignmentRows.indices.contains(rowRange.upperBound) else {
-            return [:]
-        }
+        let rowRange = selectedRowIndices
         let columnRange = selectedAlignmentColumnRange
-        let isBlock = rowRange.count > 1 || (columnRange?.count ?? 1) > 1
+        let isBlock = isExtractionBlockSelection
         var result: [String: [SequenceAnnotation]] = [:]
         for rowIndex in rowRange {
             guard let row = alignmentRows[safe: rowIndex],
@@ -2228,8 +2336,8 @@ extension MultipleSequenceAlignmentViewController {
     }
 
     var testingSelectedRowName: String? {
-        if let rowRange = selectedRowRange, rowRange.count > 1 {
-            return "\(rowRange.count) rows"
+        if selectedRowIndices.count > 1 {
+            return "\(selectedRowIndices.count) rows"
         }
         return selectedRowIndex.flatMap { alignmentRows[safe: $0]?.name }
     }
@@ -2554,10 +2662,40 @@ private final class MSAGutterResizeHandleView: NSView {
 }
 
 private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
+    var onRowSelected: ((Int, NSEvent.ModifierFlags) -> Void)?
+    var onRowDrag: ((Int) -> Void)?
+    var contextMenuProvider: ((Int) -> NSMenu?)?
+    var referenceRowIndex: Int?
+    private var draggingRows = false
+
+    private func row(at point: NSPoint) -> Int? {
+        let y = point.y + verticalOffset - MSAAlignmentCanvasMetrics.consensusRowHeight
+        guard y >= 0 else { return nil }
+        let row = Int(floor(y / MSAAlignmentCanvasMetrics.rowHeight))
+        return rows.indices.contains(row) ? row : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let row = row(at: convert(event.locationInWindow, from: nil)) else { return }
+        draggingRows = !event.modifierFlags.contains(.command)
+        onRowSelected?(row, event.modifierFlags)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard draggingRows, let row = row(at: convert(event.locationInWindow, from: nil)) else { return }
+        onRowDrag?(row)
+    }
+
+    override func mouseUp(with event: NSEvent) { draggingRows = false }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let row = row(at: convert(event.locationInWindow, from: nil)) else { return nil }
+        return contextMenuProvider?(row)
+    }
     var verticalOffset: CGFloat = 0
     var horizontalOffset: CGFloat = 0
     var selectedRowIndex: Int?
-    var selectedRowRange: ClosedRange<Int>?
+    var selectedRowIndices = IndexSet()
 
     private var rows: [MSAAlignmentSequence] = []
     private var rowIDsByIndex: [String] = []
@@ -2612,7 +2750,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
             let rect = NSRect(x: 0, y: y, width: bounds.width, height: rowHeight)
             (rowIndex.isMultiple(of: 2) ? NSColor.textBackgroundColor : NSColor.controlBackgroundColor.withAlphaComponent(0.35)).setFill()
             rect.fill()
-            if selectedRowRange?.contains(rowIndex) == true || selectedRowIndex == rowIndex {
+            if selectedRowIndices.contains(rowIndex) {
                 NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
                 rect.fill()
             }
@@ -2672,10 +2810,10 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
         )
         // Accession suffixes carry meaning, so trim the middle rather than the tail.
         drawText(
-            name,
+            rowIndex == referenceRowIndex ? "Ref · \(name)" : name,
             in: nameRect,
-            color: .labelColor,
-            font: .systemFont(ofSize: 12),
+            color: rowIndex == referenceRowIndex ? .controlAccentColor : .labelColor,
+            font: .systemFont(ofSize: 12, weight: rowIndex == referenceRowIndex ? .semibold : .regular),
             lineBreakMode: .byTruncatingMiddle
         )
         registerNameToolTip(name, in: NSRect(x: rect.minX, y: rect.minY, width: bounds.width, height: rect.height))
@@ -2989,6 +3127,14 @@ private final class MSAAlignmentOverlayView: NSButton {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let primaryAction else { return false }
+        primaryAction()
+        return true
+    }
+
     override func mouseDown(with event: NSEvent) {
         primaryAction?()
     }
@@ -3011,6 +3157,12 @@ private final class MSAAlignmentOverlayView: NSButton {
 }
 
 private final class MSAAlignmentMatrixView: NSView {
+    var onWholeRowSelection: ((Int, NSEvent.ModifierFlags) -> Void)?
+    var rowContextMenuProvider: ((Int) -> NSMenu?)?
+    var onCopy: (() -> Void)?
+    var onSelectAll: (() -> Void)?
+    private var draggingWholeRows = false
+    private var startedDrag = false
     var onSelectionChanged: ((Int, Int) -> Void)?
     var onSelectionRangeChanged: ((ClosedRange<Int>, ClosedRange<Int>) -> Void)?
     var onKeyboardNavigation: ((MultipleSequenceAlignmentNavigationDirection, Bool) -> Void)?
@@ -3020,7 +3172,7 @@ private final class MSAAlignmentMatrixView: NSView {
     var onMagnification: ((CGFloat) -> Void)?
     var selectedRowIndex: Int?
     var selectedAlignmentColumn: Int?
-    var selectedRowRange: ClosedRange<Int>?
+    var selectedRowIndices = IndexSet()
     var selectedAlignmentColumnRange: ClosedRange<Int>?
     var annotationTracks: [MSAAlignmentAnnotationTrack] = []
     var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
@@ -3081,15 +3233,17 @@ private final class MSAAlignmentMatrixView: NSView {
         self.annotationTracks = annotationTracks
         self.columnWidth = columnWidth
         self.colorScheme = colorScheme
-        let width = max(920, CGFloat(max(displayedColumns.count, 1)) * columnWidth)
-        let height = max(
-            420,
-            MSAAlignmentCanvasMetrics.consensusRowHeight
-                + CGFloat(max(rows.count, 1)) * MSAAlignmentCanvasMetrics.rowHeight
-        )
-        setFrameSize(NSSize(width: width, height: height))
+        resizeToFitViewport(enclosingScrollView?.contentView.bounds.size ?? .zero)
         updateAccessibilityOverlays()
         needsDisplay = true
+    }
+
+    func resizeToFitViewport(_ viewportSize: NSSize) {
+        let size = NSSize(
+            width: max(viewportSize.width, CGFloat(displayedColumns.count) * columnWidth),
+            height: max(viewportSize.height, MSAAlignmentCanvasMetrics.consensusRowHeight + CGFloat(rows.count) * MSAAlignmentCanvasMetrics.rowHeight)
+        )
+        if frame.size != size { setFrameSize(size) }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -3109,7 +3263,14 @@ private final class MSAAlignmentMatrixView: NSView {
         drawRows(in: dirtyRect)
     }
 
+    @objc func copy(_ sender: Any?) { onCopy?() }
+    @objc override func selectAll(_ sender: Any?) { onSelectAll?() }
+
     override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command) {
+            if event.charactersIgnoringModifiers?.lowercased() == "c" { onCopy?(); return }
+            if event.charactersIgnoringModifiers?.lowercased() == "a" { onSelectAll?(); return }
+        }
         guard let direction = navigationDirection(for: event) else {
             super.keyDown(with: event)
             return
@@ -3122,31 +3283,48 @@ private final class MSAAlignmentMatrixView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        dragAnchor = nil
+        startedDrag = false
+        draggingWholeRows = false
         let point = convert(event.locationInWindow, from: nil)
-        if let annotation = annotationTrack(at: point)?.annotation {
+        if let annotation = annotationTrack(at: point)?.annotation,
+           !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.shift) {
             onAnnotationSelected?(annotation)
             return
         }
-        guard let selection = selection(at: point) else { return }
-        dragAnchor = selection
-        onSelectionChanged?(selection.row, selection.alignmentColumn)
+        guard let row = rowIndex(at: point) else { return }
+        let selection = selection(at: point)
+        if event.modifierFlags.contains(.command) || event.modifierFlags.contains(.shift) || selection == nil {
+            onWholeRowSelection?(row, event.modifierFlags)
+            draggingWholeRows = !event.modifierFlags.contains(.command)
+        } else if let selection {
+            dragAnchor = selection
+            onSelectionChanged?(selection.row, selection.alignmentColumn)
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let dragAnchor,
-              let selection = selection(at: convert(event.locationInWindow, from: nil)) else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if draggingWholeRows {
+            if let row = rowIndex(at: point) { onWholeRowSelection?(row, [.shift]) }
+            autoscroll(with: event)
+            return
+        }
+        guard let dragAnchor, let selection = selection(at: point) else { return }
+        guard startedDrag || selection.row != dragAnchor.row || selection.alignmentColumn != dragAnchor.alignmentColumn else { return }
+        startedDrag = true
         let rowRange = min(dragAnchor.row, selection.row)...max(dragAnchor.row, selection.row)
         let columnRange = min(dragAnchor.alignmentColumn, selection.alignmentColumn)...max(dragAnchor.alignmentColumn, selection.alignmentColumn)
         onSelectionRangeChanged?(rowRange, columnRange)
+        autoscroll(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { dragAnchor = nil }
-        guard let dragAnchor,
-              let selection = selection(at: convert(event.locationInWindow, from: nil)) else { return }
-        let rowRange = min(dragAnchor.row, selection.row)...max(dragAnchor.row, selection.row)
-        let columnRange = min(dragAnchor.alignmentColumn, selection.alignmentColumn)...max(dragAnchor.alignmentColumn, selection.alignmentColumn)
-        onSelectionRangeChanged?(rowRange, columnRange)
+        if startedDrag { mouseDragged(with: event) }
+        dragAnchor = nil
+        draggingWholeRows = false
+        startedDrag = false
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -3154,10 +3332,17 @@ private final class MSAAlignmentMatrixView: NSView {
         if let annotation = annotationTrack(at: point)?.annotation {
             return annotationContextMenuProvider?(annotation)
         }
-        guard let selection = selection(at: point) else {
-            return nil
+        if let selection = selection(at: point) {
+            return contextMenuProvider?(selection.row, selection.alignmentColumn)
         }
-        return contextMenuProvider?(selection.row, selection.alignmentColumn)
+        guard let row = rowIndex(at: point) else { return nil }
+        return rowContextMenuProvider?(row)
+    }
+
+    private func rowIndex(at point: NSPoint) -> Int? {
+        guard point.y >= MSAAlignmentCanvasMetrics.consensusRowHeight else { return nil }
+        let row = Int(floor((point.y - MSAAlignmentCanvasMetrics.consensusRowHeight) / MSAAlignmentCanvasMetrics.rowHeight))
+        return rows.indices.contains(row) ? row : nil
     }
 
     func rectFor(row: Int, alignmentColumn: Int) -> NSRect? {
@@ -3237,7 +3422,6 @@ private final class MSAAlignmentMatrixView: NSView {
 
     private func drawRows(in dirtyRect: NSRect) {
         let columnRange = visibleDisplayColumnRange(for: dirtyRect)
-        guard !columnRange.isEmpty else { return }
         if zoomRenderingMode == .aggregateDifferences {
             drawAggregateDifferenceRows(in: dirtyRect, visibleDisplayColumns: columnRange)
             return
@@ -3252,7 +3436,7 @@ private final class MSAAlignmentMatrixView: NSView {
             (rowIndex.isMultiple(of: 2) ? NSColor.textBackgroundColor : NSColor.controlBackgroundColor.withAlphaComponent(0.35)).setFill()
             rowRect.fill()
 
-            if selectedRowRange?.contains(rowIndex) == true || selectedRowIndex == rowIndex {
+            if selectedRowIndices.contains(rowIndex) {
                 NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
                 rowRect.fill()
             }
@@ -3304,7 +3488,7 @@ private final class MSAAlignmentMatrixView: NSView {
             (rowIndex.isMultiple(of: 2) ? NSColor.textBackgroundColor : NSColor.controlBackgroundColor.withAlphaComponent(0.35)).setFill()
             rowRect.fill()
 
-            if selectedRowRange?.contains(rowIndex) == true || selectedRowIndex == rowIndex {
+            if selectedRowIndices.contains(rowIndex) {
                 NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
                 rowRect.fill()
             }
@@ -3403,6 +3587,7 @@ private final class MSAAlignmentMatrixView: NSView {
             guard let consensus = consensusResidues[safe: alignmentColumn] else { return residue }
             return residuesMatch(residue, consensus) ? "." : residue
         case .dotsToReference:
+            if rowIndex == referenceRowIndex { return residue }
             guard let referenceRowIndex,
                   let referenceResidue = rows[safe: referenceRowIndex]?.sequence[safe: alignmentColumn] else {
                 return residue

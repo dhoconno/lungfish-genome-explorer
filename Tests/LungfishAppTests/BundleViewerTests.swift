@@ -1541,7 +1541,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
             controller.testingAlignmentMatrixPreview(rowCount: 3, columnCount: 6),
             [
                 "seq1 ..G.-.",
-                "seq2 ......",
+                "seq2 ACCTTA",
                 "seq3 ..G...",
             ]
         )
@@ -1575,7 +1575,8 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertGreaterThan(matrixView.frame.height, 400)
         XCTAssertGreaterThanOrEqual(rowGutter.frame.width, 150)
         XCTAssertGreaterThanOrEqual(columnHeader.frame.height, 22)
-        XCTAssertGreaterThanOrEqual(annotationDrawer.frame.height, 110)
+        XCTAssertTrue(annotationDrawer.isHidden)
+        XCTAssertEqual(annotationDrawer.frame.height, 0)
     }
 
     func testMultipleSequenceAlignmentSelectionContextMenuUsesFASTAExtractionActions() async throws {
@@ -1590,7 +1591,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
             controller.testingSelectionContextMenuTitles,
             [
                 "Extract Sequence…",
-                "Copy FASTA",
+                "Copy Subalignment",
                 // Renamed so the MSA menu says it acts on a rectangular block,
                 // and so its export cannot be confused with exporting the
                 // whole aligned FASTA.
@@ -1602,6 +1603,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 // Document-scoped export, grouped away from the
                 // selection-scoped items above and the analysis items below.
                 "Export Alignment…",
+                "Use as Reference",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",

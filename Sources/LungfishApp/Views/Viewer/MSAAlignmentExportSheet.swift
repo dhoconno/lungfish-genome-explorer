@@ -153,8 +153,7 @@ final class MSAAlignmentExportModel {
     /// Rough size of the exported text, used to gate the clipboard before the
     /// user commits rather than refusing afterwards.
     let estimatedBytes: Int
-    /// Whether a multi-row selection exists, which is what makes the scope
-    /// control meaningful.
+    /// Whether a row or column subset exists.
     let hasSelection: Bool
     let selectedRowCount: Int
     let totalRowCount: Int
@@ -169,6 +168,7 @@ final class MSAAlignmentExportModel {
         self.name = name
         self.estimatedBytes = estimatedBytes
         self.hasSelection = hasSelection
+        self.scope = hasSelection ? .selectedRows : .entireAlignment
         self.selectedRowCount = selectedRowCount
         self.totalRowCount = totalRowCount
     }
@@ -280,7 +280,7 @@ struct MSAAlignmentExportView: View {
                 if model.hasSelection {
                     Picker("Scope", selection: $model.scope) {
                         Text("Entire alignment (\(model.totalRowCount))").tag(MSAExportScope.entireAlignment)
-                        Text("Selected rows (\(model.selectedRowCount))").tag(MSAExportScope.selectedRows)
+                        Text("Selected subalignment (\(model.selectedRowCount) rows)").tag(MSAExportScope.selectedRows)
                     }
                     .pickerStyle(.radioGroup)
                     .accessibilityIdentifier("msa-export-scope")
