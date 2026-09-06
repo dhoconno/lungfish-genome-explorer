@@ -174,6 +174,9 @@ private func makeTaxTriageDatabasePageSnapshot(
 @MainActor
 public final class TaxTriageResultViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer {
 
+    /// Persistence used by this controller for layout reads; set before loading its view.
+    var layoutDefaults: UserDefaults = .standard
+
     // MARK: - Data
 
     /// The SQLite database backing this view (when opened from a pre-built DB).
@@ -610,7 +613,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func currentPanelLayout() -> MetagenomicsPanelLayout {
-        Self.currentTaxTriagePanelLayout()
+        Self.currentTaxTriagePanelLayout(defaults: layoutDefaults)
     }
 
     private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {

@@ -126,6 +126,8 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "LungfishWorkflowTests.ManagedMappingPipelineTests/testStreamingCondaStdoutUserCancellationThrowsCancellationError",
             "LungfishAppTests.ProjectFilesystemWindowOwnershipTests/testLocatedOrdinaryFolderRestoresExternalSelectionThroughSharedSnapshotAuthority",
             "LungfishWorkflowTests.ONTBarcodeDemuxGenotypingPipelineTests/testFailingSortTerminatesOutputProducingMinimap2",
+            "LungfishAppViewTests.TaxonomyLayoutPreferenceTests/testTaxonomyViewUsesEnumLayoutPreferenceForStackedMode",
+            "LungfishAppTests.EsVirituViewControllerBatchModeTests/testLayoutPreferenceStacksDetectionTableAboveDetail",
         ]
         for case in cases:
             with self.subTest(case=case):

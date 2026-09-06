@@ -71,23 +71,9 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     }
 
     @MainActor func testDatabaseLoadDefaultsToStackedLayoutAndSelectsTopRow() throws {
-        let defaults = UserDefaults.standard
-        let savedLayout = defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey)
-        let savedLegacy = defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        defaults.removeObject(forKey: MetagenomicsPanelLayout.defaultsKey)
-        defaults.removeObject(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        defer {
-            if let savedLayout {
-                defaults.set(savedLayout, forKey: MetagenomicsPanelLayout.defaultsKey)
-            } else {
-                defaults.removeObject(forKey: MetagenomicsPanelLayout.defaultsKey)
-            }
-            if let savedLegacy {
-                defaults.set(savedLegacy, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-            } else {
-                defaults.removeObject(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-            }
-        }
+        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageStackedDefault-\(UUID().uuidString)")
@@ -139,6 +125,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = defaults
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
@@ -360,23 +347,11 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     }
 
     @MainActor func testDatabaseConfiguredBeforeWindowDisplaysBatchTableAfterAttach() throws {
-        let defaults = UserDefaults.standard
-        let savedLayout = defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey)
-        let savedLegacy = defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
+        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(MetagenomicsPanelLayout.listLeading.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
         defaults.set(true, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        defer {
-            if let savedLayout {
-                defaults.set(savedLayout, forKey: MetagenomicsPanelLayout.defaultsKey)
-            } else {
-                defaults.removeObject(forKey: MetagenomicsPanelLayout.defaultsKey)
-            }
-            if let savedLegacy {
-                defaults.set(savedLegacy, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-            } else {
-                defaults.removeObject(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-            }
-        }
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageInitialLayout-\(UUID().uuidString)")
@@ -426,6 +401,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = defaults
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
@@ -449,23 +425,11 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     }
 
     @MainActor func testDatabaseLayoutSwitchToDetailLeadingKeepsBatchTableVisible() throws {
-        let defaults = UserDefaults.standard
-        let savedLayout = defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey)
-        let savedLegacy = defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
+        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
         defaults.set(false, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        defer {
-            if let savedLayout {
-                defaults.set(savedLayout, forKey: MetagenomicsPanelLayout.defaultsKey)
-            } else {
-                defaults.removeObject(forKey: MetagenomicsPanelLayout.defaultsKey)
-            }
-            if let savedLegacy {
-                defaults.set(savedLegacy, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-            } else {
-                defaults.removeObject(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-            }
-        }
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageDetailLeadingSwitch-\(UUID().uuidString)")
@@ -515,6 +479,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = defaults
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
