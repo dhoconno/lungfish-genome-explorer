@@ -733,6 +733,18 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentScrollView.translatesAutoresizingMaskIntoConstraints = false
         comparisonLabelView.translatesAutoresizingMaskIntoConstraints = false
         comparisonHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        // macOS 14+ no longer clips draw(_:) to bounds, and these views open by
+        // filling their dirty rect, which can extend across the whole canvas.
+        // Without clipping, a view drawn later (the pinned comparison row and
+        // its label) erases every sibling drawn before it: the names gutter,
+        // the corner title, the column header and the toolbar all went blank
+        // in Preview 2026.9.12.
+        for chromeView in [
+            cornerHeaderView, columnHeaderView, overviewSignalView, rowGutterView,
+            comparisonLabelView, comparisonHeaderView, alignmentMatrixView, gutterResizeHandleView,
+        ] as [NSView] {
+            chromeView.clipsToBounds = true
+        }
         comparisonHeaderView.isComparisonHeader = true
         comparisonHeaderView.setAccessibilityIdentifier("msaComparisonHeader")
         comparisonHeaderView.setAccessibilityElement(true)
