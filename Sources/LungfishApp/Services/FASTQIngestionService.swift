@@ -1408,6 +1408,7 @@ public enum FASTQIngestionService {
                 }
 
                 let process = Process()
+                process.environment = ManagedStorageConfigStore().subprocessEnvironment()
                 process.executableURL = cliURL
                 process.arguments = [
                     "import", "fastq",

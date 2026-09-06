@@ -117,6 +117,7 @@ actor CLINativeBundleImportRunner {
         }
 
         let proc = Process()
+        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
         proc.executableURL = binaryURL
         proc.arguments = arguments
         let stdoutPipe = Pipe()

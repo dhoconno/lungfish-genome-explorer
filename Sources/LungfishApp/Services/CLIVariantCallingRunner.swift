@@ -334,6 +334,7 @@ actor CLIVariantCallingRunner {
         try Task.checkCancellation()
 
         let process = Process()
+        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
         process.executableURL = binaryURL
         process.arguments = arguments
         let processBox = CLIVariantCallingProcessBox(process)

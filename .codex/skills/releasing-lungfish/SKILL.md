@@ -8,6 +8,21 @@ description: Use when asked to prepare, package, publish, recover, promote, or v
 Use the coordinator for every operator action. Missing provenance, local gate,
 signature, notarization, receipt, or remote-verification evidence is a blocker.
 
+## Meaning of build requests
+
+A request for a **Debug build** means a local app for testing. Run the Debug
+coordinator and report the local app path; do not publish it.
+
+A request for a **Preview build** or **Stable build** means a complete release
+published to GitHub, including signing, notarization, publication, and verified
+Sparkle feeds (and the Preview legacy bridge). Packaging an unsigned local
+candidate is an intermediate step, never completion of that request. Proceed
+through `package` and `publish` without asking for publication approval again:
+the channel build request authorizes publication. If a required gate fails,
+report the blocker and continue recovery where possible; never describe an
+unpublished candidate as an available update. Only stop at packaging when the
+user explicitly requests an unsigned candidate or package-only work.
+
 ## Supported operator front door
 
 These are the only supported commands:

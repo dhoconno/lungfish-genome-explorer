@@ -40,6 +40,28 @@ final class ManagedStorageCoordinatorTests: XCTestCase {
         }
     }
 
+    func testLeavingBorrowedPreviewStorageNeverOffersOrDeletesItsOldCopies() async throws {
+        let root = tempDir.appendingPathComponent("preview")
+        let home = tempDir.appendingPathComponent("debug-home")
+        let target = tempDir.appendingPathComponent("debug-storage")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("databases"), withIntermediateDirectories: true)
+        let payload = root.appendingPathComponent("databases/keep.txt")
+        try Data("preview data".utf8).write(to: payload)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug,
+            environmentProvider: { ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path] })
+        XCTAssertEqual(store.currentLocation().rootURL.path, root.path)
+        let coordinator = ManagedStorageCoordinator(configStore: store,
+            databaseMigrator: { _, _ in }, toolInstaller: { _ in }, verifier: { _ in })
+        try requireContainedStorage(store, destination: target)
+        try await coordinator.changeLocation(to: target)
+        guard case .loaded(let config) = store.bootstrapConfigLoadState() else {
+            return XCTFail("Expected explicit Debug storage after relocation")
+        }
+        XCTAssertNil(config.previousRootPath)
+        try await coordinator.removeOldLocalCopies()
+        XCTAssertEqual(try Data(contentsOf: payload), Data("preview data".utf8))
+    }
+
     func testFixtureRejectsAmbientRootBeforeStorageMutation() throws {
         let home = tempDir.appendingPathComponent("home", isDirectory: true)
         let outsideRoot = tempDir.deletingLastPathComponent().appendingPathComponent("outside-fixture").path

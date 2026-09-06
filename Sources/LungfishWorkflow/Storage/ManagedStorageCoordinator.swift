@@ -58,13 +58,18 @@ public actor ManagedStorageCoordinator {
         }
         try validateNoNestedRelationship(currentRoot: current.rootURL, requestedRoot: validated.rootURL)
 
+        let borrowingPreview = configStore.automaticallySharedPreviewLocation != nil
         let originalState = persistedConfigState()
         try fileManager.createDirectory(at: validated.rootURL, withIntermediateDirectories: true)
-        try saveBootstrapConfig(ManagedStorageBootstrapConfig(
-            activeRootPath: current.rootURL.path,
-            previousRootPath: current.rootURL.path,
-            migrationState: .pending
-        ))
+        // A borrowed root must never become a persisted Debug choice, including
+        // if the app exits during relocation. Keep the launch decision transient.
+        if !borrowingPreview {
+            try saveBootstrapConfig(ManagedStorageBootstrapConfig(
+                activeRootPath: current.rootURL.path,
+                previousRootPath: current.rootURL.path,
+                migrationState: .pending
+            ))
+        }
 
         do {
             try await databaseMigrator(current.databaseRootURL, validated.databaseRootURL)
@@ -73,7 +78,7 @@ public actor ManagedStorageCoordinator {
             copyDependencyReceipt(from: current, to: validated)
             try saveBootstrapConfig(ManagedStorageBootstrapConfig(
                 activeRootPath: validated.rootURL.path,
-                previousRootPath: current.rootURL.path,
+                previousRootPath: borrowingPreview ? nil : current.rootURL.path,
                 migrationState: .completed
             ))
         } catch {

@@ -60,6 +60,12 @@ if let helperExitCode = MetagenomicsImportHelper.runIfRequested(arguments: Comma
     exit(helperExitCode)
 }
 
+let dependencySharingStatus = DebugDependencySharing.bootstrap()
+if let output = DebugDependencySharing.diagnosticOutput(arguments: CommandLine.arguments, status: dependencySharingStatus) {
+    print(output)
+    exit(0)
+}
+
 // Launch AppKit on the main thread using a single event loop.
 // Avoid nested/dual run-loop patterns (e.g. app.run + dispatchMain) which can
 // cause delayed menu-bar activation and unstable full-screen behavior.

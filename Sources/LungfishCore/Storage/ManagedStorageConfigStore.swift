@@ -113,6 +113,44 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         currentLocation(environment: environmentProvider())
     }
 
+    /// Upstream CLIs use Stable identity, so Debug GUI launches must pass their
+    /// resolved storage explicitly, including when compatibility requires isolation.
+    public func subprocessEnvironment() -> [String: String] {
+        subprocessEnvironment(environment: environmentProvider())
+    }
+
+    public func subprocessEnvironment(environment: [String: String]) -> [String: String] {
+        guard appIdentity.isDebug else { return environment }
+        var result = environment
+        result["LUNGFISH_STORAGE_ROOT"] = currentLocation(environment: environment).rootURL.path
+        result["LUNGFISH_CONDA_ROOT"] = currentCondaRootURL(environment: environment).path
+        return result
+    }
+
+    /// The Preview root selected by this Debug launch, without persisting a storage preference.
+    /// Launch code sets the marker only after checking dependency compatibility.
+    public var automaticallySharedPreviewLocation: ManagedStorageLocation? {
+        automaticallySharedPreviewLocation(environment: environmentProvider())
+    }
+
+    public func automaticallySharedPreviewLocation(environment: [String: String]) -> ManagedStorageLocation? {
+        guard appIdentity.isDebug, !appIdentity.isFork,
+              ["LUNGFISH_STORAGE_ROOT", "LUNGFISH_CONDA_ROOT"].allSatisfy({ key in
+                  environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+              }),
+              case .missing = bootstrapConfigLoadState(),
+              let path = environment["LUNGFISH_SHARED_PREVIEW_ROOT"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              path.hasPrefix("/") else { return nil }
+
+        let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              case .valid = ManagedStorageLocation.validateSelection(root, fileManager: fileManager) else {
+            return nil
+        }
+        return ManagedStorageLocation(rootURL: root)
+    }
+
     public func currentLocation(environment: [String: String]) -> ManagedStorageLocation {
         if let override = environment["LUNGFISH_STORAGE_ROOT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -130,6 +168,7 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         case .loaded(let config) where !config.activeRootPath.isEmpty:
             return ManagedStorageLocation(rootURL: URL(fileURLWithPath: config.activeRootPath, isDirectory: true))
         case .missing:
+            if let shared = automaticallySharedPreviewLocation(environment: environment) { return shared }
             return appIdentity.allowsUpstreamLegacyMigration ? (legacyLocation() ?? defaultLocation) : defaultLocation
         case .malformed:
             return defaultLocation

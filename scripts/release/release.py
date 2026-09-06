@@ -1370,7 +1370,53 @@ class LocalReleaseOperations:
             release_dir,
         )
 
+    def _validate_release_notes(
+        self, request: ReleaseRequest, identity: CandidateIdentity | None = None
+    ) -> None:
+        """Apply the signer's notes contract before building or pushing a tag."""
+        version_path = self.root / "Sources/LungfishCore/AppVersion.swift"
+        try:
+            match = re.search(
+                r'public\s+static\s+let\s+short\s*=\s*"([^"]+)"',
+                version_path.read_text(encoding="utf-8"),
+            )
+        except (OSError, UnicodeError) as error:
+            raise ReleaseError(f"release notes source version is unavailable: {version_path}") from error
+        if match is None or CALVER.fullmatch(match.group(1)) is None:
+            raise ReleaseError("release notes source version must be YYYY.M.PATCH")
+        version = match.group(1)
+        if identity is not None and (identity.version != version or identity.tag != f"v{version}"):
+            raise ReleaseError("release notes source version does not match the candidate")
+        notes_path = self.root / "docs/release-notes" / f"{version}.md"
+        try:
+            if notes_path.is_symlink() or not notes_path.is_file():
+                raise ReleaseError(f"release notes must be a regular non-symlink file: {notes_path}")
+            notes = notes_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise ReleaseError(f"release notes are unavailable: {notes_path}") from error
+        manifest_path = self.root / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+        manifest = _read_bounded_json(manifest_path, "release notes dependency manifest")
+        dependency_set = manifest.get("dependencySet")
+        if not isinstance(dependency_set, str) or not dependency_set.strip():
+            raise ReleaseError("release notes dependency manifest has no dependencySet")
+        channel_label = {"preview": "Preview", "stable": "Stable"}.get(request.channel)
+        if channel_label is None:
+            raise ReleaseError("release notes require a preview or stable channel")
+        required = [
+            (f"Channel: {channel_label}", re.escape(f"Channel: {channel_label}")),
+            ("Previous versioned release: v<version>", r"Previous versioned release: v\S+"),
+            ("Stable baseline: <baseline>", r"Stable baseline: \S.*"),
+            (f"Dependency set: {dependency_set}", re.escape(f"Dependency set: {dependency_set}")),
+            ("## Dependency versions", re.escape("## Dependency versions")),
+        ]
+        if request.channel == "stable":
+            required.append(("## Included preview releases", re.escape("## Included preview releases")))
+        for label, pattern in required:
+            if not any(re.fullmatch(pattern, line) for line in notes.splitlines()):
+                raise ReleaseError(f"release notes are missing required audit field: {label} ({notes_path})")
+
     def verify_package_source(self, request: ReleaseRequest) -> None:
+        self._validate_release_notes(request)
         shallow = self.runner.text(
             ["git", "rev-parse", "--is-shallow-repository"]
         ).strip()
@@ -1695,6 +1741,7 @@ class LocalReleaseOperations:
     def ensure_annotated_tag(
         self, request: ReleaseRequest, identity: CandidateIdentity
     ) -> None:
+        self._validate_release_notes(request, identity)
         branch = self.runner.text(["git", "branch", "--show-current"]).strip()
         if branch != request.main_branch:
             raise ReleaseError(

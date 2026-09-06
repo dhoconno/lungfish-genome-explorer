@@ -284,6 +284,7 @@ public actor CLIImportRunner {
         logger.info("Launching CLI: \(binaryURL.path, privacy: .public) \(arguments.joined(separator: " "), privacy: .public)")
 
         let proc = Process()
+        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
         proc.executableURL = binaryURL
         proc.arguments = arguments
 

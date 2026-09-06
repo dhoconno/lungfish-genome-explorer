@@ -27,6 +27,19 @@ final class StorageSettingsTabTests: XCTestCase {
     }
 
     @MainActor
+    func testViewStateLabelsAutomaticallySharedPreviewStorage() throws {
+        let root = tempHome.appendingPathComponent("preview")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome, appIdentity: .debug,
+            environmentProvider: { ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path] })
+        let state = StorageSettingsTab.makeViewState(configStore: store)
+        XCTAssertEqual(state.displayPath, root.path)
+        XCTAssertEqual(state.locationBadgeText, "Shared with Preview")
+        XCTAssertTrue(state.locationStatusDescription.contains("Dependency pins match"))
+        XCTAssertFalse(state.showsCleanupAction)
+    }
+
+    @MainActor
     func testViewStateShowsMalformedBootstrapWarningAndDefaultPath() throws {
         let store = ManagedStorageConfigStore(homeDirectory: tempHome)
         try FileManager.default.createDirectory(

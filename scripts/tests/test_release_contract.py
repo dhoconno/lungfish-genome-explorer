@@ -78,6 +78,7 @@ EXPECTED_GATES = {
         "scripts.tests.test_full_suite_gate_tiers",
         "scripts.tests.test_gate_profile_evidence",
         "scripts.tests.test_release_identity",
+        "scripts.tests.test_release_notes_preflight",
     ],
     "channels": {
         "preview": [{"tier": "release", "requireTools": False}],

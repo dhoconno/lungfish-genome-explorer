@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishKit
 import LungfishIO
 import LungfishWorkflow
@@ -731,6 +732,7 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         }
 
         let process = Process()
+        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
         process.executableURL = cliURL
         process.currentDirectoryURL = outputDirectory
         process.arguments = [invocation.subcommand] + invocation.arguments

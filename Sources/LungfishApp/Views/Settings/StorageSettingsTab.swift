@@ -23,6 +23,7 @@ struct StorageSettingsTab: View {
         let canRevealCurrentLocation: Bool
     }
 
+    @State private var isSharingWithPreview = false
     @State private var displayPath: String = ""
     @State private var displayState: ManagedStorageDisplayState = .defaultRoot
     @State private var previousRootPath: String?
@@ -102,8 +103,9 @@ struct StorageSettingsTab: View {
             displayPath: displayPath,
             displayState: displayState,
             previousRootPath: previousRootPath,
-            locationBadgeText: locationBadgeText,
-            locationStatusDescription: locationStatusDescription,
+            locationBadgeText: configStore.automaticallySharedPreviewLocation != nil ? "Shared with Preview" : locationBadgeText,
+            locationStatusDescription: configStore.automaticallySharedPreviewLocation != nil
+                ? "Dependency pins match. Debug is using Preview’s tools and databases." : locationStatusDescription,
             showsMalformedBootstrapWarning: displayState == .malformedBootstrap,
             showsCleanupAction: previousRootPath != nil,
             canRevealCurrentLocation: fileManager.fileExists(atPath: displayPath)
@@ -252,6 +254,7 @@ struct StorageSettingsTab: View {
     }
 
     private var locationBadgeText: String {
+        if isSharingWithPreview { return "Shared with Preview" }
         switch displayState {
         case .defaultRoot:
             return "Recommended"
@@ -285,6 +288,7 @@ struct StorageSettingsTab: View {
     }
 
     private var locationStatusDescription: String {
+        if isSharingWithPreview { return "Dependency pins match. Debug is using Preview’s tools and databases." }
         switch displayState {
         case .defaultRoot:
             return "Lungfish is using the default shared storage root."
@@ -372,6 +376,7 @@ struct StorageSettingsTab: View {
     @MainActor
     private func refreshDisplay() {
         let viewState = Self.makeViewState()
+        isSharingWithPreview = ManagedStorageConfigStore.shared.automaticallySharedPreviewLocation != nil
         displayPath = viewState.displayPath
         displayState = viewState.displayState
         previousRootPath = viewState.previousRootPath

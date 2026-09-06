@@ -221,6 +221,116 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
 }
 
 extension ManagedStorageConfigStoreTests {
+    func testDebugSubprocessReceivesSharedRootAsExplicitOverride() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let root = home.appendingPathComponent("preview-storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let environment = ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path, "PATH": "/test/bin"]
+        let gui = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { environment })
+        let inherited = gui.subprocessEnvironment()
+        let cli = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .stable, environmentProvider: { inherited })
+        XCTAssertEqual(inherited["PATH"], "/test/bin")
+        XCTAssertEqual(inherited["LUNGFISH_STORAGE_ROOT"], root.path)
+        XCTAssertEqual(cli.currentLocation().rootURL, gui.currentLocation().rootURL)
+        XCTAssertEqual(cli.currentCondaRootURL(), gui.currentCondaRootURL())
+    }
+
+    func testDebugSubprocessKeepsIsolatedFallbackAndExplicitCondaOverride() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let gui = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { [:] })
+        XCTAssertEqual(gui.subprocessEnvironment()["LUNGFISH_STORAGE_ROOT"], gui.defaultLocation.rootURL.path)
+        XCTAssertEqual(gui.subprocessEnvironment()["LUNGFISH_CONDA_ROOT"], gui.defaultLocation.condaRootURL.path)
+        let custom = home.appendingPathComponent("custom", isDirectory: true)
+        try gui.setActiveRoot(custom)
+        let conda = home.appendingPathComponent("separate-conda", isDirectory: true)
+        let environment = gui.subprocessEnvironment(environment: ["LUNGFISH_CONDA_ROOT": conda.path])
+        XCTAssertEqual(environment["LUNGFISH_STORAGE_ROOT"], custom.path)
+        XCTAssertEqual(environment["LUNGFISH_CONDA_ROOT"], conda.path)
+    }
+
+    func testNonDebugSubprocessEnvironmentIsUnchanged() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let environment = ["PATH": "/test/bin", "LUNGFISH_SHARED_PREVIEW_ROOT": "/ignored"]
+        for identity in [LungfishAppIdentity.preview, .stable] {
+            let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: identity, environmentProvider: { environment })
+            XCTAssertEqual(store.subprocessEnvironment(), environment)
+        }
+    }
+
+    func testDebugUsesSharedPreviewMarkerWithoutPersistingIt() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let root = home.appendingPathComponent("preview-storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let environment = ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path]
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { environment })
+
+        XCTAssertEqual(store.automaticallySharedPreviewLocation?.rootURL, root)
+        XCTAssertEqual(store.currentLocation().rootURL, root)
+        XCTAssertEqual(store.currentCondaRootURL(), root.appendingPathComponent("conda", isDirectory: true))
+        XCTAssertEqual(store.bootstrapConfigLoadState(), .missing)
+        XCTAssertEqual(store.currentLocation(environment: [:]).rootURL, store.defaultLocation.rootURL)
+    }
+
+    func testExplicitRootsPreventAutomaticPreviewSharing() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let root = home.appendingPathComponent("preview-storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { [:] })
+        for key in ["LUNGFISH_STORAGE_ROOT", "LUNGFISH_CONDA_ROOT"] {
+            for value in [home.appendingPathComponent("explicit").path, "/invalid path"] {
+                let environment = ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path, key: value]
+                XCTAssertNil(store.automaticallySharedPreviewLocation(environment: environment))
+                XCTAssertNotEqual(store.currentLocation(environment: environment).rootURL, root)
+            }
+        }
+    }
+
+    func testBootstrapConfigurationPreventsAutomaticPreviewSharing() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let root = home.appendingPathComponent("preview-storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let environment = ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path]
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { environment })
+        let custom = home.appendingPathComponent("custom", isDirectory: true)
+        try store.setActiveRoot(custom)
+        XCTAssertNil(store.automaticallySharedPreviewLocation)
+        XCTAssertEqual(store.currentLocation().rootURL, custom)
+        try Data("malformed".utf8).write(to: store.configURL)
+        XCTAssertNil(store.automaticallySharedPreviewLocation)
+        XCTAssertEqual(store.currentLocation().rootURL, store.defaultLocation.rootURL)
+    }
+
+    func testAutomaticPreviewSharingRequiresExistingValidDirectory() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let file = home.appendingPathComponent("regular-file")
+        try Data().write(to: file)
+        let invalidDirectory = home.appendingPathComponent("contains spaces", isDirectory: true)
+        try FileManager.default.createDirectory(at: invalidDirectory, withIntermediateDirectories: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .debug, environmentProvider: { [:] })
+        for path in ["", " ", "relative-root", home.appendingPathComponent("missing").path, file.path, invalidDirectory.path] {
+            let environment = ["LUNGFISH_SHARED_PREVIEW_ROOT": path]
+            XCTAssertNil(store.automaticallySharedPreviewLocation(environment: environment), path)
+            XCTAssertEqual(store.currentLocation(environment: environment).rootURL, store.defaultLocation.rootURL)
+        }
+    }
+
+    func testAutomaticPreviewSharingIsRestrictedToUpstreamDebug() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let root = home.appendingPathComponent("preview-storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fork = try LungfishAppIdentity.from(infoDictionary: [
+            "CFBundleDisplayName": "Example Genome Debug", "CFBundleName": "Example Debug",
+            "CFBundleIdentifier": "org.example.genome.debug", "LungfishReleaseChannel": "debug",
+            "LungfishIdentitySchemaVersion": 1, "LungfishRuntimeNamespace": "org.example.genome",
+        ])
+        for identity in [LungfishAppIdentity.preview, .stable, fork] {
+            let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: identity, environmentProvider: { [:] })
+            let environment = ["LUNGFISH_SHARED_PREVIEW_ROOT": root.path]
+            XCTAssertNil(store.automaticallySharedPreviewLocation(environment: environment))
+            XCTAssertNotEqual(store.currentLocation(environment: environment).rootURL, root)
+        }
+    }
+
     func testForkNeverMigratesOrRemovesUpstreamLegacyPreference() throws {
         let home = try makeTemporaryHomeDirectory()
         let identity = try LungfishAppIdentity.from(infoDictionary: [

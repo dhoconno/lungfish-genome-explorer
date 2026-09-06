@@ -287,6 +287,7 @@ actor CLIPrimerTrimRunner {
         }
 
         let process = Process()
+        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
         process.executableURL = binaryURL
         process.arguments = arguments
 

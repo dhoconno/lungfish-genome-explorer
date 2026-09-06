@@ -123,6 +123,7 @@ public enum LungfishCLIRunner {
         }
 
         let process = Process()
+        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
         process.executableURL = cliURL
         process.arguments = arguments
         cancellation?.store(process)

@@ -738,6 +738,7 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         let process = Process()
+        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
         let collector = ProcessOutputCollector(outputHandler: outputHandler)
         if let cliURL = executableURL ?? Self.lungfishCLIURL() {
             process.executableURL = cliURL

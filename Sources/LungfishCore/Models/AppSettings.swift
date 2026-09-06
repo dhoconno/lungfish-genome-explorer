@@ -355,7 +355,7 @@ public final class AppSettings {
                !path.isEmpty {
                 return URL(fileURLWithPath: path, isDirectory: true)
             }
-            return Self.defaultDatabaseStorageURL
+            return ManagedStorageConfigStore.shared.currentLocation().databaseRootURL
         }
         set {
             if newValue == Self.defaultDatabaseStorageURL {
