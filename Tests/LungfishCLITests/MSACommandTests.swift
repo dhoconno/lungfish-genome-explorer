@@ -88,6 +88,7 @@ final class MSACommandTests: XCTestCase {
 
         let provenanceURL = outputURL.appendingPathExtension("lungfish-provenance.json")
         let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertEqual(try jsonObject(at: provenanceURL)["toolVersion"] as? String, LungfishAppVersion.short)
         XCTAssertTrue(provenance.contains(#""actionID" : "msa.export.aligned-fasta""#))
         XCTAssertTrue(provenance.contains(#""rows" : "seq1""#))
         XCTAssertTrue(provenance.contains(#""columns" : "2-4""#))

@@ -5,7 +5,7 @@ import SQLite3
 
 public struct MultipleSequenceAlignmentBundle: Sendable {
     public static let directoryExtension = "lungfishmsa"
-    public static let toolVersion = "0.1.0"
+    public static let toolVersion = LungfishAppVersion.short
     private static let annotationJSONRelativePath = "metadata/annotations.json"
     private static let annotationSQLiteRelativePath = "metadata/annotations.sqlite"
 
