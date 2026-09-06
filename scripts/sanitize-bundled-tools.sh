@@ -27,30 +27,9 @@ if [ "$#" -lt 1 ]; then
     exit 64
 fi
 
-rewrite_embedded_path_prefix() {
-    local path="$1"
-    local source_prefix="$2"
-    local replacement_prefix="$3"
-
-    if [ -z "$source_prefix" ]; then
-        return
-    fi
-
-    SOURCE_PREFIX="$source_prefix" REPLACEMENT_PREFIX="$replacement_prefix" perl -0pi -e '
-        use strict;
-        use warnings;
-        use bytes;
-
-        my $source = $ENV{SOURCE_PREFIX};
-        my $replacement = $ENV{REPLACEMENT_PREFIX};
-
-        if (length($replacement) > length($source)) {
-            die "replacement is longer than source prefix\n";
-        }
-
-        my $padded = $replacement . ("\0" x (length($source) - length($replacement)));
-        s/\Q$source\E/$padded/g;
-    ' "$path"
+append_path_rewrite() {
+    [ -n "$1" ] || return 0
+    PATH_REWRITES+=("$1" "$2")
 }
 
 append_builder_root() {
@@ -100,53 +79,43 @@ initialize_builder_roots() {
 rewrite_embedded_builder_paths() {
     local path="$1"
     local builder_root
+    local -a PATH_REWRITES=()
 
     for builder_root in "${BUILDER_ROOTS[@]}"; do
-        rewrite_embedded_path_prefix \
-            "$path" \
+        append_path_rewrite \
             "${builder_root}/.build/xcode-cli-release/" \
             "/swiftpm-build/"
-        rewrite_embedded_path_prefix \
-            "$path" \
+        append_path_rewrite \
             "${builder_root}/.build/xcode-cli/" \
             "/swiftpm-build/"
-        rewrite_embedded_path_prefix \
-            "$path" \
+        append_path_rewrite \
             "${builder_root}/.build/tools/" \
             "/lungfish-tools-build/"
-        rewrite_embedded_path_prefix \
-            "$path" \
+        append_path_rewrite \
             "${builder_root}/" \
             "/workspace/"
     done
 
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/workspace/.build/xcode-cli-release/" \
         "/swiftpm-build/"
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/workspace/.build/xcode-cli/" \
         "/swiftpm-build/"
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/workspace/.build/tools/" \
         "/lungfish-tools-build/"
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/Users/dho/Documents/ncbi-vdb/" \
         "/ncbi-vdb-src/"
 
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/opt/homebrew/" \
         "/opt/portable/"
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/usr/local/Cellar/" \
         "/usr/local/pkgdir/"
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/usr/local/etc/" \
         "/usr/local/cfg/"
 
@@ -154,10 +123,38 @@ rewrite_embedded_builder_paths() {
     # derived from this checkout (for example conda's /Users/runner roots).
     # The replacement is exactly the same byte length, preserving every
     # following string offset while removing the machine-specific home prefix.
-    rewrite_embedded_path_prefix \
-        "$path" \
+    append_path_rewrite \
         "/Users/" \
         "/build/"
+
+    # Slurp binary bytes once, then apply the same ordered fixed-width rewrites.
+    # NUL-delimited Perl -0 processing performs millions of record iterations
+    # on debug-bearing Mach-O files. Do not rewrite an already portable file.
+    perl -0777 -e '
+        use strict;
+        use warnings;
+        use bytes;
+        my $path = shift @ARGV;
+        die "unpaired path rewrite\n" if @ARGV % 2;
+        open my $input, "<:raw", $path or die "read sanitizer input: $!\n";
+        my $data = <$input>;
+        die "read sanitizer input: $!\n" unless defined $data;
+        close $input or die "close sanitizer input: $!\n";
+        my $changed = 0;
+        while (@ARGV) {
+            my ($source, $replacement) = splice @ARGV, 0, 2;
+            if (length($replacement) > length($source)) {
+                die "replacement is longer than source prefix\n";
+            }
+            my $padded = $replacement . ("\0" x (length($source) - length($replacement)));
+            $changed += ($data =~ s/\Q$source\E/$padded/g);
+        }
+        if ($changed) {
+            open my $output, "+<:raw", $path or die "write sanitizer output: $!\n";
+            print {$output} $data or die "write sanitizer output: $!\n";
+            close $output or die "close sanitizer output: $!\n";
+        }
+    ' -- "$path" "${PATH_REWRITES[@]}"
 }
 
 sanitize_file() {

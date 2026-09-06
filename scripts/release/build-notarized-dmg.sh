@@ -1327,6 +1327,14 @@ IDENTITY_PY
         --archive-path "$ARCHIVE_PATH" \
         --repository-key "$repository_key"
 
+    # Xcode's archive action strips these native executables after generating
+    # dSYMs. Match that copy-only packaging step: build products retain their
+    # debug map for incremental compilation; the retained app must not expose it.
+    # assemble already verified both dSYM UUIDs; finalize below checks them again.
+    for native_executable in Lungfish lungfish-cli; do
+        /usr/bin/xcrun strip -D "$APP_PATH/Contents/MacOS/$native_executable"
+    done
+
     CLI_DEST="${APP_PATH}/Contents/MacOS/lungfish-cli"
     WORKFLOW_TOOLS_DIR="${APP_PATH}/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools"
     if [ ! -x "$CLI_DEST" ]; then

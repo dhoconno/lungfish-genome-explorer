@@ -933,6 +933,12 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertNotIn("-archivePath", native)
         self.assertNotIn("CURRENT_PROJECT_VERSION=", native)
         self.assertIn("DEBUG_INFORMATION_FORMAT=dwarf-with-dsym", native)
+        strips = [line for line in events if line.startswith("xcrun:strip ")]
+        self.assertEqual(strips, [
+            f"xcrun:strip -D {self.fixture.archive}/Products/Applications/Lungfish.app/Contents/MacOS/{name}"
+            for name in ("Lungfish", "lungfish-cli")])
+        first_seal = next(i for i, line in enumerate(events) if line.startswith("codesign:"))
+        self.assertTrue(all(events.index(line) < first_seal for line in strips))
         arguments = native.split()
         products = Path(arguments[arguments.index("-derivedDataPath") + 1]) / "Build/Products/Release"
         cached_info = plistlib.loads((products / "Lungfish.app/Contents/Info.plist").read_bytes())

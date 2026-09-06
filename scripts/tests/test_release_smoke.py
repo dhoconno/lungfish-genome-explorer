@@ -15,6 +15,106 @@ class ReleaseSmokeTests(unittest.TestCase):
         )
         self.sanitizer = self.root / "scripts" / "sanitize-bundled-tools.sh"
 
+    def test_sanitizer_binary_rewrites_match_legacy_order_and_preserve_offsets(self):
+        import struct
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "fake-macho"
+            # A recognizable arm64 Mach-O header; never executed or signed.
+            header = struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0)
+            prefixes = [
+                (str(self.root) + "/.build/xcode-cli-release/", "/swiftpm-build/"),
+                (str(self.root) + "/.build/xcode-cli/", "/swiftpm-build/"),
+                (str(self.root) + "/.build/tools/", "/lungfish-tools-build/"),
+                (str(self.root) + "/", "/workspace/"),
+                ("/workspace/.build/xcode-cli-release/", "/swiftpm-build/"),
+                ("/workspace/.build/xcode-cli/", "/swiftpm-build/"),
+                ("/workspace/.build/tools/", "/lungfish-tools-build/"),
+                ("/Users/dho/Documents/ncbi-vdb/", "/ncbi-vdb-src/"),
+                ("/opt/homebrew/", "/opt/portable/"),
+                ("/usr/local/Cellar/", "/usr/local/pkgdir/"),
+                ("/usr/local/etc/", "/usr/local/cfg/"),
+                ("/Users/", "/build/"),
+            ]
+            original = header + b"\0" * 100_000 + b"\0".join(
+                source.encode() + b"payload\xff\0tail" for source, _ in prefixes
+            ) + b"\0unrelated-final-offset"
+            expected = original
+            for source, replacement in prefixes:
+                source, replacement = source.encode(), replacement.encode()
+                expected = expected.replace(source, replacement.ljust(len(source), b"\0"))
+            executable.write_bytes(original)
+            executable.chmod(0o711)
+            result = subprocess.run(["/bin/bash", str(self.sanitizer), str(executable)],
+                                    env={**os.environ, "LUNGFISH_SANITIZE_INCLUDE_WORKTREES": "0"},
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(executable.read_bytes(), expected)
+            self.assertEqual(executable.stat().st_size, len(original))
+            self.assertEqual(executable.stat().st_mode & 0o777, 0o755)
+            # Repeating a no-match rewrite must not touch file data or mtime.
+            os.utime(executable, ns=(1_000_000_000, 1_000_000_000))
+            before = executable.stat()
+            result = subprocess.run(["/bin/bash", str(self.sanitizer), str(executable)],
+                                    env={**os.environ, "LUNGFISH_SANITIZE_INCLUDE_WORKTREES": "0"},
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(executable.read_bytes(), expected)
+            self.assertEqual(executable.stat().st_mtime_ns, before.st_mtime_ns)
+            self.assertEqual(executable.stat().st_ino, before.st_ino)
+
+    def test_sanitizer_retains_non_macho_and_non_executable_handling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            resource = root / "resource"
+            resource.write_bytes(b"/Users/runner/resource")
+            resource.chmod(0o755)
+            data = root / "data"
+            data.write_bytes(b"/Users/runner/data")
+            data.chmod(0o640)
+            result = subprocess.run(["/bin/bash", str(self.sanitizer), str(root)],
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(resource.read_bytes(), b"/Users/runner/resource")
+            self.assertEqual(resource.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(data.stat().st_mode & 0o777, 0o640)
+
+    def test_sanitizer_batches_one_perl_process_and_preserves_seal_errors(self):
+        import struct
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            log = root / "calls"
+            signer = root / "codesign"
+            signer.write_text('#!/bin/bash\nprintf "codesign %s\\n" "$*" >> "$CALL_LOG"\nexit "${SIGN_EXIT:-0}"\n')
+            signer.chmod(0o755)
+            perl = root / "perl"
+            perl.write_text('#!/bin/bash\necho perl >> "$CALL_LOG"\nexec /usr/bin/perl "$@"\n')
+            perl.chmod(0o755)
+            sanitizer = scripts / "sanitize-bundled-tools.sh"
+            sanitizer.write_text(self.sanitizer.read_text().replace("/usr/bin/codesign", str(signer)))
+            executable = root / "fake-macho"
+            original = struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0) + b"/Users/runner/\0"
+            environment = {**os.environ, "PATH": str(root) + ":/usr/bin:/bin", "CALL_LOG": str(log),
+                           "LUNGFISH_SANITIZE_INCLUDE_WORKTREES": "0"}
+            for status in (0, 42):
+                with self.subTest(signerExit=status):
+                    executable.write_bytes(original)
+                    executable.chmod(0o755)
+                    log.write_text("")
+                    result = subprocess.run(["/bin/bash", str(sanitizer), "--adhoc-seal", str(executable)],
+                                            env={**environment, "SIGN_EXIT": str(status)},
+                                            capture_output=True, text=True, timeout=15)
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    calls = log.read_text().splitlines()
+                    self.assertEqual(calls.count("perl"), 1)
+                    self.assertEqual(calls[1], "codesign --force --sign - --timestamp=none " + str(executable))
+                    if status == 0:
+                        self.assertEqual(calls[2], "codesign --verify --strict " + str(executable))
+                    else:
+                        self.assertEqual(len(calls), 2)
+
     def test_sanitizer_adhoc_seals_transformed_vendor_macho_for_execution(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             executable = Path(temp_dir) / "micromamba"
