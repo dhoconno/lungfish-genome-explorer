@@ -454,6 +454,15 @@ def validate_authority_texts(
         if re.search(r"(?:both|preview and stable)[^\n.]{0,120}(?:retain|use)[^\n.]{0,40}com\.lungfish\.browser(?:`|\s|;)", text, re.IGNORECASE):
             errors.append(f"{relative} falsely claims Preview and Stable share a bundle identifier")
 
+    for relative in PRIMARY_AUTHORITIES[:4]:
+        section = markdown_section(texts[relative], "Release compilation")
+        required = ("native Xcode `build`", "Release configuration", "GUI and CLI",
+                    "`.xcarchive` layout", "dSYMs", "`Info.plist`",
+                    "does not imply an Xcode `archive` action")
+        normalized = " ".join((section or "").split())
+        if any(marker not in normalized for marker in required):
+            errors.append(f"{relative} omits incremental Release compilation/archive-layout semantics")
+
     graphical_authorities = PRIMARY_AUTHORITIES[:4]
     graphical_sections = [markdown_section(texts[name], "Optional graphical diagnostics")
                           for name in graphical_authorities]

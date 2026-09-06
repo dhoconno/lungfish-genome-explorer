@@ -171,3 +171,13 @@ pending inputs. An ambiguous upload without a durable submission ID fails closed
 preserve the journal and reconcile the submission with Apple before retrying. Never
 delete transaction state to force a second submission. Changed artifact bytes,
 submission IDs or signing context block continuation.
+
+## Release compilation
+
+Release uses native Xcode `build` with Release configuration in the fingerprinted
+DerivedData namespace, sharing the GUI and CLI dependency graph. The packager then
+assembles a retained `.xcarchive` layout containing the app, dSYMs and `Info.plist`.
+This internal artifact layout does not imply an Xcode `archive` action. Candidate
+metadata, portability, smoke, receipt and signing checks still apply to those bytes.
+Incremental compiler reuse and exact-candidate reuse are measured separately;
+a retained cache alone establishes neither a timing result nor release authority.

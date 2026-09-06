@@ -162,6 +162,13 @@ fi
             result = self.run_validator(repo, skill)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_validator_rejects_archive_action_compilation_claim(self):
+        self.assert_authority_mutation_fails(
+            "docs/release/sparkle-updates.md",
+            lambda text: text.replace("native Xcode `build`", "native Xcode `archive`"),
+            "incremental Release compilation",
+        )
+
     def test_real_repository_validates(self):
         result = self.run_validator(REPO_ROOT)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

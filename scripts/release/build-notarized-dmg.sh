@@ -1298,14 +1298,13 @@ IDENTITY_PY
         -configuration Release \
         -destination "generic/platform=macOS" \
         -derivedDataPath "$DERIVED_DATA_PATH" \
-        -archivePath "$ARCHIVE_PATH" \
         ARCHS=arm64 \
         EXCLUDED_ARCHS=x86_64 \
         ONLY_ACTIVE_ARCH=YES \
         OTHER_SWIFT_FLAGS="\$(inherited) $XCODE_OTHER_SWIFT_FLAGS" \
         OTHER_CFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
         OTHER_CPLUSPLUSFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
-        CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_NUMBER" \
+        DEBUG_INFORMATION_FORMAT=dwarf-with-dsym \
         LUNGFISH_CLI_INFOPLIST_FILE="$LUNGFISH_CLI_INFOPLIST_FILE" \
         LUNGFISH_SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
         CODE_SIGNING_ALLOWED=NO \
@@ -1313,7 +1312,11 @@ IDENTITY_PY
         -disableAutomaticPackageResolution \
         -showBuildTimingSummary \
         -resultBundlePath "$ARCHIVE_RESULT_BUNDLE_PATH" \
-        archive
+        build
+
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/release_archive.py" assemble \
+        --products "$DERIVED_DATA_PATH/Build/Products/Release" \
+        --archive "$ARCHIVE_PATH"
     # END LUNGFISH_COMPILER_RECIPE_V2
 
     if [ ! -d "$APP_PATH" ]; then
@@ -1342,6 +1345,8 @@ from release_contract import load_contract
 from release_identity import apply_app_identity
 apply_app_identity(Path(sys.argv[2]), load_contract(root / "config/release-contract.json"), sys.argv[3])
 IDENTITY_PY
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/release_archive.py" finalize \
+        --archive "$ARCHIVE_PATH"
 
     /bin/bash scripts/sanitize-bundled-tools.sh \
         --adhoc-seal \

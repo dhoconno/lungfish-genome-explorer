@@ -36,9 +36,9 @@ import LungfishCLI
 
 - [x] Verify current entrypoint and resources; add tests for native target dependency/copy and stable executable product.
 - [x] Convert CLI module to library target and add wrapper executable target; add native Xcode CLI target linking the library product.
-- [x] Make archive build the CLI as a dependency and copy its product; remove the second SwiftPM Release build.
+- [x] Make native Release `build` include the CLI as a dependency; retain a verified archive layout from its app/dSYMs, and remove the second SwiftPM Release build.
 - [x] Split compiler cache schema from policy hashes using explicit compiler-recipe inputs; keep receipt hashes comprehensive.
-- [x] Validate package/project structure, CLI focused behavior and real one-graph archive; report compilation counts and symbols.
+- [x] Validate package/project structure, CLI focused behavior and real one-graph Release build and retained archive layout; report compilation counts and symbols.
 
 ### Task 2: Explicit test collections and profiles
 
@@ -95,7 +95,7 @@ Files: release skill/validator, `SKILLS.md`, release agent instructions, release
 - [x] Run independent build-graph, test-policy, security and fork-runtime reviews; resolve correctness findings.
 - [x] Update every operator front door and remove stale claims that all tests/UI are mandatory for release.
 - [x] Run changed-area behavioral tests and one exhaustive release-maintainer validation for the redesigned machinery; retain all failures and resolutions.
-- [x] Measure warm Debug and new one-graph Release/candidate retry timings on this host; distinguish cold builds from warm and source tests from artifact checks.
+- [x] Measure warm Debug and incremental Release/candidate retry timings on this host; distinguish cold builds from warm and source tests from artifact checks.
 - [x] Verify fork initialization in a temporary repository with fake selectors/public key, without using upstream private credentials.
 - [x] Merge completed work to main and clean only owned worktrees/branches as previously authorized. Preserve stashes and baseline artifacts.
 - [ ] Finish Preview publication if real unattended credential readiness and all new candidate checks pass; otherwise retain the exact candidate and report the specific external provisioning blocker without a hanging prompt.
@@ -103,3 +103,7 @@ Files: release skill/validator, `SKILLS.md`, release agent instructions, release
 ## Verification handoff
 
 Real Preview candidate qualification passed at `c8d6b8126fc5f1297d0ef5fffc78a86937f9e53b`; exact candidate reuse took 1.474 seconds. Main integration and owned-branch cleanup are complete. Publication remains blocked by missing private setup proof, detected before credential access. See the implementation report and current-HEAD candidate receipt for the final artifact disposition.
+
+## Incremental archive correction
+
+The first candidate and exact reuse passed, but a separate new-candidate experiment exposed Xcode archive-action cleanup: its archive-specific intermediate subtree was recreated, all compiler arguments matched, and external C/Swift targets rebuilt. Packaging therefore uses the supported native Release `build` action, then validates/copies the app and symbols into its retained archive layout. The 15m8 archive-action measurement is historical; final first/warm build measurements must come from this corrected path.

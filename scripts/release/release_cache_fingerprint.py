@@ -47,6 +47,7 @@ RECIPE_PATHS = (
     "Lungfish.xcodeproj/xcshareddata/xcschemes/Lungfish.xcscheme",
     "Package.swift",
     "Sources/LungfishCLIExecutable/EntryPoint.swift",
+    "scripts/release/release_archive.py",
     COMPILER_RECIPE_PATH,
 )
 CACHE_MARKER = ".lungfish-release-cache.json"

@@ -66,6 +66,7 @@ class ReleaseBuilderFixture:
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release_contract.py",
             "scripts/release/release_identity.py",
+            "scripts/release/release_archive.py",
             "scripts/release/debug_artifact.py",
             "scripts/release/release_profiles.py",
             "scripts/release/bounded_process.py",
@@ -305,16 +306,20 @@ class ReleaseBuilderFixture:
                 exit 91
             fi
             printf 'xcodebuild:%s\n' "$*" >>"$BUILDER_EVENTS"
-            archive=
+            products=
             build=1
             while [ "$#" -gt 0 ]; do
                 case "$1" in
-                    -archivePath) archive="$2"; shift ;;
+                    -derivedDataPath) products="$2/Build/Products/Release"; shift ;;
                     CURRENT_PROJECT_VERSION=*) build="${1#*=}" ;;
                 esac
                 shift
             done
-            app="$archive/Products/Applications/Lungfish.app"
+            [ -n "$products" ] || exit 64
+            app="$products/Lungfish.app"
+            mkdir -p "$products/Lungfish.app.dSYM/Contents/Resources/DWARF" "$products/lungfish-cli.dSYM/Contents/Resources/DWARF"
+            printf 'fixture symbols\n' >"$products/Lungfish.app.dSYM/Contents/Resources/DWARF/Lungfish"
+            printf 'fixture symbols\n' >"$products/lungfish-cli.dSYM/Contents/Resources/DWARF/lungfish-cli"
             mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle"
             printf 'unsigned-app\n' >"$app/Contents/MacOS/Lungfish"
             chmod 755 "$app/Contents/MacOS/Lungfish"
@@ -426,6 +431,7 @@ class ReleaseBuilderFixture:
             """,
             "security": 'printf \'security:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nexit 0\n',
             "file": "echo 'Mach-O 64-bit executable arm64'\n",
+            "dwarfdump": "echo 'UUID: 01234567-89ab-cdef-0123-456789abcdef (arm64) fixture'\n",
             "ditto": 'printf \'ditto:%s\\n\' "$*" >>"$BUILDER_EVENTS"\nif [ "${1:-}" = -c ]; then : >"${@: -1}"; else cp -R "$1" "$2"; fi\n',
             "hdiutil": r"""
                 printf 'hdiutil:%s\n' "$*" >>"$BUILDER_EVENTS"
@@ -677,7 +683,7 @@ class ReleaseBuilderFixture:
         # New Python signing helpers must never escape to real credential tools.
         # Rewrite every copied script, then fail closed on any absolute escape.
         import re
-        tool_names = ("codesign", "ditto", "hdiutil", "xcrun", "security", "gh", "file")
+        tool_names = ("codesign", "ditto", "hdiutil", "xcrun", "security", "gh", "file", "dwarfdump")
         for path in (self.repo / "scripts").rglob("*"):
             if path.suffix not in (".py", ".sh", ".swift") or not path.is_file():
                 continue
@@ -922,6 +928,17 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertTrue(
             any("doctor:--mode package --channel preview" in line for line in events)
         )
+        native = next(line for line in events if line.startswith("xcodebuild:"))
+        self.assertTrue(native.endswith(" build"))
+        self.assertNotIn("-archivePath", native)
+        self.assertNotIn("CURRENT_PROJECT_VERSION=", native)
+        self.assertIn("DEBUG_INFORMATION_FORMAT=dwarf-with-dsym", native)
+        arguments = native.split()
+        products = Path(arguments[arguments.index("-derivedDataPath") + 1]) / "Build/Products/Release"
+        cached_info = plistlib.loads((products / "Lungfish.app/Contents/Info.plist").read_bytes())
+        self.assertEqual(cached_info["LungfishReleaseChannel"], "stable")
+        archive_info = plistlib.loads((self.fixture.archive / "Info.plist").read_bytes())
+        self.assertEqual(archive_info["ApplicationProperties"]["CFBundleIdentifier"], "com.lungfish.browser.preview")
         package_seals = [line for line in events if line.startswith("codesign:")]
         self.assertTrue(package_seals)
         self.assertTrue(

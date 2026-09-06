@@ -962,6 +962,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "Sources/LungfishCLIExecutable/EntryPoint.swift",
             "Lungfish.xcodeproj/xcshareddata/xcschemes/Lungfish.xcscheme",
             "scripts/release/release_identity.py",
+            "scripts/release/release_archive.py",
             "scripts/release/debug_artifact.py",
             "config/test-catalog.json",
             "scripts/testing/catalog.py",

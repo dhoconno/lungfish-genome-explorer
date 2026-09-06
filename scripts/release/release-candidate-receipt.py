@@ -528,6 +528,7 @@ def _build_receipt(
     executable = Path("Contents/MacOS") / identities["wrapper"]["executable"]
     inputs = {
         "builderSha256": _input_hash(BUILDER_PATH),
+        "archiveAssemblerSha256": _input_hash(ROOT / "scripts/release/release_archive.py"),
         "managedManifestSha256": _input_hash(MANAGED_MANIFEST_PATH),
         "micromambaUpstreamSha256": _micromamba_upstream_hash(
             toolchain["architecture"]
