@@ -239,6 +239,12 @@ extension MainSplitViewController {
                         settings.selectedMSAReferenceRowID = rowID
                         settings.msaResidueIdentityDisplayMode = .dotsToReference
                     }
+                    controller.onConsensusComparisonRequested = { [weak self] in
+                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                        let settings = self.inspectorController.viewModel.readStyleSectionViewModel
+                        settings.selectedMSAReferenceRowID = nil
+                        settings.msaResidueIdentityDisplayMode = .dotsToConsensus
+                    }
                     controller.onSelectionStateChanged = { [weak self] state in
                         guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                         self.inspectorController.updateMultipleSequenceAlignmentSelection(state)

@@ -1604,6 +1604,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 // selection-scoped items above and the analysis items below.
                 "Export Alignment…",
                 "Use as Reference",
+                "Use Consensus",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",

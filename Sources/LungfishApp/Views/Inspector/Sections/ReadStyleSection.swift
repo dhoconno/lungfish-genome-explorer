@@ -361,6 +361,14 @@ public final class ReadStyleSectionViewModel {
 
     // MARK: - Methods
 
+    /// A user target choice updates the comparison mode as one change. Direct
+    /// model updates during document loading retain their chosen display mode.
+    func selectMSAComparisonTarget(rowID: String?) {
+        selectedMSAReferenceRowID = rowID
+        msaResidueIdentityDisplayMode = rowID == nil ? .dotsToConsensus : .dotsToReference
+        onSettingsChanged?()
+    }
+
     /// Clears all statistics (called when bundle is unloaded).
     public func clear() {
         hasMultipleSequenceAlignmentBundle = false
@@ -1805,19 +1813,21 @@ public struct AlignmentViewSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Picker("Reference", selection: $viewModel.selectedMSAReferenceRowID) {
+            Picker("Reference", selection: Binding(
+                get: { viewModel.selectedMSAReferenceRowID },
+                set: { viewModel.selectMSAComparisonTarget(rowID: $0) }
+            )) {
+                Text("Consensus").tag(Optional<String>.none)
                 ForEach(viewModel.msaReferenceRowOptions) { row in
                     Text(row.name).tag(Optional(row.id))
                 }
             }
             .disabled(viewModel.msaReferenceRowOptions.isEmpty)
-            .onChange(of: viewModel.selectedMSAReferenceRowID) { _, _ in
-                viewModel.onSettingsChanged?()
-            }
 
             Picker("Display", selection: $viewModel.msaResidueIdentityDisplayMode) {
                 ForEach(MSAResidueIdentityDisplayMode.allCases) { mode in
                     Text(mode.displayTitle).tag(mode)
+                        .disabled(mode == .dotsToReference && viewModel.selectedMSAReferenceRowID == nil)
                 }
             }
             .onChange(of: viewModel.msaResidueIdentityDisplayMode) { _, _ in
