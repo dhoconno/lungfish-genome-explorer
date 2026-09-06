@@ -107,7 +107,7 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "unit tier must skip exactly the integration + conformance selections",
         )
 
-    def test_viewer_gutter_preference_suite_moves_to_serial_integration_without_losing_coverage(self):
+    def test_measured_parallel_hazards_move_to_serial_integration_without_losing_coverage(self):
         def selection(tier):
             result = subprocess.run(
                 ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", tier, "--describe-selection"],
@@ -118,9 +118,17 @@ class FullSuiteGateTierTests(unittest.TestCase):
 
         unit = selection("unit")
         integration = selection("integration")
-        case = "LungfishAppTests.ViewerBundleRoutingTests/testGutterWidthPersistsAcrossControllers"
-        self.assertRegex(case, unit["skip"])
-        self.assertRegex(case, integration["filter"])
+        cases = [
+            "LungfishAppTests.ViewerBundleRoutingTests/testGutterWidthPersistsAcrossControllers",
+            "LungfishAssemblyUITests.AssemblyResultViewControllerTests/testRerunBlastButtonReRunsBlastForCurrentSelection",
+            "LungfishKitTests.BatchTableViewTests/testSharedContentTypographyUpdatesTableAndMetadataWithoutRecreatingView",
+            "LungfishWorkflowTests.FullLengthONTMHCCohortAlignmentBuilderTests/testCancellationTerminatesChildRetainsDiagnosticsAndNeverPublishes",
+            "LungfishWorkflowTests.ManagedMappingPipelineTests/testStreamingCondaStdoutUserCancellationThrowsCancellationError",
+        ]
+        for case in cases:
+            with self.subTest(case=case):
+                self.assertRegex(case, unit["skip"])
+                self.assertRegex(case, integration["filter"])
         self.assertFalse(integration["parallel"])
         self.assertEqual(integration["skip"], "")
         self.assertFalse(unit["requireTools"])
