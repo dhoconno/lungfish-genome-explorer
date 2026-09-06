@@ -1,7 +1,7 @@
 import XCTest
 import ViewInspector
 @testable import LungfishApp
-import LungfishCore
+@testable import LungfishCore
 import SwiftUI
 
 @MainActor
@@ -228,20 +228,12 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
 
     func testAppearanceSettingsExposeAccessibleContentTextSizePicker() throws {
         let settings = AppSettings.shared
-        let originalTextSize = settings.contentTextSizePreference
-        let originalTheme = settings.variantColorThemeName
-        let originalHeight = settings.defaultAnnotationHeight
-        let originalSpacing = settings.defaultAnnotationSpacing
-        let originalHorizontal = settings.horizontalScrollDirection
-        let originalVertical = settings.verticalScrollDirection
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = originalTextSize
-            settings.variantColorThemeName = originalTheme
-            settings.defaultAnnotationHeight = originalHeight
-            settings.defaultAnnotationSpacing = originalSpacing
-            settings.horizontalScrollDirection = originalHorizontal
-            settings.verticalScrollDirection = originalVertical
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
 
         let inspected = try AppearanceSettingsTab().inspect()

@@ -3,7 +3,7 @@ import AppKit
 @testable import LungfishNvdUI
 @testable import LungfishIO
 @testable import LungfishWorkflow
-import LungfishCore
+@testable import LungfishCore
 import LungfishKit
 
 @MainActor
@@ -328,10 +328,12 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testOutlineTypographyScalesReusedRolesAndLateMetadataWithoutReloading() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -460,10 +462,12 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testDetailTypographyReflowsAtNarrowWidthWithoutRebuildingMiniBAM() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -552,10 +556,12 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testLargeOutlineTypographyIsBoundedAndPreservesEditorScrollAndColumns() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -647,10 +653,12 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testByTaxonTypographyIsBoundedAndPreservesOutlineState() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -735,10 +743,12 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testNoBAMDetailMessageUsesLiveContentTypography() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)

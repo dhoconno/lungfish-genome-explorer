@@ -473,7 +473,7 @@ extension ViewerViewController {
         }
     }
 
-    private func finishConsensusWorkflow(operationID: UUID, cancellation: Bool) {
+    func finishConsensusWorkflow(operationID: UUID, cancellation: Bool) {
         if cancellation { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         clearConsensusWorkflow(operationID: operationID)
     }

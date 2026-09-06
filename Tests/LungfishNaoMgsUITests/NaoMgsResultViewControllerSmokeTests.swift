@@ -9,7 +9,7 @@ import SwiftUI
 @testable import LungfishIO
 import LungfishWorkflow
 @testable import LungfishKit
-import LungfishCore
+@testable import LungfishCore
 
 final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
     @MainActor func testImportedMetadataImmediatelyUpdatesActualTaxonomyTableChooserAndCells() throws {
@@ -149,10 +149,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testTaxonomyTypographyScalesRealizedAndLateMetadataCellsWithoutReloading() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -368,10 +370,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testTaxonomySystemTypographyUsesInjectedPreferredMetricsAndRecovers() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .system
@@ -505,10 +509,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testOverviewQuickStatsRemainContainedAtNarrowTwoHundredPercent() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(200)
@@ -556,10 +562,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testHostedOverviewRefitsAfterLiveModelUpdatesAndPreservesScrollOrigin() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -676,10 +684,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testDatabaseDetailTypographyReflowsWithoutRebuildingOrMutatingMiniBAMState() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .system

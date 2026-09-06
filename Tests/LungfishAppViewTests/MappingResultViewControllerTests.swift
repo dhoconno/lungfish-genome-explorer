@@ -111,7 +111,13 @@ final class MappingResultViewControllerTests: XCTestCase {
                 operationID: operationID
             )
             confirmationResult.set(accepted)
-            if accepted { publisherInvocationCount.increment() }
+            if accepted {
+                publisherInvocationCount.increment()
+            } else {
+                // The sheet only returns a decision. Like the production outer
+                // worker, acknowledge drain after it resumes without publication.
+                viewer.finishConsensusWorkflow(operationID: operationID, cancellation: true)
+            }
         }
         viewer.activeConsensusGenerationTask = task
         try await waitUntil { window.attachedSheet != nil }
@@ -144,11 +150,14 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
         viewer.activeConsensusGenerationOperationID = oldOperationID
         let oldTask = Task { @MainActor in
-            _ = await viewer.presentAlignmentConsensusAllLowDepthConfirmation(
+            let accepted = await viewer.presentAlignmentConsensusAllLowDepthConfirmation(
                 message: "Every requested position is below minimum depth.",
                 on: window,
                 operationID: oldOperationID
             )
+            if !accepted {
+                viewer.finishConsensusWorkflow(operationID: oldOperationID, cancellation: true)
+            }
         }
         viewer.activeConsensusGenerationTask = oldTask
         try await waitUntil { window.attachedSheet != nil }

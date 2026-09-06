@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-import LungfishCore
+@testable import LungfishCore
 import LungfishKit
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
@@ -9,10 +9,12 @@ import LungfishKit
 final class GenotypeCohortSummaryPanelViewTests: XCTestCase {
     func testConfigureAtEnlargedSizeUsesCanonicalRolesAndDoesNotCompoundAcrossModes() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         let provider = MutableCohortPreferredFonts(pointSize: 13)
         settings.contentTextSizePreference = .custom(150)
@@ -50,10 +52,12 @@ final class GenotypeCohortSummaryPanelViewTests: XCTestCase {
 
     func testPrimarySummaryTypographyUpdatesWithoutReconfiguringSummary() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()

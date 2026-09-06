@@ -1,5 +1,5 @@
 import AppKit
-import LungfishCore
+@testable import LungfishCore
 import LungfishKit
 import XCTest
 @testable import LungfishApp
@@ -301,31 +301,12 @@ final class MainMenuStructureTests: XCTestCase {
     }
 
     private func preservingAppSettings(_ body: () -> Void) {
-        let key = "com.lungfish.appSettings"
-        let persistedData = UserDefaults.standard.data(forKey: key)
-        let settings = AppSettings.shared
-        let originalPreference = settings.contentTextSizePreference
-        let originalSequenceAppearance = settings.sequenceAppearance
-        let originalAnnotationColors = settings.annotationTypeColorHexes
-        let originalVariantTheme = settings.variantColorThemeName
-        let originalAnnotationHeight = settings.defaultAnnotationHeight
-        let originalAnnotationSpacing = settings.defaultAnnotationSpacing
-        let originalHorizontalScroll = settings.horizontalScrollDirection
-        let originalVerticalScroll = settings.verticalScrollDirection
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = originalPreference
-            settings.sequenceAppearance = originalSequenceAppearance
-            settings.annotationTypeColorHexes = originalAnnotationColors
-            settings.variantColorThemeName = originalVariantTheme
-            settings.defaultAnnotationHeight = originalAnnotationHeight
-            settings.defaultAnnotationSpacing = originalAnnotationSpacing
-            settings.horizontalScrollDirection = originalHorizontalScroll
-            settings.verticalScrollDirection = originalVerticalScroll
-            if let persistedData {
-                UserDefaults.standard.set(persistedData, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         body()
     }

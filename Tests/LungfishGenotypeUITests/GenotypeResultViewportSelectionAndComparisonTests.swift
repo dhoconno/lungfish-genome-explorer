@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import CryptoKit
 @testable import LungfishGenotypeUI
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
@@ -433,10 +433,12 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testGeneratedDetailTypographyUpdatesWithoutRebuildingSelectionOrChangingState() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
@@ -496,10 +498,12 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testLateGeneratedContentRebuildsUseCurrentTypographyWithoutTypographySideEffects() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(200)
         settings.save()
@@ -630,10 +634,12 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testComparisonMatrixTypographyUpdatesInPlaceAndRecoversWithoutChangingViewState() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
@@ -707,10 +713,12 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testResultTableSampleFontUsesCanonicalBaselineAtCustomAndSystemSizes() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         let provider = MutableGenotypePreferredFonts(pointSize: 13)
         settings.contentTextSizePreference = .custom(100)
@@ -1825,10 +1833,12 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testHaplotypeDefinitionMatrixTypographyUpdatesAndRecoversWithoutReconfiguration() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()

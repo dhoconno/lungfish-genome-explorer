@@ -150,6 +150,58 @@ public final class AppSettings {
 
     public static let shared = AppSettings()
 
+    private static var persistenceDefaults: UserDefaults = .standard
+
+    /// Isolates persistence for a serial test scope and restores the exact in-memory
+    /// values afterward, without loading, saving, or resetting production storage.
+    static func isolateForTesting(defaults: UserDefaults) -> @MainActor () -> Void {
+        let previousDefaults = persistenceDefaults
+        func capture<Value>(_ keyPath: ReferenceWritableKeyPath<AppSettings, Value>) -> @MainActor () -> Void {
+            let value = shared[keyPath: keyPath]
+            return { shared[keyPath: keyPath] = value }
+        }
+        let restoreValues: [@MainActor () -> Void] = [
+            capture(\.defaultZoomWindow),
+            capture(\.maxUndoLevels),
+            capture(\.vcfImportProfile),
+            capture(\.tempFileRetentionHours),
+            capture(\.provenanceSigningProvider),
+            capture(\.provenanceSigningPublicKeyPath),
+            capture(\.analystIdentityOverride),
+            capture(\.contentTextSizePreference),
+            capture(\.sequenceAppearance),
+            capture(\.annotationTypeColorHexes),
+            capture(\.variantColorThemeName),
+            capture(\.defaultAnnotationHeight),
+            capture(\.defaultAnnotationSpacing),
+            capture(\.horizontalScrollDirection),
+            capture(\.verticalScrollDirection),
+            capture(\.maxAnnotationRows),
+            capture(\.sequenceFetchCapKb),
+            capture(\.maxTableDisplayCount),
+            capture(\.densityThresholdBpPerPixel),
+            capture(\.squishedThresholdBpPerPixel),
+            capture(\.showLettersThresholdBpPerPixel),
+            capture(\.tooltipDelay),
+            capture(\.aiSearchEnabled),
+            capture(\.openAIModel),
+            capture(\.anthropicModel),
+            capture(\.geminiModel),
+            capture(\.preferredAIProvider),
+            capture(\.openAIHostedEndpointEnabled),
+            capture(\.openAIHostedEndpointKind),
+            capture(\.openAIHostedEndpoint),
+            capture(\.openAIHostedDeployment),
+            capture(\.experimentalFeaturesEnabled),
+        ]
+        persistenceDefaults = defaults
+        return {
+            for restore in restoreValues { restore() }
+            persistenceDefaults = previousDefaults
+        }
+    }
+
+
     // MARK: - General
 
     /// Default zoom window in base pairs when opening a chromosome.
@@ -299,7 +351,7 @@ public final class AppSettings {
     /// and also update ``MetagenomicsDatabaseRegistry`` via a notification.
     public var databaseStorageURL: URL {
         get {
-            if let path = UserDefaults.standard.string(forKey: Self.databaseStorageLocationKey),
+            if let path = Self.persistenceDefaults.string(forKey: Self.databaseStorageLocationKey),
                !path.isEmpty {
                 return URL(fileURLWithPath: path, isDirectory: true)
             }
@@ -307,9 +359,9 @@ public final class AppSettings {
         }
         set {
             if newValue == Self.defaultDatabaseStorageURL {
-                UserDefaults.standard.removeObject(forKey: Self.databaseStorageLocationKey)
+                Self.persistenceDefaults.removeObject(forKey: Self.databaseStorageLocationKey)
             } else {
-                UserDefaults.standard.set(newValue.path, forKey: Self.databaseStorageLocationKey)
+                Self.persistenceDefaults.set(newValue.path, forKey: Self.databaseStorageLocationKey)
             }
             settingsLogger.info("Database storage location set to: \(newValue.path, privacy: .public)")
             NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
@@ -319,7 +371,7 @@ public final class AppSettings {
 
     /// Whether the database storage location is using the default path.
     public var isDatabaseStorageDefault: Bool {
-        UserDefaults.standard.string(forKey: Self.databaseStorageLocationKey) == nil
+        Self.persistenceDefaults.string(forKey: Self.databaseStorageLocationKey) == nil
     }
 
     /// The shared managed storage root used for tools and databases.
@@ -698,7 +750,7 @@ public final class AppSettings {
             analystIdentityOverride = snapshot.analystIdentityOverride
             contentTextSizePreference = snapshot.contentTextSizePreference
             let data = try encoder.encode(snapshot)
-            UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
+            Self.persistenceDefaults.set(data, forKey: Self.userDefaultsKey)
             settingsLogger.info("Settings saved")
         } catch {
             settingsLogger.warning("Failed to save settings: \(error)")
@@ -712,7 +764,7 @@ public final class AppSettings {
     }
 
     private static func persistedContentTextSizePreference() -> ContentTextSizePreference {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+        guard let data = Self.persistenceDefaults.data(forKey: userDefaultsKey),
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
             return .system
         }
@@ -721,7 +773,7 @@ public final class AppSettings {
 
     /// Loads settings from UserDefaults into the shared instance.
     public static func load() {
-        let defaults = UserDefaults.standard
+        let defaults = Self.persistenceDefaults
         let hadPersistedSettings = defaults.data(forKey: userDefaultsKey) != nil
 
         if let data = defaults.data(forKey: userDefaultsKey) {
@@ -804,7 +856,7 @@ public final class AppSettings {
         } catch {
             settingsLogger.warning("Failed to reset managed storage state: \(String(describing: error), privacy: .public)")
         }
-        UserDefaults.standard.removeObject(forKey: Self.databaseStorageLocationKey)
+        Self.persistenceDefaults.removeObject(forKey: Self.databaseStorageLocationKey)
         NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
         NotificationCenter.default.post(name: .managedResourcesDidChange, object: nil)
     }

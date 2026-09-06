@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 import LungfishKit
 @testable import LungfishGenotypeUI
@@ -9,10 +9,12 @@ import LungfishKit
 final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
     func testGenBankAndFASTATextTypographyScalesWithoutChangingReaderOrScientificState() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
@@ -103,10 +105,12 @@ final class GenotypeCandidateAlleleDetailViewTests: XCTestCase {
 
     func testContentTypographyScalesCandidateTextWithoutReconfiguringScientificTracks() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()

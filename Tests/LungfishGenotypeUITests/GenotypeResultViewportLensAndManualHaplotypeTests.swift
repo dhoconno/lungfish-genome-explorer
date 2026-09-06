@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import CryptoKit
 @testable import LungfishGenotypeUI
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
@@ -2146,10 +2146,12 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
         throws
     {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()

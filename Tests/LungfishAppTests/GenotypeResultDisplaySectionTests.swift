@@ -3,7 +3,7 @@ import ViewInspector
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
 import AppKit
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 import LungfishKit
 import SwiftUI
@@ -289,10 +289,12 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
@@ -328,10 +330,12 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testContentTextSizeActionsRespectSupportedBoundsAndDoNotAnnounceNoOp() {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         let announcements = RecordingContentTextSizeAnnouncements()
         let viewModel = GenotypeResultDisplaySectionViewModel(
@@ -355,10 +359,12 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testContentTextSizeInspectorUsesStableAccessibleControls() throws {
         let settings = AppSettings.shared
-        let original = settings.contentTextSizePreference
+        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
+        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
-            settings.contentTextSizePreference = original
-            settings.save()
+            restoreSettings()
+            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
         }
         settings.contentTextSizePreference = .custom(100)
         settings.save()

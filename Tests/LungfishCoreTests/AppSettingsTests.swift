@@ -6,38 +6,85 @@ import XCTest
 @testable import LungfishCore
 
 @MainActor private var appSettingsTestsManagedStorageHomeDirectory: URL?
+@MainActor private var appSettingsTestsDefaults: UserDefaults?
+@MainActor private var appSettingsTestsSuiteName: String?
+@MainActor private var appSettingsTestsRestoreSettings: (@MainActor () -> Void)?
+@MainActor private var appSettingsTestsPreviousStorage: ManagedStorageConfigStore?
 
 final class AppSettingsTests: XCTestCase {
+    @MainActor private var defaults: UserDefaults { appSettingsTestsDefaults! }
+
     override func setUpWithError() throws {
         try super.setUpWithError()
-        MainActor.assumeIsolated {
-            // Clear any persisted settings before each test
-            UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
-            // Reset shared instance to defaults
-            AppSettings.shared.resetToDefaults()
-
+        try MainActor.assumeIsolated {
             let home = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            let suiteName = "org.lungfish.tests.AppSettings.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+            store.overrideLegacyDefaultsForTesting(defaults)
+
             appSettingsTestsManagedStorageHomeDirectory = home
-            ManagedStorageConfigStore.overrideSharedForTesting(
-                ManagedStorageConfigStore(homeDirectory: home)
-            )
+            appSettingsTestsDefaults = defaults
+            appSettingsTestsSuiteName = suiteName
+            appSettingsTestsPreviousStorage = ManagedStorageConfigStore.shared
+            ManagedStorageConfigStore.overrideSharedForTesting(store)
+            appSettingsTestsRestoreSettings = AppSettings.isolateForTesting(defaults: defaults)
+            // All persistence and storage are isolated before this reset.
+            AppSettings.shared.resetToDefaults()
         }
     }
 
     override func tearDownWithError() throws {
         MainActor.assumeIsolated {
-            ManagedStorageConfigStore.overrideSharedForTesting(nil)
-            if let managedStorageHomeDirectory = appSettingsTestsManagedStorageHomeDirectory {
-                try? FileManager.default.removeItem(at: managedStorageHomeDirectory)
+            appSettingsTestsRestoreSettings?()
+            appSettingsTestsRestoreSettings = nil
+            ManagedStorageConfigStore.overrideSharedForTesting(appSettingsTestsPreviousStorage)
+            appSettingsTestsPreviousStorage = nil
+            if let home = appSettingsTestsManagedStorageHomeDirectory {
+                try? FileManager.default.removeItem(at: home)
             }
+            if let suiteName = appSettingsTestsSuiteName {
+                appSettingsTestsDefaults?.removePersistentDomain(forName: suiteName)
+            }
+            appSettingsTestsDefaults = nil
+            appSettingsTestsSuiteName = nil
             appSettingsTestsManagedStorageHomeDirectory = nil
         }
         try super.tearDownWithError()
     }
 
     // MARK: - Default Values
+
+    @MainActor
+    func testIsolatedSettingsScopeRestoresRawValuesWithoutWritingPreviousDefaults() throws {
+        let suiteName = "org.lungfish.tests.AppSettings.nested.\(UUID().uuidString)"
+        let nestedDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { nestedDefaults.removePersistentDomain(forName: suiteName) }
+        let retainedData = Data("retained-fixture-settings".utf8)
+        defaults.set(retainedData, forKey: "com.lungfish.appSettings")
+        AppSettings.shared.defaultZoomWindow = -123
+        do {
+            let restore = AppSettings.isolateForTesting(defaults: nestedDefaults)
+            defer { restore() }
+            AppSettings.shared.defaultZoomWindow = 42_000
+            AppSettings.shared.save()
+            XCTAssertNotNil(nestedDefaults.data(forKey: "com.lungfish.appSettings"))
+        }
+        XCTAssertEqual(AppSettings.shared.defaultZoomWindow, -123)
+        XCTAssertEqual(defaults.data(forKey: "com.lungfish.appSettings"), retainedData)
+    }
+
+    @MainActor
+    func testFixtureUsesDedicatedPreferencesAndTemporaryStorage() throws {
+        XCTAssertFalse(defaults === UserDefaults.standard)
+        let home = try XCTUnwrap(appSettingsTestsManagedStorageHomeDirectory)
+        XCTAssertTrue(ManagedStorageConfigStore.shared.configURL.standardizedFileURL.path
+            .hasPrefix(home.standardizedFileURL.path + "/"))
+        // Identity only: this does not enumerate or read any preference values.
+        print("AppSettings XCTest host: process=\(ProcessInfo.processInfo.processName), bundle=\(Bundle.main.bundleIdentifier ?? "<none>")")
+    }
 
     @MainActor
     func testDefaultValues() {
@@ -211,7 +258,7 @@ final class AppSettingsTests: XCTestCase {
           "provenanceSigningPublicKeyPath": "   /tmp/key.pub   "
         }
         """
-        UserDefaults.standard.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
+        defaults.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
 
         AppSettings.load()
 
@@ -244,14 +291,14 @@ final class AppSettingsTests: XCTestCase {
     func testResetToDefaultsClearsManagedStorageBootstrapAndLegacyFallback() throws {
         let customRoot = URL(fileURLWithPath: "/tmp/custom-lungfish", isDirectory: true)
         let legacyKey = "DatabaseStorageLocation"
-        UserDefaults.standard.set("/tmp/legacy-lungfish", forKey: legacyKey)
+        defaults.set("/tmp/legacy-lungfish", forKey: legacyKey)
         try ManagedStorageConfigStore.shared.setActiveRoot(customRoot)
 
         AppSettings.shared.resetToDefaults()
 
         XCTAssertEqual(ManagedStorageConfigStore.shared.bootstrapConfigLoadState(), .missing)
         XCTAssertEqual(ManagedStorageConfigStore.shared.currentLocation().rootURL.standardizedFileURL.path, ManagedStorageConfigStore.shared.defaultLocation.rootURL.standardizedFileURL.path)
-        XCTAssertNil(UserDefaults.standard.string(forKey: legacyKey))
+        XCTAssertNil(defaults.string(forKey: legacyKey))
     }
 
     @MainActor
@@ -302,14 +349,14 @@ final class AppSettingsTests: XCTestCase {
     func testResetStorageSectionClearsManagedStorageBootstrapAndLegacyFallback() throws {
         let customRoot = URL(fileURLWithPath: "/tmp/custom-lungfish", isDirectory: true)
         let legacyKey = "DatabaseStorageLocation"
-        UserDefaults.standard.set("/tmp/legacy-lungfish", forKey: legacyKey)
+        defaults.set("/tmp/legacy-lungfish", forKey: legacyKey)
         try ManagedStorageConfigStore.shared.setActiveRoot(customRoot)
 
         AppSettings.shared.resetSection(.storage)
 
         XCTAssertEqual(ManagedStorageConfigStore.shared.bootstrapConfigLoadState(), .missing)
         XCTAssertEqual(ManagedStorageConfigStore.shared.currentLocation().rootURL.standardizedFileURL.path, ManagedStorageConfigStore.shared.defaultLocation.rootURL.standardizedFileURL.path)
-        XCTAssertNil(UserDefaults.standard.string(forKey: legacyKey))
+        XCTAssertNil(defaults.string(forKey: legacyKey))
     }
 
     @MainActor
@@ -319,15 +366,17 @@ final class AppSettingsTests: XCTestCase {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        store.overrideLegacyDefaultsForTesting(defaults)
         try FileManager.default.createDirectory(
             at: store.configURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try Data("not-json".utf8).write(to: store.configURL, options: [.atomic])
 
+        let previousStore = ManagedStorageConfigStore.shared
         ManagedStorageConfigStore.overrideSharedForTesting(store)
-        defer { ManagedStorageConfigStore.overrideSharedForTesting(nil) }
+        defer { ManagedStorageConfigStore.overrideSharedForTesting(previousStore) }
 
         let settings = AppSettings.shared
         XCTAssertEqual(settings.managedStorageDisplayState, .malformedBootstrap)
@@ -340,7 +389,7 @@ final class AppSettingsTests: XCTestCase {
     @MainActor
     func testLoadFromPartialSnapshotUsesDefaultsForMissingFields() {
         let partialJSON = #"{"defaultZoomWindow":42000}"#
-        UserDefaults.standard.set(partialJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
+        defaults.set(partialJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
 
         AppSettings.load()
 
@@ -376,7 +425,7 @@ final class AppSettingsTests: XCTestCase {
           "contentTextSizePreference": 137
         }
         """
-        UserDefaults.standard.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
+        defaults.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
 
         AppSettings.load()
         let settings = AppSettings.shared
