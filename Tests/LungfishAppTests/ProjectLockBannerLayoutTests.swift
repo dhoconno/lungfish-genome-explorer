@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class ProjectLockBannerLayoutTests: XCTestCase {
-    func testWarningStaysBelowTitlebarAndRemovalRestoresFullSizeLayout() throws {
+    func testLockWarningDoesNotAddTechnicalHeaderBanner() throws {
         let session = ProjectSession()
         let split = MainSplitViewController(projectSession: session)
         let controller = MainWindowContentViewController(projectSession: session, splitViewController: split)
@@ -28,12 +28,9 @@ final class ProjectLockBannerLayoutTests: XCTestCase {
             defer { widthConstraint.isActive = false }
             controller.updateProjectLockWarningBanner(with: warning)
             controller.view.layoutSubtreeIfNeeded()
-            let banner = try XCTUnwrap(descendant(controller.view, identifier: MainWindowAccessibilityID.projectLockBanner))
-            let bannerRect = banner.convert(banner.bounds, to: nil)
-            XCTAssertGreaterThan(window.contentView!.bounds.height, window.contentLayoutRect.height)
-            XCTAssertLessThanOrEqual(bannerRect.maxY, window.contentLayoutRect.maxY + 0.5)
-            XCTAssertGreaterThanOrEqual(bannerRect.height, 36)
-            XCTAssertEqual(bannerRect.width, width, accuracy: 0.5)
+            XCTAssertNil(descendant(controller.view, identifier: MainWindowAccessibilityID.projectLockBanner))
+            XCTAssertEqual(split.view.convert(split.view.bounds, to: nil).maxY,
+                           controller.view.convert(controller.view.bounds, to: nil).maxY, accuracy: 0.5)
 
             controller.updateProjectLockWarningBanner(with: .unlocked(projectURL: nil))
             controller.view.layoutSubtreeIfNeeded()

@@ -40,6 +40,7 @@ public struct ProjectLockRecord: Codable, Sendable, Equatable {
     public let mode: String
     public let user: String
     public let host: String
+    public let machineIdentifier: String?
     public let pid: Int
     public let processStartTime: String
     public let cwd: String
@@ -56,7 +57,8 @@ public struct ProjectLockRecord: Codable, Sendable, Equatable {
         pid: Int,
         processStartTime: String,
         cwd: String,
-        createdAt: String
+        createdAt: String,
+        machineIdentifier: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.toolName = toolName
@@ -65,6 +67,7 @@ public struct ProjectLockRecord: Codable, Sendable, Equatable {
         self.mode = mode
         self.user = user
         self.host = host
+        self.machineIdentifier = machineIdentifier
         self.pid = pid
         self.processStartTime = processStartTime
         self.cwd = cwd
@@ -89,7 +92,8 @@ public struct ProjectLockRecord: Codable, Sendable, Equatable {
             pid: pid,
             processStartTime: ProjectProcessInspector.processStartTime(for: pid) ?? ProjectLockMetadata.nowString(),
             cwd: FileManager.default.currentDirectoryPath,
-            createdAt: ProjectLockMetadata.nowString()
+            createdAt: ProjectLockMetadata.nowString(),
+            machineIdentifier: ProjectLockMetadata.machineIdentifier
         )
     }
 }
@@ -194,11 +198,11 @@ public struct ProjectLockManager {
     }
 
     public func status(of record: ProjectLockRecord) -> ProjectLockStatus {
-        guard record.pid > 0 else {
+        guard record.pid > 0, record.pid <= Int(Int32.max) else {
             return .unknown
         }
 
-        guard ProjectLockMetadata.isLocalHost(record.host) else {
+        guard ProjectLockMetadata.isLocalMachine(record) else {
             return .unknown
         }
 
@@ -220,9 +224,13 @@ public struct ProjectLockManager {
     }
 
     public func isOwnedByCurrentProcess(_ record: ProjectLockRecord) -> Bool {
-        record.user == ProjectLockMetadata.currentUser
-            && ProjectLockMetadata.isLocalHost(record.host)
-            && record.pid == Int(ProcessInfo.processInfo.processIdentifier)
+        guard record.user == ProjectLockMetadata.currentUser,
+              ProjectLockMetadata.isLocalMachine(record),
+              record.pid == Int(ProcessInfo.processInfo.processIdentifier) else {
+            return false
+        }
+        return record.processStartTime.isEmpty
+            || ProjectProcessInspector.processStartTime(for: record.pid) == record.processStartTime
     }
 
     public func canRemoveWithoutForce(_ record: ProjectLockRecord) -> Bool {
@@ -230,7 +238,7 @@ public struct ProjectLockManager {
             return true
         }
         guard record.user == ProjectLockMetadata.currentUser,
-              ProjectLockMetadata.isLocalHost(record.host) else {
+              ProjectLockMetadata.isLocalMachine(record) else {
             return false
         }
         return status(of: record) == .stale
@@ -322,6 +330,28 @@ enum ProjectProcessInspector {
 }
 
 enum ProjectLockMetadata {
+    /// Native host UUID stays stable when VPN/DNS changes the displayed hostname.
+    /// Failure leaves new records compatible with the legacy hostname check.
+    static let machineIdentifier: String? = {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        var timeout = timespec(tv_sec: 1, tv_nsec: 0)
+        let result = bytes.withUnsafeMutableBufferPointer {
+            gethostuuid($0.baseAddress!, &timeout)
+        }
+        guard result == 0, bytes.contains(where: { $0 != 0 }) else { return nil }
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+                           bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11],
+                           bytes[12], bytes[13], bytes[14], bytes[15])).uuidString
+    }()
+
+    static func isLocalMachine(_ record: ProjectLockRecord) -> Bool {
+        if let recordedIdentifier = record.machineIdentifier {
+            guard let machineIdentifier else { return false }
+            return recordedIdentifier == machineIdentifier
+        }
+        return isLocalHost(record.host)
+    }
+
     static var currentUser: String {
         let nsUser = NSUserName()
         if !nsUser.isEmpty {

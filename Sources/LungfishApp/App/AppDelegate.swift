@@ -480,7 +480,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         split.viewerController.showProgress("Opening \(projectURL.lastPathComponent)...")
         let prepare = split.projectPreparation
         split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in
-            defer { if snapshot != nil { self?.finishProjectRestoration() } }
+            defer {
+                if session.documentGeneration == generation { split?.projectOpenTask = nil }
+                if snapshot != nil { self?.finishProjectRestoration() }
+            }
             let preparation: Result<ProjectSession.PreparedProject, Error>
             var recoveryIdentityValidated = expectedRootIdentity == nil
             if let expectedRootIdentity {
@@ -503,7 +506,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             guard let self, let controller, let split, !Task.isCancelled,
                   session.documentGeneration == generation,
                   split.canCommitDisplayRequest(token, identity: identity) else { return }
-            split.projectOpenTask = nil
             split.viewerController.hideProgress()
             if expectedRootIdentity != nil, case .failure(let error) = preparation,
                !recoveryIdentityValidated || projectURL.pathExtension.lowercased() == ProjectFile.fileExtension {
@@ -519,7 +521,45 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 return
             }
             do {
-                let result = try self.projectOpenCoordinator.completePreparedOpen(preparation, at: projectURL, using: session, generation: generation)
+                let resolvedPreparation: Result<ProjectSession.PreparedProject, Error>
+                if case .success(let prepared) = preparation {
+                    do {
+                        guard let resolved = try await ProjectLockOpenResolution.resolve(prepared, at: projectURL,
+                            isCurrent: {
+                                session.documentGeneration == generation
+                                    && split.canCommitDisplayRequest(token, identity: identity)
+                            }, validateLocation: {
+                                if let expectedRootIdentity {
+                                    let actual = try await Task.detached(priority: .utility) {
+                                        try ProjectFilesystemRefreshCoordinator.rootIdentity(at: projectURL)
+                                    }.value
+                                    guard actual == expectedRootIdentity else {
+                                        throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey:
+                                            "The project folder changed while resolving its lock. Locate the original folder and try again."])
+                                    }
+                                }
+                            }, choose: { state in
+                                await ProjectLockResolutionDialog.choose(for: state, on: controller.window)
+                            }) else { return }
+                        guard !Task.isCancelled, session.documentGeneration == generation,
+                              split.canCommitDisplayRequest(token, identity: identity) else { return }
+                        resolvedPreparation = .success(resolved)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        guard session.documentGeneration == generation else { return }
+                        let alert = NSAlert()
+                        alert.messageText = "Could Not Resolve Project Lock"
+                        alert.informativeText = error.localizedDescription
+                        alert.addButton(withTitle: "OK")
+                        if let window = controller.window { alert.beginSheetModal(for: window, completionHandler: nil) }
+                        return
+                    }
+                } else {
+                    resolvedPreparation = preparation
+                }
+                split.projectOpenTask = nil
+                let result = try self.projectOpenCoordinator.completePreparedOpen(resolvedPreparation, at: projectURL, using: session, generation: generation)
                 // Session acceptance and all matching UI state commit in this turn.
                 if self.mainWindowController === controller { self.workingDirectoryURL = projectURL }
                 self.completeProjectOpen(result, in: controller, previousProjectURL: previousProjectURL, restoring: snapshot ?? recoverySnapshot)

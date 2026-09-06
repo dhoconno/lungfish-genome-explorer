@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 @testable import LungfishCore
 import XCTest
@@ -154,6 +155,79 @@ final class ProjectLockTests: XCTestCase {
         XCTAssertTrue(collector.errors.isEmpty, "Unexpected acquisition errors: \(collector.errors)")
         XCTAssertEqual(collector.winningModes.count, 1)
         XCTAssertEqual(try ProjectLockManager().readLock(at: lockURL)?.mode, collector.winningModes.first)
+    }
+
+    func testCurrentRecordStoresStableMachineIdentifier() throws {
+        let record = ProjectLockRecord.current(projectURL: tempDir, mode: "exclusive", toolName: "test", appVersion: "test")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+        XCTAssertEqual(object["machineIdentifier"] as? String, try nativeMachineIdentifier())
+    }
+
+    func testStableMachineIdentitySurvivesHostnameChangeForActiveOwner() throws {
+        let record = try identityRecord(host: "old-vpn-host.invalid", machineIdentifier: nativeMachineIdentifier())
+        let manager = ProjectLockManager()
+        XCTAssertEqual(manager.status(of: record), .active)
+        XCTAssertTrue(manager.isOwnedByCurrentProcess(record))
+        XCTAssertTrue(manager.canRemoveWithoutForce(record))
+    }
+
+    func testStableMachineIdentitySurvivesHostnameChangeForStaleProcess() throws {
+        let record = try identityRecord(host: "old-vpn-host.invalid", machineIdentifier: nativeMachineIdentifier(), pid: 999_999)
+        XCTAssertEqual(ProjectLockManager().status(of: record), .stale)
+        XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
+        XCTAssertTrue(ProjectLockManager().canRemoveWithoutForce(record))
+    }
+
+    func testForeignMachineDoesNotBecomeLocalThroughMatchingHostnameAndPID() throws {
+        let record = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: "foreign-machine")
+        XCTAssertEqual(ProjectLockManager().status(of: record), .unknown)
+        XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
+        XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(record))
+    }
+
+    func testReusedPIDIsStaleAndNotOwnedByCurrentProcess() throws {
+        let record = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: nativeMachineIdentifier(), processStartTime: "previous process start")
+        XCTAssertEqual(ProjectLockManager().status(of: record), .stale)
+        XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
+        XCTAssertTrue(ProjectLockManager().canRemoveWithoutForce(record))
+    }
+
+    func testLegacyRecordWithoutMachineIdentifierRetainsHostnameRules() throws {
+        let local = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: nil)
+        let foreign = try identityRecord(host: "old-vpn-host.invalid", machineIdentifier: nil)
+        XCTAssertEqual(ProjectLockManager().status(of: local), .active)
+        XCTAssertTrue(ProjectLockManager().isOwnedByCurrentProcess(local))
+        XCTAssertEqual(ProjectLockManager().status(of: foreign), .unknown)
+        XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(foreign))
+        let data = try JSONEncoder().encode(local)
+        XCTAssertEqual(try JSONDecoder().decode(ProjectLockRecord.self, from: data), local)
+    }
+
+    func testInvalidPIDsRemainUnknownWithoutIntegerConversionTrap() throws {
+        for pid in [Int.min, -1, 0, Int(Int32.max) + 1, Int.max] {
+            let record = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: nil, pid: pid)
+            XCTAssertEqual(ProjectLockManager().status(of: record), .unknown)
+            XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
+            XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(record))
+        }
+    }
+
+    private func nativeMachineIdentifier() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        var timeout = timespec(tv_sec: 1, tv_nsec: 0)
+        let result = bytes.withUnsafeMutableBufferPointer { gethostuuid($0.baseAddress!, &timeout) }
+        XCTAssertEqual(result, 0)
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15])).uuidString
+    }
+
+    private func identityRecord(host: String, machineIdentifier: String?, pid: Int = Int(ProcessInfo.processInfo.processIdentifier), processStartTime: String? = nil) throws -> ProjectLockRecord {
+        let record = ProjectLockRecord.current(projectURL: tempDir, mode: "exclusive", toolName: "test", appVersion: "test")
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+        object["host"] = host
+        object["machineIdentifier"] = machineIdentifier
+        object["pid"] = pid
+        if let processStartTime { object["processStartTime"] = processStartTime }
+        return try JSONDecoder().decode(ProjectLockRecord.self, from: JSONSerialization.data(withJSONObject: object))
     }
 
     private func makeRecord(projectURL: URL, mode: String) -> ProjectLockRecord {

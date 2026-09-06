@@ -19,6 +19,12 @@ struct ProjectLockWarningPresentation: Equatable, Sendable {
 
         if let record = state.lockRecord, let lockStatus = state.lockStatus {
             let createdAt = record.createdAt.isEmpty ? "an unknown time" : record.createdAt
+            if lockStatus == .unknown {
+                detail = """
+                Lungfish could not verify whether a previous session is still using this project. Last recorded owner: \(record.user)@\(record.host), pid \(record.pid), created \(createdAt). Confirm that session has ended before clearing the project lock.
+                """
+                return
+            }
             detail = """
             \(record.toolName) has an \(lockStatus.rawValue) \(record.mode) lock from \(record.user)@\(record.host) pid \(record.pid), created \(createdAt). Project-writing workflows are blocked to protect shared storage.
             """

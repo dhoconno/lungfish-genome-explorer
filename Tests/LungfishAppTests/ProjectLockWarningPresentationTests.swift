@@ -41,6 +41,21 @@ final class ProjectLockWarningPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.detail.contains("2026-05-14T01:03:00Z"))
     }
 
+    func testUnknownOwnerExplainsUncertaintyWithoutClaimingAnActiveWriter() throws {
+        let record = ProjectLockRecord(schemaVersion: 1, toolName: "Lungfish ProjectStore",
+            appVersion: "2026.9.8", projectPath: "/tmp/Locked.lungfish", mode: "write",
+            user: "dho", host: "previous-vpn.example", pid: 15977,
+            processStartTime: "yesterday", cwd: "/", createdAt: "yesterday")
+        let state = ProjectOpenWarningState(projectURL: URL(fileURLWithPath: record.projectPath),
+            lockRecord: record, lockStatus: .unknown, readErrorDescription: nil)
+        let presentation = try XCTUnwrap(ProjectLockWarningPresentation(state: state))
+
+        XCTAssertTrue(presentation.detail.contains("could not verify whether a previous session"))
+        XCTAssertTrue(presentation.detail.contains("previous-vpn.example"))
+        XCTAssertFalse(presentation.detail.contains("has an unknown write lock"))
+        XCTAssertTrue(state.isReadOnlyRecommended)
+    }
+
     func testUnreadableLockFormatsReadError() throws {
         let state = ProjectOpenWarningState(
             projectURL: URL(fileURLWithPath: "/tmp/Broken.lungfish"),

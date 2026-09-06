@@ -422,13 +422,51 @@ public final class ProjectStore: @unchecked Sendable {
         let manager = ProjectLockManager()
         let lockURL = ProjectLockManager.lockURL(for: url)
         let record = ProjectLockRecord.current(projectURL: url, mode: "write", toolName: "Lungfish ProjectStore", appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")
-        guard case .missing = try manager.readLockResult(at: lockURL),
-              try manager.acquireLock(record, to: lockURL) else {
-            throw ProjectStoreError.databaseError(message: "Project has a writer lock; open read-only or explicitly resolve the existing lock.")
-        }
+        try acquireWriterLockRecord(record, projectURL: url, lockURL: lockURL, manager: manager)
         let lease = ProjectStoreWriterLease(lockURL: lockURL, record: record, synchronization: synchronization)
         synchronization.writerLease = lease
         return lease
+    }
+
+    private static func acquireWriterLockRecord(
+        _ record: ProjectLockRecord,
+        projectURL: URL,
+        lockURL: URL,
+        manager: ProjectLockManager
+    ) throws {
+        let refusal = ProjectStoreError.databaseError(message: "Project has a writer lock; open read-only or explicitly resolve the existing lock.")
+        switch try manager.readLockResult(at: lockURL) {
+        case .missing:
+            guard try manager.acquireLock(record, to: lockURL) else { throw refusal }
+        case .corrupted:
+            throw refusal
+        case .valid(let expected):
+            guard manager.status(of: expected) == .stale,
+                  manager.canRemoveWithoutForce(expected) else { throw refusal }
+
+            // Share the CLI replacement gate. Never reclaim an occupied gate:
+            // checking its age and unlinking it would race another contender.
+            let gateURL = ProjectLockManager.replacementLockURL(forLockAt: lockURL)
+            let gateRecord = ProjectLockRecord.current(projectURL: projectURL, mode: "lock-replacement",
+                toolName: "Lungfish ProjectStore", appVersion: record.appVersion)
+            guard try manager.acquireLock(gateRecord, to: gateURL) else {
+                throw ProjectStoreError.databaseError(message: "Project lock replacement is already in progress; open read-only or explicitly resolve the replacement lock.")
+            }
+            defer {
+                if (try? manager.readLock(at: gateURL)) == gateRecord {
+                    try? manager.removeLockIfPresent(at: gateURL)
+                }
+            }
+
+            guard case .valid(let latest) = try manager.readLockResult(at: lockURL),
+                  latest == expected,
+                  manager.status(of: latest) == .stale,
+                  manager.canRemoveWithoutForce(latest) else { throw refusal }
+            try manager.removeLockIfPresent(at: lockURL)
+            // Older clients may create a primary lock without consulting the
+            // replacement gate. O_EXCL makes us lose safely if one wins this gap.
+            guard try manager.acquireLock(record, to: lockURL) else { throw refusal }
+        }
     }
 
     deinit {

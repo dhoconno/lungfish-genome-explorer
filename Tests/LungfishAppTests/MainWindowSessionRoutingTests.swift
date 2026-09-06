@@ -37,7 +37,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         XCTAssertEqual(second.projectSession.activeDocument?.name, "right")
     }
 
-    func testReadOnlyProjectSessionShowsProjectLockBanner() throws {
+    func testReadOnlyProjectSessionRemainsProtectedWithoutHeaderBanner() throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReadOnlyBanner-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -74,16 +74,10 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         controller.mainSplitViewController.applyProjectSessionState()
 
         let root = try XCTUnwrap(controller.window?.contentView)
-        let banner = try XCTUnwrap(root.descendant(matching: MainWindowAccessibilityID.projectLockBanner))
-        let title = try XCTUnwrap(root.descendant(matching: MainWindowAccessibilityID.projectLockBannerTitle) as? NSTextField)
-        let detail = try XCTUnwrap(root.descendant(matching: MainWindowAccessibilityID.projectLockBannerDetail) as? NSTextField)
+        XCTAssertNil(root.descendant(matching: MainWindowAccessibilityID.projectLockBanner))
+        XCTAssertTrue(session.isReadOnlyRecommended)
+        XCTAssertEqual(session.project?.accessMode, .readOnly)
 
-        XCTAssertFalse(banner.isHidden)
-        XCTAssertEqual(title.stringValue, "Project opened read-only")
-        XCTAssertTrue(detail.stringValue.contains("exclusive"))
-        XCTAssertTrue(detail.stringValue.contains("active"))
-        XCTAssertTrue(detail.stringValue.contains("dho@\(ProcessInfo.processInfo.hostName)"))
-        XCTAssertTrue(detail.stringValue.contains("pid \(ProcessInfo.processInfo.processIdentifier)"))
     }
 
     func testUnlockedProjectSessionHidesProjectLockBanner() throws {

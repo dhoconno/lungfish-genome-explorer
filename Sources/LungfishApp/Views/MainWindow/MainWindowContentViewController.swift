@@ -19,11 +19,6 @@ final class MainWindowContentViewController: NSViewController {
         return stack
     }()
 
-    private let bannerView = ProjectLockWarningBannerView()
-    private var bannerHorizontalConstraints: [NSLayoutConstraint] = []
-    private var fullContentTopConstraint: NSLayoutConstraint!
-    private var bannerSafeTopConstraint: NSLayoutConstraint!
-
     init(projectSession: ProjectSession, splitViewController: MainSplitViewController) {
         self.projectSession = projectSession
         self.splitViewController = splitViewController
@@ -45,12 +40,10 @@ final class MainWindowContentViewController: NSViewController {
         splitViewController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         splitViewController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        fullContentTopConstraint = stackView.topAnchor.constraint(equalTo: view.topAnchor)
-        bannerSafeTopConstraint = stackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            fullContentTopConstraint,
+            stackView.topAnchor.constraint(equalTo: view.topAnchor),
             stackView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             splitViewController.view.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
             splitViewController.view.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
@@ -60,35 +53,7 @@ final class MainWindowContentViewController: NSViewController {
     }
 
     func updateProjectLockWarningBanner(with state: ProjectOpenWarningState? = nil) {
-        guard isViewLoaded else { return }
-
-        let warningState = state ?? projectSession.openWarningState
-        guard let presentation = ProjectLockWarningPresentation(state: warningState) else {
-            removeBannerIfNeeded()
-            return
-        }
-
-        bannerView.update(with: presentation)
-        if bannerView.superview == nil {
-            fullContentTopConstraint.isActive = false
-            bannerSafeTopConstraint.isActive = true
-            stackView.insertArrangedSubview(bannerView, at: 0)
-            if bannerHorizontalConstraints.isEmpty {
-                bannerHorizontalConstraints = [
-                    bannerView.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
-                    bannerView.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
-                ]
-            }
-            NSLayoutConstraint.activate(bannerHorizontalConstraints)
-        }
-    }
-
-    private func removeBannerIfNeeded() {
-        guard bannerView.superview != nil else { return }
-        NSLayoutConstraint.deactivate(bannerHorizontalConstraints)
-        stackView.removeArrangedSubview(bannerView)
-        bannerView.removeFromSuperview()
-        bannerSafeTopConstraint.isActive = false
-        fullContentTopConstraint.isActive = true
+        // Lock choices are presented before accepting a project. Read-only state
+        // remains visible in the window title without a technical header banner.
     }
 }
