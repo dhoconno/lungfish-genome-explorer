@@ -22,9 +22,9 @@ class CIWorkflowTests(unittest.TestCase):
         requirements = (ROOT / "scripts/requirements-test.txt").read_text()
         self.assertIn("PyYAML==", requirements)
         self.assertIn("--hash=sha256:", requirements)
-        for job_name in ("fast", "build-smoke"):
+        for job_name in ("fast", "full"):
             install = next(step for step in wf["jobs"][job_name]["steps"]
-                           if step.get("name") == "Install script test dependencies")
+                           if "-r scripts/requirements-test.txt" in step.get("run", ""))
             self.assertIn("--require-hashes", install["run"], job_name)
             self.assertIn("scripts/requirements-test.txt", install["run"], job_name)
             self.assertNotIn("--upgrade pip", install["run"])
@@ -45,84 +45,35 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("--compile-error-control", steps)
         self.assertTrue(any(step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "always()" for step in job["steps"]))
 
-    def test_fast_gate_repairs_xcode_lockfile_before_and_after_xcodebuild_then_checks_afterward(
-        self,
-    ):
-        repair = "bash scripts/check-package-resolved-consistency.sh --repair"
-        xcodebuild = "xcodebuild -project Lungfish.xcodeproj -scheme Lungfish"
-        check = "bash scripts/check-package-resolved-consistency.sh"
+    def test_portable_debug_uses_one_coordinator_build(self):
+        job = yaml_load(ROOT / ".github/workflows/ci.yml")["jobs"]["build-smoke"]
+        runs = [step.get("run", "") for step in job["steps"]]
+        self.assertEqual(sum("release.py debug --portable --jobs 4" in run for run in runs), 1)
+        self.assertFalse(any("swift build" in run or "xcodebuild" in run for run in runs))
+        self.assertIn("inputs.diagnostic == 'portable-debug'", job["if"])
 
-        self.assertIn(repair, self.workflow)
-        repair_positions = [
-            index
-            for index in range(len(self.workflow))
-            if self.workflow.startswith(repair, index)
-        ]
-        self.assertGreaterEqual(len(repair_positions), 2)
-        first_repair, second_repair = repair_positions[:2]
-        final_check = self.workflow.index(check, second_repair + len(repair))
-        self.assertLess(self.workflow.index("run: swift package resolve"), first_repair)
-        self.assertLess(first_repair, self.workflow.index(xcodebuild))
-        self.assertLess(self.workflow.index(xcodebuild), second_repair)
-        self.assertLess(second_repair, final_check)
+    def test_automatic_gate_is_compact_and_needs_no_managed_environment(self):
+        job = yaml_load(ROOT / ".github/workflows/ci.yml")["jobs"]["fast"]
+        runs = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertNotIn("discover -s scripts/tests", runs)
+        self.assertNotIn("tools update", runs)
+        self.assertNotIn("conda", runs)
+        self.assertIn("scripts.tests.test_release_contract", runs)
+        self.assertIn("scripts.tests.test_gate_profile_evidence", runs)
+        self.assertIn("scripts/check-package-resolved-consistency.sh", runs)
 
-    def test_fast_gate_installs_native_tools_before_smoke_package_tests(self):
-        install_tools = "brew install htslib samtools seqkit"
-        htslib_link = 'ln -sf "$(brew --prefix htslib)/bin/bgzip" "$HOME/.lungfish/conda/envs/htslib/bin/bgzip"'
-        samtools_link = 'ln -sf "$(brew --prefix samtools)/bin/samtools" "$HOME/.lungfish/conda/envs/samtools/bin/samtools"'
-        seqkit_link = 'ln -sf "$(brew --prefix seqkit)/bin/seqkit" "$HOME/.lungfish/conda/envs/seqkit/bin/seqkit"'
-        smoke_tests = "swift test --filter"
-
-        self.assertIn(install_tools, self.workflow)
-        self.assertIn(htslib_link, self.workflow)
-        self.assertIn(samtools_link, self.workflow)
-        self.assertIn(seqkit_link, self.workflow)
-        self.assertLess(
-            self.workflow.index(install_tools), self.workflow.index(htslib_link)
-        )
-        self.assertLess(
-            self.workflow.index(htslib_link), self.workflow.index(smoke_tests)
-        )
-        self.assertLess(
-            self.workflow.index(samtools_link), self.workflow.index(smoke_tests)
-        )
-        self.assertLess(
-            self.workflow.index(seqkit_link), self.workflow.index(smoke_tests)
-        )
-
-    def test_full_suite_provisions_the_manifest_toolset_and_python_used_by_unfiltered_tests(
-        self,
-    ):
+    def test_extended_and_headless_are_independent_opt_in_catalog_profiles(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["full"]
-        steps = "\n".join(step.get("run", "") for step in job["steps"])
-
-        self.assertEqual(job["needs"], ["fast", "toolset-conformance"])
-        self.assertIn("swift build --product lungfish-cli", steps)
-        self.assertIn("tools update --apply --yes --required-only", steps)
-        self.assertIn("--require-hashes --only-binary=:all: -r scripts/requirements-parity.txt", steps)
-        self.assertIn("GITHUB_PATH", steps)
-
-        cache_steps = [
-            step
-            for step in job["steps"]
-            if step.get("uses", "").startswith("actions/cache")
-        ]
-        self.assertEqual(len(cache_steps), 1)
-        self.assertIn("~/.lungfish/conda", cache_steps[0]["with"]["path"])
-        self.assertIn("manifest.outputs.hash", cache_steps[0]["with"]["key"])
-
-        full_suite = next(
-            index
-            for index, step in enumerate(job["steps"])
-            if step.get("name") == "Run full package tests"
-        )
-        provisioning = next(
-            index
-            for index, step in enumerate(job["steps"])
-            if step.get("name") == "Provision required tools"
-        )
-        self.assertLess(provisioning, full_suite)
+        runs = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertNotIn("needs", job)
+        self.assertIn("inputs.diagnostic == 'headless'", job["if"])
+        self.assertIn("inputs.diagnostic == 'extended'", job["if"])
+        self.assertIn('scripts/test.py run --profile "$DIAGNOSTIC_PROFILE"', runs)
+        self.assertNotIn("tools update", runs)
+        self.assertNotIn("swift test", runs)
+        self.assertNotIn("conda", runs)
+        self.assertEqual(wf[True]["workflow_dispatch"]["inputs"]["diagnostic"]["default"], "none")
 
     def test_toolset_conformance_job_exists_and_is_dispatch_only(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -131,7 +82,7 @@ class CIWorkflowTests(unittest.TestCase):
         steps = " ".join(step.get("run", "") for step in job["steps"])
         self.assertIn("tools update --apply --yes --required-only", steps)
         self.assertIn("LUNGFISH_REQUIRE_TOOLS", steps)
-        self.assertIn("full-suite-gate.sh --require-tools", steps)
+        self.assertIn("scripts/test.py run --profile tool-conformance --require-tools", steps)
 
     def test_toolset_conformance_provisions_conformance_packs_and_viral_db(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -148,21 +99,13 @@ class CIWorkflowTests(unittest.TestCase):
             self.assertIn(f"conda install --pack {pack}", steps)
         self.assertIn("conda db download Viral", steps)
 
-    def test_toolset_conformance_filter_covers_the_conformance_allowlist(self):
+    def test_toolset_conformance_uses_canonical_catalog_selection(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
-        steps = " ".join(step.get("run", "") for step in job["steps"])
-        expected_filter = (
-            "Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|"
-            "NativeToolRunnerTests|MAFFTAlignmentPipelineTests|"
-            "ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|"
-            "BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|"
-            "FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|"
-            "GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|"
-            "FastqGenotypingCommandTests|PrimerTrimThenIVarTests|"
-            "ExtractReadsByIdBAMProcessTests"
-        )
-        self.assertIn(expected_filter, steps)
+        runs = " ".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("scripts/test.py run --profile tool-conformance --require-tools", runs)
+        self.assertIn("inputs.diagnostic == 'tool-conformance'", job["if"])
+        self.assertNotIn("--filter", runs)
 
     def test_conformance_skip_policy_has_no_suite_exemptions(self):
         # Task01 deliberately removed the old MAFFT fixture-skip exception.
@@ -204,7 +147,7 @@ class CIWorkflowTests(unittest.TestCase):
         gate_index = next(
             index
             for index, run in enumerate(runs)
-            if "full-suite-gate.sh --require-tools" in run
+            if "scripts/test.py run --profile tool-conformance --require-tools" in run
         )
         for needle in (
             "conda install --pack variant-calling",
@@ -270,7 +213,7 @@ class CIWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(len(upload_steps), 1)
         self.assertEqual(upload_steps[0].get("if"), "always()")
-        self.assertEqual(upload_steps[0]["with"]["path"], ".build/gate-logs")
+        self.assertEqual(upload_steps[0]["with"]["path"], ".build/tool-conformance-evidence")
 
     def test_main_push_is_fast_and_release_tags_do_not_start_blocking_ci(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -285,7 +228,6 @@ class CIWorkflowTests(unittest.TestCase):
     def test_advisory_build_jobs_resolve_the_supported_xcode_range(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         expected_jobs = {
-            "build-smoke",
             "full",
             "toolset-conformance",
         }

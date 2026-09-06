@@ -2,12 +2,18 @@
 """Strict loader and command-line access for the Lungfish release contract."""
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
+import unicodedata
 from types import MappingProxyType
 from typing import Any, Mapping, NoReturn
+
+try:
+    from release_identity import PublicIdentity, legacy_identity, validate_runtime_contract
+except ModuleNotFoundError:
+    from scripts.release.release_identity import PublicIdentity, legacy_identity, validate_runtime_contract
 
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "config" / "release-contract.json"
@@ -119,6 +125,8 @@ class GateContract:
     channels: Mapping[str, tuple[GateStep, ...]]
     appSmokeTests: tuple[str, ...]
     appSmokeAccount: str
+    dependencyPolicy: str = "installed"
+    appSmokeRequired: bool = True
 
     def for_channel(self, name: str) -> tuple[GateStep, ...]:
         try:
@@ -131,6 +139,8 @@ class GateContract:
             "focusedReleaseTests": list(self.focusedReleaseTests),
             "appSmokeTests": list(self.appSmokeTests),
             "appSmokeAccount": self.appSmokeAccount,
+            "dependencyPolicy": self.dependencyPolicy,
+            "appSmokeRequired": self.appSmokeRequired,
             "channels": {
                 name: [step.to_dict() for step in steps]
                 for name, steps in self.channels.items()
@@ -145,6 +155,8 @@ class ReleaseContract:
     buildProfiles: Mapping[str, BuildProfileContract]
     toolchain: ToolchainContract
     gates: GateContract
+    identity: PublicIdentity = field(default_factory=legacy_identity)
+    sourceRoot: Path | None = None
 
     def channel(self, name: str) -> ChannelContract:
         try:
@@ -161,6 +173,7 @@ class ReleaseContract:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schemaVersion": self.schemaVersion,
+            "identity": self.identity.to_dict(),
             "channels": {
                 name: channel.to_dict() for name, channel in self.channels.items()
             },
@@ -199,6 +212,13 @@ def _require_type(value: Any, expected_type: type, location: str) -> None:
         raise ValueError(f"{location} must be {expected_type.__name__}")
 
 
+def _require_leaf_filename(value: str, suffix: str, location: str) -> None:
+    if (not value or value != value.strip() or len(value.encode()) > 255
+            or any(character in "/\\:" or unicodedata.category(character) in {"Cc", "Cf"} for character in value)
+            or value in {".", ".."} or not value.endswith(suffix) or len(value) <= len(suffix)):
+        raise ValueError(f"{location} must be a safe leaf filename ending in {suffix}")
+
+
 def _parse_channel(name: str, raw: Any) -> ChannelContract:
     value = _require_object(raw, f"channel {name}")
     _require_fields(value, CHANNEL_FIELDS, f"channel {name}")
@@ -220,6 +240,10 @@ def _parse_channel(name: str, raw: Any) -> ChannelContract:
         raise ValueError(
             f"channel {name} legacy bridge release and filename must both be set or empty"
         )
+    _require_leaf_filename(value["appBundleFilename"], ".app", f"channel {name}.appBundleFilename")
+    _require_leaf_filename(value["appcastFilename"], ".xml", f"channel {name}.appcastFilename")
+    if value["legacyBridgeAppcastFilename"]:
+        _require_leaf_filename(value["legacyBridgeAppcastFilename"], ".xml", f"channel {name}.legacyBridgeAppcastFilename")
     return ChannelContract(**value)
 
 
@@ -240,6 +264,7 @@ def _parse_build_profile(name: str, raw: Any) -> BuildProfileContract:
         raise ValueError(
             f"build profile {name}.releaseChannel must equal its profile name"
         )
+    _require_leaf_filename(value["appBundleFilename"], ".app", f"build profile {name}.appBundleFilename")
     return BuildProfileContract(**value)
 
 
@@ -259,7 +284,7 @@ def _parse_toolchain(raw: Any) -> ToolchainContract:
 
 def _parse_gates(raw: Any) -> GateContract:
     value = _require_object(raw, "gates")
-    _require_fields(value, GATE_FIELDS, "gates")
+    _require_fields(value, GATE_FIELDS | (set(value) & {"dependencyPolicy", "appSmokeRequired"}), "gates")
     modules = value["focusedReleaseTests"]
     if not isinstance(modules, list) or not modules:
         raise ValueError("gates.focusedReleaseTests must be a nonempty array")
@@ -288,7 +313,7 @@ def _parse_gates(raw: Any) -> GateContract:
             _require_type(
                 step["requireTools"], bool, f"gate {name}[{index}].requireTools"
             )
-            if step["tier"] not in {"unit", "integration", "full", "conformance"}:
+            if step["tier"] not in {"unit", "integration", "full", "conformance", "release", "quick", "headless", "tool-conformance"}:
                 raise ValueError(f"unknown release gate tier: {step['tier']}")
             if step["tier"] == "conformance" and not step["requireTools"]:
                 raise ValueError("conformance release gate must set requireTools")
@@ -306,7 +331,12 @@ def _parse_gates(raw: Any) -> GateContract:
     account = value["appSmokeAccount"]
     if not isinstance(account, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,30}", account) is None:
         raise ValueError("app smoke requires an explicit disposable account name")
-    return GateContract(tuple(focused), MappingProxyType(channels), tuple(app_smoke), account)
+    dependency_policy = value.get("dependencyPolicy", "installed")
+    if dependency_policy not in {"installed", "manifest"}:
+        raise ValueError("unknown dependency policy")
+    app_smoke_required = value.get("appSmokeRequired", True)
+    _require_type(app_smoke_required, bool, "gates.appSmokeRequired")
+    return GateContract(tuple(focused), MappingProxyType(channels), tuple(app_smoke), account, dependency_policy, app_smoke_required)
 
 
 def _reject_duplicates(channels: Mapping[str, ChannelContract]) -> None:
@@ -342,7 +372,7 @@ def load_contract(path: Path) -> ReleaseContract:
     root = _require_object(raw, "release contract")
     _require_fields(
         root,
-        frozenset({"schemaVersion", "channels", "buildProfiles", "toolchain", "gates"}),
+        frozenset({"schemaVersion", "channels", "buildProfiles", "toolchain", "gates"}) | ({"identity"} if "identity" in root else set()),
         "top-level",
     )
     _require_type(root["schemaVersion"], int, "schemaVersion")
@@ -373,12 +403,16 @@ def load_contract(path: Path) -> ReleaseContract:
     profile_wrappers = {profile.appBundleFilename for profile in profiles.values()}
     if channel_wrappers & profile_wrappers:
         raise ValueError("duplicate build profile appBundleFilename")
+    identity = PublicIdentity.parse(root["identity"]) if "identity" in root else legacy_identity()
+    validate_runtime_contract(identity, channels, profiles)
     return ReleaseContract(
         schemaVersion=root["schemaVersion"],
         channels=MappingProxyType(channels),
         buildProfiles=MappingProxyType(profiles),
         toolchain=_parse_toolchain(root["toolchain"]),
         gates=_parse_gates(root["gates"]),
+        identity=identity,
+        sourceRoot=path.resolve().parent.parent,
     )
 
 

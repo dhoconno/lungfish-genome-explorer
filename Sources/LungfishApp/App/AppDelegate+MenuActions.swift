@@ -869,13 +869,13 @@ extension AppDelegate {
     }
 
     @objc func openOnlineDocumentation(_ sender: Any?) {
-        if let url = URL(string: "https://lungfish-genome-explorer.readthedocs.io/en/latest/") {
+        if let url = LungfishAppIdentity.current.documentationURL {
             NSWorkspace.shared.open(url)
         }
     }
 
     @objc func openReleaseNotes(_ sender: Any?) {
-        if let url = URL(string: "https://github.com/dhoconno/lungfish-genome-explorer/releases") {
+        if let url = LungfishAppIdentity.current.releaseHistoryURL {
             NSWorkspace.shared.open(url)
         }
     }

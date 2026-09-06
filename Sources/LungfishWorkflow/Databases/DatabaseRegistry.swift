@@ -610,7 +610,7 @@ public actor DatabaseRegistry {
                     "actualMD5": .string(actualMD5),
                 ]
             )
-            UserDefaults.standard.set(
+            LungfishAppIdentity.current.preferences.set(
                 manifest.filename,
                 forKey: overrideFilenameKey(for: databaseID)
             )
@@ -621,7 +621,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempMD5URL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationCancelled(
                 databaseID: databaseID,
                 displayName: manifest.displayName
@@ -631,14 +631,14 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempMD5URL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw error
         } catch {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: databaseID,
                 displayName: manifest.displayName,
@@ -745,7 +745,7 @@ public actor DatabaseRegistry {
                     "condaEnvironment": .string("deacon"),
                 ]
             )
-            UserDefaults.standard.set(
+            LungfishAppIdentity.current.preferences.set(
                 manifest.filename,
                 forKey: overrideFilenameKey(for: databaseID)
             )
@@ -756,7 +756,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempFetchURL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationCancelled(
                 databaseID: databaseID,
                 displayName: manifest.displayName
@@ -766,14 +766,14 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempFetchURL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw error
         } catch {
             try? fileManager.removeItem(at: tempOutputURL)
             try? fileManager.removeItem(at: tempFetchURL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: databaseID,
                 displayName: manifest.displayName,
@@ -909,7 +909,7 @@ public actor DatabaseRegistry {
                     "condaEnvironment": .string("deacon"),
                 ]
             )
-            UserDefaults.standard.set(
+            LungfishAppIdentity.current.preferences.set(
                 manifest.filename,
                 forKey: overrideFilenameKey(for: databaseID)
             )
@@ -921,7 +921,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: referenceURL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationCancelled(
                 databaseID: databaseID,
                 displayName: manifest.displayName
@@ -932,7 +932,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: referenceURL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw error
         } catch {
             try? fileManager.removeItem(at: tempOutputURL)
@@ -940,7 +940,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: referenceURL)
             try? fileManager.removeItem(at: destinationURL)
             try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: databaseID,
                 displayName: manifest.displayName,
@@ -966,7 +966,7 @@ public actor DatabaseRegistry {
 
         // Check UserDefaults for a specific override filename
         let overrideKey = overrideFilenameKey(for: id)
-        if let filename = UserDefaults.standard.string(forKey: overrideKey) {
+        if let filename = LungfishAppIdentity.current.preferences.string(forKey: overrideKey) {
             let url = dir.appendingPathComponent(filename)
             if FileManager.default.fileExists(atPath: url.path) { return url }
         }
@@ -1049,7 +1049,7 @@ public actor DatabaseRegistry {
         {
             try FileManager.default.removeItem(at: installDirectory)
         }
-        UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: resolvedID))
+        LungfishAppIdentity.current.preferences.removeObject(forKey: overrideFilenameKey(for: resolvedID))
     }
 
     /// Where a checksummed managed database is downloaded from.

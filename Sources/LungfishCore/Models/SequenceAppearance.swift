@@ -165,7 +165,7 @@ extension SequenceAppearance {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
             let data = try encoder.encode(self)
-            UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
+            LungfishAppIdentity.current.preferences.set(data, forKey: Self.userDefaultsKey)
         } catch {
             logger.warning("Failed to save settings: \(error)")
         }
@@ -182,7 +182,7 @@ extension SequenceAppearance {
     ///
     /// - Returns: The saved SequenceAppearance, or `SequenceAppearance.default` if none exists
     public static func load() -> SequenceAppearance {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
+        guard let data = LungfishAppIdentity.current.preferences.data(forKey: userDefaultsKey) else {
             return .default
         }
 
@@ -203,7 +203,7 @@ extension SequenceAppearance {
     /// - Returns: The default SequenceAppearance
     @discardableResult
     public static func resetToDefaults() -> SequenceAppearance {
-        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        LungfishAppIdentity.current.preferences.removeObject(forKey: userDefaultsKey)
         return .default
     }
 }

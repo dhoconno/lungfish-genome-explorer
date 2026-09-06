@@ -6,6 +6,17 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      diagnostic:
+        description: Optional diagnostic (never release authority)
+        type: choice
+        default: none
+        options:
+          - none
+          - portable-debug
+          - headless
+          - extended
+          - tool-conformance
 
 concurrency:
   # Keyed by event so a push never cancels a long release or ad hoc validation:
@@ -68,10 +79,10 @@ jobs:
           python3 -m venv .ci-python
           .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-test.txt
 
-      - name: Run release and fixture script tests
+      - name: Run focused release contract tests
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: .ci-python/bin/python -B -m unittest discover -s scripts/tests
+        run: .ci-python/bin/python -B -m unittest scripts.tests.test_test_catalog scripts.tests.test_release_contract scripts.tests.test_gate_profile_evidence scripts.tests.test_release_identity
 
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
@@ -88,176 +99,48 @@ jobs:
           if-no-files-found: error
 
   build-smoke:
-    name: Build and smoke tests
+    name: Portable Debug diagnostic
     runs-on: macos-26
     timeout-minutes: 90
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'portable-debug' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          fetch-depth: 0
+      - name: Build and check the portable Debug app in one native graph
+        run: python3 scripts/release/release.py debug --portable --jobs 4
 
+  full:
+    name: Headless or extended diagnostic
+    runs-on: macos-26
+    timeout-minutes: 120
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.diagnostic == 'headless' || inputs.diagnostic == 'extended') }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      - name: Show toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-
-      - name: Resolve dependencies
-        run: swift package resolve
-
-      - name: Seed Xcode Package.resolved
-        run: bash scripts/check-package-resolved-consistency.sh --repair
-
-      - name: Build app executable
-        run: swift build --product Lungfish
-
-      - name: Build CLI executable
-        run: swift build --product lungfish-cli
-
-      - name: Build Xcode app project without signing
-        run: |
-          LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1 \
-          LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1 \
-          xcodebuild -project Lungfish.xcodeproj -scheme Lungfish \
-            -configuration Debug \
-            -destination 'platform=macOS,arch=arm64' \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Repair Xcode Package.resolved after Xcode build
-        run: bash scripts/check-package-resolved-consistency.sh --repair
-
-      - name: Check Package.resolved consistency
-        run: bash scripts/check-package-resolved-consistency.sh
-
-      - name: Install smoke test tool dependencies
-        run: |
-          brew install htslib samtools seqkit
-          mkdir -p "$HOME/.lungfish/conda/envs/htslib/bin"
-          mkdir -p "$HOME/.lungfish/conda/envs/samtools/bin"
-          mkdir -p "$HOME/.lungfish/conda/envs/seqkit/bin"
-          ln -sf "$(brew --prefix htslib)/bin/bgzip" "$HOME/.lungfish/conda/envs/htslib/bin/bgzip"
-          ln -sf "$(brew --prefix samtools)/bin/samtools" "$HOME/.lungfish/conda/envs/samtools/bin/samtools"
-          ln -sf "$(brew --prefix seqkit)/bin/seqkit" "$HOME/.lungfish/conda/envs/seqkit/bin/seqkit"
-
-      - name: Run smoke package tests
-        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
-
-      - name: Run synchronized miSeq correctness and instrumentation tests
-        run: |
-          swift test --filter GenotypeResultPresentationPolicyTests
-          swift test --filter GenotypeEffectiveHaplotypeProjectionTests
-          swift test --filter GenotypeAnnotationStoreCallOverrideTests
-          swift test --filter GenotypeResultViewportTests/testHaplotypedMiSeq
-          swift test --filter GenotypeManualHaplotypePerformanceTests
-
-      - name: Install script test dependencies
+      - name: Install diagnostic test dependencies
         run: |
           brew install ripgrep
           python3 -m venv .ci-python
           .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-test.txt
-
-      - name: Run release and fixture script tests
+      - name: Run the selected catalog profile
         env:
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: .ci-python/bin/python -B -m unittest discover -s scripts/tests
-
-      - name: Compare deterministic project-storage skips
-        run: |
-          task9_implementation_sha="$(git log --diff-filter=A --format=%H -1 -- scripts/verification/project-storage-task9-skip-policy.json)"
-          task9_base_sha="$(python3 scripts/verification/compare_project_storage_skips.py --policy scripts/verification/project-storage-task9-skip-policy.json --print-baseline-sha)"
-          scripts/verification/run_project_storage_skip_comparison.sh \
-            --suite ci-focused \
-            --base-sha "$task9_base_sha" \
-            --implementation-sha "$task9_implementation_sha" \
-            --report .build/project-storage-skip-comparison/ci-focused-report.json
-
-      - name: Test current HEAD project-storage implementation
-        run: |
-          task9_current_head_sha="$(git rev-parse HEAD)"
-          test -z "$(git status --porcelain)"
-          swift test --no-parallel --filter \
-            'ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|ProjectStorageCleanupPreparationLargeTreeTests|ProjectStorageCleanupProvenanceTests|ProjectStoragePublishedCleanupOutcomeReaderTests|ProjectStorageAutomaticCleanupServiceTests|ProjectStoragePerformanceTests|ProjectTempCleanupTests'
-          test "$(git rev-parse HEAD)" = "$task9_current_head_sha"
-          test -z "$(git status --porcelain)"
-
-      - name: Upload project-storage skip comparison
+          DIAGNOSTIC_PROFILE: ${{ inputs.diagnostic }}
+        run: .ci-python/bin/python scripts/test.py run --profile "$DIAGNOSTIC_PROFILE" --evidence-dir .build/diagnostic-evidence
+      - name: Retain diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: project-storage-skip-comparison
-          path: |
-            .build/project-storage-skip-comparison/ci-focused-base.log
-            .build/project-storage-skip-comparison/ci-focused-base-status.json
-            .build/project-storage-skip-comparison/ci-focused-implementation.log
-            .build/project-storage-skip-comparison/ci-focused-implementation-status.json
-            .build/project-storage-skip-comparison/ci-focused-report.json
-
-  full:
-    name: Full suite
-    runs-on: macos-26
-    timeout-minutes: 120
-    needs: [fast, toolset-conformance]
-    # Optional full-suite diagnostic. Release packaging already runs the
-    # channel's blocking local gates before a candidate receipt can exist.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          fetch-depth: 0
-
-      - name: Select supported Xcode
-        run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"
-
-      - name: Show toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-
-      - name: Resolve dependencies
-        run: swift package resolve
-
-      - name: Build CLI
-        run: swift build --product lungfish-cli
-
-      - name: Compute manifest hash
-        id: manifest
-        run: echo "hash=$(shasum -a 256 Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore managed toolset
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.lungfish/conda
-            ~/.lungfish/databases/kraken2/viral
-            ~/.lungfish/databases/metagenomics-db-registry.json
-            ~/.lungfish/dependency-receipt.json
-          key: lungfish-tools-${{ runner.os }}-${{ steps.manifest.outputs.hash }}
-
-      - name: Provision required tools
-        run: .build/debug/lungfish-cli tools update --apply --yes --required-only
-
-      - name: Install full-suite Python dependencies
-        run: |
-          python3 -m venv .ci-python
-          .ci-python/bin/python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-parity.txt
-          echo "$PWD/.ci-python/bin" >> "$GITHUB_PATH"
-
-      - name: Run full package tests
-        run: swift test
+          name: diagnostic-evidence
+          path: .build/diagnostic-evidence
+          if-no-files-found: warn
 
   toolset-conformance:
     name: Toolset conformance
     runs-on: macos-26
     timeout-minutes: 120
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'tool-conformance' }}
 
     steps:
       - name: Check out repository
@@ -376,7 +259,7 @@ jobs:
           # tool-availability XCTSkip in the conformance allowlist becomes an
           # XCTFail instead, so a missing tool or database fails this job
           # rather than silently skipping.
-          bash scripts/full-suite-gate.sh --require-tools --filter 'Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests'
+          .ci-python/bin/python scripts/test.py run --profile tool-conformance --require-tools --evidence-dir .build/tool-conformance-evidence
 
       - name: Golden diff
         run: |
@@ -388,4 +271,4 @@ jobs:
         if: always()
         with:
           name: toolset-conformance-logs
-          path: .build/gate-logs
+          path: .build/tool-conformance-evidence

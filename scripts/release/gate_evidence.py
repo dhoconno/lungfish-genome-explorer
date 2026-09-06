@@ -109,7 +109,7 @@ def command_record(argv, root, directory, name, *, split=False):
             intervention = None
             while process.poll() is None:
                 # Xcode occasionally fails to reap an XCTest child. Terminate
-                # the stuck parent, but preserve that nonzero process outcome.
+                # the stuck parent and preserve intervention even if it traps TERM to exit zero.
                 children = ""
                 if time.monotonic() >= next_watchdog:
                     children = subprocess.run(["pgrep", "-P", str(process.pid)], capture_output=True, text=True).stdout
@@ -177,14 +177,20 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
     completed, skipped, failed = set(), set(), set()
     xml = directory / "xctest.xml"
     errors = []
+    if command.get("intervention") is not None:
+        errors.append("runner required watchdog intervention")
     terminal_records = re.findall(r"Test Case '-\[([^ ]+) (.*?)\]' (passed|failed|skipped)(?: |$)", log)
     logged_completed = {suite + "/" + test for suite, test, _ in terminal_records}
+    if len(logged_completed) != len(terminal_records):
+        errors.append("duplicate XCTest terminal records")
     if parallel:
         completion = False
         try:
             tree = ET.parse(xml)
             for case in tree.iter("testcase"):
                 name = case.attrib["classname"] + "/" + case.attrib["name"]
+                if name in completed:
+                    errors.append("duplicate XCTest xUnit case")
                 completed.add(name)
                 if case.find("failure") is not None or case.find("error") is not None:
                     failed.add(name)
@@ -212,8 +218,9 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
     completion = False
     try:
         records = events(directory / "swift-testing.jsonl")
-        functions = swift_tests(records)
+        functions = swift_tests(records) | set(selection["swift-testing"])
         started = set()
+        terminals = set()
         run_starts = run_ends = 0
         for r in records:
             if r["kind"] != "event":
@@ -225,10 +232,25 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
             elif kind == "runEnded":
                 run_ends += 1
             elif kind == "testStarted" and test in functions:
+                if test in started:
+                    errors.append("duplicate Swift Testing function start")
+                if run_starts != 1 or run_ends:
+                    errors.append("Swift Testing function started outside its run")
                 started.add(test)
             elif kind == "testEnded" and test in functions:
+                if test not in started:
+                    errors.append("Swift Testing function ended without starting")
+                if test in terminals:
+                    errors.append("duplicate Swift Testing function terminal")
+                if run_starts != 1 or run_ends:
+                    errors.append("Swift Testing function ended outside its run")
+                terminals.add(test)
                 completed.add(test)
             elif kind == "testSkipped":
+                if test in functions:
+                    if test in terminals:
+                        errors.append("duplicate Swift Testing function terminal")
+                    terminals.add(test)
                 # A skipped suite covers its selected descendant functions.
                 skipped.update(t for t in selection["swift-testing"] if t == test or t.startswith(str(test) + "/"))
             elif kind == "issueRecorded":
@@ -261,6 +283,18 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
 
 def run_swift_gate(args):
     root, directory = Path(args.root).resolve(), Path(args.output).resolve()
+    profile = getattr(args, "profile", None)
+    if profile:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from testing.catalog import load_catalog, profile_options, audit, audit_source_targets
+        catalog = load_catalog(root)
+        audit_source_targets(catalog, root)
+        expected = profile_options(catalog, profile, args.require_tools)
+        observed = {"tier": args.tier, "filter": args.filter, "skip": args.skip,
+                    "parallel": args.parallel, "requireTools": args.require_tools,
+                    "profile": profile, "workers": args.workers}
+        if observed != expected:
+            raise EvidenceError("profile selection differs from canonical catalog")
     directory.mkdir(parents=True, exist_ok=False)
     source, started = source_identity(root), now()
     runtime = runtime_identity()
@@ -277,16 +311,18 @@ def run_swift_gate(args):
     second = command_record([*common, "list", "--skip-build", "--disable-xctest", "--event-stream-output-path", str(directory / "discovered-swift-testing.jsonl"), "--event-stream-version", "0"], root, directory, "discover-swift-testing", split=True)
     discoveries.append(second)
     try:
-        if version["exitStatus"] or any(d["exitStatus"] for d in discoveries):
+        if any(d["exitStatus"] or d.get("intervention") is not None for d in [version, *discoveries]):
             raise EvidenceError("tool identity or test discovery failed")
         xctests = (directory / "discover-xctest.log").read_text().splitlines()
         if any(not re.fullmatch(r"[^\s/]+/[^\s]+", t) for t in xctests):
             raise EvidenceError("malformed XCTest discovery")
+        if profile:
+            audit(catalog, xctests + sorted(swift_tests(events(directory / "discovered-swift-testing.jsonl"))))
         selection["xctest"] = selected(xctests, args.filter, args.skip)
         selection["swift-testing"] = selected(swift_tests(events(directory / "discovered-swift-testing.jsonl")), args.filter, args.skip)
         if not any(selection.values()):
             raise EvidenceError("empty test selection")
-    except (EvidenceError, re.error) as error:
+    except ValueError as error:
         errors.append(str(error))
     discovered = directory / "discovered-swift-testing.jsonl"
     if discovered.exists():
@@ -302,6 +338,8 @@ def run_swift_gate(args):
                 command += ["--skip", exclude]
             if parallel:
                 command += ["--parallel", "--verbose"]
+                if getattr(args, "workers", None):
+                    command += ["--num-workers", str(args.workers)]
             result = analyze_attempt(target, command_record(command, root, target, "runner"), chosen, parallel, args.require_tools)
             result["role"] = role
             for record in result["files"]:
@@ -325,6 +363,10 @@ def run_swift_gate(args):
               "options": {"tier": args.tier, "filter": args.filter, "skip": args.skip, "parallel": args.parallel, "requireTools": args.require_tools},
               "identityCommand": version, "discovery": discoveries, "attempts": attempts,
               "errors": errors, "authorized": bool(attempts) and attempts[0]["passed"] and not errors}
+    if profile:
+        result["options"].update(profile=profile, workers=args.workers)
+        result["catalogSha256"] = hashlib.sha256((root / "config/test-catalog.json").read_bytes()).hexdigest()
+        result["reuseEligible"] = False
     write_json(directory / "gate.result.json", result)
     print("GATE " + ("PASS" if result["authorized"] else "FAIL") + " - evidence: " + str(directory / "gate.result.json"))
     return 0 if result["authorized"] else 1
@@ -378,6 +420,9 @@ def validate_result(result, source):
         if result.get("exitStatus") != 0 or result.get("selected", 0) <= 0 or result.get("selected") != result.get("executed", 0) + result.get("skipped", 0) or result.get("completed") is not True:
             raise EvidenceError("Python gate did not complete its selection")
     elif result.get("kind") == "swift":
+        commands = [result.get("identityCommand", {})] + result.get("discovery", []) + result.get("attempts", [])
+        if any(command.get("intervention") is not None for command in commands):
+            raise EvidenceError("gate required watchdog intervention")
         attempts = result.get("attempts", [])
         if len(attempts) != 1 or attempts[0].get("role") != "authoritative":
             raise EvidenceError("retried gate cannot authorize candidate")
@@ -404,7 +449,15 @@ def result_files(result):
     return records
 
 
+def canonical_profile_options(profile, require_tools=False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from testing.catalog import load_catalog, profile_options
+    return profile_options(load_catalog(Path(__file__).resolve().parents[2]), profile, require_tools)
+
+
 def canonical_tier_options(tier, require_tools):
+    if tier in ("quick", "headless", "release", "extended", "ui", "tool-conformance"):
+        return canonical_profile_options(tier, require_tools)
     script = Path(__file__).resolve().parents[1] / "full-suite-gate.sh"
     argv = ["/bin/bash", str(script), "--tier", tier, "--describe-selection"]
     if require_tools:
@@ -416,13 +469,52 @@ def canonical_tier_options(tier, require_tools):
     return json.loads(process.stdout)
 
 
+MANAGED_LOCK_RELATIVE = Path("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json")
+
+
+def canonical_dependency_manifest(contract):
+    """Bind actual repository pins, never a caller-labelled installed receipt."""
+    configured_root = getattr(contract, "sourceRoot", Path(__file__).resolve().parents[2])
+    if configured_root is None:
+        raise EvidenceError("canonical dependency manifest requires a loaded contract source root")
+    source_root = Path(configured_root).resolve()
+    path = source_root / MANAGED_LOCK_RELATIVE
+    record = file_record(path, source_root)  # Reject symlinks and mutation while hashing.
+    data = read_json(path)
+    if any(not isinstance(data.get(key), str) or not data[key].strip() for key in ("packID", "version", "dependencySet")):
+        raise EvidenceError("canonical dependency manifest lacks package identity and pins")
+    tools = data.get("tools")
+    pack_tools = data.get("packTools", [])
+    if not isinstance(tools, list) or not tools or not isinstance(pack_tools, list):
+        raise EvidenceError("canonical dependency manifest lacks tool pins")
+    seen = set()
+    for tool in tools + pack_tools:
+        if not isinstance(tool, dict) or any(not isinstance(tool.get(key), str) or not tool[key].strip() for key in ("id", "version", "environment", "packageSpec")):
+            raise EvidenceError("canonical dependency manifest has incomplete tool pins")
+        spec = tool["packageSpec"]
+        if re.fullmatch(r"[^\s=:]+::[^\s=]+=[^\s=]+=[^\s=]+", spec) is None or spec.split("=", 2)[1] != tool["version"]:
+            raise EvidenceError("canonical dependency manifest requires exact version/build pins")
+        executables = tool.get("executables")
+        if not isinstance(executables, list) or not executables or any(not isinstance(value, str) or not value for value in executables):
+            raise EvidenceError("canonical dependency manifest lacks pinned executable names")
+        if "packID" in tool and (not isinstance(tool["packID"], str) or not tool["packID"].strip()):
+            raise EvidenceError("canonical dependency manifest has invalid pack identity")
+        identity = (tool.get("packID", data["packID"]), tool["id"])
+        if identity in seen:
+            raise EvidenceError("canonical dependency manifest contains duplicate tool pins")
+        seen.add(identity)
+    if file_record(path, source_root) != record:
+        raise EvidenceError("canonical dependency manifest changed while validating")
+    return path, record
+
+
 def verify_manifest(path, digest, source, channel, contract):
     path = Path(path)
     root = path.parent
     if file_record(path, root)["sha256"] != digest:
         raise EvidenceError("gate manifest digest changed")
     manifest = read_json(path)
-    if manifest.get("schemaVersion") != 1 or manifest.get("channel") != channel or not same_source(manifest.get("source", {}), source):
+    if manifest.get("schemaVersion") not in (1, 2) or manifest.get("channel") != channel or not same_source(manifest.get("source", {}), source):
         raise EvidenceError("gate manifest identity does not match candidate")
     files = {}
     for record in manifest.get("files", []):
@@ -432,9 +524,27 @@ def verify_manifest(path, digest, source, channel, contract):
         if file_record(root / relative, root) != record:
             raise EvidenceError("gate evidence file digest changed")
         files[str(relative)] = record
-    dependency = manifest.get("dependencyReceipt", {})
+    policy = getattr(contract.gates, "dependencyPolicy", "installed")
+    if policy not in ("installed", "manifest"):
+        raise EvidenceError("unknown gate dependency evidence policy")
+    if manifest["schemaVersion"] == 1:
+        if policy != "installed":
+            raise EvidenceError("legacy installed receipt cannot satisfy lock-manifest policy")
+        dependency = manifest.get("dependencyReceipt", {})
+    else:
+        typed = manifest.get("dependencyEvidence", {})
+        expected_kind = "lock-manifest" if policy == "manifest" else "installed-receipt"
+        if typed.get("kind") != expected_kind or not manifest.get("dependencySourcePath"):
+            raise EvidenceError("gate dependency evidence kind differs from contract")
+        dependency = typed.get("file", {})
     if not dependency or files.get(dependency.get("path")) != dependency:
-        raise EvidenceError("gate dependency receipt is absent")
+        raise EvidenceError("gate dependency evidence is absent")
+    if policy == "manifest":
+        canonical_path, canonical_record = canonical_dependency_manifest(contract)
+        if manifest.get("dependencySourcePath") != str(canonical_path):
+            raise EvidenceError("gate dependency source differs from canonical repository manifest")
+        if any(dependency.get(key) != canonical_record[key] for key in ("sha256", "sizeBytes")):
+            raise EvidenceError("gate dependency bytes differ from canonical repository manifest")
     results = []
     for record in manifest.get("results", []):
         if files.get(record.get("path")) != record:
@@ -462,11 +572,20 @@ def verify_manifest(path, digest, source, channel, contract):
 
 def create_manifest(directory, source, channel, results, dependency_receipt, contract):
     directory = Path(directory)
-    shutil.copyfile(dependency_receipt, directory / "dependency-receipt.json")
-    manifest = {"schemaVersion": 1, "source": source, "channel": channel,
+    policy = getattr(contract.gates, "dependencyPolicy", "installed")
+    if policy not in ("installed", "manifest"):
+        raise EvidenceError("unknown gate dependency evidence policy")
+    if policy == "manifest":
+        canonical_path, _ = canonical_dependency_manifest(contract)
+        if Path(dependency_receipt).resolve() != canonical_path:
+            raise EvidenceError("dependency input must be the canonical repository manifest")
+    filename = "dependency-manifest.json" if policy == "manifest" else "dependency-receipt.json"
+    shutil.copyfile(dependency_receipt, directory / filename)
+    manifest = {"schemaVersion": 2, "source": source, "channel": channel,
                 "results": [file_record(path, directory) for path in results],
-                "dependencyReceipt": file_record(directory / "dependency-receipt.json", directory),
-                "dependencyReceiptSourcePath": str(Path(dependency_receipt).resolve()),
+                "dependencyEvidence": {"kind": "lock-manifest" if policy == "manifest" else "installed-receipt",
+                                       "file": file_record(directory / filename, directory)},
+                "dependencySourcePath": str(Path(dependency_receipt).resolve()),
                 "files": [file_record(path, directory) for path in sorted(directory.rglob("*")) if path.is_file()]}
     path = directory / "manifest.json"
     write_json(path, manifest)
@@ -502,6 +621,8 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     swift = sub.add_parser("swift")
     swift.add_argument("--tier", default="full")
+    swift.add_argument("--profile")
+    swift.add_argument("--workers", type=int, choices=range(1, 9))
     swift.add_argument("--filter", default="")
     swift.add_argument("--skip", default="")
     swift.add_argument("--parallel", action="store_true")

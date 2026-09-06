@@ -1,5 +1,5 @@
 #!/bin/bash
-# Relocate and validate a self-contained local Debug app without launching UI.
+# Check a local Debug app; --portable opts into relocation without launching UI.
 
 set -euo pipefail
 
@@ -10,7 +10,7 @@ CONTRACT_SCRIPT="$PROJECT_ROOT/scripts/release/release_contract.py"
 CODESIGN_IDENTITY_VALIDATOR="$PROJECT_ROOT/scripts/release/validate_debug_codesign_identity.py"
 
 usage() {
-    echo "Usage: $(basename "$0") APP_PATH [--compiling-build-dir PATH]" >&2
+    echo "Usage: $(basename "$0") APP_PATH [--portable] [--compiling-build-dir PATH]" >&2
 }
 
 if [ "$#" -lt 1 ]; then
@@ -21,8 +21,10 @@ fi
 SOURCE_APP="$1"
 shift
 COMPILING_BUILD_DIR=""
+PORTABLE=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --portable) PORTABLE=1; shift ;;
         --compiling-build-dir)
             if [ "$#" -lt 2 ]; then
                 usage
@@ -38,6 +40,14 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+if [ "$PORTABLE" -eq 0 ]; then
+    if [ -n "$COMPILING_BUILD_DIR" ]; then
+        echo "--compiling-build-dir requires --portable" >&2
+        exit 64
+    fi
+    exec "$RELEASE_PYTHON" "$SCRIPT_DIR/release/debug_artifact.py" check --root "$PROJECT_ROOT" --app "$SOURCE_APP"
+fi
 
 if [ ! -d "$SOURCE_APP" ]; then
     echo "Debug app does not exist: $SOURCE_APP" >&2

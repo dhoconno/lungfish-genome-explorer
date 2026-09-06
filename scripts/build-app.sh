@@ -15,6 +15,8 @@ BUILD_NUMBER="1"
 CONFIGURATION="debug"
 SKIP_BUILD=0
 LOG_DIR=""
+PORTABLE=0
+JOBS=""
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +28,7 @@ SHARED_INFO_PLIST="$PROJECT_ROOT/Lungfish-Info.plist"
 CLI_ENTITLEMENTS="$PROJECT_ROOT/lungfish-cli.entitlements"
 RELEASE_CONTRACT_SCRIPT="$PROJECT_ROOT/scripts/release/release_contract.py"
 XCODE_RESOLVER="$PROJECT_ROOT/scripts/release/release_xcode.py"
+DEBUG_ARTIFACT_HELPER="$PROJECT_ROOT/scripts/release/debug_artifact.py"
 
 # Single source of truth for the version + minimum OS: the xcodeproj settings,
 # so the debug bundle and the notarized build never diverge.
@@ -47,9 +50,10 @@ NC='\033[0m' # No Color
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--debug] [--skip-build] [--log-dir PATH]
+Usage: $(basename "$0") [--debug] [--skip-build] [--log-dir PATH] [--jobs COUNT] [--portable]
 
-Builds only the contract-defined, local Lungfish Debug.app profile.
+Builds the contract-defined local Debug app and runs cheap headless checks.
+--portable additionally relocates the app and hides compiler resources for verification.
 For unsigned release packaging, use:
   bash scripts/release/build-notarized-dmg.sh --package-only --channel preview|stable
 EOF
@@ -77,6 +81,18 @@ while [ "$#" -gt 0 ]; do
         --release)
             echo "The public --release mode is retired; use build-notarized-dmg.sh --package-only with --channel preview or stable." >&2
             exit 64
+            ;;
+        --portable)
+            PORTABLE=1
+            shift
+            ;;
+        --jobs)
+            if [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+                echo "--jobs requires a positive integer" >&2
+                exit 64
+            fi
+            JOBS="$2"
+            shift 2
             ;;
         --skip-build)
             SKIP_BUILD=1
@@ -174,13 +190,20 @@ if [ -d "$APP_DIR" ]; then
     rm -rf "$APP_DIR"
 fi
 
-# Build executable
+# Build both executables in the same incremental SwiftPM graph. The compact
+# link input also lets a copied fork CLI retain its isolated runtime identity.
 cd "$PROJECT_ROOT"
+CLI_IDENTITY_PLIST="$("$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" prepare-identity --root "$PROJECT_ROOT")"
+SWIFT_BUILD_ARGS=(--configuration debug --arch arm64
+    -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$CLI_IDENTITY_PLIST")
+if [ -n "$JOBS" ]; then
+    SWIFT_BUILD_ARGS+=(--jobs "$JOBS")
+fi
 if [ "$SKIP_BUILD" -eq 1 ]; then
     echo -e "${YELLOW}Reusing existing Apple Silicon ${BUILD_LABEL} executable...${NC}"
 else
     echo -e "${GREEN}Building Apple Silicon ${BUILD_LABEL} executable...${NC}"
-    xcrun swift build --configuration debug --arch arm64
+    xcrun swift build "${SWIFT_BUILD_ARGS[@]}"
 fi
 
 if [ ! -f "$BUILD_DIR/Lungfish" ]; then
@@ -349,6 +372,9 @@ if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
     fi
 fi
 
+# Finalize public app and Help identity before sealing their bytes.
+"$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" apply-identity --root "$PROJECT_ROOT" --app "$APP_DIR"
+
 if [ -f "$MACOS_DIR/lungfish-cli" ]; then
     echo -e "${GREEN}Ad-hoc signing bundled CLI with CLI entitlements...${NC}"
     codesign --force --sign - --options runtime --entitlements "$CLI_ENTITLEMENTS" "$MACOS_DIR/lungfish-cli"
@@ -357,6 +383,11 @@ fi
 echo -e "${GREEN}Ad-hoc signing app bundle for local launch...${NC}"
 codesign --force --deep --sign - "$APP_DIR"
 codesign --verify --deep --strict --verbose=4 "$APP_DIR"
+
+"$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" check --root "$PROJECT_ROOT" --app "$APP_DIR"
+if [ "$PORTABLE" -eq 1 ]; then
+    /bin/bash "$SCRIPT_DIR/smoke-test-debug-app.sh" "$APP_DIR" --portable --compiling-build-dir "$PROJECT_ROOT/.build"
+fi
 
 # Print success message
 echo ""

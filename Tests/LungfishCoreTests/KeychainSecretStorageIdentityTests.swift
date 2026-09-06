@@ -21,3 +21,23 @@ final class KeychainSecretStorageIdentityTests: XCTestCase {
         XCTAssertEqual(storage.serviceIdentifier, "com.example.lungfish.tests")
     }
 }
+
+extension KeychainSecretStorageIdentityTests {
+    func testForkKeychainSelectorsAreIsolatedWithoutAccessingKeychain() throws {
+        var services = Set<String>()
+        for namespace in ["org.example.first", "org.example.second"] {
+            for channel in ["stable", "preview", "debug"] {
+                let identity = try LungfishAppIdentity.from(infoDictionary: [
+                    "CFBundleDisplayName": "Example", "CFBundleName": "Example",
+                    "CFBundleIdentifier": namespace + "." + channel, "LungfishReleaseChannel": channel,
+                    "LungfishIdentitySchemaVersion": 1, "LungfishRuntimeNamespace": namespace,
+                ])
+                let service = KeychainSecretStorage(appIdentity: identity).serviceIdentifier
+                XCTAssertEqual(service, namespace + "." + channel + ".secrets")
+                XCTAssertNotEqual(service, KeychainSecretStorage(appIdentity: .stable).serviceIdentifier)
+                services.insert(service)
+            }
+        }
+        XCTAssertEqual(services.count, 6)
+    }
+}

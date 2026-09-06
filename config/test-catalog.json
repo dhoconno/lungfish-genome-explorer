@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "2026-09-05-headless-v1",
+  "notes": [
+    "release is source verification only; candidate artifact checks and publication authority belong to release.py",
+    "All native XCUITests remain explicit app-smoke diagnostics. Profile execution never infers artifact authority.",
+    "New SwiftPM targets fail the inventory audit until explicitly classified.",
+    "No source evidence reuse: exact runtime and test binary binding is not yet implemented."
+  ],
+  "targets": {
+    "LungfishCoreTests": "headless",
+    "LungfishIOTests": "headless",
+    "LungfishWorkflowTests": "headless",
+    "LungfishKitTests": "ui-diagnostics",
+    "LungfishTwelveSUITests": "ui-diagnostics",
+    "LungfishAlignmentUITests": "ui-diagnostics",
+    "LungfishAssemblyUITests": "ui-diagnostics",
+    "LungfishNvdUITests": "ui-diagnostics",
+    "LungfishNaoMgsUITests": "ui-diagnostics",
+    "LungfishTaxTriageUITests": "ui-diagnostics",
+    "LungfishEsVirituUITests": "ui-diagnostics",
+    "LungfishGenotypeUITests": "ui-diagnostics",
+    "LungfishPhylogeneticsUITests": "ui-diagnostics",
+    "LungfishAppTests": "ui-diagnostics",
+    "LungfishAppViewTests": "ui-diagnostics",
+    "LungfishAppWorkflowTests": "ui-diagnostics",
+    "LungfishCLITests": "headless",
+    "LungfishIntegrationTests": "integration-diagnostics"
+  },
+  "collections": [
+    {
+      "id": "ui-diagnostics",
+      "purpose": "All GUI-capable SwiftPM targets, including mixed state/view suites",
+      "harness": "swift",
+      "include": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.",
+      "exclude": "",
+      "resources": [
+        "window-server",
+        "shared-defaults"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "tool-conformance",
+      "purpose": "Real executable/runtime integration contracts; includes mixed suites with opt-in live network/container/installed-environment cases",
+      "harness": "swift",
+      "include": "Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.",
+      "resources": [
+        "managed-tools",
+        "network"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "extended-scientific",
+      "purpose": "Large matrices and load/shared-state sensitive scientific suites",
+      "harness": "swift",
+      "include": "AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests",
+      "resources": [
+        "shared-defaults",
+        "filesystem",
+        "high-cost"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "integration-diagnostics",
+      "purpose": "Unclassified mixed integration suites retained for explicit diagnostics",
+      "harness": "swift",
+      "include": "^LungfishIntegrationTests\\.",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests",
+      "resources": [
+        "managed-tools",
+        "network"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "scientific-contracts",
+      "purpose": "Deterministic scientific provenance, policy and stored-payload contracts",
+      "harness": "swift",
+      "include": "^(LungfishCoreTests|LungfishIOTests|LungfishWorkflowTests|LungfishCLITests)\\.",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests|^(?!.*(?:Provenance|Scientific.*Policy)).*",
+      "resources": [],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "core",
+      "purpose": "Headless core contracts with local/fake fixtures",
+      "harness": "swift",
+      "include": "^LungfishCoreTests\\.",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests|Provenance|Scientific.*Policy",
+      "resources": [],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "io",
+      "purpose": "Headless io contracts with local/fake fixtures",
+      "harness": "swift",
+      "include": "^LungfishIOTests\\.",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests|Provenance|Scientific.*Policy",
+      "resources": [],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "workflow",
+      "purpose": "Headless workflow contracts with local/fake fixtures",
+      "harness": "swift",
+      "include": "^LungfishWorkflowTests\\.",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests|Provenance|Scientific.*Policy",
+      "resources": [
+        "filesystem",
+        "subprocess"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "cli",
+      "purpose": "Headless cli contracts with local/fake fixtures",
+      "harness": "swift",
+      "include": "^LungfishCLITests\\.",
+      "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests)\\.|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|LargeTreeTests|PerformanceTests|FullLengthONTMHCGenotypingPipelineTests|GenotypeWorkbookRevisionServiceTests|PluginPackStatusServiceTests|StressTests|Provenance|Scientific.*Policy",
+      "resources": [
+        "filesystem",
+        "subprocess"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    }
+  ],
+  "profiles": {
+    "quick": {
+      "collections": [
+        "scientific-contracts",
+        "core",
+        "io",
+        "workflow",
+        "cli"
+      ],
+      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
+      "parallel": true,
+      "workers": 4,
+      "requireTools": false,
+      "pythonModules": [
+        "scripts.tests.test_test_catalog",
+        "scripts.tests.test_gate_profile_evidence"
+      ]
+    },
+    "headless": {
+      "collections": [
+        "scientific-contracts",
+        "core",
+        "io",
+        "workflow",
+        "cli"
+      ],
+      "parallel": true,
+      "workers": 1,
+      "requireTools": false,
+      "pythonModules": [
+        "scripts.tests.test_test_catalog",
+        "scripts.tests.test_full_suite_gate_tiers",
+        "scripts.tests.test_gate_profile_evidence"
+      ],
+      "purpose": "Broad headless regression; one XCTest worker conservatively serializes shared process/filesystem state and avoids SwiftPM serial ARG_MAX. Potentially slow; no latency claim."
+    },
+    "release": {
+      "collections": [
+        "scientific-contracts",
+        "core",
+        "io",
+        "workflow",
+        "cli"
+      ],
+      "parallel": true,
+      "workers": 4,
+      "requireTools": false,
+      "pythonModules": [
+        "scripts.tests.test_test_catalog",
+        "scripts.tests.test_release_contract",
+        "scripts.tests.test_full_suite_gate_tiers",
+        "scripts.tests.test_gate_profile_evidence"
+      ],
+      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
+      "purpose": "Build qualification: compact core/provenance sentinels; full headless regression remains an explicit diagnostic. Candidate artifact checks are required separately by release.py."
+    },
+    "extended": {
+      "collections": [
+        "scientific-contracts",
+        "core",
+        "io",
+        "workflow",
+        "cli",
+        "extended-scientific"
+      ],
+      "parallel": true,
+      "workers": 1,
+      "requireTools": false,
+      "pythonModules": [
+        "scripts.tests.test_*"
+      ]
+    },
+    "ui": {
+      "collections": [
+        "ui-diagnostics"
+      ],
+      "parallel": true,
+      "workers": 1,
+      "requireTools": false,
+      "pythonModules": [],
+      "nativeXCUITestCommand": [
+        "scripts/release/app-smoke-gate.sh"
+      ]
+    },
+    "tool-conformance": {
+      "collections": [
+        "tool-conformance",
+        "integration-diagnostics"
+      ],
+      "parallel": true,
+      "workers": 1,
+      "requireTools": true,
+      "pythonModules": []
+    }
+  },
+  "legacyTiers": {
+    "smoke": {
+      "tier": "smoke",
+      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
+      "skip": "",
+      "parallel": false,
+      "requireTools": false
+    },
+    "unit": {
+      "tier": "unit",
+      "filter": "",
+      "skip": "^LungfishIntegrationTests\\.|CLIExitCodeProcessTests|ToolsCommandTests|DbCommandUpdateTargetTests|ImportFastqE2ETests|CLIBAMFilteringIntegrationTests|MarkdupCommandTests|ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|ProjectStorageCleanupPreparationLargeTreeTests|ProjectStorageCleanupProvenanceTests|ProjectStoragePublishedCleanupOutcomeReaderTests|ProjectStorageAutomaticCleanupServiceTests|ProjectStoragePerformanceTests|ProjectTempCleanupTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests|Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests",
+      "parallel": true,
+      "requireTools": false
+    },
+    "integration": {
+      "tier": "integration",
+      "filter": "^LungfishIntegrationTests\\.|CLIExitCodeProcessTests|ToolsCommandTests|DbCommandUpdateTargetTests|ImportFastqE2ETests|CLIBAMFilteringIntegrationTests|MarkdupCommandTests|ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|ProjectStorageCleanupPreparationLargeTreeTests|ProjectStorageCleanupProvenanceTests|ProjectStoragePublishedCleanupOutcomeReaderTests|ProjectStorageAutomaticCleanupServiceTests|ProjectStoragePerformanceTests|ProjectTempCleanupTests|AppSettingsTests|MainMenuStructureTests|ClassifierExtractionInvariantTests|GenotypeKnownAlleleDetailViewTests|ClassificationPipelineProvenanceSourceTests|ClassifierAlignmentInspectorTests|ClassifierCLIRoundTripTests|ExtractReadsByClassifierCLITests|FileSystemWatcherTests|GenotypeCohortSummaryPanelViewTests|GenotypeHaplotypeCallBandTests|GenotypeResultViewportSelectionAndComparisonTests|ManagedStorageConfigStoreTests|MappingResultViewControllerTests|MetagenomicsLayoutModeTests|PrimerSchemeBundleTests|ProcessManagerTests|WorkspaceShellLayoutTests|ViewerBundleRoutingTests|AssemblyResultViewControllerTests|BatchTableViewTests|FullLengthONTMHCCohortAlignmentBuilderTests|ManagedMappingPipelineTests|ProjectFilesystemWindowOwnershipTests|ONTBarcodeDemuxGenotypingPipelineTests|TaxonomyLayoutPreferenceTests|EsVirituViewControllerBatchModeTests",
+      "skip": "",
+      "parallel": false,
+      "requireTools": false
+    },
+    "conformance": {
+      "tier": "conformance",
+      "filter": "Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|GenotypeWorkbookManagedRuntimeProbeTests|FASTQOperationRoundTripTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests",
+      "skip": "",
+      "parallel": false,
+      "requireTools": false
+    },
+    "full": {
+      "tier": "full",
+      "filter": "",
+      "skip": "",
+      "parallel": false,
+      "requireTools": false
+    }
+  }
+}

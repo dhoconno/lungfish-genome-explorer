@@ -17,8 +17,9 @@ let package = Package(
         // Command-line interface for headless operation
         .executable(
             name: "lungfish-cli",
-            targets: ["LungfishCLI"]
+            targets: ["LungfishCLIExecutable"]
         ),
+        .library(name: "LungfishCLILibrary", targets: ["LungfishCLI"]),
         // Core library for sequence data models and services
         .library(
             name: "LungfishCore",
@@ -429,7 +430,7 @@ let package = Package(
         ),
 
         // MARK: - LungfishCLI (Command-Line Interface)
-        .executableTarget(
+        .target(
             name: "LungfishCLI",
             dependencies: [
                 "LungfishCore",
@@ -438,6 +439,11 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/LungfishCLI"
+        ),
+        .executableTarget(
+            name: "LungfishCLIExecutable",
+            dependencies: ["LungfishCLI"],
+            path: "Sources/LungfishCLIExecutable"
         ),
         .testTarget(
             name: "LungfishCLITests",

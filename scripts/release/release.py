@@ -16,6 +16,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
+import plistlib
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 
@@ -24,6 +27,9 @@ PROJECT_ROOT = SCRIPT_DIR.parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from release_identity import prepare_identity_plist, identity_plist, fork_contract, PublicIdentity
+from bounded_process import run_bounded
+from release_profiles import ReleaseProfile, ProfileError, load_release_profile as _load_profile, write_release_profile
 from release_contract import load_contract  # noqa: E402
 from gate_evidence import EvidenceError, create_manifest, source_identity, verify_manifest  # noqa: E402
 from release_cache_fingerprint import (  # noqa: E402
@@ -54,140 +60,27 @@ PROFILE_FIELDS = frozenset(
 )
 
 
+_METRICS_PATH: Path | None = None
+
+
+def _record_timing(phase: str, seconds: float, exit_status: int | None) -> None:
+    if _METRICS_PATH is None:
+        return
+    record = {"schemaVersion": 1, "phase": phase, "wallSeconds": round(seconds, 3),
+              "exitStatus": exit_status, "recordedAt": datetime.now(timezone.utc).isoformat()}
+    with _METRICS_PATH.open("a") as stream:
+        stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 class ReleaseError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class ReleaseProfile:
-    repository: str
-    signing_identity: str
-    team_id: str
-    notary_profile: str
-
-
-def _has_control_characters(value: str) -> bool:
-    return any(ord(character) < 32 or ord(character) == 127 for character in value)
-
-
-def _validate_profile_parent(path: Path) -> None:
-    parent = path.parent
-    try:
-        metadata = parent.lstat()
-    except OSError as error:
-        raise ReleaseError(f"release profile parent is unavailable: {parent}") from error
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-        raise ReleaseError("release profile parent must be a non-symlink directory")
-    if metadata.st_uid != os.geteuid():
-        raise ReleaseError("release profile parent must be owned by the current user")
-    if stat.S_IMODE(metadata.st_mode) != 0o700:
-        raise ReleaseError("release profile parent must be owner-only mode 0700")
-
-    ancestor = parent.parent
-    while ancestor != ancestor.parent:
-        try:
-            ancestor_metadata = ancestor.lstat()
-        except OSError as error:
-            raise ReleaseError("release profile parent chain is unavailable") from error
-        if ancestor_metadata.st_uid == 0:
-            break
-        if stat.S_ISLNK(ancestor_metadata.st_mode):
-            raise ReleaseError("release profile parent chain contains a symlink")
-        if ancestor_metadata.st_uid != os.geteuid():
-            raise ReleaseError("release profile parent chain has unsafe ownership")
-        if stat.S_IMODE(ancestor_metadata.st_mode) & 0o022:
-            raise ReleaseError("release profile parent chain is group/other writable")
-        ancestor = ancestor.parent
-
-
 def load_release_profile(path: Path) -> ReleaseProfile:
-    """Load an exact, private v1 JSON release-machine profile."""
-    profile_path = path.expanduser().absolute()
-    _validate_profile_parent(profile_path)
     try:
-        metadata = profile_path.lstat()
-    except OSError as error:
-        raise ReleaseError(f"release profile is unavailable: {profile_path}") from error
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ReleaseError("release profile must not be a symlink")
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ReleaseError("release profile must be a regular file")
-    if metadata.st_uid != os.geteuid():
-        raise ReleaseError("release profile must be owned by the current user")
-    if stat.S_IMODE(metadata.st_mode) != 0o600:
-        raise ReleaseError("release profile must have mode 0600")
-    if metadata.st_size <= 0 or metadata.st_size > MAX_METADATA_BYTES:
-        raise ReleaseError("release profile has an invalid size")
-    descriptor: int | None = None
-    try:
-        flags = (
-            os.O_RDONLY
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-        )
-        descriptor = os.open(profile_path, flags)
-        opened = os.fstat(descriptor)
-        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
-            raise ReleaseError("release profile changed while it was being opened")
-        if (
-            not stat.S_ISREG(opened.st_mode)
-            or opened.st_uid != os.geteuid()
-            or stat.S_IMODE(opened.st_mode) != 0o600
-            or opened.st_size != metadata.st_size
-        ):
-            raise ReleaseError("release profile metadata changed while opening")
-        raw = b""
-        while len(raw) <= MAX_METADATA_BYTES:
-            chunk = os.read(
-                descriptor,
-                min(64 * 1024, MAX_METADATA_BYTES + 1 - len(raw)),
-            )
-            if not chunk:
-                break
-            raw += chunk
-        if len(raw) > MAX_METADATA_BYTES:
-            raise ReleaseError("release profile has an invalid size")
-        payload = json.loads(raw.decode("utf-8"))
-    except ReleaseError:
-        raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ReleaseError("release profile is not valid JSON") from error
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-    if not isinstance(payload, dict):
-        raise ReleaseError("release profile must contain a JSON object")
-    unknown = set(payload) - PROFILE_FIELDS
-    missing = PROFILE_FIELDS - set(payload)
-    if unknown:
-        raise ReleaseError(
-            f"release profile has unknown keys: {', '.join(sorted(unknown))}"
-        )
-    if missing:
-        raise ReleaseError(
-            f"release profile is missing keys: {', '.join(sorted(missing))}"
-        )
-    if payload["schemaVersion"] != 1:
-        raise ReleaseError("release profile schemaVersion must be 1")
-    values = {
-        key: payload[key]
-        for key in ("repository", "signingIdentity", "teamId", "notaryProfile")
-    }
-    for key, value in values.items():
-        if not isinstance(value, str) or not value or _has_control_characters(value):
-            raise ReleaseError(f"release profile {key} contains invalid/control characters")
-    repository = values["repository"]
-    if re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", repository) is None:
-        raise ReleaseError("release profile repository must be OWNER/REPOSITORY")
-    team_id = values["teamId"]
-    if re.fullmatch(r"[A-Z0-9]{10}", team_id) is None:
-        raise ReleaseError("release profile teamId must be a 10-character Team ID")
-    return ReleaseProfile(
-        repository=repository.lower(),
-        signing_identity=values["signingIdentity"],
-        team_id=team_id,
-        notary_profile=values["notaryProfile"],
-    )
+        return _load_profile(path)
+    except ProfileError as error:
+        raise ReleaseError(str(error)) from error
 
 
 @dataclass(frozen=True)
@@ -216,6 +109,12 @@ class ReleaseRequest:
     sparkle_public_ed_key: str = PUBLIC_SPARKLE_KEY
     github_repository: str = ""
     gate_evidence: GateEvidence | None = None
+    signing_keychain: Path | None = None
+    certificate_sha1: str | None = None
+    notary_keychain: Path | None = None
+    sparkle_account: str = "ed25519"
+    setup_receipt: Path | None = None
+    credential_probe_mode: str = "unattended"
 
 
 @dataclass(frozen=True)
@@ -458,22 +357,17 @@ def candidate_receipt_path(root: Path, channel: str, commit: str) -> Path:
     )
 
 
-def debug_plan(root: Path) -> tuple[list[list[str]], Path]:
+def debug_plan(root: Path, *, portable: bool = False, jobs: int | None = None) -> tuple[list[list[str]], Path]:
     profile = load_contract(root / "config/release-contract.json").profile("debug")
     app = root / "build" / "Debug" / profile.appBundleFilename
-    return (
-        [
-            ["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"],
-            [
-                "/bin/bash",
-                str(root / "scripts/smoke-test-debug-app.sh"),
-                str(app),
-                "--compiling-build-dir",
-                str(root / ".build"),
-            ],
-        ],
-        app,
-    )
+    command = ["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"]
+    if portable:
+        command.append("--portable")
+    if jobs is not None:
+        if jobs < 1:
+            raise ReleaseError("jobs must be positive")
+        command.extend(["--jobs", str(jobs)])
+    return [command], app
 
 
 def _head_commit(root: Path, environment: dict[str, str]) -> str:
@@ -492,8 +386,35 @@ def _head_commit(root: Path, environment: dict[str, str]) -> str:
     return commit
 
 
-def _default_profile_path() -> Path:
-    return Path.home() / ".config" / "lungfish" / "release.json"
+def _default_profile_path(repository: str | None = None) -> Path:
+    base = Path.home() / ".config" / "lungfish"
+    if repository:
+        key = hashlib.sha256(repository.lower().encode()).hexdigest()[:24]
+        named = base / "releases" / f"{key}.json"
+        if named.exists():
+            return named
+    return base / "release.json"
+
+
+def _profile_request(request: ReleaseRequest, profile: ReleaseProfile, path: Path) -> ReleaseRequest:
+    return replace(request, signing_identity=profile.signing_identity, team_id=profile.team_id,
+                   notary_profile=profile.notary_profile, signing_keychain=profile.signing_keychain,
+                   certificate_sha1=profile.certificate_sha1, notary_keychain=profile.notary_keychain,
+                   sparkle_account=profile.sparkle_account, setup_receipt=path.with_suffix(".setup.json"),
+                   github_repository=profile.repository)
+
+
+def _credential_arguments(request: ReleaseRequest) -> list[str]:
+    result = ["--sparkle-account", request.sparkle_account,
+              "--sparkle-public-ed-key", request.sparkle_public_ed_key]
+    for flag, value in (("--signing-keychain", request.signing_keychain),
+                        ("--certificate-sha1", request.certificate_sha1),
+                        ("--notary-keychain", request.notary_keychain),
+                        ("--setup-receipt", request.setup_receipt)):
+        if value is not None:
+            result += [flag, str(value)]
+    return result
+
 
 
 def _base_request(
@@ -504,6 +425,9 @@ def _base_request(
     github_repository: str = "",
 ) -> ReleaseRequest:
     release_dir = candidate_release_dir(root, channel, commit)
+    contract = load_contract(root / "config/release-contract.json")
+    dependency = (root / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+                  if contract.gates.dependencyPolicy == "manifest" else Path.home() / ".lungfish-verify/dependency-receipt.json")
     return ReleaseRequest(
         root=root,
         channel=channel,
@@ -516,13 +440,11 @@ def _base_request(
         notary_profile="",
         sparkle_generate_appcast=Path("/unresolved/generate_appcast"),
         sparkle_ed_key_file=None,
-        dependency_receipt=Path.home()
-        / ".lungfish-verify"
-        / "dependency-receipt.json",
+        dependency_receipt=dependency,
         release_dir=release_dir,
         prune_prereleases=False,
         prune_prereleases_keep=10,
-        sparkle_public_ed_key=PUBLIC_SPARKLE_KEY,
+        sparkle_public_ed_key=contract.identity.sparklePublicEdKey,
         github_repository=github_repository,
     )
 
@@ -558,7 +480,7 @@ def _resolve_sparkle_generate_appcast(
     return path
 
 
-def run_debug(root: Path) -> int:
+def run_debug(root: Path, *, portable: bool = False, jobs: int | None = None) -> int:
     try:
         developer_dir = resolve_developer_dir(os.environ)
     except XcodeSelectionError as error:
@@ -567,7 +489,7 @@ def run_debug(root: Path) -> int:
     environment["DEVELOPER_DIR"] = str(developer_dir)
     runner = SubprocessRunner(root, environment)
     runner.environment = sanitized_package_environment(runner.environment)
-    commands, app = debug_plan(root)
+    commands, app = debug_plan(root, portable=portable, jobs=jobs)
     for command in commands:
         runner.run(command)
     print(f"Debug app: {app}")
@@ -581,6 +503,7 @@ def run_package(root: Path, channel: str) -> int:
         repository = resolve_repository_identity(root, "origin")
     except RepositoryIdentityError as error:
         raise ReleaseError(str(error)) from error
+    _verify_public_repository(root, repository.github_repository)
     request = _base_request(
         root,
         channel,
@@ -593,7 +516,12 @@ def run_package(root: Path, channel: str) -> int:
         environment,
         credentialless=True,
     )
-    identity = ReleaseCoordinator(operations).package(request)
+    if request.receipt.is_file():
+        operations.verify_package_source(request)
+        identity = operations.verify_candidate_receipt(request)
+        print(f"Reused verified exact candidate: {identity.receipt}")
+    else:
+        identity = ReleaseCoordinator(operations).package(request)
     print(f"Package candidate: {identity.receipt}")
     return 0
 
@@ -605,6 +533,7 @@ def run_publish(root: Path, channel: str, profile_path: Path | None) -> int:
         repository = resolve_repository_identity(root, "origin")
     except RepositoryIdentityError as error:
         raise ReleaseError(str(error)) from error
+    _verify_public_repository(root, repository.github_repository)
     request = replace(
         _base_request(
             root,
@@ -627,7 +556,7 @@ def run_publish(root: Path, channel: str, profile_path: Path | None) -> int:
     selected_profile_path = (
         profile_path.expanduser().absolute()
         if profile_path is not None
-        else _default_profile_path()
+        else _default_profile_path(repository.github_repository)
     )
     profile = load_release_profile(selected_profile_path)
     if profile.repository != repository.github_repository:
@@ -641,14 +570,8 @@ def run_publish(root: Path, channel: str, profile_path: Path | None) -> int:
         profile.repository,
         credential_environment,
     )
-    active = replace(
-        request,
-        signing_identity=profile.signing_identity,
-        team_id=profile.team_id,
-        notary_profile=profile.notary_profile,
-        sparkle_generate_appcast=sparkle,
-        github_repository=profile.repository,
-    )
+    active = replace(_profile_request(request, profile, selected_profile_path),
+                     sparkle_generate_appcast=sparkle)
     result = ReleaseCoordinator(operations).publish_verified(active, identity)
     print(
         f"Release complete: channel={channel} tag={result.tag} commit={result.commit}"
@@ -663,6 +586,7 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
         repository = resolve_repository_identity(root, "origin")
     except RepositoryIdentityError as error:
         raise ReleaseError(str(error)) from error
+    _verify_public_repository(root, repository.github_repository)
     request = _base_request(
         root,
         "preview",
@@ -681,7 +605,7 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
     selected_profile_path = (
         profile_path.expanduser().absolute()
         if profile_path is not None
-        else _default_profile_path()
+        else _default_profile_path(repository.github_repository)
     )
     if profile_path is None and not selected_profile_path.exists():
         print("Publish readiness: NOT READY (create the private default release profile)")
@@ -705,18 +629,79 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
             credential_environment,
         )
         credential_operations.doctor_credentials(
-            replace(
-                request,
-                signing_identity=profile.signing_identity,
-                team_id=profile.team_id,
-                notary_profile=profile.notary_profile,
-                github_repository=profile.repository,
-            )
+            _profile_request(request, profile, selected_profile_path)
         )
     except ReleaseError:
         print("Publish readiness: NOT READY (credential readiness checks failed)")
         return 1
     print("Publish readiness: READY")
+    return 0
+
+
+def _verify_public_repository(root: Path, repository: str) -> None:
+    if load_contract(root / "config/release-contract.json").identity.repository != repository.lower():
+        raise ReleaseError("origin differs from public product identity; configure this fork before packaging or publishing")
+
+
+def run_configure_fork(root: Path, args) -> int:
+    repository = resolve_repository_identity(root, "origin").github_repository
+    if repository.lower() != args.repository.lower():
+        raise ReleaseError("requested repository does not match origin")
+    path = root / "config/release-contract.json"
+    original = path.read_bytes()
+    payload = fork_contract(json.loads(original), {
+        "repository": repository, "sparklePublicEdKey": args.sparkle_public_key,
+        "runtimeNamespace": args.namespace, "websiteURL": args.website,
+        "documentationURL": args.documentation,
+        "releaseHistoryURL": f"https://github.com/{repository.lower()}/releases",
+    }, args.product_name)
+    # Validate the entire replacement before atomically replacing public configuration.
+    fd, name = tempfile.mkstemp(prefix=".release-contract-", suffix=".json", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(payload, stream, indent=2); stream.write("\n")
+            stream.flush(); os.fsync(stream.fileno())
+        load_contract(temporary)
+        if path.is_symlink() or path.read_bytes() != original:
+            raise ReleaseError("public contract changed during configuration")
+        temporary.chmod(0o644)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    print(f"Public fork identity configured: {path}. Review and commit this file.")
+    return 0
+
+
+def run_configure_machine(root: Path, args) -> int:
+    repository = resolve_repository_identity(root, "origin").github_repository
+    _verify_public_repository(root, repository)
+    key = hashlib.sha256(repository.lower().encode()).hexdigest()[:24]
+    path = (args.profile.expanduser().absolute() if args.profile else
+            Path.home() / ".config/lungfish/releases" / f"{key}.json")
+    profile = ReleaseProfile(repository, args.signing_identity, args.team_id, args.notary_profile,
+                             str(args.signing_keychain) if args.signing_keychain else None,
+                             args.certificate_sha1,
+                             str(args.notary_keychain) if args.notary_keychain else None,
+                             args.sparkle_account, 2)
+    write_release_profile(path, profile)
+    print(f"Private machine selectors created: {path}. No credentials were imported or probed.")
+    return 0
+
+
+def run_setup(root: Path, profile_path: Path | None) -> int:
+    repository = resolve_repository_identity(root, "origin").github_repository
+    _verify_public_repository(root, repository)
+    path = profile_path.expanduser().absolute() if profile_path else _default_profile_path(repository)
+    profile = load_release_profile(path)
+    if profile.repository != repository:
+        raise ReleaseError("release profile repository does not match origin")
+    environment = sanitized_publish_environment(os.environ.copy())
+    request = _profile_request(_base_request(root, "preview", _head_commit(root, environment),
+                                             github_repository=repository), profile, path)
+    operations = LocalReleaseOperations(root, repository, environment)
+    operations.doctor_credentials(replace(request, credential_probe_mode="setup"))
+    print(f"Credential setup proof created: {request.setup_receipt}")
     return 0
 
 
@@ -737,6 +722,7 @@ class SubprocessRunner:
                 self.environment["GH_REPO"] = self.github_repository
                 self.environment.pop("GH_HOST", None)
         self.environment.pop(COORDINATOR_CAPABILITY_ENV, None)
+        self.environment.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1", GIT_SSH_COMMAND="ssh -oBatchMode=yes -oConnectTimeout=20")
 
     def run(
         self,
@@ -757,15 +743,23 @@ class SubprocessRunner:
         command_environment = self.environment.copy()
         if env:
             command_environment.update(env)
-        result = subprocess.run(
-            effective_command,
-            cwd=self.root,
-            env=command_environment,
-            text=True,
-            stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.PIPE if capture else None,
-            check=False,
-        )
+        started = time.monotonic()
+        if command and command[0] in {"git", "gh"}:
+            result = run_bounded(effective_command, cwd=self.root, env=command_environment, timeout=180)
+            if not capture:
+                sys.stdout.write(result.stdout or "")
+                sys.stderr.write(result.stderr or "")
+        else:
+            result = subprocess.run(
+                effective_command, cwd=self.root, env=command_environment,
+                stdin=subprocess.DEVNULL, text=True,
+                stdout=subprocess.PIPE if capture else None,
+                stderr=subprocess.PIPE if capture else None, check=False,
+            )
+        phase = Path(command[0]).name
+        if len(command) > 1 and Path(command[1]).suffix in {".py", ".sh"}:
+            phase = Path(command[1]).name
+        _record_timing(phase, time.monotonic() - started, result.returncode)
         if capture and len((result.stdout or "").encode()) > MAX_JSON_BYTES:
             raise ReleaseError(f"command output exceeded bound: {command[0]}")
         if check and result.returncode != 0:
@@ -1359,6 +1353,7 @@ class LocalReleaseOperations:
                 repository_key=identity.repository_key,
                 deployment_target=self.contract.toolchain.deploymentTarget,
                 command_output=self.runner.text,
+                cli_info_plist=prepare_identity_plist(self.root, self.contract, request.channel),
             )
             return cache_paths(cache_root, identity.repository_key, document)
         except CacheFingerprintError as error:
@@ -1383,9 +1378,8 @@ class LocalReleaseOperations:
         if branch == request.main_branch:
             return
         if branch:
-            raise ReleaseError(
-                f"package source must be on {request.main_branch} or detached at an exact release tag"
-            )
+            # Unsigned branch candidates are reviewable; publish separately enforces main ancestry.
+            return
         head = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
         remote_main = self.runner.run(
             [
@@ -1479,6 +1473,8 @@ class LocalReleaseOperations:
             "--github-repository",
             request.github_repository,
         ]
+        command.extend(_credential_arguments(request))
+        command.extend(["--credential-probe-mode", request.credential_probe_mode])
         if request.sparkle_ed_key_file is not None:
             command.extend(["--sparkle-ed-key-file", str(request.sparkle_ed_key_file)])
         self.runner.run(command)
@@ -1515,8 +1511,9 @@ class LocalReleaseOperations:
                 request.github_repository,
             ]
         )
-        verify_dependency_receipt_file(self.root, request.dependency_receipt)
-        self._managed_gate_python(request)
+        if self.contract.gates.dependencyPolicy == "installed":
+            verify_dependency_receipt_file(self.root, request.dependency_receipt)
+            self._managed_gate_python(request)
 
     def _managed_gate_python(self, request: ReleaseRequest) -> Path:
         candidate = request.dependency_receipt.parent / "parity-python" / "bin" / "python3"
@@ -1533,8 +1530,11 @@ class LocalReleaseOperations:
         )
 
     def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
-        verify_dependency_receipt_file(self.root, request.dependency_receipt)
-        gate_python = self._managed_gate_python(request)
+        if self.contract.gates.dependencyPolicy == "installed":
+            verify_dependency_receipt_file(self.root, request.dependency_receipt)
+            gate_python = self._managed_gate_python(request)
+        else:
+            gate_python = Path(sys.executable)
         gate_environment = {
             "PATH": f"{gate_python.parent}:{self.runner.environment.get('PATH', '')}",
             "LUNGFISH_RELEASE_PYTHON": str(gate_python),
@@ -1555,7 +1555,8 @@ class LocalReleaseOperations:
         gate_script = str(self.root / "scripts/full-suite-gate.sh")
         for index, step in enumerate(self.contract.gates.for_channel(request.channel)):
             output = directory / f"swift-{index}"
-            command = ["/bin/bash", gate_script, "--tier", step.tier, "--evidence-dir", str(output)]
+            selector = "--profile" if step.tier in {"release", "quick", "headless", "tool-conformance"} else "--tier"
+            command = ["/bin/bash", gate_script, selector, step.tier, "--evidence-dir", str(output)]
             if step.requireTools:
                 command.append("--require-tools")
             environment = gate_environment.copy()
@@ -1611,7 +1612,7 @@ class LocalReleaseOperations:
             "--github-repository",
             request.github_repository,
         ]
-        self.runner.run(command)
+        self.runner.run(command, env={"LUNGFISH_CLI_INFOPLIST_FILE": str(prepare_identity_plist(self.root, self.contract, request.channel))})
         receipt = release_dir / "unsigned-candidate-receipt.json"
         if not receipt.is_file():
             raise ReleaseError("package phase did not produce a candidate receipt")
@@ -1636,26 +1637,21 @@ class LocalReleaseOperations:
             raise ReleaseError("GitHub repository is required for Sparkle validation")
         preview = self.contract.channel("preview")
         selected = self.contract.channel(request.channel)
-        if not preview.legacyBridgeRelease or not preview.legacyBridgeAppcastFilename:
-            raise ReleaseError(
-                "release contract omitted the legacy alpha Sparkle floor"
-            )
-        floors = [
-            (
-                preview.legacyBridgeRelease,
-                preview.legacyBridgeAppcastFilename,
-                False,
-            )
-        ]
+        is_fork = self.contract.identity.runtimeNamespace is not None
+        floors = []
+        if not is_fork:
+            if not preview.legacyBridgeRelease or not preview.legacyBridgeAppcastFilename:
+                raise ReleaseError("release contract omitted the legacy alpha Sparkle floor")
+            floors.append((preview.legacyBridgeRelease, preview.legacyBridgeAppcastFilename, False))
+        # A fork can publish its first feed without inheriting upstream build history.
+        # Existing feeds still enforce their floor; only HTTP 404 is optional.
         if request.channel == "stable":
-            floors.extend(
-                [
-                    (preview.sparkleRelease, preview.appcastFilename, False),
-                    (selected.sparkleRelease, selected.appcastFilename, True),
-                ]
-            )
+            floors.extend([
+                (preview.sparkleRelease, preview.appcastFilename, is_fork),
+                (selected.sparkleRelease, selected.appcastFilename, True),
+            ])
         else:
-            floors.append((selected.sparkleRelease, selected.appcastFilename, False))
+            floors.append((selected.sparkleRelease, selected.appcastFilename, is_fork))
         for release, filename, allow_missing in floors:
             command = [
                 sys.executable,
@@ -1795,6 +1791,11 @@ class LocalReleaseOperations:
         ]
         if request.sparkle_ed_key_file is not None:
             command.extend(["--sparkle-ed-key-file", str(request.sparkle_ed_key_file)])
+        # Public key is already in the builder command; remaining values are nonsecret selectors.
+        extras = _credential_arguments(request)
+        key_index = extras.index("--sparkle-public-ed-key")
+        del extras[key_index:key_index + 2]
+        command.extend(extras)
         if self._versioned_release_exists(identity.tag):
             command.append("--recover-existing-release")
         self.validate_sparkle_build_number(request, identity)
@@ -1927,8 +1928,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    debug = commands.add_parser("debug", help="build and relocate-smoke a local Debug app")
+    debug = commands.add_parser("debug", help="build a Debug app with cheap headless artifact checks")
     debug.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+    debug.add_argument("--portable", action="store_true", help="also run full relocation checks")
+    debug.add_argument("--jobs", type=int, help="positive compiler job budget; defaults to available CPUs")
 
     package = commands.add_parser(
         "package",
@@ -1949,25 +1952,68 @@ def _parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--profile", type=Path)
     doctor.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+    setup = commands.add_parser("setup", help="explicit one-time credential probes; macOS may request authorization")
+    setup.add_argument("--profile", type=Path)
+    setup.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+    fork = commands.add_parser("configure-fork", help="write public fork identity without accessing credentials")
+    for flag in ("repository", "product-name", "namespace", "sparkle-public-key", "website", "documentation"):
+        fork.add_argument("--" + flag, required=True)
+    fork.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+    machine = commands.add_parser("configure-machine", help="create private credential selectors without importing secrets")
+    for flag in ("signing-identity", "team-id", "notary-profile"):
+        machine.add_argument("--" + flag, required=True)
+    machine.add_argument("--profile", type=Path)
+    machine.add_argument("--signing-keychain", type=Path)
+    machine.add_argument("--notary-keychain", type=Path)
+    machine.add_argument("--certificate-sha1")
+    machine.add_argument("--sparkle-account", default="ed25519")
+    machine.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _METRICS_PATH
     args = _parser().parse_args(argv)
+    started = time.monotonic()
+    result_status = None
     try:
         root = args.repo.expanduser().resolve(strict=True)
+        metrics_dir = root / ".build/release-metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        descriptor, filename = tempfile.mkstemp(prefix=args.command + "-", suffix=".jsonl", dir=metrics_dir)
+        os.close(descriptor)
+        _METRICS_PATH = Path(filename)
         if args.command == "debug":
-            return run_debug(root)
+            result_status = run_debug(root, portable=args.portable, jobs=args.jobs)
+            return result_status
+        if args.command == "configure-fork":
+            result_status = run_configure_fork(root, args)
+            return result_status
+        if args.command == "configure-machine":
+            result_status = run_configure_machine(root, args)
+            return result_status
+        if args.command == "setup":
+            result_status = run_setup(root, args.profile)
+            return result_status
         if args.command == "package":
-            return run_package(root, args.channel)
+            result_status = run_package(root, args.channel)
+            return result_status
         if args.command == "publish":
-            return run_publish(root, args.channel, args.profile)
+            result_status = run_publish(root, args.channel, args.profile)
+            return result_status
         if args.command == "doctor":
-            return run_doctor(root, args.profile)
+            result_status = run_doctor(root, args.profile)
+            return result_status
         raise ReleaseError(f"unknown command: {args.command}")
     except (OSError, ReleaseError, ValueError) as error:
         print(f"release failed: {error}", file=sys.stderr)
+        result_status = 1
         return 1
+    finally:
+        _record_timing("total:" + args.command, time.monotonic() - started, result_status)
+        if _METRICS_PATH:
+            print(f"Phase timings: {_METRICS_PATH}")
+        _METRICS_PATH = None
 
 
 if __name__ == "__main__":

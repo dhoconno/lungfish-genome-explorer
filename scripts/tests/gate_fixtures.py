@@ -16,8 +16,19 @@ def record(path, root):
     return {"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "sizeBytes": path.stat().st_size}
 
 
-def make_gate_fixture(directory, source, channel="stable", modules=None):
+def make_gate_fixture(directory, source, channel="stable", modules=None, *, contract_path=None, legacy=False):
     directory.mkdir(parents=True)
+    project_root = Path(__file__).resolve().parents[2]
+    contract_path = Path(contract_path or project_root / "config/release-contract.json").resolve()
+    contract = json.loads(contract_path.read_text())
+    if legacy:
+        steps = [{"tier": tier, "requireTools": tier == "conformance"} for tier in (("full", "conformance") if channel == "stable" else ("unit", "integration"))]
+        dependency_policy = "installed"
+    else:
+        steps = contract["gates"]["channels"][channel]
+        dependency_policy = contract["gates"].get("dependencyPolicy", "installed")
+        if modules is None:
+            modules = contract["gates"]["focusedReleaseTests"]
     runtime = {"pythonExecutable": "/fixture/python3", "pythonVersion": "3.13 fixture", "swiftVersion": "Swift version 6.2 fixture"}
     def result(kind, options):
         return {"schemaVersion": 1, "kind": kind, "source": source, "runtime": runtime,
@@ -31,12 +42,14 @@ def make_gate_fixture(directory, source, channel="stable", modules=None):
                    "files": [record(python_dir / "runner.log", python_dir)]})
     write_json(python_dir / "gate.result.json", python)
     paths = [python_dir / "gate.result.json"]
-    for index, tier in enumerate(("full", "conformance") if channel == "stable" else ("unit", "integration")):
+    for index, step in enumerate(steps):
+        tier = step["tier"]
         target = directory / str(index)
         target.mkdir()
         (target / "runner.log").write_text("Test Case '-[Fixture.ExampleTests testA]' passed (0.1 seconds).\nTest Suite 'All tests' passed\nExecuted 1 test, with 0 failures\n")
-        command = ["/bin/bash", str(Path(__file__).resolve().parents[1] / "full-suite-gate.sh"), "--describe-selection", "--tier", tier]
-        if tier == "conformance":
+        flag = "--tier" if tier in {"smoke", "unit", "integration", "conformance", "full"} else "--profile"
+        command = ["/bin/bash", str(Path(__file__).resolve().parents[1] / "full-suite-gate.sh"), "--describe-selection", flag, tier]
+        if step["requireTools"]:
             command.append("--require-tools")
         options = json.loads(subprocess.check_output(command, env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable}))
         swift = result("swift", options)
@@ -48,10 +61,18 @@ def make_gate_fixture(directory, source, channel="stable", modules=None):
                                "files": [record(target / "runner.log", target)]}]
         write_json(target / "gate.result.json", swift)
         paths.append(target / "gate.result.json")
-    (directory / "dependency-receipt.json").write_text('{"fixture":true}\n')
-    manifest = {"schemaVersion": 1, "source": source, "channel": channel,
-                "results": [record(p, directory) for p in paths],
-                "dependencyReceipt": record(directory / "dependency-receipt.json", directory),
+    if dependency_policy == "manifest":
+        dependency_source = contract_path.parent.parent / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
+        dependency_path = directory / "dependency-manifest.json"
+        dependency_path.write_bytes(dependency_source.read_bytes())
+        dependency_fields = dict(dependencyEvidence={"kind": "lock-manifest", "file": record(dependency_path, directory)},
+                                 dependencySourcePath=str(dependency_source))
+    else:
+        dependency_path = directory / "dependency-receipt.json"
+        dependency_path.write_text('{"fixture":true}\n')
+        dependency_fields = dict(dependencyReceipt=record(dependency_path, directory))
+    manifest = {"schemaVersion": 2 if dependency_policy == "manifest" else 1, "source": source, "channel": channel,
+                "results": [record(p, directory) for p in paths], **dependency_fields,
                 "files": [record(p, directory) for p in sorted(directory.rglob("*")) if p.is_file()]}
     write_json(directory / "manifest.json", manifest)
     return directory / "manifest.json"

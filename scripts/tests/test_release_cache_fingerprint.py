@@ -96,7 +96,7 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
         self.assertEqual(
             document,
             {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "repository": {
                     "canonicalIdentity": "github.com/example/lungfish",
                     "key": "a" * 64,
@@ -130,12 +130,11 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                             "Package.swift": "f" * 64,
                             "scripts/release/build-notarized-dmg.sh": "1" * 64,
                         },
-                        "schemaVersion": 1,
+                        "schemaVersion": 2,
                     },
                 },
                 "inputs": {
                     "packageResolvedSha256": "b" * 64,
-                    "releaseContractSha256": "c" * 64,
                 },
             },
         )
@@ -157,7 +156,6 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
             "SDK version": ("sdk_version", "26.5"),
             "SDK build": ("sdk_build", "25F10"),
             "lock": ("package_resolved_sha256", "2" * 64),
-            "contract": ("release_contract_sha256", "3" * 64),
             "configuration": ("configuration", "Debug"),
             "architecture": ("architecture", "x86_64"),
             "deployment": ("deployment_target", "25.0"),
@@ -178,6 +176,42 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                     helper.build_fingerprint_document(**mutated)
                 )
                 self.assertNotEqual(observed, baseline)
+
+    def test_policy_hash_does_not_change_compiler_namespace(self):
+        helper = load_helper()
+        fields = fixture_fields()
+        first = helper.build_fingerprint_document(**fields)
+        fields["release_contract_sha256"] = "9" * 64
+        second = helper.build_fingerprint_document(**fields)
+        self.assertEqual(first, second)
+        self.assertNotIn("releaseContractSha256", first["inputs"])
+
+    def test_compiler_region_ignores_signing_but_binds_flags(self):
+        helper = load_helper()
+        raw = (ROOT / helper.COMPILER_RECIPE_PATH).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "builder.sh"
+            path.write_text(raw)
+            baseline = helper.compiler_recipe_bytes(path)
+            path.write_text(raw + "\n# Signing policy changed\n")
+            self.assertEqual(baseline, helper.compiler_recipe_bytes(path))
+            path.write_text(raw.replace("-file-compilation-dir /workspace", "-file-compilation-dir /other"))
+            self.assertNotEqual(baseline, helper.compiler_recipe_bytes(path))
+            path.write_text(raw + "    # BEGIN LUNGFISH_COMPILER_RECIPE_V2\n")
+            with self.assertRaisesRegex(helper.CacheFingerprintError, "ambiguous"):
+                helper.compiler_recipe_bytes(path)
+
+    def test_project_signing_policy_preserves_compiler_cache(self):
+        helper = load_helper()
+        raw = (ROOT / "Lungfish.xcodeproj/project.pbxproj").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            path.write_text(raw)
+            baseline = helper.compiler_project_bytes(path)
+            path.write_text(raw.replace("DEVELOPMENT_TEAM = 29G3WN2GSA", "DEVELOPMENT_TEAM = FAKE000000"))
+            self.assertEqual(baseline, helper.compiler_project_bytes(path))
+            path.write_text(raw.replace('SWIFT_OPTIMIZATION_LEVEL = "-O"', 'SWIFT_OPTIMIZATION_LEVEL = "-Osize"'))
+            self.assertNotEqual(baseline, helper.compiler_project_bytes(path))
 
     def test_checkout_and_xcode_install_relocation_do_not_change_the_key(self):
         helper = load_helper()
@@ -238,6 +272,19 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                 deployment_target="26.0",
                 command_output=command_output,
             )
+
+            identity = first / "fork-identity.plist"
+            identity.write_bytes(b"fork identity one")
+            fork_arguments = dict(
+                project_root=first, repository="github.com/example/lungfish",
+                repository_key="a" * 64, deployment_target="26.0",
+                command_output=command_output, cli_info_plist=identity,
+            )
+            fork_first = helper.collect_fingerprint_document(**fork_arguments)
+            identity.write_bytes(b"fork identity two")
+            fork_second = helper.collect_fingerprint_document(**fork_arguments)
+            self.assertNotEqual(helper.fingerprint(fork_first), helper.fingerprint(fork_second))
+            self.assertNotIn(str(identity), helper.canonical_json_bytes(fork_second).decode())
 
         self.assertEqual(first_document, second_document)
         self.assertEqual(

@@ -75,7 +75,7 @@ class ReleaseProfileTests(unittest.TestCase):
     def setUp(self):
         self.release = load_module()
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.profile_dir = self.root / ".config/lungfish"
         self.profile_dir.mkdir(parents=True, mode=0o700)
         self.profile_dir.chmod(0o700)
@@ -261,8 +261,10 @@ class FrontDoorTransactionTests(unittest.TestCase):
     def test_local_release_gates_follow_contract_and_return_bound_results(self):
         contract = self.release.load_contract(ROOT / "config/release-contract.json")
         source = {"commit": "a" * 40, "clean": True}
-        gate_python = Path("/managed/python3")
-        for channel, tiers in (("preview", ["unit", "integration"]), ("stable", ["full", "conformance"])):
+        gate_python = Path(sys.executable)
+        for channel in ("preview", "stable"):
+            steps = contract.gates.for_channel(channel)
+            tiers = [step.tier for step in steps]
             with self.subTest(channel=channel), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 fixtures = make_gate_fixture(root / "fixtures", source, channel,
@@ -282,22 +284,22 @@ class FrontDoorTransactionTests(unittest.TestCase):
                 operations = object.__new__(self.release.LocalReleaseOperations)
                 operations.root, operations.contract, operations.runner = root, contract, RecordingRunner()
                 request = replace(self.request("package"), root=root, channel=channel,
-                                  dependency_receipt=fixtures.parent / "dependency-receipt.json")
+                                  dependency_receipt=contract.sourceRoot / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json")
                 with mock.patch.object(self.release, "verify_dependency_receipt_file"), mock.patch.object(
                     operations, "_managed_gate_python", return_value=gate_python
                 ), mock.patch.object(self.release, "source_identity", return_value=source):
                     evidence = operations.run_local_gates(request)
                 manifest = json.loads(evidence.manifest.read_text())
                 self.assertEqual(evidence.sha256, __import__("hashlib").sha256(evidence.manifest.read_bytes()).hexdigest())
-                self.assertEqual(len(manifest["results"]), 3)
+                self.assertEqual(len(manifest["results"]), 1 + len(steps))
                 commands = operations.runner.commands
                 self.assertEqual(commands[0][:4], [str(gate_python), "-B", str(root / "scripts/release/gate_evidence.py"), "python"])
                 self.assertEqual(commands[0][-len(contract.gates.focusedReleaseTests):], list(contract.gates.focusedReleaseTests))
-                self.assertEqual([c[c.index("--tier") + 1] for c in commands[1:]], tiers)
-                self.assertEqual("--require-tools" in commands[-1], channel == "stable")
+                self.assertEqual([c[c.index("--profile") + 1] for c in commands[1:]], tiers)
+                self.assertEqual("--require-tools" in commands[-1], steps[-1].requireTools)
                 self.assertEqual(operations.runner.environments[0]["LUNGFISH_RELEASE_PYTHON"], str(gate_python))
-                self.assertEqual(operations.runner.environments[0]["PATH"], "/managed:/usr/bin:/bin")
-                if channel == "stable":
+                self.assertEqual(operations.runner.environments[0]["PATH"], str(gate_python.parent) + ":/usr/bin:/bin")
+                if steps[-1].requireTools:
                     self.assertEqual(operations.runner.environments[-1]["LUNGFISH_STORAGE_ROOT"], str(request.dependency_receipt.parent))
                 with mock.patch.object(self.release, "source_identity", return_value={"commit": "a" * 40, "clean": False}):
                     with self.assertRaisesRegex(self.release.ReleaseError, "gate evidence"):
@@ -305,7 +307,7 @@ class FrontDoorTransactionTests(unittest.TestCase):
                 (evidence.manifest.parent / "swift-0/runner.log").write_text("changed")
                 with self.assertRaisesRegex(self.release.ReleaseError, "gate evidence"):
                     operations.package_only(replace(request, gate_evidence=evidence))
-                self.assertEqual(len(operations.runner.commands), 3)
+                self.assertEqual(len(operations.runner.commands), 1 + len(steps))
 
     def test_failed_gate_stops_before_next_suite_and_keeps_staging(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -521,14 +523,14 @@ class FrontDoorTransactionTests(unittest.TestCase):
 
 
 class DebugPlanTests(unittest.TestCase):
-    def test_debug_plan_uses_only_debug_builder_and_relocation_smoke(self):
+    def test_debug_plan_uses_one_debug_builder_without_duplicate_smoke(self):
         release = load_module()
         commands, app = release.debug_plan(ROOT)
         flattened = "\n".join(" ".join(command) for command in commands)
 
         self.assertIn("scripts/build-app.sh --debug", flattened)
-        self.assertIn("scripts/smoke-test-debug-app.sh", flattened)
-        self.assertEqual(len(commands), 2)
+        self.assertNotIn("scripts/smoke-test-debug-app.sh", flattened)
+        self.assertEqual(len(commands), 1)
         self.assertNotIn("swift test", flattened)
         self.assertNotIn("ReleaseBuildConfigurationTests", flattened)
         self.assertNotIn("build-notarized-dmg.sh", flattened)
@@ -553,7 +555,7 @@ class DoctorFrontDoorTests(unittest.TestCase):
                 self.package_calls += 1
 
         package = PackageOperations()
-        repository = SimpleNamespace(github_repository="example/lungfish")
+        repository = SimpleNamespace(github_repository=release.load_contract(ROOT / "config/release-contract.json").identity.repository)
         output = []
         with mock.patch.object(release, "_head_commit", return_value="a" * 40), mock.patch.object(
             release, "resolve_repository_identity", return_value=repository
@@ -585,7 +587,7 @@ class DoctorFrontDoorTests(unittest.TestCase):
 
         output = []
         with mock.patch.object(release, "_head_commit", return_value="a" * 40), mock.patch.object(
-            release, "resolve_repository_identity", return_value=SimpleNamespace(github_repository="example/lungfish")
+            release, "resolve_repository_identity", return_value=SimpleNamespace(github_repository=release.load_contract(ROOT / "config/release-contract.json").identity.repository)
         ), mock.patch.object(
             release, "LocalReleaseOperations", return_value=PackageOperations()
         ), mock.patch("builtins.print", side_effect=lambda value: output.append(value)):

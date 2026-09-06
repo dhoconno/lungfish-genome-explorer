@@ -731,9 +731,8 @@ def run_common_coordinator(
     args: argparse.Namespace,
     resume_receipt: Path | None = None,
 ) -> None:
-    profile = Path(
-        getattr(args, "profile", Path.home() / ".config/lungfish/release.json")
-    )
+    profile = getattr(args, "profile", None)
+    profile_args = ["--profile", str(profile)] if profile is not None else []
     common = ["--repo", str(root)]
     if resume_receipt is None:
         run(
@@ -752,8 +751,7 @@ def run_common_coordinator(
             str(args.release_coordinator),
             "publish",
             "preview",
-            "--profile",
-            str(profile),
+            *profile_args,
             *common,
         ],
         cwd=root,
@@ -856,7 +854,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         type=Path,
-        default=Path.home() / ".config/lungfish/release.json",
+        default=None,
+        help="Optional machine profile; default is resolved per repository by release.py",
     )
     return parser.parse_args(argv)
 

@@ -59,6 +59,11 @@ fi
         relative_paths = (
             "config/release-contract.json",
             "scripts/release/release.py",
+            "scripts/release/release_profiles.py",
+            "scripts/release/release_identity.py",
+            "scripts/release/bounded_process.py",
+            "scripts/testing/catalog.py",
+            "config/test-catalog.json",
             "scripts/release/gate_evidence.py",
             "scripts/release/release_contract.py",
             "scripts/release/release_cache_fingerprint.py",
@@ -128,6 +133,34 @@ fi
             lambda text: text.replace("`lungfish-release-qa` macOS account", "`personal-user` macOS account"),
             "graphical",
         )
+
+    def test_validator_rejects_obsolete_routine_ui_mandate(self):
+        self.assert_authority_mutation_fails(
+            "docs/release/sparkle-updates.md",
+            lambda text: text + "\nStable packaging requires an active graphical session.\n",
+            "obsolete routine release gate",
+        )
+
+    def test_validator_accepts_configured_fork_contract(self):
+        import json
+        sys.path.insert(0, str(REPO_ROOT / "scripts/release"))
+        from release_identity import fork_contract
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary) / "repo"
+            skill = Path(temporary) / "skill"
+            self.copy_authority_fixture(repo)
+            shutil.copytree(SKILL_ROOT, skill)
+            path = repo / "config/release-contract.json"
+            original = json.loads(path.read_text())
+            configured = fork_contract(original, {
+                "repository": "example/fork", "runtimeNamespace": "org.example.fork",
+                "sparklePublicEdKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "websiteURL": "https://example.org", "documentationURL": "https://example.org/docs",
+                "releaseHistoryURL": "https://github.com/example/fork/releases",
+            }, "Example")
+            path.write_text(json.dumps(configured))
+            result = self.run_validator(repo, skill)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_real_repository_validates(self):
         result = self.run_validator(REPO_ROOT)
@@ -357,8 +390,8 @@ fi
         self.assert_authority_mutation_fails(
             "scripts/release/release.py",
             lambda text: text.replace(
-                '["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"],',
-                '["/bin/bash", str(root / "scripts/smoke-test-debug-app.sh"), "--debug"],',
+                '["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"]',
+                '["/bin/bash", str(root / "scripts/smoke-test-debug-app.sh"), "--debug"]',
                 1,
             ),
             "debug plan",

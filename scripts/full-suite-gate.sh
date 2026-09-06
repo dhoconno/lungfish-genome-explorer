@@ -38,6 +38,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT" || exit 1
 
+# Canonical profiles are an additive frontend; legacy tier/filter coverage stays exact.
+for argument in "$@"; do
+    if [ "$argument" = "--profile" ]; then
+        exec "${LUNGFISH_RELEASE_PYTHON:-python3}" "$SCRIPT_DIR/test.py" gate "$@"
+    fi
+done
+
 ORIGINAL_ARGV=("$0" "$@")
 EVIDENCE_DIR=""
 DESCRIBE_SELECTION=0

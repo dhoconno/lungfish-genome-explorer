@@ -219,3 +219,29 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
         )
     }
 }
+
+extension ManagedStorageConfigStoreTests {
+    func testForkNeverMigratesOrRemovesUpstreamLegacyPreference() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let identity = try LungfishAppIdentity.from(infoDictionary: [
+            "CFBundleDisplayName": "Example Genome Preview", "CFBundleName": "Example Preview",
+            "CFBundleIdentifier": "org.example.genome.preview", "LungfishReleaseChannel": "preview",
+            "LungfishIdentitySchemaVersion": 1, "LungfishRuntimeNamespace": "org.example.genome",
+        ])
+        let suite = "org.example.storage-tests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = home.appendingPathComponent("upstream-storage")
+        defaults.set(legacy.path, forKey: "DatabaseStorageLocation")
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: identity, environmentProvider: { [:] })
+        store.overrideLegacyDefaultsForTesting(defaults)
+        XCTAssertEqual(store.currentLocation().rootURL, store.defaultLocation.rootURL)
+        XCTAssertEqual(store.configURL.path, home.appendingPathComponent(".config/org.example.genome.preview/storage-location.json").path)
+        try store.setActiveRoot(home.appendingPathComponent("fork-selected-storage"))
+        try store.resetToDefaultLocation()
+        XCTAssertEqual(defaults.string(forKey: "DatabaseStorageLocation"), legacy.path)
+        XCTAssertEqual(store.currentLocation().rootURL, store.defaultLocation.rootURL)
+        let explicit = home.appendingPathComponent("explicit-override", isDirectory: true)
+        XCTAssertEqual(store.currentLocation(environment: ["LUNGFISH_STORAGE_ROOT": explicit.path]).rootURL, explicit)
+    }
+}

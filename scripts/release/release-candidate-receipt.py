@@ -15,7 +15,6 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
-from urllib.parse import urlparse
 
 from release_cache_security import (
     CacheSecurityError,
@@ -29,6 +28,8 @@ from release_cache_fingerprint import (
 )
 from release_contract import CONTRACT_PATH, load_contract
 from gate_evidence import EvidenceError, retain_manifest, verify_manifest
+from release_identity import prepare_identity_plist, identity_plist
+from debug_artifact import embedded_identity, embedded_identity_matches, DebugArtifactError
 from app_smoke_gate import retain_result as retain_app_smoke, verify_result as verify_app_smoke
 from release_repository import RepositoryIdentityError, resolve_repository_identity
 
@@ -382,14 +383,27 @@ def _bundle_identity(
     }
     if any(values[key] != expected[key] for key in expected):
         raise ReceiptError("app bundle metadata does not match the release contract")
-    parsed_feed = urlparse(values["feedURL"])
-    expected_feed_suffix = f"/{channel.sparkleRelease}/{channel.appcastFilename}"
-    if (
-        parsed_feed.scheme != "https"
-        or not parsed_feed.netloc
-        or not parsed_feed.path.endswith(expected_feed_suffix)
-    ):
+    runtime_identity = identity_plist(contract, channel_name)
+    if any(type(info.get(key)) is not type(value) or info.get(key) != value for key, value in runtime_identity.items()):
+        raise ReceiptError("app runtime identity does not match the release contract")
+    if contract.identity.runtimeNamespace is None and any(key in info for key in ("LungfishRuntimeNamespace", "LungfishIdentitySchemaVersion")):
+        raise ReceiptError("upstream app contains unexpected fork identity")
+    expected_feed = f"https://github.com/{contract.identity.repository}/releases/download/{channel.sparkleRelease}/{channel.appcastFilename}"
+    if values["feedURL"] != expected_feed:
         raise ReceiptError("app feed metadata does not match the release contract")
+    public_key = _required_plist_string(info, "SUPublicEDKey")
+    if public_key != contract.identity.sparklePublicEdKey or info.get("SUVerifyUpdateBeforeExtraction") is not True:
+        raise ReceiptError("app Sparkle trust metadata does not match the release contract")
+    cli = app / CLI_RELATIVE_PATH
+    try:
+        if not stat.S_ISREG(cli.lstat().st_mode):
+            raise ReceiptError("CLI identity must come from a regular executable")
+        embedded = embedded_identity(cli)
+    except (OSError, ValueError, DebugArtifactError) as error:
+        raise ReceiptError("CLI embedded runtime identity is unavailable or malformed") from error
+    if not embedded_identity_matches(embedded, runtime_identity):
+        raise ReceiptError("CLI embedded runtime identity does not match the release contract")
+    values.update(publicKey=public_key, runtimeIdentity=runtime_identity)
     if app.name != channel.appBundleFilename:
         raise ReceiptError("app wrapper filename does not match the release contract")
     executable = _required_plist_string(info, "CFBundleExecutable")
@@ -488,11 +502,14 @@ def _build_receipt(
         repository = resolve_repository_identity(ROOT, remote, github_repository)
     except RepositoryIdentityError as error:
         raise ReceiptError("canonical repository identity is unavailable") from error
+    if repository.github_repository != load_contract(CONTRACT_PATH).identity.repository:
+        raise ReceiptError("candidate repository differs from committed public identity")
     cache_fields = collect_fingerprint_document(
         project_root=ROOT,
         repository=f"github.com/{repository.github_repository}",
         repository_key=repository.repository_key,
         deployment_target=toolchain["deploymentTarget"],
+        cli_info_plist=prepare_identity_plist(ROOT, load_contract(CONTRACT_PATH), channel),
     )
     expected_cache = cache_paths(
         cache_root, repository.repository_key, cache_fields
@@ -525,7 +542,7 @@ def _build_receipt(
         "packagedAppPayloadSha256": _payload_digest(app),
     }
     smoke_binding = None
-    if channel == "stable":
+    if channel == "stable" and load_contract(CONTRACT_PATH).gates.appSmokeRequired:
         if app_smoke is None or app_smoke_digest is None:
             raise ReceiptError("Stable requires retained exact-candidate real-app smoke evidence")
         smoke_arguments = (source, channel, artifacts["packagedAppPayloadSha256"], load_contract(CONTRACT_PATH))
@@ -535,7 +552,7 @@ def _build_receipt(
             retain_app_smoke(app_smoke, app_smoke_digest, retain_to.parent / "app-smoke-evidence", *smoke_arguments)
         smoke_binding = {"path": "app-smoke-evidence/app-smoke.result.json", "sha256": app_smoke_digest}
     elif app_smoke is not None or app_smoke_digest is not None:
-        raise ReceiptError("app smoke evidence is required only by the Stable contract")
+        raise ReceiptError("app smoke evidence is not required by the selected release policy")
     receipt = {
         "schemaVersion": 1,
         "appSmoke": smoke_binding,

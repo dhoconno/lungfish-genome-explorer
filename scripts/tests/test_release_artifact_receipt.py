@@ -10,6 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from scripts.tests.gate_fixtures import make_gate_fixture, make_app_smoke_fixture
+from scripts.release.release_contract import load_contract
+from scripts.release.release_identity import identity_plist, prepare_identity_plist
+from scripts.tests.test_debug_artifact import executable_bytes
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -504,7 +507,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             self.assertFalse(fixture["receipt"].exists())
 
     def test_candidate_retains_and_verifies_exact_gate_logs_and_manifest(self):
-        for changed in ("manifest.json", "0/runner.log", "0/gate.result.json", "dependency-receipt.json"):
+        for changed in ("manifest.json", "0/runner.log", "0/gate.result.json", "dependency-manifest.json"):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
                 fixture = self._make_fixture(Path(temporary))
                 created = self._create(fixture)
@@ -608,7 +611,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             )
             self.assertEqual(
                 receipt["cache"]["fields"]["repository"]["canonicalIdentity"],
-                "github.com/example/lungfish",
+                "github.com/" + load_contract(fixture["contract"]).identity.repository,
             )
             self.assertEqual(
                 receipt["cache"]["fields"]["toolchain"]["xcode"],
@@ -634,7 +637,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             )
             self.assertEqual(
                 receipt["artifacts"]["lungfishCLI"]["sha256"],
-                hashlib.sha256(b"transformed cli\n").hexdigest(),
+                hashlib.sha256(fixture["cli"].read_bytes()).hexdigest(),
             )
             self.assertEqual(
                 receipt["artifacts"]["micromamba"]["sha256"],
@@ -750,7 +753,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
                 result = self._verify(fixture)
 
                 self.assertEqual(result.returncode, 1)
-                self.assertIn("receipt does not match", result.stderr)
+                expected_error = "gate dependency bytes differ" if label == "managed manifest" else "receipt does not match"
+                self.assertIn(expected_error, result.stderr)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture = self._make_fixture(Path(temp_dir))
@@ -954,6 +958,14 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         (repo / "scripts" / "release").mkdir(parents=True)
         recipe_paths = (
             "Lungfish-Info.plist",
+            "LungfishCLI-Info.plist",
+            "Sources/LungfishCLIExecutable/EntryPoint.swift",
+            "Lungfish.xcodeproj/xcshareddata/xcschemes/Lungfish.xcscheme",
+            "scripts/release/release_identity.py",
+            "scripts/release/debug_artifact.py",
+            "config/test-catalog.json",
+            "scripts/testing/catalog.py",
+            "scripts/test.py",
             "Lungfish.xcodeproj/project.pbxproj",
             "Package.swift",
             "lungfish-cli.entitlements",
@@ -979,11 +991,17 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         builder = repo / "scripts" / "release" / "build-notarized-dmg.sh"
-        builder.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        builder.write_text("#!/bin/sh\n    # BEGIN LUNGFISH_COMPILER_RECIPE_V2\n    true # fixture compiler recipe\n    # END LUNGFISH_COMPILER_RECIPE_V2\nexit 0\n", encoding="utf-8")
         builder.chmod(0o755)
-        (repo / "config").mkdir()
+        (repo / "config").mkdir(exist_ok=True)
         contract = repo / "config" / "release-contract.json"
         shutil.copy2(ROOT / "config" / "release-contract.json", contract)
+        # Retain explicit legacy native-smoke policy boundary coverage with fake evidence.
+        fixture_contract = json.loads(contract.read_text())
+        fixture_contract["gates"]["appSmokeRequired"] = True
+        contract.write_text(json.dumps(fixture_contract))
+        selected_contract = load_contract(contract)
+        cli_identity_path = prepare_identity_plist(repo, selected_contract, "stable")
         package_lock = repo / "Package.resolved"
         package_lock.write_text('{"pins":[],"version":2}\n')
         managed = (
@@ -998,6 +1016,9 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         managed.write_text(
             json.dumps(
                 {
+                    "packID": "fixture-tools", "version": "1", "dependencySet": "fixture",
+                    "tools": [{"id": "fixture-tool", "version": "1", "environment": "fixture",
+                               "packageSpec": "fixture::fixture-tool=1=build0", "executables": ["fixture-tool"]}],
                     "bootstrap": {
                         "micromamba": {
                             "version": "2.9.0-0",
@@ -1051,8 +1072,10 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "CFBundleShortVersionString": "2026.8.1",
             "CFBundleVersion": "42",
             "LungfishReleaseChannel": "stable",
-            "SUFeedURL": "https://github.test/releases/download/sparkle-stable/appcast-stable.xml",
+            "SUFeedURL": f"https://github.com/{selected_contract.identity.repository}/releases/download/sparkle-stable/appcast-stable.xml",
         }
+        info.update(identity_plist(selected_contract, "stable"))
+        info.update(SUPublicEDKey=selected_contract.identity.sparklePublicEdKey, SUVerifyUpdateBeforeExtraction=True)
         info_plist = app / "Contents" / "Info.plist"
         with info_plist.open("wb") as handle:
             plistlib.dump(info, handle, sort_keys=True)
@@ -1060,7 +1083,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         app_executable.write_bytes(b"unsigned app executable\n")
         app_executable.chmod(0o755)
         cli = macos / "lungfish-cli"
-        cli.write_bytes(b"transformed cli\n")
+        cli.write_bytes(executable_bytes(identity_plist(selected_contract, "stable")))
         cli.chmod(0o755)
         micromamba = tools / "micromamba"
         micromamba.write_bytes(b"transformed micromamba\n")
@@ -1071,7 +1094,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             (app / "Contents" / "other.txt").write_text("two\n")
             link.symlink_to("target.txt")
 
-        (repo / ".gitignore").write_text("\n")
+        (repo / ".gitignore").write_text(".build/\n")
         self._git(repo, "init", "-q")
         self._git(repo, "config", "user.email", "receipt@example.test")
         self._git(repo, "config", "user.name", "Receipt Test")
@@ -1082,7 +1105,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "remote",
             "add",
             "origin",
-            "https://github.com/example/lungfish.git",
+            f"https://github.com/{selected_contract.identity.repository}.git",
         )
         commit = self._git(repo, "rev-parse", "HEAD").stdout.strip()
         cache_root = root / "release-cache"
@@ -1091,6 +1114,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "PYTHONDONTWRITEBYTECODE": "1",
             "RECEIPT_TOOLCHAIN_FIXTURE": str(toolchain),
+            "LUNGFISH_CLI_INFOPLIST_FILE": str(cli_identity_path),
         }
         prepared = subprocess.run(
             [
@@ -1100,9 +1124,9 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
                 "--project-root",
                 str(repo),
                 "--repository",
-                "github.com/example/lungfish",
+                f"github.com/{selected_contract.identity.repository}",
                 "--repository-key",
-                hashlib.sha256(b"github.com/example/lungfish").hexdigest(),
+                hashlib.sha256(f"github.com/{selected_contract.identity.repository}".encode()).hexdigest(),
                 "--deployment-target",
                 "26.0",
                 "--cache-root",
@@ -1124,7 +1148,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         )
         receipt = release / "candidate.json"
         gate_manifest = make_gate_fixture(root / "staged-gates", {"commit": commit, "clean": True},
-                                          modules=json.loads(contract.read_text())["gates"]["focusedReleaseTests"])
+                                          modules=json.loads(contract.read_text())["gates"]["focusedReleaseTests"], contract_path=contract)
         return {
             "repo": repo,
             "release": release,

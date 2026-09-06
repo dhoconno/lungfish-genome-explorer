@@ -5,7 +5,10 @@
 All manual, CI, recovery, and scheduled release work enters through exactly:
 
 ```text
-python3 scripts/release/release.py debug
+python3 scripts/release/release.py debug [--portable] [--jobs N]
+python3 scripts/release/release.py configure-fork --repository OWNER/REPO --product-name NAME --namespace REVERSE_DNS --sparkle-public-key BASE64 --website URL --documentation URL
+python3 scripts/release/release.py configure-machine --signing-identity LABEL --team-id TEAM --notary-profile NAME [--profile PATH]
+python3 scripts/release/release.py setup [--profile PATH]
 python3 scripts/release/release.py doctor [--profile PATH]
 python3 scripts/release/release.py package preview|stable
 python3 scripts/release/release.py publish preview|stable [--profile PATH]
@@ -23,6 +26,8 @@ requested as a separate maintenance task, inspect and then run
 `scripts/release/prune-github-prereleases.py`; it is not part of publication.
 
 ## Channel identity
+
+These are upstream examples; forks use their committed public contract.
 
 Both channels use the same suffix-free `YYYY.M.PATCH` sequence. Channel state is
 carried by the signed bundle metadata, baked feed, and GitHub prerelease state:
@@ -78,60 +83,52 @@ state, and committed notes are the ledger; do not add a mutable registry.
 
 ## Fresh release Mac bootstrap
 
-Provision the machine directly; this repository intentionally does not invent
-an installer:
+Provision full Xcode `>=26.4.1,<27` with first launch and license complete,
+Git, Bash, ripgrep, Python 3.11+, and authenticated `gh` for the selected repository.
+The release runtime uses only the Python standard library. The contract requires
+Swift `>=6.2,<7`, macOS SDK 26, deployment target 26.0, arm64, and 20 GiB free on
+cache and output volumes. The coordinator selects supported Xcode; do not use a
+manual `xcode-select` workaround.
 
-1. Install full Xcode `>=26.4.1,<27`, launch it once, accept the license, and
-   finish first-launch components. The coordinator selects a compatible full
-   Xcode; do not use a manual `xcode-select` workaround.
-2. Install Git, Bash, ripgrep, Python 3.11 or newer, and GitHub CLI. Authenticate
-   `gh` for the selected repository. Release scripts use only the Python
-   standard library. Xcode/macOS provide the Apple build, signing, notarization,
-   plist, archive, and disk-image commands.
-3. Import the Developer ID Application certificate with its private key into
-   the login Keychain.
-4. Configure a usable `notarytool` Keychain profile.
-5. Resolve the repository-pinned Sparkle tools and create/import the Sparkle
-   EdDSA private key in the login Keychain. Do not export a key file for release.
-6. Create an owner-only `~/.config/lungfish` directory and a current-user,
-   regular, non-symlink mode-0600 `~/.config/lungfish/release.json` containing
-   exactly:
+For a fork, first set its origin and run `configure-fork` with its own product name,
+reverse-DNS namespace, Sparkle public key and public URLs. Review and commit the
+public contract. This changes app/CLI metadata, feeds and runtime state isolation;
+it does not rename scientific formats, modules or resource identities.
 
-   ```json
-   {
-     "schemaVersion": 1,
-     "repository": "OWNER/REPO",
-     "signingIdentity": "Developer ID Application: Example (TEAMID)",
-     "teamId": "TEAMID",
-     "notaryProfile": "PROFILE"
-   }
-   ```
+Import the Developer ID Application certificate/private key, provision a notarytool
+Keychain profile and a Sparkle EdDSA Keychain account, then run `configure-machine`.
+Its optional `--signing-keychain`, `--certificate-sha1`, `--notary-keychain` and
+`--sparkle-account` select existing credentials. It probes no secrets, writes an
+owned regular mode-0600 profile atomically under mode-0700 directories, and never
+overwrites an existing profile. New v2 profiles default to
+`~/.config/lungfish/releases/<repository-hash>.json`; strict legacy v1
+`~/.config/lungfish/release.json` remains supported. Profiles contain selectors,
+never passwords or private keys. Do not export Sparkle keys to shell files.
 
-7. Run `python3 scripts/release/release.py doctor`. It reports `Package
-   readiness` and `Publish readiness` separately. A missing default profile can
-   report package READY/publish NOT READY with exit zero; an explicit missing or
-   unsafe profile, or a failed credential probe, exits nonzero. Doctor is
-   read-only apart from disposable probes and never installs or repairs tools.
+Run `setup` explicitly after provisioning. Setup may request macOS authorization;
+it tests actual disposable signing, verifies the signing team, independently checks
+Sparkle against the committed public key, and checks notary/GitHub access. Successful
+proof is bound to repository, credential selectors, public key, tool hashes and boot.
+It remains valid during the same boot while those inputs match; rerun setup after
+a reboot or binding change. Setup does not require a clean source checkout or a
+managed verification environment. It never installs or repairs prerequisites.
 
-The release Mac must also have the pinned verification root at
-`~/.lungfish-verify`. Provision or refresh it with
-`bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify`. Doctor verifies
-its canonical `dependency-receipt.json` and isolated `parity-python` runtime; it
-does not install or update dependencies.
-
-The release contract also requires Swift `>=6.2,<7`, macOS SDK major 26,
-deployment target 26.0, arm64, and at least 20 GiB free on both cache and output
-volumes.
+Run `doctor` for separate package/publish readiness. Unattended Doctor/publish fail
+early without matching setup proof and do not repeat setup probes. Closing stdin
+and timeouts do not suppress macOS Keychain dialogs: a subsequently locked Keychain
+or changed ACL can still require operator repair. Commands have bounded process groups
+and safe logs; failure preserves recovery evidence instead of waiting indefinitely.
 
 ## Package and publish semantics
 
 `package` is credentialless and locally authoritative. It sanitizes
 credential/capability environment values, checks the source checkout, runs
-package Doctor, verifies the reconciled dependency receipt, and runs the
+package Doctor, verifies committed dependency manifests, and runs the
 contract-defined focused tests plus the selected channel gates on the release
-Mac. Preview runs unit and integration; Stable runs full and conformance with
-tools required. Only after those gates pass does it perform internal unsigned
-assembly, validate the actual artifact with portability and smoke checks, and
+Mac. Both channels run the compact headless `release` profile once; UI and external-tool
+conformance are optional diagnostics. The default manifest policy requires no installed
+managed environment or parity runtime. Only after those gates pass does it perform internal unsigned
+assembly from a single native GUI/CLI dependency graph, validate the actual artifact with portability and smoke checks, and
 perform exact receipt verification. Its output is
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json` plus
 the bound candidate.
@@ -144,7 +141,7 @@ publication.
 `publish` verifies current source history and the expected channel/current-HEAD
 receipt before it reads the strict profile. It then runs credential Doctor and
 live Sparkle build floors, creates and atomically pushes the annotated tag, and
-repeats credentials and receipt-bound live floors; then gives the
+revalidates setup proof and receipt-bound live floors; then gives the
 candidate to the internal signer. There is no rebuild between package receipt
 and Developer ID signing.
 
@@ -172,10 +169,49 @@ namespace; a changed compiler input selects a sibling. Candidate apps, receipts,
 signed/notarized outputs, DMGs, feeds, and credentials never enter the cache.
 Receipt hashes—not cached bytes—authorize recovery.
 
-### Stable graphical evidence
+### Optional graphical diagnostics
 
-Stable packaging requires the contract-selected real-app smoke methods against the exact assembled candidate in an active logged-in macOS graphical session. The receipt retains the source and app payload identities, selected/completed XCTest counts, command logs and xcresult hashes. Missing graphical access, any skipped/empty/incomplete selection, or changed evidence blocks Stable readiness. The Release candidate uses ordinary UI actions; DEBUG fixture hooks and invented parser fixtures do not count as graphical evidence. Signing and embedded-tool smoke alone do not establish full release readiness.
-The graphical session must belong to the disposable `lungfish-release-qa` macOS account declared by `gates.appSmokeAccount`, provisioned on a dedicated test Mac or VM with no user projects or credentials. Before launch the gate rejects existing Lungfish preferences, saved windows, application support and managed storage; it records the account name, UID, real account home and clean-state result. Provision or restore a fresh disposable account/VM before each run. The gate does not erase state. A `HOME` override does not isolate macOS preferences, keychain or application support, and an ordinary personal account must never run this smoke.
+Routine Preview and Stable packaging are headless: `gates.appSmokeRequired` is false.
+UI, extended and external-tool conformance profiles are explicit diagnostics, selected
+with `python3 scripts/test.py list --profile ui`, `--profile extended` or
+`--profile tool-conformance`; inspect the declared command and prerequisites before
+running it. They do not independently authorize a release.
+
+Real-app graphical checks require the disposable `lungfish-release-qa` macOS account
+in `gates.appSmokeAccount`, an active logged-in graphical session, and a dedicated
+Mac or VM with no user projects or credentials. A `HOME` override is not isolation.
+The harness rejects existing app state and retains exact selection/completion,
+source/app identities, logs and xcresult hashes. Restore a clean account before a
+new diagnostic; the harness does not erase state. If the committed contract explicitly
+requires graphical evidence, missing, skipped or incomplete results block that policy.
+
+## Test profiles and build reuse
+
+The catalog in `config/test-catalog.json` assigns test collections and validates
+actual harness discovery. `python3 scripts/test.py list --profile PROFILE` shows
+selection and prerequisites; `run` retains executed-count and log evidence.
+
+| Profile | Purpose | Routine release gate |
+|---|---|---|
+| `quick` | Compact headless development checks | No |
+| `release` | Compact core and scientific provenance qualification | Yes, once per candidate |
+| `headless` | Broad core, IO, workflow and CLI regression | No |
+| `extended` | Longer scientific regression and maintainer Python contracts | No |
+| `ui` | Explicit SwiftUI/AppKit and real-app diagnostics | No |
+| `tool-conformance` | Installed external tools and integration diagnostics | No |
+
+Selected Swift tests execute after one build with bounded catalog worker counts.
+The candidate app and embedded CLI use one native Xcode dependency graph instead
+of compiling shared Release modules again through a separate SwiftPM executable
+build. Compiler caches remain disposable; actual app/CLI smoke, provenance and
+candidate receipt checks still bind the artifact that will be signed.
+
+Actions runs focused script contracts and the narrow Swift check automatically.
+A manual dispatch chooses one optional portable Debug, headless, extended or
+external-tool job; it does not start every expensive job. UI diagnostics need the
+isolated graphical account described above and are not silently launched on CI.
+Nightly passes an explicit profile through unchanged; without one, the common
+coordinator resolves the repository-specific machine profile and legacy fallback.
 
 ## Automatic feedback and pinned test inputs
 
@@ -202,7 +238,18 @@ A feed restored to an older build cannot repair clients that already installed a
 1. Pause promotion and automated release scheduling through the release owner's normal controls. Preserve the bad candidate, receipt and all gate evidence, signed DMG, appcast/notes/bridge bytes and hashes, source tag/commit, installed build/channel and the reproduction. Keep copies outside disposable caches; retain the affected project before any repair attempt.
 2. Make a corrective source commit with release notes identifying the bad build, impact, workaround and any data repair needed. Choose a `CFBundleVersion` strictly above every applicable live and migration floor. Restoring older feeds or weakening the build-number gate is not a correction.
 3. On a dedicated logged-in test account, use a copy of a representative project made by the bad build. Verify the corrected candidate opens the stored schema, reads imported provenance, displays the project, completes the relevant edit/import, closes and reopens it. Retain old/new schema identifiers and payload/provenance hashes. If the correction cannot read that schema, stop promotion and provide a tested migration or explicit manual reinstall/restore procedure. Never run a lower-build app against the only copy of changed user data.
-4. Run the supported `package` and `publish` coordinator commands for the selected channel when that publication is authorized. Stable requires its exact-candidate graphical evidence. Verify an already-installed Preview client follows Beta, a legacy Preview client follows the Alpha bridge, and Stable follows Stable with the Beta migration floor. Record the installed build before and after the real client update; inspecting feed text alone is not an installed-client test.
+4. Run the supported `package` and `publish` coordinator commands for the selected channel when that publication is authorized. Run targeted graphical diagnostics when needed to validate the correction; routine Stable packaging does not require them. Verify an already-installed Preview client follows Beta, a legacy Preview client follows the Alpha bridge, and Stable follows Stable with the Beta migration floor. Record the installed build before and after the real client update; inspecting feed text alone is not an installed-client test.
 5. If publication stops between the immutable DMG, primary feed, notes or Preview bridge, preserve the partial state and run the same supported `publish` command for the same unchanged current-HEAD candidate. Recovery must reuse immutable DMG bytes and complete matching mutable assets without rebuilding/re-signing. Verify notes and both Preview feeds resolve to the correction, then rerun independent remote verification before restarting promotion.
 
 The local test-channel drill in `test_corrective_higher_build_test_channel_drill_recovers_each_mutable_stage` uses disposable repositories and fake signing/network tools. It preserves a bad-build-42 evidence fixture, rejects an equal build, accepts correction 43, and interrupts primary feed, notes and legacy bridge uploads separately before resuming the exact candidate. It verifies retained receipts/DMG identity and matching primary/bridge assets. These fixtures prove publication control behavior only. Actual installed-client channel migration, representative schema compatibility and the real graphical smoke must still have retained runtime evidence before declaring the full corrective release ready.
+
+## Durable signing recovery
+
+Keep `signing-transaction` and the exact candidate when publication stops. Signed
+app input, app ZIP and input DMG are immutable and hash-bound to the candidate,
+profile and public identity. Repeated `publish` resumes recorded notary submission
+IDs with bounded polling and preserves signed bytes; it does not re-sign or re-ZIP
+pending inputs. An ambiguous upload without a durable submission ID fails closed:
+preserve the journal and reconcile the submission with Apple before retrying. Never
+delete transaction state to force a second submission. Changed artifact bytes,
+submission IDs or signing context block continuation.

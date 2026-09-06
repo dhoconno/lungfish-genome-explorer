@@ -147,7 +147,7 @@ final class AboutWindowController: NSWindowController {
         self.creditsTextView = textView
 
         // Copyright
-        let copyrightLabel = NSTextField(labelWithString: "Copyright \u{00A9} 2026 Dave O'Connor")
+        let copyrightLabel = NSTextField(labelWithString: appIdentity.isFork ? "Based on Lungfish • MIT License" : "Copyright \u{00A9} 2026 Dave O'Connor")
         copyrightLabel.translatesAutoresizingMaskIntoConstraints = false
         copyrightLabel.font = .systemFont(ofSize: 10)
         copyrightLabel.alignment = .center
@@ -174,7 +174,7 @@ final class AboutWindowController: NSWindowController {
         container.addSubview(licensesButton)
 
         // Lab website link
-        let linkButton = NSButton(title: "dho.pathology.wisc.edu", target: self, action: #selector(openLabWebsite(_:)))
+        let linkButton = NSButton(title: appIdentity.websiteURL?.host ?? "Website unavailable", target: self, action: #selector(openLabWebsite(_:)))
         linkButton.translatesAutoresizingMaskIntoConstraints = false
         linkButton.bezelStyle = .inline
         linkButton.isBordered = false
@@ -182,7 +182,7 @@ final class AboutWindowController: NSWindowController {
         linkButton.contentTintColor = .linkColor
         linkButton.setAccessibilityIdentifier(AccessibilityID.websiteButton)
         let linkTitle = NSAttributedString(
-            string: "dho.pathology.wisc.edu",
+            string: appIdentity.websiteURL?.host ?? "Website unavailable",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10),
                 .foregroundColor: NSColor.linkColor,
@@ -190,6 +190,7 @@ final class AboutWindowController: NSWindowController {
             ]
         )
         linkButton.attributedTitle = linkTitle
+        linkButton.isEnabled = appIdentity.websiteURL != nil
         container.addSubview(linkButton)
 
         // Constraints
@@ -286,6 +287,11 @@ final class AboutWindowController: NSWindowController {
         }
 
         // Designed By
+        if appIdentity.isFork {
+            appendHeading("Upstream Project")
+            appendBody("Based on Lungfish Genome Explorer")
+            appendSecondary("Copyright © 2026 Dave O'Connor and Lungfish Contributors. MIT License.")
+        } else {
         appendHeading("Designed By")
         appendBody("Dave O\u{2019}Connor, Claude Code, and Codex")
 
@@ -304,6 +310,8 @@ final class AboutWindowController: NSWindowController {
         appendSecondary("Early testing and feedback")
 
         // System Requirements
+        }
+
         appendHeading("System Requirements")
         for line in HardwareRequirements.aboutLines {
             appendBody(line)
@@ -413,7 +421,7 @@ final class AboutWindowController: NSWindowController {
     }
 
     @objc private func openLabWebsite(_ sender: Any?) {
-        if let url = URL(string: "https://dho.pathology.wisc.edu") {
+        if let url = appIdentity.websiteURL {
             NSWorkspace.shared.open(url)
         }
     }

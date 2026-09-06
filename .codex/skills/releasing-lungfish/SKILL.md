@@ -13,14 +13,17 @@ signature, notarization, receipt, or remote-verification evidence is a blocker.
 These are the only supported commands:
 
 ```text
-python3 scripts/release/release.py debug
+python3 scripts/release/release.py debug [--portable] [--jobs N]
+python3 scripts/release/release.py configure-fork --repository OWNER/REPO --product-name NAME --namespace REVERSE_DNS --sparkle-public-key BASE64 --website URL --documentation URL
+python3 scripts/release/release.py configure-machine --signing-identity LABEL --team-id TEAM --notary-profile NAME [--profile PATH]
+python3 scripts/release/release.py setup [--profile PATH]
 python3 scripts/release/release.py doctor [--profile PATH]
 python3 scripts/release/release.py package preview|stable
 python3 scripts/release/release.py publish preview|stable [--profile PATH]
 ```
 
-There is no public prepare, resume, status, credential, receipt, reuse, or prune
-option. Re-run the same `publish` command to recover an interrupted publication;
+There is no public prepare, resume, status, receipt, reuse, or prune
+transaction option. Re-run the same `publish` command to recover an interrupted publication;
 it derives and verifies the current-HEAD candidate receipt and never rebuilds it.
 `build-notarized-dmg.sh`, `release-doctor.py`, and other phase helpers are internal
 implementation interfaces. Do not give operators, CI, or nightly direct helper
@@ -29,6 +32,9 @@ archives. Retention is a separate, explicit maintenance action with
 `scripts/release/prune-github-prereleases.py`.
 
 ## Channel contract
+
+The identities below describe upstream. Forks derive corresponding names, identifiers,
+URLs and keys from their committed public contract.
 
 Use one suffix-free `YYYY.M.PATCH` sequence across both channels. Determine the
 next collision-free version from remote Git tags and GitHub releases.
@@ -65,68 +71,65 @@ releases`. Git tags, GitHub release state, and committed notes are the ledger.
 
 ## Debug build
 
-Use only `python3 scripts/release/release.py debug`. The coordinator selects the
-supported Xcode, sanitizes release credentials, performs internal Debug
-assembly, and then validates the actual app's relocation and self-containment.
+Run `python3 scripts/release/release.py debug` for incremental local development.
+The coordinator selects supported Xcode and assembles the GUI and CLI from one
+native build graph. The default performs cheap bundle/CLI checks; add
+`--portable` for the full relocation and self-containment diagnostic. `--jobs N`
+bounds build parallelism. Neither option runs the unit or UI suites.
 
-- App path: `build/Debug/Lungfish Debug.app`
-- Display name: `Lungfish Genome Explorer Debug`
-- Bundle name: `Lungfish Debug`
-- Bundle identifier: `com.lungfish.browser.debug`
-- Channel metadata: `debug`
-- Signature: locally ad-hoc signed; not Developer ID signed or notarized
-- Portability: self-contained and relocatable with no checkout or `.build`
-  dependency
-
-Debug is not a release, has no updater or publication path, and must never
-receive a tag, upload, Sparkle publication, or GitHub release attachment. Report
-the commit, branch, absolute app path, exact identity,
-signature, and relocation result. Do not expose the internal assembly or smoke
-helpers as operator commands.
+The upstream result is `build/Debug/Lungfish Debug.app`, displaying
+`Lungfish Genome Explorer Debug`, bundle name `Lungfish Debug`, identifier
+`com.lungfish.browser.debug`, channel `debug`. Fork names and identifiers come
+from `config/release-contract.json`. It is locally ad-hoc signed, not Developer ID signed,
+and not notarized. It is self-contained and relocatable with no checkout or `.build`
+dependency; use the portable check when validating that property. Debug is not a release,
+has no updater or publication path, and must never be tagged or uploaded as a release.
 
 ## Release machine bootstrap and Doctor
 
-On a fresh Apple-silicon Mac, the operator must provision these inputs before
-publication; the repository does not provide an installer:
+Provision full Xcode `>=26.4.1,<27` with first launch and license complete,
+Git, Bash, ripgrep, Python 3.11+, and authenticated `gh` for the selected repository.
+The release runtime uses only the Python standard library. The contract requires
+Swift `>=6.2,<7`, macOS SDK 26, deployment target 26.0, arm64, and 20 GiB free on
+cache and output volumes. The coordinator selects supported Xcode; do not use a
+manual `xcode-select` workaround.
 
-1. Install full Xcode `>=26.4.1,<27`, launch it once, accept its license, and let
-   first-launch components finish. Do not use a manual `xcode-select` workaround.
-2. Install Git, Bash, ripgrep, Python 3.11 or newer, and GitHub CLI; authenticate
-   `gh` for the selected repository. The release runtime uses only the Python
-   standard library; macOS supplies the remaining Apple tools.
-3. Import the Developer ID Application certificate and its private key into the
-   login Keychain, and configure a usable `notarytool` Keychain profile.
-4. Resolve the repository-pinned Sparkle tools and keep the Sparkle EdDSA private
-   key in the login Keychain. Do not export it to a shell file.
-5. Create owner-only `~/.config/lungfish` and a regular, non-symlink mode-0600
-   `~/.config/lungfish/release.json` with exactly:
+For a fork, first set its origin and run `configure-fork` with its own product name,
+reverse-DNS namespace, Sparkle public key and public URLs. Review and commit the
+public contract. This changes app/CLI metadata, feeds and runtime state isolation;
+it does not rename scientific formats, modules or resource identities.
 
-   ```json
-   {"schemaVersion":1,"repository":"OWNER/REPO","signingIdentity":"Developer ID Application: … (TEAMID)","teamId":"TEAMID","notaryProfile":"PROFILE"}
-   ```
+Import the Developer ID Application certificate/private key, provision a notarytool
+Keychain profile and a Sparkle EdDSA Keychain account, then run `configure-machine`.
+Its optional `--signing-keychain`, `--certificate-sha1`, `--notary-keychain` and
+`--sparkle-account` select existing credentials. It probes no secrets, writes an
+owned regular mode-0600 profile atomically under mode-0700 directories, and never
+overwrites an existing profile. New v2 profiles default to
+`~/.config/lungfish/releases/<repository-hash>.json`; strict legacy v1
+`~/.config/lungfish/release.json` remains supported. Profiles contain selectors,
+never passwords or private keys. Do not export Sparkle keys to shell files.
 
-6. Run `python3 scripts/release/release.py doctor`. Doctor reports package
-   readiness and publish readiness separately. A missing default profile may
-   leave package READY and publish NOT READY with exit zero; an explicitly
-   requested missing/unsafe profile or failed credential probe exits nonzero.
-   Doctor checks only and does not install or repair prerequisites.
+Run `setup` explicitly after provisioning. Setup may request macOS authorization;
+it tests actual disposable signing, verifies the signing team, independently checks
+Sparkle against the committed public key, and checks notary/GitHub access. Successful
+proof is bound to repository, credential selectors, public key, tool hashes and boot.
+It remains valid during the same boot while those inputs match; rerun setup after
+a reboot or binding change. Setup does not require a clean source checkout or a
+managed verification environment. It never installs or repairs prerequisites.
 
-The release Mac also needs the pinned verification root at
-`~/.lungfish-verify`. Provision or refresh it with
-`bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify`. Doctor verifies
-its canonical `dependency-receipt.json` and isolated `parity-python` runtime; it
-does not install or update them.
-
-The contract requires Swift `>=6.2,<7`, macOS SDK major 26, deployment target
-26.0, arm64, and at least 20 GiB free on cache and output volumes.
+Run `doctor` for separate package/publish readiness. Unattended Doctor/publish fail
+early without matching setup proof and do not repeat setup probes. Closing stdin
+and timeouts do not suppress macOS Keychain dialogs: a subsequently locked Keychain
+or changed ACL can still require operator repair. Commands have bounded process groups
+and safe logs; failure preserves recovery evidence instead of waiting indefinitely.
 
 ## Package, publish, and recovery
 
 `package` is credentialless and is the blocking release gate. It verifies the
-source checkout, runs package Doctor, verifies the reconciled dependency
-receipt, and runs the contract-defined focused and channel gates locally.
-Preview runs unit and integration; Stable runs full and conformance with tools
-required. Only after those gates pass does it assemble the unsigned app,
+source checkout, runs package Doctor, verifies committed dependency manifests, and runs the contract-defined focused and channel gates locally.
+Both channels run the compact headless `release` profile once; UI and external-tool
+conformance are optional diagnostics. The default manifest policy requires no installed
+managed environment or parity runtime. Only after those gates pass does it assemble the unsigned app,
 validate the actual artifact's portability and smoke behavior, and create and
 verify a candidate receipt at
 `build/Release/<channel>/<40-hex-commit>/unsigned-candidate-receipt.json`.
@@ -137,8 +140,8 @@ not start release gates, and Actions never authorizes or blocks publication.
 
 `publish` first derives and verifies that exact channel/current-HEAD receipt,
 then loads the strict profile and pinned Keychain/tool inputs. It checks
-credentials and live-feed build floors, creates and pushes the annotated tag,
-repeats credential and feed checks, then signs, notarizes,
+setup proof and live-feed build floors, creates and pushes the annotated tag,
+revalidates setup proof and feed checks, then signs, notarizes,
 staples, publishes the immutable versioned release, updates mutable feeds, and
 independently verifies remote and local artifacts. Stable requires the strict
 Alpha and Beta migration floors plus its Stable floor; only an uninitialized
@@ -161,7 +164,7 @@ never authorize release reuse. There is no hidden cache or candidate pruning.
 
 ## Load and validate current authority
 
-Before release work, read `config/release-contract.json`, all four
+Before release work, read `config/release-contract.json`, all seven
 `release.py --help` surfaces, `docs/release/sparkle-updates.md`,
 `.codex/agents/release-agent.md`, `SKILLS.md`, CI/nightly definitions, and
 relevant release tests. Run:
@@ -182,7 +185,30 @@ Run `scripts/install.sh` from this skill directory to link the repository-owned
 skill into the personal skill root. Re-run the validator whenever release
 tooling or authority changes.
 
-### Stable graphical evidence
+### Optional graphical diagnostics
 
-Stable packaging requires the contract-selected real-app smoke methods against the exact assembled candidate in an active logged-in macOS graphical session. The receipt retains the source and app payload identities, selected/completed XCTest counts, command logs and xcresult hashes. Missing graphical access, any skipped/empty/incomplete selection, or changed evidence blocks Stable readiness. The Release candidate uses ordinary UI actions; DEBUG fixture hooks and invented parser fixtures do not count as graphical evidence. Signing and embedded-tool smoke alone do not establish full release readiness.
-The graphical session must belong to the disposable `lungfish-release-qa` macOS account declared by `gates.appSmokeAccount`, provisioned on a dedicated test Mac or VM with no user projects or credentials. Before launch the gate rejects existing Lungfish preferences, saved windows, application support and managed storage; it records the account name, UID, real account home and clean-state result. Provision or restore a fresh disposable account/VM before each run. The gate does not erase state. A `HOME` override does not isolate macOS preferences, keychain or application support, and an ordinary personal account must never run this smoke.
+Routine Preview and Stable packaging are headless: `gates.appSmokeRequired` is false.
+UI, extended and external-tool conformance profiles are explicit diagnostics, selected
+with `python3 scripts/test.py list --profile ui`, `--profile extended` or
+`--profile tool-conformance`; inspect the declared command and prerequisites before
+running it. They do not independently authorize a release.
+
+Real-app graphical checks require the disposable `lungfish-release-qa` macOS account
+in `gates.appSmokeAccount`, an active logged-in graphical session, and a dedicated
+Mac or VM with no user projects or credentials. A `HOME` override is not isolation.
+The harness rejects existing app state and retains exact selection/completion,
+source/app identities, logs and xcresult hashes. Restore a clean account before a
+new diagnostic; the harness does not erase state. If the committed contract explicitly
+requires graphical evidence, missing, skipped or incomplete results block that policy.
+
+
+## Durable signing recovery
+
+Keep `signing-transaction` and the exact candidate when publication stops. Signed
+app input, app ZIP and input DMG are immutable and hash-bound to the candidate,
+profile and public identity. Repeated `publish` resumes recorded notary submission
+IDs with bounded polling and preserves signed bytes; it does not re-sign or re-ZIP
+pending inputs. An ambiguous upload without a durable submission ID fails closed:
+preserve the journal and reconcile the submission with Apple before retrying. Never
+delete transaction state to force a second submission. Changed artifact bytes,
+submission IDs or signing context block continuation.

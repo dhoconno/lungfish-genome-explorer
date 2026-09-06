@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 import os
 import plistlib
@@ -11,10 +12,12 @@ import textwrap
 import unittest
 from pathlib import Path
 from scripts.tests.gate_fixtures import make_gate_fixture
+from scripts.tests.test_debug_artifact import executable_bytes
 
 
 ROOT = Path(__file__).resolve().parents[2]
 PYTHON = Path(sys.executable)
+PUBLIC_IDENTITY = json.loads((ROOT / "config/release-contract.json").read_text())["identity"]
 
 
 class ReleaseBuilderFixture:
@@ -33,7 +36,14 @@ class ReleaseBuilderFixture:
         self.repo.mkdir()
         self.bin.mkdir()
         self._copy_repository_inputs()
+        contract_path = self.repo / "config/release-contract.json"
+        contract = json.loads(contract_path.read_text())
+        contract["gates"]["appSmokeRequired"] = True
+        contract_path.write_text(json.dumps(contract))
         self._install_internal_phase_wrappers()
+        self.cli_generator = self.root / "make-cli.py"
+        self._write(self.cli_generator, "import sys, struct, plistlib\nfrom pathlib import Path\n" + inspect.getsource(executable_bytes)
+                    + "\nPath(sys.argv[1]).write_bytes(executable_bytes(plistlib.loads(Path(sys.argv[2]).read_bytes())))\n")
         self._install_external_tools()
         self._adapt_canonical_tools_for_fixture()
         self._git("init", "-q")
@@ -41,7 +51,7 @@ class ReleaseBuilderFixture:
         self._git("config", "user.name", "Builder Test")
         self._git("add", ".")
         self._git("commit", "-q", "-m", "fixture")
-        self._git("remote", "add", "origin", "https://github.com/example/lungfish.git")
+        self._git("remote", "add", "origin", f"https://github.com/{PUBLIC_IDENTITY["repository"]}.git")
 
     def cleanup(self):
         self.temporary.cleanup()
@@ -55,6 +65,15 @@ class ReleaseBuilderFixture:
             ".gitignore",
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/release_contract.py",
+            "scripts/release/release_identity.py",
+            "scripts/release/debug_artifact.py",
+            "scripts/release/release_profiles.py",
+            "scripts/release/bounded_process.py",
+            "scripts/release/durable_notary.py",
+            "scripts/release/signing_pipeline.py",
+            "LungfishCLI-Info.plist",
+            "Sources/LungfishCLIExecutable/EntryPoint.swift",
+            "Lungfish.xcodeproj/xcshareddata/xcschemes/Lungfish.xcscheme",
             "scripts/release/release_cache_security.py",
             "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_target_security.py",
@@ -67,6 +86,9 @@ class ReleaseBuilderFixture:
             "scripts/full-suite-gate.sh",
             "scripts/check-package-resolved-consistency.sh",
             "config/release-contract.json",
+            "config/test-catalog.json",
+            "scripts/testing/catalog.py",
+            "scripts/test.py",
             "Package.swift",
             "Lungfish-Info.plist",
             "lungfish-cli.entitlements",
@@ -94,7 +116,11 @@ class ReleaseBuilderFixture:
             / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json",
             json.dumps(
                 {
+                    "packID": "fixture-tools",
+                    "version": "1",
                     "dependencySet": "test",
+                    "tools": [{"id": "fixture-tool", "version": "1", "environment": "fixture",
+                               "packageSpec": "fixture::fixture-tool=1=build0", "executables": ["fixture-tool"]}],
                     "bootstrap": {
                         "micromamba": {
                             "version": "2.9.0-0",
@@ -115,7 +141,7 @@ class ReleaseBuilderFixture:
         )
         self._write(self.repo / "Lungfish.xcodeproj/project.pbxproj", "// fixture\n")
         self._write(self.repo / "lungfish-cli.entitlements", "<plist/>\n")
-        self._write(self.repo / ".gitignore", "build/\n")
+        self._write(self.repo / ".gitignore", "build/\n.build/\n")
         self._write(
             self.repo / "docs/release-notes/2026.8.1.md",
             """
@@ -292,6 +318,8 @@ class ReleaseBuilderFixture:
             mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle"
             printf 'unsigned-app\n' >"$app/Contents/MacOS/Lungfish"
             chmod 755 "$app/Contents/MacOS/Lungfish"
+            "$BUILDER_PYTHON" "$BUILDER_CLI_GENERATOR" "$app/Contents/MacOS/lungfish-cli" "$LUNGFISH_CLI_INFOPLIST_FILE"
+            chmod 755 "$app/Contents/MacOS/lungfish-cli"
             "$BUILDER_PYTHON" - "$app/Contents/Info.plist" "$build" <<'PY'
             import plistlib, sys
             with open(sys.argv[1], 'wb') as handle:
@@ -343,6 +371,14 @@ class ReleaseBuilderFixture:
                 && [ "${BUILDER_FAIL_DMG_PHASE:-}" = notary ]; then
                 exit 78
             fi
+            if [ "${1:-}" = notarytool ] && [ "${2:-}" = submit ]; then
+                printf '{"id":"01234567-89ab-cdef-0123-456789abcdef"}\n'
+                exit 0
+            fi
+            if [ "${1:-}" = notarytool ] && [ "${2:-}" = info ]; then
+                printf '{"id":"01234567-89ab-cdef-0123-456789abcdef","status":"Accepted"}\n'
+                exit 0
+            fi
             if [ "${1:-}" = stapler ] && [ "${2:-}" = staple ] \
                 && [[ "${3:-}" = *.dmg ]] \
                 && [ "${BUILDER_FAIL_DMG_PHASE:-}" = staple ]; then
@@ -358,6 +394,10 @@ class ReleaseBuilderFixture:
         for name, body in {
             "codesign": r"""
                 printf 'codesign:%s\n' "$*" >>"$BUILDER_EVENTS"
+                if [[ " $* " == *" --display "* ]]; then
+                    echo 'TeamIdentifier=TEAM123456' >&2
+                    exit 0
+                fi
                 if [[ " $* " == *" --sign - "* ]]; then
                     exit 0
                 fi
@@ -400,6 +440,7 @@ class ReleaseBuilderFixture:
                         [ ! -e "$target" ] || exit 73
                         printf 'fixture-dmg\n' >"$target"
                         rm -rf "${target}.fixture-app"
+                        [ -n "$source" ] && [ "$source" != / ] && [ -d "$source" ] || exit 74
                         cp -R "$source" "${target}.fixture-app"
                         ;;
                     attach)
@@ -414,6 +455,8 @@ class ReleaseBuilderFixture:
                         if [ ! -d "$fixture" ]; then
                             fixture="${BUILDER_REMOTE_DMG_FIXTURE:-}"
                         fi
+                        [ -n "$fixture" ] && [ "$fixture" != / ] && [ -d "$fixture" ] || exit 74
+                        [ -n "$mountpoint" ] && [ "$mountpoint" != / ] || exit 74
                         cp -R "$fixture"/. "$mountpoint"/
                         ;;
                     detach)
@@ -631,6 +674,30 @@ class ReleaseBuilderFixture:
         }.items():
             source = source.replace(canonical, str(replacement))
         self.builder.write_text(source, encoding="utf-8")
+        # New Python signing helpers must never escape to real credential tools.
+        # Rewrite every copied script, then fail closed on any absolute escape.
+        import re
+        tool_names = ("codesign", "ditto", "hdiutil", "xcrun", "security", "gh", "file")
+        for path in (self.repo / "scripts").rglob("*"):
+            if path.suffix not in (".py", ".sh", ".swift") or not path.is_file():
+                continue
+            text = path.read_text()
+            if path.name == "signing_pipeline.py":
+                # Fake DMGs carry their mount contents in a sidecar. Preserve it
+                # when the real pipeline copies the notarized DMG into place.
+                text = text.replace(
+                    "shutil.copyfile(paths['dmgInput'], dmg)",
+                    "shutil.copyfile(paths['dmgInput'], dmg)\n"
+                    "            if not Path(str(dmg) + '.fixture-app').exists(): shutil.copytree(str(paths['dmgInput']) + '.fixture-app', str(dmg) + '.fixture-app', symlinks=True)")
+            for name in tool_names:
+                for prefix in ("/usr/bin/", "/usr/local/bin/"):
+                    text = text.replace(prefix + name, str(self.bin / name))
+            if re.search(r"/(?:usr/bin|usr/local/bin)/(?:codesign|xcrun|security|gh)\b", text):
+                raise AssertionError("fixture contains a real credential-tool path")
+            path.write_text(text)
+        for name in ("codesign", "xcrun", "security", "gh"):
+            if not (self.bin / name).is_file():
+                raise AssertionError("fixture is missing a credential-tool double")
 
     def run(
         self,
@@ -649,6 +716,7 @@ class ReleaseBuilderFixture:
                 "PATH": f"{self.bin}:{environment['PATH']}",
                 "BUILDER_EVENTS": str(self.events),
                 "BUILDER_PYTHON": str(PYTHON),
+                "BUILDER_CLI_GENERATOR": str(self.cli_generator),
                 "BUILDER_MANAGED_MANIFEST": str(
                     self.repo
                     / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
@@ -656,7 +724,7 @@ class ReleaseBuilderFixture:
                 "LUNGFISH_RELEASE_CACHE_ROOT": str(self.scratch_root),
                 "LUNGFISH_RELEASE_SCRATCH_ROOT": str(self.scratch_root),
                 "LUNGFISH_RELEASE_PYTHON": str(PYTHON),
-                "LUNGFISH_SPARKLE_PUBLIC_ED_KEY": "public-test-key",
+                "LUNGFISH_SPARKLE_PUBLIC_ED_KEY": PUBLIC_IDENTITY["sparklePublicEdKey"],
                 "BUILDER_DOCTOR_FAIL": "1" if doctor_fail else "0",
                 "BUILDER_CODESIGN_COUNT": str(self.root / "codesign-count"),
                 "BUILDER_GH_STATE": str(self.gh_state),
@@ -671,7 +739,8 @@ class ReleaseBuilderFixture:
         channel = arguments[arguments.index("--channel") + 1] if "--channel" in arguments else "stable"
         staging = Path(tempfile.mkdtemp(prefix="gates-", dir=self.root)) / "evidence"
         manifest = make_gate_fixture(staging, {"clean": True, "commit": self._git("rev-parse", "HEAD").stdout.strip()}, channel,
-                                     json.loads((self.repo / "config/release-contract.json").read_text())["gates"]["focusedReleaseTests"])
+                                     json.loads((self.repo / "config/release-contract.json").read_text())["gates"]["focusedReleaseTests"],
+                                     contract_path=self.repo / "config/release-contract.json")
         command += ["--gate-manifest", str(manifest), "--gate-manifest-sha256", hashlib.sha256(manifest.read_bytes()).hexdigest()]
 
         if include_output_paths:
@@ -734,7 +803,7 @@ class ReleaseBuilderFixture:
         tag="v2026.8.1",
         *,
         remote_name="origin",
-        github_url="https://github.com/example/lungfish.git",
+        github_url=f"https://github.com/{PUBLIC_IDENTITY["repository"]}.git",
     ):
         remote = self.root / f"{remote_name}.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
@@ -787,9 +856,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(selected.release / "unsigned-candidate-receipt.json"),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--channel",
@@ -799,6 +868,33 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--sparkle-generate-appcast",
             str(selected.bin / "generate_appcast"),
         )
+
+    def test_fork_package_has_no_legacy_feed_requirement(self):
+        from scripts.release.release_identity import fork_contract
+        path = self.fixture.repo / "config/release-contract.json"
+        original = json.loads(path.read_text())
+        identity = dict(original["identity"], runtimeNamespace="org.example.fixture")
+        path.write_text(json.dumps(fork_contract(original, identity, "Example Fish")))
+        self.fixture._git("add", "config/release-contract.json")
+        self.fixture._git("commit", "-m", "Configure fixture fork")
+        result = self.fixture.run("--package-only", "--channel", "preview")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        app_name = json.loads(path.read_text())["channels"]["preview"]["appBundleFilename"]
+        info = plistlib.loads((self.fixture.release / app_name / "Contents/Info.plist").read_bytes())
+        self.assertEqual(info["LungfishRuntimeNamespace"], "org.example.fixture")
+        self.assertEqual(info["CFBundleDisplayName"], "Example Fish Preview")
+
+    def test_fake_dmg_attach_rejects_missing_contents(self):
+        mount = self.fixture.root / "empty-mount"
+        environment = os.environ.copy()
+        environment["BUILDER_EVENTS"] = str(self.fixture.events)
+        environment.pop("BUILDER_REMOTE_DMG_FIXTURE", None)
+        result = subprocess.run(
+            [str(self.fixture.bin / "hdiutil"), "attach", "-mountpoint", str(mount),
+             str(self.fixture.root / "missing.dmg")], env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+        self.assertEqual(result.returncode, 74)
+        self.assertEqual(list(mount.iterdir()), [])
 
     def test_stable_gui_failure_blocks_candidate_receipt_and_package_success(self):
         result = self.fixture.run("--package-only", "--channel", "stable",
@@ -844,7 +940,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             info = plistlib.load(handle)
         self.assertEqual(info["CFBundleIdentifier"], "com.lungfish.browser.preview")
         self.assertEqual(info["LungfishReleaseChannel"], "preview")
-        self.assertEqual(info["SUPublicEDKey"], "public-test-key")
+        self.assertEqual(info["SUPublicEDKey"], PUBLIC_IDENTITY["sparklePublicEdKey"])
         self.assertTrue(info["SUFeedURL"].endswith("/sparkle-beta/appcast-beta.xml"))
         self.assertEqual(info["CFBundleIconFile"], "AppIcon")
         self.assertEqual(info["CFBundleIconName"], "AppIcon")
@@ -869,9 +965,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
         credentialed = (
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--channel",
@@ -907,15 +1003,15 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         archive = next(line for line in events if line.startswith("xcodebuild:"))
         self.assertIn("CODE_SIGNING_ALLOWED=NO", archive)
         self.assertIn("CODE_SIGNING_REQUIRED=NO", archive)
-        swift = next(line for line in events if line.startswith("swift:"))
-        scratch = swift.split("--scratch-path ", 1)[1].split()[0]
+        self.assertFalse(any(line.startswith("swift:") for line in events))
+        scratch = json.loads((self.fixture.release / "unsigned-candidate-receipt.json").read_text())["build"]["scratchPath"]
         derived = archive.split("-derivedDataPath ", 1)[1].split()[0]
         self.assertTrue(Path(scratch).is_absolute())
         self.assertTrue(scratch.startswith(str(self.fixture.scratch_root) + os.sep))
         self.assertEqual(Path(scratch).name, "swiftpm")
         self.assertEqual(Path(derived).name, "derived-data")
         self.assertEqual(Path(scratch).parent, Path(derived).parent)
-        self.assertIn(f"-Xlinker -oso_prefix -Xlinker {scratch}/", swift)
+        self.assertIn("LUNGFISH_CLI_INFOPLIST_FILE=", archive)
         smoke = [line for line in events if line.startswith("smoke:")]
         self.assertEqual(
             smoke, [f"smoke:portability:{scratch}", f"smoke:complete:{scratch}"]
@@ -1192,9 +1288,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     "--resume-candidate",
                     str(relocated / source_receipt.name),
                     "--signing-identity",
-                    "Developer ID Application: Test (TEAMID)",
+                    "Developer ID Application: Test (TEAM123456)",
                     "--team-id",
-                    "TEAMID",
+                    "TEAM123456",
                     "--notary-profile",
                     "fixture",
                     "--defer-remote-publish",
@@ -1261,9 +1357,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     "--resume-candidate",
                     str(receipt_path),
                     "--signing-identity",
-                    "Developer ID Application: Test (TEAMID)",
+                    "Developer ID Application: Test (TEAM123456)",
                     "--team-id",
-                    "TEAMID",
+                    "TEAM123456",
                     "--notary-profile",
                     "fixture",
                     "--defer-remote-publish",
@@ -1416,9 +1512,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
     def test_default_flow_smokes_and_verifies_exact_candidate_before_codesign(self):
         result = self.fixture.run(
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--defer-remote-publish",
@@ -1471,15 +1567,15 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertLess(complete, receipt)
         self.assertLess(receipt, codesign)
         self.assertEqual(sum(line.startswith("xcodebuild:") for line in events), 1)
-        self.assertEqual(sum(line.startswith("swift:") for line in events), 1)
+        self.assertEqual(sum(line.startswith("swift:") for line in events), 0)
 
     def test_feed_advance_during_signing_aborts_before_publication(self):
         self.fixture.prepare_remote_tag()
         result = self.fixture.run(
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--channel",
@@ -1516,9 +1612,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(self.fixture.release / "unsigned-candidate-receipt.json"),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--defer-remote-publish",
@@ -1548,9 +1644,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(receipt_path),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--defer-remote-publish",
@@ -1592,9 +1688,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(self.fixture.release / "unsigned-candidate-receipt.json"),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--defer-remote-publish",
@@ -1626,9 +1722,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(self.fixture.release / "unsigned-candidate-receipt.json"),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--defer-remote-publish",
@@ -1668,9 +1764,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     "--resume-candidate",
                     str(fixture.release / "unsigned-candidate-receipt.json"),
                     "--signing-identity",
-                    "Developer ID Application: Test (TEAMID)",
+                    "Developer ID Application: Test (TEAM123456)",
                     "--team-id",
-                    "TEAMID",
+                    "TEAM123456",
                     "--notary-profile",
                     "fixture",
                     "--defer-remote-publish",
@@ -1688,7 +1784,8 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
 
                 self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
                 dmg = fixture.release / "Lungfish-2026.8.1-arm64.dmg"
-                self.assertTrue(dmg.is_file())
+                retained_dmg = fixture.release / "signing-transaction/input.dmg" if failed_phase == "notary" else dmg
+                self.assertTrue(retained_dmg.is_file())
                 self.assertEqual(
                     {
                         path.relative_to(candidate): path.read_bytes()
@@ -1719,8 +1816,18 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     extra_env={"BUILDER_CODESIGN_MUTATE": "1"},
                 )
 
-                self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
                 retry_events = fixture.event_lines()[before_retry:]
+                if failed_phase == "notary":
+                    self.assertEqual(retried.returncode, 76, retried.stdout + retried.stderr)
+                    notary_state = json.loads((fixture.release / "signing-transaction/notary-dmg.json").read_text())
+                    self.assertEqual(notary_state["status"], "AmbiguousUpload")
+                    self.assertIsNone(notary_state["submissionId"])
+                    self.assertFalse(any("notarytool submit" in line for line in retry_events))
+                    self.assertTrue(retained_dmg.is_file())
+                    self.assertEqual(receipt_path.read_bytes(), receipt_before)
+                    self.assertEqual(fixture.verify_receipt().returncode, 0)
+                    continue
+                self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
                 self.assertFalse(
                     any(
                         line.startswith(("xcodebuild:", "swift:"))
@@ -1728,7 +1835,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     )
                 )
                 self.assertEqual(
-                    sum(line.startswith("hdiutil:") for line in retry_events), 1
+                    sum(line.startswith("hdiutil:") for line in retry_events), 0
                 )
                 self.assertEqual(
                     {
@@ -1745,7 +1852,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     bounded_sentinel.read_text(encoding="utf-8"), "preserve\n"
                 )
                 self.assertEqual(signed_sentinel.read_text(encoding="utf-8"), "stale\n")
-                self.assertFalse((fixture.release / "Lungfish-app-notary.zip").exists())
+                self.assertEqual((fixture.release / "Lungfish-app-notary.zip").read_text(), "stale\n")
                 self.assertNotEqual(
                     (fixture.release / "release-metadata.txt").read_text(
                         encoding="utf-8"
@@ -1782,7 +1889,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     resume[resume.index("stable")] = "preview"
                     failed = fixture.run(*resume, extra_env={"BUILDER_FAIL_MUTABLE_ASSET": failed_asset})
                     self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
-                    self.assertIn("injected mutable interruption", failed.stderr)
+                    self.assertIn('"exitStatus": 93', failed.stderr)
                     receipt = fixture.release / "unsigned-candidate-receipt.json"
                     receipt_before = receipt.read_bytes()
                     before_retry = len(fixture.event_lines())
@@ -1810,9 +1917,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(self.fixture.release / "unsigned-candidate-receipt.json"),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--channel",
@@ -1883,9 +1990,9 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--resume-candidate",
             str(self.fixture.release / "unsigned-candidate-receipt.json"),
             "--signing-identity",
-            "Developer ID Application: Test (TEAMID)",
+            "Developer ID Application: Test (TEAM123456)",
             "--team-id",
-            "TEAMID",
+            "TEAM123456",
             "--notary-profile",
             "fixture",
             "--channel",
@@ -2070,7 +2177,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
     def test_selected_upstream_remote_binds_scratch_tag_and_github_repository(self):
         self.fixture.prepare_remote_tag(
             remote_name="upstream",
-            github_url="https://github.com/right/lungfish.git",
+            github_url=f"https://github.com/{PUBLIC_IDENTITY['repository']}.git",
         )
         hostile = self.fixture.root / "origin.git"
         subprocess.run(["git", "init", "-q", "--bare", str(hostile)], check=True)
@@ -2081,7 +2188,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "--remote",
             "upstream",
             "--github-repository",
-            "right/lungfish",
+            PUBLIC_IDENTITY["repository"],
         )
 
         packaged = self.fixture.run(
@@ -2093,29 +2200,29 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             *remote_args,
             extra_env={
                 "GH_HOST": "mirror.example.test",
-                "BUILDER_EXPECTED_GH_REPO": "github.com/right/lungfish",
+                "BUILDER_EXPECTED_GH_REPO": f"github.com/{PUBLIC_IDENTITY['repository']}",
                 "BUILDER_REQUIRE_EXPLICIT_GH_REPO": "1",
                 "BUILDER_REJECT_GH_HOST": "1",
             },
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         events = "\n".join(self.fixture.event_lines())
-        expected_prefix = "https://github.com/right/lungfish/releases/download/"
+        expected_prefix = f"https://github.com/{PUBLIC_IDENTITY['repository']}/releases/download/"
         self.assertIn(f"{expected_prefix}v2026.8.1/", events)
         self.assertIn(f"{expected_prefix}sparkle-stable/", events)
-        self.assertNotIn("dhoconno/lungfish-genome-explorer", events)
+        self.assertNotIn("wrong/lungfish", events)
         self.assertNotIn("mirror.example.test", events)
 
     def test_remote_repository_case_change_preserves_package_recovery_identity(self):
         self.fixture.prepare_remote_tag(
             remote_name="upstream",
-            github_url="https://github.com/Right/LungFish.git",
+            github_url=f"https://github.com/{PUBLIC_IDENTITY['repository'].upper()}.git",
         )
         remote_args = (
             "--remote",
             "upstream",
             "--github-repository",
-            "right/lungfish",
+            PUBLIC_IDENTITY["repository"],
         )
         packaged = self.fixture.run(
             "--package-only", "--channel", "stable", *remote_args
@@ -2132,14 +2239,14 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
             "remote",
             "set-url",
             "upstream",
-            "https://github.com/right/lungfish.git",
+            f"https://github.com/{PUBLIC_IDENTITY['repository']}.git",
         )
         recovered = self.fixture.run(
             *self._stable_resume_args(),
             *remote_args,
             "--recover-existing-release",
             extra_env={
-                "BUILDER_EXPECTED_GH_REPO": "github.com/right/lungfish",
+                "BUILDER_EXPECTED_GH_REPO": f"github.com/{PUBLIC_IDENTITY['repository']}",
                 "BUILDER_REQUIRE_EXPLICIT_GH_REPO": "1",
             },
         )

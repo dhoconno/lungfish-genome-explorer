@@ -2164,6 +2164,16 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         self.assertNotIn("build-notarized-dmg.sh", " ".join(package + publish))
         self.assertNotIn("--prune-prereleases", package + publish)
 
+    def test_nightly_default_profile_is_resolved_by_repository_coordinator(self):
+        nightly = load_module()
+        args = argparse.Namespace(release_coordinator=Path("/repo/scripts/release/release.py"), profile=None)
+        commands = []
+        with mock.patch.object(nightly, "run", side_effect=lambda command, **kwargs: commands.append(command)):
+            nightly.run_common_coordinator(Path("/repo"), args)
+        self.assertEqual([command[2] for command in commands], ["package", "publish"])
+        self.assertFalse(any("--profile" in command for command in commands))
+        self.assertIsNone(nightly.parse_args([]).profile)
+
     def test_nightly_recovery_delegates_one_idempotent_publish_without_resume_flag(self):
         nightly = load_module()
         args = argparse.Namespace(

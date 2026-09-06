@@ -333,7 +333,7 @@ public actor MetagenomicsDatabaseRegistry {
 
         if let storageConfigStore {
             try storageConfigStore.setActiveRoot(normalized.sharedRootURL)
-            UserDefaults.standard.removeObject(forKey: "DatabaseStorageLocation")
+            LungfishAppIdentity.current.preferences.removeObject(forKey: "DatabaseStorageLocation")
         }
 
         // Create the new directory if needed.

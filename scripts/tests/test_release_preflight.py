@@ -65,6 +65,9 @@ class ReleaseDoctorFixture:
         self.sentinel_root.mkdir()
         self.sentinel.write_text("untouched\n", encoding="utf-8")
         self._install_commands()
+        self._write_executable(self.developer_dir / "usr/bin/notarytool", "exit 0")
+        self._write_executable(self.bin / "sysctl", "printf 'fake-boot-identity\\n'")
+        self._write_executable(self.bin / "codesign", 'if [ "${1:-}" = --display ]; then printf "TeamIdentifier=TEAM123456\\n"; fi')
         self._install_sparkle_tools()
         self.env = {
             **os.environ,
@@ -144,6 +147,9 @@ class ReleaseDoctorFixture:
                   printf '%s\\n' "$STUB_SDK_BUILD"
                 elif [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "history" ]; then
                   [ "$STUB_NOTARY_OK" = 1 ]
+                elif [ "${1:-}" = "swift" ] && [[ "${2:-}" == *verify-sparkle-signature.swift ]]; then
+                  printf '%s\\n' "$5" >> "$STUB_SPARKLE_LOG"
+                  [ "$STUB_SPARKLE_VERIFY_OK" = 1 ]
                 else
                   exit 65
                 fi
@@ -231,9 +237,9 @@ class ReleaseDoctorFixture:
         self._write_executable(
             self.sparkle / "generate_keys",
             'if [ "${1:-}" = --help ]; then [ "$STUB_SPARKLE_HELP_OK" = 1 ]; exit; fi\n'
-            '[ "${1:-}" = -p ] || exit 65\n'
+            '[ "${1:-}" = --account ] && [ "${3:-}" = -p ] || exit 65\n'
             '[ "$STUB_SPARKLE_KEY_OK" = 1 ] || exit 1\n'
-            "printf 'public-key-placeholder\\n'",
+            "printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\\n'",
         )
         self._write_executable(
             self.sparkle / "sign_update",
@@ -309,6 +315,9 @@ class ReleaseDoctorFixture:
                     "TEAM123456",
                     "--notary-profile",
                     "test-notary",
+                    "--credential-probe-mode", "setup",
+                    "--setup-receipt", str(self.root / "setup-receipt.json"),
+                    "--sparkle-public-ed-key", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ]
             )
         command.extend(extra)
@@ -328,6 +337,9 @@ class ReleaseDoctorFixture:
         return result
 
     def target_args(self, **overrides) -> tuple[str, ...]:
+        from scripts.release.release_contract import load_contract
+        from scripts.release.release_identity import prepare_identity_plist
+        cli_info = prepare_identity_plist(ROOT, load_contract(ROOT / "config/release-contract.json"), "preview")
         repository_key = hashlib.sha256(b"github.com/example/lungfish").hexdigest()
         derived = subprocess.run(
             [
@@ -342,6 +354,7 @@ class ReleaseDoctorFixture:
                 repository_key,
                 "--deployment-target",
                 "26.0",
+                "--cli-info-plist", str(cli_info),
                 "--cache-root",
                 str(self.cache_root),
             ],
@@ -753,6 +766,12 @@ class ReleaseDoctorTests(unittest.TestCase):
     def test_rejects_untracked_source_files(self):
         env = {**self.fx.env, "STUB_GIT_STATUS": "?? Sources/Unexpected.swift\n"}
         self.assert_failure("clean source tree", env=env)
+
+    def test_explicit_setup_accepts_dirty_source_without_build_cache_checks(self):
+        result = self.fx.run_doctor(mode="credentials", env={**self.fx.env, "STUB_GIT_STATUS": " M Package.swift\n"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("cache fingerprint", result.stdout)
+        self.assertNotIn("clean source tree", result.stdout)
 
     def test_rejects_missing_signing_identity(self):
         env = {**self.fx.env, "STUB_SECURITY_IDENTITIES": "0 valid identities found\n"}

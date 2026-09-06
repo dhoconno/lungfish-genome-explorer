@@ -139,7 +139,7 @@ class DebugAppSmokeTests(unittest.TestCase):
         return build
 
     def run_smoke(self, *, compiling_build=None, additions=None):
-        command = ["bash", str(SMOKE), str(self.app)]
+        command = ["bash", str(SMOKE), str(self.app), "--portable"]
         if compiling_build is not None:
             command.extend(["--compiling-build-dir", str(compiling_build)])
         return subprocess.run(

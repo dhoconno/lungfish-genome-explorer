@@ -1866,6 +1866,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - Menu Validation
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(openOnlineDocumentation(_:)) {
+            return LungfishAppIdentity.current.documentationURL != nil
+        }
+        if menuItem.action == #selector(openReleaseNotes(_:)) {
+            return LungfishAppIdentity.current.releaseHistoryURL != nil
+        }
         // Update Sidebar menu item title based on state (Apple HIG compliance)
         // Tag 1000 is for sidebar toggle
         if menuItem.tag == 1000 {

@@ -150,7 +150,7 @@ public final class AppSettings {
 
     public static let shared = AppSettings()
 
-    private static var persistenceDefaults: UserDefaults = .standard
+    private static var persistenceDefaults: UserDefaults = LungfishAppIdentity.current.preferences
 
     /// Isolates persistence for a serial test scope and restores the exact in-memory
     /// values afterward, without loading, saving, or resetting production storage.

@@ -14,6 +14,7 @@
 			remoteGlobalIDString = F1E2D3C4B5A6978877665550;
 			remoteInfo = Lungfish;
 		};
+		A1C11A00000000000000000B = {isa = PBXContainerItemProxy; containerPortal = F1E2D3C4B5A6978877665544; proxyType = 1; remoteGlobalIDString = A1C11A000000000000000009; remoteInfo = LungfishCLIExecutable; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXBuildFile section */
@@ -41,6 +42,9 @@
 		F1E2D3C4B5A69788776655A8 /* PrimerTrimXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */; };
 		F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */; };
 		F1E2D3C4B5A69788776655AE /* ViralReconXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */; };
+		A1C11A000000000000000001 = {isa = PBXBuildFile; fileRef = A1C11A000000000000000002; };
+		A1C11A000000000000000003 = {isa = PBXBuildFile; productRef = A1C11A000000000000000004; };
+		A1C11A000000000000000005 = {isa = PBXBuildFile; fileRef = A1C11A000000000000000006; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -68,6 +72,8 @@
 		F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/PrimerTrim/PrimerTrimXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/PrimerTrim/VariantCallingAutoConfirmXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/ViralReconXCUITests.swift; sourceTree = SOURCE_ROOT; };
+		A1C11A000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LungfishCLIExecutable/EntryPoint.swift; sourceTree = SOURCE_ROOT; };
+		A1C11A000000000000000006 = {isa = PBXFileReference; explicitFileType = compiled.mach-o.executable; includeInIndex = 0; path = "lungfish-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +93,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1C11A000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A1C11A000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -102,6 +109,7 @@
 		F1E2D3C4B5A6978877665546 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A1C11A000000000000000002 /* EntryPoint.swift */,
 				F1E2D3C4B5A6978877665548 /* Sources/Lungfish/main.swift */,
 				F1E2D3C4B5A6978877665565 /* Lungfish.help */,
 			);
@@ -111,6 +119,7 @@
 		F1E2D3C4B5A6978877665547 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				A1C11A000000000000000006 /* lungfish-cli */,
 				F1E2D3C4B5A6978877665549 /* Lungfish.app */,
 				F1E2D3C4B5A6978877665575 /* LungfishXCUITests.xctest */,
 			);
@@ -178,6 +187,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				A1C11A00000000000000000C /* LungfishCLIExecutable */,
 			);
 			name = Lungfish;
 			packageProductDependencies = (
@@ -207,6 +217,18 @@
 			productReference = F1E2D3C4B5A6978877665575 /* LungfishXCUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		A1C11A000000000000000009 /* LungfishCLIExecutable */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A1C11A00000000000000000A;
+            buildPhases = (A1C11A000000000000000008, A1C11A000000000000000007, );
+            buildRules = ();
+            dependencies = ();
+            name = LungfishCLIExecutable;
+            packageProductDependencies = (A1C11A000000000000000004, );
+            productName = "lungfish-cli";
+            productReference = A1C11A000000000000000006;
+            productType = "com.apple.product-type.tool";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -243,6 +265,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				A1C11A000000000000000009 /* LungfishCLIExecutable */,
 				F1E2D3C4B5A6978877665550 /* Lungfish */,
 				F1E2D3C4B5A6978877665580 /* LungfishXCUITests */,
 			);
@@ -259,6 +282,18 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+        F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */ = {
+            isa = PBXCopyFilesBuildPhase;
+            buildActionMask = 2147483647;
+            dstPath = "";
+            dstSubfolderSpec = 6;
+            files = (A1C11A000000000000000005, );
+            name = "Embed lungfish-cli";
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		F1E2D3C4B5A6978877665569 /* Hydrate worktree resources */ = {
@@ -301,31 +336,7 @@
 			shellPath = /bin/sh;
 			shellScript = "if [ \"${LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS:-0}\" = \"1\" ]; then\n  exit 0\nfi\n\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  sanitize_path() {\n    if [ -e \"$1\" ]; then\n      /bin/bash \"${SRCROOT}/scripts/sanitize-bundled-tools.sh\" \"$1\"\n    fi\n  }\n\n  sanitize_path \"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\n  sanitize_path \"${INSTALLATION_BUILD_PRODUCTS_LOCATION}/${EXECUTABLE_FOLDER_PATH}\"\n  sanitize_path \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools\"\n  sanitize_path \"${INSTALLATION_BUILD_PRODUCTS_LOCATION}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools\"\n\n  if [ -n \"${TARGET_TEMP_DIR:-}\" ]; then\n    INTERMEDIATE_BUILD_ROOT=$(cd \"${TARGET_TEMP_DIR}/../../..\" && pwd)\n    sanitize_path \"${INTERMEDIATE_BUILD_ROOT}/UninstalledProducts/macosx/${EXECUTABLE_FOLDER_PATH}\"\n    sanitize_path \"${INTERMEDIATE_BUILD_ROOT}/UninstalledProducts/macosx/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools\"\n  fi\nfi\n";
 		};
-		F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/Package.swift",
-				"$(SRCROOT)/Sources/LungfishCLI",
-				"$(SRCROOT)/Sources/LungfishCore",
-				"$(SRCROOT)/Sources/LungfishIO",
-				"$(SRCROOT)/Sources/LungfishWorkflow",
-			);
-			name = "Embed lungfish-cli";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/lungfish-cli",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"${LUNGFISH_SKIP_EMBED_LUNGFISH_CLI:-0}\" = \"1\" ]; then\n  exit 0\nfi\n\nset -euo pipefail\nCONFIGURATION_LOWER=$(printf '%s' \"$CONFIGURATION\" | tr '[:upper:]' '[:lower:]')\nSCRATCH_PATH=\"${SRCROOT}/.build/xcode-cli\"\nCLI_OUTPUT_DIR=\"${SCRATCH_PATH}/arm64-apple-macosx/${CONFIGURATION_LOWER}\"\nCLI_SOURCE=\"${CLI_OUTPUT_DIR}/lungfish-cli\"\nCLI_DEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/lungfish-cli\"\n/usr/bin/xcrun swift build \\\n  --package-path \"${SRCROOT}\" \\\n  --product lungfish-cli \\\n  --configuration \"${CONFIGURATION_LOWER}\" \\\n  --arch arm64 \\\n  --scratch-path \"${SCRATCH_PATH}\"\n/usr/bin/install -d \"$(dirname \"${CLI_DEST}\")\"\n/usr/bin/install -m 755 \"${CLI_SOURCE}\" \"${CLI_DEST}\"\nif [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  /usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n    --options runtime \\\n    --entitlements \"${SRCROOT}/lungfish-cli.entitlements\" \\\n    --generate-entitlement-der \\\n    \"${CLI_DEST}\"\nfi\n";
-		};
+
 		F1E2D3C4B5A6978877665566 /* Index Help Book */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -383,6 +394,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1C11A000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1C11A000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -391,6 +403,7 @@
 			target = F1E2D3C4B5A6978877665550 /* Lungfish */;
 			targetProxy = F1E2D3C4B5A6978877665570 /* PBXContainerItemProxy */;
 		};
+		A1C11A00000000000000000C = {isa = PBXTargetDependency; target = A1C11A000000000000000009; targetProxy = A1C11A00000000000000000B; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -545,6 +558,48 @@
 			};
 			name = Release;
 		};
+        A1C11A00000000000000000D /* Debug */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_ENTITLEMENTS = "lungfish-cli.entitlements";
+                CODE_SIGN_IDENTITY = "-";
+                CODE_SIGN_STYLE = Manual;
+                CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+                GENERATE_INFOPLIST_FILE = NO;
+                INFOPLIST_FILE = "$(LUNGFISH_CLI_INFOPLIST_FILE)";
+                LUNGFISH_CLI_INFOPLIST_FILE = "LungfishCLI-Info.plist";
+                LUNGFISH_CLI_IDENTITY_BUNDLE_IDENTIFIER = com.lungfish.browser.debug;
+                LUNGFISH_BUNDLE_NAME = "Lungfish Debug";
+                LUNGFISH_DISPLAY_NAME = "Lungfish Genome Explorer Debug";
+                LUNGFISH_RELEASE_CHANNEL = debug;
+                EXECUTABLE_NAME = "lungfish-cli";
+                PRODUCT_NAME = "lungfish-cli";
+                SKIP_INSTALL = YES;
+                SWIFT_VERSION = 6.0;
+            };
+            name = Debug;
+        };
+        A1C11A00000000000000000E /* Release */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_ENTITLEMENTS = "lungfish-cli.entitlements";
+                CODE_SIGN_IDENTITY = "-";
+                CODE_SIGN_STYLE = Manual;
+                CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+                GENERATE_INFOPLIST_FILE = NO;
+                INFOPLIST_FILE = "$(LUNGFISH_CLI_INFOPLIST_FILE)";
+                LUNGFISH_CLI_INFOPLIST_FILE = "LungfishCLI-Info.plist";
+                LUNGFISH_CLI_IDENTITY_BUNDLE_IDENTIFIER = com.lungfish.browser;
+                LUNGFISH_BUNDLE_NAME = Lungfish;
+                LUNGFISH_DISPLAY_NAME = "Lungfish Genome Explorer";
+                LUNGFISH_RELEASE_CHANNEL = stable;
+                EXECUTABLE_NAME = "lungfish-cli";
+                PRODUCT_NAME = "lungfish-cli";
+                SKIP_INSTALL = YES;
+                SWIFT_VERSION = 6.0;
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -575,6 +630,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        A1C11A00000000000000000A = {isa = XCConfigurationList; buildConfigurations = (A1C11A00000000000000000D, A1C11A00000000000000000E, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -606,6 +662,7 @@
 			package = F1E2D3C4B5A69788776655B4 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
 		};
+		A1C11A000000000000000004 /* LungfishCLILibrary */ = {isa = XCSwiftPackageProductDependency; package = F1E2D3C4B5A6978877665562; productName = LungfishCLILibrary; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F1E2D3C4B5A6978877665544 /* Project object */;

@@ -5,7 +5,10 @@
 Use only:
 
 ```text
-python3 scripts/release/release.py debug
+python3 scripts/release/release.py debug [--portable] [--jobs N]
+python3 scripts/release/release.py configure-fork --repository OWNER/REPO --product-name NAME --namespace REVERSE_DNS --sparkle-public-key BASE64 --website URL --documentation URL
+python3 scripts/release/release.py configure-machine --signing-identity LABEL --team-id TEAM --notary-profile NAME [--profile PATH]
+python3 scripts/release/release.py setup [--profile PATH]
 python3 scripts/release/release.py doctor [--profile PATH]
 python3 scripts/release/release.py package preview|stable
 python3 scripts/release/release.py publish preview|stable [--profile PATH]
@@ -18,25 +21,41 @@ release pruning are retired. Nightly uses the same front door; GitHub Actions
 is advisory and never authorizes or blocks publication. Retention is a separate
 explicit maintenance task.
 
-The strict default profile is `~/.config/lungfish/release.json`, a current-user
-regular non-symlink at mode 0600 beneath an owner-only directory. Schema v1 has
-exactly `schemaVersion`, `repository`, `signingIdentity`, `teamId`, and
-`notaryProfile`. The Sparkle private key remains in Keychain and the tools come
-from the pinned package dependency.
+Provision full Xcode `>=26.4.1,<27` with first launch and license complete,
+Git, Bash, ripgrep, Python 3.11+, and authenticated `gh` for the selected repository.
+The release runtime uses only the Python standard library. The contract requires
+Swift `>=6.2,<7`, macOS SDK 26, deployment target 26.0, arm64, and 20 GiB free on
+cache and output volumes. The coordinator selects supported Xcode; do not use a
+manual `xcode-select` workaround.
 
-Doctor reports package and publish readiness separately. A fresh Mac needs full
-Xcode `>=26.4.1,<27` with first launch complete, Swift `>=6.2,<7`, SDK 26,
-deployment target 26.0, arm64, 20 GiB free on cache and output volumes, Git,
-Bash, ripgrep, Python 3.11+, `gh`, the Developer ID certificate/private key, a
-notary Keychain profile, the Sparkle Keychain key, and the strict JSON profile.
-The release runtime uses only the Python standard library.
-Doctor does not install or repair these inputs and no manual `xcode-select`
-workaround is part of the release procedure.
+For a fork, first set its origin and run `configure-fork` with its own product name,
+reverse-DNS namespace, Sparkle public key and public URLs. Review and commit the
+public contract. This changes app/CLI metadata, feeds and runtime state isolation;
+it does not rename scientific formats, modules or resource identities.
 
-The release Mac also needs the pinned dependency verification root at
-`~/.lungfish-verify`, including its canonical `dependency-receipt.json` and
-isolated `parity-python` runtime. Doctor checks both before reporting package
-readiness.
+Import the Developer ID Application certificate/private key, provision a notarytool
+Keychain profile and a Sparkle EdDSA Keychain account, then run `configure-machine`.
+Its optional `--signing-keychain`, `--certificate-sha1`, `--notary-keychain` and
+`--sparkle-account` select existing credentials. It probes no secrets, writes an
+owned regular mode-0600 profile atomically under mode-0700 directories, and never
+overwrites an existing profile. New v2 profiles default to
+`~/.config/lungfish/releases/<repository-hash>.json`; strict legacy v1
+`~/.config/lungfish/release.json` remains supported. Profiles contain selectors,
+never passwords or private keys. Do not export Sparkle keys to shell files.
+
+Run `setup` explicitly after provisioning. Setup may request macOS authorization;
+it tests actual disposable signing, verifies the signing team, independently checks
+Sparkle against the committed public key, and checks notary/GitHub access. Successful
+proof is bound to repository, credential selectors, public key, tool hashes and boot.
+It remains valid during the same boot while those inputs match; rerun setup after
+a reboot or binding change. Setup does not require a clean source checkout or a
+managed verification environment. It never installs or repairs prerequisites.
+
+Run `doctor` for separate package/publish readiness. Unattended Doctor/publish fail
+early without matching setup proof and do not repeat setup probes. Closing stdin
+and timeouts do not suppress macOS Keychain dialogs: a subsequently locked Keychain
+or changed ACL can still require operator repair. Commands have bounded process groups
+and safe logs; failure preserves recovery evidence instead of waiting indefinitely.
 
 ## Channel and installation ledger
 
@@ -55,11 +74,11 @@ current Preview DMG and manual migration of any desired Preview settings.
 ## Transaction and cache ledger
 
 Package is credentialless and authoritative. It checks source and package
-Doctor, verifies the dependency receipt, runs the contract-defined focused and
+Doctor, verifies committed dependency manifests, runs the contract-defined focused and
 channel gates locally, assembles and smoke/portability-checks the actual
 artifact, then writes and verifies it under
 `build/Release/<channel>/<40-hex-commit>/`. Publish verifies that receipt before
-loading credentials, checks credentials and feed floors,
+loading credentials, checks setup proof and feed floors,
 pushes the annotated tag, repeats live readiness, signs without rebuilding,
 notarizes, staples, publishes, and
 independently verifies. Preview uses strict Alpha/Beta live floors; Stable also

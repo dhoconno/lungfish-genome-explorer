@@ -70,27 +70,18 @@ EXPECTED_TOOLCHAIN = {
 EXPECTED_GATES = {
     "appSmokeAccount": "lungfish-release-qa",
     "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser'],
+    "dependencyPolicy": "manifest",
+    "appSmokeRequired": False,
     "focusedReleaseTests": [
+        "scripts.tests.test_test_catalog",
         "scripts.tests.test_release_contract",
-        "scripts.tests.test_release_cache_fingerprint",
-        "scripts.tests.test_release_frontdoor",
-        "scripts.tests.test_release_preflight",
-        "scripts.tests.test_release_artifact_receipt",
-        "scripts.tests.test_release_builder_phases",
-        "scripts.tests.test_release_smoke",
-        "scripts.tests.test_sparkle_release_packaging",
-        "scripts.tests.test_nightly_prerelease_release",
-        "scripts.tests.test_app_smoke_gate",
+        "scripts.tests.test_full_suite_gate_tiers",
+        "scripts.tests.test_gate_profile_evidence",
+        "scripts.tests.test_release_identity",
     ],
     "channels": {
-        "preview": [
-            {"tier": "unit", "requireTools": False},
-            {"tier": "integration", "requireTools": False},
-        ],
-        "stable": [
-            {"tier": "full", "requireTools": False},
-            {"tier": "conformance", "requireTools": True},
-        ],
+        "preview": [{"tier": "release", "requireTools": False}],
+        "stable": [{"tier": "release", "requireTools": False}],
     },
 }
 
@@ -125,6 +116,31 @@ class ReleaseContractTests(unittest.TestCase):
         path = Path(temp_dir.name) / "release-contract.json"
         path.write_text(json.dumps(data), encoding="utf-8")
         return path
+
+    def test_rejects_unsafe_output_filenames_in_every_channel_and_debug(self):
+        fields = [('channels', 'stable', 'appBundleFilename', '.app'),
+                  ('channels', 'preview', 'appcastFilename', '.xml'),
+                  ('channels', 'preview', 'legacyBridgeAppcastFilename', '.xml'),
+                  ('buildProfiles', 'debug', 'appBundleFilename', '.app')]
+        for group, channel, field, suffix in fields:
+            invalid = ['../outside' + suffix, '/private/outside' + suffix,
+                       'subdir/file' + suffix, 'subdir\\file' + suffix, 'disk:file' + suffix,
+                       'unsafe\x00' + suffix, 'unsafe\u0085' + suffix, 'name' + suffix + ' ',
+                       ' name' + suffix, '.', '..', suffix, 'wrong-extension.txt']
+            for filename in invalid:
+                with self.subTest(field=field, filename=filename):
+                    value = copy.deepcopy(self.raw_contract)
+                    value[group][channel][field] = filename
+                    with self.assertRaises(ValueError):
+                        self.module.load_contract(self.write_contract(value))
+
+    def test_safe_leaf_filenames_and_empty_legacy_bridge_are_preserved(self):
+        value = copy.deepcopy(self.raw_contract)
+        value['channels']['stable']['appBundleFilename'] = 'Safe Product.app'
+        value['channels']['stable']['appcastFilename'] = 'safe-product.xml'
+        loaded = self.module.load_contract(self.write_contract(value))
+        self.assertEqual(loaded.channel('stable').appBundleFilename, 'Safe Product.app')
+        self.assertEqual(loaded.channel('stable').legacyBridgeAppcastFilename, '')
 
     def test_real_contract_has_literal_channel_and_toolchain_policy(self):
         contract = self.module.load_contract(CONTRACT_PATH)
@@ -248,7 +264,7 @@ class ReleaseContractTests(unittest.TestCase):
 
         duplicate_tier = self.contract_with_expected_gates()
         duplicate_tier["gates"]["channels"]["preview"].append(
-            {"tier": "unit", "requireTools": False}
+            {"tier": "release", "requireTools": False}
         )
         mutations.append(("duplicate tier", duplicate_tier))
 
@@ -257,7 +273,7 @@ class ReleaseContractTests(unittest.TestCase):
         mutations.append(("unsafe focused module", unsafe_module))
 
         wrong_require_tools = self.contract_with_expected_gates()
-        wrong_require_tools["gates"]["channels"]["stable"][1]["requireTools"] = False
+        wrong_require_tools["gates"]["channels"]["stable"] = [{"tier": "conformance", "requireTools": False}]
         mutations.append(("conformance without required tools", wrong_require_tools))
 
         for label, mutation in mutations:

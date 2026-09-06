@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 from dataclasses import asdict, dataclass
 import json
 import os
@@ -37,6 +39,10 @@ from release_repository import (
 )
 from release_target_security import TargetSecurityError, validate_release_targets
 from release_xcode import XcodeSelectionError, resolve_developer_dir
+from bounded_process import run_bounded
+from credential_readiness import ReadinessError, setup_binding, require_setup_receipt, write_setup_receipt, begin_setup
+from release_profiles import ProfileError
+from release_identity import prepare_identity_plist
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,17 +95,12 @@ class Doctor:
         self, command: list[str], *, cwd: Path = ROOT
     ) -> subprocess.CompletedProcess[str]:
         try:
-            return subprocess.run(
-                command,
-                cwd=cwd,
-                env=self.environment,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
+            result = run_bounded(command, cwd=cwd, env=self.environment,
+                                 timeout=COMMAND_TIMEOUT_SECONDS)
+            if result.timed_out:
+                raise CheckFailure("required command exceeded its time budget; child process group terminated")
+            return result
+        except OSError as error:
             raise CheckFailure("required command could not be executed") from error
 
     def _select_xcode(self) -> str:
@@ -116,7 +117,7 @@ class Doctor:
             "uname", "xcodebuild", "xcrun",
         ]
         if self.args.mode == "credentials":
-            names.extend(["gh", "security"])
+            names.extend(["gh", "security", "codesign"])
         missing = [
             name
             for name in names
@@ -239,6 +240,7 @@ class Doctor:
                 repository=f"github.com/{identity.github_repository}",
                 repository_key=identity.repository_key,
                 deployment_target=self.toolchain.deploymentTarget,
+                cli_info_plist=prepare_identity_plist(ROOT, self.contract, self.args.channel),
                 command_output=lambda command: self._checked_output(command),
             )
             selected = cache_paths(
@@ -738,12 +740,17 @@ class Doctor:
             raise CheckFailure(
                 "signing identity is not a Developer ID Application identity"
             )
-        result = self.run_command(
-            ["security", "find-identity", "-v", "-p", "codesigning"]
-        )
+        command = ["security", "find-identity", "-v", "-p", "codesigning"]
+        if self.args.signing_keychain:
+            command.append(str(self.args.signing_keychain))
+        result = self.run_command(command)
         if result.returncode != 0 or f'"{self.signing_identity}"' not in result.stdout:
             raise CheckFailure("requested Developer ID signing identity is unavailable")
-        return "requested Developer ID signing identity is usable"
+        if self.args.certificate_sha1:
+            pattern = re.compile(r"\b" + re.escape(self.args.certificate_sha1) + r'\s+"' + re.escape(self.signing_identity) + r'"', re.IGNORECASE)
+            if not pattern.search(result.stdout):
+                raise CheckFailure("selected certificate fingerprint does not match the Developer ID identity")
+        return "requested Developer ID signing identity is present; private-key use is checked separately"
 
     def _team_id(self) -> str:
         match = re.search(r"\(([A-Z0-9]+)\)\s*$", self.signing_identity)
@@ -751,19 +758,33 @@ class Doctor:
             raise CheckFailure("Team ID does not match the Developer ID identity")
         return "Team ID matches the Developer ID identity"
 
+    def _signing_probe(self) -> str:
+        # Only disposable system bytes are signed. Setup permission is checked before this method.
+        with tempfile.TemporaryDirectory(prefix="lungfish-signing-probe-") as directory:
+            probe = Path(directory) / "probe"
+            shutil.copyfile("/usr/bin/true", probe)
+            probe.chmod(0o700)
+            command = ["codesign", "--force", "--sign", self.args.certificate_sha1 or self.signing_identity,
+                       "--options", "runtime", "--timestamp"]
+            if self.args.signing_keychain:
+                command += ["--keychain", str(self.args.signing_keychain)]
+            signed = self.run_command([*command, str(probe)])
+            if signed.returncode != 0:
+                raise CheckFailure("disposable signing probe failed; selected private key is unavailable or requires setup")
+            verified = self.run_command(["codesign", "--verify", "--strict", str(probe)])
+            detail = self.run_command(["codesign", "--display", "--verbose=4", str(probe)])
+            if verified.returncode != 0 or detail.returncode != 0 or f"TeamIdentifier={self.team_id}" not in (detail.stdout + detail.stderr).splitlines():
+                raise CheckFailure("disposable signature verification or selected Team ID check failed")
+        return "selected private key signed a disposable executable and its signature Team ID verified"
+
     def _notary(self) -> str:
-        result = self.run_command(
-            [
-                "xcrun",
-                "notarytool",
-                "history",
-                "--keychain-profile",
-                self.notary_profile,
-            ]
-        )
+        command = ["xcrun", "notarytool", "history", "--keychain-profile", self.notary_profile]
+        if self.args.notary_keychain:
+            command += ["--keychain", str(self.args.notary_keychain)]
+        result = self.run_command(command)
         if result.returncode != 0:
             raise CheckFailure("notary profile is missing, locked, or unusable")
-        return "notary profile credentials are usable"
+        return "notary profile credentials are usable now"
 
     def _github_auth(self) -> str:
         result = self.run_command(["gh", "auth", "status", "--hostname", "github.com"])
@@ -792,35 +813,39 @@ class Doctor:
             )
         return "GitHub repository API confirms release write permission"
 
+    def _expected_sparkle_key(self) -> str:
+        value = self.args.sparkle_public_ed_key
+        try:
+            if not value or len(base64.b64decode(value, validate=True)) != 32:
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise CheckFailure("expected committed Sparkle public key is required and must encode 32 bytes")
+        return value
+
     def _sparkle_key(self) -> str:
-        configured = self.args.sparkle_ed_key_file or self.environment.get(
-            "LUNGFISH_SPARKLE_ED_KEY_FILE"
-        )
-        self.sparkle_key_file: Path | None = None
+        expected = self._expected_sparkle_key()
+        self.sparkle_key_file = None
+        configured = self.args.sparkle_ed_key_file or self.environment.get("LUNGFISH_SPARKLE_ED_KEY_FILE")
         if configured:
+            # Legacy internal helper only. Public machine profiles contain Keychain selectors.
+            candidate = Path(configured).expanduser().absolute()
             try:
-                candidate = Path(configured).expanduser().resolve(strict=True)
-                mode = stat.S_IMODE(candidate.stat().st_mode)
+                metadata = candidate.lstat()
             except OSError as error:
                 raise CheckFailure("Sparkle private key file is unavailable") from error
-            if not candidate.is_file() or mode != 0o600:
-                raise CheckFailure(
-                    "Sparkle private key file must be a regular mode-0600 file"
-                )
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1:
+                raise CheckFailure("Sparkle private key file must be an owned regular non-symlink mode-0600 file")
             self.sparkle_key_file = candidate
-            return "explicit mode-0600 Sparkle private key file is usable"
-
+            return "legacy private key file configured; candidate public-key match requires the independent signature probe"
         generate_keys = self.sparkle_tools.get("SPARKLE_GENERATE_KEYS")
         if generate_keys is None:
-            raise CheckFailure(
-                "Sparkle Keychain key cannot be checked without generate_keys"
-            )
-        result = self.run_command([str(generate_keys), "-p"])
-        if result.returncode != 0 or not result.stdout.strip():
-            raise CheckFailure(
-                "Sparkle Keychain key is missing, locked, or inaccessible"
-            )
-        return "Sparkle Keychain key is accessible"
+            raise CheckFailure("Sparkle Keychain key cannot be checked without generate_keys")
+        result = self.run_command([str(generate_keys), "--account", self.args.sparkle_account, "-p"])
+        if result.returncode != 0:
+            raise CheckFailure("Sparkle Keychain key is missing, locked, or inaccessible")
+        if result.stdout.strip() != expected:
+            raise CheckFailure("selected Sparkle account public key does not match the committed candidate public key")
+        return "selected Sparkle account matches the committed public key"
 
     def _sparkle_probe(self) -> str:
         sign_update = self.sparkle_tools.get("SPARKLE_SIGN_UPDATE")
@@ -836,11 +861,8 @@ class Doctor:
                 handle.write(b"Lungfish disposable Sparkle signing probe\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            key_args = (
-                ["--ed-key-file", str(self.sparkle_key_file)]
-                if self.sparkle_key_file is not None
-                else []
-            )
+            key_args = (["--ed-key-file", str(self.sparkle_key_file)] if self.sparkle_key_file is not None
+                        else ["--account", self.args.sparkle_account])
             signed = self.run_command(
                 [str(sign_update), *key_args, "-p", str(probe_path)]
             )
@@ -850,7 +872,8 @@ class Doctor:
                     "Sparkle signing probe failed; unlock or restore the signing key"
                 )
             verified = self.run_command(
-                [str(sign_update), *key_args, "--verify", str(probe_path), signature]
+                ["xcrun", "swift", str(ROOT / "scripts/release/verify-sparkle-signature.swift"),
+                 self._expected_sparkle_key(), signature, str(probe_path)]
             )
             if verified.returncode != 0:
                 raise CheckFailure("Sparkle signature verification probe failed")
@@ -859,7 +882,52 @@ class Doctor:
         finally:
             if probe_path is not None:
                 probe_path.unlink(missing_ok=True)
-        return "disposable payload signed and verified"
+        return "disposable payload signed and independently verified against the committed public key"
+
+    def _credential_setup_guard(self) -> str:
+        # Check receipt presence before any credential-consuming tool invocation.
+        if self.args.setup_receipt is None:
+            raise CheckFailure("explicit credential setup receipt is required; timeout/closed stdin do not suppress macOS authorization dialogs")
+        if self.args.credential_probe_mode == "unattended" and (self.args.sparkle_ed_key_file or self.environment.get("LUNGFISH_SPARKLE_ED_KEY_FILE")):
+            raise CheckFailure("legacy key-file probes require explicit setup mode; unattended publication uses profile Keychain selectors")
+        if self.args.credential_probe_mode == "unattended" and not self.args.setup_receipt.is_file():
+            raise CheckFailure("credential setup is incomplete; run explicit setup before unattended credential access")
+        boot = self.run_command(["sysctl", "-n", "kern.boottime"])
+        if boot.returncode != 0 or not boot.stdout.strip():
+            raise CheckFailure("could not bind credential readiness to this boot")
+        repository_identity = self._selected_repository_identity()
+        selectors = dict(repository=repository_identity.github_repository, repositoryKey=repository_identity.repository_key, signingIdentity=self.signing_identity,
+                         teamId=self.team_id, signingKeychain=str(self.args.signing_keychain or ""),
+                         certificateSha1=self.args.certificate_sha1, notaryProfile=self.notary_profile,
+                         notaryKeychain=str(self.args.notary_keychain or ""), sparkleAccount=self.args.sparkle_account,
+                         sparklePublicKey=self._expected_sparkle_key(), developerDir=str(self.developer_dir), uid=os.geteuid(),
+                         host=os.uname().nodename,
+                         legacyKeyFile=str(self.args.sparkle_ed_key_file or self.environment.get("LUNGFISH_SPARKLE_ED_KEY_FILE", "")))
+        tools = dict(self.sparkle_tools)
+        for name in ("codesign", "security", "gh", "xcrun"):
+            path = shutil.which(name, path=self.environment.get("PATH"))
+            if path is None: raise CheckFailure("credential readiness tool is missing")
+            tools[name] = Path(path)
+        if self.developer_dir is not None:
+            tools["notarytool"] = self.developer_dir / "usr/bin/notarytool"
+        tools["publicKeyVerifier"] = ROOT / "scripts/release/verify-sparkle-signature.swift"
+        try:
+            self.setup_binding = setup_binding(selectors, tools, boot.stdout.strip())
+            if self.args.credential_probe_mode == "unattended":
+                require_setup_receipt(self.args.setup_receipt, self.setup_binding)
+            else:
+                begin_setup(self.args.setup_receipt, self.setup_binding)
+        except (ReadinessError, ProfileError, OSError) as error:
+            raise CheckFailure(str(error)) from error
+        return "explicit setup probes authorized" if self.args.credential_probe_mode == "setup" else "completed setup evidence matches tools, selectors and boot; OS authorization may still change"
+
+    def _record_credential_setup(self) -> str:
+        if self.args.credential_probe_mode == "setup":
+            try:
+                write_setup_receipt(self.args.setup_receipt, self.setup_binding)
+            except (ReadinessError, ProfileError, OSError) as error:
+                raise CheckFailure("credential probes passed but setup evidence could not be written") from error
+        return "credential probes passed now; commands remain bounded because Keychain access can change"
 
     def run(self) -> bool:
         package_checks = (
@@ -883,20 +951,35 @@ class Doctor:
             ("dependency lockfiles", self._lockfiles),
             ("Sparkle tools", self._resolve_sparkle_tools),
         )
+        if self.args.mode == "credentials" and self.args.credential_probe_mode == "setup":
+            # Credential provisioning does not build, package, or authorize a source tree.
+            setup_checks = {"selected Git remote", "Xcode selection", "required commands",
+                            "Python version", "Xcode version", "Xcode first-launch",
+                            "Swift version", "macOS SDK", "host architecture", "Sparkle tools"}
+            package_checks = tuple(check for check in package_checks if check[0] in setup_checks)
         for name, operation in package_checks:
             if not self.check(name, operation):
                 return False
 
         if self.args.mode == "credentials":
+            for name, operation in (("credential inputs", self._credential_inputs),
+                                    ("credential setup", self._credential_setup_guard)):
+                if not self.check(name, operation):
+                    return False
+            if self.args.credential_probe_mode == "unattended":
+                self.results.append(CheckResult("unattended readiness", "PASS",
+                    "completed explicit setup verified; no disposable credential probes repeated; production commands remain bounded and OS access can change"))
+                return True
             credential_checks = (
-                ("credential inputs", self._credential_inputs),
                 ("signing identity", self._signing_identity),
                 ("Team ID", self._team_id),
+                ("private signing key", self._signing_probe),
                 ("notary profile", self._notary),
                 ("GitHub authentication", self._github_auth),
                 ("GitHub repository API", self._github_repository),
                 ("Sparkle signing key", self._sparkle_key),
                 ("Sparkle sign/verify probe", self._sparkle_probe),
+                ("credential readiness", self._record_credential_setup),
             )
             for name, operation in credential_checks:
                 if not self.check(name, operation):
@@ -947,6 +1030,13 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--signing-identity")
     value.add_argument("--team-id")
     value.add_argument("--notary-profile")
+    value.add_argument("--signing-keychain", type=Path)
+    value.add_argument("--certificate-sha1")
+    value.add_argument("--notary-keychain", type=Path)
+    value.add_argument("--sparkle-account", default="ed25519")
+    value.add_argument("--sparkle-public-ed-key")
+    value.add_argument("--credential-probe-mode", choices=("setup", "unattended"), default="unattended")
+    value.add_argument("--setup-receipt", type=Path)
     value.add_argument("--sparkle-ed-key-file", type=Path)
     value.add_argument("--remote", default="origin")
     value.add_argument("--github-repository")

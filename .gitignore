@@ -13,6 +13,7 @@
 !.codex/skills/releasing-lungfish/**
 !LICENSE
 !Lungfish-Info.plist
+!LungfishCLI-Info.plist
 !Lungfish.xcodeproj/**
 !Package.resolved
 !Package.swift
@@ -30,6 +31,8 @@
 !scripts/**
 scripts/**/__pycache__/
 scripts/**/*.py[cod]
+.codex/skills/**/__pycache__/
+.codex/skills/**/*.py[cod]
 !sign-cli.sh
 !test-data/test-annotated.gb
 !test-data/test-sequence.fa
@@ -143,3 +146,6 @@ docs/user-manual/fixtures/**/cache/
 
 # Agent worktrees are separate checkouts, never repo content
 .claude/worktrees/
+
+# Public test collection policy.
+!config/test-catalog.json

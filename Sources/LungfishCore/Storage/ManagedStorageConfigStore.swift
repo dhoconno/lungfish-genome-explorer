@@ -55,7 +55,7 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
     private let homeDirectory: URL
     private let appIdentity: LungfishAppIdentity
     private let environmentProvider: @Sendable () -> [String: String]
-    private var legacyDefaults: UserDefaults = .standard
+    private var legacyDefaults: UserDefaults
 
     /// Tests set this before using an isolated store; production keeps standard defaults.
     func overrideLegacyDefaultsForTesting(_ defaults: UserDefaults) {
@@ -80,6 +80,7 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory.standardizedFileURL
         self.appIdentity = appIdentity
+        self.legacyDefaults = appIdentity.preferences
         self.environmentProvider = environmentProvider
         self.configURL = self.homeDirectory
             .appendingPathComponent(".config", isDirectory: true)
@@ -129,7 +130,7 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         case .loaded(let config) where !config.activeRootPath.isEmpty:
             return ManagedStorageLocation(rootURL: URL(fileURLWithPath: config.activeRootPath, isDirectory: true))
         case .missing:
-            return appIdentity.isDebug ? defaultLocation : (legacyLocation() ?? defaultLocation)
+            return appIdentity.allowsUpstreamLegacyMigration ? (legacyLocation() ?? defaultLocation) : defaultLocation
         case .malformed:
             return defaultLocation
         case .loaded:
@@ -156,7 +157,7 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
 
     public func resetToDefaultLocation() throws {
         try removeBootstrapConfigIfPresent()
-        if !appIdentity.isDebug {
+        if appIdentity.allowsUpstreamLegacyMigration {
             legacyDefaults.removeObject(forKey: Self.legacyDatabaseStorageLocationKey)
         }
     }

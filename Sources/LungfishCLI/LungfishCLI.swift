@@ -18,16 +18,16 @@ import LungfishCore
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: CLICommandIdentity.executableName,
-        abstract: "Lungfish Genome Explorer CLI - Bioinformatics tools for sequence analysis",
+        abstract: "\(LungfishAppIdentity.current.fullName) CLI - Bioinformatics tools for sequence analysis",
         discussion: """
-            The `\(CLICommandIdentity.executableName)` command provides headless access to the Lungfish Genome Explorer's
+            The `\(CLICommandIdentity.executableName)` command provides headless access to the \(LungfishAppIdentity.current.fullName)'s
             bioinformatics capabilities. Use it for scripting, automation, pipeline
             integration, and debugging workflows.
 
             Container support uses Apple Containerization framework (macOS 26+) for
             running bioinformatics tools in isolated OCI containers.
 
-            For more information, see: https://github.com/dhoconno/lungfish-genome-explorer
+            \(LungfishAppIdentity.current.cliInformationURL.map { "For more information, see: \($0.absoluteString)" } ?? "")
             """,
         version: LungfishAppVersion.short,
         subcommands: [
@@ -115,9 +115,8 @@ struct LungfishCLI: AsyncParsableCommand {
     }
 }
 
-@main
-enum LungfishCLIMain {
-    static func main() async {
+public enum LungfishCLIMain {
+    public static func main() async {
         let arguments = LungfishCLI.normalizedArgumentsForParsing(Array(CommandLine.arguments.dropFirst()))
         do {
             var command = try LungfishCLI.parseAsRoot(arguments)

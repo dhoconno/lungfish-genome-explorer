@@ -1,0 +1,26 @@
+{
+  "inventorySource": ".build/gate-logs/release-01lf_ff5/swift-0 (retained; no new Swift execution)",
+  "discovered": 15026,
+  "collectionCounts": {
+    "ui-diagnostics": 6158,
+    "tool-conformance": 342,
+    "extended-scientific": 526,
+    "integration-diagnostics": 269,
+    "scientific-contracts": 558,
+    "core": 1402,
+    "io": 2663,
+    "workflow": 2225,
+    "cli": 883
+  },
+  "profileCounts": {
+    "quick": 186,
+    "headless": 7731,
+    "release": 186,
+    "extended": 8257,
+    "ui": 6158,
+    "tool-conformance": 611
+  },
+  "auditSeconds": 1.6210255839396268,
+  "reuseEnabled": false,
+  "executionLimitations": "Only retained discovery audit and Python tests executed. No new Swift build/run. SwiftPM XCTest workers bound to 4 for quick/release, 1 for broad diagnostics; Swift Testing suite traits retain existing internal scheduling."
+}

@@ -35,20 +35,19 @@ BUILD_ENVIRONMENT = {
     "SWIFT_EXEC": "",
     "TOOLCHAINS": "",
 }
+# Compiler identity is deliberately separate from candidate policy authority.
+# The builder's marked region is the executable, versioned compiler recipe;
+# editing signing, notarization, smoke tests or test policy preserves this cache.
+COMPILER_RECIPE_SCHEMA = 2
+COMPILER_RECIPE_PATH = "scripts/release/build-notarized-dmg.sh"
 RECIPE_PATHS = (
     "Lungfish-Info.plist",
+    "LungfishCLI-Info.plist",
     "Lungfish.xcodeproj/project.pbxproj",
+    "Lungfish.xcodeproj/xcshareddata/xcschemes/Lungfish.xcscheme",
     "Package.swift",
-    "lungfish-cli.entitlements",
-    "scripts/bundle-native-tools.sh",
-    "scripts/check-package-resolved-consistency.sh",
-    "scripts/release/build-notarized-dmg.sh",
-    "scripts/release/release-candidate-receipt.py",
-    "scripts/release/release_cache_fingerprint.py",
-    "scripts/release/scan-release-portability.py",
-    "scripts/sanitize-bundled-tools.sh",
-    "scripts/setup-worktree.sh",
-    "scripts/smoke-test-release-tools.sh",
+    "Sources/LungfishCLIExecutable/EntryPoint.swift",
+    COMPILER_RECIPE_PATH,
 )
 CACHE_MARKER = ".lungfish-release-cache.json"
 CACHE_LOCK = ".build.lock"
@@ -111,7 +110,12 @@ def build_fingerprint_document(
     release_contract_sha256: str,
     recipe_hashes: Mapping[str, str],
 ) -> dict[str, Any]:
-    """Return the complete path-independent v1 compiler-cache identity."""
+    """Return the path-independent v2 compiler identity, never release authority.
+
+    release_contract_sha256 is accepted for API compatibility and validated,
+    but candidate receipts, not compiler caches, bind the complete policy.
+    """
+    _require_hash(release_contract_sha256, "release contract hash")
     canonical_repository = _require_text(repository, "repository identity")
     if not canonical_repository.startswith("github.com/"):
         raise CacheFingerprintError("repository identity must be canonical github.com")
@@ -128,7 +132,7 @@ def build_fingerprint_document(
         raise CacheFingerprintError("recipe hash set must not be empty")
     swift_text = _require_text(swift_identity, "Swift compiler identity")
     return {
-        "schemaVersion": 1,
+        "schemaVersion": COMPILER_RECIPE_SCHEMA,
         "repository": {
             "canonicalIdentity": canonical_repository,
             "key": _require_hash(repository_key, "repository key"),
@@ -155,14 +159,11 @@ def build_fingerprint_document(
             ),
             "environment": dict(BUILD_ENVIRONMENT),
             "products": normalized_products,
-            "recipe": {"files": normalized_recipe, "schemaVersion": 1},
+            "recipe": {"files": normalized_recipe, "schemaVersion": COMPILER_RECIPE_SCHEMA},
         },
         "inputs": {
             "packageResolvedSha256": _require_hash(
                 package_resolved_sha256, "Package.resolved hash"
-            ),
-            "releaseContractSha256": _require_hash(
-                release_contract_sha256, "release contract hash"
             ),
         },
     }
@@ -182,6 +183,39 @@ def _hash_file(path: Path, label: str) -> str:
     if metadata.st_size != path.stat().st_size:
         raise CacheFingerprintError(f"{label} changed while hashing")
     return digest.hexdigest()
+
+
+def compiler_project_bytes(path: Path) -> bytes:
+    """Bind the Xcode graph/settings while excluding final signing selectors.
+
+    Shell phases hydrate resources, index help and sanitize final payloads; they
+    do not compile Swift. Their complete content remains receipt-bound.
+    """
+    _hash_file(path, "compiler project")
+    text = path.read_text(encoding="utf-8")
+    text = re.sub(
+        r'^\s*(?:"?CODE_SIGN[^=\n]*|DEVELOPMENT_TEAM|ENABLE_HARDENED_RUNTIME)\s*=.*;\n',
+        '', text, flags=re.MULTILINE,
+    )
+    text = re.sub(r'^\s*shellScript = .*;\n', '', text, flags=re.MULTILINE)
+    return text.encode("utf-8")
+
+
+def compiler_recipe_bytes(path: Path) -> bytes:
+    """Extract one unambiguous versioned compiler region from the builder."""
+    _hash_file(path, "compiler recipe")  # Retain regular-file/symlink checks.
+    raw = path.read_bytes()
+    start = b"    # BEGIN LUNGFISH_COMPILER_RECIPE_V2\n"
+    end = b"    # END LUNGFISH_COMPILER_RECIPE_V2\n"
+    if raw.count(start) != 1 or raw.count(end) != 1:
+        raise CacheFingerprintError("compiler recipe markers are missing or ambiguous")
+    if raw.index(end) < raw.index(start):
+        raise CacheFingerprintError("compiler recipe markers are out of order or empty")
+    _, remainder = raw.split(start)
+    recipe, _ = remainder.split(end)
+    if not recipe.strip():
+        raise CacheFingerprintError("compiler recipe markers are out of order or empty")
+    return start + recipe + end
 
 
 def _default_command_output(command: list[str]) -> str:
@@ -216,12 +250,24 @@ def collect_fingerprint_document(
     repository_key: str,
     deployment_target: str,
     command_output: Any = _default_command_output,
+    cli_info_plist: Path | None = None,
 ) -> dict[str, Any]:
     """Observe the selected compiler and hash the exact release recipe."""
     root = project_root.resolve(strict=True)
+    if cli_info_plist is None and os.environ.get("LUNGFISH_CLI_INFOPLIST_FILE"):
+        cli_info_plist = Path(os.environ["LUNGFISH_CLI_INFOPLIST_FILE"])
+    if cli_info_plist is not None and not cli_info_plist.is_absolute():
+        cli_info_plist = root / cli_info_plist
     recipe_hashes: dict[str, str] = {}
     for relative in RECIPE_PATHS:
-        recipe_hashes[relative] = _hash_file(root / relative, "release recipe")
+        if relative == COMPILER_RECIPE_PATH:
+            recipe_hashes[relative] = sha256_bytes(compiler_recipe_bytes(root / relative))
+        elif relative == "Lungfish.xcodeproj/project.pbxproj":
+            recipe_hashes[relative] = sha256_bytes(compiler_project_bytes(root / relative))
+        elif relative == "LungfishCLI-Info.plist" and cli_info_plist is not None:
+            recipe_hashes[relative] = _hash_file(cli_info_plist, "CLI identity plist")
+        else:
+            recipe_hashes[relative] = _hash_file(root / relative, "release recipe")
     xcode_version, xcode_build = _xcode_identity(
         command_output(["xcodebuild", "-version"])
     )
@@ -241,7 +287,7 @@ def collect_fingerprint_document(
         architecture=command_output(["uname", "-m"]).strip(),
         deployment_target=deployment_target,
         configuration="Release",
-        products=("xcode:Lungfish", "swiftpm:lungfish-cli"),
+        products=("xcode:Lungfish", "xcode:LungfishCLIExecutable"),
         package_resolved_sha256=_hash_file(
             root / "Package.resolved", "Package.resolved"
         ),
@@ -522,6 +568,7 @@ def parser() -> argparse.ArgumentParser:
         prepare.add_argument("--repository", required=True)
         prepare.add_argument("--repository-key", required=True)
         prepare.add_argument("--deployment-target", required=True)
+        prepare.add_argument("--cli-info-plist", type=Path)
         prepare.add_argument("--cache-root", type=Path, required=True)
     lock = commands.add_parser("hold-lock")
     lock.add_argument("--namespace", type=Path, required=True)
@@ -540,6 +587,7 @@ def main() -> int:
                 repository=args.repository,
                 repository_key=args.repository_key,
                 deployment_target=args.deployment_target,
+                cli_info_plist=args.cli_info_plist,
             )
             paths = (
                 prepare_cache_namespace(args.cache_root, args.repository_key, document)

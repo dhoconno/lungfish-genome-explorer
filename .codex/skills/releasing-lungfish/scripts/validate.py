@@ -31,9 +31,12 @@ REQUIRED_FILES = (
     "scripts/tests/test_release_smoke.py",
 )
 
-PUBLIC_COMMANDS = ("debug", "doctor", "package", "publish")
+PUBLIC_COMMANDS = ("debug", "configure-fork", "configure-machine", "setup", "doctor", "package", "publish")
 PUBLIC_COMMAND_LINES = (
-    "python3 scripts/release/release.py debug",
+    "python3 scripts/release/release.py debug [--portable] [--jobs N]",
+    "python3 scripts/release/release.py configure-fork",
+    "python3 scripts/release/release.py configure-machine",
+    "python3 scripts/release/release.py setup [--profile PATH]",
     "python3 scripts/release/release.py doctor [--profile PATH]",
     "python3 scripts/release/release.py package preview|stable",
     "python3 scripts/release/release.py publish preview|stable [--profile PATH]",
@@ -174,24 +177,15 @@ def validate_debug_plan(
     filename = debug.get("appBundleFilename") if isinstance(debug, dict) else None
     expected_app = repo_root / "build/Debug" / str(filename)
     valid = (
-        len(commands) == 2
+        len(commands) == 1
         and commands[0] == [
-            "/bin/bash",
-            str(repo_root / "scripts/build-app.sh"),
-            "--debug",
-        ]
-        and commands[1] == [
-            "/bin/bash",
-            str(repo_root / "scripts/smoke-test-debug-app.sh"),
-            str(expected_app),
-            "--compiling-build-dir",
-            str(repo_root / ".build"),
+            "/bin/bash", str(repo_root / "scripts/build-app.sh"), "--debug",
         ]
         and app == expected_app
     )
     if not valid:
         errors.append(
-            "release.py Debug plan must run internal Debug assembly then relocation smoke"
+            "release.py Debug plan must run one incremental assembly; portable relocation is opt-in"
         )
 
 
@@ -212,6 +206,8 @@ def validate_debug_authorities(
         str(debug.get("bundleIdentifier", "")),
         str(debug.get("releaseChannel", "")),
     )
+    if contract.get("identity", {}).get("runtimeNamespace"):
+        expected_markers = ("config/release-contract.json",)
     contradiction_patterns = (
         r"(?:carries\s+no\s+signature|signature\s*:\s*none)",
         r"debug[^\n.]{0,120}(?:omit|without)[^\n.]{0,40}ad[ -]?hoc",
@@ -267,6 +263,18 @@ def validate_contract(repo_root: Path, errors: list[str]) -> dict[str, object]:
     except (OSError, json.JSONDecodeError) as error:
         errors.append(f"Release contract could not be parsed: {error}")
         return {}
+    # The runtime contract loader validates fork identity and capabilities too.
+    release_dir = str(repo_root / "scripts/release")
+    sys.path.insert(0, release_dir)
+    try:
+        from release_contract import load_contract
+        load_contract(path)
+    except Exception as error:
+        errors.append(f"Release contract validation failed: {error}")
+    finally:
+        sys.path.remove(release_dir)
+    if contract.get("identity", {}).get("runtimeNamespace"):
+        return contract
     expected_channels = {
         "preview": {
             "appBundleFilename": "Lungfish Preview.app",
@@ -357,7 +365,18 @@ def validate_frontdoor(repo_root: Path, errors: list[str]) -> None:
         errors.append("Publish front door must accept preview|stable and optional --profile")
     if "--profile" not in helps["doctor"]:
         errors.append("Doctor front door must expose optional --profile")
-    combined = "\n".join([top, *helps.values()])
+    for option in ("--portable", "--jobs"):
+        if option not in helps["debug"]:
+            errors.append(f"Debug front door omits {option}")
+    for command, option in (("setup", "--profile"), ("configure-fork", "--namespace"),
+                            ("configure-machine", "--signing-keychain")):
+        if option not in helps[command]:
+            errors.append(f"{command} front door omits {option}")
+    all_help = "\n".join(helps.values())
+    for secret_option in ("--sparkle-ed-key-file", "--password", "--token"):
+        if secret_option in all_help:
+            errors.append(f"Release front door exposes private credential option {secret_option}")
+    combined = "\n".join(helps[name] for name in ("debug", "doctor", "package", "publish", "setup"))
     for retired in (
         "--prepare", "--resume", "--status", "--signing-identity",
         "--notary-profile", "--sparkle-ed-key-file", "--prune-prereleases",
@@ -385,7 +404,7 @@ def validate_authority_texts(
             )
         for command in PUBLIC_COMMAND_LINES:
             if command not in text:
-                errors.append(f"{relative} does not document the exact four-command release front door: {command}")
+                errors.append(f"{relative} does not document the seven-command release front door: {command}")
         if re.search(r"release\.py[^\n`]*(?:--prepare|--resume|\bstatus\b)", text, re.IGNORECASE):
             errors.append(f"{relative} documents a retired public --prepare/--resume/status interface")
         if re.search(r"(?:^|\n)\s*(?:source|\.)\s+[^\n]*release\.env", text, re.IGNORECASE):
@@ -398,6 +417,8 @@ def validate_authority_texts(
                 break
         if re.search(r"(?:exactly|requires?|pin(?:ned)? to|select)\s+Xcode\s+26\.4\.1", text, re.IGNORECASE):
             errors.append(f"{relative} incorrectly exact-pins Xcode instead of using the supported range")
+        if re.search(r"Stable packaging requires.*graphical session|Preview runs unit and integration|Stable runs full and conformance", normalized):
+            errors.append(f"{relative} retains obsolete routine release gate mandates")
         if ".ci-python" in text:
             errors.append(f"{relative} incorrectly requires a test virtualenv on a release Mac")
 
@@ -434,7 +455,7 @@ def validate_authority_texts(
             errors.append(f"{relative} falsely claims Preview and Stable share a bundle identifier")
 
     graphical_authorities = PRIMARY_AUTHORITIES[:4]
-    graphical_sections = [markdown_section(texts[name], "Stable graphical evidence")
+    graphical_sections = [markdown_section(texts[name], "Optional graphical diagnostics")
                           for name in graphical_authorities]
     account = contract.get("gates", {}).get("appSmokeAccount")
     for name, section in zip(graphical_authorities, graphical_sections):
@@ -505,7 +526,7 @@ def validate_nightly_command_ast(tree: ast.AST, errors: list[str]) -> None:
             package_call.lineno < publish_call.lineno
             and package_tokens[:2] == ["package", "preview"]
             and "--profile" not in package_tokens
-            and publish_tokens[:3] == ["publish", "preview", "--profile"]
+            and publish_tokens[:2] == ["publish", "preview"]
         )
         ancestor = parents.get(package_call)
         while ancestor is not None and not isinstance(ancestor, ast.If):
@@ -536,8 +557,8 @@ def validate_ci_and_nightly(repo_root: Path, errors: list[str]) -> None:
         errors,
         "scripts/release/run-nightly-prerelease.sh",
     )
-    if "release_xcode.py" not in wrapper or "release.json" not in wrapper:
-        errors.append("Nightly wrapper must select supported Xcode and the strict JSON profile")
+    if "release_xcode.py" not in wrapper:
+        errors.append("Nightly wrapper must select supported Xcode")
     if "release.env" in wrapper or re.search(r"(?:^|\n)\s*(?:source|\.)\s+", wrapper):
         errors.append("Nightly wrapper must not source release.env or another shell profile")
     if "build-notarized-dmg.sh" in wrapper:
