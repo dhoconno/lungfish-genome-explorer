@@ -20,7 +20,7 @@ re-indexing.
 ## Alignments (BAM / CRAM / SAM)
 
 - Pile-up viewer for sorted, indexed BAM and CRAM with coverage track, base mismatches, soft-clip indicators, and read inspector.
-- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), [Bowtie2](https://bowtie-bio.sourceforge.net/bowtie2/), or BBMap through guided wizards or the command line. Output is always written as sorted, indexed BAM.
+- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), [Bowtie 2](https://bowtie-bio.sourceforge.net/bowtie2/), or BBMap (BBTools) through guided wizards or the command line. Output is always written as sorted, indexed BAM.
 - Mark and remove PCR duplicates, extract reads by region or chromosome, and verify read orientation.
 
 ## Variants (VCF)
@@ -31,14 +31,14 @@ re-indexing.
 
 ## Classification and metagenomics
 
-- Run [Kraken 2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken), [EsViritu](https://github.com/cmmr/EsViritu) (viral discovery), [TaxTriage](https://github.com/jhuapl-bio/taxtriage) (multi-level taxonomic triage), and the [NAO-MGS](https://github.com/naobservatory/mgs-workflow) metagenomics workflow on FASTQ datasets.
+- Run [Kraken 2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken), [EsViritu](https://github.com/cmmr/EsViritu) (read-mapping detection of known viruses against a curated database), [TaxTriage](https://github.com/jhuapl-bio/taxtriage) (Kraken 2 classification with alignment-based confirmation), and the [NAO-MGS](https://github.com/securebio/nao-mgs-workflow) metagenomics workflow on FASTQ datasets.
 - Taxonomy browser with sortable hit table, sunburst chart, breadcrumb navigation, and detail pane.
 - Extract reads assigned to any taxon back into a fresh FASTQ dataset for downstream work.
 - BLAST any classified sequence against NCBI for verification.
 
 ## Assembly
 
-- Assemble reads with [SPAdes](https://github.com/ablab/spades), [MEGAHIT](https://github.com/voutcn/megahit), [SKESA](https://github.com/ncbi/SKESA), [Flye](https://github.com/mikolmogorov/Flye), or [hifiasm](https://github.com/chhylp123/hifiasm). Short-read, long-read, and haplotype-aware modes are all supported.
+- Assemble reads with [SPAdes](https://github.com/ablab/spades), [MEGAHIT](https://github.com/voutcn/megahit), [SKESA](https://github.com/ncbi/SKESA), [Flye](https://github.com/mikolmogorov/Flye), or [hifiasm](https://github.com/chhylp123/hifiasm). Short-read (SPAdes, MEGAHIT, SKESA), long-read (Flye for ONT and PacBio, hifiasm for HiFi), and hifiasm's haplotype-resolved mode are all supported.
 - Assembly viewer combines a contig table, Nx plot, summary statistics, and the standard sequence viewer for any selected contig.
 - Extract contigs by length, coverage, or selection for re-mapping or annotation.
 
@@ -46,7 +46,7 @@ re-indexing.
 
 - Search and download genomes and annotations from [NCBI](https://www.ncbi.nlm.nih.gov/) ([GenBank](https://www.ncbi.nlm.nih.gov/genbank/) and RefSeq).
 - Search and prefetch reads from [SRA](https://www.ncbi.nlm.nih.gov/sra) with `prefetch` / `fasterq-dump`.
-- Browse the [Pathoplexus](https://pathoplexus.org/) pathogen reference catalogue.
+- Search [Pathoplexus](https://pathoplexus.org/), the open pathogen sequence database, and download records as reference bundles.
 - Import any FASTA / GFF3 / GTF / BED bundle from the filesystem.
 
 ## Workflows
@@ -96,11 +96,11 @@ full list.
 | Category    | Read                                | Write                 |
 |-------------|-------------------------------------|-----------------------|
 | Sequences   | FASTA, FASTQ, GenBank               | FASTA, FASTQ, GenBank |
-| Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM    |
+| Alignments  | BAM, CRAM (needs the bundle's reference FASTA), SAM (via managed samtools) | sorted/indexed BAM |
 | Variants    | VCF, VCF.GZ + TBI                   | VCF                   |
-| Annotations | GFF3, GTF, BED                      | BED                   |
+| Annotations | GFF3, GTF, BED                      | BED, GFF3             |
 | Coverage    | bedGraph                            | bedGraph              |
-| Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
+| Reports     | Kraken 2 report, Bracken, EsViritu, TaxTriage, NAO-MGS, NVD | JSON, TSV, XLSX (genotyping) |
 
 BigWig and BigBed files are recognized inside reference bundles but are not
 read, written, or converted in this release.
@@ -132,8 +132,10 @@ BSD-2-Clause.
 
 **Reference databases.** Human read scrubbing uses the NCBI SRA Human Scrubber
 index and the Deacon panhuman index ([Zenodo](https://zenodo.org/records/15118215)).
-Kraken 2 databases, Pangolin lineage data, and Nextclade datasets are downloaded
-on first use.
+Kraken 2 databases (Standard, PlusPF, Viral, and the 8 GB and 16 GB capped
+builds, among others), the EsViritu viral database, and the NCBI taxonomy are
+downloaded on first use. Pangolin and Nextclade run only inside the
+nf-core/viralrecon adapter, which fetches its own lineage data.
 
 **Swift package dependencies.**
 [swift-argument-parser](https://github.com/apple/swift-argument-parser),
