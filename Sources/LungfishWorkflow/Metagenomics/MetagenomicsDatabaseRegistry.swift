@@ -461,6 +461,26 @@ public actor MetagenomicsDatabaseRegistry {
 
     // MARK: - CRUD
 
+    /// Reads recorded installations for dependency planning without initializing
+    /// storage, saving catalog changes, or recovering interrupted transactions.
+    public func installedDatabaseSnapshot() throws -> [MetagenomicsDatabaseInfo] {
+        let base = storageConfigStore?.currentLocation().databaseRootURL ?? databasesBaseURL
+        let snapshotURL = base.appendingPathComponent("metagenomics-db-registry.json")
+        guard FileManager.default.fileExists(atPath: snapshotURL.path) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest = try decoder.decode(DatabaseManifest.self, from: Data(contentsOf: snapshotURL))
+        return manifest.databases.filter { $0.status == .ready }.map { recorded in
+            var database = recorded
+            // Apply the same receipt-backed version interpretation as the GUI
+            // loader, but leave the persisted registry and payload untouched.
+            if let version = currentCatalogVersionProvenByReceipt(for: database) {
+                database.version = version
+            }
+            return database
+        }.sorted { $0.name < $1.name }
+    }
+
     /// Returns all registered databases, loading the manifest if needed.
     ///
     /// - Returns: Array of all database entries, sorted by name.

@@ -172,4 +172,42 @@ final class DebugDependencySharingTests: XCTestCase {
         }
     }
 
+    func testInstalledPreviewWinsOverCompetingWorkspaceBuildCandidate() throws {
+        let applications = directory.appendingPathComponent("Applications")
+        let installed = applications.appendingPathComponent("Lungfish Preview.app")
+        try FileManager.default.createDirectory(at: applications, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: previewApplicationURL, to: installed)
+        let selected = DebugDependencySharing.preferredPreviewApplication(homeDirectory: directory, applicationsDirectory: applications, workspaceCandidate: previewApplicationURL)
+        XCTAssertEqual(selected?.path, installed.path)
+    }
+
+    func testLaunchDecisionIsDurableAndContainsOnlyExplicitDiagnosticFields() throws {
+        var status = evaluate()
+        status.appBundlePath = "/Applications/Lungfish Debug.app"
+        status.appVersion = "2026.9.11"
+        status.previewApplicationPath = previewApplicationURL.path
+        let url = try XCTUnwrap(DebugDependencySharing.writeDecision(status, identity: .debug, homeDirectory: directory))
+        XCTAssertEqual(url.path, directory.appendingPathComponent("Library/Logs/Lungfish Debug/debug-dependency-sharing.json").path)
+        let persisted = try JSONDecoder().decode(DebugDependencySharing.Status.self, from: Data(contentsOf: url))
+        XCTAssertEqual(persisted, status)
+        XCTAssertNil(try DebugDependencySharing.writeDecision(status, identity: .preview, homeDirectory: directory))
+    }
+
+    func testPlanProbeLoadsSettingsBeforeReadingGUIRootsAndPlansWithoutApplying() async {
+        var loaded = false
+        var plannedRoot: URL?
+        let plan = ReconciliationPlan(installEnvironments: [], reinstallEnvironments: [], removeEnvironments: [], databaseUpdates: [], pipelinePrefetch: [], bootstrapUpdate: nil, targetDependencySet: "test", estimatedDownloadBytes: 0)
+        let result = await DebugDependencySharing.probePlan(
+            bootstrapStatus: evaluate(),
+            loadSettings: { loaded = true },
+            storageRoot: { XCTAssertTrue(loaded); return self.root },
+            condaRoot: { self.root.appendingPathComponent("conda") },
+            readPlan: { plannedRoot = $0; return plan }
+        )
+        XCTAssertEqual(plannedRoot, root)
+        XCTAssertEqual(result.plan, plan)
+        XCTAssertEqual(result.condaRootPath, root.appendingPathComponent("conda").path)
+        XCTAssertNil(result.error)
+    }
+
 }

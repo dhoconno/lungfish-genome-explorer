@@ -21,6 +21,8 @@ final class MainWindowContentViewController: NSViewController {
 
     private let bannerView = ProjectLockWarningBannerView()
     private var bannerHorizontalConstraints: [NSLayoutConstraint] = []
+    private var fullContentTopConstraint: NSLayoutConstraint!
+    private var bannerSafeTopConstraint: NSLayoutConstraint!
 
     init(projectSession: ProjectSession, splitViewController: MainSplitViewController) {
         self.projectSession = projectSession
@@ -43,10 +45,12 @@ final class MainWindowContentViewController: NSViewController {
         splitViewController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         splitViewController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        fullContentTopConstraint = stackView.topAnchor.constraint(equalTo: view.topAnchor)
+        bannerSafeTopConstraint = stackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stackView.topAnchor.constraint(equalTo: view.topAnchor),
+            fullContentTopConstraint,
             stackView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             splitViewController.view.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
             splitViewController.view.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
@@ -66,6 +70,8 @@ final class MainWindowContentViewController: NSViewController {
 
         bannerView.update(with: presentation)
         if bannerView.superview == nil {
+            fullContentTopConstraint.isActive = false
+            bannerSafeTopConstraint.isActive = true
             stackView.insertArrangedSubview(bannerView, at: 0)
             if bannerHorizontalConstraints.isEmpty {
                 bannerHorizontalConstraints = [
@@ -82,5 +88,7 @@ final class MainWindowContentViewController: NSViewController {
         NSLayoutConstraint.deactivate(bannerHorizontalConstraints)
         stackView.removeArrangedSubview(bannerView)
         bannerView.removeFromSuperview()
+        bannerSafeTopConstraint.isActive = false
+        fullContentTopConstraint.isActive = true
     }
 }

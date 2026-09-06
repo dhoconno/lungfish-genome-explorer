@@ -55,6 +55,21 @@ final class AppSettingsTests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    @MainActor
+    func testLoadingMissingOrMalformedPreferencesPreservesExplicitStorage() throws {
+        let store = ManagedStorageConfigStore.shared
+        let root = try XCTUnwrap(appSettingsTestsManagedStorageHomeDirectory).appendingPathComponent("chosen-storage")
+        for data: Data? in [nil, Data("malformed preferences".utf8)] {
+            if let data { defaults.set(data, forKey: "com.lungfish.appSettings") }
+            else { defaults.removeObject(forKey: "com.lungfish.appSettings") }
+            try store.setActiveRoot(root)
+            let before = try Data(contentsOf: store.configURL)
+            AppSettings.load()
+            XCTAssertEqual(store.currentLocation().rootURL.path, root.path)
+            XCTAssertEqual(try Data(contentsOf: store.configURL), before)
+        }
+    }
+
     // MARK: - Default Values
 
     @MainActor

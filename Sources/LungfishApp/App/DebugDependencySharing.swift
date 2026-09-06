@@ -9,11 +9,17 @@ import LungfishWorkflow
 
 @MainActor
 public enum DebugDependencySharing {
+    private static var lastBootstrapStatus: Status?
     private static let markerKey = "LUNGFISH_SHARED_PREVIEW_ROOT"
     private static let legacyStorageKey = "DatabaseStorageLocation"
     private static let manifestRelativePath = "ManagedTools/third-party-tools-lock.json"
 
     public struct Status: Codable, Equatable, Sendable {
+        public var appBundlePath: String?
+        public var appVersion: String?
+        public var previewApplicationPath: String?
+        public var processIdentifier: Int32?
+        public var recordedAt: String?
         public var enabled: Bool
         public var reason: String
         public var sharedRootPath: String?
@@ -33,6 +39,13 @@ public enum DebugDependencySharing {
         // Revalidate inherited sharing hints against this executable's resources.
         // A stale hint must not survive a failed compatibility check.
         unsetenv(markerKey)
+        let previewApplication = identity.isDebug && !identity.isFork
+            ? preferredPreviewApplication(
+                homeDirectory: home,
+                applicationsDirectory: URL(fileURLWithPath: "/Applications", isDirectory: true),
+                workspaceCandidate: NSWorkspace.shared.urlForApplication(withBundleIdentifier: LungfishAppIdentity.preview.bundleIdentifier)
+            )
+            : nil
         var status = evaluate(
             identity: identity,
             environment: ProcessInfo.processInfo.environment,
@@ -40,10 +53,13 @@ public enum DebugDependencySharing {
             debugLegacyStoragePath: defaults.persistentDomain(forName: LungfishAppIdentity.debug.bundleIdentifier)?[legacyStorageKey] as? String,
             previewLegacyStoragePath: defaults.persistentDomain(forName: LungfishAppIdentity.preview.bundleIdentifier)?[legacyStorageKey] as? String,
             localManifestURL: RuntimeResourceLocator.path(manifestRelativePath, in: .workflow),
-            previewApplicationURL: identity.isDebug && !identity.isFork
-                ? NSWorkspace.shared.urlForApplication(withBundleIdentifier: LungfishAppIdentity.preview.bundleIdentifier)
-                : nil
+            previewApplicationURL: previewApplication
         )
+        status.appBundlePath = Bundle.main.bundleURL.path
+        status.appVersion = LungfishAppVersion.short
+        status.previewApplicationPath = previewApplication?.path
+        status.processIdentifier = ProcessInfo.processInfo.processIdentifier
+        status.recordedAt = ISO8601DateFormatter().string(from: Date())
         if let root = status.sharedRootPath, status.enabled,
            setenv(markerKey, root, 1) != 0 {
             status.enabled = false
@@ -60,6 +76,9 @@ public enum DebugDependencySharing {
                   status.enabled ? "sharing Preview dependencies" : "keeping Debug storage",
                   status.reason, location.rootURL.path)
         }
+        lastBootstrapStatus = status
+        do { _ = try writeDecision(status, identity: identity, homeDirectory: home) }
+        catch { NSLog("DebugDependencySharing: unable to record launch decision: %@", error.localizedDescription) }
         return status
     }
 
@@ -70,6 +89,116 @@ public enum DebugDependencySharing {
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(status) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    static func preferredPreviewApplication(homeDirectory: URL, applicationsDirectory: URL, workspaceCandidate: URL?) -> URL? {
+        let preferred = [
+            applicationsDirectory.appendingPathComponent("Lungfish Preview.app"),
+            homeDirectory.appendingPathComponent("Applications/Lungfish Preview.app"),
+        ]
+        return (preferred + [workspaceCandidate].compactMap { $0 }).first { candidate in
+            guard let info = Bundle(url: candidate)?.infoDictionary,
+                  let identity = try? LungfishAppIdentity.from(infoDictionary: info) else { return false }
+            return identity.isPreview && !identity.isFork
+                && identity.bundleIdentifier == LungfishAppIdentity.preview.bundleIdentifier
+        }
+    }
+
+    static func writeDecision(_ status: Status, identity: LungfishAppIdentity, homeDirectory: URL) throws -> URL? {
+        guard identity.isDebug, !identity.isFork else { return nil }
+        let directory = homeDirectory.appendingPathComponent("Library/Logs").appendingPathComponent(identity.logDirectoryName)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("debug-dependency-sharing.json")
+        try diagnosticEncoder().encode(status).write(to: url, options: .atomic)
+        return url
+    }
+
+    struct PlanStatus: Codable, Equatable {
+        let bootstrap: Status?
+        let processIdentifier: Int32
+        let recordedAt: String
+        let storageRootPath: String
+        let condaRootPath: String
+        let requiredInstallCount: Int
+        let requiredReinstallCount: Int
+        let estimatedDownloadBytes: Int64
+        let plan: ReconciliationPlan?
+        let error: String?
+
+        init(bootstrap: Status?, storageRoot: URL, condaRoot: URL, plan: ReconciliationPlan?, error: String?) {
+            self.bootstrap = bootstrap
+            processIdentifier = ProcessInfo.processInfo.processIdentifier
+            recordedAt = ISO8601DateFormatter().string(from: Date())
+            storageRootPath = storageRoot.path
+            condaRootPath = condaRoot.path
+            requiredInstallCount = plan?.installEnvironments.filter(\.isRequired).count ?? 0
+            requiredReinstallCount = plan?.reinstallEnvironments.filter(\.isRequired).count ?? 0
+            estimatedDownloadBytes = plan?.estimatedDownloadBytes ?? 0
+            self.plan = plan
+            self.error = error
+        }
+    }
+
+    static func probePlan(
+        bootstrapStatus: Status,
+        loadSettings: () -> Void,
+        storageRoot: () -> URL,
+        condaRoot: () -> URL,
+        readPlan: (URL) async throws -> ReconciliationPlan
+    ) async -> PlanStatus {
+        loadSettings()
+        let root = storageRoot()
+        let managerRoot = condaRoot()
+        do {
+            let plan = try await readPlan(root)
+            return PlanStatus(bootstrap: bootstrapStatus, storageRoot: root, condaRoot: managerRoot, plan: plan, error: nil)
+        } catch {
+            return PlanStatus(bootstrap: bootstrapStatus, storageRoot: root, condaRoot: managerRoot, plan: nil, error: error.localizedDescription)
+        }
+    }
+
+    public static func planDiagnosticOutput(bootstrapStatus: Status) async -> String {
+        let report = await probePlan(
+            bootstrapStatus: bootstrapStatus,
+            loadSettings: { AppSettings.load() },
+            storageRoot: { DependencyReconciliationFactory.storageRoot },
+            condaRoot: { CondaManager.shared.rootPrefix },
+            readPlan: { root in try await DependencyReconciliationFactory.makeReconciler(storageRoot: root).currentPlan() }
+        )
+        recordPlanReport(report)
+        guard let data = try? diagnosticEncoder().encode(report),
+              let output = String(data: data, encoding: .utf8) else { return "{\"error\":\"unable-to-encode-plan\"}" }
+        return output
+    }
+
+    static func recordLaunchPlan(_ plan: ReconciliationPlan, storageRoot: URL) {
+        guard LungfishAppIdentity.current.isDebug, !LungfishAppIdentity.current.isFork else { return }
+        recordPlanReport(PlanStatus(
+            bootstrap: lastBootstrapStatus,
+            storageRoot: storageRoot,
+            condaRoot: CondaManager.shared.rootPrefix,
+            plan: plan,
+            error: nil
+        ))
+    }
+
+    private static func diagnosticEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        return encoder
+    }
+
+    private static func recordPlanReport(_ report: PlanStatus) {
+        let identity = LungfishAppIdentity.current
+        guard identity.isDebug, !identity.isFork else { return }
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs").appendingPathComponent(identity.logDirectoryName)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try diagnosticEncoder().encode(report).write(to: directory.appendingPathComponent("debug-dependency-plan.json"), options: .atomic)
+        } catch {
+            NSLog("DebugDependencySharing: unable to record dependency plan: %@", error.localizedDescription)
+        }
     }
 
     static func evaluate(

@@ -66,6 +66,16 @@ if let output = DebugDependencySharing.diagnosticOutput(arguments: CommandLine.a
     exit(0)
 }
 
+if Array(CommandLine.arguments.dropFirst()) == ["--debug-dependency-plan-status"] {
+    Task { @MainActor in
+        print(await DebugDependencySharing.planDiagnosticOutput(bootstrapStatus: dependencySharingStatus))
+        exit(0)
+    }
+    // Diagnostic-only event loop: this branch never starts NSApplication.
+    RunLoop.main.run()
+    exit(1)
+}
+
 // Launch AppKit on the main thread using a single event loop.
 // Avoid nested/dual run-loop patterns (e.g. app.run + dispatchMain) which can
 // cause delayed menu-bar activation and unstable full-screen behavior.

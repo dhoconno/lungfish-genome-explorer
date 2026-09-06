@@ -787,7 +787,9 @@ public final class AppSettings {
             }
         }
 
-        shared.resetToDefaults()
+        // Missing or malformed UI preferences do not authorize changing the
+        // independently persisted managed-tool/database location.
+        shared.apply(AppSettings().makeSnapshot())
         if hadPersistedSettings {
             settingsLogger.info("Using defaults after failing to decode persisted settings")
         } else {

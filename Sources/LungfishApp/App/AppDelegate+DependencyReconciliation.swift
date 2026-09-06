@@ -63,6 +63,7 @@ extension AppDelegate {
         Task { [weak self] in
             do {
                 let plan = try await reconciler.currentPlan()
+                DebugDependencySharing.recordLaunchPlan(plan, storageRoot: root)
                 if plan.isEmpty {
                     // Nothing to do, but the receipt has not recorded this set yet. Stamp both
                     // the receipt and the defaults so the next launch takes the fast path.

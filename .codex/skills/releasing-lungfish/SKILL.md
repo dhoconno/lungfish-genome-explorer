@@ -92,6 +92,12 @@ native build graph. The default performs cheap bundle/CLI checks; add
 `--portable` for the full relocation and self-containment diagnostic. `--jobs N`
 bounds build parallelism. Neither option runs the unit or UI suites.
 
+When delivering Debug, identify the exact app path and version and check for
+older installed copies that could be launched accidentally. If the user requests
+replacement or cleanup, install the verified new app in the agreed location and
+remove only verified obsolete Debug artifacts. Preserve projects, preferences,
+managed tools, and databases.
+
 The upstream result is `build/Debug/Lungfish Debug.app`, displaying
 `Lungfish Genome Explorer Debug`, bundle name `Lungfish Debug`, identifier
 `com.lungfish.browser.debug`, channel `debug`. Fork names and identifiers come

@@ -113,7 +113,11 @@ public extension ReconcilerServices {
     /// Every member is a closure and nothing here touches the filesystem or spawns a process
     /// at construction time, so tests can start from `.live` and override only the closures
     /// they exercise without paying for (or being affected by) the real environment.
-    static func live(condaManager: CondaManager, storageRoot: URL) -> ReconcilerServices {
+    static func live(
+        condaManager: CondaManager,
+        storageRoot: URL,
+        metagenomicsRegistry: MetagenomicsDatabaseRegistry = .shared
+    ) -> ReconcilerServices {
         ReconcilerServices(
             createEnvironment: { name, spec, progress in
                 try await condaManager.createEnvironment(name: name, packages: [spec], progress: progress)
@@ -165,7 +169,7 @@ public extension ReconcilerServices {
                 await Self.registryDatabaseVersions(storageRoot: storageRoot)
             },
             metagenomicsDatabaseVersions: {
-                let databases = (try? await MetagenomicsDatabaseRegistry.shared.availableDatabases()) ?? []
+                let databases = (try? await metagenomicsRegistry.installedDatabaseSnapshot()) ?? []
                 return Self.metagenomicsDatabaseVersions(from: databases)
             },
             installedMicromambaVersion: {
