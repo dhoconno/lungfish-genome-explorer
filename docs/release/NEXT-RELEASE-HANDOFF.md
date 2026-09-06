@@ -1,5 +1,11 @@
 # Next Release Handoff
 
+## September 5 redesign handoff
+
+The redesign is integrated into main with the prior app remediation. Version 2026.9.9 is still an unpublished Preview. The first redesigned package passed at `c8d6b8126fc5f1297d0ef5fffc78a86937f9e53b` in 15 minutes 8 seconds; exact candidate reuse took 1.474 seconds. Warm Debug measured 17 seconds, or 24 seconds with full portability checks.
+
+This Mac reports Package READY and Publish NOT READY because credential setup proof has not been established. Run explicit `setup` after provisioning trusted Keychain access; it may require one-time operator authorization. No new signed DMG, GitHub release or Sparkle feed was created during the redesign. Use the current-HEAD `package preview` receipt, rather than an older benchmark candidate, for publication. Existing stashes and rescue archives remain preserved; completed implementation branches were removed.
+
 ## Current authority
 
 Use only:
