@@ -23,9 +23,7 @@ illustrations:
     brief: "Side-by-side schematic showing a linear chromosome (with two ends labelled 5' and 3') above a circular genome (closed loop, position 1 marked at the top). Use Lungfish Creamsicle for the genome backbone, Deep Ink labels."
   - id: position-coordinates
     brief: "A horizontal backbone for the record NG_000007.3 with position ticks at 1, 20000, 40000, 60000, 70613, 81706. Above the backbone, a callout showing total length 81,706 bases, and a second callout marking the HBB gene span 70545 to 72152. Use IBM Plex Mono for the numbers and Lungfish Creamsicle for the backbone."
-  - id: variant-notation
-    brief: "An annotated breakdown of the variant string 'NG_000007.3:70614 A>T'. Each component is labelled: record name, colon separator, 1-based position, reference base, '>' separator, alternate base. Use IBM Plex Mono for the variant string, Lungfish Creamsicle for the labels and lead lines, Deep Ink for the explanatory text."
-glossary_refs: [reference-genome, coordinate, contig-reference, reference-bundle, provenance, fastq, bam, vcf, ref-alt, codon, cds, fasta, inspector]
+glossary_refs: [reference-genome, coordinate, contig-reference, reference-bundle, provenance, codon, cds, fasta, inspector]
 features_refs: []
 fixtures_refs: [hbb-gene]
 brand_reviewed: true
@@ -34,11 +32,13 @@ lead_approved: true
 
 ## What it is
 
-Every organism carries an instruction set written in a four-letter alphabet. That set is its genome, the complete genetic sequence of a cell, a virus, or any other biological entity, spelled in A, C, G, and T for DNA. RNA uses U where DNA uses T. Nearly every cell in an organism carries the same copy of that instruction set. LGE provides a MacOS interface for interacting with and understanding genomics data.
+Every organism carries an instruction set written in a four-letter alphabet. That set is its genome, the complete genetic sequence of a cell, a virus, or any other biological entity, spelled in A, C, G, and T for DNA. RNA uses U where DNA uses T. Nearly every cell in an organism carries the same copy of that instruction set. Lungfish Genome Explorer (LGE) is a macOS application for reading and making sense of genomic data.
+
+You cannot compare two genomes until you agree on where a position sits and what to count it against. That agreement is a [reference genome](../../GLOSSARY.md#reference-genome), and every number in every later file points back to it. This chapter shows what a reference genome is, how a single position on one is named, and how to open a real gene record and go to a [coordinate](../../GLOSSARY.md#coordinate) on it. So when a colleague hands you a position, you will know the first question to ask is which reference it belongs to.
 
 ## Why you would do this
 
-This chapter describes a human gene, HBB, with a famous single-base change in it in the context of the larger beta-globin gene cluster. The NCBI accession `NG_000007.3` contains this region of human chromosome 11. This particular sequence record is 81,706 bases long, which is roughly a thousandth of total length of chromosome 11. HBB and the other beta-globin genes sit next to each other on the chromosome.
+This chapter follows one human gene, HBB, and a famous single-base change in it. HBB does not sit alone. It is one of a run of related beta-globin genes packed side by side on human chromosome 11. The NCBI accession `NG_000007.3` is a single sequence record that holds that whole stretch of the chromosome, HBB and its neighbours together, not the HBB gene by itself. The record is 81,706 bases long, roughly a thousandth of chromosome 11.
 
 HBB encodes the beta chain of hemoglobin, the protein that carries oxygen in red blood cells. In the record, the HBB gene spans positions 70545 to 72152. Its protein-coding stretch, the [CDS](../../GLOSSARY.md#cds), is split into three pieces by intervening non-coding stretches called introns, so it is written as `join(70595..70686,70817..71039,71890..72018)`. In that notation `join` lists the pieces that are stitched together, and the two dots inside each piece mark a range from a start position to an end position.
 
@@ -55,9 +55,9 @@ Change the middle base, the `A` at 70614, to `T` and the codon becomes `GTG`, wh
 
 ## Before you start
 
-You need a project open. If you do not have one, choose **File > New Project** (Cmd-N), or click Create Project on the Welcome window, and pick a folder. This chapter uses the HBB gene record. The easiest way to get started is to download the file `NG_000007.3.gb` from the manual's fixtures on GitHub at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hbb-gene and remember where you saved it on your computer. Later you will learn other ways to download sequences directly from the LGE interface and import sequences into LGE.
+You need a project open. If you do not have one, choose **File > New Project** (Cmd-N), or click Create Project on the Welcome window, and pick a folder. This chapter uses the HBB gene record. Download the file `NG_000007.3.gb` from the manual's fixtures on GitHub at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hbb-gene and note where you saved it. Later chapters cover other ways to pull sequences straight from the LGE interface.
 
-The file you downloaded is a plain-text Genbank flatfile that includes a sequence together with a table of the features (a feature is an annotation that describes attributes of a particular nucleotide or range of nucleotides). This is one of several conventional specialized file formats for representing genomic sequence data supported by LGE. You will learn about others like FASTA, FASTQ, and BAM later in this manual.
+The file is a plain-text GenBank flatfile that pairs a sequence with a table of features. A feature is an annotation that describes one base or a range of bases. GenBank is one of several genomic file formats LGE reads. Others, including [FASTA](../../GLOSSARY.md#fasta), FASTQ, and BAM, arrive in later chapters.
 
 ## Procedure
 
@@ -67,7 +67,7 @@ The file you downloaded is a plain-text Genbank flatfile that includes a sequenc
 
 2. Drag `NG_000007.3.gb` from the folder you saved it in and drop it onto the Reference Sequences card. LGE compresses and indexes the sequence and builds the bundle without asking you to confirm anything. The import finishes in about a second, and you know it is done when the new reference appears in the sidebar.
 
-3. Find the new bundle under `Reference Sequences/` in the sidebar and open it. It carries the name of the file you dropped, so it appears as `NG_000007.3`. In addition to the sequences, the features from the Genbank file are drawn below the bases in the sequence viewport.
+3. Find the new bundle under `Reference Sequences/` in the sidebar and open it. It carries the name of the file you dropped, so it appears as `NG_000007.3`. Alongside the sequence, the features from the GenBank file are drawn below the bases in the sequence viewport.
 
     <!-- SHOT: hbb-record-in-sequence-viewport -->
 
@@ -79,31 +79,23 @@ The file you downloaded is a plain-text Genbank flatfile that includes a sequenc
 
 ## Settings
 
-The Reference Sequences card has no settings. It opens a file panel, and it imports the file you choose, compressing and indexing the sequence and building the bundle without asking you to confirm anything. All of the commands in LGE run on the command line behind-the-scenes. For example, the command line equivalent of this import is `lungfish-cli import fasta <file> --name <name> --output-dir <project>`, where `--name` sets the display name of the reference and `--output-dir` names the project directory the bundle is written into. Most users will never need to use the command line interface, however, power users may find this helpful.
+The Reference Sequences card has no settings. It opens a file panel, imports the file you choose, and compresses, indexes, and builds the bundle without asking you to confirm anything. Behind the window, LGE carries out this work by running a command-line program for you. The command-line form of this import is `lungfish-cli import fasta <file> --name <name> --output-dir <project>`, where `--name` sets the display name of the reference and `--output-dir` names the project directory the bundle is written into. Most people never need the command line. Power users may find it useful.
 
 ## Reading the results
 
-The imported Genbank file is saved as a "bundle" in the sidebar. There are multiple types of bundles that store different types of content; this one is a [reference bundle](../../GLOSSARY.md#reference-bundle) that carries the extension `.lungfishref`. Within the app, it behaves like a single file. But if look inside the bundle by right-clicking it in the Finder and choosing Show Package Contents you will see a `manifest.json` file that sits at the root, a `genome/` folder holds the sequence as a compressed FASTA with its two indexes beside it, and `annotations/`, `variants/`, and `tracks/` folders hold anything attached to the sequence later. An index is a small companion file that lets a tool jump straight to a position instead of reading from the start. A compressed FASTA needs two of them. The `.fai` maps each sequence name to its offset, and the `.gzi` maps that offset into the compressed file.
+The imported GenBank file is saved as a bundle in the sidebar. LGE stores several kinds of bundle for different content. This one is a [reference bundle](../../GLOSSARY.md#reference-bundle) and carries the extension `.lungfishref`. Inside the app it behaves like a single file. Right-click it in the Finder and choose Show Package Contents and you will find a `manifest.json` file at the root, a `genome/` folder holding the sequence as a compressed FASTA with its two indexes beside it, and `annotations/`, `variants/`, and `tracks/` folders holding anything attached to the sequence later. An index is a small companion file that lets a tool jump straight to a position instead of reading from the start. A compressed FASTA needs two of them. The `.fai` maps each sequence name to its offset, and the `.gzi` maps that offset into the compressed file.
 
 The bundle also carries [provenance](../../GLOSSARY.md#provenance), which is the record of where the sequence came from. Select the reference in the sidebar and the [Inspector](../../GLOSSARY.md#inspector) shows a Provenance section holding the file it was built from, the date of the run, and a SHA-256 checksum for every file the import read and wrote. A checksum is a short fingerprint of a file's exact bytes, so two people can confirm they have the same file in their LGE projects. If your checksum differs from someone else's for a file of the same name, the two files are not the same bytes and one of you has a different or a damaged copy.
 
-The coordinate you typed has two halves. `NG_000007` is the name of the sequence, which the assembly literature calls the [contig](../../GLOSSARY.md#contig-reference) name. It comes from the record's own identifier, which is why the import drops the trailing version and the coordinate does too. Every downstream file has to agree on that name. `70613-70615` is the range, counted 1-based and inclusive, so it holds three bases and not two.
+The coordinate you typed has two halves. `NG_000007` is the name of the sequence, which the assembly literature calls the [contig](../../GLOSSARY.md#contig-reference) name. It comes from the record's own identifier, which is why the import drops the trailing version and the coordinate does too. Every file that later refers to this sequence has to agree on that name. `70613-70615` is the range, counted 1-based and inclusive, so it holds three bases and not two.
+
+A single position works the same way. The number means nothing on its own. It is anchored to `NG_000007.3` and to that reference alone. The same biological change lands on a different number on the whole human chromosome 11 sequence, and a different number again inside the HBB coding sequence on its own. The change is the same, the coordinate is not. That is why a position is only ever meaningful once you name the reference it was measured against. Variant files carry that reference name with them for exactly this reason, as [Variants and VCF](05-variants-and-vcf.md) describes.
 
 If LGE is asked to show a coordinate whose position falls outside the loaded sequence, it will refuse with the message "Position is outside the sequence bounds". A contig name it cannot match is treated more gently. LGE first puts the name through its chromosome-name mapping, which is the table that lets equivalent spellings of the same sequence match each other, such as `chr11` and `11`. If that fails too, the app moves to the position on the sequence already open rather than warning you. Checking that the name in the ruler is the one you meant is the first sign that you have loaded the wrong reference for your data.
 
-The annotation features drawn below the bases come straight from the GenBank feature table. The record has 8 genes, 5 mRNAs, 5 CDS features, and 13 exons, and 102 annotation features in total once the other GenBank feature types are counted. An exon is one of the pieces a coding sequence is split into. There are more genes than mRNAs because three of the eight in this region are pseudogenes, which are gene-shaped sequences that no longer produce a protein and so do not have mRNA or CDS features. For a curated record of this size, a hundred or so features is what you should expect. If you have no annotations on a large "Genbank" file, the likeliest cause is that a bare FASTA without features was imported by mistake.
+The annotation features drawn below the bases come straight from the GenBank feature table. The record has 8 genes, 5 mRNAs, 5 CDS features, and 13 exons, and 102 annotation features in total once the other GenBank feature types are counted. An exon is one of the pieces a coding sequence is split into. There are more genes than mRNAs because three of the eight in this region are pseudogenes, which are gene-shaped sequences that no longer produce a protein and so do not have mRNA or CDS features. For a curated record of this size, a hundred or so features is what you should expect. If a large GenBank file opens with no annotations, the likeliest cause is that a bare FASTA without features was imported by mistake.
 
-## Reading a variant
-
-The sickle cell change written in full is `NG_000007.3:70614 A>T`. It breaks into four parts. `NG_000007.3` names the record. `70614` is the 1-based position, the middle base of the `GAG` codon at 70613 to 70615. `A` is the reference base, the base the reference genome holds at that position. That base is called [REF](../../GLOSSARY.md#ref-alt). `T` is the observed base, the base the sample's reads showed instead, and it is called ALT. Both names come from [VCF](../../GLOSSARY.md#vcf), which is the standard file format for variant calls and which uses REF and ALT as its column headings. Read the `>` aloud as "to" and the whole string says that where the reference reads A, this sample reads T.
-
-REF always comes from the reference and never from a sample. ALT is what the reads in the sample actually showed. When REF and ALT are each one base long, the change is a single-nucleotide variant. An insertion makes REF one base and ALT several, so `A>ACGT` adds three bases after the A. A deletion does the reverse, so `ACGT>A` removes the same three bases. The base they share is the one before the change, which VCF keeps in both columns as an anchor.
-
-The number is anchored to `NG_000007.3` and to nothing else. The same biological change has a different number on the entire human chromosome 11 sequence (as opposed to `NG_000007.3`), and a different number again inside the HBB coding sequence on its own. The change is the same, the coordinate is not. That is why every variant in an LGE project is stored next to the accession of the reference it was called against.
-
-## Sample data and reference data
-
-As noted above, a common task in genomics is to compare sequencing reads obtained on a sequencing instrument against a reference sequence. Because sequencing reads can have basecalling errors when converting instrument data to the specific sequence of A, C, T, ang G, a common way of representing sequencing data is to have a quality score for each base in every read. A quality score is the instrument's own estimate of how likely it is to have called that base wrong. The scale runs so that 20 means a 1 in 100 chance of error, 30 means 1 in 1,000, and 40 means 1 in 10,000. Some stretches of low coverage are expected in any run, because reads do not land evenly, and only a stretch that matters to your question is worth chasing. In LGE you meet the sample first as a [FASTQ](../../GLOSSARY.md#fastq) file, which is a text file of sequencing reads and their quality strings. You meet it later as a [BAM](../../GLOSSARY.md#bam) file, which is the compact indexed form those reads take once aligned to a reference. Each format has its own chapter.
+A reference on its own is only half of most genomics work. The other half is sample reads, the sequence a machine read off your own material, which you compare against the reference to see where they differ. Those reads and the files that hold them wait in [Sequencing Reads](02-sequencing-reads.md) and [Alignment Files](04-alignment-files.md). This chapter stays with the reference itself.
 
 ## Linear, circular, and segmented genomes
 
@@ -113,7 +105,7 @@ Genomes come in different physical shapes. Eukaryotic chromosomes are linear, wi
 
 For the tools in this manual, the shape barely matters. LGE, like every aligner and variant caller it wraps, treats every reference as linear. A circular genome is simply unrolled at the curator's chosen origin. A read that physically crossed that origin shows up in the file as two pieces, one near the end and one near position 1. That split-read problem belongs to plasmids and bacterial genomes. A plasmid is a small circular DNA molecule that sits in a bacterial cell apart from its chromosome. LGE can assemble and classify bacterial data, but it still unrolls every reference at the origin of the reference sequence.
 
-In LGE, a DNA genome and an RNA genome look alike. Sequencing instruments read DNA, so an RNA sample is first copied into DNA in the lab, and the files that follow are written in DNA letters even though the original molecule was RNA. Reference databases and analysis tools then store everything in the DNA alphabet, which means an RNA reference is spelled with T in place of U and is indistinguishable from a DNA one. There may be cases where reference sequences are stored with 'U' instead of 'T', but this is usually handled transparently within LGE.
+In LGE, a DNA genome and an RNA genome look alike. Sequencing instruments read DNA, so an RNA sample is first copied into DNA in the lab, and the files that follow are written in DNA letters even though the original molecule was RNA. Reference databases and analysis tools then store everything in the DNA alphabet, which means an RNA reference is spelled with T in place of U and is indistinguishable from a DNA one. A few references still carry U in place of T, and LGE reads them without complaint.
 
 ## What good looks like
 
@@ -125,9 +117,9 @@ If any of those disagree, suspect the input rather than the app. The most common
 
 A reference exists to give scientists a shared coordinate system. Pick a different reference and you have picked a different coordinate system. Most of the time the switch is invisible, because everyone in a subfield uses the same customary choice. An assembly is one complete reconstruction of an organism's genome, released as a numbered version by the group that built it. Most human germline work uses the assembly called GRCh38, or its earlier release GRCh37. A large amount of clinical infrastructure exists for the sole purpose of translating between those two coordinate systems.
 
-A mismatch usually announces itself the same way. Your own output and a public database, or a colleague's spreadsheet, disagree about a number. Align against a reference that differs by even a one-base insertion near the start and every position after it slides by one. Same change, different coordinate.
+A mismatch usually announces itself the same way. Your own output and a public database, or a colleague's spreadsheet, disagree about a number. Work against a reference that differs by even a one-base insertion near the start and every position after it slides by one. Same change, different coordinate.
 
-LGE guards against this on two fronts. Every reference imported into a project carries the provenance described above. And every variant call keeps the reference accession in its file header, so a VCF you hand to a collaborator describes itself. One habit prevents most of this trouble. When someone gives you a list of variant positions, ask which reference they were called against before you do anything else with the numbers.
+LGE guards against this by keeping the provenance described above with every reference you import, so a bundle records the exact file it was built from. One habit prevents most of the rest. When someone hands you a list of positions, ask which reference they were measured against before you do anything with the numbers.
 
 ## On the command line
 
