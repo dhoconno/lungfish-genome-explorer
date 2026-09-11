@@ -33,7 +33,7 @@ final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
             slot: .h2
         ))
 
-        XCTAssertEqual(h1.effective, "")
+        XCTAssertEqual(h1.effective, "-")
         XCTAssertEqual(h1.status, .noHaplotype)
         XCTAssertEqual(h1.source, .analystOverride)
         XCTAssertEqual(h2.effective, "M1A")
@@ -47,6 +47,76 @@ final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
             )?.overrideCall,
             "-"
         )
+    }
+
+    func testPipelineSingleHaplotypeNormalizesEffectiveH2WithoutChangingBaseline() throws {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "definition-2",
+            definitionSetName: "Definition 2",
+            speciesName: "Macaque",
+            samples: [
+                .init(sample: "Sample-1", calls: [
+                    call(locus: "MHC-DRB", h1: "M4DR", h2: "-", status: .called),
+                ]),
+            ]
+        )
+
+        let projection = GenotypeEffectiveHaplotypeProjection(
+            analysis: analysis,
+            sidecar: .empty(generatedAt: "2026-09-11T00:00:00Z")
+        )
+        let h2 = try XCTUnwrap(projection.value(
+            sample: "Sample-1",
+            locus: "MHC-DRB",
+            slot: .h2
+        ))
+
+        XCTAssertEqual(h2.baseline, "-")
+        XCTAssertEqual(h2.effective, "M4DR")
+        XCTAssertEqual(h2.status, .called)
+        XCTAssertEqual(h2.source, .pipeline)
+    }
+
+    func testExplicitAbsentH2WinsOverSingleHaplotypeNormalization() throws {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "definition-2",
+            definitionSetName: "Definition 2",
+            speciesName: "Macaque",
+            samples: [
+                .init(sample: "Sample-1", calls: [
+                    call(locus: "MHC-DRB", h1: "M4DR", h2: "-", status: .called),
+                ]),
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-09-11T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            override(
+                sample: "Sample-1",
+                locus: "MHC-DRB",
+                slot: .h2,
+                value: "-",
+                timestamp: "2026-09-11T01:00:00Z"
+            ),
+        ]
+
+        let projection = GenotypeEffectiveHaplotypeProjection(
+            analysis: analysis,
+            sidecar: sidecar
+        )
+        let h2 = try XCTUnwrap(projection.value(
+            sample: "Sample-1",
+            locus: "MHC-DRB",
+            slot: .h2
+        ))
+
+        XCTAssertEqual(h2.baseline, "-")
+        XCTAssertEqual(h2.effective, "-")
+        XCTAssertEqual(h2.status, .noHaplotype)
+        XCTAssertEqual(h2.source, .analystOverride)
     }
 
     func testBuildsImmutableEffectiveSlotsAndOrderedSnapshots() throws {

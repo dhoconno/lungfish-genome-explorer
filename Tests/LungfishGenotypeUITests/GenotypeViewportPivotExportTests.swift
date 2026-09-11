@@ -1,5 +1,6 @@
 import XCTest
 import LungfishKit
+import LungfishIO
 @testable import LungfishGenotypeUI
 
 /// Covers routing the viewport's "Export Filtered Pivot" action to
@@ -11,15 +12,63 @@ import LungfishKit
 /// into the export removes that manual step.
 final class GenotypeViewportPivotExportTests: XCTestCase {
 
+    func testProjectionSerializesExactOrderedCallsAndRevisionContext() throws {
+        let call = GenotypeViewProjectionHaplotypeCall(
+            sample: "A1",
+            locus: "MHC-DRB",
+            haplotype1: "M4DR",
+            haplotype2: "M4DR",
+            haplotype1Status: "called",
+            haplotype2Status: "called",
+            haplotype1Source: "pipeline",
+            haplotype2Source: "pipeline",
+            baselineHaplotype1: "M4DR",
+            baselineHaplotype2: "-",
+            comment: "confirmed"
+        )
+        let sourceRevision = GenotypeViewProjectionSourceRevision(
+            assayID: "assay",
+            analysisRevisionID: "revision-7",
+            definitionSetID: "definitions"
+        )
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/run.lungfishgenotype"),
+            analysisName: "Run",
+            lens: "comparison",
+            filters: ["matrixMinimumReads": "5"],
+            sampleNames: ["A1"],
+            rows: [],
+            haplotypeCalls: [call],
+            sourceRevision: sourceRevision
+        )
+
+        let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
+        XCTAssertEqual(projection.haplotypeCalls, [call])
+        XCTAssertEqual(projection.sourceRevision, sourceRevision)
+        XCTAssertEqual(projection.filterContext, ["matrixMinimumReads": "5"])
+        let decoded = try JSONDecoder().decode(
+            GenotypeViewProjection.self,
+            from: JSONEncoder().encode(projection)
+        )
+        XCTAssertEqual(decoded, projection)
+    }
+
     /// Records the argv the service would hand the CLI. The run deliberately
     /// throws so the test observes argument construction without needing the
     /// CLI to produce an output file and provenance sidecar.
     private final class RecordingRunner: GenotypeViewportExportRunning {
         private(set) var arguments: [String] = []
+        private(set) var capturedAnnotationData: Data?
         struct Stop: Error {}
 
         func run(arguments: [String]) throws -> LungfishCLIRunner.Output {
             self.arguments = arguments
+            if let index = arguments.firstIndex(of: "--annotations"),
+               index + 1 < arguments.count {
+                capturedAnnotationData = try? Data(
+                    contentsOf: URL(fileURLWithPath: arguments[index + 1])
+                )
+            }
             throw Stop()
         }
     }
@@ -108,6 +157,35 @@ final class GenotypeViewportPivotExportTests: XCTestCase {
         )
         XCTAssertTrue(hasOption(runner.arguments, "--view-projection", value: outputURL.appendingPathExtension("view-projection.json").path))
         XCTAssertTrue(hasOption(runner.arguments, "--annotations", value: sidecarURL.path))
+    }
+
+    func testPivotExportUsesCapturedSidecarBytesInsteadOfLivePath() {
+        let runner = RecordingRunner()
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pivot-frozen-\(UUID().uuidString).xlsx")
+        let frozen = Data(#"{"matrixReviews":[{"frozen":true}]}"#.utf8)
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/run.lungfishgenotype"),
+            analysisName: "Run",
+            lens: "comparison",
+            filters: [:],
+            sampleNames: ["A1"],
+            rows: [],
+            annotationSidecarURL: URL(fileURLWithPath: "/tmp/live-annotations.json"),
+            annotationSidecarData: frozen
+        )
+
+        XCTAssertThrowsError(
+            try GenotypeViewportExportService(runner: runner).export(
+                snapshot: snapshot,
+                format: .pivotExcel,
+                to: outputURL
+            )
+        )
+        XCTAssertEqual(runner.capturedAnnotationData, frozen)
+        XCTAssertTrue(runner.arguments.contains(
+            outputURL.appendingPathExtension("annotations.json").path
+        ))
     }
 
     func testPivotExportCarriesTheMatrixMinimumReads() throws {

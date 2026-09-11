@@ -179,8 +179,15 @@ final class GenotypeHaplotypeDefinitionMatrixView: NSView {
             lens: lens,
             filters: filters,
             sampleNames: alleleColumns,
-            rows: exportRows
+            rows: exportRows,
+            haplotypeSampleScope: uniqueInOrder(rows.map(\.sample)),
+            haplotypeLocusScope: uniqueInOrder(rows.map(\.locus))
         )
+    }
+
+    private func uniqueInOrder(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 
     private func buildSubviews() {

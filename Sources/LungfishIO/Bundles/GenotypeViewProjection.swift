@@ -40,6 +40,12 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
     public let diagnosticAllelesOnly: Bool?
     /// Append a read sum across the exported sample columns.
     public let includeTotalReads: Bool?
+    /// Ordered, exact effective calls for the projection's visible scope.
+    /// Nil identifies a legacy projection whose workbook companions retain
+    /// their historical behavior.
+    public let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
+    public let sourceRevision: GenotypeViewProjectionSourceRevision?
+    public let filterContext: [String: String]?
 
     public init(
         lens: String,
@@ -49,7 +55,10 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         genotypeLocusDisplayOrder: [String]? = nil,
         genotypeNumericPrefixOrder: Bool? = nil,
         diagnosticAllelesOnly: Bool? = nil,
-        includeTotalReads: Bool? = nil
+        includeTotalReads: Bool? = nil,
+        haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
+        sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
+        filterContext: [String: String]? = nil
     ) {
         self.lens = lens
         self.sampleColumns = sampleColumns
@@ -59,6 +68,50 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         self.genotypeNumericPrefixOrder = genotypeNumericPrefixOrder
         self.diagnosticAllelesOnly = diagnosticAllelesOnly
         self.includeTotalReads = includeTotalReads
+        self.haplotypeCalls = haplotypeCalls
+        self.sourceRevision = sourceRevision
+        self.filterContext = filterContext
+    }
+}
+
+public struct GenotypeViewProjectionSourceRevision: Codable, Sendable, Equatable {
+    public let assayID: String
+    public let analysisRevisionID: String?
+    public let definitionSetID: String
+
+    public init(assayID: String, analysisRevisionID: String?, definitionSetID: String) {
+        self.assayID = assayID
+        self.analysisRevisionID = analysisRevisionID
+        self.definitionSetID = definitionSetID
+    }
+}
+
+public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable {
+    public let sample: String
+    public let locus: String
+    public let haplotype1: String
+    public let haplotype2: String
+    public let haplotype1Status: String
+    public let haplotype2Status: String
+    public let haplotype1Source: String
+    public let haplotype2Source: String
+    public let baselineHaplotype1: String
+    public let baselineHaplotype2: String
+    public let comment: String?
+
+    public init(
+        sample: String, locus: String, haplotype1: String, haplotype2: String,
+        haplotype1Status: String, haplotype2Status: String,
+        haplotype1Source: String, haplotype2Source: String,
+        baselineHaplotype1: String, baselineHaplotype2: String,
+        comment: String? = nil
+    ) {
+        self.sample = sample; self.locus = locus
+        self.haplotype1 = haplotype1; self.haplotype2 = haplotype2
+        self.haplotype1Status = haplotype1Status; self.haplotype2Status = haplotype2Status
+        self.haplotype1Source = haplotype1Source; self.haplotype2Source = haplotype2Source
+        self.baselineHaplotype1 = baselineHaplotype1; self.baselineHaplotype2 = baselineHaplotype2
+        self.comment = comment
     }
 }
 

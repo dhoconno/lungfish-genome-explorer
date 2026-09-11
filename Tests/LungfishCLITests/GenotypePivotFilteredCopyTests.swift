@@ -143,8 +143,14 @@ out = {"sheets": wb.sheetnames, "freeze": wb.worksheets[0].freeze_panes,
        "boldA1": wb.worksheets[0]["A1"].font.bold,
        "fillA1": wb.worksheets[0]["A1"].fill.fgColor.rgb,
        "maxColumn": wb.worksheets[0].max_column,
-       "rows": [[c for c in row] for row in wb.worksheets[0].iter_rows(values_only=True)],
-       "long": [[c for c in row] for row in wb["Thresholds Long Summ"].iter_rows(values_only=True)]}
+       "rows": [[c for c in row] for row in wb.worksheets[0].iter_rows(values_only=True)]}
+if "Thresholds Long Summ" in wb.sheetnames:
+    out["long"] = [[c for c in row] for row in wb["Thresholds Long Summ"].iter_rows(values_only=True)]
+if "Haplotype Calls" in wb.sheetnames:
+    calls = wb["Haplotype Calls"]
+    out["exactCall"] = [calls.cell(2, column).value for column in range(1, 7)]
+    out["exactComment"] = calls.cell(2, 11).value
+    out["exactCommentType"] = calls.cell(2, 11).data_type
 for row in wb.worksheets[0].iter_rows():
     for cell in row:
         if cell.value in ("[8]", "FN"):
@@ -434,9 +440,24 @@ print(json.dumps(out))
             sampleColumns: ["Animal2", "Animal1"],
             rows: [
                 .init(label: "01_Background", rawGenotype: "01_Background", locus: "MHC-A", cells: ["", "5"]),
-                .init(label: "01_Candidate", rawGenotype: "01_Candidate", locus: "MHC-A", stableClusterID: "candidate-1", cells: ["2", "3"]),
+                .init(label: "01_Candidate", rawGenotype: "01_Candidate", locus: "MHC-A", stableClusterID: "candidate-1", cells: ["10", ""]),
                 .init(label: "01_Middle", rawGenotype: "01_Middle", locus: "MHC-A", cells: ["8", "40"]),
-            ]
+            ],
+            haplotypeCalls: [
+                .init(
+                    sample: "Animal2", locus: "MHC-DRB",
+                    haplotype1: "M4DR", haplotype2: "M4DR",
+                    haplotype1Status: "called", haplotype2Status: "called",
+                    haplotype1Source: "pipeline", haplotype2Source: "pipeline",
+                    baselineHaplotype1: "M4DR", baselineHaplotype2: "-",
+                    comment: "=not-a-formula"
+                ),
+            ],
+            sourceRevision: .init(
+                assayID: "assay", analysisRevisionID: "revision-7",
+                definitionSetID: "definitions"
+            ),
+            filterContext: ["matrixMinimumReads": "5"]
         )
         let projectionURL = root.appendingPathComponent("viewport.json")
         try JSONEncoder().encode(projection).write(to: projectionURL)
@@ -482,19 +503,22 @@ print(json.dumps(out))
 
         let dump = try await runPython(python, script: Self.dumpWorkbookScript, arguments: [outputURL.path], in: root)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(dump.utf8)) as? [String: Any])
+        XCTAssertEqual(object["sheets"] as? [String], ["Genotype Matrix", "Haplotype Calls", "Export Metadata"])
+        XCTAssertEqual(object["exactCall"] as? [String], ["Animal2", "MHC-DRB", "M4DR", "M4DR", "called", "called"])
+        XCTAssertEqual(object["exactComment"] as? String, "=not-a-formula")
+        XCTAssertEqual(object["exactCommentType"] as? String, "s")
         XCTAssertEqual(object["maxColumn"] as? Int, 5)
         let rows = try XCTUnwrap(object["rows"] as? [[Any]])
-        XCTAssertEqual(Array(rows[1].dropFirst(3)).compactMap { $0 as? String }, ["Animal2", "Animal1"])
+        XCTAssertEqual(Array(rows[0].dropFirst(3)).compactMap { $0 as? String }, ["Animal2", "Animal1"])
         let labels = rows.compactMap { $0.first as? String }
         XCTAssertFalse(labels.contains("01_Strong"))
         XCTAssertTrue(labels.contains("01_Middle"))
         XCTAssertTrue(labels.contains("01_Background"))
         XCTAssertTrue(labels.contains("01_Candidate"), "candidate-only viewport rows survive even without a result call")
-        XCTAssertEqual(labels.filter { $0 == "MHC-A alleles" }.count, 1)
-        XCTAssertLessThan(
-            try XCTUnwrap(labels.firstIndex(of: "MHC-A alleles")),
-            try XCTUnwrap(labels.firstIndex(of: "01_Background"))
-        )
+        let boundaryRow = try XCTUnwrap(rows.first { $0.first as? String == "01_Candidate" })
+        XCTAssertEqual(boundaryRow[3] as? Int, 10)
+        XCTAssertTrue(boundaryRow[4] is NSNull, "the projection's filtered one-read cell stays blank")
+        XCTAssertFalse(labels.contains("MHC-A alleles"), "typed snapshots do not retain template group/header data")
         XCTAssertLessThan(
             try XCTUnwrap(labels.firstIndex(of: "01_Background")),
             try XCTUnwrap(labels.firstIndex(of: "01_Middle"))

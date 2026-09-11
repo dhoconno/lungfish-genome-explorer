@@ -21,11 +21,20 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let rows: [GenotypeViewportExportRow]
     let provenanceInputURLs: [URL]
     let annotationSidecarURL: URL?
+    /// Immutable bytes captured with the viewport. When present, export uses
+    /// these rather than rereading the live bundle sidecar path.
+    let annotationSidecarData: Data?
     /// Optional annotation sidecar to surface in additional worksheets.
     /// When non-nil, the export adds an Overrides sheet and an Audit Log
     /// sheet so consumers reading the workbook see what the analyst has
     /// changed without needing the bundle's annotations.json.
     let sidecar: GenotypeAnnotationSidecarSnapshot?
+    let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
+    let sourceRevision: GenotypeViewProjectionSourceRevision?
+    /// Semantic call scope, distinct from matrix axes (the haplotype
+    /// definition matrix uses allele columns rather than sample columns).
+    let haplotypeSampleScope: [String]?
+    let haplotypeLocusScope: [String]?
 
     init(
         bundleURL: URL,
@@ -36,7 +45,12 @@ struct GenotypeViewportExportSnapshot: Equatable {
         rows: [GenotypeViewportExportRow],
         provenanceInputURLs: [URL] = [],
         annotationSidecarURL: URL? = nil,
-        sidecar: GenotypeAnnotationSidecarSnapshot? = nil
+        annotationSidecarData: Data? = nil,
+        sidecar: GenotypeAnnotationSidecarSnapshot? = nil,
+        haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
+        sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
+        haplotypeSampleScope: [String]? = nil,
+        haplotypeLocusScope: [String]? = nil
     ) {
         self.bundleURL = bundleURL
         self.analysisName = analysisName
@@ -46,7 +60,12 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.rows = rows
         self.provenanceInputURLs = provenanceInputURLs
         self.annotationSidecarURL = annotationSidecarURL
+        self.annotationSidecarData = annotationSidecarData
         self.sidecar = sidecar
+        self.haplotypeCalls = haplotypeCalls
+        self.sourceRevision = sourceRevision
+        self.haplotypeSampleScope = haplotypeSampleScope
+        self.haplotypeLocusScope = haplotypeLocusScope
     }
 }
 

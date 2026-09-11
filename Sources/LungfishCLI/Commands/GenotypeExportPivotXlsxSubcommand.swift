@@ -608,10 +608,13 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         ) -> [HaplotypeRow] {
             var rows: [HaplotypeRow] = []
             let effectiveCalls: GenotypeEffectiveCallAuthority.Resolution? = {
-                guard let analysis, let sidecar else { return nil }
+                guard let analysis else { return nil }
                 return GenotypeEffectiveCallAuthority.resolve(
                     analysis: analysis,
-                    sidecar: sidecar
+                    sidecar: sidecar ?? .empty(
+                        generatedAt: analysis.generatedAt
+                            ?? "1970-01-01T00:00:00Z"
+                    )
                 )
             }()
             // Build (sample → locus → call) map from the persisted analysis.
@@ -1159,6 +1162,9 @@ extension GenotypeExportPivotXlsxSubcommand {
         let haplotypeHeaderRows: [HaplotypeHeaderRow]
         let visibleSamples: [String]?
         let projectedRows: [ProjectedRow]?
+        let exactHaplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
+        let sourceRevision: GenotypeViewProjectionSourceRevision?
+        let filterContext: [String: String]?
         let allGenotypes: [String]
         let columnComments: [String: Comment]
 
@@ -1211,6 +1217,9 @@ extension GenotypeExportPivotXlsxSubcommand {
                     haplotypeHeaderRows: haplotypeHeaderRows,
                     visibleSamples: nil,
                     projectedRows: nil,
+                    exactHaplotypeCalls: nil,
+                    sourceRevision: nil,
+                    filterContext: nil,
                     allGenotypes: allGenotypes,
                     columnComments: [:]
                 )
@@ -1289,6 +1298,9 @@ extension GenotypeExportPivotXlsxSubcommand {
                 haplotypeHeaderRows: haplotypeHeaderRows,
                 visibleSamples: projection.sampleColumns,
                 projectedRows: projectedRows,
+                exactHaplotypeCalls: projection.haplotypeCalls,
+                sourceRevision: projection.sourceRevision,
+                filterContext: projection.filterContext,
                 allGenotypes: allGenotypes,
                 columnComments: columnComments
             )
@@ -1608,6 +1620,7 @@ sheet_name = plan.get("sheet")
 keep_empty_rows = bool(plan.get("keepEmptyRows"))
 visible_samples = plan.get("visibleSamples")
 projected_rows = plan.get("projectedRows")
+exact_haplotype_calls = plan.get("exactHaplotypeCalls")
 
 if visible_samples is not None and len(visible_samples) != len(set(visible_samples)):
     sys.stderr.write("The viewport projection contains duplicate sample columns.\n")
@@ -1970,6 +1983,104 @@ for row in range(first_allele_row, sheet.max_row + 1):
 
 for row in reversed(rows_to_delete):
     sheet.delete_rows(row)
+
+# A projection carrying exact calls is the new filtered-view contract. It is
+# intentionally scoped and must not retain unfiltered companion worksheets.
+if projected_rows is not None and exact_haplotype_calls is not None:
+    source_matrix = sheet
+    clean_matrix = workbook.create_sheet("Genotype Matrix", 0)
+    clean_matrix.append(["Genotype", "Locus", "Stable Cluster ID"] + visible_samples)
+    for cell in clean_matrix[1]:
+        cell.font = copy(cell.font)
+        cell.font = cell.font.copy(bold=True)
+    for offset, sample in enumerate(visible_samples, start=4):
+        clean_matrix.cell(1, offset).comment = copy(
+            source_matrix.cell(header_row, sample_columns[sample]).comment
+        )
+    for projected in projected_rows:
+        matching_rows = [
+            row for row in range(1, source_matrix.max_row + 1)
+            if source_matrix.cell(row, 1).value in workbook_labels(projected)
+        ]
+        if len(matching_rows) != 1:
+            sys.stderr.write(
+                "The rewritten matrix lost a projected genotype row: "
+                + str(projected.get("genotype")) + "\n"
+            )
+            sys.exit(4)
+        source_row = matching_rows[0]
+        clean_matrix.append([
+            projected.get("genotype"),
+            projected.get("locus") or "",
+            projected.get("stableClusterID") or "",
+        ] + [source_matrix.cell(source_row, sample_columns[sample]).value for sample in visible_samples])
+        target_row = clean_matrix.max_row
+        clean_matrix.cell(target_row, 1).comment = copy(source_matrix.cell(source_row, 1).comment)
+        for offset, sample in enumerate(visible_samples, start=4):
+            source_cell = source_matrix.cell(source_row, sample_columns[sample])
+            target_cell = clean_matrix.cell(target_row, offset)
+            target_cell._style = copy(source_cell._style)
+            target_cell.comment = copy(source_cell.comment)
+            target_cell._hyperlink = copy(source_cell.hyperlink)
+    clean_matrix.freeze_panes = "D2"
+    clean_matrix.auto_filter.ref = clean_matrix.dimensions
+    clean_matrix.column_dimensions["A"].width = 36
+    clean_matrix.column_dimensions["B"].width = 18
+    clean_matrix.column_dimensions["C"].width = 24
+    for candidate in list(workbook.worksheets):
+        if candidate is not clean_matrix:
+            workbook.remove(candidate)
+    sheet = clean_matrix
+
+    calls_sheet = workbook.create_sheet("Haplotype Calls")
+    call_headers = [
+        "Sample", "Locus", "Haplotype 1", "Haplotype 2",
+        "H1 Status", "H2 Status", "H1 Source", "H2 Source",
+        "Pipeline H1", "Pipeline H2", "Comment",
+    ]
+    calls_sheet.append(call_headers)
+    for cell in calls_sheet[1]:
+        cell.font = copy(cell.font)
+        cell.font = cell.font.copy(bold=True)
+    def literal_text(value):
+        return "" if value is None else str(value)
+    for call in exact_haplotype_calls:
+        calls_sheet.append([
+            literal_text(call.get("sample")),
+            literal_text(call.get("locus")),
+            literal_text(call.get("haplotype1")),
+            literal_text(call.get("haplotype2")),
+            literal_text(call.get("haplotype1Status")),
+            literal_text(call.get("haplotype2Status")),
+            literal_text(call.get("haplotype1Source")),
+            literal_text(call.get("haplotype2Source")),
+            literal_text(call.get("baselineHaplotype1")),
+            literal_text(call.get("baselineHaplotype2")),
+            literal_text(call.get("comment")),
+        ])
+        for cell in calls_sheet[calls_sheet.max_row]:
+            cell.data_type = "s"
+    calls_sheet.freeze_panes = "A2"
+    calls_sheet.auto_filter.ref = calls_sheet.dimensions
+    for column, width in enumerate([20, 18, 22, 22, 14, 14, 16, 16, 22, 22, 42], start=1):
+        calls_sheet.column_dimensions[calls_sheet.cell(1, column).column_letter].width = width
+
+    metadata_sheet = workbook.create_sheet("Export Metadata")
+    metadata_sheet.append(["Field", "Value"])
+    metadata_sheet["A1"].font = metadata_sheet["A1"].font.copy(bold=True)
+    metadata_sheet["B1"].font = metadata_sheet["B1"].font.copy(bold=True)
+    metadata_sheet.append(["Workbook Role", "Filtered view (read-only snapshot)"])
+    for key, value in sorted((plan.get("filterContext") or {}).items()):
+        metadata_sheet.append([literal_text(key), literal_text(value)])
+        for cell in metadata_sheet[metadata_sheet.max_row]:
+            cell.data_type = "s"
+    revision = plan.get("sourceRevision") or {}
+    for key in ("assayID", "analysisRevisionID", "definitionSetID"):
+        metadata_sheet.append(["Source " + key, literal_text(revision.get(key))])
+        for cell in metadata_sheet[metadata_sheet.max_row]:
+            cell.data_type = "s"
+    metadata_sheet.column_dimensions["A"].width = 30
+    metadata_sheet.column_dimensions["B"].width = 80
 
 workbook.save(output)
 print(json.dumps({

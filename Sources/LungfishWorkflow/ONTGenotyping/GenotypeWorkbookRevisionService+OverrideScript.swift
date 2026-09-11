@@ -109,17 +109,21 @@ MCM_STYLES = {
 SUMMARY_LOCI = [
     ("MHC-A", "MHC-A"),
     ("MHC-B", "MHC-B"),
+    ("MHC-DRB", "MHC-DRB"),
     ("MHC-DQ", "MHC-DQA/B"),
     ("MHC-DP", "MHC-DPA/B"),
 ]
-FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
-WRITABLE_LOCI = {"MHC-A", "MHC-B", "MHC-DQ", "MHC-DP"}
+FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DR", "MHC-DRB", "MHC-DQ", "MHC-DQA", "MHC-DQB", "MHC-DP", "MHC-DPA", "MHC-DPB"]
 
 
 def clean(value):
     if value is None:
         return ""
     return str(value).strip()
+
+
+def literal_text(value):
+    return "" if value is None else str(value)
 
 
 def natural_sort_key(value):
@@ -302,18 +306,16 @@ for call in call_rows:
         "status": clean(call.get("status")),
         "notes": clean(call.get("notes")),
     }
+    exact_sample_calls = exact_calls_by_sample_locus.setdefault(sample, {})
+    if haplotype_projection_mode == "manual-genotype-only" and exact_locus in exact_sample_calls:
+        raise ValueError(f"Duplicate exact haplotype call for {sample}/{exact_locus}")
+    exact_sample_calls[exact_locus] = call_payload
     if haplotype_projection_mode == "manual-genotype-only":
         if exact_locus not in manual_haplotype_locus_set:
             raise ValueError(
                 f"Noncanonical or unsupported exact haplotype locus for {sample}: {exact_locus}"
             )
-        exact_sample_calls = exact_calls_by_sample_locus.setdefault(sample, {})
-        if exact_locus in exact_sample_calls:
-            raise ValueError(f"Duplicate exact haplotype call for {sample}/{exact_locus}")
-        exact_sample_calls[exact_locus] = call_payload
     locus = canonical_locus(exact_locus)
-    if locus not in WRITABLE_LOCI:
-        continue
     calls_by_sample_locus.setdefault(sample, {})[locus] = call_payload
 
 manual_snapshot_samples = (
@@ -335,7 +337,13 @@ matrix_reviews = sidecar.get("matrixReviews") or []
 
 
 def call_for(sample, locus):
-    return calls_by_sample_locus.get(sample, {}).get(canonical_locus(locus), {})
+    sample_calls = calls_by_sample_locus.get(sample, {})
+    canonical = canonical_locus(locus)
+    if canonical in sample_calls:
+        return sample_calls[canonical]
+    if canonical == "MHC-DRB":
+        return sample_calls.get("MHC-DR", {})
+    return {}
 
 
 def exact_call_for(sample, locus):
@@ -370,35 +378,7 @@ def call_value(sample, locus, index):
     call = call_for(sample, locus)
     key = "haplotype1" if index == 1 else "haplotype2"
     value = call.get(key, "")
-    if index == 2 and (not value or value == "-"):
-        inferred = inferred_homozygous_family(sample)
-        first = call.get("haplotype1", "")
-        if inferred and family(first) == inferred:
-            return first
     return value or "-"
-
-
-def inferred_homozygous_family(sample):
-    families = []
-    for locus in [item[0] for item in SUMMARY_LOCI]:
-        call = call_for(sample, locus)
-        if not call:
-            continue
-        first = call.get("haplotype1", "")
-        second = call.get("haplotype2", "")
-        first_family = family(first)
-        second_family = family(second)
-        if first_family:
-            families.append(first_family)
-            if not second_family:
-                continue
-        if second_family:
-            families.append(second_family)
-    unique = []
-    for item in families:
-        if item not in unique:
-            unique.append(item)
-    return unique[0] if len(unique) == 1 else None
 
 
 def whole_animal(sample, index):
@@ -648,6 +628,26 @@ def write_table_sheet(name, headers, rows):
     style_table_body(ws)
     autosize_columns(ws)
     ws.freeze_panes = "A2"
+
+
+def write_exact_haplotype_calls_sheet():
+    headers = ["Sample", "Locus", "Haplotype 1", "Haplotype 2", "Status", "Notes"]
+    rows = []
+    for sample in sorted(exact_calls_by_sample_locus, key=natural_sort_key):
+        for locus in sorted(exact_calls_by_sample_locus[sample], key=natural_sort_key):
+            call = exact_calls_by_sample_locus[sample][locus]
+            rows.append([
+                literal_text(sample), literal_text(locus),
+                literal_text(call.get("haplotype1")),
+                literal_text(call.get("haplotype2")),
+                literal_text(call.get("status")),
+                literal_text(call.get("notes")),
+            ])
+    write_table_sheet("Haplotype Calls", headers, rows)
+    ws = wb["Haplotype Calls"]
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.data_type = "s"
 
 
 def write_override_sheets(matrix_review_results):
@@ -3823,6 +3823,9 @@ if uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection:
         write_override_sheets(matrix_review_results)
         write_matrix_annotation_sheet(matrix_review_results)
         apply_matrix_annotations_to_workbook(matrix_review_results)
+
+if not preserve_existing_workbook_projection:
+    write_exact_haplotype_calls_sheet()
 
 
 def normalized_package_members(path):

@@ -133,6 +133,11 @@ struct GenotypeViewportExportService {
         let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
         let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
         let projectionData = try JSONEncoder().encode(projection)
+        let capturedAnnotationURL = standardizedOutputURL
+            .appendingPathExtension("annotations.json")
+        let effectiveAnnotationURL = snapshot.annotationSidecarData == nil
+            ? snapshot.annotationSidecarURL
+            : capturedAnnotationURL
 
         var arguments: [String]
         if format.usesPivotSubcommand {
@@ -142,7 +147,7 @@ struct GenotypeViewportExportService {
                 "--output", standardizedOutputURL.path,
                 "--view-projection", projectionURL.path,
             ]
-            if let annotationSidecarURL = snapshot.annotationSidecarURL {
+            if let annotationSidecarURL = effectiveAnnotationURL {
                 arguments += ["--annotations", annotationSidecarURL.path]
             }
             if let minReads = minimumReads(from: snapshot.filters) {
@@ -178,18 +183,25 @@ struct GenotypeViewportExportService {
                !definitionID.isEmpty {
                 arguments += ["--active-haplotype-definition", definitionID]
             }
-            if let annotationSidecarURL = snapshot.annotationSidecarURL {
+            if let annotationSidecarURL = effectiveAnnotationURL {
                 arguments += ["--annotations", annotationSidecarURL.path]
             }
             arguments.append("--force")
         }
 
         let rollbackSnapshot = try GenotypeViewportExportRollbackSnapshot(
-            urls: [standardizedOutputURL, provenanceURL, projectionURL],
+            urls: [standardizedOutputURL, provenanceURL, projectionURL]
+                + (snapshot.annotationSidecarData == nil ? [] : [capturedAnnotationURL]),
             fileManager: fileManager
         )
         do {
             try projectionData.write(to: projectionURL, options: .atomic)
+            if let annotationSidecarData = snapshot.annotationSidecarData {
+                try annotationSidecarData.write(
+                    to: capturedAnnotationURL,
+                    options: .atomic
+                )
+            }
             _ = try runner.run(arguments: arguments)
             guard fileManager.fileExists(atPath: standardizedOutputURL.path) else {
                 throw GenotypeViewportExportError.missingOutput(standardizedOutputURL.path)
@@ -198,7 +210,7 @@ struct GenotypeViewportExportService {
                 throw GenotypeViewportExportError.missingProvenance(provenanceURL.path)
             }
             let expectedInputURLs = [projectionURL]
-                + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
+                + (effectiveAnnotationURL.map { [$0] } ?? [])
             try verifyProvenance(
                 provenanceURL: provenanceURL,
                 outputURL: standardizedOutputURL,
@@ -361,7 +373,10 @@ enum GenotypeViewProjectionSerializer {
             },
             genotypeNumericPrefixOrder: snapshot.filters["genotypeNumericPrefixOrder"].flatMap { Bool($0) },
             diagnosticAllelesOnly: snapshot.filters["diagnosticAllelesOnly"].flatMap { Bool($0) },
-            includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) }
+            includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) },
+            haplotypeCalls: snapshot.haplotypeCalls,
+            sourceRevision: snapshot.sourceRevision,
+            filterContext: snapshot.filters
         )
     }
 

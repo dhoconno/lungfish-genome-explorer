@@ -1002,10 +1002,13 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
         let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
 
-        XCTAssertEqual(snapshot.lens, "summary.matrix.haplotypeDefinitions")
-        XCTAssertTrue(snapshot.sampleNames.contains("12_M3_B_075_01"))
-        XCTAssertTrue(snapshot.rows.contains { $0.genotype == "M3B" && $0.locus == "DW472 MHC-B" })
-        XCTAssertFalse(snapshot.rows.contains { $0.genotype == "12_M3_B_075_01" })
+        XCTAssertEqual(snapshot.lens, "summary")
+        XCTAssertEqual(snapshot.sampleNames, ["DW472"])
+        XCTAssertTrue(snapshot.rows.contains { $0.genotype == "12_M3_B_075_01" })
+        XCTAssertEqual(snapshot.haplotypeSampleScope, ["DW472"])
+        XCTAssertEqual(snapshot.haplotypeLocusScope, ["MHC-B"])
+        XCTAssertEqual(snapshot.haplotypeCalls?.map(\.sample), ["DW472"])
+        XCTAssertEqual(snapshot.haplotypeCalls?.map(\.locus), ["MHC-B"])
     }
 
 
@@ -1821,6 +1824,34 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
         let table = try XCTUnwrap(view.firstDescendant(ofType: NSTableView.self))
         XCTAssertTrue(table.tableColumns.allSatisfy { $0.sortDescriptorPrototype != nil })
+    }
+
+    func testHaplotypeDefinitionMatrixExportCarriesSemanticCallScope() {
+        let view = GenotypeHaplotypeDefinitionMatrixView()
+        view.configure(rows: [
+            .init(
+                sample: "DW472", locus: "MHC-B", callName: "M3B",
+                haplotypeName: "M3B", observedCount: 1, diagnosticCount: 1,
+                minimumMatches: 1, status: .called,
+                alleles: [.init(name: "B-marker", reads: 10)]
+            ),
+            .init(
+                sample: "DW474", locus: "MHC-DQ", callName: "M4DQ",
+                haplotypeName: "M4DQ", observedCount: 1, diagnosticCount: 1,
+                minimumMatches: 1, status: .called,
+                alleles: [.init(name: "DQ-marker", reads: 8)]
+            ),
+        ], definitionName: "Scoped")
+
+        let snapshot = view.exportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/scoped.lungfishgenotype"),
+            analysisName: "Scoped",
+            lens: "summary.matrix.haplotypeDefinitions"
+        )
+
+        XCTAssertEqual(snapshot.haplotypeSampleScope, ["DW472", "DW474"])
+        XCTAssertEqual(snapshot.haplotypeLocusScope, ["MHC-B", "MHC-DQ"])
+        XCTAssertEqual(snapshot.sampleNames, ["B-marker", "DQ-marker"])
     }
 
 

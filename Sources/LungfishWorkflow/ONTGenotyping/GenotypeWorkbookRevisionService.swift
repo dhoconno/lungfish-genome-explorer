@@ -49,22 +49,11 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     }
 
     public static func isWritableCurrentWorkbookLocus(_ locus: String) -> Bool {
-        switch canonicalCurrentWorkbookLocus(locus) {
-        case "MHC-A", "MHC-B", "MHC-DQ", "MHC-DP":
-            return true
-        default:
-            return false
-        }
+        !canonicalCurrentWorkbookLocus(locus).isEmpty
     }
 
     public static func canonicalCurrentWorkbookLocus(_ locus: String) -> String {
         let trimmed = locus.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "MHC-DQA" || trimmed == "MHC-DQB" {
-            return "MHC-DQ"
-        }
-        if trimmed == "MHC-DPA" || trimmed == "MHC-DPB" {
-            return "MHC-DP"
-        }
         return trimmed
     }
 }

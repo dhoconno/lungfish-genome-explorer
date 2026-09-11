@@ -7618,11 +7618,7 @@ public final class GenotypeResultViewController: NSViewController {
             for locusCall in sample.calls {
                 guard let locusDefinition = definitionsByLocus[locusCall.locus] else { continue }
                 let effective = effectiveHaplotypeCall(sample: sample.sample, call: locusCall)
-                let displayedH2 = normalizedHomozygousSecondHaplotype(
-                    h1: effective.h1,
-                    h2: effective.h2,
-                    status: effective.status
-                )
+                let displayedH2 = effective.h2
                 let retainedObservedGenotypes = Set(locusCall.observedGenotypes)
                 let calledNames = Set([effective.h1, displayedH2].filter { !$0.isEmpty && $0 != "-" })
                 let callName = diploidDisplayName(h1: effective.h1, h2: displayedH2)
@@ -8208,14 +8204,9 @@ public final class GenotypeResultViewController: NSViewController {
                     status: effective.h1Status,
                     isManual: h1Manual
                 )
-                let displayedH2 = normalizedHomozygousSecondHaplotype(
-                    h1: effective.h1,
-                    h2: effective.h2,
-                    status: effective.h2Status
-                )
                 let h2Manual = hasManualHaplotypeAssignment(sample: sample.sample, locus: call.locus, slot: .h2)
                 let h2 = outlineCell(
-                    for: displayedH2,
+                    for: effective.h2,
                     status: effective.h2Status,
                     isManual: h2Manual
                 )
@@ -8231,7 +8222,7 @@ public final class GenotypeResultViewController: NSViewController {
                         isEditable: isEditable
                     ),
                     h2Semantics: .init(
-                        value: displayedH2,
+                        value: effective.h2,
                         status: effective.h2Status,
                         source: effective.h2Source,
                         isEditable: isEditable
@@ -8247,17 +8238,6 @@ public final class GenotypeResultViewController: NSViewController {
             }
             return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: .empty, h2: .empty)
         }
-    }
-
-    private func normalizedHomozygousSecondHaplotype(
-        h1: String,
-        h2: String,
-        status: GenotypeHaplotypeCallStatus
-    ) -> String {
-        guard status == .called || status == .notAssayed || status == .specialCase else { return h2 }
-        guard h2.isEmpty || h2 == "-" else { return h2 }
-        guard !h1.isEmpty, h1 != "-", !h1.hasPrefix("ERR") else { return h2 }
-        return h1
     }
 
     private func effectiveHaplotypeCall(
@@ -9500,10 +9480,15 @@ public final class GenotypeResultViewController: NSViewController {
             annotationSidecarURL: FileManager.default.fileExists(atPath: annotationSidecarURL.path)
                 ? annotationSidecarURL
                 : nil,
+            annotationSidecarData: try? sidecar.encoded(),
             sidecar: GenotypeAnnotationSidecarSnapshot(
                 overrides: overrides,
                 auditEntries: auditEntries
-            )
+            ),
+            haplotypeCalls: base.haplotypeCalls,
+            sourceRevision: base.sourceRevision,
+            haplotypeSampleScope: base.haplotypeSampleScope,
+            haplotypeLocusScope: base.haplotypeLocusScope
         )
     }
 
@@ -9521,7 +9506,12 @@ public final class GenotypeResultViewController: NSViewController {
             rows: base.rows,
             provenanceInputURLs: base.provenanceInputURLs,
             annotationSidecarURL: base.annotationSidecarURL,
-            sidecar: base.sidecar
+            annotationSidecarData: base.annotationSidecarData,
+            sidecar: base.sidecar,
+            haplotypeCalls: base.haplotypeCalls,
+            sourceRevision: base.sourceRevision,
+            haplotypeSampleScope: base.haplotypeSampleScope,
+            haplotypeLocusScope: base.haplotypeLocusScope
         )
     }
 
@@ -9560,7 +9550,96 @@ public final class GenotypeResultViewController: NSViewController {
             rows: base.rows,
             provenanceInputURLs: provenanceInputURLs,
             annotationSidecarURL: base.annotationSidecarURL,
-            sidecar: base.sidecar
+            annotationSidecarData: base.annotationSidecarData,
+            sidecar: base.sidecar,
+            haplotypeCalls: base.haplotypeCalls,
+            sourceRevision: base.sourceRevision,
+            haplotypeSampleScope: base.haplotypeSampleScope,
+            haplotypeLocusScope: base.haplotypeLocusScope
+        )
+    }
+
+    private func attachEffectiveHaplotypeCalls(
+        to base: GenotypeViewportExportSnapshot
+    ) -> GenotypeViewportExportSnapshot {
+        guard let analysis = result?.haplotypeAnalysis else { return base }
+        let sidecar = annotationStore?.sidecar
+            ?? GenotypeAnnotationSidecar.empty(
+                generatedAt: analysis.generatedAt ?? "1970-01-01T00:00:00Z"
+            )
+        let resolution = GenotypeEffectiveCallAuthority.resolve(
+            analysis: analysis,
+            sidecar: sidecar
+        )
+        let visibleSamples = Set(base.haplotypeSampleScope ?? base.sampleNames)
+        let selectedLocus = base.filters["locus"].flatMap {
+            $0 == "All Loci" || $0.isEmpty ? nil : $0
+        }
+        func locusIsInScope(_ locus: String) -> Bool {
+            if let scope = base.haplotypeLocusScope {
+                return scope.contains(locus)
+            }
+            guard let selectedLocus else { return true }
+            func family(_ value: String) -> String {
+                value.replacingOccurrences(of: "1", with: "")
+                    .replacingOccurrences(of: "MHC-DQA", with: "MHC-DQ")
+                    .replacingOccurrences(of: "MHC-DQB", with: "MHC-DQ")
+                    .replacingOccurrences(of: "MHC-DPA", with: "MHC-DP")
+                    .replacingOccurrences(of: "MHC-DPB", with: "MHC-DP")
+                    .replacingOccurrences(of: "MHC-DRB", with: "MHC-DR")
+            }
+            return family(locus) == family(selectedLocus)
+        }
+        let commentsBySampleLocus = Dictionary(
+            uniqueKeysWithValues: analysis.samples.flatMap { sample in
+                sample.calls.map { ((sample.sample + "\u{1f}" + $0.locus), $0.notes) }
+            }
+        )
+        func sourceName(_ source: GenotypeEffectiveCallAuthority.Source) -> String {
+            switch source {
+            case .pipeline: return "pipeline"
+            case .analystOverride: return "analystOverride"
+            case .staleOverride: return "staleOverride"
+            }
+        }
+        var calls: [GenotypeViewProjectionHaplotypeCall] = []
+        for sample in resolution.orderedSamples where visibleSamples.contains(sample) {
+            for locus in resolution.orderedLoci where locusIsInScope(locus) {
+                guard let value = resolution.locusValue(sample: sample, locus: locus) else { continue }
+                calls.append(.init(
+                    sample: sample,
+                    locus: locus,
+                    haplotype1: value.h1.effective,
+                    haplotype2: value.h2.effective,
+                    haplotype1Status: value.h1.status.rawValue,
+                    haplotype2Status: value.h2.status.rawValue,
+                    haplotype1Source: sourceName(value.h1.source),
+                    haplotype2Source: sourceName(value.h2.source),
+                    baselineHaplotype1: value.h1.baseline,
+                    baselineHaplotype2: value.h2.baseline,
+                    comment: commentsBySampleLocus[sample + "\u{1f}" + locus]
+                ))
+            }
+        }
+        return GenotypeViewportExportSnapshot(
+            bundleURL: base.bundleURL,
+            analysisName: base.analysisName,
+            lens: base.lens,
+            filters: base.filters,
+            sampleNames: base.sampleNames,
+            rows: base.rows,
+            provenanceInputURLs: base.provenanceInputURLs,
+            annotationSidecarURL: base.annotationSidecarURL,
+            annotationSidecarData: base.annotationSidecarData,
+            sidecar: base.sidecar,
+            haplotypeCalls: calls,
+            sourceRevision: .init(
+                assayID: resolution.identity.assayID,
+                analysisRevisionID: resolution.identity.analysisRevisionID,
+                definitionSetID: resolution.identity.definitionSetID
+            ),
+            haplotypeSampleScope: base.haplotypeSampleScope,
+            haplotypeLocusScope: base.haplotypeLocusScope
         )
     }
 
@@ -9603,10 +9682,34 @@ public final class GenotypeResultViewController: NSViewController {
            presentationPolicy?.appliesToHaplotypedMiSeq != true,
            definitionSetForResult(result) != nil,
            !displayState.showsAncillaryLoci {
-            baseSnapshot = haplotypeMatrixView.exportSnapshot(
+            let haplotypeScope = haplotypeMatrixView.exportSnapshot(
                 bundleURL: result.bundleURL,
                 analysisName: result.manifest.analysisName,
                 lens: "summary.matrix.haplotypeDefinitions"
+            )
+            ensureComparisonMatrixConfigured()
+            let matrix = comparisonMatrix.exportSnapshot(
+                bundleURL: result.bundleURL,
+                analysisName: result.manifest.analysisName,
+                lens: selectedLens.identifier
+            )
+            baseSnapshot = GenotypeViewportExportSnapshot(
+                bundleURL: matrix.bundleURL,
+                analysisName: matrix.analysisName,
+                lens: matrix.lens,
+                filters: matrix.filters.merging([
+                    "haplotypeScopeView": haplotypeScope.lens,
+                ]) { _, new in new },
+                sampleNames: matrix.sampleNames,
+                rows: matrix.rows,
+                provenanceInputURLs: matrix.provenanceInputURLs,
+                annotationSidecarURL: matrix.annotationSidecarURL,
+                annotationSidecarData: matrix.annotationSidecarData,
+                sidecar: matrix.sidecar,
+                haplotypeCalls: matrix.haplotypeCalls,
+                sourceRevision: matrix.sourceRevision,
+                haplotypeSampleScope: haplotypeScope.haplotypeSampleScope,
+                haplotypeLocusScope: haplotypeScope.haplotypeLocusScope
             )
         } else {
             ensureComparisonMatrixConfigured()
@@ -9617,8 +9720,10 @@ public final class GenotypeResultViewController: NSViewController {
             )
         }
         return attachSidecarSnapshot(
-            to: attachHaplotypeDefinitionProvenanceContext(
-                to: attachFilterContext(to: baseSnapshot)
+            to: attachEffectiveHaplotypeCalls(
+                to: attachHaplotypeDefinitionProvenanceContext(
+                    to: attachFilterContext(to: baseSnapshot)
+                )
             )
         )
     }
