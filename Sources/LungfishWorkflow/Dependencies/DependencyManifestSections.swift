@@ -10,6 +10,42 @@ import CryptoKit
 /// and bootstrap (micromamba) metadata.
 public typealias DependencyManifest = ManagedToolLock
 
+public struct ManagedPythonRuntimeWheelSource: Sendable, Codable, Hashable {
+    public let url: URL
+    public let sha256: String
+    public let sourceRevision: String
+    public let upstreamRevision: String
+
+    public init(url: URL, sha256: String, sourceRevision: String, upstreamRevision: String) {
+        self.url = url
+        self.sha256 = sha256.lowercased()
+        self.sourceRevision = sourceRevision.lowercased()
+        self.upstreamRevision = upstreamRevision.lowercased()
+    }
+
+    func validateRequestedIdentity() throws {
+        let safe = CharacterSet(charactersIn:
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-")
+        let components = url.pathComponents
+        let validHex: (String, Int) -> Bool = { value, count in
+            value.count == count && value.allSatisfy { $0.isASCII && $0.isHexDigit }
+        }
+        guard url.scheme == "https", url.host == "github.com", url.port == nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              components.count == 7, components[0] == "/",
+              components[3] == "releases", components[4] == "download",
+              components[1...2].allSatisfy({ !$0.isEmpty && $0.unicodeScalars.allSatisfy(safe.contains) }),
+              !components[5].isEmpty, components[5].unicodeScalars.allSatisfy(safe.contains),
+              components[6].hasSuffix(".whl"),
+              components[6].unicodeScalars.allSatisfy(safe.contains),
+              validHex(sha256, 64), validHex(sourceRevision, 40),
+              validHex(upstreamRevision, 40) else {
+            throw CondaLockfileError.invalidSpecification(
+                "Managed Python wheel source requires an immutable GitHub release wheel, SHA-256, and exact source revisions.")
+        }
+    }
+}
+
 public struct ManagedPythonRuntimeSpec: Sendable, Codable, Hashable {
     public let distributionName: String
     public let version: String
@@ -18,6 +54,7 @@ public struct ManagedPythonRuntimeSpec: Sendable, Codable, Hashable {
     public let basePackageSpecs: [String]
     public let requirementsResource: String
     public let requirementsSHA256: String
+    public let releaseWheelSource: ManagedPythonRuntimeWheelSource?
 
     public init(
         distributionName: String,
@@ -26,7 +63,8 @@ public struct ManagedPythonRuntimeSpec: Sendable, Codable, Hashable {
         platform: String,
         basePackageSpecs: [String],
         requirementsResource: String,
-        requirementsSHA256: String
+        requirementsSHA256: String,
+        releaseWheelSource: ManagedPythonRuntimeWheelSource? = nil
     ) {
         self.distributionName = distributionName
         self.version = version
@@ -35,6 +73,7 @@ public struct ManagedPythonRuntimeSpec: Sendable, Codable, Hashable {
         self.basePackageSpecs = basePackageSpecs
         self.requirementsResource = requirementsResource
         self.requirementsSHA256 = requirementsSHA256.lowercased()
+        self.releaseWheelSource = releaseWheelSource
     }
 
     func validateRequestedIdentity() throws {
@@ -62,6 +101,7 @@ public struct ManagedPythonRuntimeSpec: Sendable, Codable, Hashable {
                 "Python runtime requires a pinned osx-arm64 identity, base packages, and hashed requirements resource."
             )
         }
+        try releaseWheelSource?.validateRequestedIdentity()
     }
 
     func matches(pythonVersion: String) -> Bool {

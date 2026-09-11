@@ -175,7 +175,7 @@ struct PrimerDesignDialog: View {
       }
       Text(state.grouping == .independent
         ? "Each alignment produces a separate scheme and retains its input identity."
-        : "Run PrimalScheme3 panel-create once with all selected alignments to design a combined panel.")
+        : "Run PrimalScheme3-LGE custom fork panel-create once with all selected alignments to design a combined panel.")
         .font(.caption).foregroundStyle(.secondary)
       if state.grouping == .combined {
         Text("Combined panel mode: Equal. Reference identifiers are normalized for execution, with a stored mapping to the original allele names.")
@@ -217,9 +217,8 @@ struct PrimerDesignDialog: View {
           Toggle("Use high-GC design settings", isOn: $state.highGC)
           Text("Mapping reference: first alignment row. Original allele names are retained in the analysis.")
             .font(.caption).foregroundStyle(.secondary)
-          Toggle("Exclude uncovered alignment ends from coverage", isOn: $state.excludeUncoveredEnds)
-            .disabled(true)
-          Text("Unavailable in the managed PrimalScheme3 3.3.0 release. The earlier custom modification is not part of this runtime.")
+          Toggle("Treat uncovered alignment ends as missing observations", isOn: $state.excludeUncoveredEnds)
+          Text("PrimalScheme3-LGE custom fork: excludes missing terminal observations at each candidate site while retaining available internal sequence. Uses Python discovery with the selected CPU count. Turn off for legacy Rust behavior. Unobserved alleles are not evidence of a match.")
             .font(.caption).foregroundStyle(.secondary)
         }
         TextField("Executable override (optional)", text: $state.executableOverride)

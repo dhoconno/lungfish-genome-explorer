@@ -45,6 +45,10 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     let envelope = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: loaded.artifactURL(forRelativePath: provenanceFile.relativePath)))
     XCTAssertTrue(envelope.outputs.allSatisfy { $0.path.hasPrefix(output.path + "/") })
     XCTAssertEqual(envelope.argv.first, "/fixture/primalscheme3")
+    XCTAssertEqual(envelope.toolName, "PrimalScheme3-LGE (custom fork)")
+    XCTAssertEqual(envelope.toolVersion, "3.3.0+lge.1")
+    let policyFlag = try XCTUnwrap(envelope.argv.firstIndex(of: "--terminal-gap-policy"))
+    XCTAssertEqual(envelope.argv[policyFlag + 1], "observed-only")
     let moved = fixture.root.appendingPathComponent("moved.lungfishprimeranalysis")
     try FileManager.default.moveItem(at: output, to: moved)
     for input in fixture.inputs { try FileManager.default.removeItem(at: input.deletingLastPathComponent()) }
@@ -91,6 +95,32 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
   }
 
+  func testWrongNativePolicyCannotPublishAsMissingAware() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      try Self.nativeFixture(command, policy: "legacy")
+    })
+    do {
+      _ = try await pipeline.run(request: request(fixture, grouping: .combined))
+      XCTFail("A mismatched native policy must not be published")
+    } catch { XCTAssertTrue(error.localizedDescription.contains("policy"), error.localizedDescription) }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+  }
+
+  func testInvalidEffectiveWorkerCountCannotPublish() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      try Self.nativeFixture(command, workers: 0)
+    })
+    do {
+      _ = try await pipeline.run(request: request(fixture, grouping: .combined))
+      XCTFail("An invalid effective worker count must not be published")
+    } catch { XCTAssertTrue(error.localizedDescription.contains("worker"), error.localizedDescription) }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+  }
+
   private struct Fixture {
     let root: URL
     let inputs: [URL]
@@ -119,16 +149,18 @@ final class PrimalScheme3PublicationTests: XCTestCase {
       expectedInputChecksums: Dictionary(uniqueKeysWithValues: try fixture.inputs.map { ($0, try Primer3InputLoader.fingerprint($0)) }))
   }
 
-  private static func nativeFixture(_ command: PrimalScheme3Command, exitStatus: Int32 = 0) throws -> PrimalScheme3Execution {
+  private static func nativeFixture(_ command: PrimalScheme3Command, exitStatus: Int32 = 0, policy: String = "observed-only", workers: Int = 1) throws -> PrimalScheme3Execution {
     guard let outputIndex = command.arguments.firstIndex(of: "--output") else { throw CocoaError(.fileReadUnknown) }
     let output = URL(fileURLWithPath: command.arguments[outputIndex + 1])
     try FileManager.default.createDirectory(at: output.appendingPathComponent("nested"), withIntermediateDirectories: true)
-    try Data("{\"mode\":\"equal\",\"amplicon_size\":400,\"n_pools\":2}".utf8).write(to: output.appendingPathComponent("config.json"))
+    let config: [String: Any] = ["mode": "equal", "amplicon_size": 400, "n_pools": 2,
+      "terminal_gap_policy": policy, "discovery_core_count": workers, "discovery_backend": policy == "legacy" ? "rust-legacy" : "python-observed-only"]
+    try JSONSerialization.data(withJSONObject: config).write(to: output.appendingPathComponent("config.json"))
     try Data("fixture\t0\t4\tprimer\t1\t+\n".utf8).write(to: output.appendingPathComponent("primer.bed"))
     try Data(">fixture\nACGT\n".utf8).write(to: output.appendingPathComponent("reference.fasta"))
     try Data([0, 1, 255]).write(to: output.appendingPathComponent("nested/extra.dat"))
     return .init(argv: ["/fixture/primalscheme3"] + command.arguments, stdout: "fixture output",
-      stderr: exitStatus == 0 ? "" : "fixture failure", exitStatus: exitStatus, version: "3.3.0",
+      stderr: exitStatus == 0 ? "" : "fixture failure", exitStatus: exitStatus, version: PrimalScheme3DesignPipeline.toolVersion,
       runtime: .init(executablePath: "/fixture/primalscheme3"), startedAt: Date(), endedAt: Date())
   }
 

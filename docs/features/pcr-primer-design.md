@@ -1,6 +1,6 @@
 # PCR Primer Design
 
-PCR Primer Design is an optional tool pack for sequence-based primer design. Install it from **Tools → Plugin Manager**, then open **Tools → PCR Primer Design**. The pack contains Primer3 and PrimalScheme3 in separate managed environments. PrimalScheme3 uses a pinned Python wheel set inside its conda environment; it is not the older Bioconda `primalscheme` package.
+PCR Primer Design is an optional tool pack for sequence-based primer design. Install it from **Tools → Plugin Manager**, then open **Tools → PCR Primer Design**. The pack contains Primer3 and **PrimalScheme3-LGE (custom fork)** in separate managed environments. The custom fork uses a pinned Python wheel set inside its conda environment. It is distinct from upstream PrimalScheme3 and the older Bioconda `primalscheme` package. Its public source is [dhoconno/primalscheme3-lge](https://github.com/dhoconno/primalscheme3-lge).
 
 ## Inputs and MHC examples
 
@@ -18,11 +18,13 @@ Primer3 supports product-size ranges, a target region, candidate-pair count, pri
 
 Choose PCR primers, qPCR with an intercalating dye, or qPCR with an internal hydrolysis-probe candidate. Internal oligo sequence selection does not add fluorophores, quenchers or vendor modifications. The output represents design candidates.
 
-PrimalScheme3 offers **one scheme per MSA** or a **combined scheme from selected MSAs**. Independent mode runs `scheme-create` separately for each alignment. Combined mode runs `panel-create` once with all selected alignments in Equal mode. Amplicon size and pool count are explicit settings. Advanced controls include minimum base frequency, high-GC settings, CPU cores, and minimum overlap for independent schemes. The complete native configuration is retained with the outputs. Execution snapshots use unique filenames and safe row identifiers even when source filenames or allele names repeat across alignments. A hash-bound row map preserves the original allele names and row order; original source files remain byte-for-byte intact.
+PrimalScheme3 offers **one scheme per MSA** or a **combined scheme from selected MSAs**. Independent mode runs `scheme-create` separately for each alignment. Combined mode runs `panel-create` once with all selected alignments in Equal mode. Amplicon size and pool count are explicit settings. Advanced controls include minimum base frequency, high-GC settings, CPU workers (up to four by default), and minimum overlap for independent schemes. The complete native configuration is retained with the outputs. Execution snapshots use unique filenames and safe row identifiers even when source filenames or allele names repeat across alignments. A hash-bound row map preserves the original allele names and row order; original source files remain byte-for-byte intact.
 
-Advanced settings include an executable override. The chosen binary is identified before design and its actual path/version are recorded. The adapter accepts only versions whose command interface it supports.
+Advanced settings include an executable override. The chosen binary is identified before design and its actual path/version are recorded. The PrimalScheme3 adapter requires the explicitly versioned custom fork; a stock executable is rejected. Previously saved stock analyses remain readable.
 
-The earlier custom uncovered-terminal-end change is **not included in stock PrimalScheme3 3.3.0**. Its archived patch changes internal behavior without adding a CLI capability flag. The control is therefore unavailable in the managed release; selecting another executable does not establish that the custom behavior is present.
+The PrimalScheme3-LGE custom fork exposes **Treat uncovered alignment ends as missing observations**, enabled by default in LGE. LGE explicitly passes `--terminal-gap-policy observed-only`; disabling the option passes `legacy`. The fork's standalone CLI defaults to legacy for backward compatibility. Missing terminal observations do not count as matches; internal gaps remain distinct from missing ends. Compatibility among assessable sequences does not establish compatibility for unobserved alleles.
+
+The observed-only policy uses patched Python discovery; legacy preserves upstream Rust discovery. The backend choice is recorded as `python-observed-only` or `rust-legacy` in native configuration and retained in provenance. Comparisons therefore involve a discovery-backend change as well as missing-data semantics. See [custom fork details](primalscheme3-lge-fork.md).
 
 ## Saved results and annotations
 

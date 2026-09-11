@@ -438,7 +438,7 @@ final class PluginPackRegistryTests: XCTestCase {
         )
         let runtime = try XCTUnwrap(spec.pythonRuntime)
         XCTAssertEqual(runtime.distributionName, "primalscheme3")
-        XCTAssertEqual(runtime.version, "3.3.0")
+        XCTAssertEqual(runtime.version, "3.3.0+lge.1")
         XCTAssertEqual(runtime.pythonABI, "cp312")
         XCTAssertEqual(runtime.platform, "osx-arm64")
         XCTAssertEqual(runtime.basePackageSpecs, [
@@ -451,6 +451,13 @@ final class PluginPackRegistryTests: XCTestCase {
             "primalscheme3-osx-arm64-py312-requirements.txt"
         )
         XCTAssertEqual(runtime.requirementsSHA256.count, 64)
+        let wheel = try XCTUnwrap(runtime.releaseWheelSource)
+        XCTAssertEqual(
+            wheel.url.absoluteString,
+            "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.1/primalscheme3-3.3.0+lge.1-py3-none-any.whl")
+        XCTAssertEqual(wheel.sha256, "62841f9bf3a64e788a7162f333b9c8715667b39c1d422d560632b1f5e80cb55d")
+        XCTAssertEqual(wheel.sourceRevision, "a5cb62bb831f926701b2ca6eb5fe3d3624fccc0b")
+        XCTAssertEqual(wheel.upstreamRevision, "dd13ec5cb1cf375f052640355c73101c0c4bf839")
 
         let pack = try XCTUnwrap(
             PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" }
@@ -461,12 +468,13 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(requirement.pythonRuntime, runtime)
         XCTAssertEqual(requirement.installPackages, runtime.basePackageSpecs)
         XCTAssertEqual(requirement.executables, ["primalscheme3"])
-        XCTAssertEqual(requirement.version, "3.3.0")
+        XCTAssertEqual(requirement.displayName, "PrimalScheme3-LGE (custom fork)")
+        XCTAssertEqual(requirement.version, "3.3.0+lge.1")
         XCTAssertEqual(requirement.license, "GPL-3.0")
         XCTAssertEqual(requirement.smokeTest?.arguments, ["--version"])
         XCTAssertEqual(
             requirement.smokeTest?.requiredOutputSubstring,
-            "PrimalScheme3 version: 3.3.0")
+            "PrimalScheme3-LGE version: 3.3.0+lge.1")
     }
 
     func testExperimentalOptionalPacksAreExcludedFromReleaseVisiblePacks() {

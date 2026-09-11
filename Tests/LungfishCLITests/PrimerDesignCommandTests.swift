@@ -34,6 +34,11 @@ final class PrimerDesignCommandTests: XCTestCase {
             "--output", "/tmp/scheme.lungfishprimeranalysis",
         ])
         XCTAssertEqual(command.msaPaths, ["/tmp/mhc-class-i.lungfishmsa"])
+        XCTAssertEqual(command.terminalGapPolicy, "observed-only")
+        XCTAssertEqual(command.coreCount, PrimalScheme3DesignOptions.defaultCoreCount)
+        let legacy = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--output", "/tmp/out.lungfishprimeranalysis", "--terminal-gap-policy", "legacy"])
+        XCTAssertEqual(legacy.terminalGapPolicy, "legacy")
         XCTAssertThrowsError(try command.validatedInputURLs(paths: ["/tmp/raw-aligned.fasta"]))
     }
 }

@@ -101,6 +101,8 @@ final class PrimerDesignDialogStateTests: XCTestCase {
   func testPrimalAdvancedSettingsValidateTextAndGrouping() throws {
     let state = configuredState()
     state.engine = .primalScheme
+    XCTAssertEqual(try state.primalSchemeOptions().terminalGapPolicy, .observedOnly)
+    state.excludeUncoveredEnds = false
     state.minimumBaseFrequency = "1.1"
     XCTAssertNotNil(state.validationMessage)
     state.minimumBaseFrequency = "0.5"
@@ -120,6 +122,11 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(options.minimumBaseFrequency, 0.5)
     XCTAssertEqual(options.coreCount, 2)
     XCTAssertTrue(options.highGC)
+    XCTAssertEqual(options.terminalGapPolicy, .legacy)
+    state.excludeUncoveredEnds = true
+    XCTAssertEqual(try state.primalSchemeOptions().terminalGapPolicy, .observedOnly)
+    XCTAssertEqual(try state.primalSchemeOptions().coreCount, 2)
+    XCTAssertTrue(state.engine.rawValue.contains("custom fork"))
   }
 
   private func configuredState() -> PrimerDesignDialogState {

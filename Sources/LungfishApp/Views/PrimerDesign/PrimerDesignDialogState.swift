@@ -5,7 +5,7 @@ import LungfishWorkflow
 
 enum PrimerDesignEngine: String, CaseIterable, Identifiable {
   case primer3 = "Primer3"
-  case primalScheme = "PrimalScheme3"
+  case primalScheme = "PrimalScheme3-LGE (custom fork)"
   var id: String { rawValue }
 }
 
@@ -65,8 +65,8 @@ final class PrimerDesignDialogState {
   var minOverlap = "10"
   var minimumBaseFrequency = "0"
   var highGC = false
-  var coreCount = "1"
-  var excludeUncoveredEnds = false
+  var coreCount = String(PrimalScheme3DesignOptions.defaultCoreCount)
+  var excludeUncoveredEnds = true
   var executableOverride = ""
   var progressMessage: String?
   var errorMessage: String?
@@ -187,7 +187,8 @@ final class PrimerDesignDialogState {
     return PrimalScheme3DesignOptions(
       ampliconSize: size, poolCount: try positiveInteger(poolCount, "Pool count"),
       minOverlap: overlap, minimumBaseFrequency: frequency, highGC: highGC,
-      coreCount: try positiveInteger(coreCount, "CPU cores"))
+      coreCount: try positiveInteger(coreCount, "CPU cores"),
+      terminalGapPolicy: excludeUncoveredEnds ? .observedOnly : .legacy)
   }
 
   func primer3Options() throws -> Primer3DesignOptions {

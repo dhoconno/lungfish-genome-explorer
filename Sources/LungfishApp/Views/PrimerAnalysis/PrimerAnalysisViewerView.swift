@@ -80,7 +80,7 @@ struct PrimerAnalysisViewerView: View {
           case .overview: overview(snapshot)
           case .results:
             if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url) }
-            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults) }
+            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3") }
             else { Text("Native scheme outputs are preserved in the Files inventory.").foregroundStyle(.secondary) }
           case .files: files(snapshot)
           case .provenance: provenance(snapshot)

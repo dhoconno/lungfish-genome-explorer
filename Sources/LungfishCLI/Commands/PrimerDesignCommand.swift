@@ -92,21 +92,22 @@ struct PrimerDesignCommand: AsyncParsableCommand {
     }
 
     struct PrimalScheme3Subcommand: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run PrimalScheme3 on explicit native MSA bundles")
+        static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run the PrimalScheme3-LGE custom fork on explicit native MSA bundles")
         @Option(name: .customLong("msa"), help: "Native .lungfishmsa input. Repeatable; raw aligned FASTA must first be imported with an alignment workflow.") var msaPaths: [String] = []
         @Option(name: .customLong("output")) var outputPath: String
         @Option(name: .customLong("grouping"), help: "independent or combined") var grouping = "independent"
         @Option(name: .customLong("primalscheme3-path")) var executablePath: String?
         @Option(name: .customLong("amplicon-size")) var ampliconSize = 400
         @Option(name: .customLong("pool-count")) var poolCount = 2
-        @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent designs; combined designs require the stock default 10.") var minOverlap = 10
+        @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent designs; combined designs require the default 10.") var minOverlap = 10
         @Option(name: .customLong("minimum-base-frequency")) var minimumBaseFrequency = 0.0
         @Flag(name: .customLong("high-gc")) var highGC = false
-        @Option(name: .customLong("core-count")) var coreCount = 1
+        @Option(name: .customLong("core-count"), help: "CPU workers for custom Python or legacy Rust discovery.") var coreCount = PrimalScheme3DesignOptions.defaultCoreCount
+        @Option(name: .customLong("terminal-gap-policy"), help: "Custom fork missing-data policy: observed-only or legacy.") var terminalGapPolicy = "observed-only"
 
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
-            print("PrimalScheme3 analysis written to \(output.path)")
+            print("PrimalScheme3-LGE custom fork analysis written to \(output.path)")
         }
         func validatedInputURLs(paths: [String]) throws -> [URL] {
             guard !paths.isEmpty else { throw ValidationError("Provide at least one --msa input.") }
@@ -123,8 +124,11 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             if resolvedGrouping == .combined, minOverlap != 10 { throw ValidationError("--min-overlap applies only to independent designs; combined mode requires 10.") }
             var checksums: [URL: String] = [:]
             for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount)
-            let explicit: [String: ParameterValue] = ["ampliconSize": .integer(ampliconSize), "poolCount": .integer(poolCount), "minOverlap": .integer(minOverlap), "minimumBaseFrequency": .number(minimumBaseFrequency), "highGC": .boolean(highGC), "coreCount": .integer(coreCount), "grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]
+            guard let resolvedTerminalGapPolicy = PrimalScheme3TerminalGapPolicy(rawValue: terminalGapPolicy) else {
+                throw ValidationError("--terminal-gap-policy must be observed-only or legacy.")
+            }
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy)
+            let explicit: [String: ParameterValue] = ["ampliconSize": .integer(ampliconSize), "poolCount": .integer(poolCount), "minOverlap": .integer(minOverlap), "minimumBaseFrequency": .number(minimumBaseFrequency), "highGC": .boolean(highGC), "coreCount": .integer(coreCount), "terminalGapPolicy": .string(resolvedTerminalGapPolicy.rawValue), "grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
         }

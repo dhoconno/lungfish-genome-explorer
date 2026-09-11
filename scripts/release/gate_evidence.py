@@ -493,6 +493,15 @@ def validate_python_runtime_pin(tool, source_root, manifest_path):
     if (not isinstance(resource, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", resource) is None
             or not isinstance(checksum, str) or re.fullmatch(r"[a-fA-F0-9]{64}", checksum) is None):
         raise EvidenceError("canonical Python runtime lacks a safe hash-bound requirements resource")
+    wheel_source = runtime.get("releaseWheelSource")
+    if wheel_source is not None:
+        if (not isinstance(wheel_source, dict)
+                or not isinstance(wheel_source.get("url"), str)
+                or re.fullmatch(r"https://github\.com/[A-Za-z0-9._+-]+/[A-Za-z0-9._+-]+/releases/download/[A-Za-z0-9._+-]+/[A-Za-z0-9._+-]+\.whl", wheel_source["url"]) is None
+                or any(not isinstance(wheel_source.get(field), str)
+                       or re.fullmatch(r"[a-fA-F0-9]{" + str(length) + r"}", wheel_source[field]) is None
+                       for field, length in [("sha256", 64), ("sourceRevision", 40), ("upstreamRevision", 40)])):
+            raise EvidenceError("canonical Python release wheel requires a public pinned artifact and source revisions")
     requirements_record = file_record(manifest_path.parent / resource, source_root)
     if requirements_record["sha256"] != checksum.lower():
         raise EvidenceError("canonical Python requirements checksum differs from its manifest pin")

@@ -1,9 +1,44 @@
 import CryptoKit
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class ManagedPythonRuntimeInstallerTests: XCTestCase {
+    func testActualMultilineRequirementsBindReleaseWheelHash() throws {
+        let resource = try XCTUnwrap(RuntimeResourceLocator.path(
+            "ManagedTools/primalscheme3-osx-arm64-py312-requirements.txt",
+            in: .workflow))
+        let requirements = try Data(contentsOf: resource)
+        XCTAssertTrue(ManagedPythonRuntimeInstaller.requirementsContainPinnedWheel(
+            requirements,
+            contain: "primalscheme3",
+            version: "3.3.0+lge.1",
+            sha256: "62841f9bf3a64e788a7162f333b9c8715667b39c1d422d560632b1f5e80cb55d"))
+        XCTAssertFalse(ManagedPythonRuntimeInstaller.requirementsContainPinnedWheel(
+            requirements,
+            contain: "primalscheme3",
+            version: "3.3.0+lge.1",
+            sha256: String(repeating: "0", count: 64)))
+    }
+
+    func testReleaseWheelSourceRequiresImmutableGitHubAssetIdentity() throws {
+        let source = ManagedPythonRuntimeWheelSource(
+            url: try XCTUnwrap(URL(string:
+                "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.1/primalscheme3-3.3.0+lge.1-py3-none-any.whl")),
+            sha256: String(repeating: "a", count: 64),
+            sourceRevision: String(repeating: "b", count: 40),
+            upstreamRevision: String(repeating: "c", count: 40))
+
+        XCTAssertNoThrow(try source.validateRequestedIdentity())
+        XCTAssertThrowsError(try ManagedPythonRuntimeWheelSource(
+            url: URL(string: "https://github.com/dhoconno/primalscheme3-lge/latest/wheel.whl")!,
+            sha256: source.sha256,
+            sourceRevision: source.sourceRevision,
+            upstreamRevision: source.upstreamRevision
+        ).validateRequestedIdentity())
+    }
+
     func testRejectsUnsafeRuntimeIdentityPinsAndExecutableBasename() async throws {
         let fixture = try PythonRuntimeFixture()
         defer { fixture.cleanup() }
@@ -47,7 +82,7 @@ final class ManagedPythonRuntimeInstallerTests: XCTestCase {
 
         let python = fixture.environmentURL.appendingPathComponent("bin/python").path
         XCTAssertEqual(fixture.recorder.commands.prefix(3), [
-            [python, "-I", "-m", "pip", "--isolated", "download", "--require-hashes", "--only-binary=:all:", "--no-deps", "--dest", fixture.wheelhouse.path, "-r", fixture.requirementsURL.path],
+            [python, "-I", "-m", "pip", "--isolated", "download", "--require-hashes", "--only-binary=:all:", "--no-deps", "--find-links", fixture.releaseWheelURL.absoluteString, "--dest", fixture.wheelhouse.path, "-r", fixture.requirementsURL.path],
             [python, "-I", "-m", "pip", "--isolated", "install", "--require-hashes", "--no-index", "--no-deps", "--force-reinstall", "--find-links", fixture.wheelhouse.path, "-r", fixture.requirementsURL.path],
             [python, "-I", "-m", "pip", "--isolated", "check"],
         ])
@@ -168,7 +203,11 @@ private final class PythonCommandRecorder: @unchecked Sendable {
 }
 
 private struct PythonRuntimeFixture {
-    static let requirementsBytes = Data("primalscheme3==3.3.0 --hash=sha256:abc\n".utf8)
+    static let wheelBytes = Data("wheel".utf8)
+    static let wheelHash = SHA256.hash(data: wheelBytes).map { String(format: "%02x", $0) }.joined()
+    static var requirementsBytes: Data {
+        Data("primalscheme3==3.3.0 --hash=sha256:\(wheelHash)\n".utf8)
+    }
     let root: URL
     let environmentURL: URL
     let spec: ManagedPythonRuntimeSpec
@@ -182,6 +221,9 @@ private struct PythonRuntimeFixture {
     var receiptURL: URL { ManagedPythonRuntimeReceipt.receiptURL(for: spec, environmentURL: environmentURL) }
     var installedFile: URL { environmentURL.appendingPathComponent("lib/python3.12/site-packages/primalscheme3/__init__.py") }
     var requirementsData: Data { Self.requirementsBytes }
+    var releaseWheelURL: URL {
+        URL(string: "https://github.com/example/runtime/releases/download/v3.3.0/primalscheme3-3.3.0-py3-none-any.whl")!
+    }
 
     init(failCommandIndex: Int? = nil, cancelCommandIndex: Int? = nil) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -197,7 +239,12 @@ private struct PythonRuntimeFixture {
                 "conda-forge::pip=25.2=pyh8b19718_0",
                 "bioconda::primer3-py=2.3.1=py312h76eea60_0",
             ],
-            requirementsResource: "requirements.txt", requirementsSHA256: hash)
+            requirementsResource: "requirements.txt", requirementsSHA256: hash,
+            releaseWheelSource: .init(
+                url: URL(string: "https://github.com/example/runtime/releases/download/v3.3.0/primalscheme3-3.3.0-py3-none-any.whl")!,
+                sha256: Self.wheelHash,
+                sourceRevision: String(repeating: "a", count: 40),
+                upstreamRevision: String(repeating: "b", count: 40)))
         try FileManager.default.createDirectory(
             at: environmentURL.appendingPathComponent("bin"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -237,7 +284,7 @@ private struct PythonRuntimeFixture {
                 if argv.contains("download") {
                     let wheelhouse = environmentURL.appendingPathComponent("share/lungfish/managed-tools/wheels-primalscheme3")
                     try FileManager.default.createDirectory(at: wheelhouse, withIntermediateDirectories: true)
-                    try Data("wheel".utf8).write(to: wheelhouse.appendingPathComponent("primalscheme3-3.3.0-py3-none-any.whl"))
+                    try Self.wheelBytes.write(to: wheelhouse.appendingPathComponent("primalscheme3-3.3.0-py3-none-any.whl"))
                 }
                 if argv.contains("-c") {
                     try FileManager.default.createDirectory(at: installedFile.deletingLastPathComponent(), withIntermediateDirectories: true)

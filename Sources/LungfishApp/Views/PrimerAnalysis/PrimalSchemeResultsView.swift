@@ -65,6 +65,7 @@ struct PrimalSchemeDisplayResult: Identifiable, Sendable {
 
 struct PrimalSchemeResultsView: View {
   let results: [PrimalSchemeDisplayResult]
+  var engineDescription: String = "PrimalScheme3"
   @State private var selectedResultID: String?
   @State private var selectedPrimerID: Int?
   @State private var selectedPool: Int?
@@ -75,7 +76,7 @@ struct PrimalSchemeResultsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("PrimalScheme3 results").font(.title2.weight(.semibold))
+      Text("\(engineDescription) results").font(.title2.weight(.semibold))
       Picker("Stored scheme", selection: Binding(get: { result?.id }, set: { selectedResultID = $0 })) {
         ForEach(results) { Text($0.title).tag(Optional($0.id)) }
       }.onChange(of: selectedResultID) { selectedPrimerID = nil; selectedPool = nil }

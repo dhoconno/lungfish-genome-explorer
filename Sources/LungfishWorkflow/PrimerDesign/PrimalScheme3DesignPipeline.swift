@@ -3,21 +3,34 @@ import Darwin
 import Foundation
 import LungfishIO
 
+public enum PrimalScheme3TerminalGapPolicy: String, Codable, CaseIterable, Sendable {
+    case legacy
+    case observedOnly = "observed-only"
+
+    public var discoveryBackend: String {
+        self == .legacy ? "rust-legacy" : "python-observed-only"
+    }
+}
+
 public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
+    public static var defaultCoreCount: Int { max(1, min(4, ProcessInfo.processInfo.activeProcessorCount)) }
     public let ampliconSize: Int
     public let poolCount: Int
     public let minOverlap: Int
     public let minimumBaseFrequency: Double
     public let highGC: Bool
     public let coreCount: Int
+    public let terminalGapPolicy: PrimalScheme3TerminalGapPolicy
     public init(ampliconSize: Int, poolCount: Int, minOverlap: Int = 10,
-                minimumBaseFrequency: Double = 0, highGC: Bool = false, coreCount: Int = 1) {
+                minimumBaseFrequency: Double = 0, highGC: Bool = false, coreCount: Int = PrimalScheme3DesignOptions.defaultCoreCount,
+                terminalGapPolicy: PrimalScheme3TerminalGapPolicy = .observedOnly) {
         self.ampliconSize = ampliconSize
         self.poolCount = poolCount
         self.minOverlap = minOverlap
         self.minimumBaseFrequency = minimumBaseFrequency
         self.highGC = highGC
         self.coreCount = coreCount
+        self.terminalGapPolicy = terminalGapPolicy
     }
 }
 
@@ -48,8 +61,8 @@ public enum PrimalScheme3DesignError: Error, LocalizedError, Sendable {
     case executionFailed(Int32, String)
     public var errorDescription: String? {
         switch self {
-        case .invalidRequest(let reason): return "PrimalScheme3: \(reason)"
-        case .executionFailed(let code, let detail): return "PrimalScheme3 exited with status \(code): \(detail)"
+        case .invalidRequest(let reason): return "PrimalScheme3-LGE (custom fork): \(reason)"
+        case .executionFailed(let code, let detail): return "PrimalScheme3-LGE custom fork exited with status \(code): \(detail)"
         }
     }
 }
@@ -74,6 +87,9 @@ struct PrimalScheme3Execution: Sendable {
 }
 
 public struct PrimalScheme3DesignPipeline: Sendable {
+    public static let toolVersion = "3.3.0+lge.1"
+    public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
+    public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
     typealias Runner = @Sendable (PrimalScheme3Command) async throws -> PrimalScheme3Execution
     private let runner: Runner
     private let writer: PrimerAnalysisBundleWriter
@@ -115,7 +131,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         args += ["--output", output.path, "--amplicon-size", String(options.ampliconSize),
                  "--n-pools", String(options.poolCount),
                  "--min-base-freq", String(options.minimumBaseFrequency), "--mapping", "first",
-                 options.highGC ? "--high-gc" : "--no-high-gc", "--ncores", String(options.coreCount)]
+                 options.highGC ? "--high-gc" : "--no-high-gc", "--ncores", String(options.coreCount),
+                 "--terminal-gap-policy", options.terminalGapPolicy.rawValue]
         if grouping == .independent { args += ["--min-overlap", String(options.minOverlap)] }
         return args
     }
@@ -211,7 +228,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         var results: [PrimerAnalysisResult] = []
         for (index, group) in groups.enumerated() {
             try Task.checkCancellation()
-            progress?(Double(index) / Double(groups.count), "Running PrimalScheme3 (\(index + 1)/\(groups.count))")
+            progress?(Double(index) / Double(groups.count), "Running PrimalScheme3-LGE custom fork (\(index + 1)/\(groups.count))")
             let resultID = UUID()
             let output = scratch.appendingPathComponent("native/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -223,13 +240,21 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             guard executed.exitStatus == 0 else {
                 throw PrimalScheme3DesignError.executionFailed(executed.exitStatus, executed.stderr)
             }
-            guard executed.version == "3.3.0", !executed.argv.isEmpty else {
-                throw PrimalScheme3DesignError.invalidRequest("The executed tool did not report the verified PrimalScheme3 3.3.0 identity.")
+            guard executed.version == Self.toolVersion, !executed.argv.isEmpty else {
+                throw PrimalScheme3DesignError.invalidRequest("The executed tool did not report the verified PrimalScheme3-LGE custom fork identity.")
             }
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
                 throw PrimalScheme3DesignError.invalidRequest("Native configuration is missing or malformed.")
+            }
+            guard configuration["terminal_gap_policy"] as? String == request.options.terminalGapPolicy.rawValue,
+                  configuration["discovery_backend"] as? String == request.options.terminalGapPolicy.discoveryBackend else {
+                throw PrimalScheme3DesignError.invalidRequest("The custom fork's native policy or discovery backend does not match the requested policy.")
+            }
+            guard let effectiveWorkers = configuration["discovery_core_count"] as? Int,
+                  (1...request.options.coreCount).contains(effectiveWorkers) else {
+                throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report a valid effective discovery worker count.")
             }
             guard FileManager.default.fileExists(atPath: output.appendingPathComponent("primer.bed").path),
                   FileManager.default.fileExists(atPath: output.appendingPathComponent("reference.fasta").path) else {
@@ -241,7 +266,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 $0.replacingOccurrences(of: scratch.path + "/", with: destination.path + "/")
             }
             var builder = ProvenanceRunBuilder(workflowName: "lungfish.primalscheme3.design", workflowVersion: "1",
-                                               toolName: "PrimalScheme3", toolVersion: executed.version)
+                                               toolName: Self.toolDisplayName, toolVersion: executed.version)
                 .argv(executed.argv)
                 .durableReplayArgv(replayArgv)
                 .reproducibleCommand(replayArgv.map(shellEscape).joined(separator: " "))
@@ -250,8 +275,13 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                                     "poolCount": .integer(request.options.poolCount), "grouping": .string(request.grouping.rawValue),
                                     "minOverlap": .integer(request.options.minOverlap),
                                     "minimumBaseFrequency": .number(request.options.minimumBaseFrequency),
-                                    "highGC": .boolean(request.options.highGC), "coreCount": .integer(request.options.coreCount)],
+                                    "highGC": .boolean(request.options.highGC), "coreCount": .integer(request.options.coreCount),
+                                    "terminalGapPolicy": .string(request.options.terminalGapPolicy.rawValue)],
                          defaults: [:], resolved: ["nativeConfiguration": Self.parameter(configuration),
+                         "customFork": .boolean(true), "sourceRepository": .string(Self.sourceRepository),
+                         "terminalGapPolicy": .string(request.options.terminalGapPolicy.rawValue),
+                         "discoveryBackend": .string(request.options.terminalGapPolicy.discoveryBackend),
+                         "effectiveCoreCount": .integer(effectiveWorkers),
                          "analysisID": .string(analysisID.uuidString), "runID": .string(runID.uuidString),
                          "resultID": .string(resultID.uuidString), "inputIDs": .array(group.map { .string($0.id.uuidString) }),
                          "panelMode": .string(request.grouping == .combined ? "equal" : "not-applicable"),
@@ -317,7 +347,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let bundle = try writer.write(.init(analysisID: analysisID, runID: runID, grouping: request.grouping,
             inputs: inputs.map { .init(id: $0.id, label: $0.originalURL.lastPathComponent, artifactPaths: $0.paths) },
             results: results, artifacts: artifacts, destinationURL: destination, invocation: request.invocation))
-        progress?(1, "Saved PrimalScheme3 analysis")
+        progress?(1, "Saved PrimalScheme3-LGE custom fork analysis")
         return bundle.url
     }
 
@@ -354,8 +384,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let native = NativeToolRunner()
         let version = try await native.runProcess(executableURL: executable, arguments: ["--version"],
                                                   workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
-        guard version.exitCode == 0, version.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "PrimalScheme3 version: 3.3.0" else {
-            throw PrimalScheme3DesignError.invalidRequest("This adapter requires verified PrimalScheme3 3.3.0. Custom terminal-gap changes cannot be identified from the stock version string.")
+        guard version.exitCode == 0, version.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "PrimalScheme3-LGE version: \(Self.toolVersion)" else {
+            throw PrimalScheme3DesignError.invalidRequest("This adapter requires the PrimalScheme3-LGE custom fork \(Self.toolVersion). Install or repair PCR Primer Design in the plugin manager; stock PrimalScheme3 is not interchangeable with this fork.")
         }
         runtimeEvidence["version-probe.json"] = try JSONSerialization.data(withJSONObject: [
             "argv": version.arguments, "stdout": version.stdout, "stderr": version.stderr, "exitStatus": version.exitCode
@@ -363,12 +393,12 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         try Task.checkCancellation()
         let start = Date()
         let result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
-            workingDirectory: command.workingDirectory, environment: environment, timeout: 86400, toolName: "PrimalScheme3")
+            workingDirectory: command.workingDirectory, environment: environment, timeout: 86400, toolName: Self.toolDisplayName)
         guard try ProvenanceFileHasher.sha256(of: executable) == executableHash else {
             throw PrimalScheme3DesignError.invalidRequest("The executable changed during the run.")
         }
         return .init(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode,
-                     version: "3.3.0", runtime: .init(executablePath: executable.path,
+                     version: Self.toolVersion, runtime: .init(executablePath: executable.path,
                      condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
                      pluginPack: prefix == nil ? nil : "pcr-primer-design", dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet),
                      startedAt: start, endedAt: Date(), executableSHA256: executableHash, runtimeEvidence: runtimeEvidence)

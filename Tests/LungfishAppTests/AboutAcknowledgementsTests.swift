@@ -72,6 +72,14 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertEqual(bracken.sourceURL, "https://github.com/jenniferlu717/Bracken")
     }
 
+    func testPCRDependenciesIdentifyPublicCustomFork() throws {
+        let section = try XCTUnwrap(AboutAcknowledgements.currentSections().first { $0.title == "PCR Primer Design" })
+        let entry = try XCTUnwrap(section.entries.first { $0.id == "primalscheme3" })
+        XCTAssertEqual(entry.displayName, "PrimalScheme3-LGE (custom fork)")
+        XCTAssertEqual(entry.detail, "3.3.0+lge.1")
+        XCTAssertEqual(entry.sourceURL, "https://github.com/dhoconno/primalscheme3-lge")
+    }
+
     func testCurrentSectionsExcludeInactiveAndRemovedTools() {
         let entryIDs = Set(AboutAcknowledgements.currentSections().flatMap { $0.entries.map(\.id) })
 

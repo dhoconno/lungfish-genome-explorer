@@ -146,6 +146,12 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
               !commands.isEmpty, !downloadedWheels.isEmpty,
               !installedDistributions.isEmpty, !installedFiles.isEmpty,
               requirements.sha256 == spec.requirementsSHA256 else { return false }
+        if let source = spec.releaseWheelSource {
+            guard downloadedWheels.contains(where: {
+                $0.relativePath.hasSuffix("/\(source.url.lastPathComponent)")
+                    && $0.sha256 == source.sha256
+            }) else { return false }
+        }
         let currentConda = Set(Self.condaRecords(in: environmentURL))
         guard Set(condaPackages).isSubset(of: currentConda),
               spec.basePackageSpecs.allSatisfy({ packageSpec in
@@ -347,6 +353,14 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             throw ManagedPythonRuntimeInstallerError.requirementsChecksumMismatch(
                 expected: spec.requirementsSHA256, actual: requirementsHash)
         }
+        if let source = spec.releaseWheelSource,
+           !Self.requirementsContainPinnedWheel(
+            requirementsData,
+            contain: spec.distributionName,
+            version: spec.version,
+            sha256: source.sha256) {
+            throw ManagedPythonRuntimeInstallerError.invalidInventory
+        }
         try requirementsData.write(to: requirementsURL, options: .atomic)
 
         var records: [ManagedPythonRuntimeReceipt.CommandRecord] = []
@@ -366,7 +380,12 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         }
 
         let pip = [python.path, "-I", "-m", "pip", "--isolated"]
-        _ = try await execute(pip + ["download", "--require-hashes", "--only-binary=:all:", "--no-deps", "--dest", wheelhouse.path, "-r", requirementsURL.path])
+        var downloadArguments = ["download", "--require-hashes", "--only-binary=:all:", "--no-deps"]
+        if let source = spec.releaseWheelSource {
+            downloadArguments += ["--find-links", source.url.absoluteString]
+        }
+        downloadArguments += ["--dest", wheelhouse.path, "-r", requirementsURL.path]
+        _ = try await execute(pip + downloadArguments)
         _ = try await execute(pip + ["install", "--require-hashes", "--no-index", "--no-deps", "--force-reinstall", "--find-links", wheelhouse.path, "-r", requirementsURL.path])
         _ = try await execute(pip + ["check"])
         let inventoryResult = try await execute([
@@ -395,6 +414,12 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             .filter { $0.pathExtension == "whl" }.sorted { $0.path < $1.path }
             .map { try ManagedPythonRuntimeReceipt.fileRecord(for: $0, relativeTo: root) }
         guard !wheels.isEmpty else { throw ManagedPythonRuntimeInstallerError.invalidInventory }
+        if let source = spec.releaseWheelSource {
+            guard wheels.contains(where: {
+                $0.relativePath.hasSuffix("/\(source.url.lastPathComponent)")
+                    && $0.sha256 == source.sha256
+            }) else { throw ManagedPythonRuntimeInstallerError.invalidInventory }
+        }
         let completed = now()
         try Task.checkCancellation()
         let receipt = ManagedPythonRuntimeReceipt(
@@ -413,6 +438,35 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         }
         try receipt.write(to: receiptURL)
         return receipt
+    }
+
+    static func requirementsContainPinnedWheel(
+        _ data: Data,
+        contain distributionName: String,
+        version: String,
+        sha256: String
+    ) -> Bool {
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+        let expectedPin = "\(distributionName)==\(version)"
+        let expectedHash = "--hash=sha256:\(sha256)"
+        var logicalLines: [String] = []
+        var current = ""
+        for physicalLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let value = physicalLine.trimmingCharacters(in: .whitespaces)
+            guard !value.isEmpty, !value.hasPrefix("#") else { continue }
+            let continued = value.hasSuffix("\\")
+            let segment = continued ? String(value.dropLast()).trimmingCharacters(in: .whitespaces) : value
+            current += (current.isEmpty ? "" : " ") + segment
+            if !continued {
+                logicalLines.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { logicalLines.append(current) }
+        return logicalLines.contains { line in
+            let tokens = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            return tokens.first == expectedPin && tokens.dropFirst().contains(expectedHash)
+        }
     }
 
     private static func pythonVersion(from records: [ManagedPythonRuntimeReceipt.CondaRecord]) -> String {

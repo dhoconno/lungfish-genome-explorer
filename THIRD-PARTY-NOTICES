@@ -10,6 +10,25 @@ Core tools such as Nextflow, Snakemake, and BBTools are installed into
 
 
 ================================================================================
+PrimalScheme3-LGE (custom fork) — optional PCR Primer Design tool
+https://github.com/dhoconno/primalscheme3-lge
+================================================================================
+
+LGE uses a separately maintained custom fork of upstream PrimalScheme3 v3.3.0,
+not an upstream release. The exact custom version, release artifact checksum,
+and fork/upstream revisions are pinned in LGE's dependency manifest and runtime
+receipt. The fork adds a selectable terminal-missing-data policy; its Python
+observed-only discovery path differs from the upstream Rust legacy path.
+
+Upstream source: https://github.com/artic-network/primalscheme3
+License: GNU General Public License, version 3 (GPL-3.0).
+Upstream authors retain their copyrights; modified source, attribution and the
+complete license are available in the public fork. This optional tool is
+installed into a separate managed environment and is not included in the app
+executable. LGE's MIT license does not replace the tool's GPL license.
+
+
+================================================================================
 SAMtools 1.22.1
 https://github.com/samtools/samtools
 ================================================================================
