@@ -60,3 +60,26 @@ The private source cohort was never written. A deterministic hash over its sorte
 - Task 3 must capture only after committing valid numeric drafts, then pass this immutable snapshot unchanged. The byte-freeze boundary exists; dialog timing still owns when it is invoked.
 - Legacy combined DQ/DP overview cells intentionally remain derived aliases and can collapse exact calls for presentation. Editing authority must use the exact `Haplotype Calls` identities, never those combined cells.
 - Existing pre-task Swift concurrency warnings remain; no new test errors or warnings attributable to this task were observed.
+
+## Review fix round 1
+
+The GUI snapshot boundary now always opts new exports into the typed clean-workbook contract: when no haplotype analysis exists it captures an empty `haplotypeCalls` array, while `nil` remains the backward-compatible marker for genuinely legacy decoded projections. Exact call scoping no longer applies locus-family aliases. Captured sample and locus arrays are traversed directly and therefore preserve viewport order; selecting each of simultaneous `MHC-DQA`, `MHC-DQB`, and `MHC-DQ` calls exports only that exact locus.
+
+`FilterPlan.ProjectedCell.colorHex` and `FilterPlan.ProjectedRow.rowColorHex` now carry the already-captured viewport colors through the CLI boundary. The Python transform explicitly clears inherited fills for captured nil/no-fill cells, applies captured row and cell fills, and then overlays review semantics. False-positive styling retains the captured fill; false-negative styling replaces it with the warning fill and border. The clean matrix also copies the resulting captured row-header style instead of discarding it.
+
+### Review TDD evidence
+
+- RED color: `swift test --jobs 6 --filter GenotypePivotFilteredCopyTests/testViewportProjectionControlsVisibleRowsColumnsValuesAndAnnotations` — 1 test, 2 expected failures (custom cell and row fills absent), `/tmp/lge-task1-review-red-color.log`.
+- RED scope: `swift test --jobs 6 --filter 'GenotypeResultViewportSelectionAndComparisonTests/testControllerExportSnapshot(WithoutHaplotypeAnalysisUsesEmptyTypedCalls|KeepsSplitDQLociExactAndCapturedOrder)'` — 2 tests, 7 expected failures: nil typed calls, all three DQ loci leaking for every exact selection, and analysis-order samples, `/tmp/lge-task1-review-red-scope.log`.
+- GREEN required review suites: `swift test --jobs 6 --filter 'GenotypeViewportPivotExportTests|GenotypeResultViewportSelectionAndComparisonTests|GenotypePivotFilteredCopyTests'` — 93 passed, 0 failed in 12.384 seconds, `/tmp/lge-task1-review-green-final.log`.
+- GREEN strengthened color/overlay check: focused CLI workbook test — 1 passed, 0 failed. It verifies custom row/cell fills, stale-fill clearing for nil, FP retaining captured fill, and FN warning fill replacing captured fill.
+- The requested Selection-and-Comparison run exposed six obsolete assertions introduced by Task 1's approved shared-authority behavior: normalized single-H2 calls now display the homozygous H2, exact current-workbook calls include supported DRB/E loci, and an already-effective H2 is not offered as a recommended override. The expectations were updated independently to those exact behaviors; no production change was made to accommodate them.
+
+### Review changed files
+
+- `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift`
+- `Sources/LungfishCLI/Commands/GenotypeExportPivotXlsxSubcommand.swift`
+- `Tests/LungfishGenotypeUITests/GenotypeResultViewportSelectionAndComparisonTests.swift`
+- `Tests/LungfishCLITests/GenotypePivotFilteredCopyTests.swift`
+
+No new concern was identified. Exact loci remain distinct, clean typed exports without analysis cannot retain companion sheets, and legacy projections still retain their explicit nil compatibility path.

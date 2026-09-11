@@ -151,6 +151,12 @@ if "Haplotype Calls" in wb.sheetnames:
     out["exactCall"] = [calls.cell(2, column).value for column in range(1, 7)]
     out["exactComment"] = calls.cell(2, 11).value
     out["exactCommentType"] = calls.cell(2, 11).data_type
+matrix = wb.worksheets[0]
+for row in range(2, matrix.max_row + 1):
+    if matrix.cell(row, 1).value == "01_Candidate":
+        out["candidateRowFill"] = matrix.cell(row, 1).fill.fgColor.rgb
+        out["candidateCellFill"] = matrix.cell(row, 4).fill.fgColor.rgb
+        out["candidateBlankFillType"] = matrix.cell(row, 5).fill.fill_type
 for row in wb.worksheets[0].iter_rows():
     for cell in row:
         if cell.value in ("[8]", "FN"):
@@ -439,9 +445,21 @@ print(json.dumps(out))
             lens: "comparison",
             sampleColumns: ["Animal2", "Animal1"],
             rows: [
-                .init(label: "01_Background", rawGenotype: "01_Background", locus: "MHC-A", cells: ["", "5"]),
-                .init(label: "01_Candidate", rawGenotype: "01_Candidate", locus: "MHC-A", stableClusterID: "candidate-1", cells: ["10", ""]),
-                .init(label: "01_Middle", rawGenotype: "01_Middle", locus: "MHC-A", cells: ["8", "40"]),
+                .init(
+                    label: "01_Background", rawGenotype: "01_Background", locus: "MHC-A",
+                    cells: ["", "5"], cellColorsHex: ["#111111", nil]
+                ),
+                .init(
+                    label: "01_Candidate", rawGenotype: "01_Candidate",
+                    locus: "MHC-A", stableClusterID: "candidate-1",
+                    cells: ["10", ""],
+                    cellColorsHex: ["#123456", nil],
+                    rowColorHex: "#ABCDEF"
+                ),
+                .init(
+                    label: "01_Middle", rawGenotype: "01_Middle", locus: "MHC-A",
+                    cells: ["8", "40"], cellColorsHex: ["#654321", nil]
+                ),
             ],
             haplotypeCalls: [
                 .init(
@@ -518,6 +536,9 @@ print(json.dumps(out))
         let boundaryRow = try XCTUnwrap(rows.first { $0.first as? String == "01_Candidate" })
         XCTAssertEqual(boundaryRow[3] as? Int, 10)
         XCTAssertTrue(boundaryRow[4] is NSNull, "the projection's filtered one-read cell stays blank")
+        XCTAssertTrue((object["candidateCellFill"] as? String)?.hasSuffix("123456") == true)
+        XCTAssertTrue((object["candidateRowFill"] as? String)?.hasSuffix("ABCDEF") == true)
+        XCTAssertTrue(object["candidateBlankFillType"] is NSNull)
         XCTAssertFalse(labels.contains("MHC-A alleles"), "typed snapshots do not retain template group/header data")
         XCTAssertLessThan(
             try XCTUnwrap(labels.firstIndex(of: "01_Background")),
@@ -526,9 +547,11 @@ print(json.dumps(out))
         let falsePositive = try XCTUnwrap(object["[8]"] as? [String: Any])
         XCTAssertEqual(falsePositive["italic"] as? Bool, true)
         XCTAssertTrue((falsePositive["fontColor"] as? String)?.hasSuffix("767676") == true)
+        XCTAssertTrue((falsePositive["fillColor"] as? String)?.hasSuffix("654321") == true)
         XCTAssertTrue((falsePositive["comment"] as? String)?.contains("Visible cell note") == true)
         let falseNegative = try XCTUnwrap(object["FN"] as? [String: Any])
         XCTAssertEqual(falseNegative["border"] as? String, "mediumDashed")
+        XCTAssertTrue((falseNegative["fillColor"] as? String)?.hasSuffix("FFF2CC") == true)
         XCTAssertTrue((object["Animal2Comment"] as? String)?.contains("Visible sample note") == true)
         XCTAssertTrue((object["01_BackgroundComment"] as? String)?.contains("Visible allele note") == true)
         XCTAssertFalse(dump.contains("Hidden note"))

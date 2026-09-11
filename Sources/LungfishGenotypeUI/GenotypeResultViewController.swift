@@ -9562,7 +9562,32 @@ public final class GenotypeResultViewController: NSViewController {
     private func attachEffectiveHaplotypeCalls(
         to base: GenotypeViewportExportSnapshot
     ) -> GenotypeViewportExportSnapshot {
-        guard let analysis = result?.haplotypeAnalysis else { return base }
+        func replacingCalls(
+            _ calls: [GenotypeViewProjectionHaplotypeCall],
+            sourceRevision: GenotypeViewProjectionSourceRevision? = nil
+        ) -> GenotypeViewportExportSnapshot {
+            GenotypeViewportExportSnapshot(
+                bundleURL: base.bundleURL,
+                analysisName: base.analysisName,
+                lens: base.lens,
+                filters: base.filters,
+                sampleNames: base.sampleNames,
+                rows: base.rows,
+                provenanceInputURLs: base.provenanceInputURLs,
+                annotationSidecarURL: base.annotationSidecarURL,
+                annotationSidecarData: base.annotationSidecarData,
+                sidecar: base.sidecar,
+                haplotypeCalls: calls,
+                sourceRevision: sourceRevision,
+                haplotypeSampleScope: base.haplotypeSampleScope,
+                haplotypeLocusScope: base.haplotypeLocusScope
+            )
+        }
+        guard let analysis = result?.haplotypeAnalysis else {
+            // GUI projections always opt in to the typed, clean workbook
+            // contract. `nil` remains reserved for decoded legacy projections.
+            return replacingCalls([])
+        }
         let sidecar = annotationStore?.sidecar
             ?? GenotypeAnnotationSidecar.empty(
                 generatedAt: analysis.generatedAt ?? "1970-01-01T00:00:00Z"
@@ -9571,25 +9596,13 @@ public final class GenotypeResultViewController: NSViewController {
             analysis: analysis,
             sidecar: sidecar
         )
-        let visibleSamples = Set(base.haplotypeSampleScope ?? base.sampleNames)
+        let visibleSamples = base.haplotypeSampleScope ?? base.sampleNames
         let selectedLocus = base.filters["locus"].flatMap {
             $0 == "All Loci" || $0.isEmpty ? nil : $0
         }
-        func locusIsInScope(_ locus: String) -> Bool {
-            if let scope = base.haplotypeLocusScope {
-                return scope.contains(locus)
-            }
-            guard let selectedLocus else { return true }
-            func family(_ value: String) -> String {
-                value.replacingOccurrences(of: "1", with: "")
-                    .replacingOccurrences(of: "MHC-DQA", with: "MHC-DQ")
-                    .replacingOccurrences(of: "MHC-DQB", with: "MHC-DQ")
-                    .replacingOccurrences(of: "MHC-DPA", with: "MHC-DP")
-                    .replacingOccurrences(of: "MHC-DPB", with: "MHC-DP")
-                    .replacingOccurrences(of: "MHC-DRB", with: "MHC-DR")
-            }
-            return family(locus) == family(selectedLocus)
-        }
+        let visibleLoci = base.haplotypeLocusScope
+            ?? selectedLocus.map { [$0] }
+            ?? resolution.orderedLoci
         let commentsBySampleLocus = Dictionary(
             uniqueKeysWithValues: analysis.samples.flatMap { sample in
                 sample.calls.map { ((sample.sample + "\u{1f}" + $0.locus), $0.notes) }
@@ -9603,8 +9616,8 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
         var calls: [GenotypeViewProjectionHaplotypeCall] = []
-        for sample in resolution.orderedSamples where visibleSamples.contains(sample) {
-            for locus in resolution.orderedLoci where locusIsInScope(locus) {
+        for sample in visibleSamples {
+            for locus in visibleLoci {
                 guard let value = resolution.locusValue(sample: sample, locus: locus) else { continue }
                 calls.append(.init(
                     sample: sample,
@@ -9621,25 +9634,13 @@ public final class GenotypeResultViewController: NSViewController {
                 ))
             }
         }
-        return GenotypeViewportExportSnapshot(
-            bundleURL: base.bundleURL,
-            analysisName: base.analysisName,
-            lens: base.lens,
-            filters: base.filters,
-            sampleNames: base.sampleNames,
-            rows: base.rows,
-            provenanceInputURLs: base.provenanceInputURLs,
-            annotationSidecarURL: base.annotationSidecarURL,
-            annotationSidecarData: base.annotationSidecarData,
-            sidecar: base.sidecar,
-            haplotypeCalls: calls,
+        return replacingCalls(
+            calls,
             sourceRevision: .init(
                 assayID: resolution.identity.assayID,
                 analysisRevisionID: resolution.identity.analysisRevisionID,
                 definitionSetID: resolution.identity.definitionSetID
-            ),
-            haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            )
         )
     }
 
@@ -11797,6 +11798,10 @@ extension GenotypeResultViewController {
 
     func testingCurrentExportSnapshot() -> GenotypeViewportExportSnapshot? {
         currentExportSnapshot()
+    }
+
+    func testingSetComparisonLocusFilter(_ locus: String?) {
+        comparisonMatrix.testingSetLocusFilter(locus)
     }
 
     func testingFileViewerSelectionURLs(for export: GenotypeViewportExportResult) -> [URL] {

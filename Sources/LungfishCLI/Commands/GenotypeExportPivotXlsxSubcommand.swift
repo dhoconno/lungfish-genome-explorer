@@ -1145,6 +1145,7 @@ extension GenotypeExportPivotXlsxSubcommand {
             let value: String
             let review: String?
             let comment: Comment?
+            let colorHex: String?
         }
 
         struct ProjectedRow: Codable, Equatable {
@@ -1154,6 +1155,7 @@ extension GenotypeExportPivotXlsxSubcommand {
             let stableClusterID: String?
             let cells: [ProjectedCell]
             let comment: Comment?
+            let rowColorHex: String?
         }
 
         let sheet: String
@@ -1262,7 +1264,10 @@ extension GenotypeExportPivotXlsxSubcommand {
                         sample: sample,
                         value: index < row.cells.count ? row.cells[index] : "",
                         review: review,
-                        comment: comment
+                        comment: comment,
+                        colorHex: row.cellColorsHex.flatMap {
+                            index < $0.count ? $0[index] : nil
+                        }
                     )
                 }
                 let rowComment = exportedComment {
@@ -1278,7 +1283,8 @@ extension GenotypeExportPivotXlsxSubcommand {
                     locus: row.locus,
                     stableClusterID: row.stableClusterID,
                     cells: cells,
-                    comment: rowComment
+                    comment: rowComment,
+                    rowColorHex: row.rowColorHex
                 )
             }
             var columnComments: [String: Comment] = [:]
@@ -1895,6 +1901,11 @@ if projected_rows is not None:
         row = rewrite_start + offset
         name = projected["genotype"]
         matched += 1
+        row_color = projected.get("rowColorHex")
+        sheet.cell(row, 1).fill = (
+            PatternFill(fill_type="solid", fgColor="FF" + row_color.lstrip("#").upper())
+            if row_color else PatternFill(fill_type=None)
+        )
         apply_comment(sheet.cell(row, 1), projected.get("comment"), "Allele row: " + name)
         remaining = []
         cells_by_sample = {cell["sample"]: cell for cell in projected.get("cells", [])}
@@ -1902,6 +1913,11 @@ if projected_rows is not None:
             projected_cell = cells_by_sample.get(sample, {})
             raw_value = str(projected_cell.get("value") or "").strip()
             cell = sheet.cell(row, column)
+            color = projected_cell.get("colorHex")
+            cell.fill = (
+                PatternFill(fill_type="solid", fgColor="FF" + color.lstrip("#").upper())
+                if color else PatternFill(fill_type=None)
+            )
             if raw_value in ("", "-"):
                 cell.value = None
             else:
@@ -2015,6 +2031,7 @@ if projected_rows is not None and exact_haplotype_calls is not None:
             projected.get("stableClusterID") or "",
         ] + [source_matrix.cell(source_row, sample_columns[sample]).value for sample in visible_samples])
         target_row = clean_matrix.max_row
+        clean_matrix.cell(target_row, 1)._style = copy(source_matrix.cell(source_row, 1)._style)
         clean_matrix.cell(target_row, 1).comment = copy(source_matrix.cell(source_row, 1).comment)
         for offset, sample in enumerate(visible_samples, start=4):
             source_cell = source_matrix.cell(source_row, sample_columns[sample])
