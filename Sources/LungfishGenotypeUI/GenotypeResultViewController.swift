@@ -1506,64 +1506,7 @@ public final class GenotypeResultViewController: NSViewController {
     /// haplotype omissions; Inspector controls no longer recompute calls live.
     private func runHaplotypeDropoutEvaluator() -> GenotypeDropoutEvaluator? {
         guard let result else { return nil }
-        let metrics = result.stats.rawMetrics
-        let absolute = Self.intMetric(metrics["minSupport"]).flatMap { $0 > 1 ? $0 : nil }
-        let sampleFraction = Self.percentMetric(metrics["haplotypeMinSamplePercent"])
-        let locusFraction = Self.percentMetric(metrics["haplotypeMinLocusPercent"])
-        let overrides = Self.locusPercentOverridesMetric(metrics["haplotypeMinLocusPercentOverrides"])
-        guard absolute != nil || sampleFraction != nil || locusFraction != nil || !overrides.isEmpty else {
-            return nil
-        }
-        return GenotypeDropoutEvaluator(
-            absolute: absolute,
-            sampleFraction: sampleFraction,
-            locusFraction: locusFraction,
-            locusFractionOverrides: overrides
-        )
-    }
-
-    private static func intMetric(_ value: String?) -> Int? {
-        guard let number = doubleMetric(value) else { return nil }
-        return Int(number)
-    }
-
-    private static func percentMetric(_ value: String?) -> Double? {
-        guard let percent = doubleMetric(value), percent > 0 else { return nil }
-        return min(percent / 100.0, 1.0)
-    }
-
-    private static func doubleMetric(_ value: String?) -> Double? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.lowercased() != "null" else { return nil }
-        return Double(trimmed)
-    }
-
-    private static func locusPercentOverridesMetric(_ value: String?) -> [String: Double] {
-        guard let value else { return [:] }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.lowercased() != "null" else { return [:] }
-        let entries: [String]
-        if let data = trimmed.data(using: .utf8),
-           let decoded = try? JSONSerialization.jsonObject(with: data) as? [String] {
-            entries = decoded
-        } else {
-            entries = trimmed
-                .split(separator: ",")
-                .map { String($0) }
-        }
-        var overrides: [String: Double] = [:]
-        for entry in entries {
-            let parts = entry.split(separator: "=", maxSplits: 1).map {
-                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            guard parts.count == 2,
-                  !parts[0].isEmpty,
-                  let percent = Double(parts[1]),
-                  percent > 0 else { continue }
-            overrides[parts[0]] = min(percent / 100.0, 1.0)
-        }
-        return overrides
+        return GenotypeHaplotypeAnalysisResolver.runHaplotypeDropoutEvaluator(for: result)
     }
 
     public func applySampleMetadataStore(_ store: SampleMetadataStore?) {
@@ -2104,7 +2047,7 @@ public final class GenotypeResultViewController: NSViewController {
         case .clear:
             try store.clearMatrixReviewSynchronously(targets: targets, author: author)
         }
-        finishMatrixAnnotationPublication(store: store, targets: targets)
+        finishMatrixAnnotationPublication(store: store, targets: targets, reviewChanged: true)
     }
 
     public func editMatrixComment(_ request: GenotypeMatrixCommentEditRequest) {
@@ -2333,17 +2276,41 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func finishMatrixAnnotationPublication(
         store: GenotypeAnnotationStore,
-        targets: [GenotypeAnnotationSidecar.MatrixTarget]
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        reviewChanged: Bool = false
     ) {
         let searchDependenciesChanged = rebuildMatrixAnnotationIndexes()
         comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
+        let recalculated = reviewChanged && refreshReviewedHaplotypeAnalysis()
         if searchDependenciesChanged {
             refreshActiveSharedSearchAfterDependencyChange()
         }
         refreshCurrentSelectionDetails()
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         onAnnotationSidecarChanged?(store.sidecar)
-        scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+        if recalculated {
+            markCurrentWorkbookDirty(
+                requiresFullUpdate: true,
+                legacyStatus: "Haplotype calls changed after evidence review. Update current.xlsx to include them."
+            )
+        } else {
+            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
+        }
+    }
+
+    /// Review exclusions change inference; visual filtering and comments do not.
+    @discardableResult
+    private func refreshReviewedHaplotypeAnalysis() -> Bool {
+        guard let result, shouldEagerlyRecomputeHaplotypeAnalysis(for: result) else { return false }
+        recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
+        applyComparisonMatrixHaplotypeBandProjection()
+        rebuildHaplotypeLens()
+        rebuildOutline()
+        rebuildHaplotypeMatrix()
+        rebuildCohortSummary()
+        applyComparisonMatrixCohortFilter()
+        updateCallEvidence()
+        return true
     }
 
     private func refreshActiveSharedSearchAfterDependencyChange() {
@@ -2382,6 +2349,13 @@ public final class GenotypeResultViewController: NSViewController {
                 comparisonMatrix.applyAnnotationSidecar(
                     store.sidecar,
                     reloading: changedTargets
+                )
+            }
+            if sidecarBeforeAttempt.matrixReviews != store.sidecar.matrixReviews,
+               refreshReviewedHaplotypeAnalysis() {
+                markCurrentWorkbookDirty(
+                    requiresFullUpdate: true,
+                    legacyStatus: "Haplotype calls changed after evidence review. Update current.xlsx to include them."
                 )
             }
             if searchDependenciesChanged {
@@ -3217,6 +3191,7 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> GenotypeCallEvidenceView {
         var view = GenotypeCallEvidenceView(
             evidence: evidence,
+            showsReviewActions: selectedLens == .review,
             initialPendingOverrides: initialPendingOverrides
         )
         view.onOverrideRequested = { [weak self] haplotypeName, slot in
@@ -3462,17 +3437,20 @@ public final class GenotypeResultViewController: NSViewController {
         locus: String,
         evaluator: GenotypeDropoutEvaluator?
     ) -> [GenotypeCallEvidenceView.OmittedHaplotypeGenotype] {
-        guard let evaluator, let locusDefinition else { return [] }
+        guard let locusDefinition else { return [] }
+        let reviewedGenotypes = Set(GenotypeReviewedHaplotypeEvidence.callsForInference(
+            locusCalls, reviews: annotationStore?.sidecar.matrixReviews ?? []
+        ).map(\.genotype))
         return locusCalls
             .filter { call in
                 !observedSet.contains(call.genotype)
                     && isDiagnosticGenotype(call.genotype, in: locusDefinition)
-                    && evaluator.isLowSupport(
+                    && (!reviewedGenotypes.contains(call.genotype) || evaluator?.isLowSupport(
                         reads: call.passedUniqueReads,
                         sampleTotal: sampleTotal,
                         locusTotal: locusTotal,
                         locus: locus
-                    )
+                    ) == true)
             }
             .sorted {
                 if $0.passedUniqueReads != $1.passedUniqueReads {
@@ -3485,13 +3463,15 @@ public final class GenotypeResultViewController: NSViewController {
                     genotype: call.genotype,
                     reads: call.passedUniqueReads,
                     percentOfLocus: locusTotal > 0 ? Double(call.passedUniqueReads) / Double(locusTotal) : 0,
-                    reason: haplotypeOmissionReason(
+                    reason: !reviewedGenotypes.contains(call.genotype)
+                        ? "marked false positive"
+                        : evaluator.map { haplotypeOmissionReason(
                         reads: call.passedUniqueReads,
                         sampleTotal: sampleTotal,
                         locusTotal: locusTotal,
                         locus: locus,
-                        evaluator: evaluator
-                    )
+                        evaluator: $0
+                    ) } ?? "excluded from haplotype inference"
                 )
             }
     }
@@ -6402,7 +6382,8 @@ public final class GenotypeResultViewController: NSViewController {
             calls: result.calls,
             definitionSet: definitionSet,
             generatedAt: nil,
-            dropoutFilter: evaluator
+            dropoutFilter: evaluator,
+            matrixReviews: annotationStore?.sidecar.matrixReviews ?? []
         )
         rebuildActiveHaplotypeAnalysisIndexes()
     }
@@ -9244,19 +9225,10 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func shouldEagerlyRecomputeHaplotypeAnalysis(for result: ONTGenotypeResultBundleData) -> Bool {
         guard let context = haplotypeDefinitionContext(for: result) else { return false }
-        if let analysis = result.haplotypeAnalysis {
-            if case .sidecarOverride = context.source {
-                let settings = annotationStore?.sidecar.settings
-                let activeID = settings?.activeHaplotypeDefinitionSetID?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let activeAssayID = settings?.activeHaplotypeAssayID?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let analysisID = analysis.definitionSetID.trimmingCharacters(in: .whitespacesAndNewlines)
-                let analysisAssayID = analysis.assayID.trimmingCharacters(in: .whitespacesAndNewlines)
-                let definitionChanged = activeID != nil && activeID != analysisID
-                let assayChanged = activeAssayID != nil && activeAssayID != analysisAssayID
-                return definitionChanged || assayChanged
-            }
+        // Recorded AI/manual revisions and synthesized display definitions are
+        // not a source of deterministic inference. Reopen deterministic runs
+        // using complete definitions so saved review exclusions take effect.
+        if result.haplotypeAnalysis?.source == .ai || result.haplotypeAnalysis?.source == .manual {
             return false
         }
         return context.source != .inferredPreview && context.source != .synthesizedBundleAnalysis
@@ -9332,6 +9304,13 @@ public final class GenotypeResultViewController: NSViewController {
             return (definition, .bundleManifest)
         }
         if let definition = GenotypeHaplotypeAnalysisResolver.bundleDefinitionSnapshot(for: result.bundleURL) {
+            return (definition, .bundleSnapshot)
+        }
+        if let id = result.haplotypeAnalysis?.definitionSetID ?? result.manifest.haplotypeDefinitionSetID,
+           let definition = GenotypeHaplotypeAnalysisResolver.recordedReferenceDefinition(
+               for: result, definitionSetID: id,
+               assayID: result.haplotypeAnalysis?.assayID ?? result.manifest.haplotypeAssayID
+           ) {
             return (definition, .bundleSnapshot)
         }
         if let id = activeHaplotypeAnalysis()?.definitionSetID,

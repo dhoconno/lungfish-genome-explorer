@@ -1289,6 +1289,97 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         XCTAssertEqual(dq.matchedHaplotypes.map(\.name), ["M3DQ", "recM1M2DQ"])
     }
 
+    func testMCMIntactFamilyStaysH1AcrossRecombinantRegions() throws {
+        let sample = try analyzeMCMFamilyPairs([[1, 2], [1, 2], [2, 3], [2, 3], [2, 3]])
+        XCTAssertEqual(sample.calls.map(\.haplotype1), ["M2A", "M2B", "M2DR", "M2DQ", "M2DP"])
+        XCTAssertEqual(sample.calls.map(\.haplotype2), ["M1A", "M1B", "M3DR", "M3DQ", "M3DP"])
+        XCTAssertEqual(sample.calls[0].matchedHaplotypes.map(\.name), ["M2A", "M1A"])
+    }
+
+    func testFalsePositiveRecomputesFromRemainingReferenceDiagnostics() throws {
+        // Shared DQB evidence is not the reference's defining M2 diagnostic:
+        // its independent DQA marker must remain authoritative until reviewed.
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "mcm-dq-review", assayID: "MHC-exon2-miSeq", displayName: "DQ review",
+            speciesName: "Mauritian cynomolgus macaque", speciesCode: "MCM", prefix: "Mafa",
+            locusDefinitions: [.init(locus: "MHC-DQ", sourceLocus: "MHC-DQ", haplotypes: [
+                .init(name: "M2DQ", diagnosticAlleles: ["M2_DQA_marker"]),
+                .init(name: "M4DQ", diagnosticAlleles: ["M4_DQA_marker", "M4_DQB_marker"]),
+            ])]
+        )
+        let m2DQA = Self.call(sample: "sample", genotype: "M2_DQA_marker|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ", reads: 1)
+        let m2DQB = Self.call(sample: "sample", genotype: "shared_M2_M6_DQB_marker|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ", reads: 1)
+        let calls = [
+            m2DQA, m2DQB,
+            Self.call(sample: "sample", genotype: "M4_DQA_marker|source_loci=MHC-DQA1|haplotype_groups=MHC-DQ", reads: 796),
+            Self.call(sample: "sample", genotype: "M4_DQB_marker|source_loci=MHC-DQB1|haplotype_groups=MHC-DQ", reads: 54),
+        ]
+        func falsePositive(_ call: ONTGenotypeCall) -> GenotypeAnnotationSidecar.MatrixReviewAnnotation {
+            .init(target: .cell(locus: call.locusGroup, genotype: call.genotype, sample: call.sample),
+                  disposition: .falsePositive, author: "analyst", timestamp: "2026-09-11T00:00:00Z")
+        }
+        let dqAfterSharedReview = try XCTUnwrap(GenotypeHaplotypeAnalyzer.analyze(
+            calls: calls, definitionSet: definition, generatedAt: nil, dropoutFilter: nil,
+            matrixReviews: [falsePositive(m2DQB)]
+        ).samples.first?.calls.first)
+        XCTAssertEqual(dqAfterSharedReview.matchedHaplotypes.map(\.name), ["M2DQ", "M4DQ"])
+        XCTAssertFalse(dqAfterSharedReview.observedGenotypes.contains(m2DQB.genotype))
+        XCTAssertTrue(dqAfterSharedReview.observedGenotypes.contains(m2DQA.genotype))
+
+        let dqAfterDiagnosticReview = try XCTUnwrap(GenotypeHaplotypeAnalyzer.analyze(
+            calls: calls, definitionSet: definition, generatedAt: nil, dropoutFilter: nil,
+            matrixReviews: [falsePositive(m2DQB), falsePositive(m2DQA)]
+        ).samples.first?.calls.first)
+        XCTAssertEqual(dqAfterDiagnosticReview.haplotype1, "M4DQ")
+        XCTAssertEqual(dqAfterDiagnosticReview.haplotype2, "-")
+        XCTAssertEqual(dqAfterDiagnosticReview.observedGenotypeCount, 2)
+    }
+
+    func testMCMSingleHaplotypeRegionsAnchorIntactH1() throws {
+        for (pairs, expectedH1) in [
+            ([[2], [2], [1, 2], [1, 2], [1, 2]], ["M2A", "M2B", "M2DR", "M2DQ", "M2DP"]),
+            ([[3], [1, 3], [1, 3], [1, 3], [1, 3]], ["M3A", "M3B", "M3DR", "M3DQ", "M3DP"]),
+            ([[1, 2], [1, 2], [2], [2], [2]], ["M2A", "M2B", "M2DR", "M2DQ", "M2DP"]),
+            ([[2, 4], [4], [4], [4], [4]], ["M4A", "M4B", "M4DR", "M4DQ", "M4DP"]),
+        ] {
+            let sample = try analyzeMCMFamilyPairs(pairs)
+            XCTAssertEqual(sample.calls.map(\.haplotype1), expectedH1)
+            for (index, families) in pairs.enumerated() where families.count == 1 {
+                XCTAssertEqual(sample.calls[index].haplotype2, "-", "Do not synthesize a second call")
+            }
+        }
+    }
+
+    func testMCMTwoIntactFamiliesUseNumericOrderAndNoIntactFamilyUsesLocalFallback() throws {
+        let twoIntact = try analyzeMCMFamilyPairs([[4, 3], [4, 3], [4, 3], [4, 3], [4, 3]])
+        XCTAssertEqual(twoIntact.calls.map(\.haplotype1), ["M3A", "M3B", "M3DR", "M3DQ", "M3DP"])
+        let noIntact = try analyzeMCMFamilyPairs([[1], [1], [5, 2], [5, 2], [5, 2]])
+        XCTAssertEqual(noIntact.calls.map(\.haplotype1), ["M1A", "M1B", "M2DR", "M2DQ", "M2DP"])
+    }
+
+    private func analyzeMCMFamilyPairs(_ pairs: [[Int]]) throws -> GenotypeHaplotypeSampleAnalysis {
+        let suffixes = ["A", "B", "DR", "DQ", "DP"]
+        let definitions = zip(suffixes, pairs).map { suffix, families in
+            GenotypeHaplotypeLocusDefinition(
+                locus: "MHC-\(suffix)", sourceLocus: "MHC-\(suffix)",
+                haplotypes: families.map { family in
+                    .init(name: "M\(family)\(suffix)", diagnosticAlleles: ["M\(family)\(suffix)_marker"])
+                }
+            )
+        }
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "mcm-biomerelike", assayID: "MHC-exon2-miSeq", displayName: "MCM regions",
+            speciesName: "Mauritian cynomolgus macaque", speciesCode: "MCM", prefix: "Mafa",
+            locusDefinitions: definitions
+        )
+        let calls = zip(suffixes, pairs).flatMap { suffix, families in
+            families.map { family in
+                Self.call(sample: "cohort-sample", genotype: "M\(family)\(suffix)_marker|haplotype_groups=MHC-\(suffix)", reads: 100)
+            }
+        }
+        return try XCTUnwrap(GenotypeHaplotypeAnalyzer.analyze(calls: calls, definitionSet: definition).samples.first)
+    }
+
     func testReadDominanceDoesNotCallIncompletePrimaryHaplotypesFromSharedMCMAMarker() throws {
         let definition = try JSONDecoder().decode(
             GenotypeHaplotypeDefinitionSet.self,

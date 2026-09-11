@@ -40,7 +40,8 @@ public enum GenotypeHaplotypeAnalysisResolver {
             calls: result.calls,
             definitionSet: definitionSet,
             generatedAt: nil,
-            dropoutFilter: evaluator
+            dropoutFilter: evaluator,
+            matrixReviews: sidecar?.matrixReviews ?? []
         )
     }
 
@@ -63,7 +64,14 @@ public enum GenotypeHaplotypeAnalysisResolver {
                 return definition
             }
         }
-        return bundleDefinitionSnapshot(for: bundleURL ?? result.bundleURL)
+        if let snapshot = bundleDefinitionSnapshot(for: bundleURL ?? result.bundleURL) {
+            return snapshot
+        }
+        guard let id = result.haplotypeAnalysis?.definitionSetID ?? result.manifest.haplotypeDefinitionSetID else { return nil }
+        return recordedReferenceDefinition(
+            for: result, definitionSetID: id,
+            assayID: result.haplotypeAnalysis?.assayID ?? result.manifest.haplotypeAssayID
+        )
     }
 
     public static func activeDefinitionFileURL(
@@ -71,15 +79,24 @@ public enum GenotypeHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> URL? {
-        guard let id = sidecar?.settings.activeHaplotypeDefinitionSetID else {
-            return bundleDefinitionSnapshotURL(for: bundleURL ?? result.bundleURL)
+        guard let active = activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar) else {
+            return nil
         }
         let store = HaplotypeDefinitionStore(projectRoot: projectRoot(for: bundleURL ?? result.bundleURL))
-        guard let url = store.definitionURL(for: id),
-              FileManager.default.fileExists(atPath: url.path) else {
-            return bundleDefinitionSnapshotURL(for: bundleURL ?? result.bundleURL)
+        let candidates = [
+            store.definitionURL(for: active.id),
+            bundleDefinitionSnapshotURL(for: bundleURL ?? result.bundleURL),
+            recordedReferenceDefinitionFileURL(for: result, definitionSetID: active.id, assayID: active.assayID),
+        ]
+        // IDs can be reused across assays. Provenance must describe the exact
+        // definition consumed, never merely the first existing file with its ID.
+        return candidates.compactMap { $0 }.first { url in
+            guard let data = try? Data(contentsOf: url),
+                  let definition = try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data) else {
+                return false
+            }
+            return definition == active
         }
-        return url
     }
 
     public static func bundleDefinitionSnapshot(
@@ -110,14 +127,25 @@ public enum GenotypeHaplotypeAnalysisResolver {
         return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    /// Recovers complete display definitions from the recorded MHC reference.
-    /// This deliberately does not participate in activeAnalysis: recovering
-    /// display metadata must not re-run or change persisted scientific calls.
+    /// Recovers a complete definition from the exact reference recorded by the
+    /// run. Deterministic review may use it for inference; AI/manual revisions
+    /// remain authoritative and use it only for display.
     public static func recordedReferenceDefinition(
         for result: ONTGenotypeResultBundleData,
         definitionSetID: String,
         assayID: String?
     ) -> GenotypeHaplotypeDefinitionSet? {
+        guard let url = recordedReferenceDefinitionFileURL(
+            for: result, definitionSetID: definitionSetID, assayID: assayID
+        ), let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
+    }
+
+    public static func recordedReferenceDefinitionFileURL(
+        for result: ONTGenotypeResultBundleData,
+        definitionSetID: String,
+        assayID: String?
+    ) -> URL? {
         var paths: [String] = []
         let provenanceURL = result.manifest.provenancePath.hasPrefix("/")
             ? URL(fileURLWithPath: result.manifest.provenancePath)
@@ -162,15 +190,19 @@ public enum GenotypeHaplotypeAnalysisResolver {
                     reference.deleteLastPathComponent()
                 }
                 guard MHCAmpliconReferenceBundle.isBundleURL(reference), visited.insert(reference).inserted else { continue }
-                if let definition = try? MHCAmpliconReferenceBundle.haplotypeDefinition(
-                    id: definitionSetID, assayID: assayID, in: reference
-                ) { return definition }
+                for url in MHCAmpliconReferenceBundle.haplotypeDefinitionURLs(in: reference) {
+                    guard let data = try? Data(contentsOf: url),
+                          let definition = try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data),
+                          definition.id == definitionSetID,
+                          assayID == nil || definition.assayID == assayID else { continue }
+                    return url
+                }
             }
         }
         return nil
     }
 
-    private static func runHaplotypeDropoutEvaluator(
+    public static func runHaplotypeDropoutEvaluator(
         for result: ONTGenotypeResultBundleData
     ) -> GenotypeDropoutEvaluator? {
         let metrics = result.stats.rawMetrics
@@ -215,8 +247,8 @@ public enum GenotypeHaplotypeAnalysisResolver {
     }
 
     private static func percentMetric(_ value: String?) -> Double? {
-        guard let number = doubleMetric(value), number > 0 else { return nil }
-        return number > 1 ? number / 100.0 : number
+        guard let number = doubleMetric(value), number.isFinite, number > 0 else { return nil }
+        return min(number / 100.0, 1.0)
     }
 
     private static func doubleMetric(_ value: String?) -> Double? {
@@ -237,7 +269,22 @@ public enum GenotypeHaplotypeAnalysisResolver {
            let decoded = try? JSONDecoder().decode([String: Double].self, from: data) {
             return decoded.compactMapValues { percentMetric(String($0)) }
         }
-        return [:]
+        let entries: [String]
+        if let data = value.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            entries = decoded
+        } else {
+            entries = value.split(separator: ",").map(String.init)
+        }
+        var overrides: [String: Double] = [:]
+        for entry in entries {
+            let parts = entry.split(separator: "=", maxSplits: 1).map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard parts.count == 2, !parts[0].isEmpty, let fraction = percentMetric(parts[1]) else { continue }
+            overrides[parts[0]] = fraction
+        }
+        return overrides
     }
 
     private static func isPersistedRevisionAnalysis(_ analysis: GenotypeHaplotypeAnalysis?) -> Bool {

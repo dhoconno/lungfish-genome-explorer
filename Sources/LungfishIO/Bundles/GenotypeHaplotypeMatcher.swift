@@ -2,6 +2,20 @@ import Foundation
 import LungfishCore
 
 public enum GenotypeHaplotypeDiagnosticMatcher {
+    // Immutable and bounded to the strings supplied by one analysis. Scoped
+    // task-local storage also keeps nested/concurrent analyses independent.
+    @TaskLocal private static var preparedTokens: [String: Set<String>]?
+
+    static func withPreparedTokens<Result>(
+        for values: [String],
+        operation: () throws -> Result
+    ) rethrows -> Result {
+        let tokens = Dictionary(uniqueKeysWithValues: Set(values).map {
+            ($0, uncachedTokens(from: $0))
+        })
+        return try $preparedTokens.withValue(tokens, operation: operation)
+    }
+
     public static func matches(genotype: String, diagnosticAllele: String) -> Bool {
         if genotype == diagnosticAllele { return true }
         let diagnosticTokens = normalizedTokens(from: diagnosticAllele)
@@ -21,6 +35,11 @@ public enum GenotypeHaplotypeDiagnosticMatcher {
     }
 
     private static func normalizedTokens(from allele: String) -> Set<String> {
+        if let tokens = preparedTokens?[allele] { return tokens }
+        return uncachedTokens(from: allele)
+    }
+
+    private static func uncachedTokens(from allele: String) -> Set<String> {
         let pieces = allele
             .split(separator: "|", omittingEmptySubsequences: false)
             .flatMap { $0.split(separator: ",", omittingEmptySubsequences: false) }

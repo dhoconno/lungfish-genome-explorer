@@ -26,9 +26,33 @@ public enum GenotypeHaplotypeAnalyzer {
         calls: [ONTGenotypeCall],
         definitionSet: GenotypeHaplotypeDefinitionSet,
         generatedAt: String? = nil,
-        dropoutFilter: GenotypeDropoutEvaluator?
+        dropoutFilter: GenotypeDropoutEvaluator?,
+        matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
     ) -> GenotypeHaplotypeAnalysis {
-        let filteredCalls = applyDropout(calls, evaluator: dropoutFilter, definitionSet: definitionSet)
+        let diagnosticValues = definitionSet.locusDefinitions.flatMap { locus in
+            locus.haplotypes.flatMap { haplotype in
+                haplotype.diagnosticAlleles + (haplotype.primaryAlleles ?? [])
+            }
+        }
+        return GenotypeHaplotypeDiagnosticMatcher.withPreparedTokens(
+            for: calls.map(\.genotype) + diagnosticValues
+        ) {
+            analyzePrepared(
+                calls: calls, definitionSet: definitionSet, generatedAt: generatedAt,
+                dropoutFilter: dropoutFilter, matrixReviews: matrixReviews
+            )
+        }
+    }
+
+    private static func analyzePrepared(
+        calls: [ONTGenotypeCall],
+        definitionSet: GenotypeHaplotypeDefinitionSet,
+        generatedAt: String?,
+        dropoutFilter: GenotypeDropoutEvaluator?,
+        matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
+    ) -> GenotypeHaplotypeAnalysis {
+        let reviewedCalls = GenotypeReviewedHaplotypeEvidence.callsForInference(calls, reviews: matrixReviews)
+        let filteredCalls = applyDropout(reviewedCalls, evaluator: dropoutFilter, definitionSet: definitionSet)
         let callsBySample = Dictionary(grouping: filteredCalls, by: { normalizedSampleName($0.sample) })
         let observedLoci = observedDefinitionLoci(calls: calls, definitionSet: definitionSet)
         let rawSampleNames = Set(calls.map { normalizedSampleName($0.sample) })
@@ -78,10 +102,17 @@ public enum GenotypeHaplotypeAnalyzer {
         guard definitionSet.speciesCode.caseInsensitiveCompare("MCM") == .orderedSame else {
             return samples
         }
+        return orderMCMHaplotypeSamples(samples)
+    }
+
+    private static func orderMCMHaplotypeSamples(
+        _ samples: [GenotypeHaplotypeSampleAnalysis]
+    ) -> [GenotypeHaplotypeSampleAnalysis] {
         return samples.map { sample in
+            let intactFamily = intactMCMFamily(in: sample)
             var changed = false
             let calls = sample.calls.map { call -> GenotypeHaplotypeLocusCall in
-                let reordered = reorderMCMHaplotypeSlotsByFamilyNumber(in: call)
+                let reordered = reorderMCMHaplotypeSlotsByFamilyNumber(in: call, intactFamily: intactFamily)
                 if reordered != call { changed = true }
                 return reordered
             }
@@ -89,12 +120,40 @@ public enum GenotypeHaplotypeAnalyzer {
         }
     }
 
+    private static func intactMCMFamily(in sample: GenotypeHaplotypeSampleAnalysis) -> String? {
+        let mhcLoci: Set<String> = ["MHC-A", "MHC-B", "MHC-DR", "MHC-DQ", "MHC-DP"]
+        var candidates: Set<String>?
+        var informativeLoci: Set<String> = []
+        for call in sample.calls {
+            let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locus)
+            guard mhcLoci.contains(locus), call.status == .called || call.status == .specialCase else { continue }
+            let families = Set([call.haplotype1, call.haplotype2].compactMap(singleIntactMCMFamily))
+            // An explicit recombinant-only region rules out a whole-region
+            // intact family; absent/error calls cannot supply an anchor.
+            guard !families.isEmpty else { return nil }
+            informativeLoci.insert(locus)
+            candidates = candidates.map { $0.intersection(families) } ?? families
+        }
+        guard informativeLoci.count > 1 else { return nil }
+        return candidates?.min {
+            (mcmFamilySortKey($0) ?? Int.max) < (mcmFamilySortKey($1) ?? Int.max)
+        }
+    }
+
+    private static func singleIntactMCMFamily(_ name: String) -> String? {
+        guard !name.lowercased().hasPrefix("rec") else { return nil }
+        let families = mcmFamilies(inAlleleName: name)
+        guard families.count == 1 else { return nil }
+        return families.first
+    }
+
     private static func reorderMCMHaplotypeSlotsByFamilyNumber(
-        in call: GenotypeHaplotypeLocusCall
+        in call: GenotypeHaplotypeLocusCall,
+        intactFamily: String?
     ) -> GenotypeHaplotypeLocusCall {
         guard call.status == .called || call.status == .specialCase,
               call.haplotype1 != call.haplotype2,
-              shouldOrderMCMHaplotype(call.haplotype2, before: call.haplotype1) else {
+              shouldOrderMCMHaplotype(call.haplotype2, before: call.haplotype1, intactFamily: intactFamily) else {
             return call
         }
         let matchedHaplotypes = reorderMatchedMCMHaplotypes(
@@ -102,7 +161,9 @@ public enum GenotypeHaplotypeAnalyzer {
             firstName: call.haplotype2,
             secondName: call.haplotype1
         )
-        let note = "MCM haplotype-slot contiguity: reordered \(call.locus) intact-first, then by ascending haplotype family number."
+        let reason = intactFamily.map { "keeping extended \($0) together in H1 across called loci" }
+            ?? "intact-first, then by ascending haplotype family number"
+        let note = "MCM haplotype-slot contiguity: reordered \(call.locus), \(reason)."
         let notes = ([call.notes].filter { !$0.isEmpty } + [note]).joined(separator: " ")
         return GenotypeHaplotypeLocusCall(
             locus: call.locus,
@@ -130,7 +191,14 @@ public enum GenotypeHaplotypeAnalyzer {
         return [first, second]
     }
 
-    private static func shouldOrderMCMHaplotype(_ lhs: String, before rhs: String) -> Bool {
+    private static func shouldOrderMCMHaplotype(
+        _ lhs: String, before rhs: String, intactFamily: String?
+    ) -> Bool {
+        if let intactFamily {
+            let lhsIntact = singleIntactMCMFamily(lhs) == intactFamily
+            let rhsIntact = singleIntactMCMFamily(rhs) == intactFamily
+            if lhsIntact != rhsIntact { return lhsIntact }
+        }
         let lhsKey = mcmHaplotypeSortKey(lhs)
         let rhsKey = mcmHaplotypeSortKey(rhs)
         if lhsKey.intactRank != rhsKey.intactRank {

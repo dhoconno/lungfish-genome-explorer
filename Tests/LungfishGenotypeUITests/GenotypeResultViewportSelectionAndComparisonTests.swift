@@ -3046,7 +3046,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testConfigureKeepsPersistedDeterministicHaplotypesWhenDefinitionIsAvailable() throws {
+    func testConfigureRefreshesDeterministicHaplotypesWhenDefinitionIsAvailable() throws {
         let projectRoot = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
         defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
@@ -3099,8 +3099,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         ))
 
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-B"))
-        XCTAssertEqual(evidence.h1Name, "PERSISTED-B")
+        XCTAssertEqual(evidence.h1Name, "M9B")
         XCTAssertEqual(evidence.h2Name, "-")
+        XCTAssertEqual(persistedAnalysis.samples.first?.calls.first?.haplotype1, "PERSISTED-B")
     }
 
 

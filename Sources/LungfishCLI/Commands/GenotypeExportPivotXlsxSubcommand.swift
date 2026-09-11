@@ -497,9 +497,14 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
 
             let activeAnalysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
                 for: result,
+                bundleURL: result.bundleURL,
                 sidecar: sidecar
             )
-            let haplotypeRows = makeHaplotypeRows(samples: samples, analysis: activeAnalysis)
+            let haplotypeRows = makeHaplotypeRows(
+                samples: samples,
+                analysis: activeAnalysis,
+                sidecar: sidecar
+            )
             let commentsRow = makeCommentsRow(samples: samples, analysis: activeAnalysis)
 
             // Build allele groups. Group key is the leading numeric prefix
@@ -598,9 +603,17 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
 
         private static func makeHaplotypeRows(
             samples: [String],
-            analysis: GenotypeHaplotypeAnalysis?
+            analysis: GenotypeHaplotypeAnalysis?,
+            sidecar: GenotypeAnnotationSidecar?
         ) -> [HaplotypeRow] {
             var rows: [HaplotypeRow] = []
+            let effectiveCalls: GenotypeEffectiveCallAuthority.Resolution? = {
+                guard let analysis, let sidecar else { return nil }
+                return GenotypeEffectiveCallAuthority.resolve(
+                    analysis: analysis,
+                    sidecar: sidecar
+                )
+            }()
             // Build (sample → locus → call) map from the persisted analysis.
             var callsBySampleLocus: [String: [String: GenotypeHaplotypeLocusCall]] = [:]
             var analysisLoci = Set<String>()
@@ -619,7 +632,11 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                     let label = "\(locus) Haplotype \(slot)"
                     let values: [String?] = samples.map { sample in
                         guard let call = callsBySampleLocus[sample]?[locus] else { return nil }
-                        let raw = slot == 1 ? call.haplotype1 : call.haplotype2
+                        let raw = effectiveCalls?.value(
+                            sample: sample,
+                            locus: locus,
+                            slot: slot == 1 ? .h1 : .h2
+                        )?.effective ?? (slot == 1 ? call.haplotype1 : call.haplotype2)
                         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                         return trimmed.isEmpty ? nil : trimmed
                     }
@@ -1098,6 +1115,8 @@ extension GenotypeExportPivotXlsxSubcommand {
     struct FilterPlan: Codable, Equatable {
         struct Row: Codable, Equatable {
             let genotype: String
+            /// Exact row labels accepted in report and published-current workbooks.
+            let workbookLabels: [String]
             /// Samples whose value clears the thresholds, in workbook order.
             let keep: [String]
         }
@@ -1106,6 +1125,16 @@ extension GenotypeExportPivotXlsxSubcommand {
             let body: String
             let author: String
             let timestamp: String
+        }
+
+        struct HaplotypeHeaderCell: Codable, Equatable {
+            let sample: String
+            let value: String?
+        }
+
+        struct HaplotypeHeaderRow: Codable, Equatable {
+            let workbookLabels: [String]
+            let cells: [HaplotypeHeaderCell]
         }
 
         struct ProjectedCell: Codable, Equatable {
@@ -1117,6 +1146,7 @@ extension GenotypeExportPivotXlsxSubcommand {
 
         struct ProjectedRow: Codable, Equatable {
             let genotype: String
+            let workbookLabels: [String]
             let locus: String?
             let stableClusterID: String?
             let cells: [ProjectedCell]
@@ -1126,6 +1156,7 @@ extension GenotypeExportPivotXlsxSubcommand {
         let sheet: String
         let keepEmptyRows: Bool
         let rows: [Row]
+        let haplotypeHeaderRows: [HaplotypeHeaderRow]
         let visibleSamples: [String]?
         let projectedRows: [ProjectedRow]?
         let allGenotypes: [String]
@@ -1148,6 +1179,10 @@ extension GenotypeExportPivotXlsxSubcommand {
                 group.alleles.map { allele in
                     Row(
                         genotype: allele.name,
+                        workbookLabels: workbookLabels(
+                            genotype: allele.name,
+                            projectionLabel: nil
+                        ),
                         keep: zip(workbook.samples, allele.counts).compactMap { sample, count in
                             count == nil ? nil : sample
                         }
@@ -1158,11 +1193,22 @@ extension GenotypeExportPivotXlsxSubcommand {
             let allGenotypes = Array(
                 Set(result.calls.map(\.genotype)).union(projectedGenotypes)
             ).sorted()
+            let haplotypeHeaderRows: [HaplotypeHeaderRow] = workbook.haplotypeRows.compactMap { row in
+                let cells = zip(workbook.samples, row.values).compactMap { sample, value in
+                    value.map { HaplotypeHeaderCell(sample: sample, value: $0) }
+                }
+                guard !cells.isEmpty else { return nil }
+                return HaplotypeHeaderRow(
+                    workbookLabels: haplotypeWorkbookLabels(for: row.label),
+                    cells: cells
+                )
+            }
             guard let projection else {
                 return FilterPlan(
                     sheet: workbook.sheetName,
                     keepEmptyRows: thresholds.keepEmptyRows,
                     rows: rows,
+                    haplotypeHeaderRows: haplotypeHeaderRows,
                     visibleSamples: nil,
                     projectedRows: nil,
                     allGenotypes: allGenotypes,
@@ -1216,6 +1262,10 @@ extension GenotypeExportPivotXlsxSubcommand {
                 }
                 return ProjectedRow(
                     genotype: genotype,
+                    workbookLabels: workbookLabels(
+                        genotype: genotype,
+                        projectionLabel: row.label
+                    ),
                     locus: row.locus,
                     stableClusterID: row.stableClusterID,
                     cells: cells,
@@ -1236,11 +1286,64 @@ extension GenotypeExportPivotXlsxSubcommand {
                 sheet: workbook.sheetName,
                 keepEmptyRows: thresholds.keepEmptyRows,
                 rows: rows,
+                haplotypeHeaderRows: haplotypeHeaderRows,
                 visibleSamples: projection.sampleColumns,
                 projectedRows: projectedRows,
                 allGenotypes: allGenotypes,
                 columnComments: columnComments
             )
+        }
+
+        /// The primary report stores the raw genotype identity, while an MCM
+        /// published current workbook stores the compact display label created
+        /// by the report pipeline. Keep both exact identities in the plan; the
+        /// transform rejects aliases that resolve to more than one source row.
+        private static func workbookLabels(
+            genotype: String,
+            projectionLabel: String?
+        ) -> [String] {
+            var labels: [String] = []
+            func append(_ value: String?) {
+                guard let value else { return }
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, !labels.contains(trimmed) else { return }
+                labels.append(trimmed)
+            }
+            append(genotype)
+            append(projectionLabel)
+
+            let alleleNames = MHCReferenceGenotypeDisplay.alleleNames(for: genotype)
+            if !alleleNames.isEmpty {
+                let compact = alleleNames.map { allele -> String in
+                    guard allele.hasPrefix("Mafa-"),
+                          let separator = allele.firstIndex(of: "_") else {
+                        return allele
+                    }
+                    return String(allele[..<separator]) + "*"
+                        + String(allele[allele.index(after: separator)...])
+                }.joined(separator: "/")
+                append(compact)
+            }
+            return labels
+        }
+
+        /// Current MCM workbooks retain split class-II header rows even when
+        /// the active analysis resolves a grouped DR/DQ/DP call. These are the
+        /// only aliases the transform may update; arbitrary workbook rows are
+        /// never inferred from partial text.
+        private static func haplotypeWorkbookLabels(for label: String) -> [String] {
+            let groupedAliases: [String: [String]] = [
+                "MHC-DR": ["MHC-DRB"],
+                "MHC-DQ": ["MHC-DQA", "MHC-DQB"],
+                "MHC-DP": ["MHC-DPA", "MHC-DPB"],
+            ]
+            for (grouped, split) in groupedAliases {
+                let prefix = grouped + " Haplotype "
+                guard label.hasPrefix(prefix) else { continue }
+                let slot = String(label.dropFirst(prefix.count))
+                return [label] + split.map { "\($0) Haplotype \(slot)" }
+            }
+            return [label]
         }
     }
 
@@ -1258,8 +1361,9 @@ extension GenotypeExportPivotXlsxSubcommand {
     /// changed: values below the thresholds are blanked, each allele row's
     /// Total and observation count are recomputed from what remains, and rows
     /// left empty are removed unless `--keep-empty-rows` was given. Every
-    /// other sheet, and the pivot sheet's formatting, header rows and
-    /// haplotype rows, are untouched. The copy is not registered with the
+    /// other sheet is retained. Recognized haplotype headers are refreshed
+    /// from current effective calls while native comments are preserved.
+    /// The copy is not registered with the
     /// bundle, so edits made to it never flow back into the result.
     func exportFilteredCopy(
         of sourceWorkbookURL: URL,
@@ -1478,13 +1582,15 @@ extension GenotypeExportPivotXlsxSubcommand {
     ///
     /// Sample columns are read from the "GS ID" header row, which the
     /// pipeline's workbook and the pivot-only writer share. Allele rows are
-    /// matched by their name in column A against the plan, so the header,
-    /// read-count, haplotype and comment rows, and any group labels, are never
-    /// touched. Column B (Total) and C (# Obs.) are recomputed only where the
-    /// row already carried numbers there.
+    /// matched by their name in column A against the plan. Recognized
+    /// haplotype header rows are refreshed from the active analysis; read-count
+    /// and comment rows plus group labels otherwise retain the source workbook.
+    /// Column B (Total) and C (# Obs.) are recomputed only where the row already
+    /// carried numbers there.
     static let filterPivotSheetScript = #"""
 import json
 import platform
+import re
 import sys
 from copy import copy
 
@@ -1499,36 +1605,53 @@ with open(plan_path) as handle:
 
 workbook = load_workbook(source)
 sheet_name = plan.get("sheet")
-sheet = workbook[sheet_name] if sheet_name in workbook.sheetnames else workbook.worksheets[0]
 keep_empty_rows = bool(plan.get("keepEmptyRows"))
-survivors = {row["genotype"]: set(row["keep"]) for row in plan["rows"]}
-
-header_row = None
-for row in range(1, min(sheet.max_row, 60) + 1):
-    if sheet.cell(row, 1).value == "GS ID":
-        header_row = row
-        break
-if header_row is None:
-    sys.stderr.write("The pivot sheet has no 'GS ID' header row.\n")
-    sys.exit(2)
-
-sample_columns = {}
-for column in range(4, sheet.max_column + 1):
-    name = sheet.cell(header_row, column).value
-    if isinstance(name, str) and name.strip():
-        sample_columns[name.strip()] = column
-
 visible_samples = plan.get("visibleSamples")
 projected_rows = plan.get("projectedRows")
-if visible_samples is not None:
-    if len(visible_samples) != len(set(visible_samples)):
-        sys.stderr.write("The viewport projection contains duplicate sample columns.\n")
-        sys.exit(3)
-    missing_samples = [sample for sample in visible_samples if sample not in sample_columns]
-    if missing_samples:
-        sys.stderr.write("The pivot sheet is missing projected samples: " + ", ".join(missing_samples) + "\n")
-        sys.exit(3)
 
+if visible_samples is not None and len(visible_samples) != len(set(visible_samples)):
+    sys.stderr.write("The viewport projection contains duplicate sample columns.\n")
+    sys.exit(3)
+
+def pivot_layout(candidate):
+    header_rows = [
+        row for row in range(1, min(candidate.max_row, 60) + 1)
+        if candidate.cell(row, 1).value == "GS ID"
+    ]
+    if len(header_rows) != 1:
+        return None
+    header = header_rows[0]
+    columns_by_name = {}
+    for column in range(4, candidate.max_column + 1):
+        name = candidate.cell(header, column).value
+        if isinstance(name, str) and name.strip():
+            columns_by_name.setdefault(name.strip(), []).append(column)
+    if not columns_by_name or any(len(columns) != 1 for columns in columns_by_name.values()):
+        return None
+    if visible_samples is not None and any(
+        len(columns_by_name.get(sample, [])) != 1 for sample in visible_samples
+    ):
+        return None
+    return header, {name: columns[0] for name, columns in columns_by_name.items()}
+
+compatible = []
+for candidate in workbook.worksheets:
+    layout = pivot_layout(candidate)
+    if layout is not None:
+        compatible.append((candidate, layout))
+if not compatible:
+    suffix = " containing every projected sample" if visible_samples is not None else ""
+    sys.stderr.write("The workbook has no compatible pivot worksheet" + suffix + ".\n")
+    sys.exit(2)
+if len(compatible) != 1:
+    sys.stderr.write(
+        "The workbook has multiple compatible pivot worksheets: "
+        + ", ".join(candidate.title for candidate, _ in compatible) + "\n"
+    )
+    sys.exit(2)
+sheet, (header_row, sample_columns) = compatible[0]
+
+if visible_samples is not None:
     def snapshot_cell(cell):
         return {
             "value": cell.value,
@@ -1570,6 +1693,53 @@ if visible_samples is not None:
         sheet.column_dimensions[target_letter].width = source_dimension.width
         sheet.column_dimensions[target_letter].hidden = source_dimension.hidden
 
+haplotype_colors = {
+    "M1": "FF000000",
+    "M2": "FFFF0000",
+    "M3": "FF0432FF",
+    "M4": "FF00B050",
+    "M5": "FFFFC000",
+    "M6": "FF595959",
+    "M7": "FF7030A0",
+}
+
+def refresh_haplotype_cell(cell, value):
+    cell.value = value
+    cell.fill = PatternFill(fill_type=None)
+    font = copy(cell.font)
+    text = "" if value is None else str(value).strip()
+    match = None if text in ("", "-") or text.startswith("ERR:") else re.search(r"\b(M[1-7])", text)
+    if match is not None:
+        font.bold = True
+        font.color = haplotype_colors[match.group(1)]
+    elif text.startswith("ERR:"):
+        font.bold = True
+        font.color = "FF9C0006"
+    else:
+        font.bold = False
+        font.color = "FF000000"
+    cell.font = font
+
+for header in plan.get("haplotypeHeaderRows") or []:
+    cells_by_sample = {cell["sample"]: cell for cell in header.get("cells", [])}
+    for label in header.get("workbookLabels") or []:
+        matching_rows = [
+            row for row in range(header_row + 1, min(sheet.max_row, 60) + 1)
+            if sheet.cell(row, 1).value == label
+        ]
+        if len(matching_rows) > 1:
+            sys.stderr.write("The pivot sheet has duplicate haplotype header rows: " + label + "\n")
+            sys.exit(4)
+        if not matching_rows:
+            continue
+        row = matching_rows[0]
+        for sample, column in sample_columns.items():
+            if sample in cells_by_sample:
+                refresh_haplotype_cell(
+                    sheet.cell(row, column),
+                    cells_by_sample[sample].get("value"),
+                )
+
 def annotation_text(entry, label):
     if not entry:
         return None
@@ -1597,6 +1767,15 @@ for sample, entry in (plan.get("columnComments") or {}).items():
     if column is not None:
         apply_comment(sheet.cell(header_row, column), entry, "Sample column: " + sample)
 
+def workbook_labels(entry):
+    labels = entry.get("workbookLabels") or [entry["genotype"]]
+    return set(str(label).strip() for label in labels if str(label).strip())
+
+filter_rows_by_label = {}
+for entry in plan["rows"]:
+    for label in workbook_labels(entry):
+        filter_rows_by_label.setdefault(label, []).append(entry)
+
 first_allele_row = header_row + 1
 for row in range(header_row, sheet.max_row + 1):
     if sheet.cell(row, 1).value == "Comments":
@@ -1607,7 +1786,6 @@ matched = 0
 blanked = 0
 rows_to_delete = []
 if projected_rows is not None:
-    all_genotypes = set(plan.get("allGenotypes") or [])
     projected_names = [row["genotype"] for row in projected_rows]
     if len(projected_names) != len(set(projected_names)):
         sys.stderr.write(
@@ -1616,25 +1794,52 @@ if projected_rows is not None:
         )
         sys.exit(4)
 
+    projected_by_label = {}
+    for index, projected in enumerate(projected_rows):
+        for label in workbook_labels(projected):
+            projected_by_label.setdefault(label, []).append(index)
+
     def snapshot_row(row):
         return [snapshot_cell(sheet.cell(row, column)) for column in range(1, sheet.max_column + 1)]
 
-    source_rows = {}
+    source_rows = {index: [] for index in range(len(projected_rows))}
     source_groups = {}
     current_group = None
+    original_allele_rows = []
     for source_row in range(first_allele_row, sheet.max_row + 1):
         name = sheet.cell(source_row, 1).value
+        filter_matches = filter_rows_by_label.get(name, []) if isinstance(name, str) else []
+        if len(filter_matches) > 1:
+            sys.stderr.write(
+                "The pivot sheet row label matches multiple raw genotype identities: "
+                + str(name) + "\n"
+            )
+            sys.exit(4)
+        if len(filter_matches) == 1:
+            original_allele_rows.append(source_row)
         if (
             isinstance(name, str)
-            and name not in all_genotypes
+            and not filter_matches
             and name != "Genotype"
             and name.lower().endswith("alleles")
         ):
             current_group = (name, snapshot_row(source_row))
-        if isinstance(name, str) and name in all_genotypes:
-            source_rows.setdefault(name, []).append(source_row)
-            source_groups[name] = current_group
-    ambiguous = [name for name in projected_names if len(source_rows.get(name, [])) != 1]
+        projected_matches = projected_by_label.get(name, []) if isinstance(name, str) else []
+        if len(projected_matches) > 1:
+            sys.stderr.write(
+                "The pivot sheet row label matches multiple projected genotype identities: "
+                + str(name) + "\n"
+            )
+            sys.exit(4)
+        if len(projected_matches) == 1:
+            index = projected_matches[0]
+            source_rows[index].append(source_row)
+            source_groups[index] = current_group
+    ambiguous = [
+        projected_names[index]
+        for index in range(len(projected_rows))
+        if len(source_rows[index]) != 1
+    ]
     if ambiguous:
         sys.stderr.write(
             "The pivot sheet must contain exactly one row for each projected genotype: "
@@ -1644,9 +1849,9 @@ if projected_rows is not None:
 
     projected_sequence = []
     emitted_groups = set()
-    for projected in projected_rows:
-        source_row = source_rows[projected["genotype"]][0]
-        group = source_groups.get(projected["genotype"])
+    for index, projected in enumerate(projected_rows):
+        source_row = source_rows[index][0]
+        group = source_groups.get(index)
         group_name = group[0] if group is not None else None
         if group is not None and group_name not in emitted_groups:
             projected_sequence.append((None, group[1]))
@@ -1659,7 +1864,6 @@ if projected_rows is not None:
         rewrite_start = first_allele_row + 1
     else:
         rewrite_start = first_allele_row
-    original_allele_rows = sum(len(rows) for rows in source_rows.values())
     sheet.delete_rows(rewrite_start, sheet.max_row - rewrite_start + 1)
     if projected_sequence:
         sheet.insert_rows(rewrite_start, len(projected_sequence))
@@ -1727,16 +1931,23 @@ if projected_rows is not None:
             total_cell.value = sum(remaining) if remaining else None
         if isinstance(observed_cell.value, (int, float)):
             observed_cell.value = len(remaining) if remaining else None
-    removed_projected_rows = max(0, original_allele_rows - len(projected_rows))
+    removed_projected_rows = max(0, len(original_allele_rows) - len(projected_rows))
 
 for row in range(first_allele_row, sheet.max_row + 1):
     if projected_rows is not None:
         break
     name = sheet.cell(row, 1).value
-    if not isinstance(name, str) or name not in survivors:
+    matches = filter_rows_by_label.get(name, []) if isinstance(name, str) else []
+    if len(matches) > 1:
+        sys.stderr.write(
+            "The pivot sheet row label matches multiple raw genotype identities: "
+            + str(name) + "\n"
+        )
+        sys.exit(4)
+    if len(matches) != 1:
         continue
     matched += 1
-    keep = survivors[name]
+    keep = set(matches[0]["keep"])
     remaining = []
     for sample, column in sample_columns.items():
         cell = sheet.cell(row, column)

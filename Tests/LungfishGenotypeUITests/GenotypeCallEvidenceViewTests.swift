@@ -72,6 +72,29 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertTrue(source.contains("typographyModel.font(for:"))
     }
 
+    func testReviewActionsAreHiddenFromOrdinaryPaneButMountedForReviewWorkflow() {
+        let ordinary = mountEvidenceView(
+            onOverridesRequested: { _ in .unchanged }
+        )
+        defer { ordinary.window.close() }
+        XCTAssertNil(button("genotype-call-evidence-confirm-review", in: ordinary.host))
+        XCTAssertNil(button("genotype-call-evidence-skip-review", in: ordinary.host))
+
+        let review = mountEvidenceView(
+            showsReviewActions: true,
+            onOverridesRequested: { _ in .unchanged }
+        )
+        defer { review.window.close() }
+        let confirm = try? XCTUnwrap(
+            button("genotype-call-evidence-confirm-review", in: review.host)
+        )
+        let skip = try? XCTUnwrap(
+            button("genotype-call-evidence-skip-review", in: review.host)
+        )
+        XCTAssertEqual(confirm?.title, "Confirm")
+        XCTAssertEqual(skip?.title, "Skip")
+    }
+
     func testRendersEmptyState() {
         let view = GenotypeCallEvidenceView(evidence: nil)
         let host = NSHostingView(rootView: view)
@@ -665,6 +688,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
     )
 
     private func mountEvidenceView(
+        showsReviewActions: Bool = false,
         onOverridesRequested: @escaping (
             [GenotypeCallEvidenceView.HaplotypeOverrideRequest]
         ) -> GenotypeHaplotypeMutationOutcome
@@ -692,7 +716,10 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             h2Name: "M7DP",
             availableHaplotypeNames: ["M3DP", "M4DP", "M7DP"]
         )
-        var view = GenotypeCallEvidenceView(evidence: evidence)
+        var view = GenotypeCallEvidenceView(
+            evidence: evidence,
+            showsReviewActions: showsReviewActions
+        )
         view.onOverridesRequested = onOverridesRequested
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_600)
