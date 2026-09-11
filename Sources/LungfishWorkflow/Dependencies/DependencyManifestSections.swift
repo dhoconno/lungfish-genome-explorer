@@ -10,6 +10,67 @@ import CryptoKit
 /// and bootstrap (micromamba) metadata.
 public typealias DependencyManifest = ManagedToolLock
 
+public struct ManagedPythonRuntimeSpec: Sendable, Codable, Hashable {
+    public let distributionName: String
+    public let version: String
+    public let pythonABI: String
+    public let platform: String
+    public let basePackageSpecs: [String]
+    public let requirementsResource: String
+    public let requirementsSHA256: String
+
+    public init(
+        distributionName: String,
+        version: String,
+        pythonABI: String,
+        platform: String,
+        basePackageSpecs: [String],
+        requirementsResource: String,
+        requirementsSHA256: String
+    ) {
+        self.distributionName = distributionName
+        self.version = version
+        self.pythonABI = pythonABI
+        self.platform = platform
+        self.basePackageSpecs = basePackageSpecs
+        self.requirementsResource = requirementsResource
+        self.requirementsSHA256 = requirementsSHA256.lowercased()
+    }
+
+    func validateRequestedIdentity() throws {
+        let simple = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        let safeDistribution = !distributionName.isEmpty
+            && distributionName != "." && distributionName != ".."
+            && distributionName.unicodeScalars.allSatisfy(simple.contains)
+        let pinnedBasePackages = basePackageSpecs.allSatisfy { packageSpec in
+            let channelAndSpec = packageSpec.split(separator: "::", omittingEmptySubsequences: false)
+            guard channelAndSpec.count == 2, !channelAndSpec[0].isEmpty else { return false }
+            let identity = channelAndSpec[1].split(separator: "=", omittingEmptySubsequences: false)
+            return identity.count == 3 && identity.allSatisfy { !$0.isEmpty }
+        }
+        guard safeDistribution, !version.isEmpty,
+              pythonABI.count >= 4, pythonABI.hasPrefix("cp"),
+              pythonABI.dropFirst(2).allSatisfy(\.isNumber),
+              platform == "osx-arm64", !basePackageSpecs.isEmpty,
+              pinnedBasePackages,
+              !requirementsResource.isEmpty,
+              requirementsResource.unicodeScalars.allSatisfy(simple.contains),
+              requirementsResource.hasSuffix(".txt"),
+              requirementsSHA256.count == 64,
+              requirementsSHA256.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw CondaLockfileError.invalidSpecification(
+                "Python runtime requires a pinned osx-arm64 identity, base packages, and hashed requirements resource."
+            )
+        }
+    }
+
+    func matches(pythonVersion: String) -> Bool {
+        let components = pythonVersion.split(separator: ".")
+        guard components.count >= 2 else { return false }
+        return pythonABI == "cp\(components[0])\(components[1])"
+    }
+}
+
 /// A pinned tool belonging to an optional `PluginPack` (as opposed to the always-installed
 /// `ManagedToolLock.tools`).
 public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
@@ -39,6 +100,7 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
     /// forbid conda spec literals outside the manifest. `packageSpec` remains the conda
     /// fallback the reconciler applies when it must rebuild the environment itself.
     public let sourceBuild: SourceBuildSpec?
+    public let pythonRuntime: ManagedPythonRuntimeSpec?
 
     public init(
         packID: String,
@@ -50,7 +112,8 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
         license: String?,
         sourceUrl: String?,
         preserveExistingInstall: Bool? = nil,
-        sourceBuild: SourceBuildSpec? = nil
+        sourceBuild: SourceBuildSpec? = nil,
+        pythonRuntime: ManagedPythonRuntimeSpec? = nil
     ) {
         self.packID = packID
         self.toolID = toolID
@@ -62,12 +125,14 @@ public struct PackToolSpec: Sendable, Codable, Hashable, Identifiable {
         self.sourceUrl = sourceUrl
         self.preserveExistingInstall = preserveExistingInstall
         self.sourceBuild = sourceBuild
+        self.pythonRuntime = pythonRuntime
     }
 
     enum CodingKeys: String, CodingKey {
         case packID, toolID = "id", environment, packageSpec, executables, version, license, sourceUrl
         case preserveExistingInstall
         case sourceBuild
+        case pythonRuntime
     }
 }
 
@@ -218,7 +283,11 @@ public extension ManagedToolLock {
     }
 
     /// Every conda spec the manifest pins (managed tools + pack tools).
-    var allCondaSpecs: [String] { tools.map(\.packageSpec) + packTools.map(\.packageSpec) }
+    var allCondaSpecs: [String] {
+        tools.map(\.packageSpec) + packTools.flatMap {
+            $0.pythonRuntime?.basePackageSpecs ?? [$0.packageSpec]
+        }
+    }
 
     /// sha256 over canonical (sorted-keys) JSON of the manifest.
     var manifestHash: String {

@@ -2,6 +2,48 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class PluginPackStatusServiceTests: XCTestCase {
+    func testPythonVersionCannotSatisfyMissingManagedDistributionReceipt() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("python-runtime-status-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        let micromamba = try makeFakeMicromamba(at: sandbox.appendingPathComponent("micromamba"), version: "2.0.5-0")
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" })
+        _ = try await manager.ensureMicromamba()
+        let environment = await manager.environmentURL(named: "primalscheme3")
+        let bin = environment.appendingPathComponent("bin", isDirectory: true)
+        let metadata = environment.appendingPathComponent("conda-meta", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("primalscheme3")
+        try Data("#!/bin/sh\necho 3.3.0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        try Data(#"{"name":"python","version":"3.3.0","build":"fake","subdir":"osx-arm64"}"#.utf8)
+            .write(to: metadata.appendingPathComponent("python.json"))
+        let runtime = ManagedPythonRuntimeSpec(
+            distributionName: "primalscheme3", version: "3.3.0", pythonABI: "cp312",
+            platform: "osx-arm64", basePackageSpecs: ["conda-forge::python=3.12.11=build"],
+            requirementsResource: "requirements.txt",
+            requirementsSHA256: String(repeating: "a", count: 64))
+        let requirement = PackToolRequirement(
+            id: "primalscheme3", displayName: "PrimalScheme3", environment: "primalscheme3",
+            installPackages: runtime.basePackageSpecs, executables: ["primalscheme3"],
+            smokeTest: .command(arguments: ["--version"]), version: "3.3.0",
+            pythonRuntime: runtime)
+        let pack = PluginPack(
+            id: "python-runtime-test", name: "Python runtime", description: "test",
+            sfSymbol: "wrench", packages: ["primalscheme3"], category: "Tests",
+            requirements: [requirement])
+
+        let status = await PluginPackStatusService(condaManager: manager).status(for: pack)
+
+        XCTAssertEqual(status.state, .needsInstall)
+        XCTAssertTrue(status.toolStatuses[0].smokeTestFailure?.contains("receipt is missing") == true)
+    }
+
     func testStatusForRequiredSetupPackDoesNotEvaluateActiveOptionalPackRequirements() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("required-status-excludes-optional-\(UUID().uuidString)", isDirectory: true)

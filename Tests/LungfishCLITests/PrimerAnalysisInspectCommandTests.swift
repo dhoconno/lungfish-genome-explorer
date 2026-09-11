@@ -54,6 +54,22 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
         XCTAssertFalse(policy.requiresProvenance)
     }
 
+    func testDesignAndAnnotatedReferenceCommandsRequireFinalOutputProvenance() throws {
+        for path in [["primers", "design", "primer3"], ["primers", "design", "primalscheme3"],
+                     ["primers", "analysis", "annotated-reference"]] {
+            let policy = try XCTUnwrap(ScientificProvenancePolicy.cliCommand(path: path))
+            XCTAssertTrue(policy.requiresProvenance)
+            XCTAssertEqual(policy.outputPathExpectation, .finalStoredPayload)
+        }
+        XCTAssertThrowsError(try PrimerAnalysisAnnotatedReferenceCommand.parse([
+            "input.lungfishprimeranalysis", "--result-id", "invalid", "--output-directory", "/tmp"]))
+        let command = try XCTUnwrap(LungfishCLI.parseAsRoot([
+            "primers", "analysis", "annotated-reference", "input.lungfishprimeranalysis",
+            "--result-id", UUID().uuidString, "--output-directory", "/tmp"])
+            as? PrimerAnalysisAnnotatedReferenceCommand)
+        XCTAssertEqual(command.outputDirectory, "/tmp")
+    }
+
     private func fixture(in root: URL) throws -> PrimerAnalysisBundle {
         let source = root.appendingPathComponent("source.txt")
         let output = root.appendingPathComponent("result.txt")

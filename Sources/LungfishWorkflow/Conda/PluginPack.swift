@@ -135,6 +135,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let license: String?
     public let sourceURL: String?
     public let sourceOverlay: PackToolSourceOverlay?
+    public let pythonRuntime: ManagedPythonRuntimeSpec?
 
     public init(
         id: String,
@@ -148,7 +149,8 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         version: String? = nil,
         license: String? = nil,
         sourceURL: String? = nil,
-        sourceOverlay: PackToolSourceOverlay? = nil
+        sourceOverlay: PackToolSourceOverlay? = nil,
+        pythonRuntime: ManagedPythonRuntimeSpec? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -162,6 +164,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         self.license = license
         self.sourceURL = sourceURL
         self.sourceOverlay = sourceOverlay
+        self.pythonRuntime = pythonRuntime
     }
 
     public static func package(
@@ -255,6 +258,12 @@ public extension PackToolRequirement {
         let overlay: PackToolSourceOverlay?
         do {
             overlay = try spec.requestedSourceOverlay()
+            guard overlay == nil || spec.pythonRuntime == nil else {
+                throw CondaLockfileError.invalidSpecification(
+                    "Pack tool '\(spec.toolID)' cannot combine source and Python runtime overlays."
+                )
+            }
+            try spec.pythonRuntime?.validateRequestedIdentity()
         } catch {
             // Decoded manifests reject this before pack construction. Programmatic
             // invalid manifests keep the pack visible but cannot silently substitute
@@ -267,14 +276,16 @@ public extension PackToolRequirement {
             id: id,
             displayName: displayName,
             environment: spec.environment,
-            installPackages: overlay != nil ? spec.sourceBuild!.toolchainPackages : [spec.packageSpec],
+            installPackages: spec.pythonRuntime?.basePackageSpecs
+                ?? (overlay != nil ? spec.sourceBuild!.toolchainPackages : [spec.packageSpec]),
             executables: executables,
             fallbackExecutablePaths: fallbackExecutablePaths,
             smokeTest: smokeTest,
             version: overlay?.version ?? spec.version,
             license: spec.license,
             sourceURL: spec.sourceUrl,
-            sourceOverlay: overlay
+            sourceOverlay: overlay,
+            pythonRuntime: spec.pythonRuntime
         )
     }
 }
@@ -560,6 +571,46 @@ public extension PluginPack {
                 ),
             ],
             estimatedSizeMB: 650
+        ),
+        PluginPack(
+            id: "pcr-primer-design",
+            name: "PCR Primer Design",
+            description: "Independent Primer3 design and managed PrimalScheme3 tiled-amplicon runtime.",
+            sfSymbol: "lines.measurement.horizontal",
+            packages: ["primer3", "primalscheme3"],
+            category: "Specialized Workflows",
+            isActive: true,
+            requirements: [
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "pcr-primer-design",
+                    id: "primer3",
+                    displayName: "Primer3",
+                    executables: ["primer3_core"],
+                    smokeTest: .command(
+                        executable: "primer3_core",
+                        arguments: ["--about"],
+                        timeoutSeconds: 10,
+                        acceptedExitCodes: [0],
+                        requiredOutputSubstring: "libprimer3 release \(ManagedToolLock.bundled.packTool(packID: "pcr-primer-design", id: "primer3")?.version ?? "")"
+                    )
+                ),
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "pcr-primer-design",
+                    id: "primalscheme3",
+                    displayName: "PrimalScheme3",
+                    executables: ["primalscheme3"],
+                    smokeTest: .command(
+                        executable: "primalscheme3",
+                        arguments: ["--version"],
+                        timeoutSeconds: 10,
+                        acceptedExitCodes: [0],
+                        requiredOutputSubstring: "PrimalScheme3 version: \(ManagedToolLock.bundled.packTool(packID: "pcr-primer-design", id: "primalscheme3")?.version ?? "")"
+                    )
+                ),
+            ],
+            estimatedSizeMB: 350
         ),
         PluginPack(
             id: "variant-calling",

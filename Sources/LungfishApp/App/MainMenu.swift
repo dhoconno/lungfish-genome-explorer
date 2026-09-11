@@ -701,6 +701,11 @@ public final class MainMenu {
         let toolsMenu = NSMenu(title: "Tools")
 
         let model = ToolsMenuModel.build(isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) })
+        toolsMenu.addItem(
+            withTitle: "PCR Primer Design…",
+            action: #selector(ToolsMenuActions.showPCRPrimerDesign(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier("tools-pcr-primer-design")
         for category in model.categories {
             toolsMenu.addItem(categoryToolsMenuItem(for: category))
         }
@@ -1154,6 +1159,7 @@ enum ProvenanceExportMenuModel {
 /// Tools menu action handlers.
 @MainActor
 @objc protocol ToolsMenuActions {
+    func showPCRPrimerDesign(_ sender: Any?)
     func showFASTQQCReportingOperations(_ sender: Any?)
     func showFASTQDemultiplexingOperations(_ sender: Any?)
     func showFASTQTrimmingFilteringOperations(_ sender: Any?)

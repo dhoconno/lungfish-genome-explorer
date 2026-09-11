@@ -7,7 +7,7 @@ struct PrimerCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "primers",
         abstract: "Build and inspect primer-scheme and analysis bundles",
-        subcommands: [ImportSubcommand.self, PrimerAnalysisCommand.self]
+        subcommands: [ImportSubcommand.self, PrimerDesignCommand.self, PrimerAnalysisCommand.self]
     )
 
     struct ImportSubcommand: ParsableCommand {

@@ -225,6 +225,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         _ environmentURL: URL,
         _ progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> Void
+    public typealias PythonRuntimeInstallAction = @Sendable (
+        _ requirement: PackToolRequirement,
+        _ environmentURL: URL,
+        _ progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> Void
     public typealias StorageAvailability = @Sendable () -> ManagedStorageAvailability
 
     public static let shared = PluginPackStatusService(condaManager: .shared)
@@ -238,6 +243,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     private let databaseInstallAction: DatabaseInstallAction
     private let databaseInstalledCheck: DatabaseInstalledCheck
     private let sourceOverlayInstallAction: SourceOverlayInstallAction
+    private let pythonRuntimeInstallAction: PythonRuntimeInstallAction
     private let storageAvailability: StorageAvailability
     private let cacheLifetime: TimeInterval
     private let persistedSnapshotsURL: URL
@@ -254,6 +260,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         databaseInstallAction: DatabaseInstallAction? = nil,
         databaseInstalledCheck: DatabaseInstalledCheck? = nil,
         sourceOverlayInstallAction: SourceOverlayInstallAction? = nil,
+        pythonRuntimeInstallAction: PythonRuntimeInstallAction? = nil,
         storageAvailability: StorageAvailability? = nil,
         cacheLifetime: TimeInterval = 300
     ) {
@@ -274,6 +281,14 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             progress?(0, "Preparing \(requirement.displayName) source…")
             _ = try await ManagedToolSourceInstaller().install(sourceOverlay: sourceOverlay, environmentURL: environmentURL)
             progress?(1, "Prepared \(requirement.displayName) source")
+        }
+        self.pythonRuntimeInstallAction = pythonRuntimeInstallAction ?? { requirement, environmentURL, progress in
+            guard let runtime = requirement.pythonRuntime,
+                  let executable = requirement.executables.first else { return }
+            progress?(0, "Installing \(requirement.displayName) Python runtime…")
+            _ = try await ManagedPythonRuntimeInstaller().install(
+                spec: runtime, environmentURL: environmentURL, executableName: executable)
+            progress?(1, "Installed \(requirement.displayName) Python runtime")
         }
         self.storageAvailability = storageAvailability ?? {
             DatabaseRegistry.managedStorageAvailability()
@@ -531,6 +546,19 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 if requirement.sourceOverlay != nil {
                     let environmentURL = await condaManager.environmentURL(named: requirement.environment)
                     try await sourceOverlayInstallAction(requirement, environmentURL) { fraction, message in
+                        let itemFraction = 0.75 + (0.25 * fraction)
+                        progress?(PluginPackInstallProgress(
+                            requirementID: requirement.id,
+                            requirementDisplayName: requirement.displayName,
+                            overallFraction: base + (itemFraction / Double(totalSteps)),
+                            itemFraction: itemFraction,
+                            message: message
+                        ))
+                    }
+                }
+                if requirement.pythonRuntime != nil {
+                    let environmentURL = await condaManager.environmentURL(named: requirement.environment)
+                    try await pythonRuntimeInstallAction(requirement, environmentURL) { fraction, message in
                         let itemFraction = 0.75 + (0.25 * fraction)
                         progress?(PluginPackInstallProgress(
                             requirementID: requirement.id,
@@ -1034,6 +1062,16 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                     }
                 }
             }
+            if let runtime = requirement.pythonRuntime {
+                let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(
+                    for: runtime, environmentURL: envURL)
+                components.append(fingerprintComponent(for: receiptURL))
+                if let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL) {
+                    for file in receipt.downloadedWheels + receipt.installedFiles + [receipt.requirements] {
+                        components.append(fingerprintComponent(for: envURL.appendingPathComponent(file.relativePath)))
+                    }
+                }
+            }
 
             for executableURL in monitoredExecutableURLs(for: requirement, envURL: envURL) {
                 components.append(fingerprintComponent(for: executableURL))
@@ -1131,13 +1169,19 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 runRuntimeProbes: bootstrapReady
             )
             : nil
+        let pythonRuntimeFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+            ? pythonRuntimeFailure(for: requirement, envURL: envURL)
+            : nil
         let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+            && pythonRuntimeFailure == nil
             ? packageMetadataFailure(for: requirement, envURL: envURL)
             : nil
 
         let smokeTestFailure: String?
         if let sourceOverlayFailure {
             smokeTestFailure = sourceOverlayFailure
+        } else if let pythonRuntimeFailure {
+            smokeTestFailure = pythonRuntimeFailure
         } else if let packageMetadataFailure {
             smokeTestFailure = packageMetadataFailure
         } else if missingExecutables.isEmpty && bootstrapReady, let smokeTest = requirement.smokeTest {
@@ -1162,7 +1206,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         for requirement: PackToolRequirement,
         envURL: URL
     ) -> String? {
-        guard requirement.sourceOverlay == nil, let requiredVersion = requirement.version else { return nil }
+        guard requirement.sourceOverlay == nil, requirement.pythonRuntime == nil,
+              let requiredVersion = requirement.version else { return nil }
         let requiredPackageNames = Set(requiredPackageNames(for: requirement))
         guard !requiredPackageNames.isEmpty else { return nil }
 
@@ -1187,6 +1232,19 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
 
+        return nil
+    }
+
+    private func pythonRuntimeFailure(
+        for requirement: PackToolRequirement,
+        envURL: URL
+    ) -> String? {
+        guard let runtime = requirement.pythonRuntime else { return nil }
+        let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(for: runtime, environmentURL: envURL)
+        guard let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL),
+              receipt.validates(spec: runtime, environmentURL: envURL) else {
+            return "Managed \(requirement.displayName) Python runtime receipt is missing or does not match version \(runtime.version)"
+        }
         return nil
     }
 

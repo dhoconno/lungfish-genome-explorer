@@ -1,0 +1,268 @@
+import CryptoKit
+import Foundation
+import XCTest
+@testable import LungfishWorkflow
+
+final class ManagedPythonRuntimeInstallerTests: XCTestCase {
+    func testRejectsUnsafeRuntimeIdentityPinsAndExecutableBasename() async throws {
+        let fixture = try PythonRuntimeFixture()
+        defer { fixture.cleanup() }
+
+        let unsafeIdentity = ManagedPythonRuntimeSpec(
+            distributionName: "../primalscheme3", version: fixture.spec.version,
+            pythonABI: fixture.spec.pythonABI, platform: fixture.spec.platform,
+            basePackageSpecs: fixture.spec.basePackageSpecs,
+            requirementsResource: fixture.spec.requirementsResource,
+            requirementsSHA256: fixture.spec.requirementsSHA256)
+        XCTAssertThrowsError(try unsafeIdentity.validateRequestedIdentity())
+
+        let unpinnedBase = ManagedPythonRuntimeSpec(
+            distributionName: fixture.spec.distributionName, version: fixture.spec.version,
+            pythonABI: fixture.spec.pythonABI, platform: fixture.spec.platform,
+            basePackageSpecs: ["conda-forge::python=3.12"],
+            requirementsResource: fixture.spec.requirementsResource,
+            requirementsSHA256: fixture.spec.requirementsSHA256)
+        XCTAssertThrowsError(try unpinnedBase.validateRequestedIdentity())
+
+        do {
+            _ = try await fixture.installer().install(
+                spec: fixture.spec, environmentURL: fixture.environmentURL,
+                executableName: "../primalscheme3")
+            XCTFail("Expected unsafe executable rejection")
+        } catch {
+            XCTAssertTrue(error is ManagedPythonRuntimeInstallerError)
+        }
+        XCTAssertTrue(fixture.recorder.commands.isEmpty)
+    }
+
+    func testSuccessfulInstallUsesIsolatedHashedWheelOnlyCommandsAndWritesValidReceipt() async throws {
+        let fixture = try PythonRuntimeFixture()
+        defer { fixture.cleanup() }
+
+        let receipt = try await fixture.installer().install(
+            spec: fixture.spec,
+            environmentURL: fixture.environmentURL,
+            executableName: "primalscheme3"
+        )
+
+        let python = fixture.environmentURL.appendingPathComponent("bin/python").path
+        XCTAssertEqual(fixture.recorder.commands.prefix(3), [
+            [python, "-I", "-m", "pip", "--isolated", "download", "--require-hashes", "--only-binary=:all:", "--no-deps", "--dest", fixture.wheelhouse.path, "-r", fixture.requirementsURL.path],
+            [python, "-I", "-m", "pip", "--isolated", "install", "--require-hashes", "--no-index", "--no-deps", "--force-reinstall", "--find-links", fixture.wheelhouse.path, "-r", fixture.requirementsURL.path],
+            [python, "-I", "-m", "pip", "--isolated", "check"],
+        ])
+        XCTAssertEqual(receipt.requested, fixture.spec)
+        XCTAssertEqual(receipt.pythonVersion, "3.12.11")
+        XCTAssertTrue(receipt.validates(spec: fixture.spec, environmentURL: fixture.environmentURL))
+        XCTAssertEqual(
+            try ManagedPythonRuntimeReceipt.load(from: fixture.receiptURL), receipt)
+    }
+
+    func testFailedPipInvalidatesStaleReceiptButPreservesExistingEnvironment() async throws {
+        let fixture = try PythonRuntimeFixture(failCommandIndex: 0)
+        defer { fixture.cleanup() }
+        try FileManager.default.createDirectory(
+            at: fixture.receiptURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("stale".utf8).write(to: fixture.receiptURL)
+        let sentinel = fixture.environmentURL.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: sentinel)
+
+        do {
+            _ = try await fixture.installer().install(
+                spec: fixture.spec,
+                environmentURL: fixture.environmentURL,
+                executableName: "primalscheme3")
+            XCTFail("Expected pip failure")
+        } catch {
+            XCTAssertTrue(error is ManagedPythonRuntimeInstallerError)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.receiptURL.path))
+        XCTAssertEqual(try Data(contentsOf: sentinel), Data("keep".utf8))
+    }
+
+    func testReceiptRejectsRequestedIdentityAndInstalledFileTampering() async throws {
+        let fixture = try PythonRuntimeFixture()
+        defer { fixture.cleanup() }
+        let receipt = try await fixture.installer().install(
+            spec: fixture.spec,
+            environmentURL: fixture.environmentURL,
+            executableName: "primalscheme3")
+        let other = ManagedPythonRuntimeSpec(
+            distributionName: "primalscheme3", version: "9.9.9", pythonABI: "cp312",
+            platform: "osx-arm64", basePackageSpecs: fixture.spec.basePackageSpecs,
+            requirementsResource: fixture.spec.requirementsResource,
+            requirementsSHA256: fixture.spec.requirementsSHA256)
+        XCTAssertFalse(receipt.validates(spec: other, environmentURL: fixture.environmentURL))
+        try Data("tampered".utf8).write(to: fixture.installedFile)
+        XCTAssertFalse(receipt.validates(spec: fixture.spec, environmentURL: fixture.environmentURL))
+    }
+
+    func testReceiptRejectsInstalledFileReachedThroughSymlinkedAncestor() async throws {
+        let fixture = try PythonRuntimeFixture()
+        defer { fixture.cleanup() }
+        let receipt = try await fixture.installer().install(
+            spec: fixture.spec,
+            environmentURL: fixture.environmentURL,
+            executableName: "primalscheme3")
+        let packageDirectory = fixture.installedFile.deletingLastPathComponent()
+        let relocated = fixture.root.appendingPathComponent("relocated-primalscheme3")
+        try FileManager.default.moveItem(at: packageDirectory, to: relocated)
+        try FileManager.default.createSymbolicLink(
+            at: packageDirectory, withDestinationURL: relocated)
+
+        XCTAssertFalse(receipt.validates(
+            spec: fixture.spec, environmentURL: fixture.environmentURL))
+    }
+
+    func testCancellationNeverPublishesReceipt() async throws {
+        let fixture = try PythonRuntimeFixture(cancelCommandIndex: 1)
+        defer { fixture.cleanup() }
+
+        do {
+            _ = try await fixture.installer().install(
+                spec: fixture.spec,
+                environmentURL: fixture.environmentURL,
+                executableName: "primalscheme3")
+            XCTFail("Expected cancellation")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.receiptURL.path))
+    }
+
+    func testLivePinnedRuntimeInstallsThroughProductionInstaller() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNGFISH_LIVE_PRIMALSCHEME_ENV"] else {
+            throw XCTSkip("Set LUNGFISH_LIVE_PRIMALSCHEME_ENV to run the native installer proof")
+        }
+        let requirement = try XCTUnwrap(
+            PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" }?
+                .toolRequirements.first { $0.id == "primalscheme3" })
+        let runtime = try XCTUnwrap(requirement.pythonRuntime)
+
+        let receipt = try await ManagedPythonRuntimeInstaller().install(
+            spec: runtime,
+            environmentURL: URL(fileURLWithPath: path, isDirectory: true),
+            executableName: "primalscheme3")
+
+        XCTAssertTrue(receipt.validates(
+            spec: runtime,
+            environmentURL: URL(fileURLWithPath: path, isDirectory: true)))
+        XCTAssertEqual(receipt.installedDistributions.count, 30)
+        XCTAssertTrue(receipt.versionProbe.output.contains("3.3.0"))
+        XCTAssertTrue(receipt.helpProbe.output.localizedCaseInsensitiveContains("usage"))
+    }
+}
+
+private final class PythonCommandRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [[String]] = []
+    var commands: [[String]] { lock.withLock { stored } }
+    func append(_ argv: [String]) -> Int {
+        lock.withLock {
+            stored.append(argv)
+            return stored.count - 1
+        }
+    }
+}
+
+private struct PythonRuntimeFixture {
+    static let requirementsBytes = Data("primalscheme3==3.3.0 --hash=sha256:abc\n".utf8)
+    let root: URL
+    let environmentURL: URL
+    let spec: ManagedPythonRuntimeSpec
+    let recorder = PythonCommandRecorder()
+    let failCommandIndex: Int?
+    let cancelCommandIndex: Int?
+
+    var managedDirectory: URL { environmentURL.appendingPathComponent("share/lungfish/managed-tools") }
+    var requirementsURL: URL { managedDirectory.appendingPathComponent(spec.requirementsResource) }
+    var wheelhouse: URL { managedDirectory.appendingPathComponent("wheels-primalscheme3") }
+    var receiptURL: URL { ManagedPythonRuntimeReceipt.receiptURL(for: spec, environmentURL: environmentURL) }
+    var installedFile: URL { environmentURL.appendingPathComponent("lib/python3.12/site-packages/primalscheme3/__init__.py") }
+    var requirementsData: Data { Self.requirementsBytes }
+
+    init(failCommandIndex: Int? = nil, cancelCommandIndex: Int? = nil) throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        environmentURL = root.appendingPathComponent("env", isDirectory: true)
+        self.failCommandIndex = failCommandIndex
+        self.cancelCommandIndex = cancelCommandIndex
+        let hash = SHA256.hash(data: Self.requirementsBytes).map { String(format: "%02x", $0) }.joined()
+        spec = ManagedPythonRuntimeSpec(
+            distributionName: "primalscheme3", version: "3.3.0", pythonABI: "cp312",
+            platform: "osx-arm64",
+            basePackageSpecs: [
+                "conda-forge::python=3.12.11=hc22306f_0_cpython",
+                "conda-forge::pip=25.2=pyh8b19718_0",
+                "bioconda::primer3-py=2.3.1=py312h76eea60_0",
+            ],
+            requirementsResource: "requirements.txt", requirementsSHA256: hash)
+        try FileManager.default.createDirectory(
+            at: environmentURL.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: environmentURL.appendingPathComponent("conda-meta"), withIntermediateDirectories: true)
+        for executable in ["python", "primalscheme3"] {
+            let url = environmentURL.appendingPathComponent("bin/\(executable)")
+            try Data("#!/bin/sh\n".utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        for (name, version, build, subdir) in [
+            ("python", "3.12.11", "hc22306f_0_cpython", "osx-arm64"),
+            ("pip", "25.2", "pyh8b19718_0", "noarch"),
+            ("primer3-py", "2.3.1", "py312h76eea60_0", "osx-arm64"),
+        ] {
+            let json = try JSONSerialization.data(withJSONObject: [
+                "name": name, "version": version, "build": build, "subdir": subdir,
+            ])
+            try json.write(to: environmentURL.appendingPathComponent("conda-meta/\(name).json"))
+        }
+    }
+
+    func installer() -> ManagedPythonRuntimeInstaller {
+        let environmentURL = self.environmentURL
+        let requirementsData = self.requirementsData
+        let recorder = self.recorder
+        let failCommandIndex = self.failCommandIndex
+        let cancelCommandIndex = self.cancelCommandIndex
+        let installedFile = self.installedFile
+        return ManagedPythonRuntimeInstaller(
+            requirementsProvider: { _ in requirementsData },
+            commandRunner: { argv, _ in
+                let index = recorder.append(argv)
+                if index == cancelCommandIndex { throw CancellationError() }
+                if index == failCommandIndex {
+                    return .init(exitStatus: 2, stdout: "", stderr: "injected pip failure", wallTimeSeconds: 0.1)
+                }
+                if argv.contains("download") {
+                    let wheelhouse = environmentURL.appendingPathComponent("share/lungfish/managed-tools/wheels-primalscheme3")
+                    try FileManager.default.createDirectory(at: wheelhouse, withIntermediateDirectories: true)
+                    try Data("wheel".utf8).write(to: wheelhouse.appendingPathComponent("primalscheme3-3.3.0-py3-none-any.whl"))
+                }
+                if argv.contains("-c") {
+                    try FileManager.default.createDirectory(at: installedFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    let bytes = Data("__version__ = '3.3.0'\n".utf8)
+                    try bytes.write(to: installedFile)
+                    let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                    let object: [String: Any] = [
+                        "distributions": [["name": "primalscheme3", "version": "3.3.0"]],
+                        "files": [[
+                            "relativePath": "lib/python3.12/site-packages/primalscheme3/__init__.py",
+                            "sha256": hash, "sizeBytes": bytes.count,
+                        ]],
+                    ]
+                    return .init(exitStatus: 0, stdout: String(data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8)!, stderr: "", wallTimeSeconds: 0.1)
+                }
+                if argv.last == "--version" {
+                    return .init(exitStatus: 0, stdout: "primalscheme3 3.3.0\n", stderr: "", wallTimeSeconds: 0.1)
+                }
+                if argv.last == "--help" {
+                    return .init(exitStatus: 0, stdout: "Usage: primalscheme3\n", stderr: "", wallTimeSeconds: 0.1)
+                }
+                return .init(exitStatus: 0, stdout: "", stderr: "", wallTimeSeconds: 0.1)
+            },
+            now: { Date(timeIntervalSince1970: 100) })
+    }
+
+    func cleanup() { try? FileManager.default.removeItem(at: root) }
+}

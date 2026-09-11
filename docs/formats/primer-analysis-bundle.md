@@ -37,9 +37,9 @@ Both output modes verify the complete stored inventory before returning output. 
 
 Select an analysis bundle in the project sidebar or open it using File > Open. Packaged app builds also register the format for opening from Finder. The sidebar treats the bundle as one item, including when its contents are invalid, so internal files do not become independent project inputs.
 
-The read-only viewer validates the inventory off the main thread before displaying Overview, Files, and Provenance tabs. Overview shows saved grouping and input/result membership. Files lists the inventoried payloads. Provenance displays the canonical wrapper record from the same bytes verified during loading. Integrity failures appear as loading errors. Switching to another document removes the analysis viewer and cancels validation, which checks for cancellation between file reads.
+The read-only viewer validates the inventory off the main thread before displaying Overview, Results, Files, and Provenance tabs. Overview shows saved grouping and input/result membership. Files lists the inventoried payloads. Provenance displays the canonical wrapper and engine execution records from the same bytes verified during loading. Results interprets versioned Primer3 normalized output and native PrimalScheme3 BED/reference files, preserving alternative primers and coordinate conventions. Integrity failures appear as loading errors. Switching to another document removes the analysis viewer and cancels validation, which checks for cancellation between file reads.
 
-This viewer does not require design tools to be installed. It does not invoke generic legacy provenance repair, modify the bundle, or interpret native payloads as validated primer designs. Analysis details and provenance live in the viewer rather than the generic sidebar inspector.
+This viewer does not require design tools to be installed. It does not invoke generic legacy provenance repair, modify the bundle, or claim experimental validation of the stored designs. Analysis details and provenance live in the viewer rather than the generic sidebar inspector.
 
 ## Annotation links
 
@@ -55,3 +55,12 @@ Plain FASTA does not store annotations. Native LGE annotations can retain a type
 The helper returns no link when all four qualifiers are absent. Partial, unsupported, invalid, or multivalued link metadata is rejected. Reattaching the same link is idempotent; replacing a different existing link is rejected. Other feature metadata is preserved.
 
 These stable references are independent of renderer-created annotation UUIDs. JSON and native BED14/SQLite roundtrips are covered by tests. The helper does not resolve the referenced bundle, validate source sequence checksums or coordinate mappings, publish annotations to source bundles, or repair malformed raw attributes that an upstream parser has already discarded.
+
+
+## Engine payload conventions
+
+Primer3 keeps original FASTA/native MSA snapshots under `source-inputs/`, selected unmasked templates under `inputs/`, exact Boulder input/output under `native/`, versioned results at `results/primer3-normalized-v1.json`, and linked BED14 features under `annotations/`. Normalized coordinates are zero-based half-open; oligo sequences are stored in their synthesis orientation. Conserved-region masking is recorded separately from the unmasked template and retains the same coordinates. Engine and normalization provenance reside in `execution-provenance/`, outside the reserved canonical wrapper directory, with roles `toolProvenance` and `workflowProvenance`.
+
+PrimalScheme3 keeps every native output under `native/<resultID>/`, including BED, reference FASTA, native configuration, plots, logs and intermediate products. Independent schemes each have one input membership; a combined native panel has all selected memberships. Execution FASTA files use deterministic unique filenames and safe row identifiers. `inputs/<inputID>-row-map.json` schema 1 binds each original header and row index to its execution identifier without changing bases or row order. Original source bundles, including upstream provenance and coordinate maps, remain intact in their snapshots. Native BED uses the ARTIC v3 pool column, which must not be interpreted as a standard BED score.
+
+`Create Annotated Reference` and `primers analysis annotated-reference` materialize the selected Primer3 template and linked BED14 features into a new `.lungfishref`. The import and annotation steps record their real invocation and source analysis, and retain the stable analysis/result/input links. The analysis remains immutable.

@@ -33,7 +33,7 @@ struct RuntimeResourceLocatorTests {
     }
 
     @Test
-    func resolvesOnlyKnownResourceBundleBesideInjectedXCTestBundle() throws {
+    func resolvesPrefixedSwiftPMResourceBundleWhenLegacyHintsAreAbsent() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("runtime-resource-xctest-\(UUID().uuidString)", isDirectory: true)
         let products = tempRoot.appendingPathComponent("debug", isDirectory: true)
@@ -48,6 +48,8 @@ struct RuntimeResourceLocatorTests {
         )
         try Data("{}".utf8).write(to: expected)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        #expect(FileManager.default.fileExists(
+            atPath: products.appendingPathComponent("LungfishWorkflow.bundle").path) == false)
 
         let resolved = RuntimeResourceLocator.path(
             "Tools/tool-versions.json",

@@ -289,7 +289,8 @@ public final class ReferenceBundleAnnotationImportService {
         sourceURL: URL,
         bundleURL: URL,
         trackID requestedTrackID: String? = nil,
-        trackName requestedTrackName: String? = nil
+        trackName requestedTrackName: String? = nil,
+        invocationArgv: [String]? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
         let task = Task<ReferenceBundleAnnotationImportResult, Error>.detached(priority: .userInitiated) {
             try await BundleManifestMutationSerializer.shared.run(bundleURL: bundleURL) {
@@ -297,7 +298,8 @@ public final class ReferenceBundleAnnotationImportService {
                     sourceURL: sourceURL,
                     bundleURL: bundleURL,
                     requestedTrackID: requestedTrackID,
-                    requestedTrackName: requestedTrackName
+                    requestedTrackName: requestedTrackName,
+                    invocationArgv: invocationArgv
                 )
             }
         }
@@ -308,7 +310,8 @@ public final class ReferenceBundleAnnotationImportService {
         sourceURL: URL,
         bundleURL: URL,
         requestedTrackID: String?,
-        requestedTrackName: String?
+        requestedTrackName: String?,
+        invocationArgv: [String]?
     ) async throws -> ReferenceBundleAnnotationImportResult {
         #if DEBUG
         threadingProbe?()
@@ -400,7 +403,8 @@ public final class ReferenceBundleAnnotationImportService {
                 format: ext,
                 importerName: importerName,
                 inputManifestSnapshot: inputManifestSnapshot,
-                startedAt: startedAt
+                startedAt: startedAt,
+                invocationArgv: invocationArgv
             )
         } catch {
             try throwAfterProvenancePublicationFailure(error) {
@@ -531,12 +535,13 @@ public final class ReferenceBundleAnnotationImportService {
         format: String,
         importerName: String,
         inputManifestSnapshot: AnnotationImportFileSnapshot?,
-        startedAt: Date
+        startedAt: Date,
+        invocationArgv: [String]?
     ) throws {
         let completedAt = Date()
         let provenanceURL = importProvenanceURL(bundleURL: bundleURL, trackID: track.id)
         var log = try loadProvenanceLog(from: provenanceURL)
-        let command = [
+        let command = invocationArgv ?? [
             "Lungfish.app",
             "annotation-import",
             "--bundle", bundleURL.path,

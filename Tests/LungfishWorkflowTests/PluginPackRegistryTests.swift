@@ -394,12 +394,79 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "full-length-mhc-genotyping",
+            "pcr-primer-design",
             "variant-calling",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
         ])
+    }
+
+    func testPCRPrimerDesignPackKeepsPinnedPrimer3BesidePrimalScheme3() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" })
+
+        XCTAssertEqual(pack.name, "PCR Primer Design")
+        XCTAssertEqual(pack.category, "Specialized Workflows")
+        XCTAssertTrue(pack.isActive)
+        XCTAssertEqual(pack.packages, ["primer3", "primalscheme3"])
+        XCTAssertTrue(pack.description.contains("Primer3"))
+        XCTAssertTrue(pack.description.contains("PrimalScheme3"))
+
+        let requirement = try XCTUnwrap(pack.toolRequirements.first { $0.id == "primer3" })
+        XCTAssertEqual(pack.toolRequirements.count, 2)
+        XCTAssertEqual(requirement.id, "primer3")
+        XCTAssertEqual(requirement.environment, "primer3")
+        XCTAssertEqual(requirement.installPackages, [
+            try XCTUnwrap(manifest.packTool(packID: "pcr-primer-design", id: "primer3")).packageSpec
+        ])
+        XCTAssertEqual(requirement.executables, ["primer3_core"])
+        XCTAssertEqual(requirement.version, "2.6.1")
+        XCTAssertEqual(requirement.license, "GPL-2.0-or-later")
+        XCTAssertEqual(requirement.sourceURL, "https://github.com/primer3-org/primer3")
+        XCTAssertEqual(requirement.smokeTest?.executable, "primer3_core")
+        XCTAssertEqual(requirement.smokeTest?.arguments, ["--about"])
+        XCTAssertEqual(requirement.smokeTest?.acceptedExitCodes, [0])
+        XCTAssertEqual(requirement.smokeTest?.requiredOutputSubstring, "libprimer3 release 2.6.1")
+    }
+
+    func testPCRPrimerDesignPackDefinesTypedPrimalScheme3PythonRuntime() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        let spec = try XCTUnwrap(
+            manifest.packTool(packID: "pcr-primer-design", id: "primalscheme3")
+        )
+        let runtime = try XCTUnwrap(spec.pythonRuntime)
+        XCTAssertEqual(runtime.distributionName, "primalscheme3")
+        XCTAssertEqual(runtime.version, "3.3.0")
+        XCTAssertEqual(runtime.pythonABI, "cp312")
+        XCTAssertEqual(runtime.platform, "osx-arm64")
+        XCTAssertEqual(runtime.basePackageSpecs, [
+            "conda-forge::python=3.12.11=hc22306f_0_cpython",
+            "conda-forge::pip=25.2=pyh8b19718_0",
+            "bioconda::primer3-py=2.3.1=py312h76eea60_0",
+        ])
+        XCTAssertEqual(
+            runtime.requirementsResource,
+            "primalscheme3-osx-arm64-py312-requirements.txt"
+        )
+        XCTAssertEqual(runtime.requirementsSHA256.count, 64)
+
+        let pack = try XCTUnwrap(
+            PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" }
+        )
+        let requirement = try XCTUnwrap(
+            pack.toolRequirements.first { $0.id == "primalscheme3" }
+        )
+        XCTAssertEqual(requirement.pythonRuntime, runtime)
+        XCTAssertEqual(requirement.installPackages, runtime.basePackageSpecs)
+        XCTAssertEqual(requirement.executables, ["primalscheme3"])
+        XCTAssertEqual(requirement.version, "3.3.0")
+        XCTAssertEqual(requirement.license, "GPL-3.0")
+        XCTAssertEqual(requirement.smokeTest?.arguments, ["--version"])
+        XCTAssertEqual(
+            requirement.smokeTest?.requiredOutputSubstring,
+            "PrimalScheme3 version: 3.3.0")
     }
 
     func testExperimentalOptionalPacksAreExcludedFromReleaseVisiblePacks() {
@@ -415,6 +482,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(PluginPack.activeOptionalPacks(includeExperimental: true).map(\.id), [
             "read-mapping",
             "full-length-mhc-genotyping",
+            "pcr-primer-design",
             "variant-calling",
             "gatk-core",
             "phasing",
@@ -464,6 +532,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "lungfish-tools",
             "read-mapping",
             "full-length-mhc-genotyping",
+            "pcr-primer-design",
             "variant-calling",
             "assembly",
             "multiple-sequence-alignment",

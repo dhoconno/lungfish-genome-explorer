@@ -1,6 +1,6 @@
 # PCR primer pack: architecture proposal
 
-Status: architecture approved by the user on 2026-09-10. Exemplar scope subsequently confirmed as full-length MHC class I, class II DP, class II DQ, and class II DRB. Prepared from separate UI/UX, scientific data-integrity, and tool-integration reviews. The current implementation covers shared storage, annotation-link infrastructure, and a read-only saved-results viewer; design engines and their interfaces are not implemented.
+Status: architecture approved by the user on 2026-09-10. Exemplar scope subsequently confirmed as full-length MHC class I, class II DP, class II DQ, and class II DRB. Prepared from separate UI/UX, scientific data-integrity, and tool-integration reviews. The implementation now includes Primer3 and PrimalScheme3 execution through shared GUI/CLI workflows, an optional managed conda/Python pack, durable result bundles, result viewers, and Primer3 annotation export to native references. Human and macaque genomic MHC fixtures exercise the native engines. The archived uncovered-terminal-end modification is not included in the stock managed runtime; its control remains unavailable. See [the user guide](../features/pcr-primer-design.md) for the implemented interface and current limits.
 
 Workspace: `codex/pcr-primer-design`, based on `94a860e75`. All work is isolated from the concurrent MHC checkout.
 

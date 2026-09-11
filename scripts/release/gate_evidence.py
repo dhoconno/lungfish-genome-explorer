@@ -472,6 +472,32 @@ def canonical_tier_options(tier, require_tools):
 MANAGED_LOCK_RELATIVE = Path("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json")
 
 
+def validate_python_runtime_pin(tool, source_root, manifest_path):
+    runtime = tool.get("pythonRuntime")
+    if not isinstance(runtime, dict) or tool.get("sourceOverlay") is not None:
+        raise EvidenceError("canonical dependency manifest has invalid Python runtime identity")
+    name = runtime.get("distributionName")
+    if (not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) is None
+            or runtime.get("version") != tool["version"]
+            or runtime.get("platform") != "osx-arm64" or runtime.get("pythonABI") != "cp312"):
+        raise EvidenceError("canonical dependency manifest has invalid Python runtime identity")
+    pins = runtime.get("basePackageSpecs")
+    if (not isinstance(pins, list) or not pins or tool["packageSpec"] not in pins
+            or any(not isinstance(pin, str) or re.fullmatch(r"[^\s=:]+::[^\s=]+=[^\s=]+=[^\s=]+", pin) is None for pin in pins)):
+        raise EvidenceError("canonical Python runtime requires exact base package pins")
+    python_pins = [pin.split("::", 1)[1].split("=") for pin in pins if pin.split("::", 1)[1].split("=")[0] == "python"]
+    if len(python_pins) != 1 or not python_pins[0][1].startswith("3.12."):
+        raise EvidenceError("canonical Python runtime ABI does not match its base package")
+    resource = runtime.get("requirementsResource")
+    checksum = runtime.get("requirementsSHA256")
+    if (not isinstance(resource, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", resource) is None
+            or not isinstance(checksum, str) or re.fullmatch(r"[a-fA-F0-9]{64}", checksum) is None):
+        raise EvidenceError("canonical Python runtime lacks a safe hash-bound requirements resource")
+    requirements_record = file_record(manifest_path.parent / resource, source_root)
+    if requirements_record["sha256"] != checksum.lower():
+        raise EvidenceError("canonical Python requirements checksum differs from its manifest pin")
+
+
 def canonical_dependency_manifest(contract):
     """Bind actual repository pins, never a caller-labelled installed receipt."""
     configured_root = getattr(contract, "sourceRoot", Path(__file__).resolve().parents[2])
@@ -492,7 +518,11 @@ def canonical_dependency_manifest(contract):
         if not isinstance(tool, dict) or any(not isinstance(tool.get(key), str) or not tool[key].strip() for key in ("id", "version", "environment", "packageSpec")):
             raise EvidenceError("canonical dependency manifest has incomplete tool pins")
         spec = tool["packageSpec"]
-        if re.fullmatch(r"[^\s=:]+::[^\s=]+=[^\s=]+=[^\s=]+", spec) is None or spec.split("=", 2)[1] != tool["version"]:
+        if re.fullmatch(r"[^\s=:]+::[^\s=]+=[^\s=]+=[^\s=]+", spec) is None:
+            raise EvidenceError("canonical dependency manifest requires exact version/build pins")
+        if tool.get("pythonRuntime") is not None:
+            validate_python_runtime_pin(tool, source_root, path)
+        elif spec.split("=", 2)[1] != tool["version"]:
             raise EvidenceError("canonical dependency manifest requires exact version/build pins")
         executables = tool.get("executables")
         if not isinstance(executables, list) or not executables or any(not isinstance(value, str) or not value for value in executables):

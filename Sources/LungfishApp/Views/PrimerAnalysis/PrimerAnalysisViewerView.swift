@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import LungfishIO
 
@@ -9,6 +10,7 @@ struct PrimerAnalysisViewerView: View {
 
   enum Section: String, CaseIterable, Identifiable {
     case overview = "Overview"
+    case results = "Results"
     case files = "Files"
     case provenance = "Provenance"
 
@@ -76,6 +78,10 @@ struct PrimerAnalysisViewerView: View {
         Group {
           switch selectedSection {
           case .overview: overview(snapshot)
+          case .results:
+            if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url) }
+            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults) }
+            else { Text("Native scheme outputs are preserved in the Files inventory.").foregroundStyle(.secondary) }
           case .files: files(snapshot)
           case .provenance: provenance(snapshot)
           }
@@ -131,7 +137,15 @@ struct PrimerAnalysisViewerView: View {
         id: \.relativePath
       ) { artifact in
         VStack(alignment: .leading, spacing: 4) {
-          Text(artifact.relativePath).font(.headline).textSelection(.enabled)
+          HStack {
+            Text(artifact.relativePath).font(.headline).textSelection(.enabled)
+            Spacer()
+            Button("Show in Finder") {
+              if let url = try? snapshot.bundle.artifactURL(forRelativePath: artifact.relativePath) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+              }
+            }.controlSize(.small)
+          }
           Text("Role: \(artifact.role) • Format: \(artifact.format)")
           Text("Size: \(artifact.byteSize) bytes")
           Text("SHA-256: \(artifact.sha256)").font(.system(.caption, design: .monospaced))
@@ -145,6 +159,20 @@ struct PrimerAnalysisViewerView: View {
   private func provenance(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {
     let provenance = snapshot.provenance
     return VStack(alignment: .leading, spacing: 16) {
+      ForEach(Array(snapshot.toolProvenance.enumerated()), id: \.offset) { index, execution in
+        sectionTitle("Tool execution \(index + 1)")
+        field("Tool", "\(execution.toolName) \(execution.toolVersion)")
+        field("Executed argv", execution.argv.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " "))
+        field("Recorded command", execution.reproducibleCommand)
+        field("Exit status", execution.exitStatus.map(String.init) ?? "Not recorded")
+        field("Wall time", execution.wallTimeSeconds.map { String(format: "%.3f seconds", $0) } ?? "Not recorded")
+        field("Runtime", execution.runtimeIdentity.executablePath)
+        if let environment = execution.runtimeIdentity.condaEnvironment { field("Conda environment", environment) }
+        if let stderr = execution.stderr, !stderr.isEmpty {
+          DisclosureGroup("Tool stderr") { Text(stderr).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+        }
+        Divider()
+      }
       sectionTitle("Wrapper provenance")
       field("Workflow", "\(provenance.workflowName) \(provenance.workflowVersion)")
       field("Tool", "\(provenance.toolName) \(provenance.toolVersion)")

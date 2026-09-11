@@ -76,6 +76,11 @@ public struct CondaRequestedEnvironmentSpecification: Sendable, Codable, Equatab
                 throw CondaLockfileError.invalidSpecification("Requirement '\(requirement.id)' has no complete requested environment identity.")
             }
             try requirement.sourceOverlay?.validateRequestedIdentity()
+            guard requirement.sourceOverlay == nil || requirement.pythonRuntime == nil else {
+                throw CondaLockfileError.invalidSpecification(
+                    "Requirement '\(requirement.id)' cannot combine source and Python runtime overlays.")
+            }
+            try requirement.pythonRuntime?.validateRequestedIdentity()
         }
     }
 }

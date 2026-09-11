@@ -209,7 +209,15 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         databases = try c.decodeIfPresent([DatabaseSpec].self, forKey: .databases) ?? []
         bootstrap = try c.decodeIfPresent(BootstrapSpec.self, forKey: .bootstrap)
         retiredEnvironments = try c.decodeIfPresent([String].self, forKey: .retiredEnvironments) ?? []
-        for tool in packTools { _ = try tool.requestedSourceOverlay() }
+        for tool in packTools {
+            let sourceOverlay = try tool.requestedSourceOverlay()
+            guard sourceOverlay == nil || tool.pythonRuntime == nil else {
+                throw CondaLockfileError.invalidSpecification(
+                    "Pack tool '\(tool.toolID)' cannot combine source and Python runtime overlays."
+                )
+            }
+            try tool.pythonRuntime?.validateRequestedIdentity()
+        }
         for database in databases { try database.validateSourceIdentity() }
     }
 

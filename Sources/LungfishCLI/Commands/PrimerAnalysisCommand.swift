@@ -1,12 +1,13 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 struct PrimerAnalysisCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "analysis",
         abstract: "Inspect saved primer analysis results",
-        subcommands: [PrimerAnalysisInspectCommand.self]
+        subcommands: [PrimerAnalysisInspectCommand.self, PrimerAnalysisAnnotatedReferenceCommand.self]
     )
 }
 
@@ -44,5 +45,27 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
         Artifacts: \(manifest.artifacts.count)
         Integrity verified
         """
+    }
+}
+
+
+struct PrimerAnalysisAnnotatedReferenceCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "annotated-reference",
+        abstract: "Create a native reference with linked annotations from a saved Primer3 result"
+    )
+    @Argument(help: "Path to the saved .lungfishprimeranalysis bundle.") var bundlePath: String
+    @Option(name: .customLong("result-id"), help: "Result UUID from `primers analysis inspect --json`.") var resultID: String
+    @Option(name: .customLong("output-directory"), help: "Existing destination directory.") var outputDirectory: String
+
+    func validate() throws {
+        guard UUID(uuidString: resultID) != nil else { throw ValidationError("--result-id must be a UUID from the saved analysis.") }
+    }
+    func run() async throws {
+        guard let id = UUID(uuidString: resultID) else { throw ValidationError("Invalid result UUID.") }
+        let output = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+            analysisURL: URL(fileURLWithPath: bundlePath), resultID: id,
+            outputDirectory: URL(fileURLWithPath: outputDirectory), invocationArgv: CommandLine.arguments)
+        print("Annotated reference written to \(output.path)")
     }
 }

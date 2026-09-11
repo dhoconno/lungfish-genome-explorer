@@ -4,6 +4,15 @@ import XCTest
 
 @MainActor
 final class ToolsMenuStructureTests: XCTestCase {
+    func testPrimerDesignIsDirectlyReachableFromToolsMenu() throws {
+        _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
+        let item = try XCTUnwrap(toolsMenu.items.first { $0.title == "PCR Primer Design…" })
+        XCTAssertEqual(item.action, #selector(ToolsMenuActions.showPCRPrimerDesign(_:)))
+        XCTAssertEqual(item.identifier?.rawValue, "tools-pcr-primer-design")
+    }
+
     func testGenotypingCategoryExists() {
         XCTAssertTrue(FASTQOperationCategoryID.allCases.contains(.genotyping))
         XCTAssertEqual(FASTQOperationCategoryID.genotyping.title, "GENOTYPING")

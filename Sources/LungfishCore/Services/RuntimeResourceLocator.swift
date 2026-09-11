@@ -227,9 +227,10 @@ public enum RuntimeResourceLocator {
                     bundleName,
                     isDirectory: true
                 )
-                guard let bundleAttributes = try? fileManager.attributesOfItem(
-                    atPath: rawBundleURL.path
-                ),
+                guard fileManager.fileExists(atPath: rawBundleURL.path),
+                      let bundleAttributes = try? fileManager.attributesOfItem(
+                        atPath: rawBundleURL.path
+                      ),
                 bundleAttributes[.type] as? FileAttributeType == .typeDirectory else {
                     continue
                 }
@@ -245,7 +246,8 @@ public enum RuntimeResourceLocator {
                 let rawNestedResourcesURL = rawBundleURL
                     .appendingPathComponent("Contents", isDirectory: true)
                     .appendingPathComponent("Resources", isDirectory: true)
-                if let resourceAttributes = try? fileManager.attributesOfItem(
+                if fileManager.fileExists(atPath: rawNestedResourcesURL.path),
+                   let resourceAttributes = try? fileManager.attributesOfItem(
                     atPath: rawNestedResourcesURL.path
                 ),
                 resourceAttributes[.type] as? FileAttributeType == .typeDirectory {
