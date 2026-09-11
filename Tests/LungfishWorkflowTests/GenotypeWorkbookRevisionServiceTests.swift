@@ -7,6 +7,39 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testExcelEditAfterStageCreationCannotBecomeAdmittedSourceInAnyUpdateMode() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for annotationOnly in [false, true] {
+            let fixture = try makeMCMWorkbookBundle(in: root, outputName: "source-admission-\(annotationOnly)")
+            let annotations = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            try GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-11T00:00:00Z").encoded().write(to: annotations)
+            let calls = [GenotypeWorkbookHaplotypeCall(sample: "DW472", locus: "MHC-A", haplotype1: "M1", haplotype2: "M1", status: "called", notes: "", baselineHaplotype1: "M1", baselineHaplotype2: "-")]
+            _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides(calls, annotationSidecarURL: annotations, into: fixture.bundleURL)
+            let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+            let editedURL = root.appendingPathComponent("excel-save-\(annotationOnly).xlsx")
+            try FileManager.default.copyItem(at: currentURL, to: editedURL)
+            _ = try runPython(["-c", "from openpyxl import load_workbook; import sys; p=sys.argv[1]; w=load_workbook(p); w['Edit Calls']['G2']='set'; w['Edit Calls']['H2']='Analyst-Excel-call'; w.save(p)", editedURL.path])
+            let editedData = try Data(contentsOf: editedURL)
+            var expected = try bundleSnapshot(fixture.bundleURL)
+            expected["artifacts/workbooks/current.xlsx"] = "file:\(editedData.count):\(try ProvenanceFileHasher.sha256(of: editedURL))"
+            let reached = SendableFlagBox()
+            let service = GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL, publicationFailureInjector: { checkpoint in
+                if checkpoint == "after-stage-created" {
+                    try editedData.write(to: currentURL, options: .atomic)
+                    reached.set(1)
+                }
+            })
+            XCTAssertThrowsError(try service.applyHaplotypeOverrides(annotationOnly ? [] : calls, annotationSidecarURL: annotations, into: fixture.bundleURL, annotationOnly: annotationOnly)) { error in
+                XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+            }
+            XCTAssertEqual(reached.value, 1)
+            XCTAssertEqual(try Data(contentsOf: currentURL), editedData)
+            XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), expected)
+            try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        }
+    }
+
     func testEditableBaselineBindsActiveHaplotypeAnalysisBytesAndFinalProvenance() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

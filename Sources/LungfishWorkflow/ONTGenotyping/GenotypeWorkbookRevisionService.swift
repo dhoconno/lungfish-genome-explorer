@@ -528,11 +528,11 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle)
         }
         try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
-        guard try !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle) else {
+        let admittedSourceWorkbookWitness = try readRegularFileNoFollow(sourceWorkbookURL, role: "workbook update source").witness
+        guard try !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle, capturedWorkbookSHA256: admittedSourceWorkbookWitness.sha256) else {
             throw GenotypeEditableWorkbookService.EditError.rejected("Review external current.xlsx edits before regeneration.")
         }
         try attempt?.recordInputFile(at: sourceWorkbookURL)
-        let annotationOnlyWorkbookRevision: ONTGenotypeWorkbookRevision?
         if annotationOnly {
             guard calls.isEmpty else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
@@ -545,9 +545,6 @@ public struct GenotypeWorkbookRevisionService {
                     "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
                 )
             }
-            annotationOnlyWorkbookRevision = revision
-        } else {
-            annotationOnlyWorkbookRevision = nil
         }
         var workbookScientificInputs = try candidateArtifactInputURLs(
             from: manifest,
@@ -768,13 +765,12 @@ public struct GenotypeWorkbookRevisionService {
             from: sourceWorkbookURL,
             to: stagedSourceWorkbookURL
         )
-        if let annotationOnlyWorkbookRevision {
-            guard try (annotationOnlyWorkbookRevision.sizeBytes == sourceWorkbookWitness.sizeBytes && annotationOnlyWorkbookRevision.sha256 == sourceWorkbookWitness.sha256)
-                    || !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle) else {
-                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                    "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
-                )
-            }
+        guard sourceWorkbookWitness.sha256 == admittedSourceWorkbookWitness.sha256,
+              sourceWorkbookWitness.sizeBytes == admittedSourceWorkbookWitness.sizeBytes,
+              try !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle, capturedWorkbookSHA256: sourceWorkbookWitness.sha256) else {
+            throw GenotypeEditableWorkbookService.EditError.rejected(
+                "Workbook changed after source admission. Review external current.xlsx edits before regeneration."
+            )
         }
         let scriptArguments = [
             stagedSourceWorkbookURL.path,

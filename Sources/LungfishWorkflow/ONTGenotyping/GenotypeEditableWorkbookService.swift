@@ -69,6 +69,12 @@ public struct GenotypeEditableWorkbookService: Sendable {
     /// Cheap byte-level gate used before regeneration or opening. A valid
     /// accepted edit is scoped to this exact baseline, source, and retained XLSX.
     public static func hasUnreviewedExternalEdits(in bundleURL: URL) throws -> Bool {
+        try hasUnreviewedExternalEdits(in: bundleURL, capturedWorkbookSHA256: nil)
+    }
+
+    /// Admission of a staged source must check that source's actual digest,
+    /// never substitute a later read of the mutable current.xlsx pathname.
+    static func hasUnreviewedExternalEdits(in bundleURL: URL, capturedWorkbookSHA256: String?) throws -> Bool {
         let baselineURL = bundleURL.appendingPathComponent(baselinePath)
         let baselineData = FileManager.default.fileExists(atPath: baselineURL.path) ? try readRegular(baselineURL) : nil
         let baseline = try baselineData.map { try JSONDecoder().decode(Baseline.self, from: $0) }
@@ -82,7 +88,12 @@ public struct GenotypeEditableWorkbookService: Sendable {
             workbookPath = current; expected = revision.sha256
         } else { return false }
         guard !workbookPath.hasPrefix("/"), !workbookPath.split(separator: "/").contains("..") else { throw EditError.rejected("Unsafe workbook path.") }
-        let actual = hash(try readRegular(bundleURL.appendingPathComponent(workbookPath)))
+        let actual: String
+        if let capturedWorkbookSHA256 {
+            actual = capturedWorkbookSHA256
+        } else {
+            actual = hash(try readRegular(bundleURL.appendingPathComponent(workbookPath)))
+        }
         if actual == expected { return false }
         guard let baselineData, let baseline else { return true }
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
