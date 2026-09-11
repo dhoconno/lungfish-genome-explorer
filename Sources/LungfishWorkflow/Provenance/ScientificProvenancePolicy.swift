@@ -186,6 +186,7 @@ public enum ScientificProvenancePolicy {
     ]
 
     public static let cliCommandPathPolicies: [String: ProvenancePolicyEntry] = [
+        "primers analysis inspect": inspectOnly("cli.primers.analysis.inspect"),
         "conda db download": dataWriting(
             "cli.conda.db.download",
             writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"

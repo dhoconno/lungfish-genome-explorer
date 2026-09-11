@@ -6,8 +6,8 @@ import LungfishWorkflow
 struct PrimerCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "primers",
-        abstract: "Build and inspect primer-scheme bundles",
-        subcommands: [ImportSubcommand.self]
+        abstract: "Build and inspect primer-scheme and analysis bundles",
+        subcommands: [ImportSubcommand.self, PrimerAnalysisCommand.self]
     )
 
     struct ImportSubcommand: ParsableCommand {
