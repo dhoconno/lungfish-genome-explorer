@@ -65,6 +65,37 @@ final class GenotypeExcelExportAccessoryController: NSViewController {
 }
 
 @MainActor
+enum GenotypeExcelExportDialogPresenter {
+    struct Presentation {
+        let alert: NSAlert
+        let accessory: GenotypeExcelExportAccessoryController
+    }
+
+    static func makeAlert(
+        scope: String,
+        capability: String,
+        allowsEditableWorkbook: Bool,
+        onRoleChange: @escaping (GenotypeExcelExportRole) -> Void
+    ) -> Presentation {
+        let alert = NSAlert()
+        alert.messageText = "Export to Excel"
+        alert.informativeText = "Choose the workbook role.\n\n\(scope)\n\n\(capability)"
+        alert.addButton(withTitle: "Export…")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        let accessory = GenotypeExcelExportAccessoryController(
+            allowsEditableWorkbook: allowsEditableWorkbook
+        ) { role in
+            alert.buttons[0].title = role == .filteredView ? "Export…" : "Open in Excel"
+            onRoleChange(role)
+        }
+        alert.accessoryView = accessory.view
+        return Presentation(alert: alert, accessory: accessory)
+    }
+}
+
+@MainActor
 enum GenotypeExcelExportDialogRoute {
     static func complete(
         response: NSApplication.ModalResponse,
@@ -9883,19 +9914,15 @@ public final class GenotypeResultViewController: NSViewController {
         guard displayState == expectedDisplayState,
               let snapshot = currentExportSnapshot()
         else { return }
-        let alert = NSAlert()
-        alert.messageText = "Export to Excel"
         let capturedScope = GenotypeExcelCapturedScope(snapshot: snapshot)
-        alert.informativeText = "Choose the workbook role.\n\n\(capturedScope.summary)\n\n\(capturedScope.capability)"
-        alert.addButton(withTitle: "Export…")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.keyEquivalent = "\r"
-        alert.buttons.dropFirst().first?.keyEquivalent = "\u{1b}"
-        let accessory = GenotypeExcelExportAccessoryController(
-            allowsEditableWorkbook: !currentWorkbookIsReadOnly
-        ) { role in
-            alert.buttons.first?.title = role == .filteredView ? "Export…" : "Open in Excel"
-        }
+        let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
+            scope: capturedScope.summary,
+            capability: capturedScope.capability,
+            allowsEditableWorkbook: !currentWorkbookIsReadOnly,
+            onRoleChange: { _ in }
+        )
+        let alert = presentation.alert
+        let accessory = presentation.accessory
         excelExportAccessoryController = accessory
         alert.accessoryView = accessory.view
         let window = view.window ?? NSApp.keyWindow ?? NSWindow()

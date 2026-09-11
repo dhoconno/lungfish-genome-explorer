@@ -73,3 +73,25 @@ Production changes:
 - Filtered progress/success/failure events now publish only when the production request is explicitly the filtered Excel workflow; legacy exports cannot replace the session's last-filtered state.
 
 New focused production/test files are `Sources/LungfishApp/Views/Inspector/GenotypeExcelReviewPresenter.swift` and `Tests/LungfishGenotypeUITests/GenotypeExcelDialogBehaviorTests.swift`. `git diff --check` passed. No production app or user project was opened. No screenshot was retained.
+
+## Review round 2 partial handoff (NEEDS_CONTEXT)
+
+Implemented and verified:
+
+- `/tmp/lungfish-task3-review2-scope-red.log`: behavioral RED showed unbounded 2,758-character internal filter dump, missing readable labels, and filtered-call-derived capability.
+- `/tmp/lungfish-task3-review2-review-red.log`: behavioral RED using actual `GenotypeEditableWorkbookService.Change` showed native review comments capped at four lines.
+- `/tmp/lungfish-task3-review2-green1.log`: 7 focused native dialog/review tests passed.
+- `/tmp/lungfish-task3-review2-combined.log`: complete affected Task 3 suites passed, **157 tests / 0 failures**.
+- Captured scope now uses bounded sample/locus lists and labelled min reads, min percent, percent basis, search, visibility, and locus fields; it does not expose encoded/internal keys. Workbook-level modern-vs-legacy projection capability no longer guesses from visible call source strings or missing visible baselines.
+- Production `GenotypeExcelExportDialogPresenter` now owns the exact native alert used by the controller; tests inspect its actual Return/Escape equivalents, default role, and primary label.
+- Review tests construct actual Task 2 `Change` values and verify H1 identity, explicit clear, exact cell/stable-cluster identity, and complete long multiline before/after comments. Labels have no line cap and a bounded wrapping width inside the outer scroll view.
+- `PendingGenotypeCurrentWorkbookRoute` captures the originating controller and `OperationRouteContext` synchronously before fingerprint preparation. Production revalidates both after that await and again around canonical preparation/open. `genotypeCurrentWorkbookExternalOpener` and `genotypeExcelErrorPresenter` are the exact injected I/O seams now used by this production path.
+- Review ownership is revalidated after inspection before presentation, before apply, and before scoped error presentation. Sync phase availability treats project-session write denial as read-only, not only filesystem denial.
+
+Unresolved required production workflow coverage:
+
+- Controller replacement/project switch/authorization loss across both async waits needs a reliable production-route fixture covering success and failure suppression.
+- Inspection → actual presentation → Task 2 acceptance → immediate recompute/refresh/save, zero-change acknowledgement, cancellation, ownership loss, and actionable errors still lacks a single injected production workflow test.
+- The delayed `NSSavePanel` path still lacks an injected panel/export seam proving the same frozen snapshot crosses both dialogs and cancellation has no filesystem effects.
+
+Two attempts at a production controller-replacement test were stopped and not retained. `/tmp/lungfish-task3-review2-route-green.log` first failed at the gate assertion. `/tmp/lungfish-task3-review2-route-green2.log` then hung after build completion and was interrupted: hiding the controller emits a bundle-switch request, producing a second fingerprint waiter against the fixture's single-continuation `FingerprintLoadGate` and orphaning the original waiter. No native modal, production app, or user project was launched. This partial commit must not be treated as Task 3 completion; a fresh integration-fixture pass is required.

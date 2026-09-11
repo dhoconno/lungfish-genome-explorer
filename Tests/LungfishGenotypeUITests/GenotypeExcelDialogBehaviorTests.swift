@@ -28,11 +28,22 @@ final class GenotypeExcelDialogBehaviorTests: XCTestCase {
         XCTAssertEqual(roles, [.editableWorkbook, .filteredView])
     }
 
-    func testCapturedScopeIncludesDenominatorSearchVisibilityAndLegacyCapability() {
+    func testProductionAlertAssignsReturnAndEscapeAndDefaultsToFilteredRole() throws {
+        let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
+            scope: "Captured scope", capability: "Supported", allowsEditableWorkbook: true,
+            onRoleChange: { _ in }
+        )
+        XCTAssertEqual(presentation.alert.buttons[0].keyEquivalent, "\r")
+        XCTAssertEqual(presentation.alert.buttons[1].keyEquivalent, "\u{1b}")
+        XCTAssertEqual(presentation.accessory.role, .filteredView)
+        XCTAssertEqual(presentation.alert.buttons[0].title, "Export…")
+    }
+
+    func testCapturedScopeIsBoundedHumanReadableAndUsesCanonicalWorkbookCapability() {
         let call = GenotypeViewProjectionHaplotypeCall(
             sample: "S1", locus: "A", haplotype1: "new", haplotype2: "old",
             haplotype1Status: "manual", haplotype2Status: "called",
-            haplotype1Source: "manual override", haplotype2Source: "raw",
+            haplotype1Source: "pipeline", haplotype2Source: "pipeline",
             baselineHaplotype1: "", baselineHaplotype2: "old"
         )
         let snapshot = GenotypeViewportExportSnapshot(
@@ -41,17 +52,19 @@ final class GenotypeExcelDialogBehaviorTests: XCTestCase {
                 "matrixMinimumReads": "9", "matrixMinimumPercent": "12.5",
                 "matrixPercentDenominator": "Viewed Locus", "searchText": "needle",
                 "hideLowSupport": "true",
+                "internalEncodedPredicate": String(repeating: "x", count: 2_000),
             ], sampleNames: ["matrix-axis"], rows: [], haplotypeCalls: [call],
-            haplotypeSampleScope: ["S1"], haplotypeLocusScope: ["A"]
+            haplotypeSampleScope: (1...100).map { "S\($0)" }, haplotypeLocusScope: ["A"]
         )
         let presentation = GenotypeExcelCapturedScope(snapshot: snapshot)
-        XCTAssertTrue(presentation.summary.contains("Samples (1): S1"))
+        XCTAssertTrue(presentation.summary.contains("Samples (100): S1"))
         XCTAssertTrue(presentation.summary.contains("Loci (1): A"))
-        XCTAssertTrue(presentation.summary.contains("matrixPercentDenominator=Viewed Locus"))
-        XCTAssertTrue(presentation.summary.contains("searchText=needle"))
-        XCTAssertTrue(presentation.summary.contains("hideLowSupport=true"))
-        XCTAssertTrue(presentation.capability.contains("read-only"))
-        XCTAssertTrue(presentation.capability.contains("matrix reviews and comments remain supported"))
+        XCTAssertTrue(presentation.summary.contains("Percent basis: Viewed Locus"))
+        XCTAssertTrue(presentation.summary.contains("Search: needle"))
+        XCTAssertTrue(presentation.summary.contains("Low-support rows: hidden"))
+        XCTAssertFalse(presentation.summary.contains("internalEncodedPredicate"))
+        XCTAssertLessThan(presentation.summary.count, 1_000)
+        XCTAssertTrue(presentation.capability.contains("H1/H2 call edits"))
     }
 
     func testOnlyFilteredWorkflowPublishesLatestFilteredEvents() {

@@ -478,7 +478,12 @@ extension MainSplitViewController {
                                 try service.inspect(bundleURL: bundleURL)
                             }.value
                             guard let self, let controller,
-                                  self.viewerController.genotypeResultViewController === controller
+                                  self.viewerController.genotypeResultViewController === controller,
+                                  controller.representedBundleURL == requestedBundleURL,
+                                  self.mayUpdateGenotypeCurrentWorkbook(
+                                    bundleURL: requestedBundleURL,
+                                    isReadOnly: false
+                                  )
                             else { return }
                             let alert = NSAlert()
                             alert.messageText = "Review Excel Changes"
@@ -507,7 +512,15 @@ extension MainSplitViewController {
                             else { return }
                             try controller.acceptEditableWorkbook(inspection, using: service)
                         } catch {
-                            NSApp.presentError(error)
+                            guard let self, let controller,
+                                  self.viewerController.genotypeResultViewController === controller,
+                                  controller.representedBundleURL == requestedBundleURL,
+                                  self.mayUpdateGenotypeCurrentWorkbook(
+                                    bundleURL: requestedBundleURL,
+                                    isReadOnly: false
+                                  )
+                            else { return }
+                            self.genotypeExcelErrorPresenter(error)
                         }
                     }
                 }
@@ -558,7 +571,8 @@ extension MainSplitViewController {
             generation: generation,
             snapshot: request.snapshot,
             action: action,
-            routeContext: operationRouteContext
+            routeContext: operationRouteContext,
+            originatingController: viewerController.genotypeResultViewController
         )
 
         Task { @MainActor [weak self] in
@@ -579,7 +593,9 @@ extension MainSplitViewController {
                 }.value
                 guard let self,
                       let pending = self.pendingGenotypeCurrentWorkbookRoutes[key],
-                      pending.generation == generation
+                      pending.generation == generation,
+                      self.operationRouteContext == pending.routeContext,
+                      self.viewerController.genotypeResultViewController === pending.originatingController
                 else {
                     return
                 }
@@ -641,7 +657,7 @@ extension MainSplitViewController {
                         (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
                     }
                 case .openEditable:
-                    guard let originatingController = self.viewerController.genotypeResultViewController,
+                    guard let originatingController = pending.originatingController,
                           originatingController.representedBundleURL == coordinatorRequest.bundleURL,
                           self.mayUpdateGenotypeCurrentWorkbook(
                             bundleURL: coordinatorRequest.bundleURL,
@@ -658,7 +674,7 @@ extension MainSplitViewController {
                                 isReadOnly: isReadOnly
                               )
                         else { return }
-                        NSWorkspace.shared.open(workbookURL)
+                        self.genotypeCurrentWorkbookExternalOpener(workbookURL)
                     } catch {
                         self.removeGenotypeCurrentWorkbookCompletionContext(
                             for: key,
@@ -670,7 +686,7 @@ extension MainSplitViewController {
                             bundleURL: coordinatorRequest.bundleURL,
                             isReadOnly: isReadOnly
                            ) {
-                            NSApp.presentError(error)
+                            self.genotypeExcelErrorPresenter(error)
                         }
                     }
                 case .acceptedEditable:
@@ -780,7 +796,10 @@ extension MainSplitViewController {
         case .reviewRequired:
             uiPhase = .reviewRequired
         }
-        let isReadOnly = controller.currentResultBundleIsReadOnly
+        let isReadOnly = !mayUpdateGenotypeCurrentWorkbook(
+            bundleURL: bundleURL,
+            isReadOnly: controller.currentResultBundleIsReadOnly
+        )
         controller.applyCurrentWorkbookSyncPhase(uiPhase, isReadOnly: isReadOnly)
         inspectorController.updateGenotypeCurrentWorkbookSyncState(
             bundleURL: bundleURL,

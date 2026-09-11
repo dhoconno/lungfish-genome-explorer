@@ -80,23 +80,26 @@ struct GenotypeExcelCapturedScope: Equatable {
         let samples = snapshot.haplotypeSampleScope ?? snapshot.sampleNames
         let loci = snapshot.haplotypeLocusScope
             ?? Array(Set(snapshot.rows.map(\.locus))).sorted()
-        let filterDetails = filters.keys.sorted().map { "\($0)=\(filters[$0] ?? "")" }
+        func boundedList(_ values: [String]) -> String {
+            let shown = values.prefix(8).joined(separator: ", ")
+            let remainder = values.count - min(values.count, 8)
+            return remainder == 0 ? shown : "\(shown), +\(remainder) more"
+        }
+        let visibility = filters["hideLowSupport"] == "true" ? "hidden" : "shown"
         summary = [
             "Captured scope (will not change while this dialog is open):",
-            "Samples (\(samples.count)): \(samples.joined(separator: ", "))",
-            "Loci (\(loci.count)): \(loci.joined(separator: ", "))",
-            "Visibility/search/filters: \(filterDetails.joined(separator: "; "))",
+            "Samples (\(samples.count)): \(boundedList(samples))",
+            "Loci (\(loci.count)): \(boundedList(loci))",
+            "Min reads: \(filters["matrixMinimumReads"] ?? "0")",
+            "Min percent: \(filters["matrixMinimumPercent"] ?? "0")",
+            "Percent basis: \(filters["matrixPercentDenominator"] ?? "Not applicable")",
+            "Search: \(filters["searchText"].flatMap { $0.isEmpty ? nil : $0 } ?? "None")",
+            "Low-support rows: \(visibility)",
+            "Locus filter: \(filters["locus"] ?? "All Loci")",
         ].joined(separator: "\n")
 
-        let calls = snapshot.haplotypeCalls ?? []
-        let hasReadOnlyCalls = calls.isEmpty || calls.contains {
-            $0.baselineHaplotype1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || $0.baselineHaplotype2.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || $0.haplotype1Source.localizedCaseInsensitiveContains("manual")
-                || $0.haplotype2Source.localizedCaseInsensitiveContains("manual")
-        }
-        capability = hasReadOnlyCalls
-            ? "Some legacy/manual or missing-raw-baseline H1/H2 calls are read-only; matrix reviews and comments remain supported."
+        capability = snapshot.haplotypeCalls == nil
+            ? "H1/H2 calls are read-only for this legacy workbook; matrix reviews and comments remain supported."
             : "H1/H2 call edits and matrix reviews/comments are supported."
     }
 }

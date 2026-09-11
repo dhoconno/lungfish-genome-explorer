@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishKit
 import SwiftUI
 import LungfishTestSupport
+@testable import LungfishWorkflow
 
 @MainActor
 final class GenotypeResultDisplaySectionTests: XCTestCase {
@@ -387,6 +388,30 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(labels.contains("Call — S1 • A • H1\nold-1 → new-1"))
         XCTAssertTrue(labels.contains("Call — S1 • A • H2\nold-2 → Clear"))
         XCTAssertGreaterThan(scroll.documentView?.fittingSize.height ?? 0, scroll.frame.height)
+    }
+
+    func testExcelReviewPresenterMapsActualChangesAndDoesNotTruncateMultilineComments() {
+        let longBefore = (1...8).map { "before line \($0)" }.joined(separator: "\n")
+        let longAfter = (1...8).map { "after line \($0)" }.joined(separator: "\n")
+        let changes: [GenotypeEditableWorkbookService.Change] = [
+            .init(kind: .call, target: nil, sample: "S1", locus: "A", slot: .h1,
+                  baseline: "base", before: "old", value: nil, passedUniqueReads: nil),
+            .init(kind: .comment,
+                  target: .cell(locus: "A", genotype: "allele-7", sample: "S1", stableClusterID: "cluster-9"),
+                  sample: "S1", locus: "A", slot: nil, baseline: nil,
+                  before: longBefore, value: longAfter, passedUniqueReads: nil),
+        ]
+        let rows = changes.map(GenotypeExcelReviewRow.init(change:))
+        XCTAssertEqual(rows[0].identity, "S1 • A • H1")
+        XCTAssertEqual(rows[0].after, "Clear")
+        XCTAssertEqual(rows[1].identity, "Matrix cell • S1 • A • allele-7 • cluster-9")
+
+        let scroll = GenotypeExcelReviewPresenter.makeScrollView(rows: rows)
+        let labels = try! XCTUnwrap(scroll.documentView as? NSStackView).arrangedSubviews
+            .compactMap { $0 as? NSTextField }
+        XCTAssertEqual(labels[1].maximumNumberOfLines, 0)
+        XCTAssertTrue(labels[1].stringValue.contains("before line 8"))
+        XCTAssertTrue(labels[1].stringValue.contains("after line 8"))
     }
 
     func testFilteredPivotExportMainSplitWiringUsesActiveControllerAndInspectorCleanup() {

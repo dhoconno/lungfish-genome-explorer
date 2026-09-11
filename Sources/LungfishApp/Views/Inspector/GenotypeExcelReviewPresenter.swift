@@ -56,7 +56,8 @@ enum GenotypeExcelReviewPresenter {
                 wrappingLabelWithString: "\(row.kind) — \(row.identity)\n\(row.before) → \(row.after)"
             )
             label.isSelectable = true
-            label.maximumNumberOfLines = 4
+            label.maximumNumberOfLines = 0
+            label.preferredMaxLayoutWidth = 484
             stack.addArrangedSubview(label)
         }
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)

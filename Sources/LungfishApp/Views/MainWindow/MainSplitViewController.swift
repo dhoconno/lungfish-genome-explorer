@@ -338,6 +338,7 @@ struct PendingGenotypeCurrentWorkbookRoute {
     let snapshot: GenotypeCurrentWorkbookUISnapshot
     let action: GenotypeCurrentWorkbookUIRequest.Action
     let routeContext: OperationRouteContext
+    let originatingController: GenotypeResultViewController?
 }
 
 struct GenotypeCurrentWorkbookCompletionContext {
@@ -504,6 +505,10 @@ public class MainSplitViewController: NSSplitViewController {
     var genotypeCurrentWorkbookSyncCoordinator =
         GenotypeCurrentWorkbookSyncCoordinator.shared
     var genotypeCurrentWorkbookProjectWriteAuthorizationProvider: (() -> Bool)?
+    var genotypeCurrentWorkbookExternalOpener: (URL) -> Void = {
+        NSWorkspace.shared.open($0)
+    }
+    var genotypeExcelErrorPresenter: (Error) -> Void = { NSApp.presentError($0) }
     var genotypeCurrentWorkbookSyncObservation:
         GenotypeCurrentWorkbookSyncCoordinator.Observation?
     var pendingGenotypeCurrentWorkbookRoutes:
