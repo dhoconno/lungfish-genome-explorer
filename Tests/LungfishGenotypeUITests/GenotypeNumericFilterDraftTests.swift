@@ -4,6 +4,46 @@ import LungfishKit
 
 @MainActor
 final class GenotypeNumericFilterDraftTests: XCTestCase {
+    func testExportPreparationAtomicallyCommitsBothValidDirtyDrafts() throws {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+        viewModel.updateMatrixMinimumReadsDraft("5")
+        viewModel.updateMatrixMinimumPercentDraft("2.5")
+
+        let settled = try viewModel.prepareNumericFiltersForExport()
+
+        XCTAssertEqual(settled.matrixMinimumReads, 5)
+        XCTAssertEqual(settled.matrixMinimumPercent, 2.5)
+        XCTAssertEqual(states.count, 1)
+        XCTAssertEqual(states.first, settled)
+        XCTAssertEqual(scheduler.pendingCount, 0)
+    }
+
+    func testExportPreparationRejectsAllChangesWhenEitherDirtyDraftIsInvalid() {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        viewModel.updateDisplayState(.init(matrixMinimumReads: 3, matrixMinimumPercent: 1))
+        var states: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { states.append($0) }
+        viewModel.updateMatrixMinimumReadsDraft("5")
+        viewModel.updateMatrixMinimumPercentDraft("invalid")
+
+        XCTAssertThrowsError(try viewModel.prepareNumericFiltersForExport()) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Min percent must be a number from 0 through 100."
+            )
+        }
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 3)
+        XCTAssertEqual(viewModel.displayState.matrixMinimumPercent, 1)
+        XCTAssertEqual(viewModel.matrixMinimumReadsDraft.draftText, "5")
+        XCTAssertEqual(viewModel.matrixMinimumPercentDraft.draftText, "invalid")
+        XCTAssertTrue(states.isEmpty)
+        XCTAssertEqual(scheduler.pendingCount, 0)
+    }
+
     func testIntegerDraftAllowsEmptyTypingWithoutPublishing() {
         let scheduler = ManualGenotypeNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)

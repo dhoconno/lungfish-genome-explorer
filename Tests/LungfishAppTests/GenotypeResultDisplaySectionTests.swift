@@ -247,7 +247,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     /// now sits in the Inspector beside the filters it applies, and it is the
     /// only export offered there: the workbook copy it writes already carries
     /// every sheet of the result workbook.
-    func testFilteredPivotExportRendersInGenotypeDisplayOnlyWhenAViewportIsBound() throws {
+    func testGenotypeDisplayNoLongerRendersCompetingExcelExportControl() throws {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         viewModel.update(isAvailable: true)
         let unbound = try GenotypeResultDisplaySection(viewModel: viewModel).inspect()
@@ -256,18 +256,58 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             "no viewport bound, so no export can be offered"
         )
 
-        var requests = 0
-        viewModel.onFilteredPivotExportRequested = { requests += 1 }
+        viewModel.onFilteredPivotExportRequested = {}
         let bound = try GenotypeResultDisplaySection(viewModel: viewModel).inspect()
-        _ = try bound.find(text: "Export")
-        _ = try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export")
-        try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-filtered-pivot")
-            .button().tap()
-        XCTAssertEqual(requests, 1)
-        _ = try bound.find(text: "Filtered Pivot\u{2026}")
         XCTAssertThrowsError(
-            try bound.find(text: "Excel View\u{2026}"),
-            "the plain Excel view export is not offered from the Inspector"
+            try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export"),
+            "Excel export is consolidated in the document Excel section"
+        )
+    }
+
+    func testExcelExportChoiceDefaultsToFilteredAndUsesApprovedCopy() {
+        let model = GenotypeExcelExportChoiceModel()
+
+        XCTAssertEqual(model.role, .filteredView)
+        XCTAssertEqual(model.primaryActionTitle, "Export…")
+        XCTAssertEqual(
+            GenotypeExcelExportRole.filteredView.explanation,
+            "Share what you see in LGE, with the current filters, haplotype calls, and annotations. Changes in this file do not return to LGE."
+        )
+        XCTAssertEqual(
+            GenotypeExcelExportRole.editableWorkbook.explanation,
+            "Work with all evidence in Excel, including reads hidden by LGE filters. Supported edits can be reviewed and imported back into LGE."
+        )
+
+        model.role = .editableWorkbook
+        XCTAssertEqual(model.primaryActionTitle, "Open in Excel")
+    }
+
+    func testDocumentExcelSectionHasOneExportButtonAndContextualReviewAction() throws {
+        let update = GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: false)
+        let state = GenotypeResultDocumentState(
+            title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [],
+            artifactRows: [], currentWorkbookUpdate: update
+        )
+        var exportCalls = 0
+        var reviewCalls = 0
+        let view = GenotypeResultDocumentSection(
+            state: state,
+            onCurrentWorkbookUpdateRequested: { exportCalls += 1 },
+            onCurrentWorkbookReviewRequested: { reviewCalls += 1 }
+        )
+        let inspected = try view.inspect()
+
+        let export = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-to-excel")
+        try export.button().tap()
+        let review = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes")
+        try review.button().tap()
+        XCTAssertEqual(exportCalls, 1)
+        XCTAssertEqual(reviewCalls, 1)
+        XCTAssertEqual(
+            inspected.findAll(ViewType.Button.self).filter {
+                (try? $0.labelView().text().string()) == "Export to Excel…"
+            }.count,
+            1
         )
     }
 
@@ -276,11 +316,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let inspectorSource = combinedInspectorViewControllerSource()
 
         // source-text: same seam as the visibility wiring test above.
+        XCTAssertTrue(mainSplitSource.contains("controller.onExcelExportRequested ="))
         XCTAssertTrue(mainSplitSource.contains(
-            "onFilteredPivotExportRequested = { [weak self, weak controller] in"
-        ))
-        XCTAssertTrue(mainSplitSource.contains(
-            "controller?.exportFilteredPivotFromInspector()"
+            ".prepareNumericFiltersForExport()"
         ))
         XCTAssertTrue(inspectorSource.contains(
             "onFilteredPivotExportRequested = nil"

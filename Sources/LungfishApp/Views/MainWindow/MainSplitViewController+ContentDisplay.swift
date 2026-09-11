@@ -439,13 +439,60 @@ extension MainSplitViewController {
                     }
                     controller?.performMatrixVisibilityCommand(command)
                 }
-                inspectorController.genotypeResultDisplaySectionViewModel.onFilteredPivotExportRequested = { [weak self, weak controller] in
+                controller.onExcelExportRequested = { [weak self, weak controller] in
                     guard let self,
                           self.viewerController.genotypeResultViewController === controller
                     else {
                         return
                     }
-                    controller?.exportFilteredPivotFromInspector()
+                    do {
+                        let settled = try inspectorController
+                            .genotypeResultDisplaySectionViewModel
+                            .prepareNumericFiltersForExport()
+                        guard self.viewerController.genotypeResultViewController === controller else { return }
+                        controller?.presentExcelExportDialog(expectedDisplayState: settled)
+                    } catch {
+                        NSApp.presentError(error)
+                    }
+                }
+                controller.onExcelReviewRequested = { [weak self, weak controller] in
+                    guard let self, let controller,
+                          self.viewerController.genotypeResultViewController === controller
+                    else { return }
+                    Task { @MainActor [weak self, weak controller] in
+                        do {
+                            let pythonURL = try await CondaManager.shared.toolPath(
+                                name: "python", environment: "openpyxl"
+                            )
+                            let service = GenotypeEditableWorkbookService(
+                                pythonExecutableURL: pythonURL
+                            )
+                            guard let bundleURL = controller?.representedBundleURL else { return }
+                            let inspection = try await Task.detached {
+                                try service.inspect(bundleURL: bundleURL)
+                            }.value
+                            guard let self, let controller,
+                                  self.viewerController.genotypeResultViewController === controller
+                            else { return }
+                            let alert = NSAlert()
+                            alert.messageText = "Review Excel Changes"
+                            alert.informativeText = inspection.changes.isEmpty
+                                ? "Excel saved formatting or metadata changes. Acknowledge this save and refresh current.xlsx?"
+                                : inspection.changes.map {
+                                    "\($0.kind.rawValue.capitalized): \($0.sample) \($0.locus) — \($0.value ?? "Clear")"
+                                }.joined(separator: "\n")
+                            alert.addButton(withTitle: "Import Changes")
+                            alert.addButton(withTitle: "Cancel")
+                            let window = controller.view.window ?? NSApp.keyWindow ?? NSWindow()
+                            let response = await alert.beginSheetModal(for: window)
+                            guard response == .alertFirstButtonReturn,
+                                  self.viewerController.genotypeResultViewController === controller
+                            else { return }
+                            try controller.acceptEditableWorkbook(inspection, using: service)
+                        } catch {
+                            NSApp.presentError(error)
+                        }
+                    }
                 }
                 inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                     controller?.applyHighlight(request)
@@ -569,6 +616,31 @@ extension MainSplitViewController {
                             generation: generation
                         )
                         (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
+                    }
+                case .openEditable:
+                    do {
+                        let workbookURL = try await self.genotypeCurrentWorkbookSyncCoordinator
+                            .preparedEditableWorkbookURL(coordinatorRequest)
+                        NSWorkspace.shared.open(workbookURL)
+                    } catch {
+                        self.removeGenotypeCurrentWorkbookCompletionContext(
+                            for: key,
+                            generation: generation
+                        )
+                        NSApp.presentError(error)
+                    }
+                case .acceptedEditable:
+                    self.genotypeCurrentWorkbookSyncCoordinator
+                        .markEditableWorkbookAccepted(coordinatorRequest)
+                    do {
+                        _ = try await self.genotypeCurrentWorkbookSyncCoordinator
+                            .preparedEditableWorkbookURL(coordinatorRequest)
+                    } catch {
+                        self.removeGenotypeCurrentWorkbookCompletionContext(
+                            for: key,
+                            generation: generation
+                        )
+                        NSApp.presentError(error)
                     }
                 }
             } catch {
@@ -831,6 +903,10 @@ extension MainSplitViewController {
                 return 3
             case .synchronize(.updateAndView):
                 return 4
+            case .openEditable:
+                return 5
+            case .acceptedEditable:
+                return 6
             }
         }
         return rank(rhs) > rank(lhs) ? rhs : lhs

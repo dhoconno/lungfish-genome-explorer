@@ -154,6 +154,8 @@ public struct GenotypeCurrentWorkbookUIRequest: Sendable {
         case register
         case markDirty
         case synchronize(GenotypeCurrentWorkbookSyncIntent)
+        case openEditable
+        case acceptedEditable
     }
 
     public let snapshot: GenotypeCurrentWorkbookUISnapshot
@@ -330,6 +332,7 @@ public struct GenotypeResultDocumentSection: View {
     var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortAddRequested: (() -> Void)? = nil
     var onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
+    var onCurrentWorkbookReviewRequested: (() -> Void)? = nil
 
     @State private var isSummaryExpanded = true
     @State private var isQCExpanded = true
@@ -348,7 +351,8 @@ public struct GenotypeResultDocumentSection: View {
         onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortAddRequested: (() -> Void)? = nil,
-        onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
+        onCurrentWorkbookUpdateRequested: (() -> Void)? = nil,
+        onCurrentWorkbookReviewRequested: (() -> Void)? = nil
     ) {
         self.state = state
         self.onViewModeChange = onViewModeChange
@@ -358,6 +362,7 @@ public struct GenotypeResultDocumentSection: View {
         self.onSmartCohortDeleted = onSmartCohortDeleted
         self.onSmartCohortAddRequested = onSmartCohortAddRequested
         self.onCurrentWorkbookUpdateRequested = onCurrentWorkbookUpdateRequested
+        self.onCurrentWorkbookReviewRequested = onCurrentWorkbookReviewRequested
     }
 
     public var body: some View {
@@ -430,7 +435,7 @@ public struct GenotypeResultDocumentSection: View {
     private var includedLociSection: some View {
         DisclosureGroup("Included Loci", isExpanded: $isIncludedLociExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Included loci appear in Outline. Workbook-supported loci are written to current.xlsx when you update the workbook.")
+                Text("Included loci appear in Outline. Excel exports preserve the exact captured locus scope and effective calls.")
                     .font(contentBodyFont)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -585,20 +590,28 @@ public struct GenotypeResultDocumentSection: View {
     }
 
     private var currentWorkbookSection: some View {
-        DisclosureGroup("Current Workbook", isExpanded: $isCurrentWorkbookExpanded) {
+        DisclosureGroup("Excel", isExpanded: $isCurrentWorkbookExpanded) {
             VStack(alignment: .leading, spacing: 8) {
                 if let update = state.currentWorkbookUpdate {
                     Text(update.statusText)
                         .font(contentBodyFont)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Update and View Current Excel Version") {
+                    Button("Export to Excel…") {
                         onCurrentWorkbookUpdateRequested?()
                     }
                     .controlSize(.regular)
-                    .disabled(!update.isEnabled)
-                    .help("Open current.xlsx immediately when current; otherwise update it once and open the successful revision.")
-                    Text("Writes displayed haplotype calls, matrix annotations, Overrides, and Audit Log worksheets.")
+                    .help("Choose a filtered copy or the editable current.xlsx workbook.")
+                    .accessibilityIdentifier("genotype-inspector-export-to-excel")
+                    if update.statusText.hasPrefix("Review required") {
+                        Button("Review Excel Changes…") {
+                            onCurrentWorkbookReviewRequested?()
+                        }
+                        .controlSize(.regular)
+                        .disabled(!update.isEnabled)
+                        .accessibilityIdentifier("genotype-inspector-review-excel-changes")
+                    }
+                    Text("Choose a filtered view for sharing, or current.xlsx for supported review and import workflows.")
                         .font(contentBodyFont)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

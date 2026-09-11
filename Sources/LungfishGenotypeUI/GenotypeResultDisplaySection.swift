@@ -490,6 +490,58 @@ public final class GenotypeResultDisplaySectionViewModel {
         commitNumericFilterDrafts(explicitField: .minimumPercent)
     }
 
+    /// Settles every pending numeric filter as one export boundary. Invalid
+    /// nonempty input is preserved for correction and no filter is committed.
+    public func prepareNumericFiltersForExport() throws -> GenotypeResultDisplayState {
+        numericFilterCommitCoalescer.cancel()
+        let fields = dirtyNumericFilterFields
+        for field in fields {
+            let draft = numericFilterDraft(for: field)
+            let text = draft.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.isEmpty || draft.parsedValue != nil else {
+                hasPendingNumericFilterPublication = false
+                isNumericFilterStepperBurstActive = false
+                throw NumericFilterExportValidationError(
+                    message: draft.configuration.validationDescription
+                )
+            }
+        }
+
+        var changed = false
+        for field in fields {
+            let draft = numericFilterDraft(for: field)
+            let text = draft.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, let parsed = draft.parsedValue else {
+                draft.restore()
+                continue
+            }
+            let value = min(
+                draft.configuration.bounds.upperBound,
+                max(draft.configuration.bounds.lowerBound, parsed)
+            )
+            draft.applyCommittedValue(value)
+            switch field {
+            case .minimumReads:
+                let integerValue = Int(value)
+                changed = changed || displayState.matrixMinimumReads != integerValue
+                displayState.matrixMinimumReads = integerValue
+            case .minimumPercent:
+                changed = changed || displayState.matrixMinimumPercent != value
+                displayState.matrixMinimumPercent = value
+            }
+        }
+        dirtyNumericFilterFields.removeAll()
+        hasPendingNumericFilterPublication = false
+        isNumericFilterStepperBurstActive = false
+        if changed { notifyStateChanged() }
+        return displayState
+    }
+
+    private struct NumericFilterExportValidationError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     func restoreMatrixMinimumReadsDraft() {
         restoreNumericFilterDraft(.minimumReads)
     }
@@ -1324,10 +1376,6 @@ public struct GenotypeResultDisplaySection: View {
                         .font(typography.font(for: .body))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if viewModel.canExportFilteredPivot {
-                        Divider()
-                        exportControls
-                    }
                 }
                 .padding(.top, 4)
                 .font(typography.font(for: .body))
@@ -1366,7 +1414,7 @@ public struct GenotypeResultDisplaySection: View {
                     if viewModel.hasHaplotypingResult { Text("Diagnostic alleles only shows evidence used by the active definitions. Turn it off to inspect all observed alleles. Display filters do not change calls.") }
                     Text("Use Columns to choose the identifiers and read totals you need. Total reads includes all samples in the result, even hidden columns.")
                     if viewModel.hasHaplotypingResult { Text("To correct an assignment, inspect its evidence and choose Change. Custom names require a rationale, acknowledgement and explicit application; the original call remains in the audit history.") }
-                    Text("Update the current workbook to include saved review changes. Filtered exports are copies; edits in Excel do not flow back into this result.")
+                    Text("Export to Excel offers a filtered copy for sharing and current.xlsx for supported review and import workflows.")
                     Button("Done") { showsReviewHelp = false }.keyboardShortcut(.cancelAction)
                 }
                 .font(typography.font(for: .body))
@@ -1413,25 +1461,6 @@ public struct GenotypeResultDisplaySection: View {
                     .accessibilityIdentifier("genotype-locus-display-order-error")
             }
         }
-    }
-
-    private var exportControls: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Export")
-                .font(typography.font(for: .body))
-                .foregroundStyle(.secondary)
-            Button("Filtered Pivot\u{2026}") {
-                viewModel.requestFilteredPivotExport()
-            }
-            .controlSize(.regular)
-            .accessibilityIdentifier("genotype-inspector-export-filtered-pivot")
-            Text("Exports a filtered copy. Excel edits do not flow back into this result.")
-                .help("The pivot sheet uses the displayed Min Reads and Min Percent filters. Other workbook sheets are unchanged.")
-                .font(typography.font(for: .body))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityIdentifier("genotype-inspector-export")
     }
 
     private var contentTextSizeControls: some View {
