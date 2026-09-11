@@ -18,7 +18,7 @@ public struct GenotypeResultDesiredConfigurationAuthority:
 }
 
 @MainActor
-private final class GenotypeExcelExportAccessoryController: NSViewController {
+final class GenotypeExcelExportAccessoryController: NSViewController {
     private(set) var role: GenotypeExcelExportRole = .filteredView
     private let onRoleChange: (GenotypeExcelExportRole) -> Void
     private let allowsEditableWorkbook: Bool
@@ -61,6 +61,23 @@ private final class GenotypeExcelExportAccessoryController: NSViewController {
             button.state = button === sender ? .on : .off
         }
         onRoleChange(role)
+    }
+}
+
+@MainActor
+enum GenotypeExcelExportDialogRoute {
+    static func complete(
+        response: NSApplication.ModalResponse,
+        role: GenotypeExcelExportRole?,
+        snapshot: GenotypeViewportExportSnapshot,
+        exportFiltered: (GenotypeViewportExportSnapshot) -> Void,
+        openEditable: () -> Void
+    ) {
+        guard response == .alertFirstButtonReturn, let role else { return }
+        switch role {
+        case .filteredView: exportFiltered(snapshot)
+        case .editableWorkbook: openEditable()
+        }
     }
 }
 
@@ -9851,7 +9868,11 @@ public final class GenotypeResultViewController: NSViewController {
     /// results, so the Inspector, where the Min Reads and Min Percent filters
     /// are set, is the reachable home for the export that applies them.
     public func exportFilteredPivotFromInspector() {
-        presentViewExportPanel(format: .pivotExcel, filenameSuffix: "filtered-pivot")
+        presentViewExportPanel(
+            format: .pivotExcel,
+            filenameSuffix: "filtered-pivot",
+            filteredWorkflow: true
+        )
     }
 
     /// Captures once before presenting either Excel role so later dialog delay
@@ -9864,7 +9885,8 @@ public final class GenotypeResultViewController: NSViewController {
         else { return }
         let alert = NSAlert()
         alert.messageText = "Export to Excel"
-        alert.informativeText = "Choose the workbook role.\n\nFilters: Min reads \(expectedDisplayState.matrixMinimumReads); Min percent \(expectedDisplayState.matrixMinimumPercent)."
+        let capturedScope = GenotypeExcelCapturedScope(snapshot: snapshot)
+        alert.informativeText = "Choose the workbook role.\n\n\(capturedScope.summary)\n\n\(capturedScope.capability)"
         alert.addButton(withTitle: "Export…")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.keyEquivalent = "\r"
@@ -9880,17 +9902,18 @@ public final class GenotypeResultViewController: NSViewController {
         alert.beginSheetModal(for: window) { [weak self, weak accessory] response in
             guard let self else { return }
             defer { self.excelExportAccessoryController = nil }
-            guard response == .alertFirstButtonReturn, let role = accessory?.role else { return }
-            switch role {
-            case .filteredView:
-                self.presentViewExportPanel(
+            GenotypeExcelExportDialogRoute.complete(
+                response: response,
+                role: accessory?.role,
+                snapshot: snapshot,
+                exportFiltered: { captured in self.presentViewExportPanel(
                     format: .pivotExcel,
                     filenameSuffix: "filtered-pivot",
-                    capturedSnapshot: snapshot
-                )
-            case .editableWorkbook:
-                self.emitCurrentWorkbookRequest(action: .openEditable)
-            }
+                    capturedSnapshot: captured,
+                    filteredWorkflow: true
+                ) },
+                openEditable: { self.emitCurrentWorkbookRequest(action: .openEditable) }
+            )
         }
     }
 
@@ -9937,7 +9960,8 @@ public final class GenotypeResultViewController: NSViewController {
     private func presentViewExportPanel(
         format: GenotypeViewportExportFormat,
         filenameSuffix: String,
-        capturedSnapshot: GenotypeViewportExportSnapshot? = nil
+        capturedSnapshot: GenotypeViewportExportSnapshot? = nil,
+        filteredWorkflow: Bool = false
     ) {
         guard let result else { return }
         let panel = NSSavePanel()
@@ -9954,7 +9978,7 @@ public final class GenotypeResultViewController: NSViewController {
             // blocks on process.waitUntilExit) is moved off the main thread.
             guard let snapshot = capturedSnapshot ?? self.currentExportSnapshot() else { return }
             let outputURL = url
-            self.onFilteredWorkbookExportEvent?(.started)
+            self.publishFilteredWorkbookExportEvent(.started, filteredWorkflow: filteredWorkflow)
             Task { [weak self] in
                 do {
                     _ = try await Task.detached {
@@ -9966,12 +9990,12 @@ public final class GenotypeResultViewController: NSViewController {
                     }.value
                     await MainActor.run {
                         guard let self else { return }
-                        self.onFilteredWorkbookExportEvent?(.succeeded(outputURL))
+                        self.publishFilteredWorkbookExportEvent(.succeeded(outputURL), filteredWorkflow: filteredWorkflow)
                     }
                 } catch {
                     await MainActor.run {
                         guard let self else { return }
-                        self.onFilteredWorkbookExportEvent?(.failed(error.localizedDescription))
+                        self.publishFilteredWorkbookExportEvent(.failed(error.localizedDescription), filteredWorkflow: filteredWorkflow)
                         if let window = self.view.window ?? NSApp.keyWindow {
                             NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
                         } else {
@@ -9981,6 +10005,14 @@ public final class GenotypeResultViewController: NSViewController {
                 }
             }
         }
+    }
+
+    func publishFilteredWorkbookExportEvent(
+        _ event: GenotypeFilteredExportEvent,
+        filteredWorkflow: Bool
+    ) {
+        guard filteredWorkflow else { return }
+        onFilteredWorkbookExportEvent?(event)
     }
 
     private func locusSummaryRow(_ summary: ONTGenotypeLocusSummary) -> NSView {

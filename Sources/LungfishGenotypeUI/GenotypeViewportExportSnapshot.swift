@@ -69,6 +69,38 @@ struct GenotypeViewportExportSnapshot: Equatable {
     }
 }
 
+/// User-visible description of the immutable snapshot captured before the
+/// Excel role dialog is presented.
+struct GenotypeExcelCapturedScope: Equatable {
+    let summary: String
+    let capability: String
+
+    init(snapshot: GenotypeViewportExportSnapshot) {
+        let filters = snapshot.filters
+        let samples = snapshot.haplotypeSampleScope ?? snapshot.sampleNames
+        let loci = snapshot.haplotypeLocusScope
+            ?? Array(Set(snapshot.rows.map(\.locus))).sorted()
+        let filterDetails = filters.keys.sorted().map { "\($0)=\(filters[$0] ?? "")" }
+        summary = [
+            "Captured scope (will not change while this dialog is open):",
+            "Samples (\(samples.count)): \(samples.joined(separator: ", "))",
+            "Loci (\(loci.count)): \(loci.joined(separator: ", "))",
+            "Visibility/search/filters: \(filterDetails.joined(separator: "; "))",
+        ].joined(separator: "\n")
+
+        let calls = snapshot.haplotypeCalls ?? []
+        let hasReadOnlyCalls = calls.isEmpty || calls.contains {
+            $0.baselineHaplotype1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || $0.baselineHaplotype2.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || $0.haplotype1Source.localizedCaseInsensitiveContains("manual")
+                || $0.haplotype2Source.localizedCaseInsensitiveContains("manual")
+        }
+        capability = hasReadOnlyCalls
+            ? "Some legacy/manual or missing-raw-baseline H1/H2 calls are read-only; matrix reviews and comments remain supported."
+            : "H1/H2 call edits and matrix reviews/comments are supported."
+    }
+}
+
 struct GenotypeAnnotationSidecarSnapshot: Equatable {
     let overrides: [GenotypeAnnotationOverrideEntry]
     let auditEntries: [GenotypeAnnotationAuditEntry]

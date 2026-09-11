@@ -283,7 +283,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
     }
 
     func testDocumentExcelSectionHasOneExportButtonAndContextualReviewAction() throws {
-        let update = GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: false)
+        var update = GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: false)
+        update.statusText = "Localized workbook status"
         let state = GenotypeResultDocumentState(
             title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [],
             artifactRows: [], currentWorkbookUpdate: update
@@ -365,6 +366,27 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(try link.button().isDisabled())
         _ = try inspected.find(text: "The last filtered export is no longer available at its saved location.")
         _ = try inspected.find(text: "Filtered export failed — disk full")
+    }
+
+    func testExcelReviewPresenterShowsDistinctIdentitiesBeforeAfterAndScrollableLargeContent() {
+        let rows = [
+            GenotypeExcelReviewRow(kind: "Call", identity: "S1 • A • H1", before: "old-1", after: "new-1"),
+            GenotypeExcelReviewRow(kind: "Call", identity: "S1 • A • H2", before: "old-2", after: "Clear"),
+            GenotypeExcelReviewRow(kind: "Review", identity: "Matrix cell • S1 • A • allele-7", before: "Unreviewed", after: "false-positive"),
+            GenotypeExcelReviewRow(kind: "Comment", identity: "Matrix row • A • allele-7", before: "prior", after: "new note"),
+        ] + (0..<40).map {
+            GenotypeExcelReviewRow(kind: "Comment", identity: "Matrix column • S\($0)", before: "None", after: "note \($0)")
+        }
+
+        let scroll = GenotypeExcelReviewPresenter.makeScrollView(rows: rows)
+        let labels = (scroll.documentView as? NSStackView)?.arrangedSubviews
+            .compactMap { ($0 as? NSTextField)?.stringValue } ?? []
+
+        XCTAssertTrue(scroll.hasVerticalScroller)
+        XCTAssertEqual(labels.count, rows.count)
+        XCTAssertTrue(labels.contains("Call — S1 • A • H1\nold-1 → new-1"))
+        XCTAssertTrue(labels.contains("Call — S1 • A • H2\nold-2 → Clear"))
+        XCTAssertGreaterThan(scroll.documentView?.fittingSize.height ?? 0, scroll.frame.height)
     }
 
     func testFilteredPivotExportMainSplitWiringUsesActiveControllerAndInspectorCleanup() {

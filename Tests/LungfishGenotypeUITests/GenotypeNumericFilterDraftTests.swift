@@ -21,6 +21,22 @@ final class GenotypeNumericFilterDraftTests: XCTestCase {
         XCTAssertEqual(scheduler.pendingCount, 0)
     }
 
+    func testExportPreparationFlushesPendingStepperBurstExactlyOnce() throws {
+        let scheduler = ManualGenotypeNumericFilterScheduler()
+        let viewModel = makeViewModel(scheduler: scheduler)
+        var values: [Int] = []
+        viewModel.onDisplayStateChanged = { values.append($0.matrixMinimumReads) }
+        viewModel.setMatrixMinimumReadsFromStepper(1)
+        viewModel.setMatrixMinimumReadsFromStepper(2)
+
+        let settled = try viewModel.prepareNumericFiltersForExport()
+        scheduler.runAllIncludingCancelled()
+
+        XCTAssertEqual(settled.matrixMinimumReads, 2)
+        XCTAssertEqual(values, [1, 2])
+        XCTAssertEqual(scheduler.pendingCount, 0)
+    }
+
     func testExportPreparationRejectsAllChangesWhenEitherDirtyDraftIsInvalid() {
         let scheduler = ManualGenotypeNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)

@@ -695,7 +695,8 @@ extension InspectorViewController {
                 nextState.currentWorkbookUpdate = GenotypeResultCurrentWorkbookUpdateState(
                     manualChangeCount: genotypeWorkbookChangeCount(sidecar),
                     statusText: currentWorkbookUpdate.statusText,
-                    isEnabled: currentWorkbookUpdate.isEnabled
+                    isEnabled: currentWorkbookUpdate.isEnabled,
+                    requiresReview: currentWorkbookUpdate.requiresReview
                 )
             }
             var displayState = viewModel.genotypeResultDisplaySectionViewModel.displayState

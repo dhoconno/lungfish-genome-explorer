@@ -495,6 +495,8 @@ public final class GenotypeResultDisplaySectionViewModel {
     public func prepareNumericFiltersForExport() throws -> GenotypeResultDisplayState {
         numericFilterCommitCoalescer.cancel()
         let fields = dirtyNumericFilterFields
+        let needsPendingPublication = hasPendingNumericFilterPublication
+            || isNumericFilterStepperBurstActive
         for field in fields {
             let draft = numericFilterDraft(for: field)
             let text = draft.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -533,7 +535,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         dirtyNumericFilterFields.removeAll()
         hasPendingNumericFilterPublication = false
         isNumericFilterStepperBurstActive = false
-        if changed { notifyStateChanged() }
+        if changed || needsPendingPublication { notifyStateChanged() }
         return displayState
     }
 

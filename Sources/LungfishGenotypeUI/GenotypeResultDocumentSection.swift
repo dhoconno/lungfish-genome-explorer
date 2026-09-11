@@ -19,11 +19,18 @@ public struct GenotypeResultCurrentWorkbookUpdateState: Equatable {
     public var manualChangeCount: Int
     public var statusText: String
     public var isEnabled: Bool
+    public var requiresReview: Bool
 
-    public init(manualChangeCount: Int, statusText: String, isEnabled: Bool) {
+    public init(
+        manualChangeCount: Int,
+        statusText: String,
+        isEnabled: Bool,
+        requiresReview: Bool = false
+    ) {
         self.manualChangeCount = manualChangeCount
         self.statusText = statusText
         self.isEnabled = isEnabled
+        self.requiresReview = requiresReview
     }
 }
 
@@ -64,7 +71,8 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
         return GenotypeResultCurrentWorkbookUpdateState(
             manualChangeCount: manualChangeCount,
             statusText: statusText,
-            isEnabled: isEnabled
+            isEnabled: isEnabled,
+            requiresReview: self == .reviewRequired
         )
     }
 }
@@ -627,7 +635,7 @@ public struct GenotypeResultDocumentSection: View {
                     .controlSize(.regular)
                     .help("Choose a filtered copy or the editable current.xlsx workbook.")
                     .accessibilityIdentifier("genotype-inspector-export-to-excel")
-                    if update.statusText.hasPrefix("Review required") {
+                    if update.requiresReview {
                         Button("Review Excel Changes…") {
                             onCurrentWorkbookReviewRequested?()
                         }

@@ -457,7 +457,12 @@ extension MainSplitViewController {
                 }
                 controller.onExcelReviewRequested = { [weak self, weak controller] in
                     guard let self, let controller,
-                          self.viewerController.genotypeResultViewController === controller
+                          self.viewerController.genotypeResultViewController === controller,
+                          let requestedBundleURL = controller.representedBundleURL,
+                          self.mayUpdateGenotypeCurrentWorkbook(
+                            bundleURL: requestedBundleURL,
+                            isReadOnly: false
+                          )
                     else { return }
                     Task { @MainActor [weak self, weak controller] in
                         do {
@@ -467,7 +472,8 @@ extension MainSplitViewController {
                             let service = GenotypeEditableWorkbookService(
                                 pythonExecutableURL: pythonURL
                             )
-                            guard let bundleURL = controller?.representedBundleURL else { return }
+                            guard let bundleURL = controller?.representedBundleURL,
+                                  bundleURL == requestedBundleURL else { return }
                             let inspection = try await Task.detached {
                                 try service.inspect(bundleURL: bundleURL)
                             }.value
@@ -476,17 +482,28 @@ extension MainSplitViewController {
                             else { return }
                             let alert = NSAlert()
                             alert.messageText = "Review Excel Changes"
+                            let callCapability = inspection.supportsCallOverrides
+                                ? "H1/H2 call edits and matrix reviews/comments are supported."
+                                : "H1/H2 calls are read-only for this legacy result; matrix reviews/comments remain supported."
                             alert.informativeText = inspection.changes.isEmpty
-                                ? "Excel saved formatting or metadata changes. Acknowledge this save and refresh current.xlsx?"
-                                : inspection.changes.map {
-                                    "\($0.kind.rawValue.capitalized): \($0.sample) \($0.locus) — \($0.value ?? "Clear")"
-                                }.joined(separator: "\n")
+                                ? "Excel saved formatting or metadata changes. Acknowledge this save and refresh current.xlsx? \(callCapability)"
+                                : callCapability
+                            if !inspection.changes.isEmpty {
+                                alert.accessoryView = GenotypeExcelReviewPresenter.makeScrollView(
+                                    rows: inspection.changes.map(GenotypeExcelReviewRow.init(change:))
+                                )
+                            }
                             alert.addButton(withTitle: "Import Changes")
                             alert.addButton(withTitle: "Cancel")
                             let window = controller.view.window ?? NSApp.keyWindow ?? NSWindow()
                             let response = await alert.beginSheetModal(for: window)
                             guard response == .alertFirstButtonReturn,
-                                  self.viewerController.genotypeResultViewController === controller
+                                  self.viewerController.genotypeResultViewController === controller,
+                                  controller.representedBundleURL == requestedBundleURL,
+                                  self.mayUpdateGenotypeCurrentWorkbook(
+                                    bundleURL: requestedBundleURL,
+                                    isReadOnly: false
+                                  )
                             else { return }
                             try controller.acceptEditableWorkbook(inspection, using: service)
                         } catch {
@@ -624,16 +641,37 @@ extension MainSplitViewController {
                         (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
                     }
                 case .openEditable:
+                    guard let originatingController = self.viewerController.genotypeResultViewController,
+                          originatingController.representedBundleURL == coordinatorRequest.bundleURL,
+                          self.mayUpdateGenotypeCurrentWorkbook(
+                            bundleURL: coordinatorRequest.bundleURL,
+                            isReadOnly: isReadOnly
+                          )
+                    else { return }
                     do {
                         let workbookURL = try await self.genotypeCurrentWorkbookSyncCoordinator
                             .preparedEditableWorkbookURL(coordinatorRequest)
+                        guard self.viewerController.genotypeResultViewController === originatingController,
+                              originatingController.representedBundleURL == coordinatorRequest.bundleURL,
+                              self.mayUpdateGenotypeCurrentWorkbook(
+                                bundleURL: coordinatorRequest.bundleURL,
+                                isReadOnly: isReadOnly
+                              )
+                        else { return }
                         NSWorkspace.shared.open(workbookURL)
                     } catch {
                         self.removeGenotypeCurrentWorkbookCompletionContext(
                             for: key,
                             generation: generation
                         )
-                        NSApp.presentError(error)
+                        if self.viewerController.genotypeResultViewController === originatingController,
+                           originatingController.representedBundleURL == coordinatorRequest.bundleURL,
+                           self.mayUpdateGenotypeCurrentWorkbook(
+                            bundleURL: coordinatorRequest.bundleURL,
+                            isReadOnly: isReadOnly
+                           ) {
+                            NSApp.presentError(error)
+                        }
                     }
                 case .acceptedEditable:
                     self.genotypeCurrentWorkbookSyncCoordinator
