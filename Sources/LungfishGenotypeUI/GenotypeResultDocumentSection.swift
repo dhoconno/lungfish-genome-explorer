@@ -194,6 +194,9 @@ public struct GenotypeResultDocumentState: Equatable {
     public var haplotypeDefinitionRows: [(String, String)] = []
     public var haplotypeDefinitionsFolderURL: URL?
     public var currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
+    public var latestFilteredExport: GenotypeFilteredExportPresentation?
+    public var filteredExportStatus: String?
+    public var isFilteredExporting: Bool
 
     public init(
         title: String,
@@ -215,7 +218,10 @@ public struct GenotypeResultDocumentState: Equatable {
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
         haplotypeDefinitionsFolderURL: URL? = nil,
-        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil
+        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil,
+        latestFilteredExport: GenotypeFilteredExportPresentation? = nil,
+        filteredExportStatus: String? = nil,
+        isFilteredExporting: Bool = false
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -237,6 +243,9 @@ public struct GenotypeResultDocumentState: Equatable {
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
         self.haplotypeDefinitionsFolderURL = haplotypeDefinitionsFolderURL
         self.currentWorkbookUpdate = currentWorkbookUpdate
+        self.latestFilteredExport = latestFilteredExport
+        self.filteredExportStatus = filteredExportStatus
+        self.isFilteredExporting = isFilteredExporting
     }
 
     public func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
@@ -277,6 +286,18 @@ public struct GenotypeResultDocumentState: Equatable {
         return copy
     }
 
+    public func replacing(
+        latestFilteredExport: GenotypeFilteredExportPresentation?,
+        filteredExportStatus: String?,
+        isFilteredExporting: Bool
+    ) -> GenotypeResultDocumentState {
+        var copy = self
+        copy.latestFilteredExport = latestFilteredExport
+        copy.filteredExportStatus = filteredExportStatus
+        copy.isFilteredExporting = isFilteredExporting
+        return copy
+    }
+
     public static func == (
         lhs: GenotypeResultDocumentState,
         rhs: GenotypeResultDocumentState
@@ -301,7 +322,10 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL &&
-            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate
+            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate &&
+            lhs.latestFilteredExport == rhs.latestFilteredExport &&
+            lhs.filteredExportStatus == rhs.filteredExportStatus &&
+            lhs.isFilteredExporting == rhs.isFilteredExporting
     }
 }
 
@@ -615,6 +639,38 @@ public struct GenotypeResultDocumentSection: View {
                         .font(contentBodyFont)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let latest = state.latestFilteredExport {
+                        let isAvailable = latest.isAvailable
+                            && FileManager.default.fileExists(atPath: latest.url.path)
+                        let unavailableReason = isAvailable ? nil
+                            : "The last filtered export is no longer available at its saved location."
+                        Button("Last filtered export: \(latest.url.lastPathComponent)") {
+                            NSWorkspace.shared.activateFileViewerSelecting([latest.url])
+                        }
+                        .buttonStyle(.link)
+                        .disabled(!isAvailable)
+                        .help(isAvailable
+                            ? "Reveal the last successful filtered export in Finder."
+                            : (unavailableReason ?? "The last filtered export is unavailable."))
+                        .accessibilityIdentifier("genotype-inspector-last-filtered-export")
+                        if let reason = unavailableReason {
+                            Text(reason)
+                                .font(contentBodyFont)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if state.isFilteredExporting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Exporting filtered workbook")
+                    }
+                    if let status = state.filteredExportStatus {
+                        Text(status)
+                            .font(contentBodyFont)
+                            .foregroundStyle(status.contains("failed") ? .red : .secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .padding(.top, 4)

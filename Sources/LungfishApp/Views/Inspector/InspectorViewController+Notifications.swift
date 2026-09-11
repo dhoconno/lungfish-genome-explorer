@@ -116,6 +116,7 @@ extension InspectorViewController {
         viewModel.documentSectionViewModel.updateAssemblyDocument(nil)
         viewModel.documentSectionViewModel.updateViralReconDocument(nil)
         loadedGenotypeResult = nil
+        genotypeFilteredExportSession.clear()
         viewModel.documentSectionViewModel.navigateToSourceData = nil
         viewModel.provenanceSectionViewModel.clear()
 

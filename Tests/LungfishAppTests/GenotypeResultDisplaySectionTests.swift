@@ -311,6 +311,62 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         )
     }
 
+    func testFilteredExportSessionTracksOnlySuccessfulExistingOutput() {
+        let first = URL(fileURLWithPath: "/tmp/first.xlsx")
+        let second = URL(fileURLWithPath: "/tmp/second.xlsx")
+        var existing = Set([first.standardizedFileURL.path])
+        let session = GenotypeFilteredExportSessionState {
+            existing.contains($0.standardizedFileURL.path)
+        }
+
+        XCTAssertNil(session.presentation)
+        session.recordSuccessfulExport(first)
+        XCTAssertEqual(session.presentation?.url, first.standardizedFileURL)
+        XCTAssertTrue(session.presentation?.isAvailable == true)
+
+        session.beginExport()
+        XCTAssertTrue(session.isExporting)
+        session.recordFailedExport("disk full")
+        XCTAssertEqual(session.presentation?.url, first.standardizedFileURL)
+        XCTAssertEqual(session.statusText, "Filtered export failed — disk full")
+        XCTAssertFalse(session.isExporting)
+
+        session.recordCancelledOrFailedExport()
+        XCTAssertEqual(session.presentation?.url, first.standardizedFileURL)
+
+        session.recordSuccessfulExport(second)
+        XCTAssertEqual(session.presentation?.url, second.standardizedFileURL)
+        XCTAssertFalse(session.presentation?.isAvailable == true)
+        XCTAssertEqual(
+            session.presentation?.unavailableReason,
+            "The last filtered export is no longer available at its saved location."
+        )
+
+        existing.removeAll()
+        session.clear()
+        XCTAssertNil(session.presentation)
+    }
+
+    func testMissingLastFilteredExportRendersDisabledActionableLink() throws {
+        let missing = URL(fileURLWithPath: "/tmp/deleted-filtered.xlsx")
+        let latest = GenotypeFilteredExportPresentation(
+            url: missing,
+            isAvailable: false,
+            unavailableReason: "The last filtered export is no longer available at its saved location."
+        )
+        let state = GenotypeResultDocumentState(
+            title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
+            currentWorkbookUpdate: GenotypeCurrentWorkbookUIPhase.current.presentation(isReadOnly: false),
+            latestFilteredExport: latest,
+            filteredExportStatus: "Filtered export failed — disk full"
+        )
+        let inspected = try GenotypeResultDocumentSection(state: state).inspect()
+        let link = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-last-filtered-export")
+        XCTAssertTrue(try link.button().isDisabled())
+        _ = try inspected.find(text: "The last filtered export is no longer available at its saved location.")
+        _ = try inspected.find(text: "Filtered export failed — disk full")
+    }
+
     func testFilteredPivotExportMainSplitWiringUsesActiveControllerAndInspectorCleanup() {
         let mainSplitSource = combinedMainSplitViewControllerSource()
         let inspectorSource = combinedInspectorViewControllerSource()
@@ -686,7 +742,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         })
     }
 
-    func testGenotypeDisplaySectionDoesNotExposeLiveReadThresholdControls() throws {
+    func testGenotypeDisplaySectionSeparatesVisualFiltersFromCallingThresholds() throws {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         viewModel.update(isAvailable: true)
         let view = GenotypeResultDisplaySection(viewModel: viewModel)
@@ -701,8 +757,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let renderedText = inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
         XCTAssertFalse(renderedText.contains(where: { $0.contains("Hide Low Support") }))
         XCTAssertFalse(renderedText.contains(where: { $0.contains("Minimum Reads") }))
-        XCTAssertTrue(renderedText.contains(where: { $0.contains("Genotype calls and haplotype thresholds are fixed") }))
-        XCTAssertTrue(renderedText.contains(where: { $0.contains("Re-run the original genotyping workflow") }))
+        XCTAssertTrue(renderedText.contains(where: { $0.contains("Display filters do not change calls") }))
+        XCTAssertTrue(renderedText.contains(where: { $0.contains("Re-run the analysis to change calling thresholds") }))
     }
 
     func testGenotypeDisplaySectionKeepsThresholdGuidanceSeparateFromColorControls() throws {

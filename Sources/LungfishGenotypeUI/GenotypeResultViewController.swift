@@ -297,6 +297,7 @@ public final class GenotypeResultViewController: NSViewController {
     public var onCurrentWorkbookSyncRequested: ((GenotypeCurrentWorkbookUIRequest) -> Void)?
     public var onExcelExportRequested: (() -> Void)?
     public var onExcelReviewRequested: (() -> Void)?
+    public var onFilteredWorkbookExportEvent: ((GenotypeFilteredExportEvent) -> Void)?
     public var onDeferredMatrixAnnotationMutationsDrained: (() -> Void)?
 
     public var currentResultBundleURL: URL? {
@@ -9953,9 +9954,10 @@ public final class GenotypeResultViewController: NSViewController {
             // blocks on process.waitUntilExit) is moved off the main thread.
             guard let snapshot = capturedSnapshot ?? self.currentExportSnapshot() else { return }
             let outputURL = url
+            self.onFilteredWorkbookExportEvent?(.started)
             Task { [weak self] in
                 do {
-                    let export = try await Task.detached {
+                    _ = try await Task.detached {
                         try GenotypeViewportExportService().export(
                             snapshot: snapshot,
                             format: format,
@@ -9964,11 +9966,12 @@ public final class GenotypeResultViewController: NSViewController {
                     }.value
                     await MainActor.run {
                         guard let self else { return }
-                        NSWorkspace.shared.activateFileViewerSelecting(self.fileViewerSelectionURLs(for: export))
+                        self.onFilteredWorkbookExportEvent?(.succeeded(outputURL))
                     }
                 } catch {
                     await MainActor.run {
                         guard let self else { return }
+                        self.onFilteredWorkbookExportEvent?(.failed(error.localizedDescription))
                         if let window = self.view.window ?? NSApp.keyWindow {
                             NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
                         } else {

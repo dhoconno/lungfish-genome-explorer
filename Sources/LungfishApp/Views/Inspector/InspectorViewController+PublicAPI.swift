@@ -498,7 +498,10 @@ extension InspectorViewController {
             auditEntries: sidecar.auditLog,
             haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
             haplotypeDefinitionsFolderURL: genotypeHaplotypeDefinitionsFolderURL(result),
-            currentWorkbookUpdate: genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar)
+            currentWorkbookUpdate: genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar),
+            latestFilteredExport: genotypeFilteredExportSession.presentation,
+            filteredExportStatus: genotypeFilteredExportSession.statusText,
+            isFilteredExporting: genotypeFilteredExportSession.isExporting
         )
         // Mirror the current display-state knobs into the document state so
         // Inspector controls render with the right values when the section appears.
@@ -570,6 +573,25 @@ extension InspectorViewController {
                     )
             )
         }
+    }
+
+    func recordGenotypeFilteredExport(_ event: GenotypeFilteredExportEvent) {
+        switch event {
+        case .started:
+            genotypeFilteredExportSession.beginExport()
+        case .succeeded(let url):
+            genotypeFilteredExportSession.recordSuccessfulExport(url)
+        case .failed(let message):
+            genotypeFilteredExportSession.recordFailedExport(message)
+        }
+        guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
+        viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+            state.replacing(
+                latestFilteredExport: genotypeFilteredExportSession.presentation,
+                filteredExportStatus: genotypeFilteredExportSession.statusText,
+                isFilteredExporting: genotypeFilteredExportSession.isExporting
+            )
+        )
     }
 
     func updateTwelveSAmpliconResultDocument(_ result: TwelveSAmpliconResultBundleData) {

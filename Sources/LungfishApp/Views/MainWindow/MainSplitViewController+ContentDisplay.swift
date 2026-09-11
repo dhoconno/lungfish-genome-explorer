@@ -494,6 +494,12 @@ extension MainSplitViewController {
                         }
                     }
                 }
+                controller.onFilteredWorkbookExportEvent = { [weak self, weak controller] event in
+                    guard let self,
+                          self.viewerController.genotypeResultViewController === controller
+                    else { return }
+                    self.inspectorController.recordGenotypeFilteredExport(event)
+                }
                 inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                     controller?.applyHighlight(request)
                 }
