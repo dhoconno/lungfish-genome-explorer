@@ -82,6 +82,11 @@ extension MainSplitViewController {
             return
         }
 
+        if item.type == .primerAnalysisBundle, let url = item.url {
+            displayPrimerAnalysisBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         if item.type == .genotypeResultBundle, let url = item.url {
             displayGenotypeResultBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return

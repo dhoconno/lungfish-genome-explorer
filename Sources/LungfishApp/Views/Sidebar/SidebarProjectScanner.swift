@@ -168,6 +168,7 @@ enum SidebarProjectScanner {
             || itemType == .multipleSequenceAlignmentBundle
             || itemType == .phylogeneticTreeBundle
             || itemType == .fastqBundle
+            || itemType == .primerAnalysisBundle
             || itemType == .primerSchemeBundle
             || itemType == .genotypeResultBundle
             || itemType == .twelveSAmpliconResultBundle
@@ -315,6 +316,8 @@ enum SidebarProjectScanner {
             return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
         case "lungfishtree":
             return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
+        case "lungfishprimeranalysis":
+            return (.primerAnalysisBundle, "list.bullet.rectangle")
         case "lungfishprimers":
             return (.primerSchemeBundle, "line.horizontal.3.decrease.circle")
         case ONTGenotypeResultBundle.directoryExtension:

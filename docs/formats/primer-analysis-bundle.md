@@ -1,6 +1,6 @@
 # Primer analysis results
 
-The `.lungfishprimeranalysis` directory format preserves externally produced analysis files and the provenance of their import into LGE. It is separate from the `.lungfishprimers` scheme exchange format. The initial implementation provides workflow APIs and CLI inspection; it does not install or execute Primer3 or PrimalScheme, attach results to source documents, or provide a graphical design interface.
+The `.lungfishprimeranalysis` directory format preserves externally produced analysis files and the provenance of their import into LGE. It is separate from the `.lungfishprimers` scheme exchange format. The implementation provides workflow APIs, CLI inspection, and a read-only app viewer; it does not install or execute Primer3 or PrimalScheme, attach results to source documents, or provide a graphical design interface.
 
 ## Durable records
 
@@ -32,6 +32,14 @@ lungfish-cli primers analysis inspect /path/to/results.lungfishprimeranalysis --
 ```
 
 Both output modes verify the complete stored inventory before returning output. Inspection is read-only and does not add another provenance record or change the bundle. The JSON mode prints the verified manifest.
+
+## Opening in LGE
+
+Select an analysis bundle in the project sidebar or open it using File > Open. Packaged app builds also register the format for opening from Finder. The sidebar treats the bundle as one item, including when its contents are invalid, so internal files do not become independent project inputs.
+
+The read-only viewer validates the inventory off the main thread before displaying Overview, Files, and Provenance tabs. Overview shows saved grouping and input/result membership. Files lists the inventoried payloads. Provenance displays the canonical wrapper record from the same bytes verified during loading. Integrity failures appear as loading errors. Switching to another document removes the analysis viewer and cancels validation, which checks for cancellation between file reads.
+
+This viewer does not require design tools to be installed. It does not invoke generic legacy provenance repair, modify the bundle, or interpret native payloads as validated primer designs. Analysis details and provenance live in the viewer rather than the generic sidebar inspector.
 
 ## Annotation links
 

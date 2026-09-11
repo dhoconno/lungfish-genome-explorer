@@ -5,6 +5,8 @@ import XCTest
 @testable import LungfishIO
 
 final class PrimerAnalysisBundleTests: XCTestCase {
+  private enum InjectedCancellation: Error { case cancelled }
+
   func testLoadsOpaqueArtifactAndPreservesIdentityAfterRelocation() throws {
     let temporaryRoot = canonicalTemporaryDirectory()
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -62,6 +64,7 @@ final class PrimerAnalysisBundleTests: XCTestCase {
     let reopened = try PrimerAnalysisBundle.load(from: movedRoot)
 
     XCTAssertEqual(reopened.manifest.analysisID, analysisID)
+    XCTAssertEqual(reopened.canonicalProvenanceData, provenance)
     XCTAssertEqual(
       try Data(contentsOf: reopened.artifactURL(forRelativePath: "native/unfamiliar.bin")), original
     )
@@ -125,6 +128,56 @@ final class PrimerAnalysisBundleTests: XCTestCase {
         XCTAssertEqual(error as? PrimerAnalysisBundleError, expected[index])
       }
     }
+  }
+
+  func testLoadCooperativelyChecksCancellationWhileReadingVerifiedFiles() throws {
+    let temporaryRoot = canonicalTemporaryDirectory()
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+    let originalRoot = temporaryRoot.appendingPathComponent(
+      "original.lungfishprimeranalysis", isDirectory: true)
+    let artifactURL = originalRoot.appendingPathComponent("native/unfamiliar.bin")
+    let inputURL = originalRoot.appendingPathComponent("inputs/source.txt")
+    let provenanceURL = originalRoot.appendingPathComponent("provenance/wrapper.json")
+    try FileManager.default.createDirectory(
+      at: artifactURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: inputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: provenanceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let bytes = Data("opaque\n".utf8)
+    try bytes.write(to: artifactURL)
+    try bytes.write(to: inputURL)
+    let analysisID = UUID()
+    let runID = UUID()
+    let provenance = Data(
+      """
+      {"workflowName":"test","workflowVersion":"1","tool":{"name":"test","version":"1"},"argv":["test"],"reproducibleCommand":"test","options":{"explicit":{},"defaults":{},"resolvedDefaults":{"analysisID":{"type":"string","value":"\(analysisID.uuidString)"},"runID":{"type":"string","value":"\(runID.uuidString)"},"grouping":{"type":"string","value":"independent"}}},"runtimeIdentity":{"appVersion":"test","executablePath":"/test","operatingSystemVersion":"test","architecture":"arm64"},"files":[],"outputs":[],"exitStatus":0,"wallTimeSeconds":0}
+      """.utf8)
+    try provenance.write(to: provenanceURL)
+    let inputID = UUID()
+    let manifest = PrimerAnalysisManifest(
+      analysisID: analysisID, runID: runID,
+      inputs: [.init(id: inputID, artifactPaths: ["inputs/source.txt"])], results: [],
+      artifacts: [
+        descriptor("inputs/source.txt", bytes, role: "input", format: "text"),
+        descriptor("native/unfamiliar.bin", bytes, role: "nativeOutput", format: "text"),
+      ],
+      provenance: descriptor("provenance/wrapper.json", provenance, role: "provenance", format: "json"),
+      grouping: .independent, publishedRootPath: "/published")
+    try JSONEncoder().encode(manifest).write(
+      to: originalRoot.appendingPathComponent(PrimerAnalysisManifest.filename))
+    var checks = 0
+
+    XCTAssertThrowsError(
+      try PrimerAnalysisBundle.load(from: originalRoot) {
+        checks += 1
+        if checks == 3 { throw InjectedCancellation.cancelled }
+      }
+    ) { error in
+      XCTAssertTrue(error is InjectedCancellation)
+    }
+    XCTAssertEqual(checks, 3)
   }
 
   private func descriptor(_ path: String, _ data: Data, role: String, format: String)

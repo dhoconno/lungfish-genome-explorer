@@ -157,6 +157,7 @@ struct ProvenanceCoverageMonitor {
              .multipleSequenceAlignmentBundle,
              .phylogeneticTreeBundle,
              .fastqBundle,
+             .primerAnalysisBundle,
              .primerSchemeBundle,
              .genotypeResultBundle,
              .twelveSAmpliconResultBundle,

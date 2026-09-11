@@ -53,6 +53,7 @@ public enum SidebarItemType: Sendable {
     case multipleSequenceAlignmentBundle  // .lungfishmsa alignment bundle
     case phylogeneticTreeBundle  // .lungfishtree tree bundle
     case fastqBundle  // .lungfishfastq FASTQ package bundle
+    case primerAnalysisBundle  // .lungfishprimeranalysis saved results
     case primerSchemeBundle  // .lungfishprimers primer-scheme bundle
     case genotypeResultBundle // .lungfishgenotype ONT genotyping result bundle
     case twelveSAmpliconResultBundle // .lungfish12s 12S amplicon result bundle
@@ -82,7 +83,7 @@ public enum SidebarItemType: Sendable {
         case .multipleSequenceAlignmentBundle: return .systemPurple
         case .phylogeneticTreeBundle: return .systemMint
         case .fastqBundle: return .systemGreen
-        case .primerSchemeBundle: return .systemYellow
+        case .primerAnalysisBundle, .primerSchemeBundle: return .systemYellow
         case .genotypeResultBundle: return .lungfishOrange
         case .twelveSAmpliconResultBundle: return .systemTeal
         case .batchGroup: return .systemCyan
@@ -110,7 +111,7 @@ public enum SidebarItemType: Sendable {
     var isBundle: Bool {
         switch self {
         case .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
-             .fastqBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
+             .fastqBundle, .primerAnalysisBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
             return true
         default:
             return false
@@ -178,6 +179,11 @@ public enum SidebarItemType: Sendable {
                 canExportSequences: false,
                 canExportAnnotations: false,
                 canExportAlignment: true
+            )
+        case .primerAnalysisBundle:
+            return SidebarBundleCapabilities(
+                canOpen: true, canShowPackageContents: true, canGetBundleInfo: true,
+                canShowInInspector: false, canExportSequences: false
             )
         case .mhcReferenceBundle, .fastqBundle, .phylogeneticTreeBundle,
              .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
@@ -281,7 +287,7 @@ extension SidebarItemType {
     static var allBundleKindsForTesting: [SidebarItemType] {
         [
             .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle,
-            .phylogeneticTreeBundle, .fastqBundle, .primerSchemeBundle,
+            .phylogeneticTreeBundle, .fastqBundle, .primerAnalysisBundle, .primerSchemeBundle,
             .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult,
         ]
     }

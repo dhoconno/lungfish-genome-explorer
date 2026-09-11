@@ -1355,6 +1355,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .multipleSequenceAlignmentBundle: return "Multiple Sequence Alignment"
         case .phylogeneticTreeBundle: return "Phylogenetic Tree"
         case .fastqBundle: return "FASTQ Bundle"
+        case .primerAnalysisBundle: return "Primer Analysis"
         case .primerSchemeBundle: return "Primer Scheme"
         case .genotypeResultBundle: return "ONT Genotyping Result"
         case .twelveSAmpliconResultBundle: return "12S Amplicon Result"

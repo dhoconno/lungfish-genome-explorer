@@ -26,28 +26,39 @@ public enum PrimerAnalysisBundleError: Error, LocalizedError, Sendable, Equatabl
 public struct PrimerAnalysisBundle: Sendable {
   public let manifest: PrimerAnalysisManifest
   public let url: URL
+  public let canonicalProvenanceData: Data
 
-  public static func load(from suppliedURL: URL) throws -> Self {
+  public static func load(
+    from suppliedURL: URL,
+    cancellationCheck: () throws -> Void = {}
+  ) throws -> Self {
+    try cancellationCheck()
     guard suppliedURL.isFileURL, suppliedURL.path.hasPrefix("/"),
       !suppliedURL.pathComponents.contains("..")
     else { throw PrimerAnalysisBundleError.unsafePath(suppliedURL.path) }
     let root = suppliedURL
+    let manifestData = try readData(
+      root: root, relativePath: PrimerAnalysisManifest.filename,
+      cancellationCheck: cancellationCheck)
     let manifest: PrimerAnalysisManifest
     do {
-      manifest = try JSONDecoder().decode(
-        PrimerAnalysisManifest.self,
-        from: readData(root: root, relativePath: PrimerAnalysisManifest.filename))
+      manifest = try JSONDecoder().decode(PrimerAnalysisManifest.self, from: manifestData)
     } catch { throw PrimerAnalysisBundleError.invalidManifest(error.localizedDescription) }
     try validateManifest(manifest)
     var provenanceData: Data?
     for artifact in manifest.artifacts + [manifest.provenance] {
+      try cancellationCheck()
       let actual: (digest: String, size: UInt64)
       if artifact.relativePath == manifest.provenance.relativePath {
-        let bytes = try readData(root: root, relativePath: artifact.relativePath)
+        let bytes = try readData(
+          root: root, relativePath: artifact.relativePath,
+          cancellationCheck: cancellationCheck)
         provenanceData = bytes
         actual = digestAndSize(bytes)
       } else {
-        actual = try digestAndSize(root: root, relativePath: artifact.relativePath)
+        actual = try digestAndSize(
+          root: root, relativePath: artifact.relativePath,
+          cancellationCheck: cancellationCheck)
       }
       guard actual.digest.caseInsensitiveCompare(artifact.sha256) == .orderedSame,
         actual.size == artifact.byteSize
@@ -55,8 +66,10 @@ public struct PrimerAnalysisBundle: Sendable {
         throw PrimerAnalysisBundleError.integrityMismatch(artifact.relativePath)
       }
     }
-    try validateCanonicalProvenance(data: provenanceData ?? Data(), manifest: manifest)
-    return Self(manifest: manifest, url: root)
+    let canonicalProvenanceData = provenanceData ?? Data()
+    try validateCanonicalProvenance(data: canonicalProvenanceData, manifest: manifest)
+    return Self(
+      manifest: manifest, url: root, canonicalProvenanceData: canonicalProvenanceData)
   }
 
   public func artifactURL(forRelativePath relativePath: String) throws -> URL {
@@ -166,7 +179,9 @@ public struct PrimerAnalysisBundle: Sendable {
     return descriptor
   }
 
-  static func digestAndSize(root: URL, relativePath: String) throws -> (
+  static func digestAndSize(
+    root: URL, relativePath: String, cancellationCheck: () throws -> Void = {}
+  ) throws -> (
     digest: String, size: UInt64
   ) {
     let handle = try openRegularFile(root: root, relativePath: relativePath)
@@ -174,6 +189,7 @@ public struct PrimerAnalysisBundle: Sendable {
     var hasher = SHA256()
     var size: UInt64 = 0
     while true {
+      try cancellationCheck()
       let data = try handle.read(upToCount: 1_048_576) ?? Data()
       if data.isEmpty { break }
       hasher.update(data: data)
@@ -297,10 +313,18 @@ public struct PrimerAnalysisBundle: Sendable {
     return result
   }
 
-  private static func readData(root: URL, relativePath: String) throws -> Data {
+  private static func readData(
+    root: URL, relativePath: String, cancellationCheck: () throws -> Void = {}
+  ) throws -> Data {
     let handle = try openRegularFile(root: root, relativePath: relativePath)
     defer { try? handle.close() }
-    return try handle.readToEnd() ?? Data()
+    var result = Data()
+    while true {
+      try cancellationCheck()
+      let chunk = try handle.read(upToCount: 1_048_576) ?? Data()
+      if chunk.isEmpty { return result }
+      result.append(chunk)
+    }
   }
 
   private static func openRegularFile(root: URL, relativePath: String) throws -> FileHandle {

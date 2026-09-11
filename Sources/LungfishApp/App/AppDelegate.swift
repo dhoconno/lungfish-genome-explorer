@@ -1895,6 +1895,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             split.displayMultipleSequenceAlignmentBundleFromSidebar(at: url)
         case .lungfishPhylogeneticTreeBundle:
             split.displayPhylogeneticTreeBundleFromSidebar(at: url)
+        case .lungfishPrimerAnalysisBundle:
+            split.displayPrimerAnalysisBundleFromSidebar(at: url)
         case .lungfishMHCReferenceBundle:
             split.displayMHCReferenceBundleFromSidebar(at: url)
         default:

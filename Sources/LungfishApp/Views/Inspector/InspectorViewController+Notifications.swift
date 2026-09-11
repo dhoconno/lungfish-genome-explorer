@@ -420,6 +420,12 @@ extension InspectorViewController {
         sidebarType: SidebarItemType?,
         displayName: String?
     ) {
+        // Analysis provenance is verified and displayed by its read-only native viewer.
+        // Do not send it through legacy provenance discovery/repair.
+        if sidebarType == .primerAnalysisBundle || url?.pathExtension.lowercased() == "lungfishprimeranalysis" {
+            viewModel.provenanceSectionViewModel.clear()
+            return
+        }
         viewModel.provenanceSectionViewModel.load(
             item: ProvenanceInspectableItem(
                 url: url,
