@@ -31,6 +31,12 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     public let haplotype2: String
     public let status: String
     public let notes: String
+    public let baselineHaplotype1: String?
+    public let baselineHaplotype2: String?
+
+    public init(sample: String, locus: String, haplotype1: String, haplotype2: String, status: String, notes: String) {
+        self.init(sample: sample, locus: locus, haplotype1: haplotype1, haplotype2: haplotype2, status: status, notes: notes, baselineHaplotype1: nil, baselineHaplotype2: nil)
+    }
 
     public init(
         sample: String,
@@ -38,7 +44,9 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         haplotype1: String,
         haplotype2: String,
         status: String,
-        notes: String
+        notes: String,
+        baselineHaplotype1: String?,
+        baselineHaplotype2: String?
     ) {
         self.sample = sample
         self.locus = locus
@@ -46,6 +54,8 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         self.haplotype2 = haplotype2
         self.status = status
         self.notes = notes
+        self.baselineHaplotype1 = baselineHaplotype1
+        self.baselineHaplotype2 = baselineHaplotype2
     }
 
     public static func isWritableCurrentWorkbookLocus(_ locus: String) -> Bool {
@@ -518,6 +528,9 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle)
         }
         try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
+        guard try !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle) else {
+            throw GenotypeEditableWorkbookService.EditError.rejected("Review external current.xlsx edits before regeneration.")
+        }
         try attempt?.recordInputFile(at: sourceWorkbookURL)
         let annotationOnlyWorkbookRevision: ONTGenotypeWorkbookRevision?
         if annotationOnly {
@@ -540,6 +553,16 @@ public struct GenotypeWorkbookRevisionService {
             from: manifest,
             in: bundle
         )
+        let haplotypeAnalysisInput: (url: URL, witness: SourceWorkbookWitness)?
+        if let path = manifest.haplotypeAnalysisPath {
+            let url = ONTGenotypeResultBundle.resolvedURL(for: path, in: bundle)
+            try validateRegularBundleFile(url, in: bundle, role: "active haplotype analysis")
+            let snapshot = try readRegularFileNoFollow(url, role: "active haplotype analysis")
+            haplotypeAnalysisInput = (url, snapshot.witness)
+            workbookScientificInputs.append(url)
+        } else {
+            haplotypeAnalysisInput = nil
+        }
         if let workbookCSVProjectionInput {
             workbookScientificInputs += [
                 workbookCSVProjectionInput.longSummaryURL,
@@ -707,6 +730,9 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         func requireWorkbookCSVProjectionUnchanged() throws {
+            if let input = haplotypeAnalysisInput {
+                try requireUnchangedRegularFileNoFollow(input.url, witness: input.witness)
+            }
             guard let input = workbookCSVProjectionInput else { return }
             try requireUnchangedRegularFileNoFollow(
                 input.longSummaryURL,
@@ -743,8 +769,8 @@ public struct GenotypeWorkbookRevisionService {
             to: stagedSourceWorkbookURL
         )
         if let annotationOnlyWorkbookRevision {
-            guard annotationOnlyWorkbookRevision.sizeBytes == sourceWorkbookWitness.sizeBytes,
-                  annotationOnlyWorkbookRevision.sha256 == sourceWorkbookWitness.sha256 else {
+            guard try (annotationOnlyWorkbookRevision.sizeBytes == sourceWorkbookWitness.sizeBytes && annotationOnlyWorkbookRevision.sha256 == sourceWorkbookWitness.sha256)
+                    || !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle) else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                     "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
                 )
@@ -759,6 +785,8 @@ public struct GenotypeWorkbookRevisionService {
             reviewableRowCatalogInput == nil
                 ? ""
                 : stagedReviewableRowCatalogURL.path,
+            retainFingerprintCalls ? stagedFingerprintCallsURL.path : stagedCallsURL.path,
+            latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
         ]
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
@@ -841,6 +869,9 @@ public struct GenotypeWorkbookRevisionService {
             additionalInputs.append(cloneFingerprintCallsURL)
         }
         var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneScientificInputs
+        if retainFingerprintCalls {
+            pythonInputURLs.append(cloneFingerprintCallsURL)
+        }
         var durableReviewableRowCatalogPath = ""
         if reviewableRowCatalogInput != nil {
             try fileManager.copyItem(
@@ -880,6 +911,8 @@ public struct GenotypeWorkbookRevisionService {
             durableAnnotationPath,
             cloneConfigurationURL.path,
             durableReviewableRowCatalogPath,
+            retainFingerprintCalls ? cloneFingerprintCallsURL.path : cloneCallsURL.path,
+            latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
         ]
         let pythonStep = try makePythonProvenanceStep(
             executionRecord: executionRecord,
@@ -907,10 +940,35 @@ public struct GenotypeWorkbookRevisionService {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook update provenance path is missing.")
         }
         let cloneManifestURL = ONTGenotypeResultBundle.manifestURL(in: cloneBundleURL)
+        let parserExecutable: URL
+        if let runtimeObject = try? JSONSerialization.jsonObject(with: Data(executionRecord.stdout.utf8)) as? [String: Any],
+           let executable = runtimeObject["python_executable"] as? String {
+            parserExecutable = URL(fileURLWithPath: executable)
+        } else if let pythonExecutableURL {
+            parserExecutable = pythonExecutableURL
+        } else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Editable baseline requires the exact managed Python runtime identity.")
+        }
+        try GenotypeEditableWorkbookService(pythonExecutableURL: parserExecutable).attestGeneratedWorkbook(
+            workbookURL: cloneFinalWorkbookURL,
+            bundleURL: cloneBundleURL,
+            scientificInputURLs: cloneScientificInputs + (reviewableRowCatalogInput.map { [cloneBundleURL.appendingPathComponent($0.reference.path)] } ?? []),
+            callEditingSupported: projectionMode == .haplotyped
+        )
         let revisedManifestData = try Data(contentsOf: cloneManifestURL)
         let retainedManifestURL = cloneUpdatesURL.appendingPathComponent("revision-manifest.json")
         try revisedManifestData.write(to: retainedManifestURL, options: .atomic)
         let cloneProvenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: cloneBundleURL)
+        // Baseline is a scientific output of this same retained generation
+        // script. Bind its final bytes into the workbook's provenance envelope.
+        let baselineURL = cloneBundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath)
+        let baselineData = try Data(contentsOf: baselineURL)
+        let baselineDescriptor = ProvenanceFileDescriptor(path: baselineURL.path, checksumSHA256: GenotypeEditableWorkbookService.hash(baselineData), fileSize: UInt64(baselineData.count), format: .json, role: .output)
+        var provenanceObject = try JSONSerialization.jsonObject(with: Data(contentsOf: cloneProvenanceURL)) as! [String: Any]
+        let descriptorObject = try JSONSerialization.jsonObject(with: ProvenanceJSON.encoder.encode(baselineDescriptor))
+        provenanceObject["files"] = (provenanceObject["files"] as? [Any] ?? []) + [descriptorObject]
+        provenanceObject["outputs"] = (provenanceObject["outputs"] as? [Any] ?? []) + [descriptorObject]
+        try JSONSerialization.data(withJSONObject: provenanceObject, options: [.sortedKeys]).write(to: cloneProvenanceURL, options: .atomic)
         try relocateProvenancePaths(in: cloneProvenanceURL, from: cloneBundleURL, to: bundle)
         try originalManifestData.write(to: cloneManifestURL, options: .atomic)
         try syncDirectoryTree(cloneBundleURL)

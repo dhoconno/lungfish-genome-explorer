@@ -3844,6 +3844,14 @@ def normalized_package_members(path):
     return members
 
 
+\#(GenotypeEditableWorkbookService.seedScript)
+editable_calls = call_rows
+if len(sys.argv) > 7 and sys.argv[7]:
+    with open(sys.argv[7]) as editable_calls_handle:
+        editable_calls = json.load(editable_calls_handle)
+seed_editable_tables(wb, editable_calls, sidecar, reviewable_row_catalog, haplotype_projection_mode != 'manual-genotype-only')
+if len(sys.argv) > 8 and sys.argv[8]:
+    wb['Edit Calls'].sheet_properties.codeName = 'LGE' + sys.argv[8]
 wb.save(output_path)
 if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
     canonical_wb = load_workbook(output_path)

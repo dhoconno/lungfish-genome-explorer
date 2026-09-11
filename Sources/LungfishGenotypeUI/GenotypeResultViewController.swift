@@ -5894,7 +5894,7 @@ public final class GenotypeResultViewController: NSViewController {
         switch phase {
         case .current:
             currentWorkbookNeedsRefresh = false
-        case .dirty, .dirtyWhileUpdating, .failed:
+        case .dirty, .dirtyWhileUpdating, .failed, .reviewRequired:
             currentWorkbookNeedsRefresh = true
         case .updating:
             break
@@ -6166,7 +6166,9 @@ public final class GenotypeResultViewController: NSViewController {
                     haplotype1: effective.h1,
                     haplotype2: effective.h2,
                     status: effective.status.rawValue,
-                    notes: currentWorkbookNotes(sample: sample.sample, locus: call.locus, base: call.notes)
+                    notes: currentWorkbookNotes(sample: sample.sample, locus: call.locus, base: call.notes),
+                    baselineHaplotype1: call.haplotype1,
+                    baselineHaplotype2: call.haplotype2
                 )
             }
         }

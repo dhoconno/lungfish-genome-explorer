@@ -31,6 +31,8 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let haplotype2: String
         let status: String
         let notes: String
+        let baselineHaplotype1: String?
+        let baselineHaplotype2: String?
 
         var sortFields: [String] {
             [sample, locus, haplotype1, haplotype2, status, notes]
@@ -230,7 +232,9 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
                 haplotype1: clean(call.haplotype1),
                 haplotype2: clean(call.haplotype2),
                 status: clean(call.status),
-                notes: clean(call.notes)
+                notes: clean(call.notes),
+                baselineHaplotype1: call.baselineHaplotype1,
+                baselineHaplotype2: call.baselineHaplotype2
             )
         }
         let canonicalCalls = callsByKey.values.sorted {

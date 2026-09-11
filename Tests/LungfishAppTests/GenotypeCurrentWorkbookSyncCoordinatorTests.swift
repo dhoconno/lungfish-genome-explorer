@@ -7,6 +7,77 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
+    func testPendingFingerprintLoadCannotUndoAcceptedWorkbookInvalidation() async throws {
+        let bundle = bundleURL("accepted-pending-fingerprint")
+        let fingerprint = try makeFingerprint("a")
+        let request = makeRequest(bundle: bundle, fingerprint: fingerprint)
+        let loader = ControlledFingerprintLoader()
+        var invocations = 0
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { bundle in await loader.load(bundle) },
+            currentWorkbookResolver: { _ in bundle.appendingPathComponent("current.xlsx") },
+            updateRunner: { _, _ in invocations += 1; return bundle.appendingPathComponent("current.xlsx") },
+            idleScheduler: TestIdleScheduler().schedule,
+            externalEditDetector: { _ in false }
+        )
+        let registration = Task { await coordinator.register(request) }
+        try await waitUntil { loader.callCount == 1 }
+        coordinator.markEditableWorkbookAccepted(request)
+        loader.finish(with: fingerprint)
+        await registration.value
+        _ = try await coordinator.synchronize(request, intent: .automaticIdle)
+        XCTAssertEqual(invocations, 1, "An old disk fingerprint must not skip acknowledged workbook regeneration")
+    }
+
+    func testAcknowledgedFormattingOnlySaveInvalidatesSameFingerprintAndRetriesFailedRefresh() async throws {
+        let bundle = bundleURL("accepted-formatting-retry")
+        let workbook = bundle.appendingPathComponent("artifacts/workbooks/current.xlsx")
+        let fingerprint = try makeFingerprint("a")
+        let request = makeRequest(bundle: bundle, fingerprint: fingerprint)
+        var invocations = 0
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in fingerprint },
+            currentWorkbookResolver: { _ in workbook },
+            updateRunner: { _, _ in
+                invocations += 1
+                if invocations == 1 { throw TestError.expected }
+                return workbook
+            },
+            idleScheduler: TestIdleScheduler().schedule,
+            externalEditDetector: { _ in false }
+        )
+        await coordinator.register(request)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+        coordinator.markEditableWorkbookAccepted(request)
+        do {
+            _ = try await coordinator.synchronize(request, intent: .automaticIdle)
+            XCTFail("Injected refresh failure was not reached")
+        } catch { XCTAssertTrue(error is TestError) }
+        XCTAssertEqual(invocations, 1)
+        guard case .failed = coordinator.phase(for: bundle) else { return XCTFail("Saved acceptance must remain retryable") }
+        _ = try await coordinator.synchronize(request, intent: .automaticIdle)
+        XCTAssertEqual(invocations, 2)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
+    func testExternalWorkbookEditRequiresReviewWithoutStartingUpdate() async throws {
+        let bundle = URL(fileURLWithPath: "/tmp/editable-review-test.lungfishgenotype")
+        var updates = 0
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            updateRunner: { _, _ in updates += 1; return bundle.appendingPathComponent("current.xlsx") },
+            externalEditDetector: { _ in true }
+        )
+        do {
+            _ = try await coordinator.synchronize(makeRequest(bundle: bundle, fingerprint: makeFingerprint("a")), intent: .automaticIdle)
+            XCTFail("External edits must require review")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("review"))
+        }
+        XCTAssertEqual(updates, 0)
+        XCTAssertEqual(coordinator.phase(for: bundle), .reviewRequired)
+    }
+
     func testUpdateAndViewOpensValidatedIdentityWhenWorkbookPathIsSwappedAfterValidation() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "GenotypeCurrentWorkbookIdentityHandoff-\(UUID().uuidString)",

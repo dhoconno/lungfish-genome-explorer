@@ -632,7 +632,7 @@ extension MainSplitViewController {
         let key = bundleURL.standardizedFileURL.path
         let isTerminal: Bool
         switch phase {
-        case .current, .failed:
+        case .current, .failed, .reviewRequired:
             isTerminal = true
         case .dirty, .updating, .dirtyWhileUpdating:
             isTerminal = false
@@ -661,6 +661,8 @@ extension MainSplitViewController {
             uiPhase = .dirtyWhileUpdating
         case .failed(let message):
             uiPhase = .failed(message)
+        case .reviewRequired:
+            uiPhase = .reviewRequired
         }
         let isReadOnly = controller.currentResultBundleIsReadOnly
         controller.applyCurrentWorkbookSyncPhase(uiPhase, isReadOnly: isReadOnly)

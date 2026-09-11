@@ -7,6 +7,64 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testEditableBaselineBindsActiveHaplotypeAnalysisBytesAndFinalProvenance() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "analysis-witness", haplotypeAnalysisPath: "haplotype-analysis.json")
+        let analysisURL = fixture.bundleURL.appendingPathComponent("haplotype-analysis.json")
+        let original = Data("{\"analysisRevisionID\":\"revision-1\",\"samples\":[]}".utf8)
+        try original.write(to: analysisURL)
+        let updated = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        let service = GenotypeEditableWorkbookService(pythonExecutableURL: try XCTUnwrap(testPythonExecutableURL))
+        let inspection = try service.inspect(bundleURL: fixture.bundleURL)
+        let manifestBefore = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL))
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath))))
+        XCTAssertTrue(envelope.steps.flatMap(\.inputs).contains { $0.path == analysisURL.path && $0.checksumSHA256 == GenotypeEditableWorkbookService.hash(original) })
+        try Data("{\"analysisRevisionID\":\"revision-2\",\"samples\":[]}".utf8).write(to: analysisURL)
+        XCTAssertEqual(try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)), manifestBefore)
+        XCTAssertThrowsError(try service.inspect(bundleURL: fixture.bundleURL))
+        XCTAssertThrowsError(try service.revalidate(inspection))
+        XCTAssertThrowsError(try GenotypeEditableWorkbookService.canonicalEditableWorkbookURL(in: fixture.bundleURL))
+    }
+
+    func testInFlightActiveHaplotypeAnalysisMutationRejectsPublicationAndPreservesSource() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "analysis-race", haplotypeAnalysisPath: "haplotype-analysis.json")
+        let analysisURL = fixture.bundleURL.appendingPathComponent("haplotype-analysis.json")
+        try Data("{\"analysisRevisionID\":\"revision-1\",\"samples\":[]}".utf8).write(to: analysisURL)
+        let changed = Data("{\"analysisRevisionID\":\"revision-2\",\"samples\":[]}".utf8)
+        let workbook = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let before = try Data(contentsOf: workbook)
+        let manifestBefore = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL))
+        let reached = SendableFlagBox()
+        let service = GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL, publicationFailureInjector: { checkpoint in
+            if checkpoint == "after-python-before-source-conflict-check" {
+                reached.set(1)
+                try changed.write(to: analysisURL)
+            }
+        })
+        XCTAssertThrowsError(try service.applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL))
+        XCTAssertEqual(reached.value, 1)
+        XCTAssertEqual(try Data(contentsOf: workbook), before)
+        XCTAssertEqual(try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)), manifestBefore)
+        XCTAssertEqual(try Data(contentsOf: analysisURL), changed)
+    }
+
+    func testGeneratedCurrentHasBundleControlledEditableBaseline() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "editable-current")
+        let annotationURL = fixture.bundleURL.appendingPathComponent("annotations.json")
+        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-11T00:00:00Z").encoded().write(to: annotationURL)
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL, workbookAttestationRootURL: root.appendingPathComponent("attestations")).applyHaplotypeOverrides([
+            .init(sample: "Animal-1", locus: "A", haplotype1: "M1", haplotype2: "M1", status: "called", notes: "")
+        ], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath).path))
+        let service = GenotypeEditableWorkbookService(pythonExecutableURL: try XCTUnwrap(testPythonExecutableURL))
+        XCTAssertTrue(try service.inspect(bundleURL: fixture.bundleURL).changes.isEmpty)
+    }
+
     func testAnnotationUpdateAcceptsInitialMiSeqReportProvenanceAndPreservesIt() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl())
         let root = try temporaryDirectory()
@@ -766,6 +824,7 @@ ws.append([
 ])
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
 
         _ = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 7_150) },
@@ -774,7 +833,7 @@ wb.save(path)
         ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
 
         let inspection = try inspectBiologicallyOrderedTwoSheetWorkbook(currentURL)
-        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls")
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls|Edit Calls|Edit Matrix|Editing Guide")
         XCTAssertEqual(inspection["analystHaplotype"], "analyst-h1")
         XCTAssertEqual(inspection["analystComment"], "analyst-comment")
         let swiftOrderedDisplayNames = (
@@ -853,6 +912,7 @@ ws.append(["known-allele", "NHP00001", "Mafa-A1*001:01", "", "", "known", "", "M
 wb.create_sheet("Legacy Sheet")
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
 
         let updated = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 7_100) },
@@ -864,7 +924,7 @@ wb.save(path)
         ], annotationSidecarURL: nil, into: fixture.bundleURL)
 
         let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
-        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls")
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls|Edit Calls|Edit Matrix|Editing Guide")
         XCTAssertEqual(inspection["tableHeaderRow"], "22", "computed header and table are rebuilt from durable CSV inputs")
         XCTAssertEqual(inspection["analystHaplotype"], "analyst-h1")
         XCTAssertEqual(inspection["analystComment"], "analyst-comment")
@@ -986,7 +1046,7 @@ print(json.dumps({
         XCTAssertEqual(payload["has_audit"] as? Bool, true)
     }
 
-    func testAnnotationOnlyUpdatePreservesAttestedProjectionWithUnrelatedLegacyCandidateLabel() throws {
+    func testExternalLegacyCandidateLabelEditRequiresReviewBeforeAnnotationOnlyUpdate() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1151,119 +1211,21 @@ wb.save(path)
         ]
         try sidecar.encoded().write(to: annotationURL)
 
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL,
             annotationOnly: true
         )
-
-        let output = try runPython(["-c", #"""
-import json
-import re
-import sys
-from openpyxl import load_workbook
-
-wb = load_workbook(sys.argv[1], data_only=False)
-payload = {}
-for sheet_name in ("Unified Genotype Pivot", "Unmatched Alleles"):
-    ws = wb[sheet_name]
-    for row in range(1, ws.max_row + 1):
-        headers = {
-            re.sub(r"[^a-z0-9]+", "_", str(ws.cell(row, col).value).lower()).strip("_"): col
-            for col in range(1, ws.max_column + 1)
-            if ws.cell(row, col).value is not None
-        }
-        if "stable_cluster_id" not in headers:
-            continue
-        for data_row in range(row + 1, ws.max_row + 1):
-            stable_id = ws.cell(data_row, headers["stable_cluster_id"]).value
-            if stable_id == "cluster-1" and sheet_name == "Unified Genotype Pivot":
-                cell = ws.cell(data_row, headers["sample_a"])
-                payload["review_value"] = str(cell.value)
-                payload["review_italic"] = bool(cell.font.italic)
-            if stable_id == "cluster-4":
-                name_header = (
-                    "display_name"
-                    if "display_name" in headers
-                    else "provisional_allele_name"
-                )
-                payload[f"legacy_{sheet_name}"] = str(
-                    ws.cell(data_row, headers[name_header]).value
-                )
-        break
-payload["has_annotations"] = "Matrix Annotations" in wb.sheetnames
-payload["has_audit"] = "Audit Log" in wb.sheetnames
-payload["has_guide"] = "Interpretation Guide" in wb.sheetnames
-print(json.dumps(payload))
-"""#, currentURL.path])
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
-        )
-        XCTAssertEqual(payload["review_value"] as? String, "[7]")
-        XCTAssertEqual(payload["review_italic"] as? Bool, true)
-        XCTAssertEqual(
-            payload["legacy_Unified Genotype Pivot"] as? String,
-            "Mafa-B*002:01_0nt_nov"
-        )
-        XCTAssertEqual(
-            payload["legacy_Unmatched Alleles"] as? String,
-            "Mafa-B*002:01_0nt_nov"
-        )
-        XCTAssertEqual(payload["has_annotations"] as? Bool, true)
-        XCTAssertEqual(payload["has_audit"] as? Bool, true)
-        XCTAssertEqual(payload["has_guide"] as? Bool, false)
-
-        XCTAssertThrowsError(
-            try service.applyHaplotypeOverrides(
-                [
-                    .init(
-                        sample: "sample-a",
-                        locus: "MHC-A",
-                        haplotype1: "A-H1",
-                        haplotype2: "",
-                        status: "called",
-                        notes: ""
-                    ),
-                ],
-                annotationSidecarURL: annotationURL,
-                into: fixture.bundleURL
-            )
         ) { error in
-            XCTAssertTrue(
-                String(describing: error).contains(
-                    "Candidate cluster-4 has a prohibited or non-authoritative novel label."
-                )
-            )
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
         }
-
-        XCTAssertThrowsError(
-            try GenotypeWorkbookRevisionService(
-                dateProvider: { Date(timeIntervalSince1970: 7_161) },
-                userProvider: { "tester" },
-                pythonExecutableURL: testPythonExecutableURL,
-                publicationFailureInjector: { checkpoint in
-                    guard checkpoint == "after-stage-created" else { return }
-                    var tamperedWorkbook = try Data(contentsOf: currentURL)
-                    tamperedWorkbook.append(0)
-                    try tamperedWorkbook.write(to: currentURL, options: .atomic)
-                }
-            ).applyHaplotypeOverrides(
-                [],
-                annotationSidecarURL: annotationURL,
-                into: fixture.bundleURL,
-                annotationOnly: true
-            )
-        ) { error in
-            XCTAssertTrue(
-                String(describing: error).contains(
-                    "current.xlsx to match its manifest attestation"
-                )
-            )
-        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
-    func testTwoSheetRebuildPreservesUnrelatedNativeCommentAndFormatting() throws {
+    func testExternalNativeCommentAndFormattingRequireReviewBeforeRebuild() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1327,52 +1289,20 @@ wb.save(path)
             )
         ]
         try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-
-        let output = try runPython(["-c", #"""
-import json
-import sys
-from openpyxl import load_workbook
-
-wb = load_workbook(sys.argv[1], data_only=False)
-ws = wb["Unified Genotype Pivot"]
-header_row = next(
-    row for row in range(1, ws.max_row + 1)
-    if any(ws.cell(row, col).value == "stable_cluster_id" for col in range(1, ws.max_column + 1))
-)
-headers = {
-    str(ws.cell(header_row, col).value): col
-    for col in range(1, ws.max_column + 1)
-    if ws.cell(header_row, col).value is not None
-}
-target_row = next(
-    row for row in range(header_row + 1, ws.max_row + 1)
-    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
-)
-cell = ws.cell(target_row, headers["sample-a"])
-print(json.dumps({
-    "comment": "" if cell.comment is None else cell.comment.text,
-    "author": "" if cell.comment is None else cell.comment.author,
-    "fill": str(getattr(cell.fill.fgColor, "rgb", ""))[-6:],
-    "bold": bool(cell.font.bold),
-    "italic": bool(cell.font.italic),
-}))
-"""#, currentURL.path])
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
-        )
-        XCTAssertEqual(payload["comment"] as? String, "Analyst-owned native note")
-        XCTAssertEqual(payload["author"] as? String, "analyst")
-        XCTAssertEqual(payload["fill"] as? String, "123456")
-        XCTAssertEqual(payload["bold"] as? Bool, true)
-        XCTAssertEqual(payload["italic"] as? Bool, true)
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
-    func testTwoSheetRepeatUpdateRetainsAuthoritativeCandidateTintAndOtherNativeStyle() throws {
+    func testExternalCandidateTintEditRequiresReviewAndPreservesNativeStyle() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1427,45 +1357,17 @@ print(canonical)
         XCTAssertFalse(canonicalTint.isEmpty)
         XCTAssertNotEqual(canonicalTint, "ABCDEF")
 
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: nil,
             into: fixture.bundleURL
         )
-
-        let output = try runPython(["-c", #"""
-import json
-import sys
-from openpyxl import load_workbook
-
-wb = load_workbook(sys.argv[1], data_only=False)
-ws = wb["Unified Genotype Pivot"]
-header_row = next(
-    row for row in range(1, ws.max_row + 1)
-    if any(ws.cell(row, col).value == "stable_cluster_id" for col in range(1, ws.max_column + 1))
-)
-headers = {
-    str(ws.cell(header_row, col).value): col
-    for col in range(1, ws.max_column + 1)
-    if ws.cell(header_row, col).value is not None
-}
-target_row = next(
-    row for row in range(header_row + 1, ws.max_row + 1)
-    if ws.cell(row, headers["stable_cluster_id"]).value == "cluster-1"
-)
-cell = ws.cell(target_row, headers["display_name"])
-print(json.dumps({
-    "fill": str(getattr(cell.fill.fgColor, "rgb", ""))[-6:],
-    "bold": bool(cell.font.bold),
-    "comment": "" if cell.comment is None else cell.comment.text,
-}))
-"""#, currentURL.path])
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
-        )
-        XCTAssertEqual(payload["fill"] as? String, canonicalTint)
-        XCTAssertEqual(payload["bold"] as? Bool, true)
-        XCTAssertEqual(payload["comment"] as? String, "Native label note")
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
     func testExplicitUpdateRetainsAllCandidateCategoriesAndUnnameableEvidenceWithNameOnlyTints() throws {
@@ -1510,7 +1412,7 @@ print(json.dumps({
 
         XCTAssertNotEqual(before, after, "Only the explicit update action may rewrite current.xlsx")
         let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
-        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls")
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls|Edit Calls|Edit Matrix|Editing Guide")
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
         XCTAssertEqual(inspection["candidateNameFills"], "FFFF0000|8000FF00|FF0000FF|40FFFF00")
         XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
@@ -1648,12 +1550,13 @@ ws.append([
 ])
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
 
         _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
             .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
 
         let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
-        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls")
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls|Edit Calls|Edit Matrix|Editing Guide")
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
         XCTAssertEqual(inspection["unmatchedIDs"], "cluster-1|cluster-2|cluster-3|cluster-4|cluster-u")
     }
@@ -3936,12 +3839,13 @@ wb = load_workbook(path)
 wb["Full Sequencing Results 1"].append(["LGE MHC Candidate Alleles [BEGIN]"])
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
         XCTAssertNoThrow(
             try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
                 .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
         )
         let inspection = try inspectTwoSheetCandidateWorkbook(currentURL)
-        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls")
+        XCTAssertEqual(inspection["sheetNames"], "Unified Genotype Pivot|Unmatched Alleles|Haplotype Calls|Edit Calls|Edit Matrix|Editing Guide")
     }
 
     func testMalformedCandidateDoesNotCreateInitiallyAbsentCurrentWorkbookOrRevisionArtifacts() throws {
@@ -6748,10 +6652,10 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let pythonStep = try XCTUnwrap(
             envelope.steps.first { $0.toolName.contains("python openpyxl") }
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             pythonStep.inputs.contains { $0.path.hasSuffix("fingerprint-haplotype-calls.json") }
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             pythonStep.argv.contains { $0.hasSuffix("fingerprint-haplotype-calls.json") }
         )
     }
@@ -6802,6 +6706,7 @@ wb = load_workbook(path)
 wb["Unified Genotype Pivot"].auto_filter.ref = "A1:P1"
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
         let catalogReference = try installReviewableRowCatalog(
             GenotypeReviewableRowCatalog(
                 samples: ["Sample-A", "Sample-B"],
@@ -7168,7 +7073,7 @@ wb.save(path)
         XCTAssertEqual(inspection["hasManagedReviewState"], "false")
     }
 
-    func testTablelessGenericClearCompactsCompleteCatalogRosterWithLaterRealRow() throws {
+    func testExternalTablelessRealRowRequiresReviewBeforeCompacting() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -7194,6 +7099,7 @@ ws["G8"] = "outside-marker-row"
 ws["H9"] = "outside-synthetic-row"
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
         _ = try installReviewableRowCatalog(
             annotationOnlyReferenceCatalog(
                 samples: ["AR3628", "AR9999"],
@@ -7243,51 +7149,17 @@ wb.save(path)
 """#, currentURL.path])
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-
-        let output = try runPython(["-c", #"""
-import json
-import sys
-from openpyxl import load_workbook
-
-wb = load_workbook(sys.argv[1], data_only=False)
-ws = wb["matrix"]
-text = lambda value: "" if value is None else str(value)
-print(json.dumps({
-    "markerRows": str(sum(
-        1 for row in range(7, ws.max_row + 1)
-        if text(ws.cell(row, 1).value) == "Analyst annotation-only rows"
-    )),
-    "syntheticRows": str(sum(
-        1 for row in range(7, ws.max_row + 1)
-        if text(ws.cell(row, 1).value) == "Mamu-A1*missing"
-    )),
-    "existingRow": "|".join(text(ws.cell(7, col).value) for col in range(1, 6)),
-    "realRow": "|".join(text(ws.cell(8, col).value) for col in range(1, 6)),
-    "outsideMarker": text(ws["G8"].value),
-    "outsideSynthetic": text(ws["H9"].value),
-    "autoFilterRef": text(ws.auto_filter.ref),
-    "tableCount": str(len(ws.tables)),
-    "hasManagedReviewState": str(
-        "_LGE Matrix Review State" in wb.sheetnames
-    ).lower(),
-}))
-"""#, currentURL.path])
-        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
-        let inspection = try XCTUnwrap(object as? [String: String])
-        XCTAssertEqual(inspection["markerRows"], "0")
-        XCTAssertEqual(inspection["syntheticRows"], "0")
-        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5|")
-        XCTAssertEqual(inspection["realRow"], "Mamu-A1*later-real|9|1||9")
-        XCTAssertEqual(inspection["outsideMarker"], "outside-marker-row")
-        XCTAssertEqual(inspection["outsideSynthetic"], "outside-synthetic-row")
-        XCTAssertEqual(inspection["autoFilterRef"], "A6:E8")
-        XCTAssertEqual(inspection["tableCount"], "0")
-        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
     func testTablelessClearFailsClosedForDuplicateUnannotatedCatalogSample() throws {
@@ -7314,6 +7186,7 @@ ws["E6"] = "AR9999"
 ws.auto_filter.ref = "A6:E7"
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
         _ = try installReviewableRowCatalog(
             annotationOnlyReferenceCatalog(
                 samples: ["AR3628", "AR9999"],
@@ -7370,11 +7243,7 @@ wb.save(path)
                 into: fixture.bundleURL
             )
         ) { error in
-            XCTAssertTrue(
-                error.localizedDescription.localizedCaseInsensitiveContains(
-                    "AR9999"
-                )
-            )
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError)
         }
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
     }
@@ -7411,6 +7280,7 @@ for row, values in {
 ws.add_table(Table(displayName="UnrelatedTable", ref="F6:H10"))
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
         _ = try installReviewableRowCatalog(
             annotationOnlyReferenceCatalog(
                 samples: ["AR3628"],
@@ -7503,7 +7373,7 @@ print(json.dumps({
         XCTAssertEqual(inspection["autoFilterRef"], "A6:D7")
     }
 
-    func testUserEditedSyntheticRowIsRetainedUnmanagedWithValidationWarning() throws {
+    func testUserEditedSyntheticRowRequiresReviewAndPreservesExactInput() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -7567,35 +7437,20 @@ ws.cell(row, 2).comment = Comment("Analyst retained note", "analyst")
 wb.save(path)
 """#, currentURL.path])
 
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-        var inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
-        XCTAssertEqual(inspection["syntheticRows"], "1")
-        XCTAssertEqual(inspection["markerRows"], "0")
-        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
-        XCTAssertEqual(inspection["analystComment"], "Analyst retained note")
-        XCTAssertEqual(inspection["managedSyntheticRows"], "0")
-        XCTAssertTrue(
-            inspection["reviewWarning"]?.contains("user-edited") == true
-        )
-
-        sidecar.matrixReviews = []
-        try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
-            [],
-            annotationSidecarURL: annotationURL,
-            into: fixture.bundleURL
-        )
-        inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
-        XCTAssertEqual(inspection["syntheticRows"], "1")
-        XCTAssertEqual(inspection["analystComment"], "Analyst retained note")
-        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
-    func testRetainedSyntheticBlockMarkerIsNeverReadoptedForNewManagedRows() throws {
+    func testExternalRetainedSyntheticBlockRequiresReviewBeforeClearing() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -7695,20 +7550,20 @@ wb.save(path)
 
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
-        XCTAssertEqual(inspection["syntheticRows"], "1")
-        XCTAssertEqual(inspection["analystComment"], "Retained analyst edit")
-        XCTAssertEqual(inspection["markerRows"], "0")
-        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
-        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
-    func testMarkerOnlyAnalystEditRetainsTheEntireSyntheticBlockOnClear() throws {
+    func testExternalMarkerOnlyEditRequiresReviewAndPreservesEntireSyntheticBlock() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -7777,23 +7632,17 @@ wb.save(path)
 """#, currentURL.path])
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-
-        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
-        XCTAssertEqual(inspection["markerRows"], "0")
-        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
-        XCTAssertEqual(
-            inspection["retainedMarkerComment"],
-            "Marker-only analyst edit"
-        )
-        XCTAssertEqual(inspection["syntheticRows"], "1")
-        XCTAssertEqual(inspection["tableRef"], "A6:D9")
-        XCTAssertEqual(inspection["tableAutoFilterRef"], "A6:D9")
-        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
     func testForeignManagedStateSheetNameCollisionFailsClosedWithoutMutation() throws {
@@ -7944,6 +7793,7 @@ state.cell(2, 11).border = original_border
 state.sheet_state = "veryHidden"
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -8153,7 +8003,7 @@ wb.save(path)
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
     }
 
-    func testVersion3ManagedFalseNegativeStateRestoresAndMigratesSafely() throws {
+    func testExternalManagedStateVersionChangeRequiresReviewBeforeMigration() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -8310,39 +8160,17 @@ wb.save(path)
 
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        let updated = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-
-        let inspection = try inspectSemanticReviewWorkbook(currentURL)
-        XCTAssertEqual(inspection["explicitZeroValue"], "0")
-        XCTAssertEqual(inspection["explicitZeroBorders"], "|||")
-        XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
-        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
-            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
-            in: fixture.bundleURL
-        )
-        let envelope = try ProvenanceJSON.decoder.decode(
-            ProvenanceEnvelope.self,
-            from: Data(contentsOf: provenanceURL)
-        )
-        let pythonStep = try XCTUnwrap(
-            envelope.steps.first {
-                $0.toolName == "python openpyxl workbook candidate update"
-            }
-        )
-        let decisions = try XCTUnwrap(
-            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
-                .arrayValue
-        )
-        XCTAssertEqual(
-            decisions.first {
-                $0.dictionaryValue?["cell"] == .string("E7")
-            }?.dictionaryValue?["action"],
-            .string("restore-version-3-cell")
-        )
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
     func testLegacyManagedStateRequiresExactRecordedCoordinateAndManagedPresentation() throws {
@@ -8501,7 +8329,7 @@ wb.save(path)
         )
     }
 
-    func testLaterRealWorkbookRowSupersedesManagedSyntheticRow() throws {
+    func testExternallyAddedRealWorkbookRowRequiresReviewBeforeManagedUpdate() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -8577,23 +8405,17 @@ ws.auto_filter.ref = "A1:N4"
 wb.save(path)
 """#, currentURL.path])
 
-        _ = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-
-        let inspection = try inspectAnnotationOnlyReviewWorkbook(currentURL)
-        XCTAssertEqual(inspection["markerRows"], "0")
-        XCTAssertEqual(inspection["syntheticRows"], "0")
-        XCTAssertEqual(inspection["realRows"], "1")
-        XCTAssertEqual(
-            inspection["realSampleABorders"],
-            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
-        )
-        XCTAssertEqual(inspection["tableRef"], "A1:N2")
-        XCTAssertEqual(inspection["autoFilterRef"], "A1:N2")
-        XCTAssertEqual(inspection["managedSyntheticStateRows"], "0")
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
     func testAbsentAnnotationOnlyRowsUseCanonicalCatalogSortOrder() throws {
@@ -8726,6 +8548,7 @@ ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N3"
 ws.auto_filter.ref = "A1:N3"
 wb.save(path)
 """#, currentURL.path, displayName])
+        try recordInitialFixtureWorkbook(currentURL)
         _ = try installReviewableRowCatalog(
             annotationOnlyReferenceCatalog(
                 samples: ["Sample-A", "Sample-B"],
@@ -8817,6 +8640,7 @@ ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N2"
 ws.auto_filter.ref = "A1:N2"
 wb.save(path)
 """#, currentURL.path, displayName])
+        try recordInitialFixtureWorkbook(currentURL)
         _ = try installReviewableRowCatalog(
             annotationOnlyReferenceCatalog(
                 samples: ["Sample-A", "Sample-B"],
@@ -8910,6 +8734,7 @@ ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N3"
 ws.auto_filter.ref = "A1:N3"
 wb.save(path)
 """#, currentURL.path, displayName, stableID])
+        try recordInitialFixtureWorkbook(currentURL)
         _ = try installReviewableRowCatalog(
             GenotypeReviewableRowCatalog(
                 samples: ["Sample-A", "Sample-B"],
@@ -9178,6 +9003,7 @@ ws["B6"] = "Amount"
 ws.tables["GenericGenotypeTable"].ref = "A6:D7"
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
             }
             _ = try installReviewableRowCatalog(catalog, in: fixture.bundleURL)
             let targetName = scenario == "duplicate-alias"
@@ -9589,7 +9415,7 @@ wb.save(path)
         )
     }
 
-    func testClearingMatrixReviewsRestoresManagedPresentationAndRemovesStaleSheets() throws {
+    func testExternalManagedReviewStyleEditRequiresReviewBeforeClear() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -9597,7 +9423,6 @@ wb.save(path)
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
         try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
-        let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
         sidecar.matrixReviews = [
@@ -9678,93 +9503,17 @@ wb.save(path)
 
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        let cleared = try service.applyHaplotypeOverrides(
+        let rejectedSnapshot = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
-
-        let inspection = try inspectSemanticReviewWorkbook(currentURL)
-        XCTAssertEqual(inspection["falsePositiveValue"], "42")
-        XCTAssertEqual(inspection["falsePositiveItalic"], "false")
-        XCTAssertEqual(inspection["falsePositiveColor"], originalInspection["falsePositiveColor"])
-        XCTAssertEqual(inspection["falsePositiveBold"], "true")
-        XCTAssertEqual(inspection["explicitZeroValue"], "0")
-        XCTAssertEqual(inspection["explicitZeroType"], "n")
-        XCTAssertEqual(
-            inspection["explicitZeroFill"],
-            originalInspection["explicitZeroFill"]
-        )
-        XCTAssertEqual(
-            inspection["explicitZeroFillBackground"],
-            originalInspection["explicitZeroFillBackground"]
-        )
-        XCTAssertEqual(
-            inspection["explicitZeroDiagonalBorder"],
-            originalInspection["explicitZeroDiagonalBorder"]
-        )
-        XCTAssertEqual(
-            inspection["explicitZeroDiagonalUp"],
-            originalInspection["explicitZeroDiagonalUp"]
-        )
-        XCTAssertEqual(
-            inspection["explicitZeroBold"],
-            originalInspection["explicitZeroBold"]
-        )
-        XCTAssertEqual(
-            inspection["explicitZeroColor"],
-            originalInspection["explicitZeroColor"]
-        )
-        XCTAssertEqual(inspection["explicitZeroBorders"], "thin|||")
-        XCTAssertEqual(inspection["absentValue"], "")
-        XCTAssertEqual(inspection["absentType"], "n")
-        XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "false")
-        XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
-        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
-            for: try XCTUnwrap(cleared.workbookRevisions?.last?.provenancePath),
-            in: fixture.bundleURL
-        )
-        let envelope = try ProvenanceJSON.decoder.decode(
-            ProvenanceEnvelope.self,
-            from: Data(contentsOf: provenanceURL)
-        )
-        let pythonStep = try XCTUnwrap(
-            envelope.steps.first {
-                $0.toolName == "python openpyxl workbook candidate update"
-            }
-        )
-        let restorationDecisions = try XCTUnwrap(
-            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
-                .arrayValue
-        )
-        let zeroRestoration = try XCTUnwrap(
-            restorationDecisions.first {
-                $0.dictionaryValue?["cell"] == .string("E7")
-            }?.dictionaryValue
-        )
-        XCTAssertEqual(
-            zeroRestoration["target"]?.dictionaryValue?["sample"],
-            .string("Sample-Zero")
-        )
-        let zeroProperties = try XCTUnwrap(
-            zeroRestoration["properties"]?.dictionaryValue
-        )
-        XCTAssertEqual(zeroProperties["value"], .string("restored"))
-        XCTAssertEqual(zeroProperties["font.bold"], .string("restored"))
-        XCTAssertEqual(zeroProperties["font.color"], .string("restored"))
-        XCTAssertEqual(zeroProperties["fill.patternType"], .string("restored"))
-        XCTAssertEqual(zeroProperties["fill.fgColor"], .string("restored"))
-        XCTAssertEqual(zeroProperties["border.left"], .string("preserved"))
-        XCTAssertEqual(zeroProperties["border.right"], .string("restored"))
-        let blankRestoration = try XCTUnwrap(
-            restorationDecisions.first {
-                $0.dictionaryValue?["cell"] == .string("F7")
-            }?.dictionaryValue
-        )
-        XCTAssertEqual(
-            blankRestoration["properties"]?.dictionaryValue?["value"],
-            .string("restored")
-        )
+        ) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError, "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), rejectedSnapshot)
     }
 
     func testDuplicateExactReviewTargetsFailClosedInEitherOrder() throws {
@@ -10602,6 +10351,7 @@ if with_comments:
 wb.save(path)
 """#
         _ = try runPython(["-c", code, url.path, withUnrelatedComments ? "true" : "false"])
+        try recordInitialFixtureWorkbook(url)
     }
 
     private func installAnnotationOnlyUnifiedReviewMatrix(in url: URL) throws {
@@ -10649,6 +10399,7 @@ ws.auto_filter.ref = "A1:N1"
 wb.save(path)
 """#
         _ = try runPython(["-c", code, url.path])
+        try recordInitialFixtureWorkbook(url)
     }
 
     private func annotationOnlyReferenceCatalog(
@@ -10706,6 +10457,7 @@ ws.auto_filter.ref = "A6:D7"
 wb.save(path)
 """#
         _ = try runPython(["-c", code, url.path])
+        try recordInitialFixtureWorkbook(url)
     }
 
     private func inspectAnnotationOnlyGenericWorkbook(
@@ -11428,6 +11180,25 @@ ws.append([
 ])
 wb.save(path)
 """#, currentURL.path])
+        try recordInitialFixtureWorkbook(currentURL)
+    }
+
+    // These installers construct the initial scientific fixture, before any update or
+    // Excel edit. Never use this helper to authorize changes to a generated workbook.
+    private func recordInitialFixtureWorkbook(_ currentURL: URL) throws {
+        let bundleURL = currentURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: bundleURL)
+        var manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+        var revisions = try XCTUnwrap(manifest["workbookRevisions"] as? [[String: Any]])
+        guard revisions.count == 1, revisions[0]["id"] as? String == "initial-current-copy",
+              !FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("artifacts/workbooks/editable-baseline.json").path) else {
+            XCTFail("Initial fixture installer must not bless a generated workbook")
+            return
+        }
+        revisions[0]["sha256"] = try ProvenanceFileHasher.sha256(of: currentURL)
+        revisions[0]["sizeBytes"] = try ProvenanceFileHasher.fileSize(of: currentURL)
+        manifest["workbookRevisions"] = revisions
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]).write(to: manifestURL)
     }
 
     private func installCandidateArtifacts(

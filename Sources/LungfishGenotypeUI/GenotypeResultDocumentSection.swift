@@ -33,6 +33,7 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
     case updating
     case dirtyWhileUpdating
     case failed(String)
+    case reviewRequired
 
     public func presentation(
         isReadOnly: Bool,
@@ -55,6 +56,9 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
             isEnabled = !isReadOnly
         case .failed(let message):
             statusText = "Failed — \(message)"
+            isEnabled = !isReadOnly
+        case .reviewRequired:
+            statusText = "Review required — current.xlsx contains external edits."
             isEnabled = !isReadOnly
         }
         return GenotypeResultCurrentWorkbookUpdateState(

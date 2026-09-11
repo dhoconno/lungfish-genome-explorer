@@ -54,20 +54,20 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         )
         let winner = call(
             sample: "Animal",
-            locus: "MHC-DQ",
+            locus: "MHC-DQA",
             haplotype1: "DQA*03",
             haplotype2: "DQA*04"
         )
 
         let duplicates = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [first, winner],
-            includedLoci: ["MHC-DQ"],
+            includedLoci: ["MHC-DQA"],
             annotationSidecar: nil,
             candidateArtifacts: nil
         )
         let retainedWinner = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [winner],
-            includedLoci: ["MHC-DQ"],
+            includedLoci: ["MHC-DQA"],
             annotationSidecar: nil,
             candidateArtifacts: nil
         )
@@ -84,20 +84,20 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         )
         let second = call(
             sample: "Animal",
-            locus: "MHC-DQ",
+            locus: "MHC-DQA",
             haplotype1: "DQA*03",
             haplotype2: "DQA*04"
         )
 
         let forward = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [first, second],
-            includedLoci: ["MHC-DQ"],
+            includedLoci: ["MHC-DQA"],
             annotationSidecar: nil,
             candidateArtifacts: nil
         )
         let reversed = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [second, first],
-            includedLoci: ["MHC-DQ"],
+            includedLoci: ["MHC-DQA"],
             annotationSidecar: nil,
             candidateArtifacts: nil
         )
@@ -129,7 +129,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         )
     }
 
-    func testMakeCanonicalizesIncludedLocusAliasesAndWhitespace() throws {
+    func testMakeCanonicalizesIncludedLocusWhitespaceWithoutAliasing() throws {
         let first = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [],
             includedLoci: [" MHC-DQA ", "MHC-A"],
@@ -138,7 +138,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         )
         let canonical = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [],
-            includedLoci: ["MHC-A", "MHC-DQ"],
+            includedLoci: ["MHC-A", "MHC-DQA"],
             annotationSidecar: nil,
             candidateArtifacts: nil
         )
@@ -159,7 +159,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
 
         let first = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: calls,
-            includedLoci: ["MHC-DQ", "MHC-A", "MHC-A"],
+            includedLoci: ["MHC-DQA", "MHC-A", "MHC-A"],
             annotationSidecar: nil,
             candidateArtifacts: firstArtifacts
         )
@@ -168,12 +168,12 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
                 calls[1],
                 call(
                     sample: "Beta",
-                    locus: "MHC-DQ",
+                    locus: "MHC-DQA",
                     haplotype1: "DQA*02",
                     haplotype2: "DQA*03"
                 ),
             ],
-            includedLoci: ["MHC-A", "MHC-DQ"],
+            includedLoci: ["MHC-A", "MHC-DQA"],
             annotationSidecar: nil,
             candidateArtifacts: firstArtifacts
         )
