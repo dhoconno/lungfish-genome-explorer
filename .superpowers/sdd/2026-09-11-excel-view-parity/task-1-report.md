@@ -83,3 +83,13 @@ The GUI snapshot boundary now always opts new exports into the typed clean-workb
 - `Tests/LungfishCLITests/GenotypePivotFilteredCopyTests.swift`
 
 No new concern was identified. Exact loci remain distinct, clean typed exports without analysis cannot retain companion sheets, and legacy projections still retain their explicit nil compatibility path.
+
+## Review fix round 2
+
+Authoritative viewport fill replacement is now gated by the typed-export discriminator (`exact_haplotype_calls is not None`). Typed GUI snapshots, including the empty call array used when analysis is unavailable, still clear stale template fills and apply captured colors before FP/FN overlays. Legacy projections whose optional call payload decodes as nil again preserve their source workbook row-header and sample-cell fills while retaining the existing projected values, ordering, annotations, and review overlays.
+
+- RED: `swift test --jobs 6 --filter GenotypePivotFilteredCopyTests/testViewportProjectionFindsPublishedCurrentWorkbookMatrixAndMatchesDisplayAliases` — 1 test, 2 expected failures because omitted legacy colors cleared nondefault row and blank-cell fills; `/tmp/lge-task1-review2-red.log`.
+- GREEN boundary pair: `swift test --jobs 6 --filter 'GenotypePivotFilteredCopyTests/testViewportProjection(ControlsVisibleRowsColumnsValuesAndAnnotations|FindsPublishedCurrentWorkbookMatrixAndMatchesDisplayAliases)'` — 2 passed, 0 failed; `/tmp/lge-task1-review2-green.log`. This jointly verifies typed clear/apply behavior and legacy source-fill preservation.
+- GREEN covering suite: `swift test --jobs 6 --filter GenotypePivotFilteredCopyTests` — 5 passed, 0 failed in 0.889 seconds; `/tmp/lge-task1-review2-suite-green.log`.
+- Changed: `Sources/LungfishCLI/Commands/GenotypeExportPivotXlsxSubcommand.swift`, `Tests/LungfishCLITests/GenotypePivotFilteredCopyTests.swift`, and this report.
+- Concern: none new. The nil-versus-empty typed discriminator remains the explicit compatibility boundary documented above.

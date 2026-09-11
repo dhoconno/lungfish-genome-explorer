@@ -1901,11 +1901,12 @@ if projected_rows is not None:
         row = rewrite_start + offset
         name = projected["genotype"]
         matched += 1
-        row_color = projected.get("rowColorHex")
-        sheet.cell(row, 1).fill = (
-            PatternFill(fill_type="solid", fgColor="FF" + row_color.lstrip("#").upper())
-            if row_color else PatternFill(fill_type=None)
-        )
+        if exact_haplotype_calls is not None:
+            row_color = projected.get("rowColorHex")
+            sheet.cell(row, 1).fill = (
+                PatternFill(fill_type="solid", fgColor="FF" + row_color.lstrip("#").upper())
+                if row_color else PatternFill(fill_type=None)
+            )
         apply_comment(sheet.cell(row, 1), projected.get("comment"), "Allele row: " + name)
         remaining = []
         cells_by_sample = {cell["sample"]: cell for cell in projected.get("cells", [])}
@@ -1913,11 +1914,12 @@ if projected_rows is not None:
             projected_cell = cells_by_sample.get(sample, {})
             raw_value = str(projected_cell.get("value") or "").strip()
             cell = sheet.cell(row, column)
-            color = projected_cell.get("colorHex")
-            cell.fill = (
-                PatternFill(fill_type="solid", fgColor="FF" + color.lstrip("#").upper())
-                if color else PatternFill(fill_type=None)
-            )
+            if exact_haplotype_calls is not None:
+                color = projected_cell.get("colorHex")
+                cell.fill = (
+                    PatternFill(fill_type="solid", fgColor="FF" + color.lstrip("#").upper())
+                    if color else PatternFill(fill_type=None)
+                )
             if raw_value in ("", "-"):
                 cell.value = None
             else:

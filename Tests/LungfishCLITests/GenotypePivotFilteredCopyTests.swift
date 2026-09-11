@@ -118,6 +118,8 @@ pivot["E12"].font = Font(bold=True, color="FF00B050")
 pivot["D12"].comment = Comment("Native haplotype note", "Curator")
 pivot["A22"].comment = Comment("Native first allele note", "Curator")
 pivot["E23"].comment = Comment("Native second allele cell note", "Curator")
+pivot["A23"].fill = PatternFill("solid", fgColor="FF2468AC")
+pivot["D23"].fill = PatternFill("solid", fgColor="FF13579B")
 pivot.freeze_panes = "D3"
 for cell in pivot[1]:
     cell.font = Font(bold=True)
@@ -202,6 +204,8 @@ out = {
     "haplotypeFillTypes": [ws["D12"].fill.fill_type, ws["E12"].fill.fill_type],
     "manualCommentsRow": [ws["D20"].value, ws["E20"].value],
     "firstAlleleComment": ws["A23"].comment.text if ws["A23"].comment else None,
+    "legacySecondRowFill": ws["A22"].fill.fgColor.rgb,
+    "legacySecondBlankCellFill": ws["E22"].fill.fgColor.rgb,
     "falsePositive": {
         "value": ws["D22"].value,
         "italic": bool(ws["D22"].font.italic),
@@ -771,6 +775,8 @@ print(json.dumps(out))
         XCTAssertTrue((object["firstAlleleComment"] as? String)?.contains("Native first allele note") == true)
         XCTAssertTrue((object["firstAlleleComment"] as? String)?.contains("Projected first allele note") == true)
         XCTAssertEqual(object["guideComment"] as? String, "Guide comment must survive")
+        XCTAssertTrue((object["legacySecondRowFill"] as? String)?.hasSuffix("2468AC") == true)
+        XCTAssertTrue((object["legacySecondBlankCellFill"] as? String)?.hasSuffix("13579B") == true)
         XCTAssertEqual(object["override"] as? String, "M2DQ")
         XCTAssertEqual(object["audit"] as? String, "synthetic-review")
         XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
