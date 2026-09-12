@@ -144,10 +144,13 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             XCTAssertEqual(url, output)
             XCTAssertEqual(snapshot.filters["matrixMinimumReads"], "7")
             XCTAssertEqual(snapshot.rows.map(\.genotype), ["FIRST"])
+            let frozen = try GenotypeAnnotationSidecar.decode(XCTUnwrap(snapshot.annotationSidecarData))
+            XCTAssertTrue(frozen.matrixComments.isEmpty)
             try Data("captured reads=7".utf8).write(to: url)
         }
         controller.presentExcelExportDialog(expectedDisplayState: state)
         XCTAssertTrue(presentedScope.contains("7"))
+        controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "First delayed annotation")))
         state.matrixMinimumReads = 0
         controller.testingApplyDisplayStateImmediately(state)
         try XCTUnwrap(choose)(.alertFirstButtonReturn)

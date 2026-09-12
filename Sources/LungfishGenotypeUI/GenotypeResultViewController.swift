@@ -8415,6 +8415,8 @@ public final class GenotypeResultViewController: NSViewController {
             slot: .h2
         )
         let hasOverride = h1HasOverride || h2HasOverride
+        let h1Status = h1HasOverride ? GenotypeEffectiveCallAuthority.overrideStatus(effective: h1, baseline: call.status) : call.status
+        let h2Status = h2HasOverride ? GenotypeEffectiveCallAuthority.overrideStatus(effective: h2, baseline: call.status) : call.status
         let hasUnresolvedOverride = h1 == GenotypeHaplotypeOverrideTargets.unresolved
             || h2 == GenotypeHaplotypeOverrideTargets.unresolved
         let status: GenotypeHaplotypeCallStatus
@@ -8425,9 +8427,9 @@ public final class GenotypeResultViewController: NSViewController {
         }
         return EffectiveHaplotypeCall(
             h1: h1,
-            h2: h2,
-            h1Status: status,
-            h2Status: status,
+            h2: GenotypeEffectiveCallAuthority.normalizedSecondHaplotype(first: h1, second: h2, status: h2Status),
+            h1Status: h1Status,
+            h2Status: h2Status,
             h1Source: h1HasOverride ? .analystOverride : .pipeline,
             h2Source: h2HasOverride ? .analystOverride : .pipeline,
             status: status
@@ -9567,18 +9569,14 @@ public final class GenotypeResultViewController: NSViewController {
         return best.id
     }
 
-    /// Attaches a sidecar snapshot to a base export snapshot when the
-    /// annotation store has overrides or audit entries to surface in the
-    /// resulting workbook. Pure transformation; no I/O.
+    /// Empty annotation state is authoritative too. Failure to encode must
+    /// prevent export rather than falling back to the live bundle sidecar.
     private func attachSidecarSnapshot(
         to base: GenotypeViewportExportSnapshot,
         capturedSidecar sidecar: GenotypeAnnotationSidecar?
-    ) -> GenotypeViewportExportSnapshot {
-        guard let sidecar else { return base }
-        let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty
-            || !sidecar.matrixReviews.isEmpty
-            || !sidecar.matrixComments.isEmpty
-        guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty || hasMatrixAnnotations else { return base }
+    ) -> GenotypeViewportExportSnapshot? {
+        let sidecar = sidecar ?? .empty(generatedAt: "1970-01-01T00:00:00Z")
+        guard let annotationData = try? sidecar.encoded() else { return nil }
         let overrides = sidecar.callOverrides.map { o in
             GenotypeAnnotationOverrideEntry(
                 sample: o.sample, locus: o.locus, slot: o.slot.rawValue,
@@ -9616,7 +9614,7 @@ public final class GenotypeResultViewController: NSViewController {
             annotationSidecarURL: FileManager.default.fileExists(atPath: annotationSidecarURL.path)
                 ? annotationSidecarURL
                 : nil,
-            annotationSidecarData: try? sidecar.encoded(),
+            annotationSidecarData: annotationData,
             sidecar: GenotypeAnnotationSidecarSnapshot(
                 overrides: overrides,
                 auditEntries: auditEntries
@@ -9673,7 +9671,9 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
         var provenanceInputURLs = base.provenanceInputURLs
-        if let url = haplotypeDefinitionStore.definitionURL(for: definitionID),
+        if let url = GenotypeHaplotypeAnalysisResolver.activeDefinitionFileURL(
+            for: result, sidecar: annotationStore?.sidecar
+        ),
            FileManager.default.fileExists(atPath: url.path),
            !provenanceInputURLs.contains(url) {
             provenanceInputURLs.append(url)
@@ -9724,6 +9724,32 @@ public final class GenotypeResultViewController: NSViewController {
             )
         }
         guard let analysis else {
+            if case .eligible = manualHaplotypeEligibility {
+                let visibleSamples = base.haplotypeSampleScope ?? base.sampleNames
+                let selectedLocus = base.filters["locus"].flatMap { $0 == "All Loci" || $0.isEmpty ? nil : $0 }
+                let visibleLoci = base.haplotypeLocusScope
+                    ?? selectedLocus.map { [$0] }
+                    ?? GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
+                let index = GenotypeManualHaplotypeAssignmentIndex(
+                    assignments: capturedSidecar?.manualHaplotypeAssignments ?? []
+                )
+                return replacingCalls(visibleSamples.flatMap { sample in
+                    visibleLoci.compactMap { locus -> GenotypeViewProjectionHaplotypeCall? in
+                        guard let manualLocus = GenotypeManualHaplotypeLocus(rawValue: locus) else { return nil }
+                        let slots = index.assignments(sample: sample, locus: manualLocus)
+                        let notes = [slots.h1?.notes, slots.h2?.notes].compactMap { $0 }.filter { !$0.isEmpty }
+                        return .init(
+                            sample: sample, locus: locus,
+                            haplotype1: slots.h1?.label ?? "", haplotype2: slots.h2?.label ?? "",
+                            haplotype1Status: "called", haplotype2Status: "called",
+                            haplotype1Source: slots.h1 == nil ? "unassigned" : "manualAssignment",
+                            haplotype2Source: slots.h2 == nil ? "unassigned" : "manualAssignment",
+                            baselineHaplotype1: "", baselineHaplotype2: "",
+                            comment: notes.joined(separator: "; ")
+                        )
+                    }
+                })
+            }
             // GUI projections always opt in to the typed, clean workbook
             // contract. `nil` remains reserved for decoded legacy projections.
             return replacingCalls([])
@@ -9748,7 +9774,7 @@ public final class GenotypeResultViewController: NSViewController {
                 sample.calls.map { ((sample.sample + "\u{1f}" + $0.locus), $0.notes) }
             }
         )
-        func sourceName(_ source: GenotypeEffectiveCallAuthority.Source) -> String {
+        func sourceName(_ source: GenotypeEffectiveHaplotypeValue.Source) -> String {
             switch source {
             case .pipeline: return "pipeline"
             case .analystOverride: return "analystOverride"
@@ -9759,15 +9785,17 @@ public final class GenotypeResultViewController: NSViewController {
         for sample in visibleSamples {
             for locus in visibleLoci {
                 guard let value = resolution.locusValue(sample: sample, locus: locus) else { continue }
+                guard let rawCall = analysis.samples.first(where: { $0.sample == sample })?.calls.first(where: { $0.locus == locus }) else { continue }
+                let effective = effectiveHaplotypeCall(sample: sample, call: rawCall)
                 calls.append(.init(
                     sample: sample,
                     locus: locus,
-                    haplotype1: value.h1.effective,
-                    haplotype2: value.h2.effective,
-                    haplotype1Status: value.h1.status.rawValue,
-                    haplotype2Status: value.h2.status.rawValue,
-                    haplotype1Source: sourceName(value.h1.source),
-                    haplotype2Source: sourceName(value.h2.source),
+                    haplotype1: effective.h1,
+                    haplotype2: effective.h2,
+                    haplotype1Status: effective.h1Status.rawValue,
+                    haplotype2Status: effective.h2Status.rawValue,
+                    haplotype1Source: sourceName(effective.h1Source),
+                    haplotype2Source: sourceName(effective.h2Source),
                     baselineHaplotype1: value.h1.baseline,
                     baselineHaplotype2: value.h2.baseline,
                     comment: commentsBySampleLocus[sample + "\u{1f}" + locus]
@@ -10011,13 +10039,26 @@ public final class GenotypeResultViewController: NSViewController {
             author: annotationAuthorProvider()
         )
         let containsCalls = inspection.changes.contains { $0.kind == .call }
-        currentWorkbookRequiresFullUpdate = currentWorkbookRequiresFullUpdate || containsCalls
-        rebuildActiveHaplotypeAnalysisIndexes()
-        rebuildHaplotypeLens()
-        rebuildHaplotypeMatrix()
         comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
-        rebuildMatrixAnnotationIndexes()
+        let searchDependenciesChanged = rebuildMatrixAnnotationIndexes()
+        let containsReviews = inspection.changes.contains { $0.kind == .review }
+        let recalculated = containsReviews && refreshReviewedHaplotypeAnalysis()
+        currentWorkbookRequiresFullUpdate = currentWorkbookRequiresFullUpdate || containsCalls || containsReviews
+        if !recalculated {
+            rebuildActiveHaplotypeAnalysisIndexes()
+            applyComparisonMatrixHaplotypeBandProjection()
+            rebuildHaplotypeLens()
+            rebuildOutline()
+            rebuildHaplotypeMatrix()
+            rebuildCohortSummary()
+            applyComparisonMatrixCohortFilter()
+            updateCallEvidence()
+        }
+        if searchDependenciesChanged {
+            refreshActiveSharedSearchAfterDependencyChange()
+        }
         refreshCurrentSelectionDetails()
+        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         onAnnotationSidecarChanged?(store.sidecar)
         emitCurrentWorkbookRequest(action: .acceptedEditable)
     }

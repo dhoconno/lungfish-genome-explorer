@@ -69,6 +69,25 @@ if reviewable_row_catalog_path:
     with open(reviewable_row_catalog_path) as handle:
         reviewable_row_catalog = json.load(handle)
 
+# Legacy reports predate catalog publication. Their immutable, witnessed CSV
+# snapshot supplies exact raw row identities and a complete sample roster.
+# Never infer a reference row or zero support from a workbook display label.
+if not reviewable_row_catalog and workbook_known_calls:
+    roster = [sample['sample'] for sample in workbook_samples]
+    reviewable_row_catalog = {
+        'schema_id': 'org.lungfish.genotype.reviewable-row-catalog', 'schema_version': 1,
+        'samples': roster,
+        'rows': [dict(kind='reference', call_id=call['call_id'], display_name=call['call_id'],
+            locus=call['locus'], section='reference', sort_key=call['call_id'],
+            support_by_sample=[dict(sample=sample, support=call['reads_by_sample'].get(sample, 0)) for sample in roster])
+            for call in workbook_known_calls],
+    }
+
+legacy_rows_by_label = {}
+for call in workbook_known_calls:
+    for label in call.get('workbook_labels', [call['call_id']]):
+        legacy_rows_by_label.setdefault(label, []).append(call)
+
 
 def load_json_path(key, collection):
     path = candidate_configuration.get(key)
@@ -1676,7 +1695,7 @@ def compute_matrix_row_descriptors(ws):
                 "locus": clean(ws.cell(row, locus_col).value) if locus_col else "",
                 "stable_id": clean(ws.cell(row, stable_col).value) if stable_col else "",
             })
-        return descriptors
+        return resolve_legacy_matrix_identities(descriptors)
 
     for row in range(1, ws.max_row + 1):
         genotype = clean(ws.cell(row, 1).value)
@@ -1688,6 +1707,20 @@ def compute_matrix_row_descriptors(ws):
                 "locus": "",
                 "stable_id": "",
             })
+    return resolve_legacy_matrix_identities(descriptors)
+
+
+def resolve_legacy_matrix_identities(descriptors):
+    for item in descriptors:
+        matches = legacy_rows_by_label.get(item['genotype'], [])
+        if not matches or item['stable_id']:
+            continue
+        if item['locus']:
+            matches = [call for call in matches if call['locus'] == item['locus']]
+        if len(matches) != 1:
+            raise ValueError('Ambiguous CSV identity for workbook row; workbook was not modified')
+        item['genotype'] = matches[0]['call_id']
+        item['locus'] = matches[0]['locus']
     return descriptors
 
 

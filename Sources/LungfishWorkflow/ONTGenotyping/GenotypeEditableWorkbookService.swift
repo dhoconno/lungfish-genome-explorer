@@ -326,7 +326,9 @@ public struct GenotypeEditableWorkbookService: Sendable {
         let required: Set<String> = sheet == "Edit Calls"
             ? ["ID", "Sample", "Locus", "Slot", "Effective call", "Baseline call", "Operation", "Value", "Baseline available"]
             : ["ID", "Target", "Reads", "Current review", "Current comment", "Review operation", "Review value", "Comment operation", "Comment value"]
-        guard let values, let header = values.first, Set(header) == required, Set(header).count == header.count else { throw reject("Missing, unknown, or duplicate headers in \(sheet).") }
+        guard let values, let header = values.first,
+              (Set(header) == required || (sheet == "Edit Matrix" && Set(header) == required.union(["Target label"]))),
+              Set(header).count == header.count else { throw reject("Missing, unknown, or duplicate headers in \(sheet).") }
         var result: [String: [String: String]] = [:]
         for row in values.dropFirst() {
             guard row.count == header.count else { throw reject("Ambiguous row in \(sheet).") }

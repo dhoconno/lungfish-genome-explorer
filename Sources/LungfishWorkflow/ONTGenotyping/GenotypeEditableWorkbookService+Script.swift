@@ -137,8 +137,27 @@ def seed_editable_tables(workbook, calls, annotations, catalog, call_editing_sup
         resolved_comments[key] = comment
     comments = {key: comment['body'] for key, comment in resolved_comments.items()}
     reviews = {identity(c['target']): c['disposition'] for c in annotations.get('matrixReviews', [])}
-    matrix_records = [[i, json.dumps(t, sort_keys=True), reads, reviews.get(i, ''), comments.get(i, ''), 'keep', '', 'keep', ''] for i, (t, reads) in sorted(targets.items())]
-    table('Edit Matrix', ['ID', 'Target', 'Reads', 'Current review', 'Current comment', 'Review operation', 'Review value', 'Comment operation', 'Comment value'], matrix_records, {'Review operation', 'Review value', 'Comment operation', 'Comment value'})
+    def target_label(t):
+        raw = t.get('genotype', '')
+        alleles = next((part[8:] for part in raw.split('|')[1:] if part.startswith('alleles=')), '')
+        label = ' / '.join(alleles.split(',')) if alleles else raw
+        context = ' | '.join(str(t[key]) for key in ('kind', 'sample', 'locus') if t.get(key))
+        if t.get('stableClusterID'):
+            context += ' | ' + t['stableClusterID']
+        return context + ('\n' + label if label else '')
+    matrix_records = [[i, json.dumps(t, sort_keys=True), reads, reviews.get(i, ''), comments.get(i, ''), 'keep', '', 'keep', '', target_label(t)] for i, (t, reads) in sorted(targets.items())]
+    matrix_sheet = table('Edit Matrix', ['ID', 'Target', 'Reads', 'Current review', 'Current comment', 'Review operation', 'Review value', 'Comment operation', 'Comment value', 'Target label'], matrix_records, {'Review operation', 'Review value', 'Comment operation', 'Comment value'})
+    from openpyxl.styles import Alignment
+    matrix_sheet.column_dimensions['A'].hidden = True
+    matrix_sheet.column_dimensions['B'].hidden = True
+    for col, width in [('C',9), ('D',16), ('E',22), ('F',13), ('G',17), ('H',13), ('I',22), ('J',68)]:
+        matrix_sheet.column_dimensions[col].width = width
+    matrix_sheet.row_dimensions[1].height = 30
+    for row in matrix_sheet:
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical='center')
+        if row[0].row > 1:
+            matrix_sheet.row_dimensions[row[0].row].height = max(32, 16 * (1 + (len(str(row[9].value)) + 59) // 60))
     if 'Editing Guide' in workbook.sheetnames:
         del workbook['Editing Guide']
     guide = workbook.create_sheet('Editing Guide')

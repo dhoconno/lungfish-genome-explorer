@@ -1152,6 +1152,7 @@ extension GenotypeExportPivotXlsxSubcommand {
 
         struct ProjectedRow: Codable, Equatable {
             let genotype: String
+            let displayName: String
             let workbookLabels: [String]
             let locus: String?
             let stableClusterID: String?
@@ -1278,6 +1279,7 @@ extension GenotypeExportPivotXlsxSubcommand {
                 }
                 return ProjectedRow(
                     genotype: genotype,
+                    displayName: row.label,
                     workbookLabels: workbookLabels(
                         genotype: genotype,
                         projectionLabel: row.label
@@ -1617,7 +1619,8 @@ from copy import copy
 import openpyxl
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
-from openpyxl.styles import PatternFill, Side
+from openpyxl.styles import Alignment, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 source, output, plan_path = sys.argv[1:4]
 with open(plan_path) as handle:
@@ -1775,6 +1778,9 @@ def annotation_text(entry, label):
 def apply_comment(cell, entry, label):
     text = annotation_text(entry, label)
     if text is None:
+        if exact_haplotype_calls is not None and cell.comment is not None:
+            base = cell.comment.text.split("[LGE Matrix Comments]", 1)[0].rstrip()
+            cell.comment = Comment(base, cell.comment.author or "Lungfish") if base else None
         return
     base = ""
     author = "Lungfish"
@@ -1783,7 +1789,9 @@ def apply_comment(cell, entry, label):
         author = cell.comment.author or author
     cell.comment = Comment("\n\n".join(part for part in (base, text) if part), author if base else "Lungfish")
 
-for sample, entry in (plan.get("columnComments") or {}).items():
+column_comments = plan.get("columnComments") or {}
+for sample in (sample_columns if exact_haplotype_calls is not None else column_comments):
+    entry = column_comments.get(sample)
     column = sample_columns.get(sample)
     if column is not None:
         apply_comment(sheet.cell(header_row, column), entry, "Sample column: " + sample)
@@ -1917,6 +1925,21 @@ if projected_rows is not None:
             raw_value = str(projected_cell.get("value") or "").strip()
             cell = sheet.cell(row, column)
             if exact_haplotype_calls is not None:
+                font = copy(cell.font)
+                font_color = str(font.color.rgb).upper() if font.color is not None and font.color.type == "rgb" else ""
+                if font_color.endswith("767676"):
+                    font.italic = False
+                    font.color = "FF000000"
+                if font_color.endswith("7F6000"):
+                    font.bold = False
+                    font.color = "FF000000"
+                cell.font = font
+                border = copy(cell.border)
+                for edge in ("left", "right", "top", "bottom"):
+                    side = getattr(border, edge)
+                    if side and side.style == "mediumDashed" and side.color and side.color.type == "rgb" and str(side.color.rgb).upper().endswith("C65911"):
+                        setattr(border, edge, Side())
+                cell.border = border
                 color = projected_cell.get("colorHex")
                 cell.fill = (
                     PatternFill(fill_type="solid", fgColor="FF" + color.lstrip("#").upper())
@@ -2009,7 +2032,7 @@ for row in reversed(rows_to_delete):
 if projected_rows is not None and exact_haplotype_calls is not None:
     source_matrix = sheet
     clean_matrix = workbook.create_sheet("Genotype Matrix", 0)
-    clean_matrix.append(["Genotype", "Locus", "Stable Cluster ID"] + visible_samples)
+    clean_matrix.append(["Genotype", "Locus", "Stable Cluster ID"] + visible_samples + ["Raw Genotype"])
     for cell in clean_matrix[1]:
         cell.font = copy(cell.font)
         cell.font = cell.font.copy(bold=True)
@@ -2030,12 +2053,16 @@ if projected_rows is not None and exact_haplotype_calls is not None:
             sys.exit(4)
         source_row = matching_rows[0]
         clean_matrix.append([
-            projected.get("genotype"),
+            projected.get("displayName") or projected.get("genotype"),
             projected.get("locus") or "",
             projected.get("stableClusterID") or "",
-        ] + [source_matrix.cell(source_row, sample_columns[sample]).value for sample in visible_samples])
+        ] + [source_matrix.cell(source_row, sample_columns[sample]).value for sample in visible_samples] + [projected.get("genotype")])
         target_row = clean_matrix.max_row
+        label = str(projected.get("displayName") or projected.get("genotype") or "")
+        clean_matrix.row_dimensions[target_row].height = max(22, 18 * ((len(label) + 54) // 55))
+        clean_matrix.cell(target_row, len(visible_samples) + 4).data_type = "s"
         clean_matrix.cell(target_row, 1)._style = copy(source_matrix.cell(source_row, 1)._style)
+        clean_matrix.cell(target_row, 1).alignment = Alignment(wrap_text=True, vertical="center")
         clean_matrix.cell(target_row, 1).comment = copy(source_matrix.cell(source_row, 1).comment)
         for offset, sample in enumerate(visible_samples, start=4):
             source_cell = source_matrix.cell(source_row, sample_columns[sample])
@@ -2045,9 +2072,14 @@ if projected_rows is not None and exact_haplotype_calls is not None:
             target_cell._hyperlink = copy(source_cell.hyperlink)
     clean_matrix.freeze_panes = "D2"
     clean_matrix.auto_filter.ref = clean_matrix.dimensions
-    clean_matrix.column_dimensions["A"].width = 36
+    clean_matrix.column_dimensions["A"].width = 68
     clean_matrix.column_dimensions["B"].width = 18
     clean_matrix.column_dimensions["C"].width = 24
+    clean_matrix.column_dimensions[get_column_letter(len(visible_samples) + 4)].hidden = True
+    clean_matrix.row_dimensions[1].height = 32
+    for offset, sample in enumerate(visible_samples, start=4):
+        clean_matrix.column_dimensions[get_column_letter(offset)].width = min(28, max(18, len(sample) + 2))
+        clean_matrix.cell(1, offset).alignment = Alignment(wrap_text=True, vertical="center")
     for candidate in list(workbook.worksheets):
         if candidate is not clean_matrix:
             workbook.remove(candidate)

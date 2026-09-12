@@ -18,8 +18,10 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
     }
 
     private func exerciseExcelEvidenceImport(mixed: Bool) throws {
-        let root = try TestTempDirectory.make(prefix: "ExcelEvidenceImport")
-        defer { TestTempDirectory.cleanup(root) }
+        let directory = try TestTempDirectory.make(prefix: "ExcelEvidenceImport")
+        defer { TestTempDirectory.cleanup(directory) }
+        let root = directory.appendingPathComponent("reviewed.lungfishgenotype")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try installCallOverrideManifest(in: root)
         let definition = makeDefinition()
         try writeDefinitionSnapshot(definition, to: root)
@@ -27,12 +29,24 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             makeCall(sample: "AnimalA", genotype: "01_M1_A_marker", reads: 100),
             makeCall(sample: "AnimalA", genotype: "02_M2_A_marker", reads: 3),
         ]
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype, workflowMode: .haplotyped,
+            outputName: "reviewed", analysisName: "Reviewed", primaryWorkbookPath: "artifacts/workbooks/current.xlsx",
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+            longSummaryCSVPath: "calls.csv", sampleSummaryCSVPath: "samples.csv", statsJSONPath: "stats.json", provenancePath: "provenance.json"
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: root)
+        let rawCSV = Data("sample,genotype,passed_unique_reads\nAnimalA,01_M1_A_marker,100\nAnimalA,02_M2_A_marker,3\n".utf8)
+        try rawCSV.write(to: root.appendingPathComponent("calls.csv"))
+        try Data("sample,passed_unique_reads\nAnimalA,103\n".utf8).write(to: root.appendingPathComponent("samples.csv"))
         let result = makeResult(
             bundleURL: root,
             samples: [.init(sample: "AnimalA", passedAlignments: 103, passedUniqueReads: 103,
                             sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: rawCalls)],
             calls: rawCalls,
-            haplotypeAnalysis: GenotypeHaplotypeAnalyzer.analyze(calls: rawCalls, definitionSet: definition)
+            haplotypeAnalysis: GenotypeHaplotypeAnalyzer.analyze(calls: rawCalls, definitionSet: definition),
+            manifest: manifest
         )
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -41,7 +55,10 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         flushMountedController(controller)
         let python = URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"]
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
-        let workbook = root.appendingPathComponent("current.xlsx")
+        var workbook = root.appendingPathComponent("artifacts/workbooks/current.xlsx")
+        try FileManager.default.createDirectory(at: workbook.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var requests: [GenotypeCurrentWorkbookUIRequest] = []
+        controller.onCurrentWorkbookSyncRequested = { requests.append($0) }
         func run(_ code: String) throws {
             let process = Process()
             process.executableURL = python
@@ -50,7 +67,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             process.waitUntilExit()
             XCTAssertEqual(process.terminationStatus, 0)
         }
-        try run("from openpyxl import Workbook\nw=Workbook(); w.active.title='Reads'; w.active.append(['Genotype','Reads']); w.active.append(['01_M1_A_marker',100]); w.active.append(['02_M2_A_marker',3])\n"
+        try run("from openpyxl import Workbook\nw=Workbook(); w.active.title='Reads'; w.active.append(['Genotype','Locus','AnimalA']); w.active.append(['01_M1_A_marker','MHC-A',100]); w.active.append(['02_M2_A_marker','MHC-A',3])\n"
             + GenotypeEditableWorkbookService.seedScript
             + "\nseed_editable_tables(w, [{'sample':'AnimalA','locus':'MHC-A','haplotype1':'M1A','haplotype2':'M2A','baselineHaplotype1':'M1A','baselineHaplotype2':'M2A'}], {}, {'samples':['AnimalA'],'rows':[{'locus':'MHC-A','display_name':'02_M2_A_marker','support_by_sample':[{'sample':'AnimalA','support':3}]}]}); w.save(p)")
         let service = GenotypeEditableWorkbookService(pythonExecutableURL: python)
@@ -63,6 +80,8 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         let inspection = try service.inspect(bundleURL: root)
         XCTAssertEqual(inspection.changes.count, mixed ? 3 : 1)
         try controller.acceptEditableWorkbook(inspection, using: service)
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertFalse(try XCTUnwrap(requests.last).snapshot.annotationOnly)
         let accepted = try XCTUnwrap(controller.testingCurrentWorkbookHaplotypeCalls().first)
         XCTAssertEqual(accepted.baselineHaplotype2, "-", "Excel FP review must recompute the raw evidence baseline before refresh")
         XCTAssertEqual(accepted.haplotype2, mixed ? "M3A" : "M1A")
@@ -81,6 +100,25 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             XCTAssertEqual(sidecar.matrixComments.first?.body, "Reviewed contaminant in Excel")
             XCTAssertEqual(sidecar.callOverrides.first?.overrideCall, "M3A")
         }
+        let annotations = root.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let revisionService = GenotypeWorkbookRevisionService(pythonExecutableURL: python)
+        _ = try revisionService.applyHaplotypeOverrides(requests[0].snapshot.calls, annotationSidecarURL: annotations, into: root)
+        workbook = try ONTGenotypeResultBundle.currentWorkbookURL(for: root)
+        try run("from openpyxl import load_workbook\nw=load_workbook(p)\nassert w['Haplotype Calls']['D2'].value == '\(mixed ? "M3A" : "M1A")'\nfor row in w['Edit Matrix'].iter_rows(min_row=2):\n if json.loads(row[1].value).get('kind') == 'cell' and json.loads(row[1].value).get('genotype') == '02_M2_A_marker':\n  row[5].value='clear'\nw.save(p)")
+        try controller.acceptEditableWorkbook(service.inspect(bundleURL: root), using: service)
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertFalse(requests[1].snapshot.annotationOnly)
+        XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().first?.baselineHaplotype2, "M2A")
+        XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().first?.haplotype2, mixed ? "M3A" : "M2A")
+        XCTAssertEqual(controller.testingCurrentCallEvidence?.observedGenotypes, rawCalls.map(\.genotype))
+        _ = try revisionService.applyHaplotypeOverrides(requests[1].snapshot.calls, annotationSidecarURL: annotations, into: root)
+        workbook = try ONTGenotypeResultBundle.currentWorkbookURL(for: root)
+        try run("from openpyxl import load_workbook\nw=load_workbook(p)\nassert w['Haplotype Calls']['D2'].value == '\(mixed ? "M3A" : "M2A")'\nassert w['Reads']['C3'].value == 3")
+        let cleared = GenotypeResultViewController()
+        _ = cleared.view
+        cleared.configure(result: result)
+        XCTAssertEqual(cleared.testingCurrentWorkbookHaplotypeCalls(), controller.testingCurrentWorkbookHaplotypeCalls())
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("calls.csv")), rawCSV)
     }
 
     func testFalsePositiveRefreshesEvidenceAndWorkbookProjectionButPreservesRawCalls() throws {

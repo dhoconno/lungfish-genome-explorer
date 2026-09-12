@@ -222,10 +222,14 @@ public struct GenotypeWorkbookRevisionService {
         struct KnownCall: Codable {
             let callID: String
             let readsBySample: [String: Int]
+            let locus: String
+            let workbookLabels: [String]
 
             private enum CodingKeys: String, CodingKey {
                 case callID = "call_id"
                 case readsBySample = "reads_by_sample"
+                case locus
+                case workbookLabels = "workbook_labels"
             }
         }
 
@@ -501,7 +505,9 @@ public struct GenotypeWorkbookRevisionService {
         let workbookCSVProjectionInput:
             ValidatedWorkbookCSVProjectionInput?
         if projectionMode == .manualGenotypeOnly
-            || manifest.mhcCandidateArtifacts != nil {
+            || manifest.mhcCandidateArtifacts != nil
+            || fileManager.fileExists(atPath: ONTGenotypeResultBundle.resolvedURL(for: manifest.longSummaryCSVPath, in: bundle).path)
+            || fileManager.fileExists(atPath: ONTGenotypeResultBundle.resolvedURL(for: manifest.sampleSummaryCSVPath, in: bundle).path) {
             workbookCSVProjectionInput = try loadWorkbookCSVProjection(
                 manifest: manifest,
                 bundleURL: bundle
@@ -613,9 +619,17 @@ public struct GenotypeWorkbookRevisionService {
             reviewableRowCatalogInput = nil
         }
         if requestsFalseNegative, reviewableRowCatalogInput == nil {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "False-negative workbook updates require an attested reviewable-row catalog."
-            )
+            let roster = Set(workbookCSVProjectionInput?.samples.map(\.sample) ?? [])
+            for review in sidecar?.matrixReviews ?? [] where review.disposition == .falseNegative {
+                guard case let .cell(locus, genotype, sample, stableID) = review.target,
+                      stableID == nil, roster.contains(sample),
+                      let row = workbookCSVProjectionInput?.knownCalls.first(where: { $0.callID == genotype && $0.locus == locus }),
+                      row.readsBySample[sample, default: 0] == 0 else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "False-negative workbook updates require an attested reviewable-row catalog or an exact zero-support row in the witnessed CSV evidence."
+                    )
+                }
+            }
         }
         if let reviewableRowCatalogInput {
             try attempt?.recordInput(
@@ -1904,9 +1918,20 @@ public struct GenotypeWorkbookRevisionService {
             ))
         }
         let knownCalls = knownReads.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }).map {
-            WorkbookCandidateUpdateConfiguration.KnownCall(
+            let raw = $0
+            let call = ONTGenotypeCall(sample: "", genotype: raw, passedAlignments: 0, passedUniqueReads: 0,
+                sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)
+            let alleles = MHCReferenceGenotypeDisplay.alleleNames(for: raw)
+            let compact = alleles.map { allele in
+                guard allele.hasPrefix("Mafa-"), let index = allele.firstIndex(of: "_") else { return allele }
+                return String(allele[..<index]) + "*" + String(allele[allele.index(after: index)...])
+            }.joined(separator: "/")
+            return WorkbookCandidateUpdateConfiguration.KnownCall(
                 callID: $0,
-                readsBySample: knownReads[$0] ?? [:]
+                readsBySample: knownReads[$0] ?? [:],
+                locus: call.locusGroup,
+                workbookLabels: Array(Set([raw, compact].filter { !$0.isEmpty })).sorted()
             )
         }
         return ValidatedWorkbookCSVProjectionInput(

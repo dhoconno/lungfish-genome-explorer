@@ -7,6 +7,48 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testLegacyCSVIdentitiesSeedEditableMatrixAndMapCompactReportLabels() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "legacy-identities")
+        let raw = "SYNTH_REF_001|source_loci=MHC-DQB1|alleles=Mafa-DQB1_01:01,Mafa-DQB1_01:02"
+        let csv = "sample,genotype,passed_alignments,passed_unique_reads\nAnimalA,\"\(raw)\",12,12\n"
+        try Data(csv.utf8).write(to: fixture.bundleURL.appendingPathComponent(fixture.manifest.longSummaryCSVPath))
+        try Data("sample,passed_unique_reads\nAnimalA,12\nAnimalB,0\n".utf8).write(to: fixture.bundleURL.appendingPathComponent(fixture.manifest.sampleSummaryCSVPath))
+        let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", "from openpyxl import Workbook; import sys; w=Workbook(); s=w.active; s.title='Full Sequencing Results 1'; s.append(['GS ID',None,None,'AnimalA','AnimalB']); s.append(['Comments']); s.append(['Genotype','Total','# Obs.','AnimalA','AnimalB']); s.append(['Mafa-DQB1*01:01/Mafa-DQB1*01:02',12,1,12,None]); w.save(sys.argv[1])", current.path])
+        try ONTGenotypeResultBundle.writeManifest(.init(
+            outputName: "legacy-identities", analysisName: "Legacy", primaryWorkbookPath: fixture.manifest.primaryWorkbookPath,
+            currentWorkbookPath: fixture.manifest.currentWorkbookPath,
+            longSummaryCSVPath: fixture.manifest.longSummaryCSVPath, sampleSummaryCSVPath: fixture.manifest.sampleSummaryCSVPath,
+            statsJSONPath: fixture.manifest.statsJSONPath, provenancePath: fixture.manifest.provenancePath
+        ), to: fixture.bundleURL)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-11T00:00:00Z")
+        sidecar.matrixReviews = [.init(target: .cell(locus: "MHC-DQB1", genotype: raw, sample: "AnimalA"), disposition: .falsePositive, author: "Analyst", timestamp: "2026-09-11T00:00:00Z")]
+        let annotations = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try sidecar.encoded().write(to: annotations)
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL)
+        let report = try runPython(["-c", #"""
+import sys,json
+from openpyxl import load_workbook
+w=load_workbook(sys.argv[1]); rows=list(w['Edit Matrix'].values); heads=rows[0]
+records=[dict(zip(heads,r)) for r in rows[1:]]
+assert 'Target label' in heads
+assert w['Edit Matrix'].column_dimensions['A'].hidden and w['Edit Matrix'].column_dimensions['B'].hidden
+cells=[r for r in records if json.loads(r['Target'])['kind']=='cell']
+assert len(cells)==2, records
+assert sorted(r['Reads'] for r in cells)==[0,12]
+assert all(json.loads(r['Target'])['genotype']==sys.argv[2] for r in cells)
+assert all(json.loads(r['Target'])['locus']=='MHC-DQB1' for r in cells)
+assert all('Mafa-DQB1' in r['Target label'] and 'MHC-DQB1' in r['Target label'] for r in cells)
+a=list(w['Matrix Annotations'].values); status=a[0].index('Validation Status')
+assert all(r[status]!='invalid' for r in a[1:]), a
+assert w['Full Sequencing Results 1']['D4'].value=='[12]'
+print('exact legacy targets and FP mapped')
+"""#, try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL).path, raw])
+        XCTAssertTrue(report.contains("exact legacy targets"))
+    }
+
     func testExcelEditAfterStageCreationCannotBecomeAdmittedSourceInAnyUpdateMode() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

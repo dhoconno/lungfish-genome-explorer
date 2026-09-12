@@ -1,35 +1,44 @@
-# Excel integration QA — release blocked
+# Excel integration QA — final fix verification
 
-Base production commit: `638b9a3dc`. This report contains no private cohort identities or paths. QA changed tests only; release identity edits belong to the parent task.
+Production baseline: `638b9a3dc`; test baseline: `c0714cf9f`; parent version-only commit: `d05eca19b`. This report contains no private cohort identities or paths. Packaging, release approval and final independent review belong to the parent task.
 
-Actual controller capture was exported through the default production viewport service and CLI. A separately cloned disposable bundle was refreshed through the production current-workbook revision service. The comparison checked 4,160 filtered matrix cells, all 130 exact filtered calls including per-slot status/source/baseline/comment, all 130 canonical current calls, source/filter metadata, projected fills, and 4,394 unfiltered evidence cells. Independent read-count controls confirmed that 1 and 4 reads are blank in the filtered workbook, 5 and 6 remain, and all four values remain in canonical current.xlsx. The original project and prepared comparison copy each retained identical full-tree witnesses: 470 entries, unchanged SHA-256.
+## Final disposition
 
-Two blocking defects were reproduced:
+The six consolidated findings are fixed: immediate reviewed-inference/full-workbook refresh, frozen empty annotation capture and cleared managed formatting, non-MiSeq effective-call parity, scoped legacy manual-only calls, exact legacy CSV-to-workbook review identities, and readable labels/headers. Editable matrix targets now have an immutable readable label with sample/locus/allele context; machine identities remain attested. Legacy manual-only call import remains intentionally read-only. Ambiguous identity mappings and unsupported false-negative targets fail closed.
 
-- Accepting an Excel false-positive review leaves the controller's pre-review inference and contaminant evidence visible until reopening. This occurs both for review-only import and a mixed review/manual-call/comment batch. A meaningful distinct manual override and comment survive fresh-controller recomputation; no loss of that override is claimed.
-- A legacy abbreviated-allele current workbook does not map the captured exact raw review identity back to its evidence cell. Its Matrix Annotations sheet marks the review invalid, and Edit Matrix contains column/bundle targets but no evidence-cell targets. All numeric/call comparisons pass before this annotation check fails.
+The complete disposable-project test passed through actual controller capture, production filtered export, canonical workbook generation, four accepted Excel edits (new FP, zero-support FN, row comment, cell comment), full canonical refresh, fresh-controller reopen and final filtered export. Both before and after edits it checked 4,160 filtered matrix cells, all 130 exact filtered calls with per-slot status/source/baseline/comment, all 130 current calls, and 4,394 recoverable unfiltered evidence cells. Original numeric evidence is checked separately from FP/FN presentation. Existing reviews remain valid. Synthetic real-bundle tests additionally complete set/clear review imports and canonical refreshes, verifying same-locus recomputation and preservation of a meaningful distinct manual override/comment.
 
-The opt-in test `GenotypeViewportExcelExportTests.testDisposableRealBundleControllerAndProductionExcelParity` takes `LUNGFISH_EXCEL_QA_BUNDLE`, clones the supplied disposable bundle again, and retains actual workbooks, captured projection/annotations, and a complete values/style/comment dump in the system temporary directory. The caller-supplied source receives a before/after recursive file hash assertion. The test intentionally remains RED on the mapping defect. Two synthetic controller-import regressions remain RED on stale review inference.
+The opt-in test `GenotypeViewportExcelExportTests.testDisposableRealBundleControllerAndProductionExcelParity` accepts `LUNGFISH_EXCEL_QA_PROJECT` and `LUNGFISH_EXCEL_QA_BUNDLE`. It clones the entire supplied disposable project, preserving the exact historical reference definition and native relative paths, and asserts caller input hashes before/after. An earlier analysis-only clone lost reference context; that was a QA harness limitation, not an original-project missing-definition defect. The whole-project test also exposed and fixed capture provenance for reference-bundle definitions. No substitute definition was introduced.
 
-Final bounded command used `swift test --jobs 6 --filter` with these suites:
+## Exact covering-test disposition
 
-| Suite | Tests | Result |
-|---|---:|---|
-| AppVersionTests | 1 | Pass |
-| GenotypeAnnotationStoreCallOverrideTests | 19 | Pass |
-| GenotypeCurrentWorkbookSyncCoordinatorTests | 42 | Pass |
-| GenotypeExcelDialogBehaviorTests | 11 | Pass |
-| GenotypePivotFilteredCopyTests | 5 | Pass |
-| GenotypePivotThresholdTests | 19 | Pass |
-| GenotypeResultViewportSelectionAndComparisonTests | 77 | Pass |
-| GenotypeResultViewportWorkbookPublicationTests | 17 | Pass |
-| GenotypeReviewedHaplotypeInferenceTests | 4 | Two new failures; two existing pass |
-| GenotypeViewportExcelExportTests | 10 | New cohort mapping failure; nine existing pass |
-| GenotypeViewportPivotExportTests | 14 | Pass |
-| GenotypeWorkbookRevisionServiceTests.testCurrentWorkbookScientificAndEditingTablesRetainEveryExactLocus | 1 | Pass |
+All commands used `swift test --jobs 6`, one build/test process at a time. Results below are split-run evidence, not a claim that one final full-suite invocation ran green.
 
-Total: 220 tests, 217 passing test cases, three failing cases, six assertion failures (one Python assertion is reported by XCTest as unexpected), zero skips. Build completed. Existing unrelated compiler warnings remain. Formatting-only acceptance and refresh/retry routing passed through the existing annotation-store and synchronization-coordinator tests.
+| Run | Actual result | Final disposition |
+|---|---|---|
+| Seven targeted finding regressions | 7/7 pass | RED/GREEN established |
+| Revision-service covering run plus two expanded UI lifecycle cases | 165 cases, 162 pass, 3 fail | One real FN preflight regression fixed and retested green; two test-only noncanonical workbook paths corrected and lifecycle tests passed |
+| Integrated covering selection | 251 cases, 249 pass, 2 fail | Obsolete empty-manual-slot assertion corrected; missing reference-definition capture provenance fixed |
+| Final affected-suite retest | 11/11 pass, zero skips, 69.543 seconds | Entire viewport Excel export suite including whole-project edit lifecycle, plus corrected manual-slot test |
 
-Filtered provenance records final output/checksum/size, exact CLI argv, minReads=5, percent defaults, captured projection/annotation/definition inputs, Python 3.12.13 and openpyxl 3.1.5, zero exit status, elapsed time and captured deprecation stderr. Canonical writer provenance records the final stored workbook identity and input witnesses. Runtime labels reflect the debug CLI/XCTest execution, not a packaged release.
+Thus all failures from the bounded covering selections were resolved and affected cases retested. The 162 unchanged revision-service cases retain their passing evidence (identity, recovery, no-clobber, candidates and raw-evidence coverage). This is not a full repository test run. Existing unrelated compiler warnings remain.
 
-Limits: no claim of annotation parity for the defective current mapping; this cohort has no matrix comments. Synthetic comment import is covered. The import regressions exercise production acceptance and controller reload/recomputation but do not complete a persisted bundle/workbook refresh transaction after acceptance. Complete that lifecycle after the source fix. Native PNG capture and full release-profile validation were deferred to avoid delaying the consolidated fix. No production app, private desktop, merge, package, publication, or cleanup operation was performed.
+Integrated selection:
+
+```sh
+LUNGFISH_EXCEL_QA_PROJECT='<disposable whole project>' LUNGFISH_EXCEL_QA_BUNDLE='<analysis inside that project>' swift test --jobs 6 --filter 'GenotypeViewportExcelExportTests|GenotypeViewportPivotExportTests|GenotypeExcelDialogBehaviorTests|GenotypeReviewedHaplotypeInferenceTests|GenotypeResultViewportSelectionAndComparisonTests|GenotypeResultViewportWorkbookPublicationTests|GenotypeAnnotationStoreCallOverrideTests|GenotypeCurrentWorkbookSyncCoordinatorTests|GenotypePivotThresholdTests|GenotypePivotFilteredCopyTests|GenotypeEffectiveHaplotypeProjectionTests|GenotypeEffectiveHaplotypeEditorTests|GenotypeEditableWorkbookTests|GenotypeWorkbookRevisionServiceTests.testLegacyCSVIdentitiesSeedEditableMatrixAndMapCompactReportLabels|GenotypeWorkbookRevisionServiceTests.testFalseNegativeWithoutAttestedReviewableRowCatalogFailsBeforeStagingOrMutation|AppVersionTests'
+```
+
+Final affected selection uses the same opt-in inputs:
+
+```sh
+swift test --jobs 6 --filter 'GenotypeViewportExcelExportTests|GenotypeResultViewportSelectionAndComparisonTests.testControllerExportSnapshotWithoutHaplotypeAnalysisRetainsEmptyManualSlots'
+```
+
+## Artifacts, provenance and integrity
+
+Retained private temporary artifacts include before/after filtered/current workbooks, complete independent values/style/comment dumps, captured projections/annotations, accepted edit evidence and operation provenance, and the additional working project clone. Filtered export records exact CLI argv and durable replay command, explicit options/resolved defaults including minReads=5, captured annotation/projection/definition inputs, runtime identity, checksums/sizes, exit status and wall time. Canonical and acceptance provenance point to final stored payloads and retain the accepted workbook and per-operation witnesses. Parent independently verified all six checksum-bearing outputs across final filtered, refreshed-current and accepted-edit provenance against actual bytes/sizes; all exit statuses are zero. The exact definition input checksum/size was also verified.
+
+The original project and prepared copy retain identical full-tree witnesses: 470 entries, unchanged SHA-256. The final test adds fresh before/after whole-project equality and asserts unchanged raw calls/CSV evidence. The original project was never passed to a loader, controller or writer.
+
+Parent read-only artifact rendering passed the affected long-label matrix, fitted headers, readable Edit Matrix targets, current/filtered calls, metadata, Edit Calls and Editing Guide, including the final after-edit artifacts. These checks do not claim a packaged native-app launch. Runtime labels reflect debug CLI/XCTest execution, not a released app. No original-project mutation, release, merge, packaging, publication or cleanup was performed by this fix owner.

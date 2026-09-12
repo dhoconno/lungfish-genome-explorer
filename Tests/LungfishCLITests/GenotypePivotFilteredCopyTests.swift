@@ -155,7 +155,7 @@ if "Haplotype Calls" in wb.sheetnames:
     out["exactCommentType"] = calls.cell(2, 11).data_type
 matrix = wb.worksheets[0]
 for row in range(2, matrix.max_row + 1):
-    if matrix.cell(row, 1).value == "01_Candidate":
+    if matrix.cell(row, 1).value in ("01_Candidate", "Compact candidate"):
         out["candidateRowFill"] = matrix.cell(row, 1).fill.fgColor.rgb
         out["candidateCellFill"] = matrix.cell(row, 4).fill.fgColor.rgb
         out["candidateBlankFillType"] = matrix.cell(row, 5).fill.fill_type
@@ -444,6 +444,20 @@ print(json.dumps(out))
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let sourceURL = bundleURL.appendingPathComponent("t.xlsx")
         _ = try await runPython(python, script: Self.makeSourceWorkbookScript, arguments: [sourceURL.path], in: root)
+        _ = try await runPython(python, script: #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import Font, Border, Side
+w=load_workbook(sys.argv[1]); s=w.active
+for cell in ('A16','D2','D16','E16'):
+    s[cell].comment=Comment('[LGE Matrix Comments]\nBody: cleared managed note', 'Lungfish')
+s['D16'].font=Font(italic=True,color='FF767676')
+s['E16'].font=Font(bold=True,color='FF7F6000')
+edge=Side(style='mediumDashed',color='FFC65911')
+s['E16'].border=Border(left=edge,right=edge,top=edge,bottom=edge)
+w.save(sys.argv[1])
+"""#, arguments: [sourceURL.path], in: root)
 
         let projection = GenotypeViewProjection(
             lens: "comparison",
@@ -454,7 +468,7 @@ print(json.dumps(out))
                     cells: ["", "5"], cellColorsHex: ["#111111", nil]
                 ),
                 .init(
-                    label: "01_Candidate", rawGenotype: "01_Candidate",
+                    label: "Compact candidate", rawGenotype: "01_Candidate",
                     locus: "MHC-A", stableClusterID: "candidate-1",
                     cells: ["10", ""],
                     cellColorsHex: ["#123456", nil],
@@ -529,15 +543,16 @@ print(json.dumps(out))
         XCTAssertEqual(object["exactCall"] as? [String], ["Animal2", "MHC-DRB", "M4DR", "M4DR", "called", "called"])
         XCTAssertEqual(object["exactComment"] as? String, "=not-a-formula")
         XCTAssertEqual(object["exactCommentType"] as? String, "s")
-        XCTAssertEqual(object["maxColumn"] as? Int, 5)
+        XCTAssertEqual(object["maxColumn"] as? Int, 6)
         let rows = try XCTUnwrap(object["rows"] as? [[Any]])
-        XCTAssertEqual(Array(rows[0].dropFirst(3)).compactMap { $0 as? String }, ["Animal2", "Animal1"])
+        XCTAssertEqual(Array(rows[0].dropFirst(3)).compactMap { $0 as? String }, ["Animal2", "Animal1", "Raw Genotype"])
         let labels = rows.compactMap { $0.first as? String }
         XCTAssertFalse(labels.contains("01_Strong"))
         XCTAssertTrue(labels.contains("01_Middle"))
         XCTAssertTrue(labels.contains("01_Background"))
-        XCTAssertTrue(labels.contains("01_Candidate"), "candidate-only viewport rows survive even without a result call")
-        let boundaryRow = try XCTUnwrap(rows.first { $0.first as? String == "01_Candidate" })
+        XCTAssertTrue(labels.contains("Compact candidate"), "captured display labels remain distinct from raw identity")
+        let boundaryRow = try XCTUnwrap(rows.first { $0.first as? String == "Compact candidate" })
+        XCTAssertEqual(boundaryRow.last as? String, "01_Candidate")
         XCTAssertEqual(boundaryRow[3] as? Int, 10)
         XCTAssertTrue(boundaryRow[4] is NSNull, "the projection's filtered one-read cell stays blank")
         XCTAssertTrue((object["candidateCellFill"] as? String)?.hasSuffix("123456") == true)
@@ -559,6 +574,18 @@ print(json.dumps(out))
         XCTAssertTrue((object["Animal2Comment"] as? String)?.contains("Visible sample note") == true)
         XCTAssertTrue((object["01_BackgroundComment"] as? String)?.contains("Visible allele note") == true)
         XCTAssertFalse(dump.contains("Hidden note"))
+        _ = try await runPython(python, script: #"""
+import sys
+from openpyxl import load_workbook
+w=load_workbook(sys.argv[1]); s=w['Genotype Matrix']
+r=next(row for row in s if row[0].value=='Compact candidate')
+assert r[0].comment is None
+assert all(c.comment is None and not c.font.italic and not c.font.bold and c.border.left.style != 'mediumDashed' for c in r[3:5])
+assert s['E1'].comment is None
+assert s.column_dimensions['D'].width >= 18 and s['D1'].alignment.wrap_text
+assert s.row_dimensions[r[0].row].height <= 30
+assert s.column_dimensions['A'].width >= 60 and r[0].alignment.wrap_text
+"""#, arguments: [outputURL.path], in: root)
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)))
         let inputs = provenance.files + provenance.steps.flatMap(\.inputs)

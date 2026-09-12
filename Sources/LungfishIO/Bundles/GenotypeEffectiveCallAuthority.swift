@@ -213,9 +213,7 @@ public enum GenotypeEffectiveCallAuthority {
                 )
                 guard let h1 = values[h1Target],
                       let h2 = values[h2Target],
-                      permitsHomozygousDisplay(h2.status),
-                      isAbsent(h2.effective),
-                      isValidHaplotype(h1.effective) else {
+                      normalizedSecondHaplotype(first: h1.effective, second: h2.effective, status: h2.status) != h2.effective else {
                     continue
                 }
                 values[h2Target] = .init(
@@ -277,7 +275,7 @@ public enum GenotypeEffectiveCallAuthority {
         return lhs.sidecarIndex < rhs.sidecarIndex
     }
 
-    private static func overrideStatus(
+    public static func overrideStatus(
         effective: String,
         baseline: GenotypeHaplotypeCallStatus
     ) -> GenotypeHaplotypeCallStatus {
@@ -303,6 +301,15 @@ public enum GenotypeEffectiveCallAuthority {
         _ status: GenotypeHaplotypeCallStatus
     ) -> Bool {
         status == .called || status == .notAssayed || status == .specialCase
+    }
+
+    /// Shared display normalization after each workflow has resolved its own
+    /// applicable assignment precedence. Explicit absence has noHaplotype status.
+    public static func normalizedSecondHaplotype(
+        first: String, second: String, status: GenotypeHaplotypeCallStatus
+    ) -> String {
+        permitsHomozygousDisplay(status) && isAbsent(second) && isValidHaplotype(first)
+            ? first : second
     }
 
     private static func isAbsent(_ value: String) -> Bool {
