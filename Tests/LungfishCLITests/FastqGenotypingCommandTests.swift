@@ -253,6 +253,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
                 "annotations": "none",
                 "annotationOnly": "false",
                 "haplotypeProjectionMode": "haplotyped",
+                "presentationColors": "resolve-active-definitions",
                 "includedLoci": "",
                 "inputFingerprint": "none",
                 "inputFingerprintSchema": "none",
@@ -763,6 +764,102 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(inputs.mutationIncludedLoci, [])
         XCTAssertEqual(inputs.fingerprintInputs?.calls, displayedCalls)
         XCTAssertEqual(inputs.fingerprintInputs?.includedLoci, ["MHC-A"])
+    }
+
+    func testCurrentCLIResolvesOmittedPaletteAndPreservesExplicitEmptyThroughAnnotationRefresh() throws {
+        let python = try XCTUnwrap(openpyxlPythonURL())
+        for explicitEmpty in [false, true] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("CurrentCLIPalette-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let bundle = try makeUpdateCurrentWorkbookFixture(in: root, pythonURL: python)
+            let sourceManifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
+            try Data("sample,genotype,passed_unique_reads\nAR3628,Mamu-A1*001:01,0\n".utf8).write(to: bundle.appendingPathComponent(sourceManifest.longSummaryCSVPath))
+            let definition = GenotypeHaplotypeDefinitionSet(id: "palette-test", assayID: "synthetic", displayName: "Synthetic", speciesName: "Synthetic", speciesCode: "Syn", prefix: "S", locusDefinitions: [
+                .init(locus: "MHC-A", sourceLocus: "MHC-A", haplotypes: [.init(name: "Exact-A", diagnosticAlleles: [], colorOverride: .init(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))])
+            ])
+            let inputs = bundle.appendingPathComponent(".ont-barcode-genotyping/inputs")
+            try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+            try JSONEncoder().encode(definition).write(to: inputs.appendingPathComponent("haplotype-definition.json"))
+            let callsURL = root.appendingPathComponent("calls.json")
+            let calls = [GenotypeWorkbookHaplotypeCall(sample: "AR3628", locus: "MHC-A", haplotype1: "Exact-A", haplotype2: "Exact-A", status: "called", notes: "", baselineHaplotype1: "Exact-A", baselineHaplotype2: "Exact-A")]
+            try JSONEncoder().encode(calls).write(to: callsURL)
+            let annotationURL = bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+            for annotationOnly in [false, true] {
+                sidecar.lastEditor = annotationOnly ? "annotation-follow-up" : "initial"
+                try sidecar.encoded().write(to: annotationURL)
+                var arguments = [bundle.path, "--calls-json", callsURL.path, "--included-locus", "MHC-A"]
+                if explicitEmpty { arguments += ["--presentation-colors", "[]"] }
+                if annotationOnly {
+                    let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+                        calls: calls, includedLoci: ["MHC-A"], annotationSidecar: sidecar,
+                        candidateArtifacts: sourceManifest.mhcCandidateArtifacts,
+                        reviewableRowCatalog: sourceManifest.reviewableRowCatalog,
+                        reviewableRowCatalogSchemaVersion: GenotypeReviewableRowCatalog.schemaVersion,
+                        presentationColors: explicitEmpty ? [] : [.init(locus: "MHC-A", call: "Exact-A", fillHex: "#336699", fontHex: "#FFFFFF")])
+                    arguments += ["--annotation-only", "--input-fingerprint", fingerprint.sha256,
+                                  "--input-fingerprint-schema", String(fingerprint.schemaVersion),
+                                  "--reviewable-row-catalog-path", try XCTUnwrap(fingerprint.reviewableRowCatalogPath),
+                                  "--reviewable-row-catalog-size", String(try XCTUnwrap(fingerprint.reviewableRowCatalogSize)),
+                                  "--reviewable-row-catalog-sha256", try XCTUnwrap(fingerprint.reviewableRowCatalogSHA256),
+                                  "--reviewable-row-catalog-schema", String(try XCTUnwrap(fingerprint.reviewableRowCatalogSchemaVersion))]
+                }
+                let command = try FastqUpdateCurrentWorkbookSubcommand.parse(arguments)
+                let exactArgv = ["lungfish-cli", "fastq", "update-current-workbook"] + arguments
+                try command.runResolved(pythonExecutableURL: python, workbookAttestationRootURL: root.appendingPathComponent("attestations"), argvProvider: { exactArgv })
+                let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
+                let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: bundle.appendingPathComponent(try XCTUnwrap(manifest.workbookRevisions?.last?.provenancePath))))
+                XCTAssertEqual(envelope.argv, exactArgv)
+                let replay = try XCTUnwrap(envelope.durableReplayArgv)
+                let paletteFlag = try XCTUnwrap(replay.firstIndex(of: "--presentation-colors"))
+                XCTAssertEqual(try JSONDecoder().decode([GenotypeWorkbookPresentation.Color].self, from: Data(replay[paletteFlag + 1].utf8)).count, explicitEmpty ? 0 : 1)
+                let process = Process(); process.executableURL = python
+                process.arguments = ["-c", #"""
+import sys,json,base64,os
+from openpyxl import load_workbook
+bundle,empty=sys.argv[1:]; empty=empty=='true'
+baseline=json.load(open(os.path.join(bundle,'artifacts/workbooks/editable-baseline.json')))
+layout=json.loads(base64.b64decode(baseline['trustedManifest']))
+payload_path=next(i['path'] for i in baseline['inputs'] if i['path'].endswith('/presentation-payload.json'))
+payload=json.load(open(os.path.join(bundle,payload_path)))
+inputs=json.load(open(os.path.join(bundle,os.path.dirname(payload_path),'presentation-inputs.json')))
+assert payload['colors']==inputs['colors']
+assert payload['colors']==([] if empty else [{'locus':'MHC-A','call':'Exact-A','fillHex':'#336699','fontHex':'#FFFFFF'}]),payload['colors']
+w=load_workbook(os.path.join(bundle,'artifacts/workbooks/current.xlsx'))
+cache=load_workbook(os.path.join(bundle,'artifacts/workbooks/current.xlsx'),data_only=True)
+calls=list(layout['callTargets'].values()); assert len(calls)==1
+slots=[w['Haplotype Calls'][calls[0][s]['valueCell']] for s in ['h1','h2']]
+band=[c for row in w['Genotype Matrix'] for c in row if c.data_type=='f']
+assert len(band)==2
+assert all(c.value=='Exact-A' for c in slots)
+assert all(cache['Genotype Matrix'][c.coordinate].value=='Exact-A' for c in band)
+for cell in slots+band:
+    assert (cell.fill.patternType is None) if empty else cell.fill.fgColor.rgb.endswith('336699'), (cell.coordinate,cell.fill)
+    if not empty: assert cell.font.color.rgb.endswith('FFFFFF')
+for sheet in ['Genotype Matrix','Haplotype Calls']:
+    rules=[r for cf in w[sheet].conditional_formatting for r in w[sheet].conditional_formatting[cf]]
+    if empty: assert not rules,rules
+    else:
+        for cell in (band if sheet=='Genotype Matrix' else slots):
+            matching=[r for r in rules if r.formula==[cell.coordinate+'="Exact-A"']]
+            assert len(matching)==1, (sheet,cell.coordinate,rules)
+            assert matching[0].dxf.fill.fgColor.rgb=='FF336699'
+            assert matching[0].dxf.fill.bgColor.rgb=='FF336699'
+            assert matching[0].dxf.font.color.rgb.endswith('FFFFFF')
+print('CLI palette, both call views and conditional colors verified')
+"""#, bundle.path, String(explicitEmpty)]
+                try process.run(); process.waitUntilExit()
+                XCTAssertEqual(process.terminationStatus, 0, "explicit empty: \(explicitEmpty), annotation-only: \(annotationOnly)")
+            }
+            let receipts = try workbookAttemptReceipts(in: bundle)
+            XCTAssertEqual(receipts.count, 2)
+            for receipt in receipts {
+                XCTAssertEqual(receipt.argv.contains("--presentation-colors"), explicitEmpty)
+                let resolved = try XCTUnwrap(receipt.resolvedOptions["presentationColors"])
+                XCTAssertEqual(try JSONDecoder().decode([GenotypeWorkbookPresentation.Color].self, from: Data(resolved.utf8)).count, explicitEmpty ? 0 : 1)
+            }
+        }
     }
 
     func testUpdateCurrentWorkbookProvenanceDescribesExactImmutableCLIInputPaths() throws {

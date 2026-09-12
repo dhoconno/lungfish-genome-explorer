@@ -909,6 +909,8 @@ public struct GenotypeWorkbookRevisionService {
             retainFingerprintCalls ? stagedFingerprintCallsURL.path : stagedCallsURL.path,
             latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
             stagedPresentationInputURL.path,
+            stageDirectory.appendingPathComponent("presentation-payload.json").path,
+            stageDirectory.appendingPathComponent("presentation-layout.json").path,
         ]
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
@@ -1042,6 +1044,8 @@ public struct GenotypeWorkbookRevisionService {
             retainFingerprintCalls ? cloneFingerprintCallsURL.path : cloneCallsURL.path,
             latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
             cloneUpdatesURL.appendingPathComponent(presentationInputName).path,
+            cloneUpdatesURL.appendingPathComponent("presentation-payload.json").path,
+            cloneUpdatesURL.appendingPathComponent("presentation-layout.json").path,
         ]
         let pythonStep = try makePythonProvenanceStep(
             executionRecord: executionRecord,

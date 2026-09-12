@@ -209,6 +209,46 @@ print('all candidate evidence and category tints')
             XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: url))
             XCTAssertEqual(descriptor.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: url)))
         }
+        let replayReport = try runPython(["-c", #"""
+import json,sys,os,shutil,subprocess
+from openpyxl import load_workbook
+original, rebased, provenance_path = sys.argv[1:]
+provenance=json.load(open(provenance_path))
+step=next(s for s in provenance['steps'] if s['toolName']=='python openpyxl workbook candidate update')
+shutil.copytree(original,rebased)
+def rebase(path):
+    return rebased+path[len(original):] if path.startswith(original+'/') else path
+# The retained configuration can contain durable absolute scientific input paths.
+for directory, _, files in os.walk(rebased):
+    for name in files:
+        if name.endswith('.json'):
+            path=os.path.join(directory,name)
+            with open(path) as handle: content=handle.read()
+            with open(path,'w') as handle: handle.write(content.replace(original,rebased))
+outputs=[o['path'] for o in step['outputs']]
+assert len(outputs)==3, outputs
+for path in outputs:
+    os.remove(rebase(path))
+    assert not os.path.exists(rebase(path))
+argv=[rebase(a) for a in step['durableReplayArgv']]
+assert step['argv'] != step['durableReplayArgv']
+subprocess.run(argv,check=True,capture_output=True,text=True)
+for path in outputs:
+    replay=rebase(path)
+    assert os.path.isfile(replay), 'Missing declared replay output: '+replay
+    if path.endswith('.json'):
+        assert json.load(open(path))==json.load(open(replay)), path
+    else:
+        for cached in [False,True]:
+            before=load_workbook(path,data_only=cached)
+            after=load_workbook(replay,data_only=cached)
+            assert before.sheetnames==after.sheetnames
+            for sheet in before:
+                def cells(ws): return {(c.coordinate,c.data_type):c.value for row in ws for c in row if c.value is not None}
+                assert cells(sheet)==cells(after[sheet.title]), (sheet.title,cached)
+print('Recreated all three declared outputs; payload/layout, science, formulas and caches agree')
+"""#, fixture.bundleURL.path, root.appendingPathComponent("replay.lungfishgenotype").path, fixture.bundleURL.appendingPathComponent(provenancePath).path])
+        XCTAssertTrue(replayReport.contains("Recreated all three declared outputs"))
         let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         let report = try runPython(["-c", #"""
 import json,sys,base64
@@ -9805,6 +9845,11 @@ wb.save(path)
             sample: "Sample-FP",
             stableClusterID: "cluster-a"
         )
+        sidecar.matrixStyles = [
+            .init(target: target,
+                  style: .init(fillColor: "#DDEEFF", textColor: "#123456", borderColor: "#654321", isBold: false, isItalic: false),
+                  author: "analyst", timestamp: "2026-07-24T09:00:00Z")
+        ]
         sidecar.matrixReviews = [
             .init(
                 target: target,
@@ -9852,7 +9897,10 @@ wb.save(path)
         XCTAssertNil(cell.review, "false-negative is invalid for positive raw support")
         let restored = try inspectSemanticReviewWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
         XCTAssertEqual(restored["falsePositiveFormat"], "General")
-        XCTAssertTrue(restored["falsePositiveFont"]?.hasSuffix("|false|false") == true)
+        XCTAssertEqual(restored["falsePositiveValue"], "42")
+        XCTAssertEqual(restored["falsePositiveFont"], "123456|false|false")
+        XCTAssertEqual(restored["falsePositiveFill"], "DDEEFF")
+        XCTAssertEqual(restored["falsePositiveBorders"], Array(repeating: "thin:654321", count: 4).joined(separator: "|"))
         let retainedSidecarData = try Data(contentsOf: annotationURL)
         XCTAssertEqual(retainedSidecarData, submittedInvalidSidecarData)
         let retainedSidecar = try GenotypeAnnotationSidecar.decode(
@@ -11287,6 +11335,8 @@ payload = {
     "falsePositiveValue": value("cluster-a", "Sample-FP"),
     "falsePositiveFormat": fp.number_format,
     "falsePositiveFont": '|'.join([rgb(fp.font.color),str(bool(fp.font.bold)).lower(),str(bool(fp.font.italic)).lower()]),
+    "falsePositiveFill": rgb(fp.fill.fgColor),
+    "falsePositiveBorders": '|'.join([str(getattr(fp.border,s).style)+':'+rgb(getattr(fp.border,s).color) for s in ['left','right','top','bottom']]),
     "explicitZeroStyle": fn_style(zero), "absentStyle": fn_style(absent),
     "explicitZeroValue": value("cluster-a", "Sample-Zero"), "explicitZeroType": text(zero.data_type),
     "explicitZeroBold": str(bool(zero.font.bold)).lower(),

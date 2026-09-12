@@ -185,6 +185,11 @@ extension GenotypeEditableWorkbookService {
                 let valueCell = physical["Haplotype Calls!" + slot.valueCell]
                 let actionCell = physical["Haplotype Calls!" + slot.actionCell]
                 guard valueCell?.type != "f", valueCell?.hyperlink == nil, actionCell?.type != "f", actionCell?.hyperlink == nil else { throw reject("New formulas or links are not allowed in call targets.") }
+                if let valueCell, valueCell.value != .null {
+                    guard ["s", "inlineStr"].contains(valueCell.type), valueCell.value.string != nil else {
+                        throw reject("Haplotype Calls!\(slot.valueCell): Enter the call as literal text (format the cell as Text or prefix the entry with an apostrophe).")
+                    }
+                }
                 let value = valueCell?.value.string ?? ""
                 let action = actionCell?.value.string ?? ""
                 guard action == "Use entered call" || action == "Use pipeline call" else { throw reject("Unknown \(slotName.uppercased()) import action.") }
@@ -208,13 +213,13 @@ extension GenotypeEditableWorkbookService {
             guard let edit = parsed else { continue }
             let target = try normalizedTarget(note.target)
             for (kind, operation, value, before) in [(Change.Kind.review, edit.reviewOperation, edit.reviewValue, note.currentReview), (.comment, edit.commentOperation, edit.commentValue, note.currentComment)] {
-                if operation == "keep" { guard value.isEmpty else { throw reject("A keep Note operation cannot carry a value.") }; continue }
-                guard allowChanges else { throw reject("Generated workbook Note does not match its trusted manifest.") }
-                guard operation == "set" || operation == "clear", operation == "set" ? !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : value.isEmpty else { throw reject("Note operations require set with a value or clear without one.") }
+                if operation == "keep" { guard value.isEmpty else { throw reject("\(key): A keep Note operation cannot carry a value.") }; continue }
+                guard allowChanges else { throw reject("\(key): Generated workbook Note does not match its trusted manifest.") }
+                guard operation == "set" || operation == "clear", operation == "set" ? !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : value.isEmpty else { throw reject("\(key): Note operations require set with a value or clear without one.") }
                 let proposed: String? = operation == "clear" ? nil : value
                 if kind == .review {
-                    guard note.reviewEligible, case .cell = target else { throw reject("Reviews require an eligible exact cell target.") }
-                    if let proposed { guard (proposed == "false-positive" && (note.rawSupport ?? 0) > 0) || (proposed == "false-negative" && note.rawSupport == 0) else { throw reject("Review disposition does not match attested raw evidence.") } }
+                    guard note.reviewEligible, case .cell = target else { throw reject("\(key): Reviews require an eligible exact cell target.") }
+                    if let proposed { guard (proposed == "false-positive" && (note.rawSupport ?? 0) > 0) || (proposed == "false-negative" && note.rawSupport == 0) else { throw reject("\(key): Review disposition does not match attested raw evidence.") } }
                 }
                 changes.append(Change(kind: kind, target: target, sample: target.sample ?? "", locus: target.locus ?? "", slot: nil, baseline: nil, before: before, value: proposed, passedUniqueReads: note.rawSupport))
             }

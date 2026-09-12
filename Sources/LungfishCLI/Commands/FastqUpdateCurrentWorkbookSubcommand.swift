@@ -45,8 +45,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("calls-json"), help: "JSON array of displayed/effective haplotype calls")
     var callsJSON: String
 
-    @Option(name: .customLong("presentation-colors"), help: "Resolved active-definition palette as a JSON array; retained with workbook inputs")
-    var presentationColors: String = "[]"
+    @Option(name: .customLong("presentation-colors"), help: "Captured palette as a JSON array; defaults to active definitions and color overrides. An explicit [] keeps the palette empty.")
+    var presentationColors: String?
 
     @Option(name: .customLong("annotations"), help: "Annotation sidecar for effective calls and matrix Notes; defaults to bundle annotations.json. Audit history remains available in LGE.")
     var annotations: String?
@@ -234,13 +234,33 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             [GenotypeWorkbookHaplotypeCall].self,
             from: callsInput.data
         )
-        let colors = try JSONDecoder().decode([GenotypeWorkbookPresentation.Color].self, from: Data(presentationColors.utf8))
+        let colors: [GenotypeWorkbookPresentation.Color]
+        if let presentationColors {
+            colors = try JSONDecoder().decode([GenotypeWorkbookPresentation.Color].self, from: Data(presentationColors.utf8))
+        } else {
+            let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+            let sidecar = try annotationInput.map { try GenotypeAnnotationSidecar.decode($0.data) }
+            colors = GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar)?.locusDefinitions.flatMap { locus in
+                locus.haplotypes.map { haplotype in
+                    let color = haplotype.effectiveFillColor
+                    func channel(_ value: Double) -> Double { value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4) }
+                    let luminance = 0.2126 * channel(color.red) + 0.7152 * channel(color.green) + 0.0722 * channel(color.blue)
+                    return .init(locus: locus.locus, call: haplotype.name, fillHex: color.hexString, fontHex: luminance > 0.45 ? "#000000" : "#FFFFFF")
+                }
+            } ?? []
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let resolvedColorsJSON = String(decoding: try encoder.encode(colors), as: UTF8.self)
+        try attempt.recordResolvedOptions(["presentationColors": resolvedColorsJSON])
         let callInputs = workbookCallInputs(displayedCalls: calls, presentationColors: colors)
         let provenanceContext = try provenanceContext(
             argv: attemptArgv(attempt),
             callsInput: callsInput,
             annotationInput: annotationInput,
-            attestation: attestation
+            attestation: attestation,
+            durableReplayArgv: presentationColors == nil
+                ? attemptArgv(attempt) + ["--presentation-colors", resolvedColorsJSON]
+                : attemptArgv(attempt)
         )
         FileHandle.standardError.write(Data("[ 55%] Applying haplotype edits to current.xlsx.\n".utf8))
         let service = revisionService ?? GenotypeWorkbookRevisionService(
@@ -345,7 +365,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 resolvedAnnotationURL(bundleURL: bundleURL)?.path ?? "none",
             "annotationOnly": String(annotationOnly),
             "haplotypeProjectionMode": haplotypeProjectionMode.rawValue,
-            "presentationColors": presentationColors,
+            "presentationColors": presentationColors ?? "resolve-active-definitions",
             "includedLoci": includedLocus.joined(separator: ","),
             "inputFingerprint":
                 attestation.inputFingerprint?.sha256 ?? "none",
@@ -530,8 +550,10 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             callsURL.path,
             "--haplotype-projection-mode",
             haplotypeProjectionMode.rawValue,
-            "--presentation-colors", presentationColors,
         ]
+        if let presentationColors {
+            arguments += ["--presentation-colors", presentationColors]
+        }
         if let annotationURL {
             arguments += ["--annotations", annotationURL.path]
         }
@@ -598,13 +620,15 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         argv: [String],
         callsInput: FastqUpdateCurrentWorkbookImmutableJSONInput,
         annotationInput: FastqUpdateCurrentWorkbookImmutableJSONInput?,
-        attestation: FastqUpdateCurrentWorkbookAttestation
+        attestation: FastqUpdateCurrentWorkbookAttestation,
+        durableReplayArgv: [String]? = nil
     ) throws -> GenotypeWorkbookRevisionProvenanceContext {
         let descriptors = [callsInput.descriptor] + [annotationInput?.descriptor].compactMap { $0 }
         return GenotypeWorkbookRevisionProvenanceContext(
             toolName: "\(CLICommandIdentity.executableName) fastq update-current-workbook",
             toolKind: "cli",
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             cliInputDescriptors: descriptors,
             inputFingerprint: attestation.inputFingerprint,
             syncIntent: attestation.syncIntent

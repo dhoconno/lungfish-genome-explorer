@@ -62,6 +62,7 @@ sidecar = read_json(sidecar_path, {})
 catalog = read_json(catalog_path, {})
 calls_input = read_json(semantic_calls_path, [])
 presentation_inputs = read_json(sys.argv[9], {}) if len(sys.argv) > 9 else {}
+payload_output_path, layout_output_path = sys.argv[10:12]
 
 def identity(target):
     return hashlib.sha256(json.dumps(target, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
@@ -191,7 +192,7 @@ payload = dict(schemaVersion=2, role='editable-current', sourceRevision=presenta
     loci=loci, rows=rows, calls=calls, colors=presentation_inputs.get('colors', []),
     metadata=[['Scope','All evidence'],['Presentation schema','2']],
     callEditingSupported=configuration.get('haplotype_projection_mode') != 'manual-genotype-only')
-with open(os.path.join(os.path.dirname(output_path), 'presentation-payload.json'), 'w') as handle:
+with open(payload_output_path, 'w') as handle:
     json.dump(payload, handle, sort_keys=True, ensure_ascii=False)
 # This must be the final XLSX writer: it injects formula caches after save.
 manifest = render_three_sheet_workbook(payload, output_path)
@@ -208,7 +209,7 @@ def package_members(path):
 # byte copy, never an openpyxl save after formula-cache injection.
 if package_members(source_path) == package_members(output_path):
     shutil.copyfile(source_path, output_path)
-with open(os.path.join(os.path.dirname(output_path), 'presentation-layout.json'), 'w') as handle:
+with open(layout_output_path, 'w') as handle:
     json.dump(manifest, handle, sort_keys=True, ensure_ascii=False)
 print(json.dumps(dict(python_executable=sys.executable, python_version=platform.python_version(), openpyxl_version=openpyxl.__version__,
     workbook_matrix_adapter_version='three-sheet-v2',

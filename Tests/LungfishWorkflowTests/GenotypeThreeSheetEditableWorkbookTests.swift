@@ -44,6 +44,41 @@ final class GenotypeThreeSheetEditableWorkbookTests: XCTestCase {
         XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.target?.stableClusterID, "cluster-1")
     }
 
+    func testSemanticNoteErrorsIdentifyRepairCell() throws {
+        for (operation, value) in [("keep", "unexpected"), ("clear", "unexpected"), ("set", "unsupported-review")] {
+            let fixture = try Fixture(); defer { fixture.remove() }
+            try fixture.seed()
+            try fixture.edit("c=w['Genotype Matrix']['D5']; c.comment=Comment(c.comment.text+'\\n[LGE Edit v2]\\nReview operation: \(operation)\\nReview value: \\\"\(value)\\\"\\nComment operation: keep\\nComment value: \\\"\\\"\\n[/LGE Edit v2]','LGE')")
+            XCTAssertThrowsError(try fixture.service.inspect(bundleURL: fixture.root)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("Genotype Matrix!D5"), error.localizedDescription)
+            }
+        }
+    }
+
+    func testTypedNonemptyBlankSlotEditsRejectWholeInspectionWithRepairContext() throws {
+        for value in ["123", "True"] {
+            for mixedNote in [false, true] {
+                let fixture = try Fixture(); defer { fixture.remove() }
+                try fixture.seed(h1Effective: "", h1Pipeline: "")
+                var edit = "w['Haplotype Calls']['D2']=\(value)"
+                if mixedNote {
+                    edit += "; " + #"c=w['Genotype Matrix']['D5']; c.comment=Comment(c.comment.text+'\n[LGE Edit v2]\nReview operation: keep\nReview value: \"\"\nComment operation: set\nComment value: \"valid note\"\n[/LGE Edit v2]','LGE')"#
+                }
+                try fixture.edit(edit)
+                XCTAssertThrowsError(try fixture.service.inspect(bundleURL: fixture.root), "\(value), mixed Note: \(mixedNote)") { error in
+                    XCTAssertTrue(error.localizedDescription.contains("Haplotype Calls!D2"), error.localizedDescription)
+                    XCTAssertTrue(error.localizedDescription.lowercased().contains("text"), error.localizedDescription)
+                }
+            }
+        }
+        let fixture = try Fixture(); defer { fixture.remove() }
+        try fixture.seed(h1Effective: "", h1Pipeline: "")
+        try fixture.edit("w['Haplotype Calls']['D2']=None")
+        XCTAssertTrue(try fixture.service.inspect(bundleURL: fixture.root).changes.isEmpty)
+        try fixture.edit("w['Haplotype Calls']['D2']='123'")
+        XCTAssertEqual(try fixture.service.inspect(bundleURL: fixture.root).changes.first?.value, "123")
+    }
+
     func testRejectsScientificValuesFormulasMetadataLinksAndPhysicalReordering() throws {
         let edits = [
             "w['Genotype Matrix']['D5']=99",
