@@ -85,6 +85,10 @@ struct GenotypeExcelCapturedScope: Equatable {
             let remainder = values.count - min(values.count, 8)
             return remainder == 0 ? shown : "\(shown), +\(remainder) more"
         }
+        func searchDescription(_ key: String) -> String {
+            let text = filters[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? "None" : text
+        }
         let visibility = filters["hideLowSupport"] == "true" ? "hidden" : "shown"
         summary = [
             "Captured scope (will not change while this dialog is open):",
@@ -93,7 +97,11 @@ struct GenotypeExcelCapturedScope: Equatable {
             "Min reads: \(filters["matrixMinimumReads"] ?? "0")",
             "Min percent: \(filters["matrixMinimumPercent"] ?? "0")",
             "Percent basis: \(filters["matrixPercentDenominator"] ?? "Not applicable")",
-            "Search: \(filters["searchText"].flatMap { $0.isEmpty ? nil : $0 } ?? "None")",
+            "General search: \(searchDescription("searchText"))",
+            "Matrix row search: \(searchDescription("matrixRowFilterText"))",
+            "Matrix sample search: \(searchDescription("matrixSampleFilterText"))",
+            "Alleles: \(filters["diagnosticAllelesOnly"] == "true" ? "diagnostic only" : "all observed")",
+            "Highlights in filtered cells: \(filters["hideFilteredHighlights"] == "true" ? "hidden" : "shown")",
             "Low-support rows: \(visibility)",
             "Locus filter: \(filters["locus"] ?? "All Loci")",
         ].joined(separator: "\n")

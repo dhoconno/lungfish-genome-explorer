@@ -215,7 +215,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             var presentations = 0
             split.genotypeExcelReviewPresenter = { alert, _ in
                 presentations += 1
-                XCTAssertEqual(alert.buttons[0].title, "Import Changes")
+                XCTAssertEqual(alert.buttons[0].title, kind == "mixed" ? "Import Changes" : "Acknowledge & Refresh")
                 XCTAssertEqual(alert.buttons.map(\.keyEquivalent), ["\r", "\u{1b}"])
                 if kind == "mixed" {
                     let scroll = alert.accessoryView as? NSScrollView

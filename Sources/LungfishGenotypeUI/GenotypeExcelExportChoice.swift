@@ -6,6 +6,9 @@ public enum GenotypeExcelExportRole: String, CaseIterable, Identifiable, Sendabl
 
     public var id: Self { self }
 
+    public static let unavailableEditingExplanation =
+        "Editing and review are unavailable: a writable result and project write ownership are required. Filtered export is still available."
+
     public var title: String {
         switch self {
         case .filteredView: "Filtered view"

@@ -6,6 +6,75 @@ import LungfishTestSupport
 
 @MainActor
 final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
+    func testControllerDisclosesCapturedMatrixRestrictionsThroughBothDialogDelays() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelRestrictionCapture")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SUPPORTED", reads: 9),
+            makeCall(sample: "AnimalB", genotype: "01_Mafa_A2_BACKGROUND", reads: 5),
+        ]))
+        var state = controller.testingDisplayState
+        state.matrixRowFilterText = "Mafa_A1"
+        state.matrixSampleFilterText = "AnimalA"
+        state.diagnosticAllelesOnly = true
+        state.hideFilteredHighlights = true
+        state.hideLowSupport = true
+        state.minimumSupportPercent = 1
+        controller.testingApplyDisplayStateImmediately(state)
+        let captured = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        XCTAssertEqual(captured.filters["searchText"], "")
+        XCTAssertEqual(captured.filters["matrixRowFilterText"], "Mafa_A1")
+        XCTAssertEqual(captured.filters["matrixSampleFilterText"], "AnimalA")
+        XCTAssertEqual(captured.filters["diagnosticAllelesOnly"], "true")
+        XCTAssertEqual(captured.filters["hideFilteredHighlights"], "true")
+
+        var alert: NSAlert?
+        var choose: ((NSApplication.ModalResponse) -> Void)?
+        var save: ((URL?) -> Void)?
+        controller.excelChoicePresenter = { presented, _, completion in alert = presented; choose = completion }
+        controller.excelSavePanelPresenter = { _, _, completion in save = completion }
+        let exported = expectation(description: "captured restrictions exported")
+        controller.viewportExportRunner = { snapshot, _, _ in
+            XCTAssertEqual(snapshot.filters["matrixRowFilterText"], "Mafa_A1")
+            XCTAssertEqual(snapshot.filters["matrixSampleFilterText"], "AnimalA")
+            XCTAssertEqual(snapshot.filters["diagnosticAllelesOnly"], "true")
+            XCTAssertEqual(snapshot.filters["hideFilteredHighlights"], "true")
+        }
+        controller.onFilteredWorkbookExportEvent = { event in
+            if case .succeeded = event { exported.fulfill() }
+            if case .failed(let message) = event { XCTFail(message) }
+        }
+        controller.presentExcelExportDialog(expectedDisplayState: state)
+        let description = try XCTUnwrap(alert).informativeText
+        XCTAssertTrue(description.contains("General search: None"))
+        XCTAssertTrue(description.contains("Matrix row search: Mafa_A1"))
+        XCTAssertTrue(description.contains("Matrix sample search: AnimalA"))
+        XCTAssertTrue(description.contains("Alleles: diagnostic only"))
+        XCTAssertTrue(description.contains("Highlights in filtered cells: hidden"))
+
+        state.matrixRowFilterText = "other rows"
+        state.matrixSampleFilterText = "other samples"
+        state.diagnosticAllelesOnly = false
+        state.hideFilteredHighlights = false
+        controller.testingApplyDisplayStateImmediately(state)
+        let changed = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        XCTAssertEqual(changed.filters["matrixRowFilterText"], "other rows")
+        XCTAssertEqual(changed.filters["matrixSampleFilterText"], "other samples")
+        XCTAssertEqual(changed.filters["diagnosticAllelesOnly"], "false")
+        XCTAssertEqual(changed.filters["hideFilteredHighlights"], "false")
+        XCTAssertEqual(alert?.informativeText, description)
+        try XCTUnwrap(choose)(.alertFirstButtonReturn)
+        state.matrixRowFilterText = ""
+        state.matrixSampleFilterText = ""
+        controller.testingApplyDisplayStateImmediately(state)
+        XCTAssertEqual(alert?.informativeText, description)
+        try XCTUnwrap(save)(root.appendingPathComponent("filtered.xlsx"))
+        await fulfillment(of: [exported], timeout: 2)
+        XCTAssertEqual(alert?.informativeText, description)
+    }
+
     func testControllerUsesCanonicalCallCapabilityWhenManualCallsAreFilteredOut() throws {
         let root = try TestTempDirectory.make(prefix: "ExcelManualCapability")
         defer { TestTempDirectory.cleanup(root) }
@@ -148,6 +217,23 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(roles, [.editableWorkbook, .filteredView])
     }
 
+    func testDisabledEditableRoleExplainsWriteRequirementVisiblyAndAccessibly() throws {
+        let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
+            scope: "Captured scope", capability: "Supported", allowsEditableWorkbook: false,
+            onRoleChange: { _ in XCTFail("Disabled editable role must not change the selected role") }
+        )
+        let stack = try XCTUnwrap(presentation.alert.accessoryView as? NSStackView)
+        let buttons = stack.arrangedSubviews.compactMap { $0 as? NSButton }
+        let reason = "Editing and review are unavailable: a writable result and project write ownership are required. Filtered export is still available."
+        XCTAssertTrue(buttons[0].isEnabled)
+        XCTAssertFalse(buttons[1].isEnabled)
+        XCTAssertEqual(presentation.accessory.role, .filteredView)
+        XCTAssertEqual(presentation.alert.buttons[0].title, "Export…")
+        XCTAssertEqual(buttons[1].accessibilityHelp(), reason)
+        XCTAssertEqual(buttons[1].toolTip, reason)
+        XCTAssertTrue(stack.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }.contains(reason))
+    }
+
     func testProductionAlertAssignsReturnAndEscapeAndDefaultsToFilteredRole() throws {
         let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
             scope: "Captured scope", capability: "Supported", allowsEditableWorkbook: true,
@@ -180,7 +266,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertTrue(presentation.summary.contains("Samples (100): S1"))
         XCTAssertTrue(presentation.summary.contains("Loci (1): A"))
         XCTAssertTrue(presentation.summary.contains("Percent basis: Viewed Locus"))
-        XCTAssertTrue(presentation.summary.contains("Search: needle"))
+        XCTAssertTrue(presentation.summary.contains("General search: needle"))
         XCTAssertTrue(presentation.summary.contains("Low-support rows: hidden"))
         XCTAssertFalse(presentation.summary.contains("internalEncodedPredicate"))
         XCTAssertLessThan(presentation.summary.count, 1_000)

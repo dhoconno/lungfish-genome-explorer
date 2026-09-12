@@ -641,7 +641,19 @@ public struct GenotypeResultDocumentSection: View {
                         }
                         .controlSize(.regular)
                         .disabled(!update.isEnabled)
+                        .help(update.isEnabled
+                            ? "Review supported Excel changes before importing them."
+                            : GenotypeExcelExportRole.unavailableEditingExplanation)
+                        .accessibilityHint(Text(update.isEnabled
+                            ? "Review supported Excel changes before importing them."
+                            : GenotypeExcelExportRole.unavailableEditingExplanation))
                         .accessibilityIdentifier("genotype-inspector-review-excel-changes")
+                        if !update.isEnabled {
+                            Text(GenotypeExcelExportRole.unavailableEditingExplanation)
+                                .font(contentBodyFont)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     Text("Choose a filtered view for sharing, or current.xlsx for supported review and import workflows.")
                         .font(contentBodyFont)

@@ -564,7 +564,8 @@ extension MainSplitViewController {
                         rows: inspection.changes.map(GenotypeExcelReviewRow.init(change:))
                     )
                 }
-                alert.addButton(withTitle: "Import Changes").keyEquivalent = "\r"
+                alert.addButton(withTitle: inspection.changes.isEmpty
+                    ? "Acknowledge & Refresh" : "Import Changes").keyEquivalent = "\r"
                 alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
                 let window = controller.view.window ?? NSApp.keyWindow ?? NSWindow()
                 let response = await present(alert, window)

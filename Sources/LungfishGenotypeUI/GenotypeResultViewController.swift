@@ -50,8 +50,18 @@ final class GenotypeExcelExportAccessoryController: NSViewController {
             explanation.maximumNumberOfLines = 3
             stack.addArrangedSubview(button)
             stack.addArrangedSubview(explanation)
+            if !button.isEnabled {
+                let reason = GenotypeExcelExportRole.unavailableEditingExplanation
+                button.toolTip = reason
+                button.setAccessibilityHelp(reason)
+                let unavailable = NSTextField(wrappingLabelWithString: reason)
+                unavailable.textColor = .secondaryLabelColor
+                unavailable.maximumNumberOfLines = 0
+                unavailable.preferredMaxLayoutWidth = 430
+                stack.addArrangedSubview(unavailable)
+            }
         }
-        stack.frame = NSRect(x: 0, y: 0, width: 430, height: 130)
+        stack.frame = NSRect(x: 0, y: 0, width: 430, height: max(130, stack.fittingSize.height))
         view = stack
     }
 

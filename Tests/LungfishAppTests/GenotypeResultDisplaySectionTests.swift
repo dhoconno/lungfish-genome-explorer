@@ -349,6 +349,26 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertNil(session.presentation)
     }
 
+    func testReadOnlyExcelReviewExplainsUnavailabilityAndKeepsFilteredExportEnabled() throws {
+        let state = GenotypeResultDocumentState(
+            title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
+            currentWorkbookUpdate: GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: true)
+        )
+        var exports = 0
+        let inspected = try GenotypeResultDocumentSection(
+            state: state, onCurrentWorkbookUpdateRequested: { exports += 1 }
+        ).inspect()
+        let reason = "Editing and review are unavailable: a writable result and project write ownership are required. Filtered export is still available."
+        let review = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes").button()
+        XCTAssertTrue(try review.isDisabled())
+        XCTAssertEqual(try review.help().string(), reason)
+        _ = try inspected.find(text: reason)
+        let export = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-to-excel").button()
+        XCTAssertFalse(try export.isDisabled())
+        try export.tap()
+        XCTAssertEqual(exports, 1)
+    }
+
     func testMissingLastFilteredExportRendersDisabledActionableLink() throws {
         let missing = URL(fileURLWithPath: "/tmp/deleted-filtered.xlsx")
         let latest = GenotypeFilteredExportPresentation(
