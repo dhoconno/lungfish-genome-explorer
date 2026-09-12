@@ -15,6 +15,8 @@ The production-script fixture uses `LUNGFISH_TEST_PYTHON`, falling back to `~/.l
 
 ## Files
 
+Implementation commit: `12736b8c2` (`Add shared three-sheet genotype workbook renderer`). This report's final metadata update is committed separately so the implementation hash remains exact.
+
 - `Sources/LungfishIO/Bundles/GenotypeWorkbookPresentation.swift`
 - `Sources/LungfishIO/Bundles/GenotypeWorkbookPresentation+Script.swift`
 - `Tests/LungfishIOTests/GenotypeWorkbookPresentationTests.swift`
