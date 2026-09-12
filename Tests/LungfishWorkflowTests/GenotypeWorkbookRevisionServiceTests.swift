@@ -98,6 +98,83 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertTrue(try service.inspect(bundleURL: fixture.bundleURL).changes.isEmpty)
     }
 
+    func testCurrentWorkbookScientificAndEditingTablesRetainEveryExactLocus()
+        throws
+    {
+        XCTAssertTrue(
+            pythonCanImportOpenpyxl(),
+            "The managed test runtime must provide openpyxl"
+        )
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "complete-exact-call-scope"
+        )
+        let exactLoci = [
+            "MHC-A", "MHC-E", "MHC-DRB", "MHC-DR", "MHC-DQA",
+            "MHC-DQB", "MHC-DQ", "MHC-DPA", "MHC-DPB", "MHC-DP",
+        ]
+        let calls = exactLoci.map { locus in
+            GenotypeWorkbookHaplotypeCall(
+                sample: "AnimalA",
+                locus: locus,
+                haplotype1: "H1-\(locus)",
+                haplotype2: "H2-\(locus)",
+                status: "called",
+                notes: "",
+                baselineHaplotype1: "H1-\(locus)",
+                baselineHaplotype2: "H2-\(locus)"
+            )
+        }
+
+        _ = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        let output = try runPython([
+            "-c",
+            #"""
+import json, sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+calls = wb["Haplotype Calls"]
+edits = wb["Edit Calls"]
+payload = {
+    "calls": [calls.cell(row, 2).value for row in range(2, calls.max_row + 1)],
+    "edits": [edits.cell(row, 3).value for row in range(2, edits.max_row + 1)],
+    "slots": [
+        [edits.cell(row, 3).value, edits.cell(row, 4).value]
+        for row in range(2, edits.max_row + 1)
+    ],
+}
+print(json.dumps(payload, sort_keys=True))
+"""#,
+            currentURL.path,
+        ])
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(output.utf8))
+                as? [String: Any]
+        )
+        let expectedLoci = exactLoci.sorted()
+        XCTAssertEqual(payload["calls"] as? [String], expectedLoci)
+        XCTAssertEqual(
+            payload["edits"] as? [String],
+            exactLoci.flatMap { [$0, $0] }
+        )
+        XCTAssertEqual(
+            payload["slots"] as? [[String]],
+            exactLoci.flatMap { locus in [[locus, "h1"], [locus, "h2"]] }
+        )
+    }
+
     func testAnnotationUpdateAcceptsInitialMiSeqReportProvenanceAndPreservesIt() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl())
         let root = try temporaryDirectory()

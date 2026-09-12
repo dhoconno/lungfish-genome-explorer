@@ -222,7 +222,12 @@ final class GenotypePivotThresholdTests: XCTestCase {
         )
         XCTAssertEqual(
             Thresholds(minimumReads: 25, minimumPercent: 2.5, keepEmptyRows: true).provenanceArguments,
-            ["--min-reads", "25", "--min-percent", "2.5", "--keep-empty-rows"]
+            [
+                "--min-reads", "25",
+                "--min-percent", "2.5",
+                "--percent-basis", "sample-retained",
+                "--keep-empty-rows",
+            ]
         )
     }
 

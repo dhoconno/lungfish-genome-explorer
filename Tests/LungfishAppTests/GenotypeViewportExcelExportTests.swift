@@ -6,8 +6,257 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 
 final class GenotypeViewportExcelExportTests: XCTestCase {
+    @MainActor
+    func testReviewedActiveAnalysisReachesProductionFilteredWorkbookAndProvenance()
+        async throws
+    {
+        let python = try XCTUnwrap(managedOpenpyxlPythonURL())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "reviewed.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"analysis":"scientific-export-test"}"#.utf8).write(
+            to: bundleURL.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "reviewed-export-definition",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Reviewed export definition",
+            speciesName: "Test macaque",
+            speciesCode: "TEST",
+            prefix: "",
+            locusDefinitions: [
+                .init(
+                    locus: "MHC-A",
+                    sourceLocus: "Mafa-A",
+                    haplotypes: [
+                        .init(
+                            name: "M1A",
+                            diagnosticAlleles: ["01_M1_A_marker"],
+                            minimumMatches: 1
+                        ),
+                        .init(
+                            name: "M2A",
+                            diagnosticAlleles: ["02_M2_A_marker"],
+                            minimumMatches: 1
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let inputsURL = bundleURL
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+            .appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: inputsURL,
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(definition).write(
+            to: inputsURL.appendingPathComponent("haplotype-definition.json")
+        )
+        let retained = GenotypeTestFixtures.makeCall(
+            sample: "AnimalA",
+            genotype: "01_M1_A_marker",
+            reads: 100,
+            retainedReads: 103
+        )
+        let excluded = GenotypeTestFixtures.makeCall(
+            sample: "AnimalA",
+            genotype: "02_M2_A_marker",
+            reads: 3,
+            retainedReads: 103
+        )
+        let rawCalls = [retained, excluded]
+        let initiallyInferred = GenotypeHaplotypeAnalyzer.analyze(
+            calls: rawCalls,
+            definitionSet: definition
+        )
+        let persistedAnalysis = GenotypeHaplotypeAnalysis(
+            assayID: initiallyInferred.assayID,
+            definitionSetID: initiallyInferred.definitionSetID,
+            definitionSetName: initiallyInferred.definitionSetName,
+            speciesName: initiallyInferred.speciesName,
+            generatedAt: initiallyInferred.generatedAt,
+            analysisRevisionID: "persisted-before-review",
+            source: initiallyInferred.source,
+            samples: initiallyInferred.samples
+        )
+        let result = GenotypeTestFixtures.makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                .init(
+                    sample: "AnimalA",
+                    passedAlignments: 103,
+                    passedUniqueReads: 103,
+                    sampleTotalReads: 103,
+                    sampleUniqueRetainedPercent: 100,
+                    calls: rawCalls
+                ),
+            ],
+            calls: rawCalls,
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            haplotypeAnalysis: persistedAnalysis,
+            haplotypeDefinitionSetID: definition.id
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        controller.testingApplyDisplayState(.init(
+            summaryViewMode: .matrix,
+            hideLowSupport: true,
+            minimumSupportPercent: 7.5,
+            supportDenominator: .sampleRetained,
+            matrixMinimumPercent: 0,
+            matrixPercentDenominator: .viewedLocus
+        ))
+        let reviewTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A",
+            genotype: excluded.genotype,
+            sample: "AnimalA"
+        )
+        controller.applyMatrixReview(.init(
+            targets: [reviewTarget],
+            intent: .set(.falsePositive)
+        ))
+
+        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        let projectedCall = try XCTUnwrap(snapshot.haplotypeCalls?.first)
+        XCTAssertEqual(projectedCall.haplotype1, "M1A")
+        XCTAssertEqual(projectedCall.haplotype2, "M1A")
+        XCTAssertEqual(projectedCall.baselineHaplotype1, "M1A")
+        XCTAssertEqual(projectedCall.baselineHaplotype2, "-")
+        XCTAssertEqual(snapshot.rows.map(\.genotype), [retained.genotype])
+
+        let sourceURL = bundleURL.appendingPathComponent("source.xlsx")
+        _ = try runPython(
+            python,
+            script: Self.makeScientificSourceWorkbookScript,
+            arguments: [sourceURL.path]
+        )
+        let projectionURL = root.appendingPathComponent("captured-projection.json")
+        try JSONEncoder().encode(
+            GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
+        ).write(to: projectionURL)
+        let annotationURL = root.appendingPathComponent("captured-annotations.json")
+        let annotationData = try XCTUnwrap(snapshot.annotationSidecarData)
+        try annotationData.write(to: annotationURL)
+        let sidecar = try GenotypeAnnotationSidecar.decode(annotationData)
+        let outputURL = root.appendingPathComponent("filtered.xlsx")
+        let buildURL = root.appendingPathComponent("build", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: buildURL,
+            withIntermediateDirectories: true
+        )
+        let command = try GenotypeExportPivotXlsxSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--output", outputURL.path,
+            "--view-projection", projectionURL.path,
+            "--annotations", annotationURL.path,
+            "--min-percent", "7.5",
+            "--percent-basis", "sample-retained",
+        ])
+        try await command.exportFilteredCopy(
+            of: sourceURL,
+            result: result,
+            sidecar: sidecar,
+            thresholds: .init(
+                minimumPercent: 7.5,
+                percentBasis: .sampleRetained
+            ),
+            projection: GenotypeViewProjectionSerializer.makeProjection(
+                from: snapshot
+            ),
+            projectionURL: projectionURL,
+            annotationURL: annotationURL,
+            capturedInputRecords: [
+                ProvenanceRecorder.fileRecord(
+                    url: projectionURL,
+                    role: .input
+                ),
+                ProvenanceRecorder.fileRecord(
+                    url: annotationURL,
+                    role: .input
+                ),
+            ],
+            bundleURL: bundleURL,
+            outputURL: outputURL,
+            buildDir: buildURL,
+            managedPythonResolver: { python },
+            startedAt: Date()
+        )
+
+        let dumped = try runPython(
+            python,
+            script: Self.dumpScientificFilteredWorkbookScript,
+            arguments: [outputURL.path]
+        )
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(dumped.utf8))
+                as? [String: Any]
+        )
+        XCTAssertEqual(
+            payload["sheets"] as? [String],
+            ["Genotype Matrix", "Haplotype Calls", "Export Metadata"]
+        )
+        XCTAssertEqual(
+            payload["call"] as? [String],
+            [
+                "AnimalA", "MHC-A", "M1A", "M1A", "called", "called",
+                "pipeline", "pipeline", "M1A", "-",
+            ]
+        )
+        XCTAssertEqual(
+            payload["matrixRows"] as? [[String]],
+            [[retained.genotype, "MHC-A", "", "100"]]
+        )
+        let metadata = try XCTUnwrap(payload["metadata"] as? [String: String])
+        XCTAssertEqual(metadata["minimumSupportPercent"], "7.5")
+        XCTAssertEqual(metadata["supportDenominator"], "Sample Retained")
+        XCTAssertEqual(metadata["matrixMinimumPercent"], "0.0")
+        XCTAssertEqual(metadata["matrixPercentDenominator"], "Viewed Locus")
+        XCTAssertEqual(metadata["Source analysisRevisionID"], "")
+        XCTAssertEqual(metadata["Source definitionSetID"], definition.id)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        ))
+        XCTAssertTrue(provenance.argv.containsSubsequence([
+            "--min-percent", "7.5", "--percent-basis", "sample-retained",
+        ]))
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["minPercent"],
+            .number(7.5)
+        )
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["percentBasis"],
+            .string("sample-retained")
+        )
+        let inputs = provenance.files + provenance.steps.flatMap(\.inputs)
+        XCTAssertTrue(inputs.contains {
+            $0.path == projectionURL.path && $0.checksumSHA256 != nil
+        })
+        XCTAssertTrue(inputs.contains {
+            $0.path == annotationURL.path && $0.checksumSHA256 != nil
+        })
+        let definitionURL = inputsURL.appendingPathComponent(
+            "haplotype-definition.json"
+        )
+        XCTAssertTrue(inputs.contains {
+            $0.path == definitionURL.path && $0.checksumSHA256 != nil
+        })
+    }
+
     func testExportShellsGenotypeExportCLIWithProjectionAndVisibleSamples() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -465,6 +714,109 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             )
         }
         return arguments[arguments.index(after: index)]
+    }
+
+    private func managedOpenpyxlPythonURL() -> URL? {
+        if let configured = ProcessInfo.processInfo.environment[
+            "LUNGFISH_TEST_PYTHON"
+        ] {
+            let url = URL(fileURLWithPath: configured)
+            if FileManager.default.isExecutableFile(atPath: url.path) {
+                return url
+            }
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [".lungfish", ".lungfish-debug"].flatMap { root in
+            ["python3", "python"].map {
+                home.appendingPathComponent(
+                    "\(root)/conda/envs/openpyxl/bin/\($0)"
+                )
+            }
+        }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
+    private func runPython(
+        _ python: URL,
+        script: String,
+        arguments: [String]
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = python
+        process.arguments = ["-c", script] + arguments
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        let error = stderr.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "GenotypeViewportExcelExportTests.Python",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey:
+                    String(data: error, encoding: .utf8) ?? "Python failed"]
+            )
+        }
+        return String(data: output, encoding: .utf8) ?? ""
+    }
+
+    private static let makeScientificSourceWorkbookScript = #"""
+import sys
+from openpyxl import Workbook
+
+wb = Workbook()
+ws = wb.active
+ws.title = "Synthetic"
+ws.append(["Animal ID", None, None, "AnimalA"])
+ws.append(["GS ID", "Total", "Average", "AnimalA"])
+ws.append(["Mapped Read Count", 103, 103, 103])
+for locus in ["MHC-A"]:
+    for slot in (1, 2):
+        ws.append([f"{locus} Haplotype {slot}", None, None, "stale"])
+ws.append(["Comments", "Subtotal", "# Obs.", None])
+ws.append(["Genotype", "Total", "# Obs.", "AnimalA"])
+ws.append(["MHC-A alleles", None, None, None])
+ws.append(["01_M1_A_marker", 100, 1, 100])
+ws.append(["02_M2_A_marker", 3, 1, 3])
+wb.save(sys.argv[1])
+"""#
+
+    private static let dumpScientificFilteredWorkbookScript = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+calls = wb["Haplotype Calls"]
+matrix = wb["Genotype Matrix"]
+metadata = wb["Export Metadata"]
+out = {
+    "sheets": wb.sheetnames,
+    "call": [str(calls.cell(2, column).value or "") for column in range(1, 11)],
+    "matrixRows": [
+        [str(matrix.cell(row, column).value or "") for column in range(1, 5)]
+        for row in range(2, matrix.max_row + 1)
+    ],
+    "metadata": {
+        str(metadata.cell(row, 1).value or ""): str(metadata.cell(row, 2).value or "")
+        for row in range(2, metadata.max_row + 1)
+    },
+}
+print(json.dumps(out, sort_keys=True))
+"""#
+}
+
+private extension Array where Element == String {
+    func containsSubsequence(_ expected: [String]) -> Bool {
+        guard !expected.isEmpty, expected.count <= count else { return false }
+        return indices.contains { start in
+            let end = index(start, offsetBy: expected.count, limitedBy: endIndex)
+            guard let end else { return false }
+            return Array(self[start..<end]) == expected
+        }
     }
 }
 

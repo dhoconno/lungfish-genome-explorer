@@ -257,6 +257,8 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             filters: [
                 "matrixMinimumReads": "9", "matrixMinimumPercent": "12.5",
                 "matrixPercentDenominator": "Viewed Locus", "searchText": "needle",
+                "minimumSupportPercent": "7.5",
+                "supportDenominator": "Sample Retained",
                 "hideLowSupport": "true",
                 "internalEncodedPredicate": String(repeating: "x", count: 2_000),
             ], sampleNames: ["matrix-axis"], rows: [], haplotypeCalls: [call],
@@ -265,12 +267,43 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         let presentation = GenotypeExcelCapturedScope(snapshot: snapshot, callEditingSupported: true)
         XCTAssertTrue(presentation.summary.contains("Samples (100): S1"))
         XCTAssertTrue(presentation.summary.contains("Loci (1): A"))
-        XCTAssertTrue(presentation.summary.contains("Percent basis: Viewed Locus"))
+        XCTAssertTrue(presentation.summary.contains("Matrix min percent: 12.5"))
+        XCTAssertTrue(presentation.summary.contains("Matrix percent basis: Viewed Locus"))
+        XCTAssertTrue(presentation.summary.contains("Row-support min percent: 7.5 (active)"))
+        XCTAssertTrue(presentation.summary.contains("Row-support percent basis: Sample Retained"))
         XCTAssertTrue(presentation.summary.contains("General search: needle"))
         XCTAssertTrue(presentation.summary.contains("Low-support rows: hidden"))
         XCTAssertFalse(presentation.summary.contains("internalEncodedPredicate"))
         XCTAssertLessThan(presentation.summary.count, 1_000)
         XCTAssertTrue(presentation.capability.contains("H1/H2 call edits"))
+    }
+
+    func testCapturedScopeLabelsConfiguredRowSupportPercentInactiveWhileRowsAreShown() {
+        let snapshot = GenotypeViewportExportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/a.lungfish"),
+            analysisName: "A",
+            lens: "matrix",
+            filters: [
+                "hideLowSupport": "false",
+                "minimumSupportPercent": "7.5",
+                "supportDenominator": "Sample Retained",
+                "matrixMinimumPercent": "0.0",
+                "matrixPercentDenominator": "Viewed Locus",
+            ],
+            sampleNames: ["S1"],
+            rows: []
+        )
+
+        let presentation = GenotypeExcelCapturedScope(
+            snapshot: snapshot,
+            callEditingSupported: true
+        )
+
+        XCTAssertTrue(presentation.summary.contains(
+            "Row-support min percent: 7.5 (configured, inactive while low-support rows are shown)"
+        ))
+        XCTAssertTrue(presentation.summary.contains("Row-support percent basis: Sample Retained"))
+        XCTAssertTrue(presentation.summary.contains("Low-support rows: shown"))
     }
 
     func testOnlyFilteredWorkflowPublishesLatestFilteredEvents() {

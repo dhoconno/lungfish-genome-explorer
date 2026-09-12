@@ -153,11 +153,9 @@ struct GenotypeViewportExportService {
             if let minReads = minimumReads(from: snapshot.filters) {
                 arguments += ["--min-reads", String(minReads)]
             }
-            if let minPercent = minimumPercent(from: snapshot.filters) {
-                arguments += ["--min-percent", String(minPercent)]
-                // The matrix's Percent Basis decides what Min Percent is a
-                // percent of; the export must apply the same denominator.
-                if let basis = percentBasis(from: snapshot.filters) {
+            if let percentFilter = activePercentFilter(from: snapshot.filters) {
+                arguments += ["--min-percent", String(percentFilter.minimum)]
+                if let basis = percentFilter.basis {
                     arguments += ["--percent-basis", basis]
                 }
             }
@@ -285,11 +283,7 @@ struct GenotypeViewportExportService {
         return nil
     }
 
-    /// The viewport's Min Percent control, when the analyst set one.
-    /// The CLI's `--percent-basis` value for the matrix's Percent Basis, which
-    /// the snapshot carries as the control's display name.
-    private func percentBasis(from filters: [String: String]) -> String? {
-        guard let name = filters["matrixPercentDenominator"] else { return nil }
+    private func percentBasis(displayName name: String?) -> String? {
         switch name {
         case ONTGenotypeSupportDenominator.viewedLocus.displayName: return "viewed-locus"
         case ONTGenotypeSupportDenominator.sampleRetained.displayName: return "sample-retained"
@@ -297,13 +291,35 @@ struct GenotypeViewportExportService {
         }
     }
 
-    private func minimumPercent(from filters: [String: String]) -> Double? {
-        // `matrixMinimumPercent` is the comparison matrix's own Min Percent
-        // control and takes precedence over the row-level support percent.
-        for key in ["matrixMinimumPercent", "minimumSupportPercent", "minimumPercent", "minPercent"] {
-            if let raw = filters[key], let value = Double(raw), value > 0 {
-                return value
-            }
+    /// Resolves the active threshold and denominator as one inseparable value.
+    /// Matrix filtering takes precedence because it is independently active.
+    /// The row-support threshold only filters the projection while low-support
+    /// rows are hidden; a positive configured value alone is not active.
+    private func activePercentFilter(
+        from filters: [String: String]
+    ) -> (minimum: Double, basis: String?)? {
+        if let raw = filters["matrixMinimumPercent"],
+           let value = Double(raw),
+           value > 0 {
+            return (
+                value,
+                percentBasis(displayName: filters["matrixPercentDenominator"])
+            )
+        }
+        if filters["hideLowSupport"] == "true",
+           let raw = filters["minimumSupportPercent"],
+           let value = Double(raw),
+           value > 0 {
+            return (
+                value,
+                percentBasis(displayName: filters["supportDenominator"])
+            )
+        }
+        for key in ["minimumPercent", "minPercent"] {
+            guard let raw = filters[key],
+                  let value = Double(raw),
+                  value > 0 else { continue }
+            return (value, nil)
         }
         return nil
     }

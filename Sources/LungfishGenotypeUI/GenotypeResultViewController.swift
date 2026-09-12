@@ -6284,11 +6284,9 @@ public final class GenotypeResultViewController: NSViewController {
             }
         }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
-        let includedLoci = Set(currentWorkbookIncludedLoci())
         return analysis.samples.flatMap { sample in
             sample.calls.filter {
-                includedLoci.contains($0.locus)
-                    && GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0.locus)
+                GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0.locus)
             }.map { call in
                 let effective = effectiveHaplotypeCall(sample: sample.sample, call: call)
                 return GenotypeWorkbookHaplotypeCall(
@@ -6334,12 +6332,17 @@ public final class GenotypeResultViewController: NSViewController {
             return GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
         }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
-        let observed = result.map {
-            observedLociIndex
-                ?? GenotypeObservedLociIndex.build(from: $0)
+        var seen = Set<String>()
+        return analysis.samples.flatMap { sample in
+            sample.calls.compactMap { call in
+                guard GenotypeWorkbookHaplotypeCall
+                    .isWritableCurrentWorkbookLocus(call.locus),
+                      seen.insert(call.locus).inserted else {
+                    return nil
+                }
+                return call.locus
+            }
         }
-        return effectiveIncludedLoci(for: analysis, observed: observed)
-            .filter { GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0) }
     }
 
     private func currentWorkbookRevisionProvenanceContext(
@@ -9568,10 +9571,10 @@ public final class GenotypeResultViewController: NSViewController {
     /// annotation store has overrides or audit entries to surface in the
     /// resulting workbook. Pure transformation; no I/O.
     private func attachSidecarSnapshot(
-        to base: GenotypeViewportExportSnapshot
+        to base: GenotypeViewportExportSnapshot,
+        capturedSidecar sidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeViewportExportSnapshot {
-        guard let store = annotationStore else { return base }
-        let sidecar = store.sidecar
+        guard let sidecar else { return base }
         let hasMatrixAnnotations = !sidecar.matrixStyles.isEmpty
             || !sidecar.matrixReviews.isEmpty
             || !sidecar.matrixComments.isEmpty
@@ -9649,10 +9652,12 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func attachHaplotypeDefinitionProvenanceContext(
-        to base: GenotypeViewportExportSnapshot
+        to base: GenotypeViewportExportSnapshot,
+        capturedAnalysis analysis: GenotypeHaplotypeAnalysis?
     ) -> GenotypeViewportExportSnapshot {
         guard let result,
-              let definitionID = activeHaplotypeDefinitionSetID() else {
+              let definitionID = analysis?.definitionSetID
+                ?? activeHaplotypeDefinitionSetID() else {
             return base
         }
         var filters = base.filters
@@ -9693,7 +9698,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func attachEffectiveHaplotypeCalls(
-        to base: GenotypeViewportExportSnapshot
+        to base: GenotypeViewportExportSnapshot,
+        capturedAnalysis analysis: GenotypeHaplotypeAnalysis?,
+        capturedSidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeViewportExportSnapshot {
         func replacingCalls(
             _ calls: [GenotypeViewProjectionHaplotypeCall],
@@ -9716,12 +9723,12 @@ public final class GenotypeResultViewController: NSViewController {
                 haplotypeLocusScope: base.haplotypeLocusScope
             )
         }
-        guard let analysis = result?.haplotypeAnalysis else {
+        guard let analysis else {
             // GUI projections always opt in to the typed, clean workbook
             // contract. `nil` remains reserved for decoded legacy projections.
             return replacingCalls([])
         }
-        let sidecar = annotationStore?.sidecar
+        let sidecar = capturedSidecar
             ?? GenotypeAnnotationSidecar.empty(
                 generatedAt: analysis.generatedAt ?? "1970-01-01T00:00:00Z"
             )
@@ -9810,6 +9817,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func currentExportSnapshot() -> GenotypeViewportExportSnapshot? {
         guard let result else { return nil }
+        let capturedAnalysis = activeHaplotypeAnalysis()
+        let capturedSidecar = annotationStore?.sidecar
         let baseSnapshot: GenotypeViewportExportSnapshot
         if selectedLens == .summary,
            displayState.summaryViewMode == .matrix,
@@ -9856,9 +9865,13 @@ public final class GenotypeResultViewController: NSViewController {
         return attachSidecarSnapshot(
             to: attachEffectiveHaplotypeCalls(
                 to: attachHaplotypeDefinitionProvenanceContext(
-                    to: attachFilterContext(to: baseSnapshot)
-                )
-            )
+                    to: attachFilterContext(to: baseSnapshot),
+                    capturedAnalysis: capturedAnalysis
+                ),
+                capturedAnalysis: capturedAnalysis,
+                capturedSidecar: capturedSidecar
+            ),
+            capturedSidecar: capturedSidecar
         )
     }
 

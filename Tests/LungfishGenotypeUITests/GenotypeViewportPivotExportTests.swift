@@ -228,6 +228,54 @@ final class GenotypeViewportPivotExportTests: XCTestCase {
         XCTAssertFalse(off.contains("--percent-basis"))
     }
 
+    func testPivotExportPairsActiveRowSupportPercentWithItsOwnBasis() throws {
+        let arguments = try capturedArguments(
+            filters: [
+                "hideLowSupport": "true",
+                "minimumSupportPercent": "7.5",
+                "supportDenominator": "Sample Retained",
+                "matrixMinimumPercent": "0.0",
+                "matrixPercentDenominator": "Viewed Locus",
+            ],
+            format: .pivotExcel
+        )
+
+        XCTAssertTrue(hasOption(arguments, "--min-percent", value: "7.5"))
+        XCTAssertTrue(hasOption(arguments, "--percent-basis", value: "sample-retained"))
+    }
+
+    func testPivotExportDoesNotActivateConfiguredRowSupportPercentWhileRowsAreShown() throws {
+        let arguments = try capturedArguments(
+            filters: [
+                "hideLowSupport": "false",
+                "minimumSupportPercent": "7.5",
+                "supportDenominator": "Sample Retained",
+                "matrixMinimumPercent": "0.0",
+                "matrixPercentDenominator": "Viewed Locus",
+            ],
+            format: .pivotExcel
+        )
+
+        XCTAssertFalse(arguments.contains("--min-percent"))
+        XCTAssertFalse(arguments.contains("--percent-basis"))
+    }
+
+    func testPivotExportKeepsMatrixPercentAndBasisPairedWhenBothFamiliesAreActive() throws {
+        let arguments = try capturedArguments(
+            filters: [
+                "hideLowSupport": "true",
+                "minimumSupportPercent": "7.5",
+                "supportDenominator": "Sample Retained",
+                "matrixMinimumPercent": "12.5",
+                "matrixPercentDenominator": "Viewed Locus",
+            ],
+            format: .pivotExcel
+        )
+
+        XCTAssertTrue(hasOption(arguments, "--min-percent", value: "12.5"))
+        XCTAssertTrue(hasOption(arguments, "--percent-basis", value: "viewed-locus"))
+    }
+
     func testDisabledThresholdsAreOmitted() throws {
         // "0" means the control is off; sending it would imply an active cut.
         let arguments = try capturedArguments(

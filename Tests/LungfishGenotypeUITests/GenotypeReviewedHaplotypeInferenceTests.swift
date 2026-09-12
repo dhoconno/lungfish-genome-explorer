@@ -34,9 +34,19 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             reads: 3
         )
         let rawCalls = [retained, contaminant]
-        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+        let initialAnalysis = GenotypeHaplotypeAnalyzer.analyze(
             calls: rawCalls,
             definitionSet: definition
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: initialAnalysis.assayID,
+            definitionSetID: initialAnalysis.definitionSetID,
+            definitionSetName: initialAnalysis.definitionSetName,
+            speciesName: initialAnalysis.speciesName,
+            generatedAt: initialAnalysis.generatedAt,
+            analysisRevisionID: "persisted-before-review",
+            source: initialAnalysis.source,
+            samples: initialAnalysis.samples
         )
         let result = makeResult(
             bundleURL: bundleURL,
@@ -81,7 +91,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         ))
 
         XCTAssertEqual(controller.testingCurrentCallEvidence?.h1Name, "M1A")
-        XCTAssertEqual(controller.testingCurrentCallEvidence?.h2Name, "-")
+        XCTAssertEqual(controller.testingCurrentCallEvidence?.h2Name, "M1A")
         XCTAssertEqual(
             controller.testingCurrentCallEvidence?.observedGenotypes,
             [retained.genotype]
@@ -104,8 +114,32 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         )
         XCTAssertEqual(
             controller.testingCurrentWorkbookHaplotypeCalls().first?.haplotype2,
-            "-"
+            "M1A"
         )
+        let captured = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        let capturedCall = try XCTUnwrap(captured.haplotypeCalls?.first)
+        XCTAssertEqual(capturedCall.sample, "AnimalA")
+        XCTAssertEqual(capturedCall.locus, "MHC-A")
+        XCTAssertEqual(capturedCall.haplotype1, "M1A")
+        XCTAssertEqual(capturedCall.haplotype2, "M1A")
+        XCTAssertEqual(capturedCall.haplotype1Status, "called")
+        XCTAssertEqual(capturedCall.haplotype2Status, "called")
+        XCTAssertEqual(capturedCall.baselineHaplotype1, "M1A")
+        XCTAssertEqual(capturedCall.baselineHaplotype2, "-")
+        XCTAssertEqual(captured.sourceRevision, .init(
+            assayID: definition.assayID,
+            analysisRevisionID: nil,
+            definitionSetID: definition.id
+        ))
+        let capturedSidecar = try GenotypeAnnotationSidecar.decode(
+            XCTUnwrap(captured.annotationSidecarData)
+        )
+        XCTAssertEqual(capturedSidecar.matrixReviews.map(\.target), [target])
+        let projection = GenotypeViewProjectionSerializer.makeProjection(
+            from: captured
+        )
+        XCTAssertEqual(projection.haplotypeCalls?.first, capturedCall)
+        XCTAssertEqual(projection.sourceRevision, captured.sourceRevision)
 
         // A review exclusion changes inference only; an explicit call
         // override remains authoritative over that derived projection.
@@ -179,14 +213,14 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             targets: [target],
             intent: .set(.falsePositive)
         ))
-        XCTAssertEqual(first.testingCurrentCallEvidence?.h2Name, "-")
+        XCTAssertEqual(first.testingCurrentCallEvidence?.h2Name, "M1A")
 
         let reopened = GenotypeResultViewController()
         _ = reopened.view
         reopened.configure(result: result)
         reopened.testingSelectCellEvidence(animalId: "AnimalA", locus: "MHC-A")
         flushMountedController(reopened)
-        XCTAssertEqual(reopened.testingCurrentCallEvidence?.h2Name, "-")
+        XCTAssertEqual(reopened.testingCurrentCallEvidence?.h2Name, "M1A")
 
         reopened.applyMatrixReview(.init(
             targets: [target],

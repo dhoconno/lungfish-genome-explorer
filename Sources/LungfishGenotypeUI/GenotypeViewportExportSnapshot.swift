@@ -89,14 +89,26 @@ struct GenotypeExcelCapturedScope: Equatable {
             let text = filters[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? "None" : text
         }
-        let visibility = filters["hideLowSupport"] == "true" ? "hidden" : "shown"
+        let hidesLowSupport = filters["hideLowSupport"] == "true"
+        let visibility = hidesLowSupport ? "hidden" : "shown"
+        let rowSupportPercent = filters["minimumSupportPercent"] ?? "0"
+        let rowSupportState: String
+        if (Double(rowSupportPercent) ?? 0) <= 0 {
+            rowSupportState = "off"
+        } else if hidesLowSupport {
+            rowSupportState = "active"
+        } else {
+            rowSupportState = "configured, inactive while low-support rows are shown"
+        }
         summary = [
             "Captured scope (will not change while this dialog is open):",
             "Samples (\(samples.count)): \(boundedList(samples))",
             "Loci (\(loci.count)): \(boundedList(loci))",
             "Min reads: \(filters["matrixMinimumReads"] ?? "0")",
-            "Min percent: \(filters["matrixMinimumPercent"] ?? "0")",
-            "Percent basis: \(filters["matrixPercentDenominator"] ?? "Not applicable")",
+            "Matrix min percent: \(filters["matrixMinimumPercent"] ?? "0")",
+            "Matrix percent basis: \(filters["matrixPercentDenominator"] ?? "Not applicable")",
+            "Row-support min percent: \(rowSupportPercent) (\(rowSupportState))",
+            "Row-support percent basis: \(filters["supportDenominator"] ?? "Not applicable")",
             "General search: \(searchDescription("searchText"))",
             "Matrix row search: \(searchDescription("matrixRowFilterText"))",
             "Matrix sample search: \(searchDescription("matrixSampleFilterText"))",

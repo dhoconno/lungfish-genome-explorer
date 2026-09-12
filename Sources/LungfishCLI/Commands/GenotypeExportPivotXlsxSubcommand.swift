@@ -423,11 +423,13 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 }
                 if minimumPercent > 0 {
                     arguments += ["--min-percent", String(minimumPercent)]
+                    arguments += ["--percent-basis", percentBasis.rawValue]
                 }
                 if keepEmptyRows {
                     arguments.append("--keep-empty-rows")
                 }
-                if percentBasis != .sampleRetained {
+                if minimumPercent <= 0,
+                   percentBasis != .sampleRetained {
                     arguments += ["--percent-basis", percentBasis.rawValue]
                 }
                 return arguments

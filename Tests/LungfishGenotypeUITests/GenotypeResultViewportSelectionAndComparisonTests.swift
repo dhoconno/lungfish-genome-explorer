@@ -2771,7 +2771,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testIncludedLociFilterOutlineAndCurrentWorkbookCalls() throws {
+    func testIncludedLociFilterChangesOutlineButCurrentWorkbookRetainsEveryExactCall() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
@@ -2813,19 +2813,57 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
                             observedGenotypeCount: 1,
                             observedGenotypes: ["M3DR-read"]
                         ),
-                    ]
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DR",
+                            sourceLocus: "MHC-DR",
+                            haplotype1: "M4DR",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["M4DR-read"]
+                        ),
+                    ] + ["MHC-DQA", "MHC-DQB", "MHC-DQ", "MHC-DPA", "MHC-DPB", "MHC-DP"].map {
+                        GenotypeHaplotypeLocusCall(
+                            locus: $0,
+                            sourceLocus: $0,
+                            haplotype1: "Exact-\($0)",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["\($0)-read"]
+                        )
+                    }
                 ),
             ]
         )
         controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
 
-        XCTAssertEqual(controller.testingOutlineSlots(sample: "LF2832").map(\.locus), ["MHC-A", "MHC-DRB"])
-        XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus), ["MHC-A", "MHC-DRB"])
+        XCTAssertFalse(
+            controller.testingOutlineSlots(sample: "LF2832").map(\.locus)
+                .contains("MHC-E")
+        )
+        let fullExactLoci = [
+            "MHC-A", "MHC-E", "MHC-DRB", "MHC-DR",
+            "MHC-DQA", "MHC-DQB", "MHC-DQ",
+            "MHC-DPA", "MHC-DPB", "MHC-DP",
+        ]
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus),
+            fullExactLoci
+        )
 
         controller.testingApplyDisplayState(GenotypeResultDisplayState(includedLoci: ["MHC-A", "MHC-E", "MHC-DRB"]))
 
-        XCTAssertEqual(controller.testingOutlineSlots(sample: "LF2832").map(\.locus), ["MHC-A", "MHC-E", "MHC-DRB"])
-        XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus), ["MHC-A", "MHC-E", "MHC-DRB"])
+        XCTAssertTrue(
+            controller.testingOutlineSlots(sample: "LF2832").map(\.locus)
+                .contains("MHC-E")
+        )
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus),
+            fullExactLoci
+        )
     }
 
 
@@ -2886,7 +2924,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
                 haplotype1: "M1A",
                 haplotype2: "M1A",
                 status: GenotypeHaplotypeCallStatus.called.rawValue,
-                notes: ""
+                notes: "",
+                baselineHaplotype1: "M1A",
+                baselineHaplotype2: "-"
             )
         ])
         XCTAssertEqual(
