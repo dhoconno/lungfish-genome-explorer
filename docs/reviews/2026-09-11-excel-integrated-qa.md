@@ -12,7 +12,9 @@ The opt-in test `GenotypeViewportExcelExportTests.testDisposableRealBundleContro
 
 ## Exact covering-test disposition
 
-All commands used `swift test --jobs 6`, one build/test process at a time. Results below are split-run evidence, not a claim that one final full-suite invocation ran green.
+Final parent verification against committed fix `cdc599212`: the complete integrated selection below passed **251 tests, zero failures, zero unexpected failures, zero skips, in 112.545 seconds**. Both before/after cohort comparisons passed. Astra's scoped final review approved all six findings with no new defects and accepted spec compliance and code quality. This final single green run supersedes the earlier split-run caveat; the historical runs below retain the debugging record.
+
+All commands used `swift test --jobs 6`, one build/test process at a time. Earlier results below are split-run evidence, separate from the final integrated run above.
 
 | Run | Actual result | Final disposition |
 |---|---|---|
