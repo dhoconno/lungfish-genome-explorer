@@ -163,7 +163,7 @@ struct PrimerAnalysisViewerView: View {
           }
         }
         Text(snapshot.primer3Results == nil
-          ? "Coverage shows the span of saved amplicons across each mapping reference. It does not measure amplification success or the fraction of alleles that will amplify."
+          ? "These are the selected scheme’s amplicons. Each can include multiple forward and reverse oligos. Coverage shows their saved spans across each mapping reference, not amplification success or the fraction of alleles that will amplify."
           : "Review each candidate pair separately. Template span is the portion between that pair’s outer primer boundaries; alternative pairs are not combined into a scheme.")
           .font(.callout).foregroundStyle(.secondary)
         ForEach(snapshot.designReview) { target in

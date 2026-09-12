@@ -48,6 +48,7 @@ struct PrimerReviewContextMenu: View {
       summary(primer.name)
       summary("\(primer.sequence.count) nt · \(primer.name == "Internal probe" ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(poolLabel(primer.pool))")
       summary("Binding site \(primer.start + 1)–\(primer.end) · 1-based inclusive")
+      if target.presentation == .schemeReference { summary("Selected scheme oligo") }
       Divider()
       Button("Inspect Primer") { inspect(clicked) }
       if target.presentation != .primer3Template {
@@ -89,7 +90,8 @@ struct PrimerReviewContextMenu: View {
       summary(interval.name)
       summary("\(interval.length) bp · \(poolLabel(interval.pool))")
       summary("\(interval.sizeLabel) · \(interval.start + 1)–\(interval.end)")
-      summary(members.map { "\($0.count) associated oligos; alternatives retained" } ?? "Primer correspondence unavailable")
+      summary(members.map { target.presentation == .schemeReference
+        ? "\($0.count) oligos in the selected primer set" : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable")
       Divider()
       Button("Inspect Amplicon") { inspect(clicked) }
       if target.presentation != .primer3Template, let members {

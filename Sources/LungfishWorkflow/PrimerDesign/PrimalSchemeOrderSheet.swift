@@ -1,7 +1,7 @@
 import Foundation
 
 /// Vendor-neutral, version-one ordering worksheet derived from ARTIC BED v3.
-/// Every native record remains separate, including alternative oligos. The native
+/// Every selected native variant remains a separate oligo. The native
 /// sequence is already the oligo's 5′–3′ sequence, even on the reverse strand.
 public enum PrimalSchemeOrderSheet {
   public static let filename = "ordering-v1.csv"

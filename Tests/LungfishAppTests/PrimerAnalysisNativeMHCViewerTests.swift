@@ -19,6 +19,13 @@ final class PrimerAnalysisNativeMHCViewerTests: XCTestCase {
       let engine = snapshot.primer3Results == nil ? "primalscheme3" : "primer3"
       if engine == "primalscheme3" {
         XCTAssertFalse(snapshot.primalSchemeResults.isEmpty, url.path)
+        for scheme in snapshot.primalSchemeResults {
+          let bed = try String(contentsOf: url.appendingPathComponent(scheme.id), encoding: .utf8)
+          let native = bed.split(whereSeparator: \.isNewline).filter { !$0.hasPrefix("#") }
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+          XCTAssertEqual(scheme.primers.map(\.name), native.map { $0[3] }, "Keep every selected native variant, in native order")
+          XCTAssertEqual(scheme.primers.map(\.sequence), native.map { $0[6] }, "Do not substitute a consensus or first-ranked oligo")
+        }
         for target in snapshot.designReview where !target.intervals.isEmpty {
           XCTAssertTrue(target.intervals.allSatisfy { !$0.primerIDs.isEmpty }, url.path + " " + target.label)
           XCTAssertTrue(target.primers.allSatisfy { $0.ampliconIDs.count == 1 }, url.path + " " + target.label)

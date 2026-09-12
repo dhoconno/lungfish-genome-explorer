@@ -27,8 +27,9 @@ struct PrimalSchemeResultsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("\(engineDescription) results").font(.title2.weight(.semibold))
-      Picker("Stored scheme", selection: Binding(get: { result?.id }, set: { id in
+      Text("Selected scheme oligos").font(.title2.weight(.semibold))
+      Text(engineDescription).font(.callout).foregroundStyle(.secondary)
+      Picker("Selected scheme", selection: Binding(get: { result?.id }, set: { id in
         selectedResultID = id
         selectedPool = nil
         if let chosen = results.first(where: { $0.id == id }), let primer = chosen.primers.first {
@@ -47,13 +48,13 @@ struct PrimalSchemeResultsView: View {
     let selected = result.primers.first { "\(result.id)-primer-\($0.id)" == activeSelection.wrappedValue?.primerID }
       ?? result.primers.first { $0.reference == selectedTarget?.referenceID } ?? visible.first
     return VStack(alignment: .leading, spacing: 16) {
-      Text("\(result.primers.count) primer records · \(pools.count) pools · \(Set(result.primers.map(\.reference)).count) references")
+      Text("\(result.primers.count) selected oligos · \(pools.count) pools · \(Set(result.primers.map(\.reference)).count) references")
         .font(.caption).foregroundStyle(.secondary)
       if let orderSheetURL = result.orderSheetURL {
         HStack(alignment: .top, spacing: 16) {
           VStack(alignment: .leading, spacing: 5) {
             Text("Prepare primer pools for ordering").font(.headline)
-            Text("The stored CSV includes every oligo, grouped by pool, with 5′–3′ sequences. Alternatives remain separate. Copy the sheet before filling in your synthesis scale, purification or modifications.")
+            Text("The stored CSV includes every oligo in the selected scheme, grouped by pool, with its 5′–3′ sequence. Each sequence variant retains its own row. Copy the sheet before filling in your synthesis scale, purification or modifications.")
               .font(.caption).foregroundStyle(.secondary)
           }
           Spacer()
@@ -64,7 +65,7 @@ struct PrimalSchemeResultsView: View {
         Text("This saved analysis has no ordering worksheet. Its native primer records remain available in the Inspector’s Files tab.")
           .font(.caption).foregroundStyle(.secondary)
       }
-      Text("Pool numbers apply within this stored scheme. Review alternative and ambiguous oligos individually; no synthesis quantities are inferred.")
+      Text("These oligos form the saved selected scheme. An amplicon can include multiple forward and reverse variants. Pool numbers apply within this scheme.")
         .font(.caption).foregroundStyle(.secondary)
       Group {
         if let selectedTarget, selectedTarget.sourceResultID == result.id {
@@ -82,7 +83,7 @@ struct PrimalSchemeResultsView: View {
           select(first, in: result)
         }
       }
-      Text("Select a primer to inspect its amplicon, reference span and pool. Native coordinates and identifiers are preserved in the Inspector’s Files tab.")
+      Text("Showing oligos for all selected amplicons in the chosen pools. Select a primer to inspect its amplicon’s full primer set, reference span and pool.")
         .font(.caption).foregroundStyle(.secondary)
       if visible.isEmpty { Text("No primer records were returned.").foregroundStyle(.secondary) }
       ForEach(pools.filter { selectedPool == nil || $0 == selectedPool }, id: \.self) { pool in

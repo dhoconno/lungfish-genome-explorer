@@ -131,8 +131,8 @@ enum PrimerDesignReview {
     }
   }
 
-  /// Native alternatives are independent forward/reverse clouds. Their shared amplicon
-  /// name identifies membership; matching alternative suffixes do not establish pairs.
+  /// Selected native variants form forward/reverse clouds. Their shared amplicon
+  /// name identifies membership; numbered suffixes do not establish ranks or pairs.
   /// Called separately for each saved native result and reference to prevent cross-target joins.
   private static func associateNativeAmplicons(intervals: inout [PrimerReviewInterval], primers: inout [PrimerReviewPrimer]) {
     struct Membership { let index: Int; let side: String }
