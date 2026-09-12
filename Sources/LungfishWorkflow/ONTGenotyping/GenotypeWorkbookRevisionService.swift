@@ -33,6 +33,10 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     public let notes: String
     public let baselineHaplotype1: String?
     public let baselineHaplotype2: String?
+    public let haplotype1Status: String?
+    public let haplotype2Status: String?
+    public let haplotype1Source: String?
+    public let haplotype2Source: String?
 
     public init(sample: String, locus: String, haplotype1: String, haplotype2: String, status: String, notes: String) {
         self.init(sample: sample, locus: locus, haplotype1: haplotype1, haplotype2: haplotype2, status: status, notes: notes, baselineHaplotype1: nil, baselineHaplotype2: nil)
@@ -46,7 +50,11 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         status: String,
         notes: String,
         baselineHaplotype1: String?,
-        baselineHaplotype2: String?
+        baselineHaplotype2: String?,
+        haplotype1Status: String? = nil,
+        haplotype2Status: String? = nil,
+        haplotype1Source: String? = nil,
+        haplotype2Source: String? = nil
     ) {
         self.sample = sample
         self.locus = locus
@@ -56,6 +64,10 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         self.notes = notes
         self.baselineHaplotype1 = baselineHaplotype1
         self.baselineHaplotype2 = baselineHaplotype2
+        self.haplotype1Status = haplotype1Status
+        self.haplotype2Status = haplotype2Status
+        self.haplotype1Source = haplotype1Source
+        self.haplotype2Source = haplotype2Source
     }
 
     public static func isWritableCurrentWorkbookLocus(_ locus: String) -> Bool {
@@ -86,6 +98,7 @@ public enum GenotypeCurrentWorkbookSyncIntent: String, Codable, CaseIterable, Eq
 }
 
 public struct GenotypeWorkbookFingerprintInputs: Equatable, Sendable {
+    public let presentationColors: [GenotypeWorkbookPresentation.Color]
     public let calls: [GenotypeWorkbookHaplotypeCall]
     public let includedLoci: [String]
     public let haplotypeProjectionMode:
@@ -95,11 +108,13 @@ public struct GenotypeWorkbookFingerprintInputs: Equatable, Sendable {
         calls: [GenotypeWorkbookHaplotypeCall],
         includedLoci: [String],
         haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = []
     ) {
         self.calls = calls
         self.includedLoci = includedLoci
         self.haplotypeProjectionMode = haplotypeProjectionMode
+        self.presentationColors = presentationColors
     }
 }
 
@@ -441,6 +456,7 @@ public struct GenotypeWorkbookRevisionService {
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil,
         projectionMode:
             GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = [],
         attempt: GenotypeWorkbookUpdateAttemptHandle? = nil
     ) throws -> GenotypeWorkbookRevisionOutcome {
         if fingerprintInputs != nil, !annotationOnly {
@@ -654,8 +670,59 @@ public struct GenotypeWorkbookRevisionService {
             }
         }
         try requireCLIInputDescriptorsUnchanged()
-        let semanticFingerprintCalls = fingerprintInputs?.calls ?? calls
-        let semanticFingerprintIncludedLoci = fingerprintInputs?.includedLoci ?? includedLoci
+        var restoredPresentation: GenotypeWorkbookPresentation.Payload?
+        var restoredPresentationWitness: (url: URL, witness: SourceWorkbookWitness)?
+        var restoredLegacyCalls: [GenotypeWorkbookHaplotypeCall] = []
+        if annotationOnly, fingerprintInputs == nil, FileManager.default.fileExists(atPath: bundle.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath).path) {
+            let baselineURL = bundle.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath)
+            try validateRegularBundleFile(baselineURL, in: bundle, role: "editable baseline")
+            let baseline = try JSONDecoder().decode(GenotypeEditableWorkbookService.Baseline.self, from: readRegularFileNoFollow(baselineURL).data)
+            if let input = baseline.inputs.last(where: { $0.path.hasSuffix("/presentation-payload.json") }) {
+                let url = bundle.appendingPathComponent(input.path)
+                try validateRegularBundleFile(url, in: bundle, role: "retained presentation")
+                let snapshot = try readRegularFileNoFollow(url)
+                guard snapshot.witness.sha256 == input.sha256, snapshot.witness.sizeBytes == Int64(input.size) else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Retained presentation differs from its trusted baseline.")
+                }
+                restoredPresentation = try JSONDecoder().decode(GenotypeWorkbookPresentation.Payload.self, from: snapshot.data)
+                restoredPresentationWitness = (url, snapshot.witness)
+                workbookScientificInputs.append(url)
+            } else {
+                restoredLegacyCalls = try Self.callsFromEditableBaseline(baseline)
+            }
+        }
+        if annotationOnly, fingerprintInputs == nil, restoredPresentation == nil, restoredLegacyCalls.isEmpty,
+           !FileManager.default.fileExists(atPath: bundle.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath).path) {
+            // Initial legacy reports have no editable baseline. Recover only
+            // recorded scientific calls, never calls inferred from worksheet cells.
+            let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
+            if case .eligible = GenotypeManualHaplotypeAuthority.evaluate(result.manifest) {
+                let index = GenotypeManualHaplotypeAssignmentIndex(assignments: sidecar?.manualHaplotypeAssignments ?? [])
+                restoredLegacyCalls = result.sampleNames.flatMap { sample in
+                    GenotypeManualHaplotypeLocus.allCases.map { locus in
+                        let slots = index.assignments(sample: sample, locus: locus)
+                        return .init(sample: sample, locus: locus.rawValue, haplotype1: slots.h1?.label ?? "", haplotype2: slots.h2?.label ?? "",
+                            status: "called", notes: [slots.h1?.notes, slots.h2?.notes].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "; "),
+                            baselineHaplotype1: nil, baselineHaplotype2: nil, haplotype1Status: "called", haplotype2Status: "called",
+                            haplotype1Source: slots.h1 == nil ? "unassigned" : "manualAssignment", haplotype2Source: slots.h2 == nil ? "unassigned" : "manualAssignment")
+                    }
+                }
+            } else if let analysis = result.haplotypeAnalysis {
+                let authority = GenotypeEffectiveCallAuthority.resolve(analysis: analysis, sidecar: sidecar ?? .empty(generatedAt: "1970-01-01T00:00:00Z"))
+                restoredLegacyCalls = analysis.samples.flatMap { sample in
+                    sample.calls.compactMap { call in
+                        guard let value = authority.locusValue(sample: sample.sample, locus: call.locus) else { return nil }
+                        return .init(sample: sample.sample, locus: call.locus, haplotype1: value.h1.effective, haplotype2: value.h2.effective,
+                            status: call.status.rawValue, notes: call.notes, baselineHaplotype1: call.haplotype1, baselineHaplotype2: call.haplotype2,
+                            haplotype1Status: value.h1.status.rawValue, haplotype2Status: value.h2.status.rawValue,
+                            haplotype1Source: String(describing: value.h1.source), haplotype2Source: String(describing: value.h2.source))
+                    }
+                }
+            }
+        }
+        let semanticFingerprintCalls = fingerprintInputs?.calls ?? restoredPresentation.map(Self.callsFromPresentation) ?? (annotationOnly ? restoredLegacyCalls : calls)
+        let semanticFingerprintIncludedLoci = fingerprintInputs?.includedLoci ?? restoredPresentation?.loci ?? includedLoci
+        let resolvedPresentationColors = fingerprintInputs?.presentationColors ?? restoredPresentation?.colors ?? presentationColors
         if let suppliedFingerprint = provenanceContext?.inputFingerprint {
             let verifiedFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
                 calls: semanticFingerprintCalls,
@@ -665,7 +732,8 @@ public struct GenotypeWorkbookRevisionService {
                 reviewableRowCatalog: reviewableRowCatalogInput?.reference,
                 reviewableRowCatalogSchemaVersion:
                     reviewableRowCatalogInput?.document.schemaVersion,
-                haplotypeProjectionMode: projectionMode
+                haplotypeProjectionMode: projectionMode,
+                presentationColors: resolvedPresentationColors
             )
             guard suppliedFingerprint == verifiedFingerprint else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
@@ -681,7 +749,7 @@ public struct GenotypeWorkbookRevisionService {
             manifest: manifest,
             bundleURL: bundle,
             sidecar: sidecar,
-            preserveExistingWorkbookProjection: annotationOnly,
+            preserveExistingWorkbookProjection: false,
             haplotypeProjectionMode: projectionMode,
             workbookCSVProjectionInput:
                 workbookCSVProjectionInput,
@@ -707,10 +775,12 @@ public struct GenotypeWorkbookRevisionService {
         let callsName = "haplotype-calls.json"
         let fingerprintCallsName = "fingerprint-haplotype-calls.json"
         let configName = "candidate-config.json"
+        let presentationInputName = "presentation-inputs.json"
         let runtimeName = "openpyxl-runtime.json"
         let stagedCallsURL = stageDirectory.appendingPathComponent(callsName)
         let stagedFingerprintCallsURL = stageDirectory.appendingPathComponent(fingerprintCallsName)
         let stagedConfigurationURL = stageDirectory.appendingPathComponent(configName)
+        let stagedPresentationInputURL = stageDirectory.appendingPathComponent(presentationInputName)
         let stagedRuntimeRecordURL = stageDirectory.appendingPathComponent(runtimeName)
         let stagedSourceWorkbookURL = stageDirectory.appendingPathComponent("source-workbook.xlsx")
         let stagedAnnotationURL = stageDirectory.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -741,6 +811,9 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         func requireWorkbookCSVProjectionUnchanged() throws {
+            if let input = restoredPresentationWitness {
+                try requireUnchangedRegularFileNoFollow(input.url, witness: input.witness)
+            }
             if let input = haplotypeAnalysisInput {
                 try requireUnchangedRegularFileNoFollow(input.url, witness: input.witness)
             }
@@ -765,7 +838,21 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         try writeStagedFile(try encoder.encode(configuration), to: stagedConfigurationURL)
-        try writeStagedFile(Data(workbookOverrideScript.utf8), to: scriptURL)
+        let presentationInputData = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": 2,
+            "includedLoci": semanticFingerprintIncludedLoci,
+            "colors": try JSONSerialization.jsonObject(with: encoder.encode(resolvedPresentationColors)),
+            "sourceRevision": [
+                "annotationsSHA256": annotationSidecarWitness?.sha256 ?? "none",
+                "catalogSHA256": reviewableRowCatalogInput?.witness.sha256 ?? "none",
+                "haplotypeAnalysisSHA256": haplotypeAnalysisInput?.witness.sha256 ?? "none",
+                "longSummarySHA256": workbookCSVProjectionInput?.longSummaryWitness.sha256 ?? "none",
+                "sampleSummarySHA256": workbookCSVProjectionInput?.sampleSummaryWitness.sha256 ?? "none",
+                "candidateArtifactsSHA256": GenotypeEditableWorkbookService.hash(try encoder.encode(manifest.mhcCandidateArtifacts)),
+            ],
+        ], options: [.sortedKeys])
+        try writeStagedFile(presentationInputData, to: stagedPresentationInputURL)
+        try writeStagedFile(Data(workbookPresentationScript.utf8), to: scriptURL)
         if let annotationSidecarData {
             try writeStagedFile(annotationSidecarData, to: stagedAnnotationURL)
         }
@@ -797,6 +884,7 @@ public struct GenotypeWorkbookRevisionService {
                 : stagedReviewableRowCatalogURL.path,
             retainFingerprintCalls ? stagedFingerprintCallsURL.path : stagedCallsURL.path,
             latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
+            stagedPresentationInputURL.path,
         ]
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
@@ -870,15 +958,21 @@ public struct GenotypeWorkbookRevisionService {
         try fileManager.copyItem(at: scriptURL, to: cloneScriptURL)
         try fileManager.copyItem(at: stagedSourceWorkbookURL, to: cloneSourceWorkbookURL)
         try fileManager.copyItem(at: patchedURL, to: clonePatchedWorkbookURL)
+        let presentationFiles = ["presentation-payload.json", "presentation-layout.json", presentationInputName]
+        let clonePresentationURLs = try presentationFiles.map { name in
+            let destination = cloneUpdatesURL.appendingPathComponent(name)
+            try fileManager.copyItem(at: stageDirectory.appendingPathComponent(name), to: destination)
+            return destination
+        }
 
         let cloneScientificInputs = workbookScientificInputs.map { input in
             ONTGenotypeResultBundle.resolvedURL(for: relativePath(from: bundle, to: input), in: cloneBundleURL)
         }
-        var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL, cloneScriptURL] + cloneScientificInputs
+        var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL, cloneScriptURL] + cloneScientificInputs + clonePresentationURLs
         if retainFingerprintCalls {
             additionalInputs.append(cloneFingerprintCallsURL)
         }
-        var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneScientificInputs
+        var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL, cloneUpdatesURL.appendingPathComponent(presentationInputName)] + cloneScientificInputs
         if retainFingerprintCalls {
             pythonInputURLs.append(cloneFingerprintCallsURL)
         }
@@ -923,6 +1017,7 @@ public struct GenotypeWorkbookRevisionService {
             durableReviewableRowCatalogPath,
             retainFingerprintCalls ? cloneFingerprintCallsURL.path : cloneCallsURL.path,
             latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
+            cloneUpdatesURL.appendingPathComponent(presentationInputName).path,
         ]
         let pythonStep = try makePythonProvenanceStep(
             executionRecord: executionRecord,
@@ -962,8 +1057,9 @@ public struct GenotypeWorkbookRevisionService {
         try GenotypeEditableWorkbookService(pythonExecutableURL: parserExecutable).attestGeneratedWorkbook(
             workbookURL: cloneFinalWorkbookURL,
             bundleURL: cloneBundleURL,
-            scientificInputURLs: cloneScientificInputs + (reviewableRowCatalogInput.map { [cloneBundleURL.appendingPathComponent($0.reference.path)] } ?? []),
-            callEditingSupported: projectionMode == .haplotyped
+            scientificInputURLs: cloneScientificInputs + clonePresentationURLs + (reviewableRowCatalogInput.map { [cloneBundleURL.appendingPathComponent($0.reference.path)] } ?? []),
+            callEditingSupported: projectionMode == .haplotyped,
+            trustedManifest: try Data(contentsOf: cloneUpdatesURL.appendingPathComponent("presentation-layout.json"))
         )
         let revisedManifestData = try Data(contentsOf: cloneManifestURL)
         let retainedManifestURL = cloneUpdatesURL.appendingPathComponent("revision-manifest.json")
@@ -2555,6 +2651,9 @@ public struct GenotypeWorkbookRevisionService {
             role: .output,
             originPath: patchedWorkbookURL.path
         )
+        let presentationOutputs = try inputURLs.filter {
+            ["presentation-payload.json", "presentation-layout.json"].contains($0.lastPathComponent)
+        }.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
         var resolvedOptions: [String: ParameterValue] = [
             "pythonVersion": .string(pythonVersion),
             "openpyxlVersion": .string(openpyxlVersion),
@@ -2613,7 +2712,7 @@ public struct GenotypeWorkbookRevisionService {
                     .deletingLastPathComponent().deletingLastPathComponent().path
             ),
             inputs: inputs,
-            outputs: [output],
+            outputs: [output] + presentationOutputs,
             exitStatus: Int(executionRecord.exitStatus),
             wallTimeSeconds: executionRecord.wallTimeSeconds,
             stderr: executionRecord.stderr,

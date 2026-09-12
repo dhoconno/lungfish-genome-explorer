@@ -176,95 +176,26 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         defer { try? FileManager.default.removeItem(at: buildDir) }
         try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
 
-        if let sourceWorkbookURL = Self.resolveSourceWorkbookURL(
+        let sourceWorkbookURL = Self.resolveSourceWorkbookURL(
             explicit: sourceWorkbook,
             bundleURL: bundleURL,
             manifest: result.manifest
-        ) {
-            try await exportFilteredCopy(
-                of: sourceWorkbookURL,
-                result: result,
-                sidecar: sidecar,
-                thresholds: thresholds,
-                projection: projection,
-                projectionURL: projectionURL,
-                annotationURL: annotationURL,
-                capturedInputRecords: capturedInputRecords,
-                bundleURL: bundleURL,
-                outputURL: outputURL,
-                buildDir: buildDir,
-                managedPythonResolver: managedPythonResolver,
-                startedAt: startedAt
-            )
-            return
-        }
-
-        if projection != nil {
-            throw ValidationError("A source workbook is required for a viewport-projected pivot export.")
-        }
-
-        let workbook = PivotWorkbookBuilder.build(
-            from: result,
-            sidecar: sidecar,
-            thresholds: thresholds
         )
-        try Self.writeXLSX(to: outputURL, buildDir: buildDir, workbook: workbook)
-        var command = [
-            CLICommandIdentity.executableName, "genotype", "export-pivot-xlsx",
-            "--bundle", bundle,
-            "--output", output,
-        ]
-        if let annotations {
-            command += ["--annotations", annotations]
-        }
-        command += thresholds.provenanceArguments
-        try await GenotypeExportProvenanceSupport.record(
-            workflowName: "genotype.export.pivot-xlsx",
-            toolName: "lungfish genotype export-pivot-xlsx",
-            command: command,
+        try await exportFilteredCopy(
+            of: sourceWorkbookURL,
+            result: result,
+            sidecar: sidecar,
+            thresholds: thresholds,
+            projection: projection,
+            projectionURL: projectionURL,
+            annotationURL: annotationURL,
+            capturedInputRecords: capturedInputRecords,
             bundleURL: bundleURL,
-            outputURLs: [outputURL],
-            outputDirectory: outputURL.deletingLastPathComponent(),
-            optionPaths: [
-                "bundle": bundleURL,
-                "output": outputURL,
-            ].merging(
-                annotations == nil ? [:] : (annotationURL.map { ["annotations": $0] } ?? [:])
-            ) { _, new in new },
-            explicitOptions: provenanceExplicitOptions(thresholds: thresholds),
-            defaults: provenanceDefaults,
-            resolvedOptions: provenanceOptions(
-                thresholds: thresholds, sourceWorkbookURL: nil,
-                projectionURL: nil, annotationURL: annotationURL
-            ),
-            additionalInputURLs: GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
-                for: result,
-                bundleURL: bundleURL,
-                sidecar: sidecar
-            ).map { [$0] } ?? [],
-            additionalInputRecords: capturedInputRecords,
-            excludedInputURLs: capturedInputRecords.map { URL(fileURLWithPath: $0.path) },
+            outputURL: outputURL,
+            buildDir: buildDir,
+            managedPythonResolver: managedPythonResolver,
             startedAt: startedAt
         )
-
-        let summary: [String: Any] = [
-            "bundle": bundleURL.path,
-            "output": outputURL.path,
-            "sampleCount": workbook.samples.count,
-            "alleleCount": workbook.alleleRowCount,
-            "alleleGroupCount": workbook.groups.count,
-            "haplotypeAnalysisPresent": result.haplotypeAnalysis != nil,
-            "minReads": thresholds.minimumReads,
-            "minPercent": thresholds.minimumPercent,
-            "filteredAlleleValueCount": workbook.filteredValueCount,
-            "removedAlleleRowCount": workbook.removedRowCount
-        ]
-        let summaryData = try JSONSerialization.data(
-            withJSONObject: summary,
-            options: [.prettyPrinted, .sortedKeys]
-        )
-        FileHandle.standardOutput.write(summaryData)
-        FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
     private var provenanceDefaults: [String: ParameterValue] {
@@ -1379,16 +1310,11 @@ extension GenotypeExportPivotXlsxSubcommand {
         let openpyxlVersion: String
     }
 
-    /// Copies `sourceWorkbookURL` to the output with only its pivot sheet
-    /// changed: values below the thresholds are blanked, each allele row's
-    /// Total and observation count are recomputed from what remains, and rows
-    /// left empty are removed unless `--keep-empty-rows` was given. Every
-    /// other sheet is retained. Recognized haplotype headers are refreshed
-    /// from current effective calls while native comments are preserved.
-    /// The copy is not registered with the
-    /// bundle, so edits made to it never flow back into the result.
+    /// Publishes a one-way three-sheet snapshot from settled projected cells
+    /// or the existing headless threshold builder. Source workbooks remain
+    /// scientific input evidence; their legacy sheets do not seed presentation.
     func exportFilteredCopy(
-        of sourceWorkbookURL: URL,
+        of sourceWorkbookURL: URL?,
         result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar?,
         thresholds: PivotWorkbookBuilder.Thresholds,
@@ -1402,11 +1328,11 @@ extension GenotypeExportPivotXlsxSubcommand {
         managedPythonResolver: @escaping @Sendable () async throws -> URL,
         startedAt: Date
     ) async throws {
-        guard FileManager.default.fileExists(atPath: sourceWorkbookURL.path) else {
+        if let sourceWorkbookURL, !FileManager.default.fileExists(atPath: sourceWorkbookURL.path) {
             throw FilteredCopyError(message: "Source workbook not found: \(sourceWorkbookURL.path)")
         }
-        let plan = FilterPlan.make(
-            from: result,
+        let plan = try filteredPresentation(
+            result: result,
             sidecar: sidecar,
             thresholds: thresholds,
             projection: projection
@@ -1416,7 +1342,7 @@ extension GenotypeExportPivotXlsxSubcommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(plan).write(to: planURL, options: .atomic)
         let scriptURL = buildDir.appendingPathComponent("filter-pivot-sheet.py")
-        try Data(Self.filterPivotSheetScript.utf8).write(to: scriptURL, options: .atomic)
+        try Data(Self.filteredPresentationScript.utf8).write(to: scriptURL, options: .atomic)
 
         let pythonURL = try await managedPythonResolver()
         try FileManager.default.createDirectory(
@@ -1426,7 +1352,7 @@ extension GenotypeExportPivotXlsxSubcommand {
         let transformStartedAt = Date()
         let (status, stdout, stderr) = try await Self.runProcess(
             executableURL: pythonURL,
-            arguments: [scriptURL.path, sourceWorkbookURL.path, outputURL.path, planURL.path]
+            arguments: [scriptURL.path, sourceWorkbookURL?.path ?? "", outputURL.path, planURL.path]
         )
         let transformCompletedAt = Date()
         guard status == 0 else {
@@ -1435,6 +1361,14 @@ extension GenotypeExportPivotXlsxSubcommand {
             )
         }
         let summary = try JSONDecoder().decode(FilteredCopySummary.self, from: Data(stdout.utf8))
+        let retainedDirectory = outputURL.deletingLastPathComponent().appendingPathComponent(
+            outputURL.lastPathComponent + ".inputs-" + UUID().uuidString.lowercased(), isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: retainedDirectory, withIntermediateDirectories: false)
+        let retainedScript = retainedDirectory.appendingPathComponent("render-three-sheet.py")
+        let retainedPayload = retainedDirectory.appendingPathComponent("presentation-payload.json")
+        try FileManager.default.copyItem(at: scriptURL, to: retainedScript)
+        try FileManager.default.copyItem(at: planURL, to: retainedPayload)
 
         var command = [
             CLICommandIdentity.executableName, "genotype", "export-pivot-xlsx",
@@ -1452,7 +1386,7 @@ extension GenotypeExportPivotXlsxSubcommand {
         }
         command += thresholds.provenanceArguments
         let transformCommand = [
-            pythonURL.path, scriptURL.path, sourceWorkbookURL.path, outputURL.path, planURL.path,
+            pythonURL.path, scriptURL.path, sourceWorkbookURL?.path ?? "", outputURL.path, planURL.path,
         ]
         let resolvedOptions = provenanceOptions(
             thresholds: thresholds,
@@ -1467,17 +1401,18 @@ extension GenotypeExportPivotXlsxSubcommand {
             ]),
             "transformCommand": .array(transformCommand.map(ParameterValue.string)),
             "transformExitStatus": .integer(Int(status)),
+            "presentationSchemaVersion": .integer(2),
         ]) { _, new in new }
         let condaPrefix = pythonURL.deletingLastPathComponent().deletingLastPathComponent()
         let transformStep = ProvenanceStep(
             toolName: "python/openpyxl pivot transform",
             toolVersion: summary.openpyxlVersion,
             argv: transformCommand,
-            durableReplayArgv: command,
+            durableReplayArgv: [pythonURL.path, retainedScript.path, sourceWorkbookURL?.path ?? "", outputURL.path, retainedPayload.path],
             resolvedOptions: [
                 "pythonVersion": .string(summary.pythonVersion),
                 "openpyxlVersion": .string(summary.openpyxlVersion),
-                "filterPlan": .file(planURL),
+                "presentationPayload": .file(retainedPayload),
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: summary.pythonVersion,
@@ -1486,7 +1421,7 @@ extension GenotypeExportPivotXlsxSubcommand {
                 condaPrefix: condaPrefix.path,
                 dependencySet: "openpyxl=\(summary.openpyxlVersion)"
             ),
-            inputs: [sourceWorkbookURL, scriptURL, planURL].map {
+            inputs: ([retainedScript, retainedPayload] + (sourceWorkbookURL.map { [$0] } ?? [])).map {
                 ProvenanceFileDescriptor(
                     fileRecord: ProvenanceRecorder.fileRecord(url: $0, role: .input)
                 )
@@ -1520,7 +1455,7 @@ extension GenotypeExportPivotXlsxSubcommand {
             explicitOptions: provenanceExplicitOptions(thresholds: thresholds),
             defaults: provenanceDefaults,
             resolvedOptions: resolvedOptions,
-            additionalInputURLs: [sourceWorkbookURL] + (
+            additionalInputURLs: [retainedScript, retainedPayload] + (sourceWorkbookURL.map { [$0] } ?? []) + (
                 GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
                     for: result,
                     bundleURL: bundleURL,
@@ -1536,7 +1471,7 @@ extension GenotypeExportPivotXlsxSubcommand {
         let report: [String: Any] = [
             "bundle": bundleURL.path,
             "output": outputURL.path,
-            "sourceWorkbook": sourceWorkbookURL.path,
+            "sourceWorkbook": sourceWorkbookURL?.path ?? "none",
             "sheet": summary.sheet,
             "sampleCount": result.samples.count,
             "matchedAlleleRows": summary.matchedAlleleRows,

@@ -1740,6 +1740,11 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertTrue(result.locusSummaries.isEmpty)
         let workbookCalls = controller.testingCurrentWorkbookHaplotypeCalls()
         XCTAssertEqual(workbookCalls.count, 14)
+        XCTAssertTrue(workbookCalls.allSatisfy {
+            $0.baselineHaplotype1 == nil && $0.baselineHaplotype2 == nil
+                && $0.haplotype1Source == "unassigned" && $0.haplotype2Source == "unassigned"
+                && $0.haplotype1Status == "called" && $0.haplotype2Status == "called"
+        })
         XCTAssertTrue(
             workbookCalls.allSatisfy {
                 $0.haplotype1.isEmpty

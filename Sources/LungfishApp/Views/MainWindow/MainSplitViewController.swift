@@ -518,7 +518,8 @@ public class MainSplitViewController: NSSplitViewController {
                 candidateArtifacts: snapshot.candidateArtifacts,
                 reviewableRowCatalog: snapshot.reviewableRowCatalog,
                 reviewableRowCatalogSchemaVersion: snapshot.reviewableRowCatalogSchemaVersion,
-                haplotypeProjectionMode: snapshot.haplotypeProjectionMode
+                haplotypeProjectionMode: snapshot.haplotypeProjectionMode,
+                presentationColors: snapshot.presentationColors
             )
         }.value
     }

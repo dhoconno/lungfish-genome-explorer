@@ -45,6 +45,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("calls-json"), help: "JSON array of displayed/effective haplotype calls")
     var callsJSON: String
 
+    @Option(name: .customLong("presentation-colors"), help: "Resolved active-definition palette as a JSON array; retained with workbook inputs")
+    var presentationColors: String = "[]"
+
     @Option(name: .customLong("annotations"), help: "Annotation sidecar to write Overrides and Audit Log worksheets; defaults to bundle annotations.json when present")
     var annotations: String?
 
@@ -231,7 +234,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             [GenotypeWorkbookHaplotypeCall].self,
             from: callsInput.data
         )
-        let callInputs = workbookCallInputs(displayedCalls: calls)
+        let colors = try JSONDecoder().decode([GenotypeWorkbookPresentation.Color].self, from: Data(presentationColors.utf8))
+        let callInputs = workbookCallInputs(displayedCalls: calls, presentationColors: colors)
         let provenanceContext = try provenanceContext(
             argv: attemptArgv(attempt),
             callsInput: callsInput,
@@ -252,6 +256,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             fingerprintInputs: callInputs.fingerprintInputs,
             provenanceContext: provenanceContext,
             projectionMode: haplotypeProjectionMode,
+            presentationColors: colors,
             attempt: attempt
         )
         return FastqUpdateCurrentWorkbookPayload(
@@ -340,6 +345,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 resolvedAnnotationURL(bundleURL: bundleURL)?.path ?? "none",
             "annotationOnly": String(annotationOnly),
             "haplotypeProjectionMode": haplotypeProjectionMode.rawValue,
+            "presentationColors": presentationColors,
             "includedLoci": includedLocus.joined(separator: ","),
             "inputFingerprint":
                 attestation.inputFingerprint?.sha256 ?? "none",
@@ -435,7 +441,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     }
 
     func workbookCallInputs(
-        displayedCalls: [GenotypeWorkbookHaplotypeCall]
+        displayedCalls: [GenotypeWorkbookHaplotypeCall],
+        presentationColors: [GenotypeWorkbookPresentation.Color] = []
     ) -> FastqUpdateCurrentWorkbookCallInputs {
         if annotationOnly {
             return FastqUpdateCurrentWorkbookCallInputs(
@@ -445,7 +452,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                     calls: displayedCalls,
                     includedLoci: includedLocus,
                     haplotypeProjectionMode:
-                        haplotypeProjectionMode
+                        haplotypeProjectionMode,
+                    presentationColors: presentationColors
                 )
             )
         }
@@ -522,6 +530,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             callsURL.path,
             "--haplotype-projection-mode",
             haplotypeProjectionMode.rawValue,
+            "--presentation-colors", presentationColors,
         ]
         if let annotationURL {
             arguments += ["--annotations", annotationURL.path]

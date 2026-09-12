@@ -7,6 +7,109 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testThreeSheetInitialManualAnnotationRefreshUsesSidecarAuthority() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "initial-manual", workflowKind: .fullLengthONTMHCGenotype)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.manualHaplotypeAssignments = [.init(sample: "sample-a", locus: "MHC-A", slot: .h1, label: "Exact manual", colorTokenIndex: 0, diagnosticAlleles: [], notes: "Manual note")]
+        let annotations = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try sidecar.encoded().write(to: annotations)
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL, annotationOnly: true)
+        let baseline = try JSONDecoder().decode(GenotypeEditableWorkbookService.Baseline.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath)))
+        let input = try XCTUnwrap(baseline.inputs.last { $0.path.hasSuffix("/presentation-payload.json") })
+        let payload = try JSONDecoder().decode(GenotypeWorkbookPresentation.Payload.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(input.path)))
+        let call = try XCTUnwrap(payload.calls.first { $0.sampleID == "sample-a" && $0.locus == "MHC-A" })
+        XCTAssertEqual(call.h1.effective, "Exact manual")
+        XCTAssertEqual(call.h1.source, "manualAssignment")
+        XCTAssertEqual(call.h2.source, "unassigned")
+        XCTAssertNil(call.h1.pipeline)
+        XCTAssertFalse(call.h1.baselineAvailable)
+    }
+
+    func testThreeSheetCurrentIncludesAllCandidateEvidenceAndTints() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "candidate-presentation")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 2)
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        _ = try runPython(["-c", #"""
+import sys,json,base64,os
+from openpyxl import load_workbook
+baseline=json.load(open(sys.argv[2]))
+manifest=json.loads(base64.b64decode(baseline['trustedManifest']))
+w=load_workbook(sys.argv[1]); matrix=w['Genotype Matrix']
+expected={'cluster-1':'F5D78E','cluster-2':'F5B97A','cluster-3':'A8D8D0','cluster-4':'AFCBF2'}
+rows={n['target']['stableClusterID']:n for n in manifest['noteTargets'].values() if n['target']['kind']=='row' and n['target'].get('stableClusterID')}
+assert set(expected).issubset(rows) and 'cluster-u' in rows,rows
+for stable,color in expected.items():
+    assert matrix[rows[stable]['cell']].fill.fgColor.rgb == 'FF' + color, (stable,matrix[rows[stable]['cell']].fill.fgColor)
+print('all candidate evidence and category tints')
+"""#, current.path, fixture.bundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath).path])
+    }
+
+    func testThreeSheetCurrentRefreshRetainsSemanticCallsAndCachedBand() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "three-sheet-current")
+        let service = GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+        let annotations = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z").encoded().write(to: annotations)
+        let calls = [GenotypeWorkbookHaplotypeCall(sample: "call-only", locus: "MHC-A", haplotype1: "Exact-A", haplotype2: "Exact-A", status: "called", notes: "", baselineHaplotype1: "Exact-A", baselineHaplotype2: "", haplotype1Status: "called", haplotype2Status: "called", haplotype1Source: "pipeline", haplotype2Source: "pipeline")]
+        _ = try service.applyHaplotypeOverrides(calls, annotationSidecarURL: annotations, into: fixture.bundleURL)
+        let colors = [GenotypeWorkbookPresentation.Color(locus: "MHC-A", call: "Exact-A", fillHex: "#123456", fontHex: "#FFFFFF")]
+        _ = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL, annotationOnly: true, fingerprintInputs: .init(calls: calls, includedLoci: ["MHC-A"], presentationColors: colors))
+        // Public annotation-only callers without a UI snapshot must recover
+        // the attested calls; the removed Edit Calls sheet is not a fallback.
+        var changedSidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        changedSidecar.lastEditor = "metadata-only-change"
+        try changedSidecar.encoded().write(to: annotations)
+        _ = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL, annotationOnly: true)
+        let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let report = try runPython(["-c", #"""
+import json,sys,base64
+from openpyxl import load_workbook
+w=load_workbook(sys.argv[1]); cached=load_workbook(sys.argv[1],data_only=True)
+assert w.sheetnames == ['Genotype Matrix','Haplotype Calls','Export Metadata'], w.sheetnames
+baseline=json.load(open(sys.argv[2]))
+assert baseline['schemaVersion']==2, baseline
+manifest=json.loads(base64.b64decode(baseline['trustedManifest']))
+call=next(iter(manifest['callTargets'].values()))
+assert call['h2']['baselineAvailable'] and call['h2']['pipeline']==''
+unknown=[v for v in manifest['noteTargets'].values() if v['target'].get('sampleID')=='call-only' and v['target']['kind']=='cell']
+assert unknown and all(v['rawSupport'] is None and not v['reviewEligible'] for v in unknown)
+formulas=[c for row in w['Genotype Matrix'] for c in row if c.data_type=='f']
+assert len(formulas)==2
+assert [cached['Genotype Matrix'][c.coordinate].value for c in formulas]==['Exact-A','Exact-A']
+assert all(c.fill.fgColor.rgb.endswith('123456') for c in formulas)
+print('semantic calls and formula caches retained')
+"""#, current.path, fixture.bundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath).path])
+        XCTAssertTrue(report.contains("semantic calls and formula caches retained"))
+        XCTAssertTrue(try GenotypeEditableWorkbookService(pythonExecutableURL: XCTUnwrap(testPythonExecutableURL)).inspect(bundleURL: fixture.bundleURL).changes.isEmpty)
+        let beforeNoOp = try Data(contentsOf: current)
+        let manifestBeforeNoOp = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let afterNoOp = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL, annotationOnly: true)
+        XCTAssertEqual(try Data(contentsOf: current), beforeNoOp)
+        XCTAssertEqual(afterNoOp.workbookRevisions?.count, manifestBeforeNoOp.workbookRevisions?.count)
+    }
+
+    func testThreeSheetMigrationRejectsUnreviewedV1EditsWithoutMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "pending-v1")
+        let workbook = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        let script = "import sys\nfrom openpyxl import load_workbook\nw=load_workbook(sys.argv[1])\n" + GenotypeEditableWorkbookService.seedScript + "\nseed_editable_tables(w,[{'sample':'call-only','locus':'MHC-A','haplotype1':'Original','haplotype2':'','baselineHaplotype1':'Original','baselineHaplotype2':''}],{},{}); w.save(sys.argv[1])"
+        _ = try runPython(["-c", script, workbook.path])
+        try GenotypeEditableWorkbookService(pythonExecutableURL: XCTUnwrap(testPythonExecutableURL)).attestGeneratedWorkbook(workbookURL: workbook, bundleURL: fixture.bundleURL)
+        _ = try runPython(["-c", "import sys; from openpyxl import load_workbook; w=load_workbook(sys.argv[1]); w['Edit Calls']['G2']='set'; w['Edit Calls']['H2']='Pending'; w.save(sys.argv[1])", workbook.path])
+        let before = try bundleSnapshot(fixture.bundleURL)
+        XCTAssertThrowsError(try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)) { error in
+            XCTAssertTrue(error is GenotypeEditableWorkbookService.EditError)
+        }
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before)
+    }
+
     func testLegacyCSVIdentitiesSeedEditableMatrixAndMapCompactReportLabels() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

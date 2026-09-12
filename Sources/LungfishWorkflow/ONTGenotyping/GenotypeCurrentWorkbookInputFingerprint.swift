@@ -4,7 +4,7 @@ import Foundation
 import LungfishIO
 
 public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Sendable {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
     private static let maximumProvenanceBytes = 16 * 1024 * 1024
 
     public let schemaVersion: Int
@@ -22,6 +22,8 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let annotationSidecar: GenotypeAnnotationSidecar?
         let candidateArtifacts: CanonicalCandidateArtifacts?
         let reviewableRowCatalog: CanonicalReviewableRowCatalog?
+        let presentationColors: [GenotypeWorkbookPresentation.Color]
+        let presentationSchemaVersion: Int
     }
 
     private struct CanonicalCall: Encodable {
@@ -33,6 +35,10 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let notes: String
         let baselineHaplotype1: String?
         let baselineHaplotype2: String?
+        let haplotype1Status: String?
+        let haplotype2Status: String?
+        let haplotype1Source: String?
+        let haplotype2Source: String?
 
         var sortFields: [String] {
             [sample, locus, haplotype1, haplotype2, status, notes]
@@ -177,7 +183,9 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         reviewableRowCatalog: ONTMHCArtifactReference? = nil,
         reviewableRowCatalogSchemaVersion: Int? = nil,
         haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = [],
+        presentationSchemaVersion: Int = 2
     ) throws -> Self {
         let canonicalReviewableRowCatalog: CanonicalReviewableRowCatalog?
         if let reviewableRowCatalog {
@@ -234,7 +242,11 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
                 status: clean(call.status),
                 notes: clean(call.notes),
                 baselineHaplotype1: call.baselineHaplotype1,
-                baselineHaplotype2: call.baselineHaplotype2
+                baselineHaplotype2: call.baselineHaplotype2,
+                haplotype1Status: call.haplotype1Status,
+                haplotype2Status: call.haplotype2Status,
+                haplotype1Source: call.haplotype1Source,
+                haplotype2Source: call.haplotype2Source
             )
         }
         let canonicalCalls = callsByKey.values.sorted {
@@ -258,7 +270,11 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
             includedLoci: Array(Set(canonicalIncludedLoci)).sorted(),
             annotationSidecar: annotationSidecar,
             candidateArtifacts: candidateArtifacts.map(canonicalCandidateArtifacts),
-            reviewableRowCatalog: canonicalReviewableRowCatalog
+            reviewableRowCatalog: canonicalReviewableRowCatalog,
+            presentationColors: presentationColors.sorted {
+                [$0.locus, $0.call, $0.fillHex, $0.fontHex].lexicographicallyPrecedes([$1.locus, $1.call, $1.fillHex, $1.fontHex])
+            },
+            presentationSchemaVersion: presentationSchemaVersion
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

@@ -23,6 +23,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         fileprivate let admissionID: UUID
         let bundleURL: URL
         let calls: [GenotypeWorkbookHaplotypeCall]
+        let presentationColors: [GenotypeWorkbookPresentation.Color]
         let includedLoci: [String]
         let annotationSidecarURL: URL?
         let annotationSidecarData: Data?
@@ -43,6 +44,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             annotationOnly: Bool,
             haplotypeProjectionMode:
                 GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+            presentationColors: [GenotypeWorkbookPresentation.Color] = [],
             fingerprint: GenotypeCurrentWorkbookInputFingerprint,
             routeContext: OperationRouteContext?,
             mayUpdate: Bool = true,
@@ -52,6 +54,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             self.admissionID = UUID()
             self.bundleURL = bundleURL.standardizedFileURL
             self.calls = calls
+            self.presentationColors = presentationColors
             self.includedLoci = includedLoci
             self.annotationSidecarURL = annotationSidecarURL?.standardizedFileURL
             self.annotationSidecarData = annotationSidecarData
@@ -193,6 +196,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 annotationOnly: request.annotationOnly,
                 haplotypeProjectionMode:
                     request.haplotypeProjectionMode,
+                presentationColors: request.presentationColors,
                 inputFingerprint: request.fingerprint,
                 syncIntent: intent,
                 routeContext: request.routeContext

@@ -46,6 +46,7 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
     public let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
     public let sourceRevision: GenotypeViewProjectionSourceRevision?
     public let filterContext: [String: String]?
+    public let presentationColors: [GenotypeWorkbookPresentation.Color]?
 
     public init(
         lens: String,
@@ -58,7 +59,8 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         includeTotalReads: Bool? = nil,
         haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
         sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
-        filterContext: [String: String]? = nil
+        filterContext: [String: String]? = nil,
+        presentationColors: [GenotypeWorkbookPresentation.Color]? = nil
     ) {
         self.lens = lens
         self.sampleColumns = sampleColumns
@@ -71,6 +73,7 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         self.haplotypeCalls = haplotypeCalls
         self.sourceRevision = sourceRevision
         self.filterContext = filterContext
+        self.presentationColors = presentationColors
     }
 }
 
@@ -97,6 +100,8 @@ public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable 
     public let haplotype2Source: String
     public let baselineHaplotype1: String
     public let baselineHaplotype2: String
+    public let baselineHaplotype1Available: Bool?
+    public let baselineHaplotype2Available: Bool?
     public let comment: String?
 
     public init(
@@ -104,7 +109,9 @@ public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable 
         haplotype1Status: String, haplotype2Status: String,
         haplotype1Source: String, haplotype2Source: String,
         baselineHaplotype1: String, baselineHaplotype2: String,
-        comment: String? = nil
+        comment: String? = nil,
+        baselineHaplotype1Available: Bool? = nil,
+        baselineHaplotype2Available: Bool? = nil
     ) {
         self.sample = sample; self.locus = locus
         self.haplotype1 = haplotype1; self.haplotype2 = haplotype2
@@ -112,6 +119,8 @@ public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable 
         self.haplotype1Source = haplotype1Source; self.haplotype2Source = haplotype2Source
         self.baselineHaplotype1 = baselineHaplotype1; self.baselineHaplotype2 = baselineHaplotype2
         self.comment = comment
+        self.baselineHaplotype1Available = baselineHaplotype1Available
+        self.baselineHaplotype2Available = baselineHaplotype2Available
     }
 }
 

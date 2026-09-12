@@ -392,7 +392,8 @@ enum GenotypeViewProjectionSerializer {
             includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) },
             haplotypeCalls: snapshot.haplotypeCalls,
             sourceRevision: snapshot.sourceRevision,
-            filterContext: snapshot.filters
+            filterContext: snapshot.filters,
+            presentationColors: snapshot.presentationColors
         )
     }
 

@@ -14,6 +14,81 @@ import LungfishTestSupport
 /// rewritten through the managed openpyxl runtime, so these tests skip when
 /// that runtime is not installed.
 final class GenotypePivotFilteredCopyTests: XCTestCase {
+    func testThreeSheetHeadlessResolvesCustomActiveDefinitionPalette() throws {
+        let root = try TestTempDirectory.make(prefix: "HeadlessPalette")
+        defer { TestTempDirectory.cleanup(root) }
+        let definition = GenotypeHaplotypeDefinitionSet(id: "synthetic-definition", assayID: "synthetic-assay", displayName: "Synthetic", speciesName: "Synthetic", speciesCode: "Syn", prefix: "S", locusDefinitions: [
+            .init(locus: "MHC-DQ", sourceLocus: "MHC-DQ", haplotypes: [.init(name: "M1DQ", diagnosticAlleles: [], colorOverride: .init(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))])
+        ])
+        let inputs = root.appendingPathComponent(".ont-barcode-genotyping/inputs")
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        try JSONEncoder().encode(definition).write(to: inputs.appendingPathComponent("haplotype-definition.json"))
+        let payload = try Command().filteredPresentation(result: makeCurrentWorkbookResult(bundleURL: root), sidecar: nil, thresholds: .init(minimumReads: 5), projection: nil)
+        let color = try XCTUnwrap(payload.colors.first { $0.locus == "MHC-DQ" && $0.call == "M1DQ" })
+        XCTAssertEqual(color.fillHex.uppercased(), "#336699")
+        XCTAssertEqual(color.fontHex, "#FFFFFF")
+    }
+
+    func testThreeSheetHeadlessManualCallsPreserveUnavailableBaselineAndSlotSources() throws {
+        let result = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-manual.lungfishgenotype"), kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.manualHaplotypeAssignments = [.init(sample: "Animal1", locus: "MHC-A", slot: .h1, label: "Exact manual", colorTokenIndex: 0, diagnosticAlleles: [], notes: "Analyst note")]
+        let payload = try Command().filteredPresentation(result: result, sidecar: sidecar, thresholds: .init(minimumReads: 5), projection: nil)
+        let call = try XCTUnwrap(payload.calls.first { $0.sampleID == "Animal1" && $0.locus == "MHC-A" })
+        XCTAssertEqual(call.h1.effective, "Exact manual")
+        XCTAssertEqual(call.h1.source, "manualAssignment")
+        XCTAssertEqual(call.h2.source, "unassigned")
+        XCTAssertNil(call.h1.pipeline)
+        XCTAssertNil(call.h2.pipeline)
+        XCTAssertFalse(call.h1.baselineAvailable)
+        XCTAssertFalse(call.h2.baselineAvailable)
+        XCTAssertEqual(call.comment, "Analyst note")
+    }
+
+    func testThreeSheetFilteredPreservesCapturedMaskAndHeadlessThresholdBoundary() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = try TestTempDirectory.make(prefix: "ThreeSheetFiltered")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = root.appendingPathComponent("test.lungfishgenotype")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let source = bundle.appendingPathComponent("source.xlsx")
+        _ = try await runPython(python, script: Self.makeSourceWorkbookScript, arguments: [source.path], in: root)
+        for captured in [true, false] {
+            let build = root.appendingPathComponent("build-\(captured)")
+            try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+            let output = root.appendingPathComponent("export-\(captured).xlsx")
+            let command = try Command.parse(["--bundle", bundle.path, "--output", output.path, "--min-reads", "5"])
+            let projection: GenotypeViewProjection? = captured ? .init(lens: "allele", sampleColumns: ["Animal1", "Animal2"], rows: [
+                .init(label: "Captured", rawGenotype: "01_Strong", locus: "MHC-A", cells: ["1", ""]),
+                .init(label: "Settled min5", rawGenotype: "01_Middle", locus: "MHC-A", cells: ["", "5"]),
+            ], haplotypeCalls: [.init(sample: "Animal1", locus: "MHC-A", haplotype1: "Exact1", haplotype2: "Exact2", haplotype1Status: "called", haplotype2Status: "called", haplotype1Source: "pipeline", haplotype2Source: "pipeline", baselineHaplotype1: "Exact1", baselineHaplotype2: "Exact2")]) : nil
+            try await command.exportFilteredCopy(of: captured ? source : nil, result: makeResult(bundleURL: bundle), sidecar: nil, thresholds: .init(minimumReads: 5), projection: projection, bundleURL: bundle, outputURL: output, buildDir: build, managedPythonResolver: { python }, startedAt: Date())
+            try FileManager.default.removeItem(at: build)
+            let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: ProvenanceRecorder.fileSidecarURL(for: output)))
+            let retainedInputs = envelope.steps.flatMap(\.inputs).filter { $0.path.hasSuffix(".py") || $0.path.hasSuffix("presentation-payload.json") }
+            XCTAssertFalse(retainedInputs.isEmpty)
+            XCTAssertTrue(retainedInputs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }, "Renderer and payload must survive build-directory cleanup")
+            _ = try await runPython(python, script: #"""
+import sys
+from openpyxl import load_workbook
+w=load_workbook(sys.argv[1]); c=load_workbook(sys.argv[1],data_only=True)
+assert w.sheetnames==['Genotype Matrix','Haplotype Calls','Export Metadata'],w.sheetnames
+m=w['Genotype Matrix']
+if sys.argv[2]=='true':
+    row=next(r for r in m if r[2].value=='Captured')
+    assert row[3].value==1 and row[4].value is None
+    settled=next(r for r in m if r[2].value=='Settled min5')
+    assert settled[3].value is None and settled[4].value==5
+    formulas=[x for r in m for x in r if x.data_type=='f']
+    assert [c[m.title][x.coordinate].value for x in formulas]==['Exact1','Exact2']
+else:
+    row=next(r for r in m if r[2].value=='01_Background')
+    assert row[3].value==5 and row[4].value is None
+print('three-sheet filtered contract')
+"""#, arguments: [output.path, String(captured)], in: root)
+        }
+    }
+
     private typealias Command = GenotypeExportPivotXlsxSubcommand
     private typealias Thresholds = Command.PivotWorkbookBuilder.Thresholds
 
@@ -223,9 +298,9 @@ out = {
 print(json.dumps(out))
 """#
 
-    private func makeResult(bundleURL: URL) -> ONTGenotypeResultBundleData {
+    private func makeResult(bundleURL: URL, kind: String = "ont-barcode-genotype") -> ONTGenotypeResultBundleData {
         let manifest = ONTGenotypeResultBundleManifest(
-            outputName: "thresholds", analysisName: "Thresholds",
+            kind: kind, outputName: "thresholds", analysisName: "Thresholds",
             primaryWorkbookPath: "t.xlsx",
             longSummaryCSVPath: "g.csv", sampleSummaryCSVPath: "s.csv",
             statsJSONPath: "stats.json", provenancePath: "prov.json"

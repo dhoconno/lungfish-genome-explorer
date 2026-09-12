@@ -6078,7 +6078,8 @@ public final class GenotypeResultViewController: NSViewController {
                 annotationOnly: !currentWorkbookRequiresFullUpdate,
                 isReadOnly: store.isReadOnly,
                 haplotypeProjectionMode:
-                    currentWorkbookHaplotypeProjectionMode()
+                    currentWorkbookHaplotypeProjectionMode(),
+                presentationColors: resolvedWorkbookPresentationColors()
             )
         } catch {
             currentWorkbookNeedsRefresh = true
@@ -6247,6 +6248,20 @@ public final class GenotypeResultViewController: NSViewController {
         applyComparisonMatrixCohortFilter()
     }
 
+    private func resolvedWorkbookPresentationColors() -> [GenotypeWorkbookPresentation.Color] {
+        guard let result, let definition = definitionSetForResult(result) else { return [] }
+        return definition.locusDefinitions.flatMap { locus in
+            locus.haplotypes.map { haplotype in
+                let color = haplotype.effectiveFillColor
+                func channel(_ value: Double) -> Double {
+                    value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+                }
+                let luminance = 0.2126 * channel(color.red) + 0.7152 * channel(color.green) + 0.0722 * channel(color.blue)
+                return .init(locus: locus.locus, call: haplotype.name, fillHex: color.hexString, fontHex: luminance > 0.45 ? "#000000" : "#FFFFFF")
+            }
+        }
+    }
+
     private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
         if case .eligible = manualHaplotypeEligibility, let result {
             let index = GenotypeManualHaplotypeAssignmentIndex(
@@ -6278,7 +6293,12 @@ public final class GenotypeResultViewController: NSViewController {
                         haplotype1: assignments.h1?.label ?? "",
                         haplotype2: assignments.h2?.label ?? "",
                         status: GenotypeHaplotypeCallStatus.called.rawValue,
-                        notes: notes
+                        notes: notes,
+                        baselineHaplotype1: nil, baselineHaplotype2: nil,
+                        haplotype1Status: GenotypeHaplotypeCallStatus.called.rawValue,
+                        haplotype2Status: GenotypeHaplotypeCallStatus.called.rawValue,
+                        haplotype1Source: assignments.h1 == nil ? "unassigned" : "manualAssignment",
+                        haplotype2Source: assignments.h2 == nil ? "unassigned" : "manualAssignment"
                     )
                 }
             }
@@ -6297,7 +6317,11 @@ public final class GenotypeResultViewController: NSViewController {
                     status: effective.status.rawValue,
                     notes: currentWorkbookNotes(sample: sample.sample, locus: call.locus, base: call.notes),
                     baselineHaplotype1: call.haplotype1,
-                    baselineHaplotype2: call.haplotype2
+                    baselineHaplotype2: call.haplotype2,
+                    haplotype1Status: effective.h1Status.rawValue,
+                    haplotype2Status: effective.h2Status.rawValue,
+                    haplotype1Source: String(describing: effective.h1Source),
+                    haplotype2Source: String(describing: effective.h2Source)
                 )
             }
         }
@@ -9622,7 +9646,8 @@ public final class GenotypeResultViewController: NSViewController {
             haplotypeCalls: base.haplotypeCalls,
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            haplotypeLocusScope: base.haplotypeLocusScope,
+            presentationColors: base.presentationColors
         )
     }
 
@@ -9645,7 +9670,8 @@ public final class GenotypeResultViewController: NSViewController {
             haplotypeCalls: base.haplotypeCalls,
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            haplotypeLocusScope: base.haplotypeLocusScope,
+            presentationColors: base.presentationColors
         )
     }
 
@@ -9693,7 +9719,8 @@ public final class GenotypeResultViewController: NSViewController {
             haplotypeCalls: base.haplotypeCalls,
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            haplotypeLocusScope: base.haplotypeLocusScope,
+            presentationColors: resolvedWorkbookPresentationColors()
         )
     }
 
@@ -9720,7 +9747,8 @@ public final class GenotypeResultViewController: NSViewController {
                 haplotypeCalls: calls,
                 sourceRevision: sourceRevision,
                 haplotypeSampleScope: base.haplotypeSampleScope,
-                haplotypeLocusScope: base.haplotypeLocusScope
+                haplotypeLocusScope: base.haplotypeLocusScope,
+                presentationColors: base.presentationColors
             )
         }
         guard let analysis else {
@@ -9745,7 +9773,9 @@ public final class GenotypeResultViewController: NSViewController {
                             haplotype1Source: slots.h1 == nil ? "unassigned" : "manualAssignment",
                             haplotype2Source: slots.h2 == nil ? "unassigned" : "manualAssignment",
                             baselineHaplotype1: "", baselineHaplotype2: "",
-                            comment: notes.joined(separator: "; ")
+                            comment: notes.joined(separator: "; "),
+                            baselineHaplotype1Available: false,
+                            baselineHaplotype2Available: false
                         )
                     }
                 })
@@ -9784,7 +9814,7 @@ public final class GenotypeResultViewController: NSViewController {
         var calls: [GenotypeViewProjectionHaplotypeCall] = []
         for sample in visibleSamples {
             for locus in visibleLoci {
-                guard let value = resolution.locusValue(sample: sample, locus: locus) else { continue }
+                guard resolution.locusValue(sample: sample, locus: locus) != nil else { continue }
                 guard let rawCall = analysis.samples.first(where: { $0.sample == sample })?.calls.first(where: { $0.locus == locus }) else { continue }
                 let effective = effectiveHaplotypeCall(sample: sample, call: rawCall)
                 calls.append(.init(
@@ -9796,9 +9826,11 @@ public final class GenotypeResultViewController: NSViewController {
                     haplotype2Status: effective.h2Status.rawValue,
                     haplotype1Source: sourceName(effective.h1Source),
                     haplotype2Source: sourceName(effective.h2Source),
-                    baselineHaplotype1: value.h1.baseline,
-                    baselineHaplotype2: value.h2.baseline,
-                    comment: commentsBySampleLocus[sample + "\u{1f}" + locus]
+                    baselineHaplotype1: rawCall.haplotype1,
+                    baselineHaplotype2: rawCall.haplotype2,
+                    comment: commentsBySampleLocus[sample + "\u{1f}" + locus],
+                    baselineHaplotype1Available: true,
+                    baselineHaplotype2Available: true
                 ))
             }
         }

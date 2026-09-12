@@ -660,6 +660,7 @@ extension MainSplitViewController {
                     annotationOnly: pending.snapshot.annotationOnly,
                     haplotypeProjectionMode:
                         pending.snapshot.haplotypeProjectionMode,
+                    presentationColors: pending.snapshot.presentationColors,
                     fingerprint: fingerprint,
                     routeContext: pending.routeContext,
                     mayUpdate: self.mayUpdateGenotypeCurrentWorkbook(

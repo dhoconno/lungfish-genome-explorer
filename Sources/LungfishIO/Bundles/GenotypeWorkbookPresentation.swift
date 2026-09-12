@@ -125,7 +125,7 @@ public enum GenotypeWorkbookPresentation {
         }
     }
 
-    public struct Color: Codable, Sendable {
+    public struct Color: Codable, Sendable, Equatable {
         public let locus: String
         public let call: String
         public let fillHex: String

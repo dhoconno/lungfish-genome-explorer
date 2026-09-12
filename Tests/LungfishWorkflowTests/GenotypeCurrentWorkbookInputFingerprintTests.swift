@@ -5,6 +5,19 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
+    func testResolvedPaletteAndPresentationSchemaInvalidateCurrentWorkbook() throws {
+        let a = GenotypeWorkbookPresentation.Color(locus: "L", call: "A", fillHex: "#123456", fontHex: "#FFFFFF")
+        let b = GenotypeWorkbookPresentation.Color(locus: "L", call: "B", fillHex: "#654321", fontHex: "#FFFFFF")
+        func fingerprint(_ colors: [GenotypeWorkbookPresentation.Color], schema: Int = 2) throws -> GenotypeCurrentWorkbookInputFingerprint {
+            try .make(calls: [], includedLoci: [], annotationSidecar: nil, candidateArtifacts: nil, presentationColors: colors, presentationSchemaVersion: schema)
+        }
+        XCTAssertEqual(try fingerprint([a, b]), try fingerprint([b, a]))
+        XCTAssertNotEqual(try fingerprint([a, b]), try fingerprint([a]))
+        XCTAssertNotEqual(try fingerprint([a]), try fingerprint([a], schema: 3))
+        let changed = GenotypeWorkbookPresentation.Color(locus: "L", call: "A", fillHex: "#123457", fontHex: "#FFFFFF")
+        XCTAssertNotEqual(try fingerprint([a]), try fingerprint([changed]))
+    }
+
     func testManualProjectionFingerprintPreservesExactLociAndMode() throws {
         let dqa = call(
             sample: "Animal",
@@ -251,7 +264,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
 
         XCTAssertEqual(
             fingerprint.sha256,
-            "92585608e5451261e34c95e3b5ee1657979c3e9e3249d769eb0963bad98de7cc"
+            "4dcffa7b8227f3c1665d0d149918bb83a332db0b1c9176b9dce4cc8a968b1829"
         )
     }
 
@@ -465,8 +478,8 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             candidateArtifacts: nil
         )
 
-        XCTAssertEqual(GenotypeCurrentWorkbookInputFingerprint.schemaVersion, 3)
-        XCTAssertEqual(fingerprint.schemaVersion, 3)
+        XCTAssertEqual(GenotypeCurrentWorkbookInputFingerprint.schemaVersion, 4)
+        XCTAssertEqual(fingerprint.schemaVersion, 4)
         XCTAssertEqual(fingerprint.sha256.count, 64)
         XCTAssertNotNil(fingerprint.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression))
         XCTAssertEqual(

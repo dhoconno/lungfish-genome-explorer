@@ -35,6 +35,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
     /// definition matrix uses allele columns rather than sample columns).
     let haplotypeSampleScope: [String]?
     let haplotypeLocusScope: [String]?
+    let presentationColors: [GenotypeWorkbookPresentation.Color]
 
     init(
         bundleURL: URL,
@@ -50,7 +51,8 @@ struct GenotypeViewportExportSnapshot: Equatable {
         haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
         sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
         haplotypeSampleScope: [String]? = nil,
-        haplotypeLocusScope: [String]? = nil
+        haplotypeLocusScope: [String]? = nil,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = []
     ) {
         self.bundleURL = bundleURL
         self.analysisName = analysisName
@@ -66,6 +68,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.sourceRevision = sourceRevision
         self.haplotypeSampleScope = haplotypeSampleScope
         self.haplotypeLocusScope = haplotypeLocusScope
+        self.presentationColors = presentationColors
     }
 }
 

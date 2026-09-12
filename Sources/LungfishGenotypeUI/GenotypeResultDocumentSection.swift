@@ -78,6 +78,7 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
 }
 
 public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
+    public let presentationColors: [GenotypeWorkbookPresentation.Color]
     public let bundleURL: URL
     public let calls: [GenotypeWorkbookHaplotypeCall]
     public let includedLoci: [String]
@@ -105,9 +106,11 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         annotationOnly: Bool,
         isReadOnly: Bool,
         haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = []
     ) {
         self.bundleURL = bundleURL.standardizedFileURL
+        self.presentationColors = presentationColors
         self.calls = calls
         self.includedLoci = includedLoci
         self.annotationSidecar = annotationSidecar
@@ -135,6 +138,7 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         isReadOnly: Bool,
         haplotypeProjectionMode:
             GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = [],
         encoder: @Sendable (GenotypeAnnotationSidecar) throws -> Data = {
             try $0.encoded()
         }
@@ -152,7 +156,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
                 reviewableRowCatalogSchemaVersion,
             annotationOnly: annotationOnly,
             isReadOnly: isReadOnly,
-            haplotypeProjectionMode: haplotypeProjectionMode
+            haplotypeProjectionMode: haplotypeProjectionMode,
+            presentationColors: presentationColors
         )
     }
 }

@@ -56,6 +56,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         annotationOnly: Bool = false,
         haplotypeProjectionMode:
             GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = [],
         inputFingerprint: GenotypeCurrentWorkbookInputFingerprint? = nil,
         syncIntent: GenotypeCurrentWorkbookSyncIntent? = nil,
         routeContext: OperationRouteContext? = nil
@@ -73,7 +74,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 stagingDirectoryOpener: stagingDirectoryOpener
             )
         }.value
-        let arguments = cliArguments(
+        var arguments = cliArguments(
             bundleURL: bundle,
             callsURL: snapshot.callsURL,
             includedLoci: includedLoci,
@@ -83,6 +84,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             inputFingerprint: inputFingerprint,
             syncIntent: syncIntent
         )
+        let paletteEncoder = JSONEncoder()
+        paletteEncoder.outputFormatting = [.sortedKeys]
+        arguments += ["--presentation-colors", String(decoding: try paletteEncoder.encode(presentationColors), as: UTF8.self)]
         let cliCommand = ViralReconWorkflowCommandPreview.build(
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
