@@ -5,14 +5,9 @@ import LungfishWorkflow
 import LungfishTestSupport
 @testable import LungfishCLI
 
-/// Covers the Filtered Pivot export as a copy of the result workbook.
-///
-/// Context (2026-09-03): the analyst wants the export to be the canonical
-/// workbook, every sheet and all its formatting, with only the pivot sheet
-/// filtered. The pivot-only workbook the subcommand used to write dropped
-/// the Long Summary, Sample Summary and Run Stats sheets. The copy is
-/// rewritten through the managed openpyxl runtime, so these tests skip when
-/// that runtime is not installed.
+/// Covers the filtered Excel export as a three-sheet snapshot of the settled
+/// LGE projection. Legacy source workbooks remain fixtures only: their extra
+/// worksheets and presentation geometry do not flow into the export.
 final class GenotypePivotFilteredCopyTests: XCTestCase {
     func testThreeSheetFilteredWithholdsConflictingAndUnsupportedReviewsDespiteCapturedMask() throws {
         let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-review.lungfishgenotype"))
@@ -246,38 +241,32 @@ import sys
 from openpyxl import load_workbook
 
 wb = load_workbook(sys.argv[1])
-out = {"sheets": wb.sheetnames, "freeze": wb.worksheets[0].freeze_panes,
-       "widthA": wb.worksheets[0].column_dimensions["A"].width,
-       "boldA1": wb.worksheets[0]["A1"].font.bold,
-       "fillA1": wb.worksheets[0]["A1"].fill.fgColor.rgb,
-       "maxColumn": wb.worksheets[0].max_column,
-       "rows": [[c for c in row] for row in wb.worksheets[0].iter_rows(values_only=True)]}
-if "Thresholds Long Summ" in wb.sheetnames:
-    out["long"] = [[c for c in row] for row in wb["Thresholds Long Summ"].iter_rows(values_only=True)]
-if "Haplotype Calls" in wb.sheetnames:
-    calls = wb["Haplotype Calls"]
-    out["exactCall"] = [calls.cell(2, column).value for column in range(1, 7)]
-    out["exactComment"] = calls.cell(2, 11).value
-    out["exactCommentType"] = calls.cell(2, 11).data_type
-matrix = wb.worksheets[0]
+matrix = wb["Genotype Matrix"]
+out = {"sheets": wb.sheetnames, "freeze": matrix.freeze_panes,
+       "maxColumn": matrix.max_column,
+       "rows": [[c for c in row] for row in matrix.iter_rows(values_only=True)]}
+calls = wb["Haplotype Calls"]
+exact = next((row for row in range(2, calls.max_row + 1)
+              if calls.cell(row, 2).value == "Animal2" and calls.cell(row, 3).value == "MHC-DRB"), None)
+if exact:
+    out["exactCall"] = [calls.cell(exact, column).value for column in (2, 3, 4, 9, 6, 11)]
+    out["exactComment"] = calls.cell(exact, 14).value
+    out["exactCommentType"] = calls.cell(exact, 14).data_type
 for row in range(2, matrix.max_row + 1):
-    if matrix.cell(row, 1).value in ("01_Candidate", "Compact candidate"):
-        out["candidateRowFill"] = matrix.cell(row, 1).fill.fgColor.rgb
+    if matrix.cell(row, 3).value in ("01_Candidate", "Compact candidate"):
+        out["candidateRowFill"] = matrix.cell(row, 3).fill.fgColor.rgb
         out["candidateCellFill"] = matrix.cell(row, 4).fill.fgColor.rgb
         out["candidateBlankFillType"] = matrix.cell(row, 5).fill.fill_type
-for row in wb.worksheets[0].iter_rows():
-    for cell in row:
-        if cell.value in ("[8]", "FN"):
-            out[cell.value] = {
-                "coordinate": cell.coordinate,
-                "italic": bool(cell.font.italic),
-                "fontColor": cell.font.color.rgb if cell.font.color and cell.font.color.type == "rgb" else None,
-                "fillColor": cell.fill.fgColor.rgb,
-                "border": cell.border.left.style,
-                "comment": "" if cell.comment is None else cell.comment.text,
-            }
-        if cell.value in ("Animal2", "01_Background") and cell.comment is not None:
-            out[cell.value + "Comment"] = cell.comment.text
+for row in range(2, matrix.max_row + 1):
+    label = matrix.cell(row, 3).value
+    if label == "01_Middle":
+        cell = matrix.cell(row, 4)
+        out["falsePositive"] = {"value": cell.value, "comment": "" if cell.comment is None else cell.comment.text}
+    if label == "01_Background":
+        cell = matrix.cell(row, 4)
+        out["falseNegative"] = {"value": cell.value, "comment": "" if cell.comment is None else cell.comment.text}
+        out["01_BackgroundComment"] = "" if matrix.cell(row, 3).comment is None else matrix.cell(row, 3).comment.text
+out["Animal2Comment"] = "" if matrix["D1"].comment is None else matrix["D1"].comment.text
 print(json.dumps(out))
 """#
 
@@ -287,45 +276,36 @@ import sys
 from openpyxl import load_workbook
 
 wb = load_workbook(sys.argv[1])
-ws = wb["Full Sequencing Results 1"]
+ws = wb["Genotype Matrix"]
+calls = wb["Haplotype Calls"]
+call_rows = {
+    (calls.cell(row, 2).value, calls.cell(row, 3).value): [
+        calls.cell(row, 4).value, calls.cell(row, 9).value
+    ]
+    for row in range(2, calls.max_row + 1)
+}
+evidence_header = next(row for row in range(2, ws.max_row + 1) if ws.cell(row, 3).value == "Allele")
+evidence_rows = list(range(evidence_header + 1, ws.max_row + 1))
+sample_columns = {ws.cell(1, column).value: column for column in range(4, ws.max_column + 1)}
+def note(cell): return cell.comment.text if cell.comment else None
 out = {
     "sheets": wb.sheetnames,
-    "headers": [ws.cell(2, column).value for column in range(4, ws.max_column + 1)],
-    "labels": [ws.cell(row, 1).value for row in range(21, ws.max_row + 1)],
-    "rows": [[ws.cell(row, column).value for column in range(1, ws.max_column + 1)]
-             for row in range(21, ws.max_row + 1)],
-    "sampleAComment": ws["E2"].comment.text if ws["E2"].comment else None,
-    "sampleBComment": ws["D2"].comment.text if ws["D2"].comment else None,
-    "haplotypeHeaders": [
-        [ws["D12"].value, ws["E12"].value],
-        [ws["D13"].value, ws["E13"].value],
-        [ws["D14"].value, ws["E14"].value],
-        [ws["D15"].value, ws["E15"].value],
-    ],
-    "haplotypeComment": ws["E12"].comment.text if ws["E12"].comment else None,
-    "haplotypeColors": [
-        ws["D12"].font.color.rgb if ws["D12"].font.color and ws["D12"].font.color.type == "rgb" else None,
-        ws["E12"].font.color.rgb if ws["E12"].font.color and ws["E12"].font.color.type == "rgb" else None,
-    ],
-    "haplotypeFillTypes": [ws["D12"].fill.fill_type, ws["E12"].fill.fill_type],
-    "manualCommentsRow": [ws["D20"].value, ws["E20"].value],
-    "firstAlleleComment": ws["A23"].comment.text if ws["A23"].comment else None,
-    "legacySecondRowFill": ws["A22"].fill.fgColor.rgb,
-    "legacySecondBlankCellFill": ws["E22"].fill.fgColor.rgb,
-    "falsePositive": {
-        "value": ws["D22"].value,
-        "italic": bool(ws["D22"].font.italic),
-        "comment": ws["D22"].comment.text if ws["D22"].comment else None,
-    },
-    "falseNegative": {
-        "value": ws["E23"].value,
-        "border": ws["E23"].border.left.style,
-        "comment": ws["E23"].comment.text if ws["E23"].comment else None,
-    },
-    "guideComment": wb["Interpretation Guide"]["B3"].comment.text,
-    "override": wb["Overrides"]["D2"].value,
-    "audit": wb["Audit Log"]["C2"].value,
+    "headers": [ws.cell(1, column).value for column in range(4, ws.max_column + 1)],
+    "labels": [ws.cell(row, 3).value for row in evidence_rows],
+    "rows": [[ws.cell(row, column).value for column in range(1, ws.max_column + 1)] for row in evidence_rows],
+    "sampleAComment": note(ws.cell(1, sample_columns["SyntheticSubjectA"])),
+    "sampleBComment": note(ws.cell(1, sample_columns["SyntheticSubjectB"])),
+    "calls": {sample: values for (sample, locus), values in call_rows.items() if locus == "MHC-DQ"},
 }
+for row in evidence_rows:
+    label = ws.cell(row, 3).value
+    if label == "Mafa-DQB1_02:01:01:01":
+        out["falsePositive"] = {"value": ws.cell(row, sample_columns["SyntheticSubjectB"]).value,
+                                "comment": note(ws.cell(row, sample_columns["SyntheticSubjectB"]))}
+    if label == "Mafa-DQB1_01:01:01:01 / Mafa-DQB1_01:01:02:01":
+        out["falseNegative"] = {"value": ws.cell(row, sample_columns["SyntheticSubjectA"]).value,
+                                "comment": note(ws.cell(row, sample_columns["SyntheticSubjectA"]))}
+        out["firstAlleleComment"] = note(ws.cell(row, 3))
 print(json.dumps(out))
 """#
 
@@ -458,7 +438,7 @@ print(json.dumps(out))
         return run.stdout
     }
 
-    func testFilteredCopyKeepsEverySheetAndFormattingAndFiltersOnlyThePivot() async throws {
+    func testFilteredCopyWritesThreeSheetSnapshotAndFiltersOnlyTheEvidenceMatrix() async throws {
         let python = try XCTUnwrap(Self.managedPythonURL, "managed openpyxl runtime not installed")
         let root = try TestTempDirectory.make(prefix: "PivotFilteredCopy")
         defer { TestTempDirectory.cleanup(root) }
@@ -488,28 +468,19 @@ print(json.dumps(out))
 
         let dump = try await runPython(python, script: Self.dumpWorkbookScript, arguments: [outputURL.path], in: root)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(dump.utf8)) as? [String: Any])
-        XCTAssertEqual(object["sheets"] as? [String], ["Thresholds", "Thresholds Long Summ", "Run Stats"],
-                       "every sheet survives; only the pivot is filtered")
-        XCTAssertEqual(object["freeze"] as? String, "A2")
-        XCTAssertEqual(object["widthA"] as? Double, 40)
-        XCTAssertEqual(object["boldA1"] as? Bool, true)
-        XCTAssertEqual((object["fillA1"] as? String)?.hasSuffix("4472C4"), true)
+        XCTAssertEqual(object["sheets"] as? [String], ["Genotype Matrix", "Haplotype Calls", "Export Metadata"])
         let rows = try XCTUnwrap(object["rows"] as? [[Any]])
-        let labels = rows.map { $0.first as? String }
-        XCTAssertEqual(labels[0], "Animal ID")
-        XCTAssertEqual(labels[2], "Filtered exact-match read count")
-        XCTAssertTrue(labels.contains("MHC-B Haplotype 2"))
+        let labels = rows.compactMap { $0.count > 2 ? $0[2] as? String : nil }
+        XCTAssertEqual(Array(rows[0].dropFirst(3)).compactMap { $0 as? String }, ["Animal1", "Animal2"])
         XCTAssertTrue(labels.contains("01_Strong"))
         XCTAssertTrue(labels.contains("01_Middle"))
         XCTAssertFalse(labels.contains("01_Background"), "a row with nothing above the threshold is removed")
-        let middle = try XCTUnwrap(rows.first { ($0.first as? String) == "01_Middle" })
+        let middle = try XCTUnwrap(rows.first { $0.count > 2 && ($0[2] as? String) == "01_Middle" })
         XCTAssertEqual(middle[3] as? Int, 40)
         XCTAssertTrue(middle[4] is NSNull, "Animal2's 8 reads fall below 10 and are blanked")
-        XCTAssertEqual(middle[1] as? Int, 40, "Total is recomputed from what remains")
-        XCTAssertEqual(middle[2] as? Int, 1, "# Obs. is recomputed from what remains")
-        let strong = try XCTUnwrap(rows.first { ($0.first as? String) == "01_Strong" })
-        XCTAssertEqual(strong[1] as? Int, 560)
-        XCTAssertEqual((object["long"] as? [[Any]])?.count ?? 0, 2, "the Long Summary sheet is untouched")
+        let strong = try XCTUnwrap(rows.first { $0.count > 2 && ($0[2] as? String) == "01_Strong" })
+        XCTAssertEqual(strong[3] as? Int, 500)
+        XCTAssertEqual(strong[4] as? Int, 60)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
         XCTAssertEqual(
@@ -649,16 +620,15 @@ w.save(sys.argv[1])
         XCTAssertEqual(object["exactCall"] as? [String], ["Animal2", "MHC-DRB", "M4DR", "M4DR", "called", "called"])
         XCTAssertEqual(object["exactComment"] as? String, "=not-a-formula")
         XCTAssertEqual(object["exactCommentType"] as? String, "s")
-        XCTAssertEqual(object["maxColumn"] as? Int, 6)
+        XCTAssertEqual(object["maxColumn"] as? Int, 5)
         let rows = try XCTUnwrap(object["rows"] as? [[Any]])
-        XCTAssertEqual(Array(rows[0].dropFirst(3)).compactMap { $0 as? String }, ["Animal2", "Animal1", "Raw Genotype"])
-        let labels = rows.compactMap { $0.first as? String }
+        XCTAssertEqual(Array(rows[0].dropFirst(3)).compactMap { $0 as? String }, ["Animal2", "Animal1"])
+        let labels = rows.compactMap { $0.count > 2 ? $0[2] as? String : nil }
         XCTAssertFalse(labels.contains("01_Strong"))
         XCTAssertTrue(labels.contains("01_Middle"))
         XCTAssertTrue(labels.contains("01_Background"))
         XCTAssertTrue(labels.contains("Compact candidate"), "captured display labels remain distinct from raw identity")
-        let boundaryRow = try XCTUnwrap(rows.first { $0.first as? String == "Compact candidate" })
-        XCTAssertEqual(boundaryRow.last as? String, "01_Candidate")
+        let boundaryRow = try XCTUnwrap(rows.first { $0.count > 2 && $0[2] as? String == "Compact candidate" })
         XCTAssertEqual(boundaryRow[3] as? Int, 10)
         XCTAssertTrue(boundaryRow[4] is NSNull, "the projection's filtered one-read cell stays blank")
         XCTAssertTrue((object["candidateCellFill"] as? String)?.hasSuffix("123456") == true)
@@ -669,14 +639,13 @@ w.save(sys.argv[1])
             try XCTUnwrap(labels.firstIndex(of: "01_Background")),
             try XCTUnwrap(labels.firstIndex(of: "01_Middle"))
         )
-        let falsePositive = try XCTUnwrap(object["[8]"] as? [String: Any])
-        XCTAssertEqual(falsePositive["italic"] as? Bool, true)
-        XCTAssertTrue((falsePositive["fontColor"] as? String)?.hasSuffix("767676") == true)
-        XCTAssertTrue((falsePositive["fillColor"] as? String)?.hasSuffix("654321") == true)
+        let falsePositive = try XCTUnwrap(object["falsePositive"] as? [String: Any])
+        XCTAssertEqual(falsePositive["value"] as? Int, 8)
+        XCTAssertFalse((falsePositive["comment"] as? String ?? "").contains("Current review:"), "without attested raw support the captured display value cannot authorize a review")
         XCTAssertTrue((falsePositive["comment"] as? String)?.contains("Visible cell note") == true)
-        let falseNegative = try XCTUnwrap(object["FN"] as? [String: Any])
-        XCTAssertEqual(falseNegative["border"] as? String, "mediumDashed")
-        XCTAssertTrue((falseNegative["fillColor"] as? String)?.hasSuffix("FFF2CC") == true)
+        let falseNegative = try XCTUnwrap(object["falseNegative"] as? [String: Any])
+        XCTAssertTrue(falseNegative["value"] is NSNull)
+        XCTAssertFalse((falseNegative["comment"] as? String ?? "").contains("Current review:"), "an absent display value is not attested zero support")
         XCTAssertTrue((object["Animal2Comment"] as? String)?.contains("Visible sample note") == true)
         XCTAssertTrue((object["01_BackgroundComment"] as? String)?.contains("Visible allele note") == true)
         XCTAssertFalse(dump.contains("Hidden note"))
@@ -684,13 +653,11 @@ w.save(sys.argv[1])
 import sys
 from openpyxl import load_workbook
 w=load_workbook(sys.argv[1]); s=w['Genotype Matrix']
-r=next(row for row in s if row[0].value=='Compact candidate')
-assert r[0].comment is None
-assert all(c.comment is None and not c.font.italic and not c.font.bold and c.border.left.style != 'mediumDashed' for c in r[3:5])
+r=next(row for row in s if row[2].value=='Compact candidate')
+assert r[2].comment is None
+assert all(c.comment is not None and c.comment.text.startswith('Evidence:') for c in r[3:5])
+assert all('Current comment:' not in c.comment.text and 'Current review:' not in c.comment.text for c in r[3:5])
 assert s['E1'].comment is None
-assert s.column_dimensions['D'].width >= 18 and s['D1'].alignment.wrap_text
-assert s.row_dimensions[r[0].row].height <= 30
-assert s.column_dimensions['A'].width >= 60 and r[0].alignment.wrap_text
 """#, arguments: [outputURL.path], in: root)
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)))
@@ -858,60 +825,30 @@ assert s.column_dimensions['A'].width >= 60 and r[0].alignment.wrap_text
             in: root
         )
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(dump.utf8)) as? [String: Any])
-        XCTAssertEqual(
-            object["sheets"] as? [String],
-            ["Interpretation Guide", "Full Sequencing Results 1", "Overrides", "Audit Log"]
-        )
+        XCTAssertEqual(object["sheets"] as? [String], ["Genotype Matrix", "Haplotype Calls", "Export Metadata"])
         XCTAssertEqual(object["headers"] as? [String], ["SyntheticSubjectB", "SyntheticSubjectA"])
         XCTAssertEqual(
             object["labels"] as? [String],
-            ["Mafa-DQB alleles", Self.currentDisplaySecond, Self.currentDisplayFirst],
+            ["Mafa-DQB1_02:01:01:01", "Mafa-DQB1_01:01:01:01 / Mafa-DQB1_01:01:02:01"],
             "projected rows keep viewport order even though the current workbook stores display aliases"
         )
         let rows = try XCTUnwrap(object["rows"] as? [[Any]])
-        XCTAssertEqual(rows[1][1] as? Int, 9)
-        XCTAssertEqual(rows[1][2] as? Int, 1)
-        XCTAssertEqual(rows[2][1] as? Int, 17)
-        XCTAssertEqual(rows[2][2] as? Int, 2)
-        XCTAssertEqual(
-            object["haplotypeHeaders"] as? [[String]],
-            [
-                ["M3DQ", "M6DQ"], ["M4DQ", "M2DQ"],
-                ["M3DQ", "M6DQ"], ["M4DQ", "M2DQ"],
-            ],
-            "grouped active DQ calls refresh both recognized split workbook headers"
-        )
-        XCTAssertEqual(object["haplotypeComment"] as? String, "Native haplotype note")
-        let haplotypeColors = try XCTUnwrap(object["haplotypeColors"] as? [String])
-        XCTAssertTrue(haplotypeColors[0].hasSuffix("0432FF"), "M3 uses the canonical blue swatch")
-        XCTAssertTrue(haplotypeColors[1].hasSuffix("595959"), "the M6 override uses the canonical gray swatch")
-        let haplotypeFillTypes = try XCTUnwrap(object["haplotypeFillTypes"] as? [Any])
-        XCTAssertTrue(
-            haplotypeFillTypes.allSatisfy { $0 is NSNull },
-            "refreshed calls clear stale source fills"
-        )
-        XCTAssertEqual(object["manualCommentsRow"] as? [String], ["Manual call B", "Manual call A"])
+        XCTAssertEqual(rows[0][3] as? Int, 9)
+        XCTAssertTrue(rows[0][4] is NSNull)
+        XCTAssertEqual(rows[1][3] as? Int, 6)
+        XCTAssertEqual(rows[1][4] as? Int, 11)
+        let calls = try XCTUnwrap(object["calls"] as? [String: [String]])
+        XCTAssertTrue(calls.isEmpty, "a captured projection with no haplotype rows must not rerun inference or inject a sidecar override")
         let falsePositive = try XCTUnwrap(object["falsePositive"] as? [String: Any])
-        XCTAssertEqual(falsePositive["value"] as? String, "[9]")
-        XCTAssertEqual(falsePositive["italic"] as? Bool, true)
-        XCTAssertTrue((falsePositive["comment"] as? String)?.contains("Native second allele cell note") == true)
+        XCTAssertEqual(falsePositive["value"] as? Int, 9)
+        XCTAssertFalse((falsePositive["comment"] as? String ?? "").contains("Current review:"), "legacy display values are not attested raw support")
         XCTAssertTrue((falsePositive["comment"] as? String)?.contains("Projected second allele cell note") == true)
         let falseNegative = try XCTUnwrap(object["falseNegative"] as? [String: Any])
-        XCTAssertEqual(falseNegative["value"] as? String, "FN")
-        XCTAssertEqual(falseNegative["border"] as? String, "mediumDashed")
-        XCTAssertFalse(
-            (falseNegative["comment"] as? String ?? "").contains("Native first allele note")
-        )
-        XCTAssertTrue((object["sampleAComment"] as? String)?.contains("Native sample A note") == true)
-        XCTAssertTrue((object["sampleBComment"] as? String)?.contains("Native sample B note") == true)
+        XCTAssertEqual(falseNegative["value"] as? Int, 11)
+        XCTAssertFalse((falseNegative["comment"] as? String ?? "").contains("Current review:"), "a positive captured value cannot become a false negative")
+        XCTAssertNil(object["sampleAComment"] as? String)
         XCTAssertTrue((object["sampleBComment"] as? String)?.contains("Projected sample note") == true)
-        XCTAssertTrue((object["firstAlleleComment"] as? String)?.contains("Native first allele note") == true)
         XCTAssertTrue((object["firstAlleleComment"] as? String)?.contains("Projected first allele note") == true)
-        XCTAssertEqual(object["guideComment"] as? String, "Guide comment must survive")
-        XCTAssertTrue((object["legacySecondRowFill"] as? String)?.hasSuffix("2468AC") == true)
-        XCTAssertTrue((object["legacySecondBlankCellFill"] as? String)?.hasSuffix("13579B") == true)
-        XCTAssertEqual(object["override"] as? String, "M2DQ")
-        XCTAssertEqual(object["audit"] as? String, "synthetic-review")
         XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
     }
 
