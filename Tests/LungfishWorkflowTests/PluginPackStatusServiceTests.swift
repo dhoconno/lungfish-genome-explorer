@@ -1,7 +1,200 @@
+import CryptoKit
 import XCTest
 @testable import LungfishWorkflow
 
 final class PluginPackStatusServiceTests: XCTestCase {
+    func testSelectedInstallRepairsStalePrimalSchemeWithoutChangingUnhealthyPrimer3() async throws {
+        let fixture = try await makeSelectedPrimerRuntimeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.sandbox) }
+        let service = PluginPackStatusService(
+            condaManager: fixture.manager,
+            installAction: { _, environment, reinstall, _ in
+                guard environment == "primalscheme3", reinstall else {
+                    throw NSError(domain: "UnexpectedUnrelatedInstall", code: 1)
+                }
+                try FileManager.default.createDirectory(
+                    at: fixture.primalEnvironment, withIntermediateDirectories: true)
+            },
+            pythonRuntimeInstallAction: { requirement, environment, _ in
+                try Self.writeSelectedPrimerRuntime(
+                    spec: XCTUnwrap(requirement.pythonRuntime), environment: environment)
+            })
+        let initial = await service.status(for: fixture.pack)
+        XCTAssertEqual(initial.toolStatuses.map(\.isReady), [false, false])
+        XCTAssertTrue(initial.toolStatuses[1].smokeTestFailure?.contains("3.3.0+lge.2") == true)
+
+        try await service.install(
+            pack: fixture.pack, requirementIDs: ["primalscheme3"], progress: nil)
+
+        let status = await service.status(for: fixture.pack)
+        XCTAssertEqual(status.pack.id, fixture.pack.id)
+        XCTAssertEqual(status.pack.toolRequirements.map(\.id), ["primer3", "primalscheme3"])
+        XCTAssertEqual(status.state, .needsInstall, "Selected recovery must not claim the whole pack is ready.")
+        XCTAssertEqual(status.toolStatuses.map(\.isReady), [false, true])
+        XCTAssertEqual(try String(contentsOf: fixture.primerSentinel, encoding: .utf8), "keep primer3")
+        let receipt = try ManagedPythonRuntimeReceipt.load(from: fixture.receiptURL)
+        XCTAssertTrue(receipt.validates(spec: fixture.currentSpec, environmentURL: fixture.primalEnvironment))
+
+        // A second selected recovery must skip the now-ready runtime, even while
+        // the other requirement remains unhealthy and would fail installation.
+        let noInstallService = PluginPackStatusService(
+            condaManager: fixture.manager,
+            installAction: { _, _, _, _ in throw NSError(domain: "UnexpectedRepeatInstall", code: 2) })
+        try await noInstallService.install(
+            pack: fixture.pack, requirementIDs: ["primalscheme3"], progress: nil)
+        let stillPartial = await noInstallService.status(for: fixture.pack)
+        XCTAssertEqual(stillPartial.state, .needsInstall)
+        XCTAssertEqual(stillPartial.toolStatuses.map(\.isReady), [false, true])
+    }
+
+    func testSelectedInstallVerificationFailureRestoresPreviousRuntime() async throws {
+        let fixture = try await makeSelectedPrimerRuntimeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.sandbox) }
+        let previousReceipt = try Data(contentsOf: fixture.receiptURL)
+        let service = PluginPackStatusService(
+            condaManager: fixture.manager,
+            installAction: { _, environment, reinstall, _ in
+                guard environment == "primalscheme3", reinstall else {
+                    throw NSError(domain: "UnexpectedUnrelatedInstall", code: 1)
+                }
+                try FileManager.default.createDirectory(
+                    at: fixture.primalEnvironment, withIntermediateDirectories: true)
+            },
+            pythonRuntimeInstallAction: { _, _, _ in })
+
+        do {
+            try await service.install(
+                pack: fixture.pack, requirementIDs: ["primalscheme3"], progress: nil)
+            XCTFail("An unverified selected runtime must fail and restore its previous installation.")
+        } catch let error as PluginPackStatusServiceError {
+            guard case .verificationFailed(let requirementID, _) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(requirementID, "primalscheme3", "Unrelated Primer3 failure must not mask this failure.")
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.receiptURL), previousReceipt)
+        XCTAssertEqual(try String(contentsOf: fixture.primerSentinel, encoding: .utf8), "keep primer3")
+        let status = await service.status(for: fixture.pack)
+        XCTAssertEqual(status.toolStatuses.map(\.isReady), [false, false])
+    }
+
+    func testCancellationDuringSelectedFinalVerificationRestoresPreviousRuntime() async throws {
+        final class VerificationCancellation: @unchecked Sendable {
+            private let lock = NSLock()
+            private var armed = false
+            private var enteredVerification = false
+
+            func arm() { lock.withLock { armed = true } }
+            func cancelOnVerificationEntry() {
+                let shouldCancel = lock.withLock {
+                    guard armed else { return false }
+                    armed = false
+                    enteredVerification = true
+                    return true
+                }
+                if shouldCancel { withUnsafeCurrentTask { $0?.cancel() } }
+            }
+            var didEnterVerification: Bool { lock.withLock { enteredVerification } }
+        }
+
+        let fixture = try await makeSelectedPrimerRuntimeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.sandbox) }
+        let previousReceipt = try Data(contentsOf: fixture.receiptURL)
+        let cancellation = VerificationCancellation()
+        let service = PluginPackStatusService(
+            condaManager: fixture.manager,
+            installAction: { _, environment, reinstall, _ in
+                guard environment == "primalscheme3", reinstall else {
+                    throw NSError(domain: "UnexpectedUnrelatedInstall", code: 1)
+                }
+                try FileManager.default.createDirectory(
+                    at: fixture.primalEnvironment, withIntermediateDirectories: true)
+            },
+            pythonRuntimeInstallAction: { requirement, environment, _ in
+                try Self.writeSelectedPrimerRuntime(
+                    spec: XCTUnwrap(requirement.pythonRuntime), environment: environment)
+                cancellation.arm()
+            },
+            storageAvailability: {
+                // Storage is checked at entry to final readiness evaluation,
+                // after the post-install cancellation checks have passed.
+                cancellation.cancelOnVerificationEntry()
+                return .available(.init(rootURL: fixture.sandbox))
+            })
+        let install = Task {
+            try await service.install(pack: fixture.pack, requirementIDs: ["primalscheme3"], progress: nil)
+        }
+
+        do {
+            try await install.value
+            XCTFail("Cancellation during verification must not commit the replacement runtime.")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        XCTAssertTrue(cancellation.didEnterVerification)
+        XCTAssertEqual(try Data(contentsOf: fixture.receiptURL), previousReceipt)
+        XCTAssertEqual(try String(contentsOf: fixture.primerSentinel, encoding: .utf8), "keep primer3")
+        let status = await service.status(for: fixture.pack)
+        XCTAssertEqual(status.toolStatuses.map(\.isReady), [false, false])
+        let lease = try await CondaEnvironmentMutationLock.acquireCancellable(
+            root: fixture.manager.rootPrefix, environment: "primalscheme3")
+        lease.release()
+    }
+
+    func testSelectedInstallRejectsEmptyAndUnknownIDsBeforeMutation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("selected-invalid-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = CondaManager(
+            rootPrefix: root, bundledMicromambaProvider: { nil }, bundledMicromambaVersionProvider: { nil })
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "pcr-primer-design"))
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, _, _, _ in throw NSError(domain: "UnexpectedInvalidInstall", code: 1) })
+
+        let selections: [Set<String>] = [[], ["missing"], ["primalscheme3", "missing"]]
+        for ids in selections {
+            do {
+                try await service.install(pack: pack, requirementIDs: ids, progress: nil)
+                XCTFail("Invalid selection must be rejected: \(ids)")
+            } catch let error as PluginPackStatusServiceError {
+                guard case .invalidRequirementSelection = error else {
+                    return XCTFail("Unexpected error: \(error)")
+                }
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.path),
+                "Selection validation must precede locks, status caching, and installation.")
+        }
+    }
+
+    func testProviderWithoutSelectedInstallSupportNeverFallsBackToWholePackInstall() async throws {
+        actor LegacyProvider: PluginPackStatusProviding {
+            var wholePackInstallCalls = 0
+            func visibleStatuses() async -> [PluginPackStatus] { [] }
+            func status(for pack: PluginPack) async -> PluginPackStatus {
+                .init(pack: pack, state: .needsInstall, toolStatuses: [], failureMessage: nil)
+            }
+            func invalidateVisibleStatusesCache() async {}
+            func install(pack: PluginPack, reinstall: Bool,
+                         progress: (@Sendable (PluginPackInstallProgress) -> Void)?) async throws {
+                wholePackInstallCalls += 1
+            }
+            func installCount() -> Int { wholePackInstallCalls }
+        }
+        let provider = LegacyProvider()
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "pcr-primer-design"))
+
+        do {
+            try await provider.install(pack: pack, requirementIDs: ["primalscheme3"], progress: nil)
+            XCTFail("A provider without selected-install support must reject the request.")
+        } catch let error as PluginPackStatusServiceError {
+            XCTAssertEqual(error, .selectedRequirementInstallUnsupported)
+        }
+        let count = await provider.installCount()
+        XCTAssertEqual(count, 0)
+    }
+
     func testPythonVersionCannotSatisfyMissingManagedDistributionReceipt() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("python-runtime-status-\(UUID().uuidString)")
@@ -2399,6 +2592,87 @@ final class PluginPackStatusServiceTests: XCTestCase {
             log.range(of: "failing-tool")!.lowerBound,
             log.range(of: "succeeding-tool")!.lowerBound
         )
+    }
+
+    private struct SelectedPrimerRuntimeFixture: Sendable {
+        let sandbox: URL
+        let manager: CondaManager
+        let pack: PluginPack
+        let primalEnvironment: URL
+        let primerSentinel: URL
+        let receiptURL: URL
+        let currentSpec: ManagedPythonRuntimeSpec
+    }
+
+    private func makeSelectedPrimerRuntimeFixture() async throws -> SelectedPrimerRuntimeFixture {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("selected-primer-runtime-\(UUID().uuidString)")
+        let micromamba = try makeFakeMicromamba(at: sandbox.appendingPathComponent("micromamba"), version: "2.0.5-0")
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba }, bundledMicromambaVersionProvider: { "2.0.5-0" })
+        _ = try await manager.ensureMicromamba()
+        let currentSpec = Self.selectedPrimerRuntimeSpec(version: "3.3.0+lge.2")
+        let primalEnvironment = await manager.environmentURL(named: "primalscheme3")
+        try Self.writeSelectedPrimerRuntime(
+            spec: Self.selectedPrimerRuntimeSpec(version: "3.3.0+lge.1"), environment: primalEnvironment)
+        let primerEnvironment = await manager.environmentURL(named: "primer3")
+        try FileManager.default.createDirectory(at: primerEnvironment, withIntermediateDirectories: true)
+        let primerSentinel = primerEnvironment.appendingPathComponent("keep.txt")
+        try Data("keep primer3".utf8).write(to: primerSentinel)
+        let pack = PluginPack(
+            id: "pcr-primer-design", name: "PCR Primer Design", description: "Selected runtime test",
+            sfSymbol: "wrench", packages: [], category: "Tests", requirements: [
+                .init(id: "primer3", displayName: "Primer3", environment: "primer3",
+                      installPackages: ["primer3"], executables: ["primer3_core"]),
+                .init(id: "primalscheme3", displayName: "PrimalScheme3", environment: "primalscheme3",
+                      installPackages: currentSpec.basePackageSpecs, executables: ["primalscheme3"],
+                      pythonRuntime: currentSpec)
+            ])
+        return .init(
+            sandbox: sandbox, manager: manager, pack: pack, primalEnvironment: primalEnvironment,
+            primerSentinel: primerSentinel,
+            receiptURL: ManagedPythonRuntimeReceipt.receiptURL(for: currentSpec, environmentURL: primalEnvironment),
+            currentSpec: currentSpec)
+    }
+
+    private static func selectedPrimerRuntimeSpec(version: String) -> ManagedPythonRuntimeSpec {
+        let requirements = Data("primalscheme3==\(version)\n".utf8)
+        return .init(
+            distributionName: "primalscheme3", version: version, pythonABI: "cp312", platform: "osx-arm64",
+            basePackageSpecs: ["conda-forge::python=3.12.11=fixture"], requirementsResource: "requirements.txt",
+            requirementsSHA256: SHA256.hash(data: requirements).map { String(format: "%02x", $0) }.joined())
+    }
+
+    private static func writeSelectedPrimerRuntime(spec: ManagedPythonRuntimeSpec, environment: URL) throws {
+        let fm = FileManager.default
+        let executable = environment.appendingPathComponent("bin/primalscheme3")
+        let metadata = environment.appendingPathComponent("conda-meta/python.json")
+        let requirements = environment.appendingPathComponent("share/lungfish/requirements.txt")
+        let wheel = environment.appendingPathComponent("share/lungfish/wheels/primalscheme3.whl")
+        for file in [executable, metadata, requirements, wheel] {
+            try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try Data("#!/bin/sh\necho 'PrimalScheme3-LGE version: \(spec.version)'\n".utf8).write(to: executable)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        try Data(#"{"name":"python","version":"3.12.11","build":"fixture","subdir":"osx-arm64"}"#.utf8)
+            .write(to: metadata)
+        try Data("primalscheme3==\(spec.version)\n".utf8).write(to: requirements)
+        try Data("synthetic wheel inventory \(spec.version)".utf8).write(to: wheel)
+        let receipt = ManagedPythonRuntimeReceipt(
+            requested: spec, environmentPath: environment.path, pythonVersion: "3.12.11",
+            condaPackages: [.init(name: "python", version: "3.12.11", build: "fixture", subdir: "osx-arm64")],
+            requirements: try ManagedPythonRuntimeReceipt.fileRecord(for: requirements, relativeTo: environment),
+            downloadedWheels: [try ManagedPythonRuntimeReceipt.fileRecord(for: wheel, relativeTo: environment)],
+            installedDistributions: [.init(name: "primalscheme3", version: spec.version)],
+            installedFiles: [try ManagedPythonRuntimeReceipt.fileRecord(for: executable, relativeTo: environment)],
+            commands: [.init(argv: ["fixture-install"], reproducibleCommand: "fixture-install",
+                             exitStatus: 0, wallTimeSeconds: 0, stderr: "")],
+            versionProbe: .init(argv: [executable.path, "--version"], exitStatus: 0,
+                                output: "PrimalScheme3-LGE version: \(spec.version)"),
+            helpProbe: .init(argv: [executable.path, "--help"], exitStatus: 0, output: "Usage"),
+            startedAt: Date(), completedAt: Date(), wallTimeSeconds: 0)
+        try receipt.write(to: ManagedPythonRuntimeReceipt.receiptURL(for: spec, environmentURL: environment))
     }
 
     @discardableResult

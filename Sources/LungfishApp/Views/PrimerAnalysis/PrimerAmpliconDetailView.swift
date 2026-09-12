@@ -20,7 +20,7 @@ struct PrimerAmpliconDetailView: View {
           HStack(alignment: .firstTextBaseline) {
             Text(interval.name).font(.headline).textSelection(.enabled)
             Spacer()
-            Text(interval.pool.map { "Pool \($0)" } ?? "Not pooled")
+            Text(interval.pool.map { "Pool \($0)" } ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled"))
               .font(.subheadline.weight(.medium))
           }
           .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
@@ -28,7 +28,7 @@ struct PrimerAmpliconDetailView: View {
             Text("\(interval.length.formatted()) bp").font(.title2.weight(.semibold)).monospacedDigit()
             Text(interval.sizeLabel).font(.caption).foregroundStyle(.secondary)
           }
-          Text("Reference coordinates \(interval.start + 1)–\(interval.end) · 1-based inclusive")
+          Text("\(target.presentation == .primer3Template ? "Template" : "Reference") coordinates \(interval.start + 1)–\(interval.end) · 1-based inclusive")
             .font(.caption).foregroundStyle(.secondary)
           if interval.pool != nil {
             Text("This saved span encloses the primer alternatives. Individual products and alignment rows may differ in length.")
@@ -68,7 +68,7 @@ struct PrimerAmpliconDetailView: View {
           Image(systemName: primer.strand == "+" ? "arrow.right" : "arrow.left").foregroundStyle(color)
           Text(primer.name).fontWeight(selected ? .semibold : .regular)
           Spacer()
-          Text(primer.pool.map { "Pool \($0)" } ?? "Not pooled").font(.caption).foregroundStyle(.secondary)
+          Text(primer.pool.map { "Pool \($0)" } ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled")).font(.caption).foregroundStyle(.secondary)
         }
         .padding(.vertical, 3).contentShape(Rectangle())
       }.buttonStyle(.plain)

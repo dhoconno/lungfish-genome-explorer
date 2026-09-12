@@ -8,13 +8,7 @@ struct PrimerAnalysisViewerView: View {
     let retryGeneration: UInt64
   }
 
-  enum Section: String, CaseIterable, Identifiable {
-    case overview = "Overview"
-    case results = "Results"
-    case binding = "Binding inspection"
-
-    var id: Self { self }
-  }
+  typealias Section = PrimerAnalysisViewerSection
 
   let bundleURL: URL
   let onLoadStateChanged: @MainActor (PrimerAnalysisViewerModel.State) -> Void
@@ -77,17 +71,21 @@ struct PrimerAnalysisViewerView: View {
   }
 
   private func loadedContent(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {
-    VStack(spacing: 0) {
-      Picker("Saved result section", selection: $selectedSection) {
-        ForEach(Section.allCases) { section in Text(section.rawValue).tag(section) }
+    let visibleSection = snapshot.visibleSection(selectedSection)
+    let bindingContexts = snapshot.inspectableBindingContexts
+    let bindingPrimerIDs = Set(bindingContexts.flatMap { $0.primers.map(\.reviewPrimerID) })
+    return VStack(spacing: 0) {
+      Picker("Saved result section", selection: Binding(
+        get: { visibleSection }, set: { selectedSection = snapshot.visibleSection($0) })) {
+        ForEach(snapshot.availableSections) { section in Text(section.rawValue).tag(section) }
       }
       .pickerStyle(.segmented)
       .labelsHidden()
       .padding()
       .accessibilityIdentifier("primerAnalysisViewer.tabs")
 
-      if selectedSection != .binding, let primerID = selection?.primerID,
-        snapshot.bindingContexts.contains(where: { $0.primers.contains(where: { $0.reviewPrimerID == primerID }) }) {
+      if visibleSection != .binding, let primerID = selection?.primerID,
+        bindingPrimerIDs.contains(primerID) {
         HStack {
           Text("Selected primer").font(.caption).foregroundStyle(.secondary)
           Button("Inspect in alignment") { selectedSection = .binding }
@@ -96,15 +94,15 @@ struct PrimerAnalysisViewerView: View {
         }.padding(.horizontal).padding(.bottom, 10)
       }
       Divider()
-      if selectedSection == .binding {
-        PrimerBindingInspectionView(contexts: snapshot.bindingContexts, selectedReviewPrimerID: selection?.primerID)
+      if visibleSection == .binding {
+        PrimerBindingInspectionView(contexts: bindingContexts, selectedReviewPrimerID: selection?.primerID)
           .padding(20)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
       ScrollViewReader { proxy in
       ScrollView {
         Group {
-          switch selectedSection {
+          switch visibleSection {
           case .overview: overview(snapshot)
           case .results:
             if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
@@ -122,11 +120,17 @@ struct PrimerAnalysisViewerView: View {
       }
       }
     }
+    .onChange(of: snapshot.availableSections, initial: true) { _, _ in
+      selectedSection = snapshot.visibleSection(selectedSection)
+    }
     .environment(\.primerReviewActions, PrimerReviewContextActions(
       targets: snapshot.designReview,
-      bindingPrimerIDs: Set(snapshot.bindingContexts.flatMap { $0.primers.map(\.reviewPrimerID) }),
+      bindingPrimerIDs: bindingPrimerIDs,
       onInspectDetails: { if selectedSection == .results { resultInspectionGeneration &+= 1 } },
-      onInspectBinding: { clicked in selection = clicked; selectedSection = .binding },
+      onInspectBinding: { clicked in
+        guard let primerID = clicked.primerID, bindingPrimerIDs.contains(primerID) else { return }
+        selection = clicked; selectedSection = .binding
+      },
       onExportRequested: onExportRequested))
   }
 
@@ -153,7 +157,7 @@ struct PrimerAnalysisViewerView: View {
       } else {
         HStack(spacing: 28) {
           summaryMetric(snapshot.primer3Results == nil ? "Mapping references" : "Candidate reviews", value: String(snapshot.designReview.count))
-          summaryMetric("Primer sites", value: String(snapshot.designReview.reduce(0) { $0 + $1.primers.count }))
+          summaryMetric(snapshot.primer3Results == nil ? "Primer sites" : "Oligo sites", value: String(snapshot.designReview.reduce(0) { $0 + $1.primers.count }))
           if snapshot.primer3Results == nil {
             summaryMetric("Scheme pools", value: String(snapshot.primalSchemeResults.reduce(0) { $0 + Set($1.primers.map(\.pool)).count }))
           }
@@ -165,7 +169,7 @@ struct PrimerAnalysisViewerView: View {
         ForEach(snapshot.designReview) { target in
           PrimerTargetReviewCard(target: target, selection: $selection)
         }
-        Button("Inspect primers and pools") { selectedSection = .results }
+        Button(snapshot.primer3Results == nil ? "Inspect primers and pools" : "Inspect candidate details") { selectedSection = .results }
           .accessibilityIdentifier("primerAnalysisViewer.inspectResults")
       }
 

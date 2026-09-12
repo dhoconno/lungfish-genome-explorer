@@ -8,6 +8,27 @@ import LungfishWorkflow
 final class PrimerAnalysisViewerModelTests: XCTestCase {
   private enum SnapshotError: Error { case enumeratorUnavailable }
 
+  func testBindingSectionRequiresUsableSavedAlignmentInspection() throws {
+    let fixture = try makeBundle(grouping: .independent, nativeScheme: true)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundleURL)
+    XCTAssertEqual(snapshot.availableSections, [.overview, .results])
+    XCTAssertEqual(snapshot.visibleSection(.binding), .overview)
+    let primer = PrimerBindingInspectionPrimer(id: "primer", name: "Primer", sequence: "AC", strand: "+",
+      alignedStart: 0, alignedEnd: 2, contiguousReference: true)
+    let rows = [PrimerBindingInspectionContext.Row(name: "row", sequence: Array("ACGT"))]
+    snapshot.bindingContexts = [.init(id: "unavailable", title: "Unavailable", alignedFASTA: ">row\nACGT\n",
+      annotations: [], primers: [primer], unavailableReason: "Reference mapping does not agree", rows: rows)]
+    XCTAssertEqual(snapshot.availableSections, [.overview, .results])
+    snapshot.bindingContexts = [.init(id: "available", title: "Saved alignment", alignedFASTA: ">row\nACGT\n",
+      annotations: [], primers: [primer], unavailableReason: nil, rows: rows)]
+    XCTAssertEqual(snapshot.availableSections, [.overview, .results, .binding])
+    XCTAssertEqual(snapshot.visibleSection(.binding), .binding)
+    snapshot.bindingContexts = [.init(id: "empty", title: "Empty result", alignedFASTA: ">row\nACGT\n",
+      annotations: [], primers: [], unavailableReason: nil, rows: rows)]
+    XCTAssertEqual(snapshot.visibleSection(.binding), .overview)
+  }
+
   @MainActor
   func testRealSnapshotLoaderRunsOffMain() async throws {
     let fixture = try makeBundle(grouping: .independent)

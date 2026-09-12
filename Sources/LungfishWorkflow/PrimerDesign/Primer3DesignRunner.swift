@@ -5,6 +5,7 @@ struct Primer3RunInvocation: Sendable {
     let inputURL: URL
     let outputURL: URL
     let workingDirectory: URL
+    var managedEnvironmentURL: URL? = nil
 }
 
 struct Primer3RunReceipt: Sendable {
@@ -22,12 +23,12 @@ typealias Primer3DesignRunner = @Sendable (Primer3RunInvocation) async throws ->
 
 enum Primer3NativeRunner {
     static func run(_ invocation: Primer3RunInvocation) async throws -> Primer3RunReceipt {
-        let manager = CondaManager.shared
         let executable: URL
         if let override = invocation.executableURL { executable = override }
-        else { executable = try await manager.toolPath(name: "primer3_core", environment: "primer3") }
+        else if let prepared = invocation.managedEnvironmentURL { executable = prepared.appendingPathComponent("bin/primer3_core") }
+        else { throw Primer3DesignError.invalidRequest("The managed Primer3 runtime was not prepared before execution.") }
         let runtime = invocation.executableURL == nil
-            ? ProvenanceRuntimeIdentity(executablePath: executable.path, condaEnvironment: "primer3", condaPrefix: (await manager.environmentURL(named: "primer3")).path, pluginPack: "pcr-primer-design")
+            ? ProvenanceRuntimeIdentity(executablePath: executable.path, condaEnvironment: "primer3", condaPrefix: invocation.managedEnvironmentURL?.path, pluginPack: "pcr-primer-design")
             : ProvenanceRuntimeIdentity(executablePath: executable.path, condaEnvironment: nil, condaPrefix: nil, pluginPack: nil)
         let nativeRunner = NativeToolRunner()
         let about = try await nativeRunner.runProcess(executableURL: executable, arguments: ["--about"], workingDirectory: invocation.workingDirectory, timeout: 30, toolName: "Primer3 version probe")

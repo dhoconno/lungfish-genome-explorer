@@ -5,6 +5,78 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class ManagedPythonRuntimeInstallerTests: XCTestCase {
+    func testProductionRunnerCapturesCompleteLargeInventoryBeforeReturning() async throws {
+        let script = """
+            import json, sys
+            sys.stdout.write(json.dumps({"files": ["x" * 200] * 40000, "complete": True}))
+            sys.stderr.write("inventory finished\\n")
+            """
+        let result = try await ManagedPythonRuntimeInstaller.run(
+            ["/usr/bin/python3", "-I", "-c", script], workingDirectory: FileManager.default.temporaryDirectory)
+        XCTAssertEqual(result.exitStatus, 0)
+        XCTAssertGreaterThan(result.stdout.utf8.count, 8_000_000)
+        let inventory = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
+        XCTAssertEqual((inventory["files"] as? [String])?.count, 40_000)
+        XCTAssertEqual(inventory["complete"] as? Bool, true)
+        XCTAssertEqual(result.stderr, "inventory finished\n")
+    }
+
+    func testLiveSelectedRuntimeRepair() async throws {
+        guard let rootPath = ProcessInfo.processInfo.environment["LUNGFISH_LIVE_PRIMALSCHEME_REPAIR_ROOT"],
+              let logPath = ProcessInfo.processInfo.environment["LUNGFISH_RUNTIME_DIAGNOSTICS"] else {
+            throw XCTSkip("Set explicit repair root and diagnostics directory for the managed upgrade proof")
+        }
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        let logs = URL(fileURLWithPath: logPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let service = PluginPackStatusService(condaManager: CondaManager(rootPrefix: root),
+            pythonRuntimeInstallAction: { requirement, environment, _ in
+                let spec = try XCTUnwrap(requirement.pythonRuntime)
+                let installer = ManagedPythonRuntimeInstaller(commandRunner: { argv, directory in
+                    let started = Date()
+                    let result = try await ManagedPythonRuntimeInstaller.run(argv, workingDirectory: directory)
+                    let stem = argv.contains("-c") ? "inventory" : UUID().uuidString
+                    let diagnostic: [String: Any] = ["argv": argv, "exitStatus": result.exitStatus,
+                        "stdout": result.stdout, "stderr": result.stderr]
+                    try JSONSerialization.data(withJSONObject: diagnostic, options: [.sortedKeys])
+                        .write(to: logs.appendingPathComponent(stem + ".json"))
+                    return .init(exitStatus: result.exitStatus, stdout: result.stdout, stderr: result.stderr,
+                                 wallTimeSeconds: Date().timeIntervalSince(started))
+                })
+                do {
+                    let receipt = try await installer.install(spec: spec, environmentURL: environment,
+                        executableName: try XCTUnwrap(requirement.executables.first))
+                    XCTAssertTrue(receipt.validates(spec: spec, environmentURL: environment))
+                } catch {
+                    var diagnostic: [String: Any] = ["error": String(describing: error),
+                        "condaPackages": ManagedPythonRuntimeReceipt.condaRecords(in: environment).map {
+                            ["name": $0.name, "version": $0.version, "build": $0.build]
+                        }]
+                    if let data = try? Data(contentsOf: logs.appendingPathComponent("inventory.json")),
+                       let capture = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let text = capture["stdout"] as? String,
+                       let inventory = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+                       let files = inventory["files"] as? [[String: Any]] {
+                        diagnostic["inventoryFiles"] = files.count
+                        diagnostic["changedFiles"] = files.compactMap { saved -> String? in
+                            guard let path = saved["relativePath"] as? String else { return "missing path" }
+                            guard let actual = try? ManagedPythonRuntimeReceipt.fileRecord(
+                                for: environment.appendingPathComponent(path), relativeTo: environment),
+                                actual.sha256 == saved["sha256"] as? String else { return path }
+                            return nil
+                        }
+                    }
+                    try JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys])
+                        .write(to: logs.appendingPathComponent("failure.json"))
+                    throw error
+                }
+            })
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "pcr-primer-design"))
+        try await service.install(pack: pack, requirementIDs: ["primalscheme3"], progress: nil)
+        let status = await service.status(for: pack)
+        XCTAssertTrue(try XCTUnwrap(status.toolStatuses.first { $0.requirement.id == "primalscheme3" }).isReady)
+    }
+
     func testActualMultilineRequirementsBindReleaseWheelHash() throws {
         let resource = try XCTUnwrap(RuntimeResourceLocator.path(
             "ManagedTools/primalscheme3-osx-arm64-py312-requirements.txt",

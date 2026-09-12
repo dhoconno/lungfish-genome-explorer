@@ -23,15 +23,18 @@ public enum Primer3DesignError: Error, LocalizedError, Sendable, Equatable {
 public struct Primer3DesignPipeline: Sendable {
     private let runner: Primer3DesignRunner
     private let writer: PrimerAnalysisBundleWriter
+    private let runtimePreparer: PrimerDesignManagedRuntime.Preparer?
 
     public init() {
         runner = Primer3NativeRunner.run
         writer = PrimerAnalysisBundleWriter()
+        runtimePreparer = { try await PrimerDesignManagedRuntime.prepareAndAcquire(toolID: "primer3", progress: $0) }
     }
 
-    init(runner: @escaping Primer3DesignRunner, writer: PrimerAnalysisBundleWriter = .init()) {
+    init(runner: @escaping Primer3DesignRunner, writer: PrimerAnalysisBundleWriter = .init(), runtimePreparer: PrimerDesignManagedRuntime.Preparer? = nil) {
         self.runner = runner
         self.writer = writer
+        self.runtimePreparer = runtimePreparer
     }
 
     public static func inspectInput(at url: URL) async throws -> Primer3DesignInputSummary {
@@ -60,6 +63,8 @@ public struct Primer3DesignPipeline: Sendable {
     ) async throws -> URL {
         try Self.validate(request)
         let destinationURL = try Self.physicalDestination(request.destinationURL)
+        let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
+        defer { runtimeLease?.release() }
         progress?(0.05, "Validating selected templates")
         try Task.checkCancellation()
         let prepared = try request.selections.map { selection in
@@ -101,7 +106,7 @@ public struct Primer3DesignPipeline: Sendable {
         let boulder = try Primer3BoulderWriter.makeInput(templates: prepared, options: request.options)
         try Data(boulder.utf8).write(to: boulderURL, options: .atomic)
         progress?(0.25, "Running Primer3")
-        let receipt = try await runner(.init(executableURL: request.executableURL, inputURL: boulderURL, outputURL: outputURL, workingDirectory: scratch))
+        let receipt = try await runner(.init(executableURL: request.executableURL, inputURL: boulderURL, outputURL: outputURL, workingDirectory: scratch, managedEnvironmentURL: runtimeLease?.environmentURL))
         try Data(receipt.stdout.utf8).write(to: stdoutURL, options: .atomic)
         try Data(receipt.stderr.utf8).write(to: stderrURL, options: .atomic)
         guard receipt.exitStatus == 0 else { throw Primer3DesignError.executionFailed(receipt.exitStatus, receipt.stderr) }

@@ -118,6 +118,7 @@ struct PrimalScheme3Command: Sendable {
     let executableOverride: URL?
     let arguments: [String]
     let workingDirectory: URL
+    var managedEnvironmentURL: URL? = nil
 }
 
 struct PrimalScheme3Execution: Sendable {
@@ -140,15 +141,18 @@ public struct PrimalScheme3DesignPipeline: Sendable {
     typealias Runner = @Sendable (PrimalScheme3Command) async throws -> PrimalScheme3Execution
     private let runner: Runner
     private let writer: PrimerAnalysisBundleWriter
+    private let runtimePreparer: PrimerDesignManagedRuntime.Preparer?
 
     public init() {
         runner = Self.execute
         writer = PrimerAnalysisBundleWriter()
+        runtimePreparer = { try await PrimerDesignManagedRuntime.prepareAndAcquire(toolID: "primalscheme3", progress: $0) }
     }
 
-    init(runner: @escaping Runner, writer: PrimerAnalysisBundleWriter = PrimerAnalysisBundleWriter()) {
+    init(runner: @escaping Runner, writer: PrimerAnalysisBundleWriter = PrimerAnalysisBundleWriter(), runtimePreparer: PrimerDesignManagedRuntime.Preparer? = nil) {
         self.runner = runner
         self.writer = writer
+        self.runtimePreparer = runtimePreparer
     }
 
     public func run(request: PrimalScheme3DesignRequest,
@@ -235,7 +239,6 @@ public struct PrimalScheme3DesignPipeline: Sendable {
     private func runOffMain(request: PrimalScheme3DesignRequest,
                             progress: (@Sendable (Double, String) -> Void)?) async throws -> URL {
         try Task.checkCancellation()
-        progress?(0.02, "Validating alignment inputs")
         guard !request.inputURLs.isEmpty, Set(request.inputURLs).count == request.inputURLs.count else {
             throw PrimalScheme3DesignError.invalidRequest("Select distinct alignment inputs.")
         }
@@ -248,6 +251,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         _ = try Self.arguments(inputs: [request.inputURLs[0]], output: destination,
                                grouping: request.grouping, options: request.options)
+        let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
+        defer { runtimeLease?.release() }
+        progress?(0.05, "Validating alignment inputs")
         let scratch = destination.deletingLastPathComponent().appendingPathComponent(
             ".primalscheme3-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
@@ -321,7 +327,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let args = try Self.arguments(inputs: group.map(\.alignedURL), output: output,
                                           grouping: request.grouping, options: request.options)
             let executed = try await runner(.init(executableOverride: request.executableURL,
-                                                  arguments: args, workingDirectory: scratch))
+                                                  arguments: args, workingDirectory: scratch, managedEnvironmentURL: runtimeLease?.environmentURL))
             try Task.checkCancellation()
             guard executed.exitStatus == 0 else {
                 throw PrimalScheme3DesignError.executionFailed(executed.exitStatus, executed.stderr)
@@ -471,13 +477,14 @@ public struct PrimalScheme3DesignPipeline: Sendable {
     }
 
     private static func execute(_ command: PrimalScheme3Command) async throws -> PrimalScheme3Execution {
-        let manager = CondaManager.shared
         let executable: URL
         let prefix: URL?
         if let override = command.executableOverride { executable = override; prefix = nil }
-        else {
-            executable = try await manager.toolPath(name: "primalscheme3", environment: "primalscheme3")
-            prefix = await manager.environmentURL(named: "primalscheme3")
+        else if let prepared = command.managedEnvironmentURL {
+            prefix = prepared
+            executable = prepared.appendingPathComponent("bin/primalscheme3")
+        } else {
+            throw PrimalScheme3DesignError.invalidRequest("The managed PrimalScheme3 runtime was not prepared before execution.")
         }
         let environment = prefix.map { ["PATH": $0.appendingPathComponent("bin").path + ":/usr/bin:/bin:/usr/sbin:/sbin",
                                         "CONDA_PREFIX": $0.path, "PYTHONNOUSERSITE": "1",

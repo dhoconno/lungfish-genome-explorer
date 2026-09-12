@@ -477,15 +477,18 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func run(_ argv: [String], workingDirectory: URL) async throws -> ManagedPythonRuntimeCommandResult {
+    static func run(_ argv: [String], workingDirectory: URL) async throws -> ManagedPythonRuntimeCommandResult {
         let started = Date()
-        let result = try await ManagedToolSourceInstaller.run(.init(
-            executable: URL(fileURLWithPath: argv[0]),
+        // Inventories can exceed 7 MB. Wait for both output streams to reach EOF;
+        // a fixed post-exit delay can discard the JSON tail under load.
+        let result = try await NativeToolRunner().runProcess(
+            executableURL: URL(fileURLWithPath: argv[0]),
             arguments: Array(argv.dropFirst()),
-            workingDirectory: workingDirectory
-        ))
+            workingDirectory: workingDirectory,
+            timeout: 3_600,
+            toolName: "Managed Python runtime")
         return .init(
-            exitStatus: result.exitStatus,
+            exitStatus: result.exitCode,
             stdout: result.stdout,
             stderr: result.stderr,
             wallTimeSeconds: Date().timeIntervalSince(started))

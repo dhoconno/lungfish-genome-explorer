@@ -213,7 +213,7 @@ final class PrimerDesignDialogState {
   }
 
   var validationMessage: String? {
-    if inputURLs.isEmpty { return "Add a FASTA file or multiple sequence alignment." }
+    if inputURLs.isEmpty { return "Select sequence or alignment bundles in the project sidebar." }
     do {
       _ = try validatedDestinationURL()
       if engine == .primer3 { _ = try primer3Options() }

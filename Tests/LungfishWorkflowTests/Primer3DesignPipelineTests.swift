@@ -10,6 +10,25 @@ final class Primer3DesignPipelineTests: XCTestCase {
         primerMinTm: 57, primerOptTm: 60, primerMaxTm: 63,
         primerMinGC: 30, primerMaxGC: 70, pickInternalOligo: true)
 
+    func testPreparationFailurePrecedesInputReadsAndCannotPublish() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("not-read-yet.fasta")
+        let output = root.appendingPathComponent("result.lungfishprimeranalysis")
+        let request = Primer3DesignRequest(inputURLs: [input], selections: [.fastaRecord(inputURL: input, recordIndex: 0)],
+            destinationURL: output, options: options,
+            invocation: .init(argv: ["lungfish"], callerVersion: "test", explicitOptions: [:], runtimeIdentity: .init()),
+            expectedInputChecksums: [input: String(repeating: "0", count: 64)])
+        let pipeline = Primer3DesignPipeline(runner: { _ in
+            XCTFail("Preparation failure must prevent execution")
+            throw CancellationError()
+        }, runtimePreparer: { _ in throw PrimerDesignManagedRuntime.Unavailable(message: "Runtime preparation failed") })
+        do { _ = try await pipeline.run(request: request); XCTFail("Expected preparation failure") }
+        catch { XCTAssertEqual(error.localizedDescription, "Runtime preparation failed") }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
+    }
+
     func testBoulderRecordUsesOneBasedInclusiveTargetAndAllResolvedOptions() throws {
         let template = Primer3PreparedTemplate(
             inputID: UUID(), resultID: UUID(), title: "mhc sample", sequence: String(repeating: "ACGT", count: 80),

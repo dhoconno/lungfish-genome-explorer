@@ -19,6 +19,7 @@ final class PrimerDesignReviewTests: XCTestCase {
     XCTAssertEqual(reviews.map(\.coveragePercent), [60, 80])
     XCTAssertEqual(reviews.map { $0.intervals.count }, [1, 1])
     for (review, pair) in zip(reviews, result.pairs) {
+      XCTAssertEqual(review.presentation, .primer3Template)
       XCTAssertEqual(review.sourceResultID, result.resultID.uuidString)
       XCTAssertEqual(review.intervals[0].primerIDs, [pair.left.id.uuidString, pair.right.id.uuidString])
       XCTAssertEqual(review.intervals[0].length, pair.productSize)
@@ -34,6 +35,7 @@ final class PrimerDesignReviewTests: XCTestCase {
       amplicons: Data("a\t1\t5\tA\t1\na\t3\t8\tB\t2\n".utf8), primers: [], labels: [:])
     XCTAssertEqual(reviews.count, 2)
     XCTAssertEqual(reviews[0].coveredBases, 7)
+    XCTAssertEqual(reviews[0].presentation, .schemeReference)
     XCTAssertEqual(reviews[0].coveragePercent, 70)
     XCTAssertEqual(reviews[1].coveredBases, 0)
     XCTAssertEqual(reviews[1].coveragePercent, 0)

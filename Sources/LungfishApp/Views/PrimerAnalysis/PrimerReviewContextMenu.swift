@@ -50,8 +50,10 @@ struct PrimerReviewContextMenu: View {
       summary("Binding site \(primer.start + 1)–\(primer.end) · 1-based inclusive")
       Divider()
       Button("Inspect Primer") { inspect(clicked) }
-      Button("Inspect in Alignment") { inspectBinding(clicked) }
-        .disabled(!actions.bindingPrimerIDs.contains(primer.id) || actions.onInspectBinding == nil)
+      if target.presentation != .primer3Template {
+        Button("Inspect in Alignment") { inspectBinding(clicked) }
+          .disabled(!actions.bindingPrimerIDs.contains(primer.id) || actions.onInspectBinding == nil)
+      }
       Menu("Copy") {
         Button("Copy Name") { copy(primer.name, clicked: clicked) }
         Button("Copy Coordinates") { copy(PrimerReviewClipboard.coordinates(primer, in: target), clicked: clicked) }
@@ -90,7 +92,7 @@ struct PrimerReviewContextMenu: View {
       summary(members.map { "\($0.count) associated oligos; alternatives retained" } ?? "Primer correspondence unavailable")
       Divider()
       Button("Inspect Amplicon") { inspect(clicked) }
-      if let members {
+      if target.presentation != .primer3Template, let members {
         let inspectable = members.filter { actions.bindingPrimerIDs.contains($0.id) }
         if !inspectable.isEmpty {
           Menu("Inspect Primer in Alignment") {
@@ -137,7 +139,9 @@ struct PrimerReviewContextMenu: View {
   }
 
   private func summary(_ title: String) -> some View { Button(title) {}.disabled(true) }
-  private func poolLabel(_ pool: Int?) -> String { pool.map { "Pool \($0)" } ?? "Not pooled" }
+  private func poolLabel(_ pool: Int?) -> String {
+    pool.map { "Pool \($0)" } ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled")
+  }
 
   private func inspect(_ clicked: PrimerReviewSelection) {
     selection.wrappedValue = clicked

@@ -24,6 +24,10 @@ struct PrimerReviewPrimer: Identifiable, Sendable {
 }
 
 struct PrimerTargetDesignReview: Identifiable, Sendable {
+  enum Presentation: Equatable, Sendable {
+    case schemeReference
+    case primer3Template
+  }
   let id: String
   let label: String
   let referenceLength: Int
@@ -35,6 +39,7 @@ struct PrimerTargetDesignReview: Identifiable, Sendable {
   let notes: [String]
   var sourceResultID: String = ""
   var referenceID: String = ""
+  var presentation: Presentation = .schemeReference
 }
 
 enum PrimerDesignReview {
@@ -104,7 +109,8 @@ enum PrimerDesignReview {
         return [.init(id: result.resultID.uuidString, label: result.title, referenceLength: result.templateSequence.utf8.count,
           coverageLabel: "Template spanned by candidate", coveredBases: 0, intervals: [], primers: [],
           notes: [result.error ?? result.explanation ?? "No candidate primer pairs were returned."],
-          sourceResultID: result.resultID.uuidString, referenceID: result.sourceRecordID)]
+          sourceResultID: result.resultID.uuidString, referenceID: result.sourceRecordID,
+          presentation: .primer3Template)]
       }
       return result.pairs.enumerated().map { index, pair in
         let oligos = [pair.left, pair.right] + (pair.internalOligo.map { [$0] } ?? [])
@@ -119,7 +125,8 @@ enum PrimerDesignReview {
               sequence: $0.sequence, ampliconIDs: [interval.id])
           }, notes: ["Alternative candidates are shown separately, not combined into a scheme.",
             "Denominator: the full saved template, not a selected subregion. Positional span is not an assay-success estimate."],
-          sourceResultID: result.resultID.uuidString, referenceID: result.sourceRecordID)
+          sourceResultID: result.resultID.uuidString, referenceID: result.sourceRecordID,
+          presentation: .primer3Template)
       }
     }
   }

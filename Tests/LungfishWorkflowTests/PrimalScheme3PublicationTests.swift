@@ -5,6 +5,26 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimalScheme3PublicationTests: XCTestCase {
+  func testRuntimeIsPreparedBeforeSnapshotsAndLeasedEnvironmentReachesRunner() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let runtimeRoot = fixture.root.appendingPathComponent("managed")
+    let environment = runtimeRoot.appendingPathComponent("envs/primalscheme3")
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      XCTAssertEqual(command.managedEnvironmentURL, environment)
+      XCTAssertNil(command.executableOverride)
+      return try Self.nativeFixture(command)
+    }, runtimePreparer: { progress in
+      let children = try FileManager.default.contentsOfDirectory(atPath: fixture.root.path)
+      XCTAssertFalse(children.contains { $0.hasPrefix(".primalscheme3-") })
+      progress?(0.04, "Runtime ready")
+      return .init(environmentURL: environment, lock: try await CondaEnvironmentMutationLock.acquireCancellable(root: runtimeRoot, environment: "primalscheme3"))
+    })
+    _ = try await pipeline.run(request: request(fixture, grouping: .combined))
+    let released = try await CondaEnvironmentMutationLock.acquireCancellable(root: runtimeRoot, environment: "primalscheme3")
+    released.release()
+  }
+
   func testCombinedSameBasenamesPreserveDistinctInputsAndRelocate() async throws {
     let fixture = try fixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }

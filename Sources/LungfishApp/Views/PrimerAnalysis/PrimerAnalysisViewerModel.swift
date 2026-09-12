@@ -4,6 +4,13 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
+enum PrimerAnalysisViewerSection: String, CaseIterable, Identifiable, Sendable {
+  case overview = "Overview"
+  case results = "Results"
+  case binding = "Binding inspection"
+  var id: Self { self }
+}
+
 struct PrimerAnalysisViewerSnapshot: Sendable {
   let bundle: PrimerAnalysisBundle
   let provenance: ProvenanceEnvelope
@@ -15,6 +22,21 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
   var workflowProvenance: [ProvenanceEnvelope] = []
   var designReview: [PrimerTargetDesignReview] = []
   var bindingContexts: [PrimerBindingInspectionContext] = []
+
+  var inspectableBindingContexts: [PrimerBindingInspectionContext] {
+    guard primer3Results == nil else { return [] }
+    return bindingContexts.filter { $0.unavailableReason == nil && !$0.rows.isEmpty && !$0.primers.isEmpty }
+  }
+
+  var supportsBindingInspection: Bool { !inspectableBindingContexts.isEmpty }
+
+  var availableSections: [PrimerAnalysisViewerSection] {
+    [.overview, .results] + (supportsBindingInspection ? [.binding] : [])
+  }
+
+  func visibleSection(_ requested: PrimerAnalysisViewerSection) -> PrimerAnalysisViewerSection {
+    availableSections.contains(requested) ? requested : .overview
+  }
 
   nonisolated static func load(from url: URL) throws -> Self {
     let bundle = try PrimerAnalysisBundle.load(from: url) {

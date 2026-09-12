@@ -22,7 +22,8 @@ final class PrimerAnalysisViewerVisualTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let bundleURL = try makeFixture(in: root)
 
-        for section in PrimerAnalysisViewerView.Section.allCases {
+        let availableSections = try PrimerAnalysisViewerSnapshot.load(from: bundleURL).availableSections
+        for section in availableSections {
             for width in [CGFloat(1100), CGFloat(650)] {
                 let model = PrimerAnalysisViewerModel()
                 await model.load(from: bundleURL)

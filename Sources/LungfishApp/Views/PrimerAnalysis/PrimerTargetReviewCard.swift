@@ -6,6 +6,21 @@ struct PrimerTargetReviewCard: View {
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
 
   var body: some View {
+    Group {
+      if target.presentation == .primer3Template {
+        Primer3TemplateReviewCard(target: target, selection: selection)
+      } else {
+        schemeContent
+      }
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.secondary.opacity(0.15)))
+    .accessibilityElement(children: .contain)
+  }
+
+  private var schemeContent: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .firstTextBaseline) {
         Text(target.label).font(.headline).textSelection(.enabled)
@@ -43,11 +58,6 @@ struct PrimerTargetReviewCard: View {
         }
       }
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.secondary.opacity(0.15)))
-    .accessibilityElement(children: .contain)
   }
 
   private func legend(_ text: String, color: Color) -> some View {
