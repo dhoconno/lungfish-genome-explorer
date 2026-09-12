@@ -1025,6 +1025,10 @@ public struct GenotypeWorkbookRevisionService {
             patchedWorkbookURL: clonePatchedWorkbookURL,
             finalWorkbookURL: cloneFinalWorkbookURL,
             inputURLs: pythonInputURLs,
+            generatedOutputURLs: [
+                cloneUpdatesURL.appendingPathComponent("presentation-payload.json"),
+                cloneUpdatesURL.appendingPathComponent("presentation-layout.json"),
+            ],
             durableReplayArgv: durableReplayArgv,
             annotationSidecarRevisionSHA256: annotationSidecarWitness?.sha256,
             reviewableRowCatalogInput: reviewableRowCatalogInput,
@@ -2609,6 +2613,7 @@ public struct GenotypeWorkbookRevisionService {
         patchedWorkbookURL: URL,
         finalWorkbookURL: URL,
         inputURLs: [URL],
+        generatedOutputURLs: [URL],
         durableReplayArgv: [String],
         annotationSidecarRevisionSHA256: String?,
         reviewableRowCatalogInput: ValidatedReviewableRowCatalogInput?,
@@ -2651,9 +2656,9 @@ public struct GenotypeWorkbookRevisionService {
             role: .output,
             originPath: patchedWorkbookURL.path
         )
-        let presentationOutputs = try inputURLs.filter {
-            ["presentation-payload.json", "presentation-layout.json"].contains($0.lastPathComponent)
-        }.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
+        let presentationOutputs = try generatedOutputURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, role: .output)
+        }
         var resolvedOptions: [String: ParameterValue] = [
             "pythonVersion": .string(pythonVersion),
             "openpyxlVersion": .string(openpyxlVersion),

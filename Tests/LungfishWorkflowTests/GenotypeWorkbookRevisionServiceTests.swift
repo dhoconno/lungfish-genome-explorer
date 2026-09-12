@@ -7,6 +7,36 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testThreeSheetCurrentWithholdsConflictingAndUnsupportedReviewsInBothOrders() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = ["fp": 5, "fn": 0, "fn-positive": 5, "fp-zero": 0, "duplicate": 5, "conflict": 5]
+        for reverse in [false, true] {
+            let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-authority-\(reverse)")
+            let catalog = GenotypeReviewableRowCatalog(samples: support.keys.sorted(), rows: [.init(kind: .reference, callID: "raw", displayName: "Display", locus: "MHC-A", stableID: nil, section: "reference", sortKey: "raw", supportBySample: support)])
+            _ = try installReviewableRowCatalog(catalog, in: fixture.bundleURL)
+            var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+            let cases: [(String, GenotypeAnnotationSidecar.MatrixReviewDisposition)] = [("fp", .falsePositive), ("fn", .falseNegative), ("fn-positive", .falseNegative), ("fp-zero", .falsePositive), ("unknown-fp", .falsePositive), ("unknown-fn", .falseNegative), ("duplicate", .falsePositive), ("duplicate", .falsePositive), ("conflict", .falseNegative), ("conflict", .falsePositive)]
+            sidecar.matrixReviews = cases.enumerated().map { index, value in
+                .init(target: .cell(locus: "MHC-A", genotype: "raw", sample: value.0), disposition: value.1, author: "tester", timestamp: "2026-09-12T00:00:\(String(format: "%02d", index))Z")
+            }
+            if reverse { sidecar.matrixReviews.reverse() }
+            let annotations = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            let bytes = try sidecar.encoded(); try bytes.write(to: annotations)
+            let calls = ["unknown-fp", "unknown-fn"].map { GenotypeWorkbookHaplotypeCall(sample: $0, locus: "MHC-A", haplotype1: "", haplotype2: "", status: "called", notes: "") }
+            _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides(calls, annotationSidecarURL: annotations, into: fixture.bundleURL)
+            let baseline = try JSONDecoder().decode(GenotypeEditableWorkbookService.Baseline.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath)))
+            XCTAssertEqual(baseline.schemaVersion, 2)
+            let input = try XCTUnwrap(baseline.inputs.last { $0.path.hasSuffix("/presentation-payload.json") })
+            let payload = try JSONDecoder().decode(GenotypeWorkbookPresentation.Payload.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(input.path)))
+            let cells = try XCTUnwrap(payload.rows.first { $0.target.genotype == "raw" }).cells
+            XCTAssertEqual(cells.first { $0.sampleID == "fp" }?.review, "false-positive")
+            XCTAssertEqual(cells.first { $0.sampleID == "fn" }?.review, "false-negative")
+            for cell in cells where !["fp", "fn"].contains(cell.sampleID) { XCTAssertNil(cell.review, cell.sampleID) }
+            XCTAssertEqual(try Data(contentsOf: annotations), bytes, "Withheld records must remain in the sidecar")
+        }
+    }
+
     func testThreeSheetInitialManualAnnotationRefreshUsesSidecarAuthority() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -66,6 +96,27 @@ print('all candidate evidence and category tints')
         changedSidecar.lastEditor = "metadata-only-change"
         try changedSidecar.encoded().write(to: annotations)
         _ = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL, annotationOnly: true)
+        let producedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let provenancePath = try XCTUnwrap(producedManifest.workbookRevisions?.last?.provenancePath)
+        let provenance = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(provenancePath)))
+        let producingStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "python openpyxl workbook candidate update" })
+        let generated = producingStep.outputs.filter { ["presentation-payload.json", "presentation-layout.json"].contains(URL(fileURLWithPath: $0.path).lastPathComponent) }
+        XCTAssertEqual(generated.count, 2)
+        XCTAssertEqual(Set(generated.map { URL(fileURLWithPath: $0.path).lastPathComponent }), ["presentation-payload.json", "presentation-layout.json"])
+        let scriptInput = try XCTUnwrap(producingStep.inputs.first { $0.path.hasSuffix(".py") })
+        for descriptor in generated {
+            XCTAssertEqual(URL(fileURLWithPath: descriptor.path).deletingLastPathComponent(), URL(fileURLWithPath: scriptInput.path).deletingLastPathComponent(), "Outputs must belong to this producing generation")
+        }
+        let previousPayloadInputs = producingStep.inputs.filter { $0.path.hasSuffix("/presentation-payload.json") }
+        XCTAssertFalse(previousPayloadInputs.isEmpty)
+        XCTAssertTrue(Set(generated.map(\.path)).isDisjoint(with: previousPayloadInputs.map(\.path)))
+        for descriptor in producingStep.outputs {
+            XCTAssertEqual(descriptor.role, .output)
+            XCTAssertTrue(descriptor.path.hasPrefix(fixture.bundleURL.path + "/"))
+            let url = URL(fileURLWithPath: descriptor.path)
+            XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: url))
+            XCTAssertEqual(descriptor.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: url)))
+        }
         let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         let report = try runPython(["-c", #"""
 import json,sys,base64

@@ -33,3 +33,18 @@ Task 4 owns the bounded old-layout test migration; Task 5 owns final visual/inte
 Existing analyst style transport still needs Task 5’s explicit scope: `MatrixStyle` has optional string fill/text/border colors, legacy bold/italic flags and optional boolean overrides. This adapter currently carries fill only (row/cell, not column-style inheritance). The captured viewport row/cell style model contains fill and border, but the serializer previously carried only fill; the richer rendered font/style state is not yet captured. Comments/raw evidence/Notes semantic authority are retained. Candidate category fallback retains configured RGBA tint in ARGB form. Task 5 also owns FP/FN visible formatting, worksheet protection flags, adjacent H1/H2 layout, widths, audit toggle and native/cohort QA.
 
 No native Excel acceptance is claimed here. No original private project was used or modified. No additional agents were spawned by this implementer.
+
+## Formal review fix round 1 (base `72b2b8cbd`)
+
+Addressed the four Important review findings with bounded adapter/provenance changes:
+
+- Current review projection no longer uses comment/style latest-wins resolution. Every repeated exact review target is withheld, including repeated identical dispositions; all source records remain retained.
+- Filtered projection uses the same fail-closed duplicate rule and validates dispositions against independent raw evidence: FP requires positive support; FN requires explicit zero; unknown is ineligible. Captured display values remain untouched. Both roles have tests for valid/invalid/unknown evidence and both conflict orders, with identical duplicates covered too.
+- Headless manual eligibility and active scientific analysis are mutually exclusive branches. The regression now installs a resolvable definition snapshot and proves manual exact labels, per-slot source and unavailable/nil pipeline baselines survive.
+- Producing-step provenance receives explicit newly generated payload/layout output URLs. Prior retained payloads remain inputs, never newly produced outputs. The current refresh test verifies exact output filenames, producing-generation directory, input/output disjointness, final bundle paths, output roles, SHA-256 and sizes for all producing-step outputs after publication.
+
+RED: `/tmp/lungfish-task3-review-red.log`, 4 tests, 26 expected assertion failures, no unexpected errors. GREEN: `/tmp/lungfish-task3-review-green.log`, the same 4 tests passed. Covering verification used the final focused command above: `/tmp/lungfish-task3-review-covering.log`, **68 tests, zero failures**, including both importer schemas, all three-sheet production regressions, fingerprint/effective-call suites and the manual UI regression. `git diff --check` passed.
+
+The existing UI still resolves duplicate reviews latest-wins in `GenotypeResultViewController.swift:1728` and `GenotypeComparisonMatrixView.swift:797`. This concrete display mismatch was reported to the parent for Task 5; this fix round does not change UI/inference review authority or captured display masks.
+
+Build output is **not pristine**. Pre-existing warning identities observed in this round (unmodified files): `Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift:738:5`, redundant `public` in a public extension; and `Tests/LungfishWorkflowTests/ProjectStorageCleanupExecutorTests.swift`, unused `execute` results at lines 846, 918, 1087, 2025, 2145, 2229, 2292, 2359, 2426, 2489, 2610, 2743, 2836, 2930, 2989, 3044, 3092 and 3319. These were not suppressed or cleaned up as part of this scope.

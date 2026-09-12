@@ -14,6 +14,30 @@ import LungfishTestSupport
 /// rewritten through the managed openpyxl runtime, so these tests skip when
 /// that runtime is not installed.
 final class GenotypePivotFilteredCopyTests: XCTestCase {
+    func testThreeSheetFilteredWithholdsConflictingAndUnsupportedReviewsDespiteCapturedMask() throws {
+        let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-review.lungfishgenotype"))
+        let support = ["fp": 5, "fn": 0, "fn-positive": 5, "fp-zero": 0, "duplicate": 5, "conflict": 5]
+        let catalog = GenotypeReviewableRowCatalog(samples: support.keys.sorted(), rows: [.init(kind: .reference, callID: "raw", displayName: "Display", locus: "MHC-A", stableID: nil, section: "reference", sortKey: "raw", supportBySample: support)])
+        let result = ONTGenotypeResultBundleData(bundleURL: base.bundleURL, manifest: base.manifest, artifacts: base.artifacts, stats: base.stats, calls: base.calls, samples: base.samples, haplotypeAnalysis: nil, mhcCandidates: nil, mhcUnnameableClusters: nil, mhcCandidateSequencesByStableClusterID: [:], mhcCandidateGenBankArtifactURLs: .empty, mhcAlignmentArtifactURLs: .empty, mhcReferenceVisualizations: nil, integrityWarnings: [], referenceMetadata: nil, provisionalExon2SequencesByGenotype: [:], provisionalExon2ArtifactURLs: .empty, reviewableRowCatalog: catalog)
+        let samples = support.keys.sorted() + ["unknown-fp", "unknown-fn"]
+        let projection = GenotypeViewProjection(lens: "allele", sampleColumns: samples, rows: [.init(label: "Display", rawGenotype: "raw", locus: "MHC-A", cells: Array(repeating: "", count: samples.count))])
+        for reverse in [false, true] {
+            var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+            let cases: [(String, GenotypeAnnotationSidecar.MatrixReviewDisposition)] = [("fp", .falsePositive), ("fn", .falseNegative), ("fn-positive", .falseNegative), ("fp-zero", .falsePositive), ("unknown-fp", .falsePositive), ("unknown-fn", .falseNegative), ("duplicate", .falsePositive), ("duplicate", .falsePositive), ("conflict", .falseNegative), ("conflict", .falsePositive)]
+            sidecar.matrixReviews = cases.enumerated().map { index, value in
+                .init(target: .cell(locus: "MHC-A", genotype: "raw", sample: value.0), disposition: value.1, author: "tester", timestamp: "2026-09-12T00:00:\(String(format: "%02d", index))Z")
+            }
+            if reverse { sidecar.matrixReviews.reverse() }
+            let payload = try Command().filteredPresentation(result: result, sidecar: sidecar, thresholds: .init(minimumReads: 5), projection: projection)
+            let cells = try XCTUnwrap(payload.rows.first).cells
+            XCTAssertTrue(cells.allSatisfy { $0.displayValue == nil })
+            XCTAssertEqual(cells.first { $0.sampleID == "fp" }?.review, "false-positive")
+            XCTAssertEqual(cells.first { $0.sampleID == "fn" }?.review, "false-negative")
+            for cell in cells where !["fp", "fn"].contains(cell.sampleID) { XCTAssertNil(cell.review, cell.sampleID) }
+            XCTAssertEqual(sidecar.matrixReviews.count, 10)
+        }
+    }
+
     func testThreeSheetHeadlessResolvesCustomActiveDefinitionPalette() throws {
         let root = try TestTempDirectory.make(prefix: "HeadlessPalette")
         defer { TestTempDirectory.cleanup(root) }
@@ -30,9 +54,16 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
     }
 
     func testThreeSheetHeadlessManualCallsPreserveUnavailableBaselineAndSlotSources() throws {
-        let result = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-manual.lungfishgenotype"), kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue)
+        let root = try TestTempDirectory.make(prefix: "ManualDefinitionAuthority")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = makeResult(bundleURL: root, kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue)
+        let definition = GenotypeHaplotypeDefinitionSet(id: "manual-test", assayID: "manual-assay", displayName: "Manual test", speciesName: "Synthetic", speciesCode: "Syn", prefix: "S", locusDefinitions: [.init(locus: "MHC-A", sourceLocus: "MHC-A", haplotypes: [.init(name: "Not the manual label", diagnosticAlleles: ["01_Strong"])])])
+        let inputs = root.appendingPathComponent(".ont-barcode-genotyping/inputs")
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        try JSONEncoder().encode(definition).write(to: inputs.appendingPathComponent("haplotype-definition.json"))
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
         sidecar.manualHaplotypeAssignments = [.init(sample: "Animal1", locus: "MHC-A", slot: .h1, label: "Exact manual", colorTokenIndex: 0, diagnosticAlleles: [], notes: "Analyst note")]
+        XCTAssertNotNil(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: result, sidecar: sidecar), "The fixture must trigger the competing resolvable-analysis branch")
         let payload = try Command().filteredPresentation(result: result, sidecar: sidecar, thresholds: .init(minimumReads: 5), projection: nil)
         let call = try XCTUnwrap(payload.calls.first { $0.sampleID == "Animal1" && $0.locus == "MHC-A" })
         XCTAssertEqual(call.h1.effective, "Exact manual")

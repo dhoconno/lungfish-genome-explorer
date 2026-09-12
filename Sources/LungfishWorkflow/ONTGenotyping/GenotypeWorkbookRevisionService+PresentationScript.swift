@@ -89,7 +89,12 @@ def resolved(entries):
 
 comments = resolved(sidecar.get('matrixComments', []))
 styles = resolved(sidecar.get('matrixStyles', []))
-reviews = resolved(sidecar.get('matrixReviews', []))
+review_groups = {}
+for entry in sidecar.get('matrixReviews', []):
+    review_groups.setdefault(target_key(entry.get('target', {})), []).append(entry)
+# Unlike comments/styles, duplicate review records never select a winner.
+# Withhold every duplicate exact target while retaining its source records.
+reviews = {key: entries[0] for key, entries in review_groups.items() if len(entries) == 1}
 
 def comment(target):
     return comments.get(target_key(target), {}).get('body')

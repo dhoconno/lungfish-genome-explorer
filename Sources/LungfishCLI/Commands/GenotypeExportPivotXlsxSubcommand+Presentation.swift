@@ -9,6 +9,7 @@ extension GenotypeExportPivotXlsxSubcommand {
         let workbook = PivotWorkbookBuilder.build(from: result, sidecar: sidecar, thresholds: thresholds)
         let samples = projection?.sampleColumns ?? workbook.samples
         let comments = sidecar?.resolvedMatrixComments ?? [:]
+        let reviewGroups = Dictionary(grouping: sidecar?.matrixReviews ?? [], by: \.target)
         func identity<T: Encodable>(_ target: T) throws -> String {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
             return SHA256.hash(data: try encoder.encode(target)).map { String(format: "%02x", $0) }.joined()
@@ -30,8 +31,18 @@ extension GenotypeExportPivotXlsxSubcommand {
                 let cellTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: locus, genotype: genotype, sample: sample, stableClusterID: row.stableClusterID)
                 let raw = catalogRow?.supportBySample[sample]
                 let captured = index < row.cells.count ? row.cells[index] : ""
-                let review = sidecar?.matrixReviews.last(where: { $0.target == cellTarget })?.disposition
-                let token = review.map { $0 == .falsePositive ? "false-positive" : "false-negative" }
+                // Review validity is independent of the captured display mask.
+                // Preserve all source records, but withhold conflicting targets
+                // and dispositions unsupported by authoritative raw evidence.
+                let token: String?
+                if let entries = reviewGroups[cellTarget], entries.count == 1, let raw {
+                    switch entries[0].disposition {
+                    case .falsePositive: token = raw > 0 ? "false-positive" : nil
+                    case .falseNegative: token = raw == 0 ? "false-negative" : nil
+                    }
+                } else {
+                    token = nil
+                }
                 let color = row.cellColorsHex.flatMap { index < $0.count ? $0[index] : nil }
                 return .init(sampleID: sample, displayValue: Int(captured), rawSupport: raw, reviewEligible: raw != nil,
                     fillHex: color, comment: comments[cellTarget]?.body, review: token)
@@ -52,8 +63,7 @@ extension GenotypeExportPivotXlsxSubcommand {
                         baselineHaplotype1Available: false, baselineHaplotype2Available: false)
                 }
             }
-        }
-        if projection == nil,
+        } else if projection == nil,
            let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(for: result, sidecar: sidecar) {
             let authority = GenotypeEffectiveCallAuthority.resolve(analysis: analysis, sidecar: sidecar ?? .empty(generatedAt: analysis.generatedAt ?? "1970-01-01T00:00:00Z"))
             projectedCalls = analysis.samples.filter { samples.contains($0.sample) }.flatMap { sample in
