@@ -154,12 +154,12 @@ XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.value, "
 - Modify: `Tests/LungfishCLITests/GenotypePivotFilteredCopyTests.swift`
 - Modify production only to resolve a concretely reproduced behavioral defect, with controller approval of its scope.
 
-**Interfaces:** Consume Task3 production writer and its classified affected-suite report. This task updates intentionally changed workbook presentation expectations without deleting scientific integrity coverage. Final visual/UI acceptance is Task5.
+**Interfaces:** Consume Task3 production writer and its classified affected-suite report. This task updates intentionally changed workbook presentation expectations without deleting scientific integrity coverage. Final visual/UI acceptance is Task6.
 
 - [ ] Read Task3 failure classification. The affected run had 56 failing methods: 47 removed-sheet lookups, 2 old shape/address assumptions, 5 initial-geometry authority expectations, 1 obsolete scan-counter test, and 1 genuine initial MiSeq refresh issue fixed in Task3. Do not infer that all failures are harmless; follow each test's scientific purpose.
 - [ ] Adapt old output worksheet/coordinate access to the new three-sheet schema and retained trusted manifest. Preserve old-schema fixtures when they exercise migration, pending edits, or original-data retention. Do not mass-replace all legacy sheet names or skip/delete tests to make the suite green.
 - [ ] For the five initial-geometry cases, assert exact catalog/CSV-derived rebuild and unchanged original source checksum. An initial un-attested legacy workbook is presentation input, not scientific identity authority. Keep attested-v1 pending-edit and post-attestation layout/raw-value mutation rejection tests intact.
-- [ ] Replace obsolete scan counters with behavior/no-op assertions. Route any genuinely absent planned style behavior to Task5 with exact test names; do not fake old metrics. Report behavioral failures immediately, implement only scoped fixes after confirming the cause.
+- [ ] Replace obsolete scan counters with behavior/no-op assertions. Route any genuinely absent planned style behavior to Task6 with exact test names; do not fake old metrics. Report behavioral failures immediately, implement only scoped fixes after confirming the cause.
 - [ ] Run focused changed methods, then one affected revision/filtered suite. Record exact counts, remaining pending-style tests if any, and coverage mappings in task report. Commit the bounded migration with no unrelated source changes.
 
 ## Task 5: Align review eligibility across LGE, inference inputs, and Excel
