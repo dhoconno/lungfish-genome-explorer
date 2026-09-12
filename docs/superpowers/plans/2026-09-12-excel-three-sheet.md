@@ -53,6 +53,8 @@ The function body is implemented in Task 1; the stable wire fields are:
 
 Use deterministic identity hashes derived from exact scientific target JSON in real callers, not the illustrative IDs above. `displayValue` is an integer or null; raw support is independently integer or null, never inferred from display. `pipeline:null` means unavailable; `pipeline:""` is a real empty baseline. Row target may include stableClusterID. Colors resolve from active LGE definitions, not a Python M-number map.
 
+`loci` orders the haplotype band, not the universe of evidence-row loci: real matrices include MHC-F/G evidence without corresponding haplotype calls. `calls` may be sparse across samples and loci. Preserve absent sample/locus slots as blank band cells, without synthesizing call-sheet rows. Require complete sample cells for each evidence row, not a complete sample-by-locus call product.
+
 The returned manifest contains schemaVersion, role, sheetOrder, callTargets, noteTargets, immutableCells, expectedFormulas, identityCells, allowedNoteGrammarVersion. callTargets map IDs to sample/locus and per-slot valueCell/actionCell/baselineAvailable/pipeline/effective. noteTargets map target IDs to sheet/cell/target/rawSupport/reviewEligible/currentComment/currentReview/generatedText. Immutable cells include types, values, hyperlinks; expectedFormulas map sheet and address to exact allowed formula. The caller stores this trusted manifest with the attested baseline. Workbook metadata never grants authority.
 
 ## Task 1: Shared renderer and deterministic workbook schema
