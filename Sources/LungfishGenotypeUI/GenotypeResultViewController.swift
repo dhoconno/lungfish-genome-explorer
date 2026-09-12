@@ -682,6 +682,17 @@ public final class GenotypeResultViewController: NSViewController {
     private var pendingConfigurationResult: ONTGenotypeResultBundleData?
     private var currentWorkbookResultReloadTask: Task<Void, Never>?
     private var excelExportAccessoryController: GenotypeExcelExportAccessoryController?
+    var excelChoicePresenter: (NSAlert, NSWindow, @escaping (NSApplication.ModalResponse) -> Void) -> Void = { alert, window, completion in
+        alert.beginSheetModal(for: window, completionHandler: completion)
+    }
+    var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void = { panel, window, completion in
+        panel.beginSheetModal(for: window) { response in completion(response == .OK ? panel.url : nil) }
+    }
+    var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void = { snapshot, format, url in
+        _ = try await Task.detached {
+            try GenotypeViewportExportService().export(snapshot: snapshot, format: format, to: url)
+        }.value
+    }
     private var resultConfigurationGeneration: UInt64 = 0
     private var desiredResultConfigurationBundleURL: URL?
     private var aiHaplotypingStatus: String?
@@ -9909,16 +9920,20 @@ public final class GenotypeResultViewController: NSViewController {
     /// Captures once before presenting either Excel role so later dialog delay
     /// cannot change the filtered workbook's reported or written scope.
     public func presentExcelExportDialog(
-        expectedDisplayState: GenotypeResultDisplayState
+        expectedDisplayState: GenotypeResultDisplayState,
+        allowsEditableWorkbook: Bool? = nil
     ) {
         guard displayState == expectedDisplayState,
               let snapshot = currentExportSnapshot()
         else { return }
-        let capturedScope = GenotypeExcelCapturedScope(snapshot: snapshot)
+        let capturedScope = GenotypeExcelCapturedScope(
+            snapshot: snapshot,
+            callEditingSupported: currentWorkbookHaplotypeProjectionMode() == .haplotyped
+        )
         let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
             scope: capturedScope.summary,
             capability: capturedScope.capability,
-            allowsEditableWorkbook: !currentWorkbookIsReadOnly,
+            allowsEditableWorkbook: allowsEditableWorkbook ?? !currentWorkbookIsReadOnly,
             onRoleChange: { _ in }
         )
         let alert = presentation.alert
@@ -9926,7 +9941,7 @@ public final class GenotypeResultViewController: NSViewController {
         excelExportAccessoryController = accessory
         alert.accessoryView = accessory.view
         let window = view.window ?? NSApp.keyWindow ?? NSWindow()
-        alert.beginSheetModal(for: window) { [weak self, weak accessory] response in
+        excelChoicePresenter(alert, window) { [weak self, weak accessory] response in
             guard let self else { return }
             defer { self.excelExportAccessoryController = nil }
             GenotypeExcelExportDialogRoute.complete(
@@ -9997,8 +10012,8 @@ public final class GenotypeResultViewController: NSViewController {
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
-        panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
+        excelSavePanelPresenter(panel, view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] url in
+            guard let url else { return }
             guard let self else { return }
             // Capture the snapshot while still on the main actor: currentExportSnapshot()
             // reads main-actor UI state. Only the export (which shells out to the CLI and
@@ -10006,15 +10021,10 @@ public final class GenotypeResultViewController: NSViewController {
             guard let snapshot = capturedSnapshot ?? self.currentExportSnapshot() else { return }
             let outputURL = url
             self.publishFilteredWorkbookExportEvent(.started, filteredWorkflow: filteredWorkflow)
+            let export = self.viewportExportRunner
             Task { [weak self] in
                 do {
-                    _ = try await Task.detached {
-                        try GenotypeViewportExportService().export(
-                            snapshot: snapshot,
-                            format: format,
-                            to: outputURL
-                        )
-                    }.value
+                    try await export(snapshot, format, outputURL)
                     await MainActor.run {
                         guard let self else { return }
                         self.publishFilteredWorkbookExportEvent(.succeeded(outputURL), filteredWorkflow: filteredWorkflow)

@@ -75,7 +75,7 @@ struct GenotypeExcelCapturedScope: Equatable {
     let summary: String
     let capability: String
 
-    init(snapshot: GenotypeViewportExportSnapshot) {
+    init(snapshot: GenotypeViewportExportSnapshot, callEditingSupported: Bool) {
         let filters = snapshot.filters
         let samples = snapshot.haplotypeSampleScope ?? snapshot.sampleNames
         let loci = snapshot.haplotypeLocusScope
@@ -98,9 +98,9 @@ struct GenotypeExcelCapturedScope: Equatable {
             "Locus filter: \(filters["locus"] ?? "All Loci")",
         ].joined(separator: "\n")
 
-        capability = snapshot.haplotypeCalls == nil
+        capability = !callEditingSupported
             ? "H1/H2 calls are read-only for this legacy workbook; matrix reviews and comments remain supported."
-            : "H1/H2 call edits and matrix reviews/comments are supported."
+            : "H1/H2 call edits are supported where a raw baseline is available; matrix reviews and comments remain supported."
     }
 }
 

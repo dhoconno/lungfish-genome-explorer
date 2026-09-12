@@ -11,6 +11,351 @@ import LungfishTestSupport
 
 @MainActor
 final class MappingViewportRoutingTests: XCTestCase {
+    /// Every request owns a continuation and a deadline. A second request can
+    /// never replace the first waiter (including removal-triggered sync).
+    @MainActor private final class ExcelAwaitGate {
+        private var pending: [Int: CheckedContinuation<Void, Error>] = [:]
+        private(set) var count = 0
+        func wait() async throws {
+            let id = count
+            count += 1
+            try await withCheckedThrowingContinuation { continuation in
+                pending[id] = continuation
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    self.pending.removeValue(forKey: id)?.resume(throwing: NSError(domain: "Excel test gate timed out", code: id))
+                }
+            }
+        }
+        func release(_ id: Int = 0) { pending.removeValue(forKey: id)?.resume() }
+    }
+
+    private var excelTestPython: URL {
+        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
+    }
+
+    private func runExcelPython(_ code: String, workbook: URL) throws {
+        let process = Process()
+        process.executableURL = excelTestPython
+        process.arguments = ["-c", "import sys; p=sys.argv[1]; " + code, workbook.path]
+        try process.run()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        if process.isRunning {
+            process.terminate()
+            throw NSError(domain: "Excel fixture Python timed out", code: 1)
+        }
+        XCTAssertEqual(process.terminationStatus, 0)
+    }
+
+    private func seedExcelWorkbook(in bundle: URL) throws -> GenotypeEditableWorkbookService {
+        let service = GenotypeEditableWorkbookService(pythonExecutableURL: excelTestPython)
+        let workbook = bundle.appendingPathComponent("current.xlsx")
+        try runExcelPython("import json, os; from openpyxl import Workbook; w=Workbook(); w.active.title='Reads'; w.active.append(['Sample','Reads']); w.active.append(['DW472',8])\n" + GenotypeEditableWorkbookService.seedScript + "\nseed_editable_tables(w, [{'sample':'DW472','locus':'MHC-A','haplotype1':'M1A','haplotype2':'M2A','baselineHaplotype1':'M1A','baselineHaplotype2':'M2A'}], json.load(open(os.path.join(os.path.dirname(p), 'annotations.json'))) if os.path.exists(os.path.join(os.path.dirname(p), 'annotations.json')) else {}, {'samples':['DW472'],'rows':[{'locus':'MHC-A','display_name':'01_Mafa_A1_063g','support_by_sample':[{'sample':'DW472','support':8}]}]}, True); w.save(p)", workbook: workbook)
+        try service.attestGeneratedWorkbook(workbookURL: workbook, bundleURL: bundle)
+        return service
+    }
+
+    private func makeExcelReviewFixture(root: URL) async throws -> (MainSplitViewController, GenotypeResultViewController, URL, GenotypeEditableWorkbookService) {
+        let bundle = try makeGenotypeResultBundle(root: root, name: "review", haplotypeAnalysisPath: "haplotypes.json")
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq", definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Test", speciesName: "Test", analysisRevisionID: "test-revision",
+            samples: [.init(sample: "DW472", calls: [.init(locus: "MHC-A", sourceLocus: "MHC-A", haplotype1: "M1A", haplotype2: "M2A", status: .called, matchedHaplotypes: [], observedGenotypeCount: 1, observedGenotypes: [], aiMetadata: nil)])]
+        )
+        try JSONEncoder().encode(analysis).write(to: bundle.appendingPathComponent("haplotypes.json"))
+        let split = MainSplitViewController()
+        split.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = { true }
+        split.genotypeCurrentWorkbookSyncCoordinator = .init(recordedFingerprintLoader: { _ in nil }, idleScheduler: { _, _ in IdleCancellation() })
+        _ = split.view
+        await split.testingDisplayGenotypeResultBundleAndWait(bundle)
+        let registered = await eventually { split.pendingGenotypeCurrentWorkbookRoutes.isEmpty }
+        XCTAssertTrue(registered)
+        let controller = try XCTUnwrap(split.viewerController.genotypeResultViewController)
+        controller.annotationAuthorProvider = { "Excel Test Analyst" }
+        let service = try seedExcelWorkbook(in: bundle)
+        split.genotypeExcelReviewServiceProvider = { service }
+        return (split, controller, bundle, service)
+    }
+
+    func testExcelReviewRejectsStaleContextAtEveryAwaitAndSuppressesStaleErrors() async throws {
+        for stage in ["runtime", "inspection", "presentation"] {
+            for transition in ["project", "window", "replacement", "ownership"] {
+                for fails in stage == "presentation" ? [false] : [false, true] {
+                    let root = try TestTempDirectory.make(prefix: "ExcelReviewRace")
+                    defer { TestTempDirectory.cleanup(root) }
+                    let (split, controller, bundle, service) = try await makeExcelReviewFixture(root: root)
+                    let window = NSWindow()
+                    window.contentView?.addSubview(controller.view)
+                    let annotation = bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+                    let before = try? Data(contentsOf: annotation)
+                    let gate = ExcelAwaitGate()
+                    var inspected = 0
+                    var presented = 0
+                    var accepted = 0
+                    var errors: [String] = []
+                    controller.onCurrentWorkbookSyncRequested = { if $0.action == .acceptedEditable { accepted += 1 } }
+                    split.genotypeExcelErrorPresenter = { errors.append($0.localizedDescription) }
+                    split.genotypeExcelReviewServiceProvider = {
+                        if stage == "runtime" { try await gate.wait() }
+                        if stage == "runtime" && fails { throw NSError(domain: "Runtime unavailable", code: 1) }
+                        return service
+                    }
+                    split.genotypeExcelInspector = { service, url in
+                        inspected += 1
+                        if stage == "inspection" { try await gate.wait() }
+                        if fails { throw NSError(domain: "Inspection failed", code: 2) }
+                        return try service.inspect(bundleURL: url)
+                    }
+                    split.genotypeExcelReviewPresenter = { _, _ in
+                        presented += 1
+                        if stage == "presentation" { try? await gate.wait() }
+                        return .alertFirstButtonReturn
+                    }
+                    let task = try XCTUnwrap(split.routeGenotypeExcelReviewRequest(controller))
+                    let paused = await eventually { gate.count == 1 }
+                    XCTAssertTrue(paused, "\(stage)/\(transition)")
+                    switch transition {
+                    case "project": split.projectSession.openReadOnlyFilesystemFallback(at: root.appendingPathComponent("another-project"))
+                    case "window": controller.view.removeFromSuperview()
+                    case "replacement":
+                        controller.onCurrentWorkbookSyncRequested = nil
+                        split.viewerController.hideGenotypeResultView()
+                        split.viewerController.displayGenotypeResult(try await ONTGenotypeResultBundle.loadResultAsync(from: bundle))
+                    default: split.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = { false }
+                    }
+                    gate.release()
+                    await task.value
+                    XCTAssertEqual(inspected, stage == "runtime" ? 0 : 1, "\(stage)/\(transition)")
+                    XCTAssertEqual(presented, stage == "presentation" ? 1 : 0, "\(stage)/\(transition)")
+                    XCTAssertEqual(accepted, 0)
+                    XCTAssertTrue(errors.isEmpty)
+                    XCTAssertEqual(try? Data(contentsOf: annotation), before)
+                    controller.view.removeFromSuperview()
+                }
+            }
+        }
+    }
+
+    func testExcelExportDialogReflectsProjectWriteOwnershipAndDeniedOpenIsActionable() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelDenied")
+        defer { TestTempDirectory.cleanup(root) }
+        let (split, controller, _, _) = try await makeExcelReviewFixture(root: root)
+        split.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = { false }
+        var presented = 0
+        controller.excelChoicePresenter = { alert, _, completion in
+            presented += 1
+            let buttons = (alert.accessoryView as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton }
+            XCTAssertEqual(buttons?.last?.isEnabled, false)
+            completion(.alertSecondButtonReturn)
+        }
+        controller.onExcelExportRequested?()
+        XCTAssertEqual(presented, 1)
+        var snapshot: GenotypeCurrentWorkbookUISnapshot?
+        controller.onCurrentWorkbookSyncRequested = { snapshot = $0.snapshot }
+        controller.requestCurrentWorkbookRegistration()
+        var errors: [String] = []
+        split.genotypeExcelErrorPresenter = { errors.append($0.localizedDescription) }
+        await split.routeGenotypeCurrentWorkbookRequest(.init(snapshot: try XCTUnwrap(snapshot), action: .openEditable)).value
+        XCTAssertEqual(errors.count, 1)
+        XCTAssertTrue(errors.first?.contains("write ownership") == true)
+    }
+
+    func testExcelReviewAcceptanceSavesRefreshesAndRegeneratesIncludingZeroChange() async throws {
+        for kind in ["mixed", "zero", "cancel", "changed-after-review", "runtime-error", "inspection-error", "regeneration-error", "denied"] {
+            let root = try TestTempDirectory.make(prefix: "ExcelReviewApply")
+            defer { TestTempDirectory.cleanup(root) }
+            let (split, controller, bundle, service) = try await makeExcelReviewFixture(root: root)
+            let workbook = bundle.appendingPathComponent("current.xlsx")
+            let oldComment = String(repeating: "Existing multiline comment\n", count: 12)
+            let newComment = String(repeating: "Reviewed in Excel\n", count: 12).trimmingCharacters(in: .whitespacesAndNewlines)
+            let cell = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: "01_Mafa_A1_063g", sample: "DW472")
+            if kind == "mixed" {
+                controller.editMatrixComment(.init(targets: [cell], intent: .upsert(body: oldComment)))
+                _ = try seedExcelWorkbook(in: bundle)
+                try runExcelPython("from openpyxl import load_workbook; w=load_workbook(p); w['Edit Calls']['G2']='set'; w['Edit Calls']['H2']='M3A'; w['Edit Calls']['G3']='clear'\nfor row in w['Edit Matrix'].iter_rows(min_row=2):\n if '\"kind\": \"cell\"' in str(row[1].value):\n  row[5].value='set'; row[6].value='false-positive'\n row[7].value='set'; row[8].value=('Reviewed in Excel\\n' * 12).strip()\nw.save(p)", workbook: workbook)
+            } else {
+                try runExcelPython("from openpyxl import load_workbook; w=load_workbook(p); w['Edit Calls'].column_dimensions['B'].width=45; w.save(p)", workbook: workbook)
+            }
+            let annotation = bundle.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            let before = try? Data(contentsOf: annotation)
+            var acceptedSnapshot: GenotypeCurrentWorkbookUISnapshot?
+            var regenerated = 0
+            var refreshed = 0
+            var errors: [String] = []
+            var opened = 0
+            split.genotypeCurrentWorkbookExternalOpener = { _ in opened += 1 }
+            split.genotypeCurrentWorkbookSyncCoordinator = .init(
+                recordedFingerprintLoader: { _ in nil }, currentWorkbookResolver: { _ in nil },
+                updateRunner: { request, intent in
+                    regenerated += 1
+                    XCTAssertEqual(intent, .automaticIdle)
+                    XCTAssertFalse(try GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle))
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: annotation.path))
+                    XCTAssertEqual(request.annotationOnly, kind != "mixed")
+                    if kind == "regeneration-error" { throw GenotypeEditableWorkbookService.EditError.rejected("Close Excel and retry refreshing current.xlsx.") }
+                    if kind == "mixed" {
+                        XCTAssertEqual(controller.testingCurrentExportSnapshot()?.haplotypeCalls?.first?.haplotype1, "M3A")
+                    }
+                    // The production coordinator regenerates through this I/O
+                    // boundary only after the real atomic annotation commit.
+                    try service.attestGeneratedWorkbook(workbookURL: workbook, bundleURL: bundle)
+                    return workbook
+                }, idleScheduler: { _, _ in IdleCancellation() }
+            )
+            let route = controller.onCurrentWorkbookSyncRequested
+            controller.onCurrentWorkbookSyncRequested = { request in
+                if request.action == .acceptedEditable { acceptedSnapshot = request.snapshot }
+                route?(request)
+            }
+            let refresh = controller.onAnnotationSidecarChanged
+            controller.onAnnotationSidecarChanged = { sidecar in refreshed += 1; refresh?(sidecar) }
+            split.genotypeExcelErrorPresenter = { errors.append($0.localizedDescription) }
+            var presentations = 0
+            split.genotypeExcelReviewPresenter = { alert, _ in
+                presentations += 1
+                XCTAssertEqual(alert.buttons[0].title, "Import Changes")
+                XCTAssertEqual(alert.buttons.map(\.keyEquivalent), ["\r", "\u{1b}"])
+                if kind == "mixed" {
+                    let scroll = alert.accessoryView as? NSScrollView
+                    let labels = (scroll?.documentView as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSTextField } ?? []
+                    let text = labels.map(\.stringValue).joined(separator: "\n")
+                    XCTAssertTrue(text.contains("Call — DW472 • MHC-A • H1\nM1A → M3A"))
+                    XCTAssertTrue(text.contains("Call — DW472 • MHC-A • H2\nM2A → Clear"))
+                    XCTAssertTrue(text.contains("Matrix row • MHC-A • 01_Mafa_A1_063g"))
+                    XCTAssertTrue(text.contains("Matrix column • DW472"))
+                    XCTAssertTrue(text.contains("Matrix cell • DW472 • MHC-A • 01_Mafa_A1_063g"))
+                    XCTAssertTrue(text.contains(oldComment.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    XCTAssertTrue(text.contains(newComment))
+                    XCTAssertTrue(labels.allSatisfy { $0.maximumNumberOfLines == 0 })
+                } else { XCTAssertTrue(alert.informativeText.contains("Acknowledge")) }
+                if kind == "changed-after-review" { try? Data("changed".utf8).write(to: workbook) }
+                return kind == "cancel" ? .alertSecondButtonReturn : .alertFirstButtonReturn
+            }
+            if kind == "inspection-error" { split.genotypeExcelInspector = { _, _ in throw GenotypeEditableWorkbookService.EditError.rejected("Excel saved during inspection. Inspect again.") } }
+            if kind == "runtime-error" { split.genotypeExcelReviewServiceProvider = { throw GenotypeEditableWorkbookService.EditError.rejected("Python is unavailable. Repair the openpyxl environment.") } }
+            if kind == "denied" { split.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = { false } }
+            await split.routeGenotypeExcelReviewRequest(controller)?.value
+            if ["mixed", "zero", "regeneration-error"].contains(kind) {
+                let completed = await eventually { regenerated == 1 && split.pendingGenotypeCurrentWorkbookRoutes.isEmpty && (kind != "regeneration-error" || errors.count == 1) }
+                XCTAssertTrue(completed, kind)
+                XCTAssertEqual(refreshed, 1)
+                XCTAssertNotNil(acceptedSnapshot)
+                let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotation))
+                if kind == "mixed" {
+                    XCTAssertEqual(sidecar.callOverrides.first?.overrideCall, "M3A")
+                    XCTAssertEqual(sidecar.matrixReviews.first?.disposition, .falsePositive)
+                    XCTAssertEqual(sidecar.resolvedMatrixComments[cell]?.body, newComment)
+                    XCTAssertEqual(sidecar.matrixComments.count, 3)
+                    XCTAssertEqual(acceptedSnapshot?.calls.first?.haplotype1, "M3A")
+                    XCTAssertEqual(controller.testingCurrentExportSnapshot()?.annotationSidecarData, try Data(contentsOf: annotation))
+                } else {
+                    XCTAssertTrue(sidecar.callOverrides.isEmpty)
+                    XCTAssertTrue(sidecar.matrixComments.isEmpty)
+                }
+                let evidence = bundle.appendingPathComponent("artifacts/workbook-edits")
+                let directories = try FileManager.default.contentsOfDirectory(at: evidence, includingPropertiesForKeys: nil)
+                XCTAssertTrue(directories.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("acceptance-provenance.json").path) })
+                XCTAssertEqual(errors.count, kind == "regeneration-error" ? 1 : 0)
+                if kind == "regeneration-error" { XCTAssertTrue(errors[0].contains("Close Excel and retry")) }
+            } else {
+                XCTAssertNil(acceptedSnapshot)
+                XCTAssertEqual(regenerated, 0)
+                XCTAssertEqual(refreshed, 0)
+                XCTAssertEqual(try? Data(contentsOf: annotation), before)
+                XCTAssertEqual(errors.count, kind == "cancel" ? 0 : 1, kind)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("artifacts/workbook-edits").path))
+            }
+            XCTAssertEqual(opened, 0)
+            XCTAssertEqual(presentations, ["runtime-error", "inspection-error", "denied"].contains(kind) ? 0 : 1)
+        }
+    }
+
+    func testExcelOpenRouteRevalidatesOriginAcrossBothAwaits() async throws {
+        for stage in ["fingerprint", "prepare"] {
+            for transition in ["none", "project", "window", "replacement", "ownership"] {
+                for fails in [false, true] {
+                    let root = try TestTempDirectory.make(prefix: "ExcelOpenRoute")
+                    defer { TestTempDirectory.cleanup(root) }
+                    let bundle = try makeGenotypeResultBundle(root: root, name: "route", haplotypeAnalysisPath: nil)
+                    let split = MainSplitViewController()
+                    var allowed = true
+                    split.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = { allowed }
+                    split.genotypeCurrentWorkbookSyncCoordinator = .init(
+                        recordedFingerprintLoader: { _ in nil }, idleScheduler: { _, _ in IdleCancellation() }
+                    )
+                    _ = split.view
+                    await split.testingDisplayGenotypeResultBundleAndWait(bundle)
+                    let registered = await eventually { split.pendingGenotypeCurrentWorkbookRoutes.isEmpty }
+                    XCTAssertTrue(registered)
+                    let controller = try XCTUnwrap(split.viewerController.genotypeResultViewController)
+                    var captured: GenotypeCurrentWorkbookUIRequest?
+                    controller.onCurrentWorkbookSyncRequested = { captured = $0 }
+                    controller.requestCurrentWorkbookRegistration()
+                    let snapshot = try XCTUnwrap(captured?.snapshot)
+                    let window = NSWindow()
+                    window.contentView?.addSubview(controller.view)
+                    _ = try seedExcelWorkbook(in: bundle)
+                    let gate = ExcelAwaitGate()
+                    let fingerprint = split.genotypeCurrentWorkbookFingerprintLoader
+                    split.genotypeCurrentWorkbookFingerprintLoader = { snapshot in
+                        if stage == "fingerprint" && gate.count == 0 {
+                            try await gate.wait()
+                            if fails { throw NSError(domain: "Fingerprint failed", code: 1) }
+                        }
+                        return try await fingerprint(snapshot)
+                    }
+                    split.genotypeCurrentWorkbookSyncCoordinator = .init(
+                        recordedFingerprintLoader: { _ in nil },
+                        currentWorkbookResolver: { _ in nil },
+                        updateRunner: { _, _ in
+                            if stage == "prepare" { try await gate.wait() }
+                            if fails { throw NSError(domain: "Preparation failed", code: 2) }
+                            return bundle.appendingPathComponent("current.xlsx")
+                        }, idleScheduler: { _, _ in IdleCancellation() }
+                    )
+                    var opened: [URL] = []
+                    var errors: [String] = []
+                    split.genotypeCurrentWorkbookExternalOpener = { opened.append($0) }
+                    split.genotypeExcelErrorPresenter = { errors.append($0.localizedDescription) }
+                    let task = split.routeGenotypeCurrentWorkbookRequest(.init(snapshot: snapshot, action: .openEditable))
+                    let paused = await eventually { gate.count == 1 }
+                    XCTAssertTrue(paused, "\(stage)/\(transition)/\(fails)")
+                    switch transition {
+                    case "project": split.projectSession.openReadOnlyFilesystemFallback(at: root.appendingPathComponent("another-project"))
+                    case "window": controller.view.removeFromSuperview()
+                    case "replacement":
+                        controller.onCurrentWorkbookSyncRequested = nil
+                        split.viewerController.hideGenotypeResultView()
+                        let loaded = try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)
+                        let replacement = split.viewerController.displayGenotypeResult(loaded)
+                        XCTAssertFalse(controller === replacement)
+                        // The real content-display route registers a reopened
+                        // bundle. That lower-priority request must not inherit
+                        // an old controller's pending Open in Excel intent.
+                        var reopenedSnapshot: GenotypeCurrentWorkbookUISnapshot?
+                        replacement.onCurrentWorkbookSyncRequested = { reopenedSnapshot = $0.snapshot }
+                        replacement.requestCurrentWorkbookRegistration()
+                        await split.routeGenotypeCurrentWorkbookRequest(.init(
+                            snapshot: try XCTUnwrap(reopenedSnapshot), action: .register
+                        )).value
+                    case "ownership": allowed = false
+                    default: break
+                    }
+                    gate.release()
+                    await task.value
+                    let label = "\(stage)/\(transition)/\(fails)"
+                    XCTAssertEqual(opened, transition == "none" && !fails ? [bundle.appendingPathComponent("current.xlsx")] : [], label)
+                    if transition != "none" { XCTAssertTrue(errors.isEmpty, label) }
+                    if transition == "none" && fails { XCTAssertEqual(errors.count, 1, label) }
+                    XCTAssertTrue(split.pendingGenotypeCurrentWorkbookRoutes.isEmpty, label)
+                    controller.view.removeFromSuperview()
+                }
+            }
+        }
+    }
+
     private final class IdleCancellation: GenotypeCurrentWorkbookSyncCoordinator.IdleCancellation {
         func cancel() {}
     }

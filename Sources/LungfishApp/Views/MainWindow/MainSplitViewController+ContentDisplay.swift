@@ -450,79 +450,20 @@ extension MainSplitViewController {
                             .genotypeResultDisplaySectionViewModel
                             .prepareNumericFiltersForExport()
                         guard self.viewerController.genotypeResultViewController === controller else { return }
-                        controller?.presentExcelExportDialog(expectedDisplayState: settled)
+                        guard let controller, let bundleURL = controller.representedBundleURL else { return }
+                        controller.presentExcelExportDialog(
+                            expectedDisplayState: settled,
+                            allowsEditableWorkbook: self.mayUpdateGenotypeCurrentWorkbook(
+                                bundleURL: bundleURL, isReadOnly: controller.currentResultBundleIsReadOnly
+                            )
+                        )
                     } catch {
                         NSApp.presentError(error)
                     }
                 }
                 controller.onExcelReviewRequested = { [weak self, weak controller] in
-                    guard let self, let controller,
-                          self.viewerController.genotypeResultViewController === controller,
-                          let requestedBundleURL = controller.representedBundleURL,
-                          self.mayUpdateGenotypeCurrentWorkbook(
-                            bundleURL: requestedBundleURL,
-                            isReadOnly: false
-                          )
-                    else { return }
-                    Task { @MainActor [weak self, weak controller] in
-                        do {
-                            let pythonURL = try await CondaManager.shared.toolPath(
-                                name: "python", environment: "openpyxl"
-                            )
-                            let service = GenotypeEditableWorkbookService(
-                                pythonExecutableURL: pythonURL
-                            )
-                            guard let bundleURL = controller?.representedBundleURL,
-                                  bundleURL == requestedBundleURL else { return }
-                            let inspection = try await Task.detached {
-                                try service.inspect(bundleURL: bundleURL)
-                            }.value
-                            guard let self, let controller,
-                                  self.viewerController.genotypeResultViewController === controller,
-                                  controller.representedBundleURL == requestedBundleURL,
-                                  self.mayUpdateGenotypeCurrentWorkbook(
-                                    bundleURL: requestedBundleURL,
-                                    isReadOnly: false
-                                  )
-                            else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "Review Excel Changes"
-                            let callCapability = inspection.supportsCallOverrides
-                                ? "H1/H2 call edits and matrix reviews/comments are supported."
-                                : "H1/H2 calls are read-only for this legacy result; matrix reviews/comments remain supported."
-                            alert.informativeText = inspection.changes.isEmpty
-                                ? "Excel saved formatting or metadata changes. Acknowledge this save and refresh current.xlsx? \(callCapability)"
-                                : callCapability
-                            if !inspection.changes.isEmpty {
-                                alert.accessoryView = GenotypeExcelReviewPresenter.makeScrollView(
-                                    rows: inspection.changes.map(GenotypeExcelReviewRow.init(change:))
-                                )
-                            }
-                            alert.addButton(withTitle: "Import Changes")
-                            alert.addButton(withTitle: "Cancel")
-                            let window = controller.view.window ?? NSApp.keyWindow ?? NSWindow()
-                            let response = await alert.beginSheetModal(for: window)
-                            guard response == .alertFirstButtonReturn,
-                                  self.viewerController.genotypeResultViewController === controller,
-                                  controller.representedBundleURL == requestedBundleURL,
-                                  self.mayUpdateGenotypeCurrentWorkbook(
-                                    bundleURL: requestedBundleURL,
-                                    isReadOnly: false
-                                  )
-                            else { return }
-                            try controller.acceptEditableWorkbook(inspection, using: service)
-                        } catch {
-                            guard let self, let controller,
-                                  self.viewerController.genotypeResultViewController === controller,
-                                  controller.representedBundleURL == requestedBundleURL,
-                                  self.mayUpdateGenotypeCurrentWorkbook(
-                                    bundleURL: requestedBundleURL,
-                                    isReadOnly: false
-                                  )
-                            else { return }
-                            self.genotypeExcelErrorPresenter(error)
-                        }
-                    }
+                    guard let self, let controller else { return }
+                    self.routeGenotypeExcelReviewRequest(controller)
                 }
                 controller.onFilteredWorkbookExportEvent = { [weak self, weak controller] event in
                     guard let self,
@@ -557,14 +498,118 @@ extension MainSplitViewController {
         }
     }
 
+    private func isCurrentGenotypeExcelOrigin(
+        _ controller: GenotypeResultViewController,
+        bundleURL: URL,
+        context: OperationRouteContext,
+        windowID: ObjectIdentifier?
+    ) -> Bool {
+        viewerController.genotypeResultViewController === controller
+            && controller.representedBundleURL == bundleURL
+            && operationRouteContext == context
+            && controller.view.window.map(ObjectIdentifier.init) == windowID
+    }
+
+    private func requireGenotypeExcelWriteAccess(_ bundleURL: URL) -> Bool {
+        guard mayUpdateGenotypeCurrentWorkbook(bundleURL: bundleURL, isReadOnly: false) else {
+            applyGenotypeCurrentWorkbookSyncPhase(
+                .failed("This project no longer has write access. Reopen it with write ownership to edit current.xlsx."),
+                bundleURL: bundleURL
+            )
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    func routeGenotypeExcelReviewRequest(
+        _ controller: GenotypeResultViewController
+    ) -> Task<Void, Never>? {
+        guard viewerController.genotypeResultViewController === controller,
+              let bundleURL = controller.representedBundleURL
+        else { return nil }
+        guard requireGenotypeExcelWriteAccess(bundleURL) else {
+            genotypeExcelErrorPresenter(GenotypeEditableWorkbookService.EditError.rejected(
+                "This project is read-only. Reopen it with write ownership before importing Excel changes."
+            ))
+            return nil
+        }
+        let context = operationRouteContext
+        let windowID = controller.view.window.map(ObjectIdentifier.init)
+        let serviceProvider = genotypeExcelReviewServiceProvider
+        let inspect = genotypeExcelInspector
+        let present = genotypeExcelReviewPresenter
+        return Task { @MainActor [weak self, weak controller] in
+            let mayContinue = { @MainActor [weak self, weak controller] in
+                guard let self, let controller,
+                      self.isCurrentGenotypeExcelOrigin(controller, bundleURL: bundleURL, context: context, windowID: windowID)
+                else { return false }
+                return self.requireGenotypeExcelWriteAccess(bundleURL)
+            }
+            do {
+                let service = try await serviceProvider()
+                guard mayContinue() else { return }
+                let inspection = try await inspect(service, bundleURL)
+                guard mayContinue(), let controller else { return }
+                let alert = NSAlert()
+                alert.messageText = "Review Excel Changes"
+                let callCapability = inspection.supportsCallOverrides
+                    ? "H1/H2 call edits and matrix reviews/comments are supported."
+                    : "H1/H2 calls are read-only for this legacy result; matrix reviews/comments remain supported."
+                alert.informativeText = inspection.changes.isEmpty
+                    ? "Excel saved formatting or metadata changes. Acknowledge this save and refresh current.xlsx? \(callCapability)"
+                    : callCapability
+                if !inspection.changes.isEmpty {
+                    alert.accessoryView = GenotypeExcelReviewPresenter.makeScrollView(
+                        rows: inspection.changes.map(GenotypeExcelReviewRow.init(change:))
+                    )
+                }
+                alert.addButton(withTitle: "Import Changes").keyEquivalent = "\r"
+                alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+                let window = controller.view.window ?? NSApp.keyWindow ?? NSWindow()
+                let response = await present(alert, window)
+                guard response == .alertFirstButtonReturn, mayContinue() else { return }
+                try controller.acceptEditableWorkbook(inspection, using: service)
+            } catch {
+                guard mayContinue() else { return }
+                self?.genotypeExcelErrorPresenter(error)
+            }
+        }
+    }
+
+    @discardableResult
     func routeGenotypeCurrentWorkbookRequest(
         _ request: GenotypeCurrentWorkbookUIRequest
-    ) {
+    ) -> Task<Void, Never> {
+        if request.action == .openEditable,
+           viewerController.genotypeResultViewController?.representedBundleURL == request.snapshot.bundleURL,
+           !mayUpdateGenotypeCurrentWorkbook(bundleURL: request.snapshot.bundleURL, isReadOnly: request.snapshot.isReadOnly) {
+            let reason = "This project is read-only. Reopen it with write ownership before editing current.xlsx."
+            applyGenotypeCurrentWorkbookSyncPhase(.failed(reason), bundleURL: request.snapshot.bundleURL)
+            genotypeExcelErrorPresenter(GenotypeEditableWorkbookService.EditError.rejected(reason))
+            return Task {}
+        }
         let key = request.snapshot.bundleURL.standardizedFileURL.path
         nextGenotypeCurrentWorkbookRouteGeneration &+= 1
         let generation = nextGenotypeCurrentWorkbookRouteGeneration
+        var pendingAction = pendingGenotypeCurrentWorkbookRoutes[key]?.action
+        if let pending = pendingGenotypeCurrentWorkbookRoutes[key],
+           pending.action == .openEditable || pending.action == .acceptedEditable {
+            // A new registration must not transfer an earlier controller's
+            // user intent to the replacement controller. Closing the viewer
+            // likewise cancels Open in Excel while retaining its normal save.
+            if let origin = pending.originatingController,
+               isCurrentGenotypeExcelOrigin(origin, bundleURL: pending.snapshot.bundleURL,
+                   context: pending.routeContext, windowID: pending.originatingWindowID) {
+                if pending.action == .openEditable && request.action == .synchronize(.bundleSwitch) {
+                    pendingAction = nil
+                }
+            } else {
+                pendingAction = nil
+            }
+        }
         let action = preferredGenotypeCurrentWorkbookAction(
-            pendingGenotypeCurrentWorkbookRoutes[key]?.action,
+            pendingAction,
             request.action
         )
         pendingGenotypeCurrentWorkbookRoutes[key] = PendingGenotypeCurrentWorkbookRoute(
@@ -572,34 +617,30 @@ extension MainSplitViewController {
             snapshot: request.snapshot,
             action: action,
             routeContext: operationRouteContext,
-            originatingController: viewerController.genotypeResultViewController
+            originatingController: viewerController.genotypeResultViewController,
+            originatingWindowID: viewerController.genotypeResultViewController?.view.window.map(ObjectIdentifier.init)
         )
 
-        Task { @MainActor [weak self] in
+        let loadFingerprint = genotypeCurrentWorkbookFingerprintLoader
+        return Task { @MainActor [weak self] in
             do {
-                let fingerprint = try await Task.detached {
-                    try GenotypeCurrentWorkbookInputFingerprint.make(
-                        calls: request.snapshot.calls,
-                        includedLoci: request.snapshot.includedLoci,
-                        annotationSidecar: request.snapshot.annotationSidecar,
-                        candidateArtifacts: request.snapshot.candidateArtifacts,
-                        reviewableRowCatalog:
-                            request.snapshot.reviewableRowCatalog,
-                        reviewableRowCatalogSchemaVersion:
-                            request.snapshot.reviewableRowCatalogSchemaVersion,
-                        haplotypeProjectionMode:
-                            request.snapshot.haplotypeProjectionMode
-                    )
-                }.value
+                let fingerprint = try await loadFingerprint(request.snapshot)
                 guard let self,
                       let pending = self.pendingGenotypeCurrentWorkbookRoutes[key],
-                      pending.generation == generation,
-                      self.operationRouteContext == pending.routeContext,
-                      self.viewerController.genotypeResultViewController === pending.originatingController
-                else {
-                    return
-                }
+                      pending.generation == generation
+                else { return }
                 self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
+                let requiresExcelOrigin = pending.action == .openEditable || pending.action == .acceptedEditable
+                // Closing a viewer intentionally starts background bundle-switch
+                // synchronization. Only the interactive Excel routes require
+                // their originating controller and window to remain selected.
+                if requiresExcelOrigin {
+                    guard let controller = pending.originatingController,
+                          self.isCurrentGenotypeExcelOrigin(controller,
+                            bundleURL: pending.snapshot.bundleURL, context: pending.routeContext,
+                            windowID: pending.originatingWindowID)
+                    else { return }
+                }
                 self.genotypeCurrentWorkbookCompletionContexts[key] =
                     GenotypeCurrentWorkbookCompletionContext(
                         generation: generation,
@@ -607,6 +648,8 @@ extension MainSplitViewController {
                     )
                 let bundleURL = pending.snapshot.bundleURL
                 let isReadOnly = pending.snapshot.isReadOnly
+                let originatingContext = pending.routeContext
+                let originatingWindowID = pending.originatingWindowID
                 let coordinatorRequest = GenotypeCurrentWorkbookSyncCoordinator.Request(
                     bundleURL: bundleURL,
                     calls: pending.snapshot.calls,
@@ -622,8 +665,14 @@ extension MainSplitViewController {
                         bundleURL: bundleURL,
                         isReadOnly: isReadOnly
                     ),
-                    authorizationRevalidator: { @MainActor [weak self] in
+                    authorizationRevalidator: { @MainActor [weak self, weak originatingController = pending.originatingController] in
                         guard let self else { return false }
+                        if requiresExcelOrigin {
+                            guard let originatingController,
+                                  self.isCurrentGenotypeExcelOrigin(originatingController,
+                                    bundleURL: bundleURL, context: originatingContext, windowID: originatingWindowID)
+                            else { return false }
+                        }
                         return self.mayUpdateGenotypeCurrentWorkbook(
                             bundleURL: bundleURL,
                             isReadOnly: isReadOnly
@@ -656,7 +705,7 @@ extension MainSplitViewController {
                         )
                         (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
                     }
-                case .openEditable:
+                case .openEditable, .acceptedEditable:
                     guard let originatingController = pending.originatingController,
                           originatingController.representedBundleURL == coordinatorRequest.bundleURL,
                           self.mayUpdateGenotypeCurrentWorkbook(
@@ -665,23 +714,28 @@ extension MainSplitViewController {
                           )
                     else { return }
                     do {
+                        if pending.action == .acceptedEditable {
+                            self.genotypeCurrentWorkbookSyncCoordinator.markEditableWorkbookAccepted(coordinatorRequest)
+                        }
                         let workbookURL = try await self.genotypeCurrentWorkbookSyncCoordinator
                             .preparedEditableWorkbookURL(coordinatorRequest)
-                        guard self.viewerController.genotypeResultViewController === originatingController,
-                              originatingController.representedBundleURL == coordinatorRequest.bundleURL,
+                        guard self.isCurrentGenotypeExcelOrigin(originatingController,
+                              bundleURL: bundleURL, context: pending.routeContext, windowID: pending.originatingWindowID),
                               self.mayUpdateGenotypeCurrentWorkbook(
                                 bundleURL: coordinatorRequest.bundleURL,
                                 isReadOnly: isReadOnly
                               )
                         else { return }
-                        self.genotypeCurrentWorkbookExternalOpener(workbookURL)
+                        if pending.action == .openEditable {
+                            self.genotypeCurrentWorkbookExternalOpener(workbookURL)
+                        }
                     } catch {
                         self.removeGenotypeCurrentWorkbookCompletionContext(
                             for: key,
                             generation: generation
                         )
-                        if self.viewerController.genotypeResultViewController === originatingController,
-                           originatingController.representedBundleURL == coordinatorRequest.bundleURL,
+                        if self.isCurrentGenotypeExcelOrigin(originatingController,
+                           bundleURL: bundleURL, context: pending.routeContext, windowID: pending.originatingWindowID),
                            self.mayUpdateGenotypeCurrentWorkbook(
                             bundleURL: coordinatorRequest.bundleURL,
                             isReadOnly: isReadOnly
@@ -689,27 +743,23 @@ extension MainSplitViewController {
                             self.genotypeExcelErrorPresenter(error)
                         }
                     }
-                case .acceptedEditable:
-                    self.genotypeCurrentWorkbookSyncCoordinator
-                        .markEditableWorkbookAccepted(coordinatorRequest)
-                    do {
-                        _ = try await self.genotypeCurrentWorkbookSyncCoordinator
-                            .preparedEditableWorkbookURL(coordinatorRequest)
-                    } catch {
-                        self.removeGenotypeCurrentWorkbookCompletionContext(
-                            for: key,
-                            generation: generation
-                        )
-                        NSApp.presentError(error)
-                    }
                 }
             } catch {
                 guard let self,
-                      self.pendingGenotypeCurrentWorkbookRoutes[key]?.generation == generation
+                      let pending = self.pendingGenotypeCurrentWorkbookRoutes[key],
+                      pending.generation == generation
                 else {
                     return
                 }
                 self.pendingGenotypeCurrentWorkbookRoutes.removeValue(forKey: key)
+                if pending.action == .openEditable || pending.action == .acceptedEditable {
+                    guard let controller = pending.originatingController,
+                          self.isCurrentGenotypeExcelOrigin(controller,
+                            bundleURL: request.snapshot.bundleURL, context: pending.routeContext,
+                            windowID: pending.originatingWindowID),
+                          self.mayUpdateGenotypeCurrentWorkbook(bundleURL: request.snapshot.bundleURL, isReadOnly: request.snapshot.isReadOnly)
+                    else { return }
+                }
                 self.removeGenotypeCurrentWorkbookCompletionContext(
                     for: key,
                     generation: generation
@@ -718,6 +768,9 @@ extension MainSplitViewController {
                     .failed(error.localizedDescription),
                     bundleURL: request.snapshot.bundleURL
                 )
+                if pending.action == .openEditable || pending.action == .acceptedEditable {
+                    self.genotypeExcelErrorPresenter(error)
+                }
             }
         }
     }

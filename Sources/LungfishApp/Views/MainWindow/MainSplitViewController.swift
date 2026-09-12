@@ -339,6 +339,7 @@ struct PendingGenotypeCurrentWorkbookRoute {
     let action: GenotypeCurrentWorkbookUIRequest.Action
     let routeContext: OperationRouteContext
     let originatingController: GenotypeResultViewController?
+    let originatingWindowID: ObjectIdentifier?
 }
 
 struct GenotypeCurrentWorkbookCompletionContext {
@@ -509,6 +510,28 @@ public class MainSplitViewController: NSSplitViewController {
         NSWorkspace.shared.open($0)
     }
     var genotypeExcelErrorPresenter: (Error) -> Void = { NSApp.presentError($0) }
+    var genotypeCurrentWorkbookFingerprintLoader: @MainActor (GenotypeCurrentWorkbookUISnapshot) async throws -> GenotypeCurrentWorkbookInputFingerprint = { snapshot in
+        try await Task.detached {
+            try GenotypeCurrentWorkbookInputFingerprint.make(
+                calls: snapshot.calls, includedLoci: snapshot.includedLoci,
+                annotationSidecar: snapshot.annotationSidecar,
+                candidateArtifacts: snapshot.candidateArtifacts,
+                reviewableRowCatalog: snapshot.reviewableRowCatalog,
+                reviewableRowCatalogSchemaVersion: snapshot.reviewableRowCatalogSchemaVersion,
+                haplotypeProjectionMode: snapshot.haplotypeProjectionMode
+            )
+        }.value
+    }
+    var genotypeExcelReviewServiceProvider: @MainActor () async throws -> GenotypeEditableWorkbookService = {
+        let python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
+        return GenotypeEditableWorkbookService(pythonExecutableURL: python)
+    }
+    var genotypeExcelInspector: @MainActor (GenotypeEditableWorkbookService, URL) async throws -> GenotypeEditableWorkbookService.Inspection = { service, url in
+        try await Task.detached { try service.inspect(bundleURL: url) }.value
+    }
+    var genotypeExcelReviewPresenter: @MainActor (NSAlert, NSWindow) async -> NSApplication.ModalResponse = { alert, window in
+        await alert.beginSheetModal(for: window)
+    }
     var genotypeCurrentWorkbookSyncObservation:
         GenotypeCurrentWorkbookSyncCoordinator.Observation?
     var pendingGenotypeCurrentWorkbookRoutes:
