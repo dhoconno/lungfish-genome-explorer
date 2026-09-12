@@ -9,6 +9,34 @@ import LungfishTestSupport
 /// LGE projection. Legacy source workbooks remain fixtures only: their extra
 /// worksheets and presentation geometry do not flow into the export.
 final class GenotypePivotFilteredCopyTests: XCTestCase {
+    func testSparseSampleRosterDoesNotAttestMissingFilteredCellSupport() throws {
+        let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-sparse-pairs.lungfishgenotype"))
+        let calls = [("S1", "G", 5), ("S2", "Z", 0)].map { sample, genotype, reads in
+            ONTGenotypeCall(sample: sample, genotype: genotype, passedAlignments: reads, passedUniqueReads: reads, sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil, overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)
+        }
+        let result = ONTGenotypeResultBundleData(bundleURL: base.bundleURL, manifest: base.manifest, artifacts: base.artifacts, stats: base.stats, calls: calls, samples: [], haplotypeAnalysis: nil)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixReviews = ["G", "Z"].map {
+                .init(target: .cell(locus: "MHC-\($0)", genotype: $0, sample: "S2"), disposition: .falseNegative, author: "A", timestamp: "now")
+        }
+        let original = try sidecar.encoded()
+        let projection = GenotypeViewProjection(lens: "allele", sampleColumns: ["S1", "S2"], rows: [
+            .init(label: "G", rawGenotype: "G", locus: "MHC-G", cells: ["5", ""]),
+            .init(label: "Z", rawGenotype: "Z", locus: "MHC-Z", cells: ["", "0"])
+        ])
+        let payload = try Command().filteredPresentation(result: result, sidecar: sidecar, thresholds: .init(), projection: projection)
+        let missing = try XCTUnwrap(payload.rows.first { $0.target.genotype == "G" }?.cells.first { $0.sampleID == "S2" })
+        XCTAssertNil(missing.rawSupport)
+        XCTAssertNil(missing.displayValue)
+        XCTAssertNil(missing.review)
+        XCTAssertFalse(missing.reviewEligible)
+        let zero = try XCTUnwrap(payload.rows.first { $0.target.genotype == "Z" }?.cells.first { $0.sampleID == "S2" })
+        XCTAssertEqual(zero.rawSupport, 0)
+        XCTAssertTrue(zero.reviewEligible)
+        XCTAssertEqual(zero.review, "false-negative")
+        XCTAssertEqual(try sidecar.encoded(), original)
+    }
+
     func testThreeSheetFilteredUsesObservedRawSupportWithoutCatalogAndNeverCapturedMaskOrOtherStableIdentity() throws {
         let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-observed-review.lungfishgenotype"))
         let zero = ONTGenotypeCall(sample: "Animal1", genotype: "01_Mafa_A1_Zero", passedAlignments: 0, passedUniqueReads: 0, sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil, overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)

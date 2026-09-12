@@ -125,7 +125,7 @@ for (sample, locus), call in call_map.items():
 evidence = catalog.get('rows', [])
 if not catalog:
     evidence = [dict(call_id=c['call_id'], display_name=c['call_id'], locus=c['locus'],
-        support_by_sample=[dict(sample=s, support=c['reads_by_sample'].get(s, 0)) for s in scientific_roster])
+        support_by_sample=[dict(sample=s, support=c['reads_by_sample'].get(s)) for s in scientific_roster])
         for c in configuration.get('known_calls', [])]
     # An absent candidate observation is unknown in legacy inputs.
     for row in configuration.get('normalized_unmatched_rows', []):

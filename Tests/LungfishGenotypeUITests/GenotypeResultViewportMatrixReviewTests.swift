@@ -12,6 +12,30 @@ import LungfishTestSupport
 // Matrix false-positive/negative rendering, context menus, visibility and review capability
 @MainActor
 final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestCase {
+    func testSparseSampleRosterDoesNotAttestMissingUIReviewSupport() throws {
+        let root = try TestTempDirectory.make(prefix: "SparseReviewPairs")
+        defer { TestTempDirectory.cleanup(root) }
+        let calls = [makeCall(sample: "S1", genotype: "G", reads: 5), makeCall(sample: "S2", genotype: "Z", reads: 0)]
+        let missing = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-G", genotype: "G", sample: "S2")
+        let zero = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-Z", genotype: "Z", sample: "S2")
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixReviews = [missing, zero].map { .init(target: $0, disposition: .falseNegative, author: "A", timestamp: "now") }
+        let annotationURL = root.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        try sidecar.encoded().write(to: annotationURL)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: calls))
+        controller.testingShowMatrixTargetSelection([missing])
+        XCTAssertEqual(controller.testingMatrixReviewCapability.support.unknownCount, 1)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.reviewState, .none)
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
+        XCTAssertTrue(controller.testingMatrixReviewCapability.clearReview.isEnabled)
+        controller.testingShowMatrixTargetSelection([zero])
+        XCTAssertEqual(controller.testingMatrixReviewCapability.reviewState, .uniform(.falseNegative))
+        XCTAssertTrue(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
+        XCTAssertEqual(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root).matrixReviews, sidecar.matrixReviews)
+    }
+
     func testDuplicateReviewsWithholdMatrixChromeAndFailedMutationRefreshInvalidatesMultiplicityChanges() throws {
         let root = try TestTempDirectory.make(prefix: "MatrixDuplicateReviews")
         defer { TestTempDirectory.cleanup(root) }

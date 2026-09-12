@@ -120,3 +120,45 @@ Exact grouping precedes alias normalization; support remains optional; no reads 
 No biological algorithm change, private dataset QA, release, or whole-repository validation is claimed. Existing deferred Task 6 presentation work is outside this task. No remaining known eligibility invariant is intentionally deferred.
 
 Compilation output is not pristine: existing unrelated warnings include async-without-await, unused variables/results, actor isolation/Sendable warnings and deprecated cleanup APIs. Initial broad dependency recompilation printed 4,976 lines containing `warning:` (repeated diagnostic and source-line copies), initial RED 220, affected run 36, adapter RED 36, amended GREEN 2, filtered adapter run 36. These are log-line counts, not unique warnings. The 36-line batches refer to existing ProjectStorageCleanupExecutorTests unused `execute` results; no new helper/adapter diagnostic was observed. Test output also includes existing synthetic export summaries and a matrix benchmark. No XCTest skip was reported in the recorded selections.
+
+## Fix round 1 — formal review findings
+
+Fix base: `a2babb73d7f50ff2070c2ffaf23622c799015e41`. Both Important findings from `task-5-review.md` were addressed. The initial implementation's claim that the witnessed CSV configuration attests every known-call/sample pair was incorrect: the parser accumulates only explicit CSV records and separately unions sample identities. Roster membership does not attest an omitted pair. This section supersedes that assumption and the corresponding initial completion claim.
+
+Production correction is limited to two lookups: Swift eligibility now returns `row.readsBySample[sample]` without defaulting to zero, and Python presentation uses `.get(s)` without a zero default. A missing raw pair therefore produces rawSupport null, displayValue null, reviewEligible false, and no serialized/visible FN token. Explicit CSV zero and validated catalog-attested sparse zero remain eligible. Shared helper, UI, filtered adapter, normalization, scientific reads, and provenance/publication guards were not changed.
+
+Added the same literal S1/S2 regression across current, filtered, and UI: G/S1=5, no G/S2 record, and an explicit Z/S2=0 control. G's existing locus resolver produces MHC-G; Z produces MHC-Z. The current test loads the actual synthetic CSV bundle and also checks the shared raw-support helper on that loaded result. It repeats with a validated catalog attesting G/S2=0 as a positive FN control. Current and filtered verify null raw support/no token/no review eligibility for the missing cell, while UI verifies unknown support, no authoritative review, disabled FN and available explicit clear. Original sidecars and raw CSV bytes remain unchanged; current G/S1 remains 5.
+
+Migrated the obsolete no-catalog preflight test to a real successful export with withheld unknown FN, no invented row, unchanged original sidecar/CSV bytes, and original exported allele1/sample-a raw support=1. The invalid-catalog checksum/size guard and its failure-before-staging test remain unchanged and pass.
+
+### Fix RED
+
+```sh
+swift test --jobs 6 --filter 'GenotypeWorkbookRevisionServiceTests/testSparseCSVPairs|GenotypeWorkbookRevisionServiceTests/testFalseNegativeWithoutAttestedReviewableRowCatalogFails' > /tmp/task-5-fix1-red.log 2>&1
+```
+
+Exit 1: 2 tests, 5 assertion failures. Three failures reproduced Python's missing-pair zero support/display/review eligibility; the obsolete preflight test caught UnexpectedWorkbookUpdateStaging rather than its expected catalog error. The last failed zero-control token was a fixture identity error: literal G/Z targets incorrectly claimed locus Unknown. Corrected those target/catalog fields to their unchanged actual MHC-G/MHC-Z identities before the valid behavioral RED below.
+
+```sh
+swift test --jobs 6 --filter 'GenotypeWorkbookRevisionServiceTests/testSparseCSVPairs|GenotypeWorkbookRevisionServiceTests/testFalseNegativeWithoutAttestedReviewableRowCatalogFails|GenotypePivotFilteredCopyTests/testSparseSampleRoster|GenotypeResultViewportMatrixReviewTests/testSparseSampleRoster' > /tmp/task-5-fix1-corrected-red.log 2>&1
+```
+
+Exit 1: `Executed 4 tests, with 5 failures (0 unexpected)`.
+Filtered and UI parity controls passed. Current failed exactly four missing-pair expectations: actual rawSupport 0 instead of nil; displayValue 0 instead of nil; reviewEligible true instead of false; false-negative token instead of nil. Explicit CSV-zero and catalog-attested-zero controls passed. The fifth failure was the obsolete staging-injector expectation. No production change preceded this corrected RED.
+
+### Fix covering checks
+
+```sh
+swift test --jobs 6 --filter 'GenotypeWorkbookRevisionServiceTests/testSparseCSVPairs|GenotypeWorkbookRevisionServiceTests/testFalseNegativeWithoutAttestedReviewableRowCatalogIs|GenotypeWorkbookRevisionServiceTests/testFalseNegativeWithInvalidReviewableRowCatalog|GenotypeWorkbookRevisionServiceTests/testThreeSheetLegacyWitnessedEvidence|GenotypeWorkbookRevisionServiceTests/testThreeSheetCurrentWithholds|GenotypePivotFilteredCopyTests/testSparseSampleRoster|GenotypeResultViewportMatrixReviewTests/testSparseSampleRoster|GenotypeMatrixReviewEligibilityTests' > /tmp/task-5-fix1-green.log 2>&1
+```
+
+9 tests executed, eight passed. The remaining failure was a newly added over-specific revision-count expectation in the migrated test (observed 3 versus expected 2 because source admission adds a revision). Successful withholding and original byte preservation already passed. Replaced that incidental count assertion with the exported original allele1/sample-a raw support=1 assertion, then reran only that test:
+
+```sh
+swift test --jobs 6 --filter 'GenotypeWorkbookRevisionServiceTests/testFalseNegativeWithoutAttestedReviewableRowCatalogIs' > /tmp/task-5-fix1-migration-green.log 2>&1
+```
+
+Exit 0: `Executed 1 test, with 0 failures (0 unexpected)`.
+Thus all nine covering tests pass through the scoped run plus its one corrected-test rerun. No skips or broad suite repeats. The first RED and corrected RED each emitted 36 existing warning lines; the covering run emitted 38 (existing redundant-public provenance warning plus existing cleanup-test unused-result warnings). The final migrated-test run emitted the existing 36 cleanup warning lines. No new production diagnostic was introduced.
+
+Self-review: changing only Swift would still fail rawSupport/reviewEligible assertions; changing only Python would still fail serialized review-token assertions. The two lookups now agree with the optional shared helper and the UI/filtered controls. Invalid-catalog guards, exact identities, explicit/catalog zeros, raw counts, annotations, and retained provenance paths remain intact. No Task 6 presentation changes. `git diff --check` passed. Changed files in this fix: the two current adapter production files, RevisionService tests, filtered tests, viewport review tests, and this report.

@@ -7,6 +7,50 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testSparseCSVPairsRemainUnknownUnlessExplicitlyAttestedByCatalog() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for hasCatalog in [false, true] {
+            let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "sparse-pairs-\(hasCatalog)")
+            let csv = fixture.bundleURL.appendingPathComponent(fixture.manifest.longSummaryCSVPath)
+            let samples = fixture.bundleURL.appendingPathComponent(fixture.manifest.sampleSummaryCSVPath)
+            let csvBytes = Data("sample,genotype,passed_alignments,passed_unique_reads\nS1,G,5,5\nS2,Z,0,0\n".utf8)
+            try csvBytes.write(to: csv)
+            try Data("sample,passed_alignments,passed_unique_reads\nS1,5,5\nS2,0,0\n".utf8).write(to: samples)
+            if hasCatalog {
+                _ = try installReviewableRowCatalog(GenotypeReviewableRowCatalog(samples: ["S1", "S2"], rows: [
+                    .init(kind: .reference, callID: "G", displayName: "G", locus: "MHC-G", stableID: nil, section: "reference", sortKey: "G", supportBySample: ["S1": 5, "S2": 0]),
+                    .init(kind: .reference, callID: "Z", displayName: "Z", locus: "MHC-Z", stableID: nil, section: "reference", sortKey: "Z", supportBySample: ["S1": 0, "S2": 0])
+                ]), in: fixture.bundleURL)
+            }
+            var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+            sidecar.matrixReviews = ["G", "Z"].map {
+                .init(target: .cell(locus: "MHC-\($0)", genotype: $0, sample: "S2"), disposition: .falseNegative, author: "A", timestamp: "now")
+            }
+            let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            let annotationBytes = try sidecar.encoded()
+            try annotationBytes.write(to: annotationURL)
+            let loaded = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+            let rawSupport = GenotypeMatrixReviewEligibility.rawSupport(in: loaded)
+            XCTAssertEqual(rawSupport[.cell(locus: "MHC-G", genotype: "G", sample: "S2")], hasCatalog ? 0 : nil)
+            _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+            let payload = try currentPresentationPayload(in: fixture.bundleURL)
+            let g = try XCTUnwrap(payload.rows.first { $0.target.genotype == "G" })
+            XCTAssertEqual(g.cells.first { $0.sampleID == "S1" }?.rawSupport, 5)
+            let missing = try XCTUnwrap(g.cells.first { $0.sampleID == "S2" })
+            XCTAssertEqual(missing.rawSupport, hasCatalog ? 0 : nil)
+            XCTAssertEqual(missing.displayValue, hasCatalog ? 0 : nil)
+            XCTAssertEqual(missing.reviewEligible, hasCatalog)
+            XCTAssertEqual(missing.review, hasCatalog ? "false-negative" : nil)
+            let zero = try XCTUnwrap(payload.rows.first { $0.target.genotype == "Z" }?.cells.first { $0.sampleID == "S2" })
+            XCTAssertEqual(zero.rawSupport, 0)
+            XCTAssertTrue(zero.reviewEligible)
+            XCTAssertEqual(zero.review, "false-negative")
+            XCTAssertEqual(try Data(contentsOf: csv), csvBytes)
+            XCTAssertEqual(try Data(contentsOf: annotationURL), annotationBytes)
+        }
+    }
+
     func testThreeSheetLegacyWitnessedEvidenceWithholdsDuplicatesAndUnknownCandidateButKeepsExactZero() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -6374,7 +6418,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(pythonStep.durableReplayArgv?.contains(retainedCatalog.path) == true)
     }
 
-    func testFalseNegativeWithoutAttestedReviewableRowCatalogFailsBeforeStagingOrMutation() throws {
+    func testFalseNegativeWithoutAttestedReviewableRowCatalogIsWithheldWithoutChangingAnnotations() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeGenericMatrixWorkbookBundle(
@@ -6399,23 +6443,19 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
                 timestamp: "2026-07-26T00:01:00Z"
             ),
         ]
-        try sidecar.encoded().write(to: annotationURL)
-        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
-
-        XCTAssertThrowsError(
-            try serviceThatFailsIfStagingBegins().applyHaplotypeOverrides(
-                [],
-                annotationSidecarURL: annotationURL,
-                into: fixture.bundleURL
-            )
-        ) { error in
-            XCTAssertTrue(
-                error.localizedDescription.contains("reviewable-row catalog"),
-                "Unexpected error: \(error)"
-            )
-        }
-
-        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+        let annotationBytes = try sidecar.encoded()
+        try annotationBytes.write(to: annotationURL)
+        let csvURL = fixture.bundleURL.appendingPathComponent(fixture.manifest.longSummaryCSVPath)
+        let csvBytes = try Data(contentsOf: csvURL)
+        _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides(
+            [], annotationSidecarURL: annotationURL, into: fixture.bundleURL
+        )
+        let payload = try currentPresentationPayload(in: fixture.bundleURL)
+        XCTAssertEqual(payload.rows.first { $0.target.genotype == "allele1" }?.cells.first { $0.sampleID == "sample-a" }?.rawSupport, 1)
+        XCTAssertFalse(payload.rows.contains { $0.target.genotype == "Mamu-A1*001:01" })
+        XCTAssertTrue(payload.rows.flatMap(\.cells).allSatisfy { $0.review == nil })
+        XCTAssertEqual(try Data(contentsOf: annotationURL), annotationBytes)
+        XCTAssertEqual(try Data(contentsOf: csvURL), csvBytes)
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 

@@ -835,8 +835,8 @@ public struct GenotypeWorkbookRevisionService {
             }
             guard configuration.samples.contains(where: { $0.sample == sample }),
                   let row = configuration.knownCalls.first(where: { $0.callID == genotype && $0.locus == locus }) else { return nil }
-            // The witnessed CSV configuration has a complete known-call roster.
-            return row.readsBySample[sample, default: 0]
+            // Sample membership does not attest an omitted sample/genotype pair.
+            return row.readsBySample[sample]
         }
         let serializedEligibleReviews = (sidecar?.matrixReviews ?? []).filter { eligibleReviews[$0.target] == $0 }
         let presentationInputData = try JSONSerialization.data(withJSONObject: [
