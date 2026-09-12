@@ -9,6 +9,35 @@ import LungfishTestSupport
 /// LGE projection. Legacy source workbooks remain fixtures only: their extra
 /// worksheets and presentation geometry do not flow into the export.
 final class GenotypePivotFilteredCopyTests: XCTestCase {
+    func testThreeSheetFilteredUsesObservedRawSupportWithoutCatalogAndNeverCapturedMaskOrOtherStableIdentity() throws {
+        let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-observed-review.lungfishgenotype"))
+        let zero = ONTGenotypeCall(sample: "Animal1", genotype: "01_Mafa_A1_Zero", passedAlignments: 0, passedUniqueReads: 0, sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil, overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)
+        let positive = ONTGenotypeCall(sample: "Animal1", genotype: "01_Mafa_A1_Strong", passedAlignments: 500, passedUniqueReads: 500, sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil, overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)
+        let result = ONTGenotypeResultBundleData(bundleURL: base.bundleURL, manifest: base.manifest, artifacts: base.artifacts, stats: base.stats, calls: [positive, zero], samples: base.samples, haplotypeAnalysis: nil)
+        let targets: [GenotypeAnnotationSidecar.MatrixTarget] = [
+            .cell(locus: "MHC-A", genotype: "01_Mafa_A1_Strong", sample: "Animal1"),
+            .cell(locus: "MHC-A", genotype: "01_Mafa_A1_Zero", sample: "Animal1"),
+            .cell(locus: "MHC-A", genotype: "01_Unknown", sample: "Animal1"),
+            .cell(locus: "MHC-A", genotype: "01_Mafa_A1_Strong", sample: "Animal1", stableClusterID: "other-cluster")
+        ]
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixReviews = zip(targets, [GenotypeAnnotationSidecar.MatrixReviewDisposition.falsePositive, .falseNegative, .falseNegative, .falsePositive]).map {
+            .init(target: $0, disposition: $1, author: "A", timestamp: "now")
+        }
+        let projection = GenotypeViewProjection(lens: "allele", sampleColumns: ["Animal1"], rows: [
+            .init(label: "Masked positive", rawGenotype: "01_Mafa_A1_Strong", locus: "MHC-A", cells: [""]),
+            .init(label: "Masked zero", rawGenotype: "01_Mafa_A1_Zero", locus: "MHC-A", cells: [""]),
+            .init(label: "Unknown", rawGenotype: "01_Unknown", locus: "MHC-A", cells: [""]),
+            .init(label: "Other stable identity", rawGenotype: "01_Mafa_A1_Strong", locus: "MHC-A", stableClusterID: "other-cluster", cells: [""])
+        ])
+        let payload = try Command().filteredPresentation(result: result, sidecar: sidecar, thresholds: .init(minimumReads: 1000), projection: projection)
+        let cells = payload.rows.flatMap(\.cells)
+        XCTAssertEqual(cells.map(\.rawSupport), [500, 0, nil, nil])
+        XCTAssertEqual(cells.map(\.review), ["false-positive", "false-negative", nil, nil])
+        XCTAssertTrue(cells.allSatisfy { $0.displayValue == nil })
+        XCTAssertEqual(sidecar.matrixReviews.count, 4)
+    }
+
     func testThreeSheetFilteredWithholdsConflictingAndUnsupportedReviewsDespiteCapturedMask() throws {
         let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-review.lungfishgenotype"))
         let support = ["fp": 5, "fn": 0, "fn-positive": 5, "fp-zero": 0, "duplicate": 5, "conflict": 5]
@@ -79,6 +108,8 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let source = bundle.appendingPathComponent("source.xlsx")
         _ = try await runPython(python, script: Self.makeSourceWorkbookScript, arguments: [source.path], in: root)
+        let rawCSV = bundle.appendingPathComponent("g.csv")
+        try "sample,genotype,passed_alignments,passed_unique_reads\nAnimal1,01_Strong,1000,500\nAnimal1,01_Middle,80,40\nAnimal1,01_Background,10,5\nAnimal2,01_Strong,120,60\nAnimal2,01_Middle,16,8\n".write(to: rawCSV, atomically: true, encoding: .utf8)
         for captured in [true, false] {
             let build = root.appendingPathComponent("build-\(captured)")
             try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
@@ -91,6 +122,9 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
             try await command.exportFilteredCopy(of: captured ? source : nil, result: makeResult(bundleURL: bundle), sidecar: nil, thresholds: .init(minimumReads: 5), projection: projection, bundleURL: bundle, outputURL: output, buildDir: build, managedPythonResolver: { python }, startedAt: Date())
             try FileManager.default.removeItem(at: build)
             let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: ProvenanceRecorder.fileSidecarURL(for: output)))
+            let rawInput = try XCTUnwrap(envelope.files.first { $0.path.hasSuffix("/g.csv") && $0.role == .input })
+            XCTAssertEqual(rawInput.checksumSHA256, try ProvenanceFileHasher.sha256(of: rawCSV))
+            XCTAssertEqual(rawInput.fileSize, try ProvenanceFileHasher.fileSize(of: rawCSV))
             let retainedInputs = envelope.steps.flatMap(\.inputs).filter { $0.path.hasSuffix(".py") || $0.path.hasSuffix("presentation-payload.json") }
             XCTAssertFalse(retainedInputs.isEmpty)
             XCTAssertTrue(retainedInputs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }, "Renderer and payload must survive build-directory cleanup")

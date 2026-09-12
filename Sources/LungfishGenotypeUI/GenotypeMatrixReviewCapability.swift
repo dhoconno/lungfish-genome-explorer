@@ -137,8 +137,9 @@ public enum GenotypeMatrixReviewCapability {
         isWritable: Bool
     ) -> GenotypeMatrixReviewCapabilityState {
         let targets = normalized(selection)
+        let selectedTargets = Set(targets)
         let shape = selectionShape(targets)
-        let reviewsByTarget = Dictionary(reviews.map { ($0.target, $0) }, uniquingKeysWith: { _, latest in latest })
+        let reviewsByTarget = GenotypeMatrixReviewEligibility.eligibleReviews(reviews, rawSupport: evidence.passedUniqueReads)
         let commentsByTarget = resolvedComments(comments)
         let reviewState = valueState(targets.map { reviewsByTarget[$0]?.disposition })
         let commentState = valueState(targets.map { commentsByTarget[$0]?.body })
@@ -151,10 +152,12 @@ public enum GenotypeMatrixReviewCapability {
                 unknownCount += 1
                 continue
             }
-            if evidence.isSupported(target) {
+            if GenotypeMatrixReviewEligibility.permits(.falsePositive, rawSupport: evidence.passedUniqueReads(for: target)) {
                 supportedCount += 1
-            } else {
+            } else if GenotypeMatrixReviewEligibility.permits(.falseNegative, rawSupport: evidence.passedUniqueReads(for: target)) {
                 unsupportedCount += 1
+            } else {
+                unknownCount += 1
             }
         }
         let support = GenotypeMatrixSupportSummary(
@@ -182,7 +185,7 @@ public enum GenotypeMatrixReviewCapability {
             clearReview = mutationGate
         } else if shape != .cells {
             clearReview = .disabled(reason: cellOnlyReason)
-        } else if reviewsByTarget.keys.contains(where: Set(targets).contains) {
+        } else if reviews.contains(where: { selectedTargets.contains($0.target) }) {
             clearReview = .enabled
         } else {
             clearReview = .disabled(reason: "No review marks to clear.")
@@ -266,6 +269,12 @@ public enum GenotypeMatrixReviewCapability {
             return (
                 .disabled(reason: mixedEvidenceReason),
                 .disabled(reason: mixedEvidenceReason)
+            )
+        }
+        if support.unknownCount > 0 {
+            return (
+                .disabled(reason: "False positive requires read support in every selected cell."),
+                .disabled(reason: "False negative requires attested zero read support in every selected cell.")
             )
         }
         if support.supportedCount == support.selectedCount {

@@ -9,7 +9,8 @@ extension GenotypeExportPivotXlsxSubcommand {
         let workbook = PivotWorkbookBuilder.build(from: result, sidecar: sidecar, thresholds: thresholds)
         let samples = projection?.sampleColumns ?? workbook.samples
         let comments = sidecar?.resolvedMatrixComments ?? [:]
-        let reviewGroups = Dictionary(grouping: sidecar?.matrixReviews ?? [], by: \.target)
+        let rawSupport = GenotypeMatrixReviewEligibility.rawSupport(in: result)
+        let eligibleReviews = GenotypeMatrixReviewEligibility.eligibleReviews(sidecar?.matrixReviews ?? []) { rawSupport[$0] }
         func identity<T: Encodable>(_ target: T) throws -> String {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
             return SHA256.hash(data: try encoder.encode(target)).map { String(format: "%02x", $0) }.joined()
@@ -26,19 +27,18 @@ extension GenotypeExportPivotXlsxSubcommand {
             let locus = row.locus ?? ""
             let target = P.Target(kind: "row", locus: locus, genotype: genotype, stableClusterID: row.stableClusterID)
             let annotationTarget = GenotypeAnnotationSidecar.MatrixTarget.row(locus: locus, genotype: genotype, stableClusterID: row.stableClusterID)
-            let catalogRow = result.reviewableRowCatalog?.rows.first { $0.callID == genotype && $0.locus == locus && $0.stableID == row.stableClusterID }
             let cells = samples.enumerated().map { index, sample -> P.Cell in
                 let cellTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: locus, genotype: genotype, sample: sample, stableClusterID: row.stableClusterID)
-                let raw = catalogRow?.supportBySample[sample]
+                let raw = rawSupport[cellTarget]
                 let captured = index < row.cells.count ? row.cells[index] : ""
                 // Review validity is independent of the captured display mask.
                 // Preserve all source records, but withhold conflicting targets
                 // and dispositions unsupported by authoritative raw evidence.
                 let token: String?
-                if let entries = reviewGroups[cellTarget], entries.count == 1, let raw {
-                    switch entries[0].disposition {
-                    case .falsePositive: token = raw > 0 ? "false-positive" : nil
-                    case .falseNegative: token = raw == 0 ? "false-negative" : nil
+                if let review = eligibleReviews[cellTarget] {
+                    switch review.disposition {
+                    case .falsePositive: token = "false-positive"
+                    case .falseNegative: token = "false-negative"
                     }
                 } else {
                     token = nil

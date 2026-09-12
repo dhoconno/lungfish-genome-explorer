@@ -7,6 +7,45 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testThreeSheetLegacyWitnessedEvidenceWithholdsDuplicatesAndUnknownCandidateButKeepsExactZero() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for reverse in [false, true] {
+            let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "legacy-eligibility-\(reverse)")
+            let csv = fixture.bundleURL.appendingPathComponent(fixture.manifest.longSummaryCSVPath)
+            try "sample,genotype,passed_alignments,passed_unique_reads\nsample-a,01_Mafa_A1_positive,5,5\nsample-a,02_Mafa_A1_zero,0,0\n".write(to: csv, atomically: true, encoding: .utf8)
+            let target = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: "01_Mafa_A1_positive", sample: "sample-a")
+            var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+            sidecar.matrixReviews = [
+                .init(target: target, disposition: .falsePositive, author: "A", timestamp: "2026-09-11T00:00:00Z"),
+                .init(target: target, disposition: .falseNegative, author: "B", timestamp: "2026-09-12T00:00:00Z"),
+                .init(target: .cell(locus: "MHC-A", genotype: "02_Mafa_A1_zero", sample: "sample-a"), disposition: .falseNegative, author: "A", timestamp: "now"),
+                .init(target: .cell(locus: "MHC-A", genotype: "unknown", sample: "sample-a", stableClusterID: "unknown-cluster"), disposition: .falseNegative, author: "A", timestamp: "now")
+            ]
+            if reverse { sidecar.matrixReviews.reverse() }
+            let annotations = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+            let bytes = try sidecar.encoded()
+            try bytes.write(to: annotations)
+            let updated = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides([], annotationSidecarURL: annotations, into: fixture.bundleURL)
+            let provenanceURL = fixture.bundleURL.appendingPathComponent(try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath))
+            let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: provenanceURL))
+            let eligibilityInput = try XCTUnwrap(envelope.steps.flatMap(\.inputs).first { $0.path.hasSuffix("/presentation-inputs.json") })
+            XCTAssertEqual(eligibilityInput.role, .input)
+            let eligibilityURL = URL(fileURLWithPath: eligibilityInput.path)
+            XCTAssertEqual(eligibilityInput.checksumSHA256, try ProvenanceFileHasher.sha256(of: eligibilityURL))
+            XCTAssertEqual(eligibilityInput.fileSize, try ProvenanceFileHasher.fileSize(of: eligibilityURL))
+            let payload = try currentPresentationPayload(in: fixture.bundleURL)
+            let positive = try XCTUnwrap(payload.rows.first { $0.target.genotype == "01_Mafa_A1_positive" }?.cells.first)
+            XCTAssertEqual(positive.rawSupport, 5)
+            XCTAssertNil(positive.review)
+            let zero = try XCTUnwrap(payload.rows.first { $0.target.genotype == "02_Mafa_A1_zero" }?.cells.first)
+            XCTAssertEqual(zero.rawSupport, 0)
+            XCTAssertEqual(zero.review, "false-negative")
+            XCTAssertFalse(payload.rows.contains { $0.target.stableClusterID == "unknown-cluster" })
+            XCTAssertEqual(try Data(contentsOf: annotations), bytes)
+        }
+    }
+
     func testThreeSheetCurrentWithholdsConflictingAndUnsupportedReviewsInBothOrders() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -27,6 +66,15 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             _ = try GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL).applyHaplotypeOverrides(calls, annotationSidecarURL: annotations, into: fixture.bundleURL)
             let baseline = try JSONDecoder().decode(GenotypeEditableWorkbookService.Baseline.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath)))
             XCTAssertEqual(baseline.schemaVersion, 2)
+            let eligibilityInput = try XCTUnwrap(baseline.inputs.last { $0.path.hasSuffix("/presentation-inputs.json") })
+            let eligibilityBytes = try Data(contentsOf: fixture.bundleURL.appendingPathComponent(eligibilityInput.path))
+            XCTAssertEqual(eligibilityInput.sha256, GenotypeEditableWorkbookService.hash(eligibilityBytes))
+            XCTAssertEqual(eligibilityInput.size, eligibilityBytes.count)
+            let eligibility = try XCTUnwrap(JSONSerialization.jsonObject(with: eligibilityBytes) as? [String: Any])
+            XCTAssertEqual(eligibility["reviewEligibilityPolicyVersion"] as? Int, 1)
+            let serialized = try XCTUnwrap(eligibility["eligibleMatrixReviews"] as? [[String: Any]])
+            XCTAssertEqual(serialized.count, 2)
+            XCTAssertEqual(Set(serialized.compactMap { ($0["target"] as? [String: Any])?["sample"] as? String }), ["fp", "fn"])
             let input = try XCTUnwrap(baseline.inputs.last { $0.path.hasSuffix("/presentation-payload.json") })
             let payload = try JSONDecoder().decode(GenotypeWorkbookPresentation.Payload.self, from: Data(contentsOf: fixture.bundleURL.appendingPathComponent(input.path)))
             let cells = try XCTUnwrap(payload.rows.first { $0.target.genotype == "raw" }).cells

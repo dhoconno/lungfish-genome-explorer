@@ -58,8 +58,8 @@ final class GenotypeMatrixReviewCapabilityTests: XCTestCase {
             comments: [],
             isWritable: true
         )
-        XCTAssertEqual(allUnsupported.support, .init(supportedCount: 0, unsupportedCount: 2, unknownCount: 0))
-        XCTAssertEqual(allUnsupported.falseNegative, .enabled)
+        XCTAssertEqual(allUnsupported.support, .init(supportedCount: 0, unsupportedCount: 1, unknownCount: 1))
+        XCTAssertFalse(allUnsupported.falseNegative.isEnabled)
         XCTAssertEqual(
             allUnsupported.falsePositive,
             .disabled(reason: "False positive requires read support in every selected cell.")
@@ -68,8 +68,8 @@ final class GenotypeMatrixReviewCapabilityTests: XCTestCase {
 
     func testMixedCellEvidenceDisablesBothReviewCommandsWithSharedReason() {
         let state = GenotypeMatrixReviewCapability.evaluate(
-            selection: [supported, absent],
-            evidence: GenotypeMatrixEvidenceIndex([supported: 1]),
+            selection: [supported, zero],
+            evidence: GenotypeMatrixEvidenceIndex([supported: 1, zero: 0]),
             reviews: [],
             comments: [],
             isWritable: true
@@ -165,6 +165,31 @@ final class GenotypeMatrixReviewCapabilityTests: XCTestCase {
             ).reviewState,
             .mixed
         )
+    }
+
+    func testDuplicateReviewStateIsWithheldWhileClearAndReplacementRemainAvailable() {
+        let fp = Review(target: supported, disposition: .falsePositive, author: "A", timestamp: "2026-07-24T12:00:00Z")
+        let fn = Review(target: supported, disposition: .falseNegative, author: "B", timestamp: "2026-07-25T12:00:00Z")
+        for reviews in [[fp, fp], [fp, fn], [fn, fp]] {
+            let state = GenotypeMatrixReviewCapability.evaluate(selection: [supported], evidence: .init([supported: 2]), reviews: reviews, comments: [], isWritable: true)
+            XCTAssertEqual(state.reviewState, .none)
+            XCTAssertEqual(state.clearReview, .enabled)
+            XCTAssertEqual(state.falsePositive, .enabled)
+        }
+    }
+
+    func testOnlyCompatibleUniqueReviewIsAuthoritative() {
+        let evidence = GenotypeMatrixEvidenceIndex([supported: 2, zero: 0])
+        for (target, disposition) in [(zero, GenotypeAnnotationSidecar.MatrixReviewDisposition.falsePositive), (absent, .falseNegative), (supported, .falseNegative)] {
+            let review = Review(target: target, disposition: disposition, author: "A", timestamp: "now")
+            let state = GenotypeMatrixReviewCapability.evaluate(selection: [target], evidence: evidence, reviews: [review], comments: [], isWritable: true)
+            XCTAssertEqual(state.reviewState, .none)
+            XCTAssertTrue(state.clearReview.isEnabled)
+        }
+        let review = Review(target: zero, disposition: .falseNegative, author: "A", timestamp: "now")
+        let state = GenotypeMatrixReviewCapability.evaluate(selection: [zero], evidence: evidence, reviews: [review], comments: [], isWritable: true)
+        XCTAssertEqual(state.reviewState, .uniform(.falseNegative))
+        XCTAssertTrue(state.falseNegative.isEnabled)
     }
 
     func testCurrentCommentStateIsEmptyUniformOrMixedForSelection() {

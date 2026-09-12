@@ -226,7 +226,7 @@ public final class GenotypeAnnotationStore {
                 case .review:
                     if let value = change.value {
                         let disposition: GenotypeAnnotationSidecar.MatrixReviewDisposition = value == "false-positive" ? .falsePositive : .falseNegative
-                        try draft.setMatrixReviewSynchronously(disposition, targets: [target], evidence: .init([target: change.passedUniqueReads ?? 0]), author: editAuthor)
+                        try draft.setMatrixReviewSynchronously(disposition, targets: [target], evidence: .init(change.passedUniqueReads.map { [target: $0] } ?? [:]), author: editAuthor)
                     } else { try draft.clearMatrixReviewSynchronously(targets: [target], author: editAuthor) }
                 case .comment:
                     if let value = change.value { try draft.upsertMatrixCommentSynchronously(body: value, targets: [target], author: editAuthor) }
@@ -757,15 +757,10 @@ public final class GenotypeAnnotationStore {
                 $0 + (evidence.isSupported($1) ? 1 : 0)
             }
             let unsupportedCount = normalizedTargets.count - supportedCount
-            switch disposition {
-            case .falsePositive:
-                guard supportedCount == normalizedTargets.count else {
-                    throw GenotypeMatrixReviewMutationError.ineligibleEvidence
-                }
-            case .falseNegative:
-                guard unsupportedCount == normalizedTargets.count else {
-                    throw GenotypeMatrixReviewMutationError.ineligibleEvidence
-                }
+            guard normalizedTargets.allSatisfy({
+                GenotypeMatrixReviewEligibility.permits(disposition, rawSupport: evidence.passedUniqueReads(for: $0))
+            }) else {
+                throw GenotypeMatrixReviewMutationError.ineligibleEvidence
             }
 
             let targetSet = Set(normalizedTargets)
@@ -842,7 +837,7 @@ public final class GenotypeAnnotationStore {
                     "eligibilityRule": .string(
                         disposition == .falsePositive
                             ? "passedUniqueReads > 0"
-                            : "passedUniqueReads <= 0 or absent"
+                            : "passedUniqueReads == 0 (attested)"
                     ),
                     "supportedCount": .integer(supportedCount),
                     "unsupportedCount": .integer(unsupportedCount),
@@ -2712,7 +2707,8 @@ public final class GenotypeAnnotationStore {
             }
         }
         if action == "setMatrixReview" {
-            resolvedDefaults["absentEvidence"] = .string("unsupported")
+            resolvedDefaults["absentEvidence"] = .string("unknown")
+            resolvedDefaults["reviewEligibilityPolicyVersion"] = .integer(GenotypeMatrixReviewEligibility.version)
             resolvedDefaults["supportThreshold"] = .string("passedUniqueReads > 0")
         }
         let step = ProvenanceStep(

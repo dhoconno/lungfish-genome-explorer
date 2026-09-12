@@ -286,6 +286,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #endif
     private var pinnedWidthConstraint: NSLayoutConstraint?
     private var result: ONTGenotypeResultBundleData?
+    private var reviewRawSupport: [GenotypeAnnotationSidecar.MatrixTarget: Int] = [:]
     private var referenceFields: [GenBankRecordDatabase.FieldDefinition] = []
     private var referenceRecords: [String: [String: String]] = [:]
     private var hasEmbeddedMHCAlleles = false
@@ -502,6 +503,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sidecar: GenotypeAnnotationSidecar? = nil
     ) {
         self.result = result
+        reviewRawSupport = GenotypeMatrixReviewEligibility.rawSupport(in: result)
         bundleLocusDisplayOrder = result.genotypeLocusDisplayOrder
         if case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) {
             manualHaplotypeEditingEligible = true
@@ -638,6 +640,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ) {
         captureStableSampleColumnState()
         self.result = result
+        reviewRawSupport = GenotypeMatrixReviewEligibility.rawSupport(in: result)
         bundleLocusDisplayOrder = result.genotypeLocusDisplayOrder
         if case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) {
             manualHaplotypeEditingEligible = true
@@ -794,7 +797,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 sidecarCellCommentTooltips[key] = "Cell: \(comment.body)"
             }
         }
-        for review in sidecar?.matrixReviews ?? [] {
+        let eligibleReviews = GenotypeMatrixReviewEligibility.eligibleReviews(sidecar?.matrixReviews ?? []) { reviewRawSupport[$0] }
+        for review in eligibleReviews.values {
             guard case let .cell(locus, genotype, sample, stableClusterID) = review.target else {
                 continue
             }

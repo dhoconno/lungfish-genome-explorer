@@ -585,7 +585,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var observedLociIndex: GenotypeObservedLociIndex?
     private var matrixEvidenceIndex = GenotypeMatrixEvidenceIndex()
     private var matrixReviewsByTarget: [
-        GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewAnnotation
+        GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
     ] = [:]
     private var matrixCommentsByTarget: [
         GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixComment
@@ -1654,58 +1654,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildMatrixEvidenceIndex(for result: ONTGenotypeResultBundleData) {
-        var readsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: Int] = [:]
-        readsByTarget.reserveCapacity(
-            result.calls.count + (result.mhcCandidates?.observations.count ?? 0)
-        )
-        for call in result.calls {
-            let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
-                locus: call.locusGroup,
-                genotype: call.genotype,
-                sample: call.sample
-            )
-            readsByTarget[target] = max(readsByTarget[target] ?? 0, call.passedUniqueReads)
-        }
-        if let candidateDocument = result.mhcCandidates {
-            let candidatesByStableID = Dictionary(
-                candidateDocument.candidates.map { ($0.stableClusterID, $0) },
-                uniquingKeysWith: { _, latest in latest }
-            )
-            for observation in candidateDocument.observations {
-                guard let candidate = candidatesByStableID[observation.stableClusterID] else {
-                    continue
-                }
-                let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
-                    locus: candidate.locus,
-                    genotype: candidate.provisionalName,
-                    sample: observation.sampleID,
-                    stableClusterID: candidate.stableClusterID
-                )
-                readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
-            }
-        }
-        if let unnameableDocument = result.mhcUnnameableClusters {
-            let interpretationsByStableID = Dictionary(
-                unnameableDocument.clusters.compactMap { record in
-                    record.candidateInterpretation.map {
-                        (record.stableClusterID, $0)
-                    }
-                },
-                uniquingKeysWith: { _, latest in latest }
-            )
-            for observation in unnameableDocument.observations {
-                guard let interpretation = interpretationsByStableID[observation.stableClusterID]
-                else { continue }
-                let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
-                    locus: interpretation.locus,
-                    genotype: interpretation.provisionalName,
-                    sample: observation.sampleID,
-                    stableClusterID: observation.stableClusterID
-                )
-                readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
-            }
-        }
-        matrixEvidenceIndex = GenotypeMatrixEvidenceIndex(readsByTarget)
+        matrixEvidenceIndex = GenotypeMatrixEvidenceIndex(GenotypeMatrixReviewEligibility.rawSupport(in: result))
         matrixEvidenceIndexBuildCount += 1
     }
 
@@ -1725,10 +1674,7 @@ public final class GenotypeResultViewController: NSViewController {
             indexedMatrixMutationRevision = nil
             return searchDependenciesChanged
         }
-        matrixReviewsByTarget = Dictionary(
-            sidecar.matrixReviews.map { ($0.target, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
+        matrixReviewsByTarget = Dictionary(grouping: sidecar.matrixReviews, by: \.target)
         matrixCommentsByTarget = sidecar.resolvedMatrixComments
         matrixAnnotationIndexBuildCount += 1
         indexedMatrixMutationRevision = annotationStore?.matrixMutationRevision
@@ -1741,7 +1687,7 @@ public final class GenotypeResultViewController: NSViewController {
         matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
             selection: targets,
             evidence: matrixEvidenceIndex,
-            reviews: targets.compactMap { matrixReviewsByTarget[$0] },
+            reviews: Set(targets).flatMap { matrixReviewsByTarget[$0] ?? [] },
             comments: applicableCommentTargets(for: targets).compactMap {
                 matrixCommentsByTarget[$0]
             },
@@ -2515,14 +2461,8 @@ public final class GenotypeResultViewController: NSViewController {
             latest.matrixStyles.map { ($0.target, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        let previousReviews = Dictionary(
-            previous.matrixReviews.map { ($0.target, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        let latestReviews = Dictionary(
-            latest.matrixReviews.map { ($0.target, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
+        let previousReviews = Dictionary(grouping: previous.matrixReviews, by: \.target)
+        let latestReviews = Dictionary(grouping: latest.matrixReviews, by: \.target)
         var changedTargets = changedMatrixAnnotationTargets(
             previous: previousStyles,
             latest: latestStyles

@@ -12,6 +12,45 @@ import LungfishTestSupport
 // Matrix false-positive/negative rendering, context menus, visibility and review capability
 @MainActor
 final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestCase {
+    func testDuplicateReviewsWithholdMatrixChromeAndFailedMutationRefreshInvalidatesMultiplicityChanges() throws {
+        let root = try TestTempDirectory.make(prefix: "MatrixDuplicateReviews")
+        defer { TestTempDirectory.cleanup(root) }
+        let genotype = "01_Mafa_A1_DUPLICATE"
+        let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 7)
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA")
+        let fp = GenotypeAnnotationSidecar.MatrixReviewAnnotation(target: target, disposition: .falsePositive, author: "A", timestamp: "2026-09-11T00:00:00Z")
+        let fn = GenotypeAnnotationSidecar.MatrixReviewAnnotation(target: target, disposition: .falseNegative, author: "B", timestamp: "2026-09-12T00:00:00Z")
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        let annotationURL = root.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        sidecar.matrixReviews = [fp]
+        try sidecar.encoded().write(to: annotationURL)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [call]))
+        controller.testingShowMatrixTargetSelection([target])
+        XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "AnimalA"), "[7]")
+        controller.onMatrixAnnotationCommandError = { _ in }
+        for records in [[fp, fp], [fp], [fn, fp], [fp], [fp, fn], [fp], [fp, fp]] {
+            sidecar.matrixReviews = records
+            try sidecar.encoded().write(to: annotationURL)
+            controller.testingResetMatrixReloadCounters()
+            // Reading a newer disk revision before rejecting an incompatible
+            // mutation reconciles and redraws every changed exact target.
+            controller.applyMatrixReview(.init(targets: [target], intent: .set(.falseNegative)))
+            XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "AnimalA"), records.count == 1 ? "[7]" : "7")
+            XCTAssertEqual(controller.testingMatrixReviewCapability.reviewState, records.count == 1 ? .uniform(.falsePositive) : .none)
+            XCTAssertTrue(controller.testingMatrixReviewCapability.clearReview.isEnabled)
+            XCTAssertTrue(controller.testingLastMatrixReloadTargets.contains(target))
+            XCTAssertEqual(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root).matrixReviews, records)
+        }
+        controller.applyMatrixReview(.init(targets: [target], intent: .clear))
+        XCTAssertTrue(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root).matrixReviews.isEmpty)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)))
+        let replayData = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(provenance.options.explicit["replayPayloadBase64"]?.stringValue)))
+        let replay = try GenotypeMatrixAnnotationReplayPayload.decode(replayData)
+        XCTAssertEqual(replay.targetMutations.first?.beforeReviews, [fp, fp], "Clear retains every conflicting original in replay provenance")
+    }
+
     func testMatrixFalsePositiveRendersBracketedReadCountWithoutChangingEvidence() {
         let genotype = "01_Mafa_A1_FALSE_POSITIVE"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
@@ -79,7 +118,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixFalseNegativeKeepsExplicitZeroAndUsesEmDashOnlyForAbsentSupport() {
+    func testMatrixFalseNegativeKeepsExplicitZeroAndUsesEmDashForCatalogAttestedSparseSupport() throws {
         let genotype = "01_Mafa_A1_FALSE_NEGATIVE"
         let zero = makeCall(sample: "AnimalA", genotype: genotype, reads: 0)
         let explicitZero = GenotypeAnnotationSidecar.MatrixTarget.cell(
@@ -128,7 +167,10 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
                         calls: []
                     ),
                 ],
-                calls: [zero]
+                calls: [zero],
+                reviewableRowCatalog: try GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB"], rows: [
+                    .init(kind: .reference, callID: genotype, displayName: genotype, locus: "MHC-A", stableID: nil, section: "reference", sortKey: genotype, supportBySample: ["AnimalA": 0, "AnimalB": 0])
+                ]).validated()
             ),
             sidecar: sidecar
         )
@@ -351,7 +393,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let genotype = "01_Mafa_A1_FILTERED_SEMANTICS"
         let other = "02_Mafa_A1_HIGH_SUPPORT"
         let selected = makeCall(sample: "AnimalA", genotype: genotype, reads: 100)
-        let filtered = makeCall(sample: "AnimalB", genotype: genotype, reads: 1)
+        let filtered = makeCall(sample: "AnimalB", genotype: genotype, reads: 0)
         let denominator = makeCall(sample: "AnimalB", genotype: other, reads: 99)
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A",
@@ -464,7 +506,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             .cell(locus: "MHC-A", genotype: first, sample: "AnimalB"),
         ])
         XCTAssertEqual(outside.selectionTargets, controller.testingCurrentSelectionMatrixTargets)
-        XCTAssertEqual(controller.testingMatrixReviewCapability.falseNegative, .enabled)
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
         XCTAssertEqual(controller.testingMatrixEvidenceIndexBuildCount, evidenceBuildCount)
         XCTAssertEqual(controller.testingMatrixAnnotationIndexBuildCount, annotationBuildCount)
     }
@@ -1210,7 +1252,10 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
                     calls: []
                 ),
             ],
-            calls: [visible]
+            calls: [visible],
+            reviewableRowCatalog: try GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB"], rows: [
+                .init(kind: .reference, callID: genotype, displayName: genotype, locus: "MHC-A", stableID: nil, section: "reference", sortKey: genotype, supportBySample: ["AnimalA": 9, "AnimalB": 0])
+            ]).validated()
         ))
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A",
@@ -1502,7 +1547,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixReviewCapabilityTreatsAbsentExactRecordAsFalseNegativeEligible() throws {
+    func testMatrixReviewCapabilityRequiresCatalogToAttestMissingExactRecordAsZero() throws {
         let root = try TestTempDirectory.make(prefix: "MatrixAbsentEvidence")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1523,8 +1568,17 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
         controller.testingShowMatrixTargetSelection([target])
 
-        XCTAssertEqual(controller.testingMatrixReviewCapability.falseNegative, .enabled)
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.support.unknownCount, 1)
+        let catalog = try GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB"], rows: [
+            .init(kind: .reference, callID: genotype, displayName: "Different display label", locus: "MHC-A", stableID: nil, section: "reference", sortKey: genotype, supportBySample: ["AnimalA": 9, "AnimalB": 0])
+        ]).validated()
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)], reviewableRowCatalog: catalog))
+        controller.testingShowMatrixTargetSelection([target])
+        XCTAssertTrue(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
         XCTAssertEqual(controller.testingMatrixReviewCapability.support.unsupportedCount, 1)
+        controller.testingShowMatrixTargetSelection([.cell(locus: "MHC-A", genotype: genotype, sample: "OutsideRoster")])
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
     }
 
 
@@ -1563,13 +1617,13 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.testingShowMatrixTargetSelection([supported])
         XCTAssertEqual(controller.testingMatrixReviewCapability.falsePositive, .enabled)
         controller.testingShowMatrixTargetSelection([absent])
-        XCTAssertEqual(controller.testingMatrixReviewCapability.falseNegative, .enabled)
+        XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
         controller.testingShowMatrixTargetSelection([supported, absent])
 
         XCTAssertFalse(controller.testingMatrixReviewCapability.falsePositive.isEnabled)
         XCTAssertFalse(controller.testingMatrixReviewCapability.falseNegative.isEnabled)
         XCTAssertEqual(controller.testingMatrixReviewCapability.support.supportedCount, 1)
-        XCTAssertEqual(controller.testingMatrixReviewCapability.support.unsupportedCount, 1)
+        XCTAssertEqual(controller.testingMatrixReviewCapability.support.unknownCount, 1)
     }
 
 

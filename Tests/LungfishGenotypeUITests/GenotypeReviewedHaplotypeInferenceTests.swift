@@ -228,7 +228,16 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             controller.testingCurrentWorkbookHaplotypeCalls().first?.haplotype2,
             "M1A"
         )
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+        let originalDisplay = controller.testingDisplayState
+        var filteredDisplay = originalDisplay
+        filteredDisplay.matrixMinimumReads = 100
+        filteredDisplay.matrixMinimumPercent = 50
+        controller.testingApplyDisplayStateImmediately(filteredDisplay)
         let captured = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        controller.testingApplyDisplayStateImmediately(originalDisplay)
+        XCTAssertEqual(controller.testingSynchronizedMiSeqPerformanceSnapshot.haplotypeAnalysisRunCount, 0,
+                       "Visual thresholds and captured exports must never rerun inference")
         let capturedCall = try XCTUnwrap(captured.haplotypeCalls?.first)
         XCTAssertEqual(capturedCall.sample, "AnimalA")
         XCTAssertEqual(capturedCall.locus, "MHC-A")

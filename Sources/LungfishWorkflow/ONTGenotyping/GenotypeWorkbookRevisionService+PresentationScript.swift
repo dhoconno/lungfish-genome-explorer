@@ -89,12 +89,9 @@ def resolved(entries):
 
 comments = resolved(sidecar.get('matrixComments', []))
 styles = resolved(sidecar.get('matrixStyles', []))
-review_groups = {}
-for entry in sidecar.get('matrixReviews', []):
-    review_groups.setdefault(target_key(entry.get('target', {})), []).append(entry)
-# Unlike comments/styles, duplicate review records never select a winner.
-# Withhold every duplicate exact target while retaining its source records.
-reviews = {key: entries[0] for key, entries in review_groups.items() if len(entries) == 1}
+# Shared Swift eligibility is resolved from the same witnessed inputs and
+# retained in presentation-inputs.json with its policy version and checksum.
+reviews = {target_key(entry['target']): entry for entry in presentation_inputs.get('eligibleMatrixReviews', [])}
 
 def comment(target):
     return comments.get(target_key(target), {}).get('body')
@@ -158,10 +155,6 @@ for row in evidence:
         raw = support.get(sample)
         review = reviews.get(target_key(cell_target), {}).get('disposition')
         review = {'falsePositive':'false-positive','falseNegative':'false-negative'}.get(review)
-        # An invalid prior review is retained in the sidecar, but not promoted
-        # to a valid editable Note for incompatible scientific evidence.
-        if (review == 'false-positive' and (raw is None or raw <= 0)) or (review == 'false-negative' and raw != 0):
-            review = None
         cells.append(dict(sampleID=sample, displayValue=raw, rawSupport=raw, reviewEligible=raw is not None,
             fillHex=fill(cell_target), comment=comment(cell_target), review=review))
     rows.append(dict(id=identity(target), target=target, displayName=names.get(row['call_id'], row['display_name']),

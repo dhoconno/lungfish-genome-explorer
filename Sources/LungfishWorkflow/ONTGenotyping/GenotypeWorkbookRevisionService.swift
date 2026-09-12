@@ -622,9 +622,6 @@ public struct GenotypeWorkbookRevisionService {
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
         }
-        let requestsFalseNegative = sidecar?.matrixReviews.contains {
-            $0.disposition == .falseNegative
-        } == true
         let reviewableRowCatalogInput: ValidatedReviewableRowCatalogInput?
         if let reference = manifest.reviewableRowCatalog {
             reviewableRowCatalogInput = try validatedReviewableRowCatalogInput(
@@ -633,19 +630,6 @@ public struct GenotypeWorkbookRevisionService {
             )
         } else {
             reviewableRowCatalogInput = nil
-        }
-        if requestsFalseNegative, reviewableRowCatalogInput == nil {
-            let roster = Set(workbookCSVProjectionInput?.samples.map(\.sample) ?? [])
-            for review in sidecar?.matrixReviews ?? [] where review.disposition == .falseNegative {
-                guard case let .cell(locus, genotype, sample, stableID) = review.target,
-                      stableID == nil, roster.contains(sample),
-                      let row = workbookCSVProjectionInput?.knownCalls.first(where: { $0.callID == genotype && $0.locus == locus }),
-                      row.readsBySample[sample, default: 0] == 0 else {
-                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                        "False-negative workbook updates require an attested reviewable-row catalog or an exact zero-support row in the witnessed CSV evidence."
-                    )
-                }
-            }
         }
         if let reviewableRowCatalogInput {
             try attempt?.recordInput(
@@ -838,8 +822,27 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         try writeStagedFile(try encoder.encode(configuration), to: stagedConfigurationURL)
+        let eligibleReviews = GenotypeMatrixReviewEligibility.eligibleReviews(sidecar?.matrixReviews ?? []) { target in
+            guard case let .cell(locus, genotype, sample, stableID) = target else { return nil }
+            if let catalog = reviewableRowCatalogInput?.document {
+                return catalog.rows.first { $0.locus == locus && $0.callID == genotype && $0.stableID == stableID }?.supportBySample[sample]
+            }
+            if let stableID {
+                return configuration.normalizedUnmatchedRows.first {
+                    $0.stableClusterID == stableID && ($0.locus ?? "") == locus
+                        && ($0.provisionalAlleleName ?? $0.stableClusterID) == genotype
+                }?.readsBySample[sample]
+            }
+            guard configuration.samples.contains(where: { $0.sample == sample }),
+                  let row = configuration.knownCalls.first(where: { $0.callID == genotype && $0.locus == locus }) else { return nil }
+            // The witnessed CSV configuration has a complete known-call roster.
+            return row.readsBySample[sample, default: 0]
+        }
+        let serializedEligibleReviews = (sidecar?.matrixReviews ?? []).filter { eligibleReviews[$0.target] == $0 }
         let presentationInputData = try JSONSerialization.data(withJSONObject: [
             "schemaVersion": 2,
+            "reviewEligibilityPolicyVersion": GenotypeMatrixReviewEligibility.version,
+            "eligibleMatrixReviews": try JSONSerialization.jsonObject(with: encoder.encode(serializedEligibleReviews)),
             "includedLoci": semanticFingerprintIncludedLoci,
             "colors": try JSONSerialization.jsonObject(with: encoder.encode(resolvedPresentationColors)),
             "sourceRevision": [
