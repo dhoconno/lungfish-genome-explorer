@@ -162,7 +162,26 @@ XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.value, "
 - [ ] Replace obsolete scan counters with behavior/no-op assertions. Route any genuinely absent planned style behavior to Task5 with exact test names; do not fake old metrics. Report behavioral failures immediately, implement only scoped fixes after confirming the cause.
 - [ ] Run focused changed methods, then one affected revision/filtered suite. Record exact counts, remaining pending-style tests if any, and coverage mappings in task report. Commit the bounded migration with no unrelated source changes.
 
-## Task 5: Integrated workflow, user guidance, and acceptance
+## Task 5: Align review eligibility across LGE, inference inputs, and Excel
+
+**Files:**
+- Create: one focused review-eligibility helper in `Sources/LungfishIO/Bundles/` and unit tests.
+- Modify: `Sources/LungfishIO/Bundles/GenotypeReviewedHaplotypeEvidence.swift`
+- Modify: `Sources/LungfishGenotypeUI/GenotypeMatrixReviewCapability.swift`
+- Modify: `Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift`
+- Modify: `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift`
+- Modify: `Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift`
+- Modify as needed: current/filtered presentation adapters to consume the same eligibility policy.
+- Test: existing matrix capability, reviewed-evidence, annotation store and controller suites, plus focused duplicate-target cases.
+
+**Interfaces:** This corrects inconsistent annotation eligibility before the unchanged caller. No new calling algorithm, dropout rule, locus normalization, or filter-driven inference. Full expert trace is retained in the task handoff.
+
+- [ ] Reproduce duplicate FP/FP and FP/FN order/timestamp dependence in UI review state and `callsForInference`. Group exact MatrixTargets including stableClusterID before existing normalization; withhold every duplicate, preserving all sidecar/audit records.
+- [ ] For unique exact cell targets, require authoritative positive raw support for FP and explicit zero for FN. Unknown is not zero. Preserve valid sparse-roster zeros from the validated catalog; do not disable legitimate catalog-attested FN cells or assume arbitrary missing candidates are zero. Keep the evidence index optional and populate validated complete-roster entries where available.
+- [ ] Replace UI latest-wins review indexes and inference ingestion with shared eligibility. Keep raw review presence separate so explicit clear/replacement remains available for conflicts. Invalidate affected targets on one→duplicate→one changes even when the last record is unchanged.
+- [ ] Verify exact stable-cluster separation, unchanged valid unique inference results, raw counts/sidecar preservation, and no inference runs caused by visual filters/export. Run focused RED/GREEN then affected suites. Report any ambiguity in zero evidence authority before changing it.
+
+## Task 6: Integrated workflow, user guidance, and acceptance
 
 **Files:**
 - Modify: `Tests/LungfishAppTests/GenotypeViewportExcelExportTests.swift`
@@ -175,7 +194,7 @@ XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.value, "
 - Modify as needed for existing analyst style parity: presentation payload, current presentation adapter, viewport snapshot/projection serializer and capture; preserve existing font, border, and row/column/cell precedence semantics.
 - Create: `docs/reviews/2026-09-12-three-sheet-excel-qa.md`
 
-**Interfaces:** Exercise existing Inspector export/review paths; no new permanent buttons. Consume completed Tasks 1–4 and the higher-reasoning expert acceptance findings in the QA handoff.
+**Interfaces:** Exercise existing Inspector export/review paths; no new permanent buttons. Consume completed Tasks 1–5 and the higher-reasoning expert acceptance findings in the QA handoff.
 
 - [ ] Extend real-controller tests to edit direct calls/Notes in generated current.xlsx, accept through the existing annotation store, and assert immediate matrix/call refresh, regenerated three-sheet current, filtered export, and save/reopen parity. Include mixed call+FP+comment and explicit clears. Run focused RED/GREEN for any stale legacy UI routing.
 - [ ] Replace obsolete sheet-navigation instructions with direct-cell/Note guidance. Verify audit/history and original payloads remain accessible from LGE; do not delete storage. Keep existing single Inspector Export to Excel dialog and role explanations.
