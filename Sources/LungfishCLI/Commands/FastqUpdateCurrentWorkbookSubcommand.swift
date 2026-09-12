@@ -48,7 +48,7 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("presentation-colors"), help: "Resolved active-definition palette as a JSON array; retained with workbook inputs")
     var presentationColors: String = "[]"
 
-    @Option(name: .customLong("annotations"), help: "Annotation sidecar to write Overrides and Audit Log worksheets; defaults to bundle annotations.json when present")
+    @Option(name: .customLong("annotations"), help: "Annotation sidecar for effective calls and matrix Notes; defaults to bundle annotations.json. Audit history remains available in LGE.")
     var annotations: String?
 
     @Option(name: .customLong("included-locus"), help: "Haplotype locus included in the displayed call snapshot; repeat for multiple loci")

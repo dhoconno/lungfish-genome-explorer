@@ -361,8 +361,10 @@ enum GenotypeViewProjectionSerializer {
                 } else {
                     cells.append("")
                 }
-                let style = row.cellStyles[sample] ?? row.rowStyle
-                if let hex = normalizedHex(style.fillColor) {
+                let fill: AnnotationColor?
+                if let rendered = row.renderedCellStyles?[sample] { fill = rendered.fillColor }
+                else { fill = (row.cellStyles[sample] ?? row.rowStyle).fillColor }
+                if let hex = normalizedHex(fill) {
                     cellColors.append(hex)
                     hasAnyCellColor = true
                 } else {
@@ -376,7 +378,9 @@ enum GenotypeViewProjectionSerializer {
                 stableClusterID: row.stableClusterID,
                 cells: cells,
                 cellColorsHex: hasAnyCellColor ? cellColors : nil,
-                rowColorHex: normalizedHex(row.rowStyle.fillColor)
+                rowColorHex: row.renderedRowStyle.map { normalizedHex($0.fillColor) } ?? normalizedHex(row.rowStyle.fillColor),
+                rowStyle: row.renderedRowStyle.map(presentationStyle),
+                cellStyles: row.renderedCellStyles.map { styles in columns.map { styles[$0].map(presentationStyle) } }
             )
         }
         return GenotypeViewProjection(
@@ -397,14 +401,20 @@ enum GenotypeViewProjectionSerializer {
         )
     }
 
-    /// Returns a `#RRGGBB` string (exactly 6 hex chars) or `nil`.
+    private static func presentationStyle(_ style: GenotypeMatrixRenderedStyle) -> GenotypeWorkbookPresentation.Style {
+        .init(fillHex: normalizedHex(style.fillColor), textHex: normalizedHex(style.textColor), borderHex: normalizedHex(style.borderColor), isBold: style.isBold, isItalic: style.isItalic)
+    }
+
+    /// Spreadsheet backgrounds are white. Composite translucent screen colors
+    /// onto white deliberately instead of silently dropping their alpha.
     /// ``AnnotationColor/hexString`` already renders this shape; this guards
     /// against any future drift so the CLI writer never falls back.
     static func normalizedHex(_ color: AnnotationColor?) -> String? {
         guard let color else { return nil }
-        let r = Int((color.red * 255).rounded())
-        let g = Int((color.green * 255).rounded())
-        let b = Int((color.blue * 255).rounded())
+        let alpha = min(1, max(0, color.alpha))
+        let r = Int(((color.red * alpha + 1 - alpha) * 255).rounded())
+        let g = Int(((color.green * alpha + 1 - alpha) * 255).rounded())
+        let b = Int(((color.blue * alpha + 1 - alpha) * 255).rounded())
         return String(format: "#%02X%02X%02X", r, g, b)
     }
 }

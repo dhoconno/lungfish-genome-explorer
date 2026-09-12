@@ -839,11 +839,32 @@ public struct GenotypeWorkbookRevisionService {
             return row.readsBySample[sample]
         }
         let serializedEligibleReviews = (sidecar?.matrixReviews ?? []).filter { eligibleReviews[$0.target] == $0 }
+        // Preserve the established biological display order without modifying
+        // the witnessed catalog or its exact scientific identities.
+        var displayRows: [(locus: String, genotype: String, stableID: String, name: String)] = []
+        if let catalog = reviewableRowCatalogInput?.document {
+            displayRows = catalog.rows.map { ($0.locus, $0.callID, $0.stableID ?? "", configuration.knownAlleleDisplayNames[$0.callID] ?? $0.displayName) }
+        } else {
+            displayRows = configuration.knownCalls.map { ($0.locus, $0.callID, "", configuration.knownAlleleDisplayNames[$0.callID] ?? $0.callID) }
+            displayRows += configuration.normalizedUnmatchedRows.map {
+                ($0.locus ?? "", $0.provisionalAlleleName ?? $0.stableClusterID, $0.stableClusterID, $0.provisionalAlleleName ?? $0.stableClusterID)
+            }
+        }
+        displayRows = displayRows.map { row in
+            let embedded = MHCReferenceGenotypeDisplay.alleleNames(for: row.genotype)
+            let name = configuration.knownAlleleDisplayNames[row.genotype] ?? (embedded.isEmpty ? row.name : embedded.joined(separator: " / "))
+            return (row.locus, row.genotype, row.stableID, name)
+        }
+        let rowDisplayOrder = displayRows.sorted {
+            MHCAlleleDisplayOrder.compare($0.name, $1.name, lhsStableID: $0.stableID, rhsStableID: $1.stableID) == .orderedAscending
+        }.map { [$0.locus, $0.genotype, $0.stableID] }
         let presentationInputData = try JSONSerialization.data(withJSONObject: [
             "schemaVersion": 2,
             "reviewEligibilityPolicyVersion": GenotypeMatrixReviewEligibility.version,
             "eligibleMatrixReviews": try JSONSerialization.jsonObject(with: encoder.encode(serializedEligibleReviews)),
             "includedLoci": semanticFingerprintIncludedLoci,
+            "rowDisplayOrder": rowDisplayOrder,
+            "rowDisplayNames": displayRows.map { [$0.locus, $0.genotype, $0.stableID, $0.name] },
             "colors": try JSONSerialization.jsonObject(with: encoder.encode(resolvedPresentationColors)),
             "sourceRevision": [
                 "annotationsSHA256": annotationSidecarWitness?.sha256 ?? "none",

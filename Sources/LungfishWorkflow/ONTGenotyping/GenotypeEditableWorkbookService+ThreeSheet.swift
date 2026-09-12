@@ -202,7 +202,10 @@ extension GenotypeEditableWorkbookService {
         for id in manifest.noteTargets.keys.sorted() {
             let note = manifest.noteTargets[id]!, key = note.sheet + "!" + note.cell
             guard let current = physical[key]?.comment else { continue }
-            guard let edit = try parseNote(current, generatedText: note.generatedText) else { continue }
+            let parsed: NoteEdit?
+            do { parsed = try parseNote(current, generatedText: note.generatedText) }
+            catch { throw reject("\(key): \(error.localizedDescription)") }
+            guard let edit = parsed else { continue }
             let target = try normalizedTarget(note.target)
             for (kind, operation, value, before) in [(Change.Kind.review, edit.reviewOperation, edit.reviewValue, note.currentReview), (.comment, edit.commentOperation, edit.commentValue, note.currentComment)] {
                 if operation == "keep" { guard value.isEmpty else { throw reject("A keep Note operation cannot carry a value.") }; continue }

@@ -3,11 +3,37 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeThreeSheetEditableWorkbookTests: XCTestCase {
+    func testNativeExcelSavedCallsAndNotesRemainReviewable() throws {
+        guard let directory = ProcessInfo.processInfo.environment["LUNGFISH_EXCEL_NATIVE_QA"] else {
+            throw XCTSkip("Set LUNGFISH_EXCEL_NATIVE_QA to the independently edited disposable native fixture")
+        }
+        let source = URL(fileURLWithPath: directory)
+        let fixture = try Fixture(); defer { fixture.remove() }
+        try FileManager.default.copyItem(at: source.appendingPathComponent("native-task6-original.xlsx"), to: fixture.workbook)
+        try fixture.service.attestGeneratedWorkbook(workbookURL: fixture.workbook, bundleURL: fixture.root,
+            trustedManifest: Data(contentsOf: source.appendingPathComponent("native-task6-original-manifest.json")))
+        try Data(contentsOf: source.appendingPathComponent("native-excel-task6.xlsx")).write(to: fixture.workbook)
+        let inspection = try fixture.service.inspect(bundleURL: fixture.root)
+        XCTAssertEqual(inspection.changes.first { $0.kind == .call && $0.slot == .h1 }?.value, "M3DR")
+        XCTAssertTrue(inspection.changes.contains { $0.kind == .comment })
+    }
+    func testMalformedNoteErrorIdentifiesRepairCell() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        try fixture.seed()
+        try fixture.edit(#"c=w['Genotype Matrix']['D5']; c.comment=Comment(c.comment.text+'\n[LGE Edit v2]\nReview operation: unknown\nReview value: \"\"\nComment operation: keep\nComment value: \"\"\n[/LGE Edit v2]','LGE')"#)
+        XCTAssertThrowsError(try fixture.service.inspect(bundleURL: fixture.root)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Genotype Matrix!D5"), error.localizedDescription)
+        }
+    }
     func testDirectCallResetAndFalsePositiveNoteProduceExistingChanges() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try fixture.seed()
-        try fixture.edit(#"w['Haplotype Calls']['D2']='M2A'; w['Haplotype Calls']['J2']='Use pipeline call'; c=w['Genotype Matrix']['D5']; c.comment=Comment(c.comment.text+'\n[LGE Edit v2]\nReview operation: set\nReview value: \"false-positive\"\nComment operation: keep\nComment value: \"\"\n[/LGE Edit v2]','LGE')"#)
+        let layout = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture.manifest)) as! [String: Any]
+        let calls = try XCTUnwrap(layout["callTargets"] as? [String: [String: Any]])
+        let h2 = try XCTUnwrap(calls.values.first?["h2"] as? [String: Any])
+        let action = try XCTUnwrap(h2["actionCell"] as? String)
+        try fixture.edit("w['Haplotype Calls']['D2']='M2A'; w['Haplotype Calls']['\(action)']='Use pipeline call'; " + #"c=w['Genotype Matrix']['D5']; c.comment=Comment(c.comment.text+'\n[LGE Edit v2]\nReview operation: set\nReview value: \"false-positive\"\nComment operation: keep\nComment value: \"\"\n[/LGE Edit v2]','LGE')"#)
 
         let inspection = try fixture.service.inspect(bundleURL: fixture.root)
         XCTAssertEqual(inspection.changes.first(where: { $0.kind == .call && $0.slot == .h1 })?.value, "M2A")

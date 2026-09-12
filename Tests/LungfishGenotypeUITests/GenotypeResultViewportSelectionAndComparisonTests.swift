@@ -1202,7 +1202,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testFilteredSampleCellsCanHideManualRowHighlights() {
+    func testFilteredSampleCellsCanHideManualRowHighlights() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         let sharedGenotype = "01_Mafa_A1_001_01"
@@ -1261,6 +1261,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
         XCTAssertNil(controller.testingBackgroundColor(genotype: sharedGenotype, sample: "AnimalA"))
         XCTAssertNotNil(controller.testingBackgroundColor(genotype: sharedGenotype, sample: "AnimalB"))
+        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        XCTAssertNil(try exportedStyle(snapshot, genotype: sharedGenotype, sample: "AnimalA")["fillHex"])
+        XCTAssertNotNil(try exportedStyle(snapshot, genotype: sharedGenotype, sample: "AnimalB")["fillHex"])
     }
 
 

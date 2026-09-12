@@ -652,7 +652,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 stableClusterID: row.stableClusterID,
                 cells: cells,
                 cellColorsHex: colors,
-                rowColorHex: row.rowColorHex
+                rowColorHex: row.rowColorHex,
+                rowStyle: row.rowStyle,
+                cellStyles: row.cellStyles.map { source in keptIndices.map { $0 < source.count ? source[$0] : nil } }
             )
         }
         return GenotypeViewProjection(

@@ -20,7 +20,7 @@ struct GenotypeExcelReviewRow: Equatable {
         kind = change.kind.rawValue.capitalized
         identity = Self.identity(for: change)
         before = change.before ?? "None"
-        after = change.value ?? "Clear"
+        after = change.value ?? (change.kind == .call ? "Use pipeline call: \(change.baseline.flatMap { $0.isEmpty ? nil : $0 } ?? "empty")" : "Clear")
     }
 
     private static func identity(

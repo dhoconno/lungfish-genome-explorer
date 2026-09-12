@@ -8,15 +8,26 @@ import LungfishIO
 /// reading a shared bundle can see the analyst's annotation history without
 /// opening the JSON file. Entries are immutable; deleted entries don't exist.
 struct GenotypeAuditTimelineSection: View {
+    private final class Expansion: ObservableObject {
+        @Published var showsAll = false
+    }
     private let typographyModel = ContentTypographyModel.shared
     private var contentBodyFont: Font { typographyModel.font(for: .body) }
     private var contentHeadingFont: Font { typographyModel.font(for: .emphasizedBody) }
 
     let entries: [GenotypeAnnotationSidecar.AuditEntry]
     var entryLimit: Int = 10
+    @StateObject private var expansion: Expansion
+
+    init(entries: [GenotypeAnnotationSidecar.AuditEntry], entryLimit: Int = 10) {
+        self.entries = entries
+        self.entryLimit = entryLimit
+        let expansion = Expansion()
+        _expansion = StateObject(wrappedValue: expansion)
+    }
 
     private var displayedEntries: [GenotypeAnnotationSidecar.AuditEntry] {
-        Array(entries.suffix(entryLimit).reversed())
+        Array((expansion.showsAll ? entries : Array(entries.suffix(entryLimit))).reversed())
     }
 
     var body: some View {
@@ -36,7 +47,7 @@ struct GenotypeAuditTimelineSection: View {
                     }
                 }
                 if entries.count > entryLimit {
-                    Text("+ \(entries.count - entryLimit) earlier entries")
+                    Button(expansion.showsAll ? "Show recent" : "Show all") { expansion.showsAll.toggle() }
                         .font(contentBodyFont)
                         .foregroundStyle(.secondary)
                 }

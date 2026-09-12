@@ -99,6 +99,25 @@ def comment(target):
 def fill(target):
     return styles.get(target_key(target), {}).get('style', {}).get('fillColor')
 
+def merged_style(target):
+    legacy=dict(target); legacy.pop('stableClusterID',None)
+    row=dict(legacy,kind='row'); row.pop('sample',None)
+    exact_row=dict(target,kind='row'); exact_row.pop('sample',None)
+    layers=[row]
+    if exact_row != row: layers.append(exact_row)
+    if target['kind']=='cell':
+        layers += [dict(kind='column',sample=target['sample']),legacy]
+        if target != legacy: layers.append(target)
+    result=dict(isBold=False,isItalic=False)
+    for layer in layers:
+        style=styles.get(target_key(layer),{}).get('style',{})
+        for source,dest in [('fillColor','fillHex'),('textColor','textHex'),('borderColor','borderHex')]:
+            if style.get(source): result[dest]=style[source]
+        for trait,override in [('isBold','boldOverride'),('isItalic','italicOverride')]:
+            if style.get(override) is not None: result[trait]=style[override]
+            elif style.get(trait): result[trait]=True
+    return result
+
 roster = list(catalog.get('samples') or [s['sample'] for s in configuration.get('samples', [])])
 scientific_roster = set(roster)
 # Established duplicate call semantics are last exact sample/locus wins.
@@ -136,6 +155,7 @@ if not catalog:
 
 rows = []
 names = configuration.get('known_allele_display_names', {})
+display_names={tuple(row[:3]):row[3] for row in presentation_inputs.get('rowDisplayNames',[])}
 candidate_fills = {}
 for candidate in configuration.get('normalized_unmatched_rows', []):
     if candidate.get('record_category') != 'candidate':
@@ -156,9 +176,15 @@ for row in evidence:
         review = reviews.get(target_key(cell_target), {}).get('disposition')
         review = {'falsePositive':'false-positive','falseNegative':'false-negative'}.get(review)
         cells.append(dict(sampleID=sample, displayValue=raw, rawSupport=raw, reviewEligible=raw is not None,
-            fillHex=fill(cell_target), comment=comment(cell_target), review=review))
-    rows.append(dict(id=identity(target), target=target, displayName=names.get(row['call_id'], row['display_name']),
-        fillHex=fill(target) or candidate_fills.get(row.get('stable_id')), comment=comment(target), cells=cells))
+            fillHex=merged_style(cell_target).get('fillHex'), style=merged_style(cell_target), comment=comment(cell_target), review=review))
+    row_style=merged_style(target)
+    if not row_style.get('fillHex') and candidate_fills.get(row.get('stable_id')):
+        row_style['fillHex']=candidate_fills[row['stable_id']]
+    rows.append(dict(id=identity(target), target=target, displayName=display_names.get((row['locus'],row['call_id'],row.get('stable_id') or ''),names.get(row['call_id'], row['display_name'])),
+        fillHex=row_style.get('fillHex'), style=row_style, comment=comment(target), cells=cells))
+
+row_order={tuple(target):index for index,target in enumerate(presentation_inputs.get('rowDisplayOrder', []))}
+rows.sort(key=lambda row: row_order.get((row['target']['locus'],row['target']['genotype'],row['target'].get('stableClusterID') or ''),len(row_order)))
 
 payload = dict(schemaVersion=2, role='editable-current', sourceRevision=presentation_inputs.get('sourceRevision', {}),
     samples=[dict(id=s, name=s, comment=comment(dict(kind='column',sample=s))) for s in roster],

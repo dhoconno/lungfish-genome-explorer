@@ -3,6 +3,20 @@ import XCTest
 @testable import LungfishIO
 
 final class GenotypeWorkbookPresentationTests: XCTestCase {
+    func testPresentationAllowsNativeSelectionAndShowsAdjacentColoredCallsAndReviews() throws {
+        for role in ["editable-current", "filtered-snapshot"] {
+            let result = try render(role: role, mutation: "acceptance-styles")
+            XCTAssertTrue(result.selectionAllowed)
+            XCTAssertTrue(result.adjacentCalls)
+            XCTAssertTrue(result.callColorParity)
+            XCTAssertTrue(result.displayLabelParity)
+            XCTAssertTrue(result.readableLayout)
+            XCTAssertTrue(result.singleScope)
+            XCTAssertTrue(result.reviewStyles)
+            XCTAssertTrue(result.analystStyles)
+            XCTAssertTrue(result.nativeDifferentialFill)
+        }
+    }
     func testRendererCreatesThreeSheetEditableWorkbookWithTrustedManifestAndCaches() throws {
         let result = try render(role: "editable-current")
         XCTAssertEqual(result.sheetNames, ["Genotype Matrix", "Haplotype Calls", "Export Metadata"])
@@ -10,7 +24,7 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         XCTAssertEqual(result.matrixEvidence, [nil, 5])
         XCTAssertEqual(result.zeroRawSupport, 0)
         XCTAssertNil(result.unknownRawSupport)
-        XCTAssertEqual(result.formulaDRSlots, ["=IF('Haplotype Calls'!D2=\"\",\"\",'Haplotype Calls'!D2)", "=IF('Haplotype Calls'!I2=\"\",\"\",'Haplotype Calls'!I2)"])
+        XCTAssertEqual(result.formulaDRSlots, ["=IF('Haplotype Calls'!D2=\"\",\"\",'Haplotype Calls'!D2)", "=IF('Haplotype Calls'!E2=\"\",\"\",'Haplotype Calls'!E2)"])
         XCTAssertEqual(result.manifestRole, "editable-current")
         XCTAssertEqual(result.manifestSheetOrder, result.sheetNames)
         XCTAssertEqual(result.noteGrammar, 2)
@@ -33,6 +47,8 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         XCTAssertEqual(filtered.callTargetCount, editable.callTargetCount)
         XCTAssertFalse(filtered.callsEditable)
         XCTAssertEqual(filtered.manifestRole, "filtered-snapshot")
+        XCTAssertTrue(filtered.roleGuidance)
+        XCTAssertTrue(filtered.metadataFits)
     }
 
     func testSparseCallsAndEvidenceOnlyLocusRemainValid() throws {
@@ -48,6 +64,12 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
     func testBaselineUnavailableCallSlotsStayLocked() throws {
         let result = try render(role: "editable-current", mutation: "baseline-unavailable")
         XCTAssertFalse(result.callsEditable)
+    }
+
+    func testCurrentWithoutCallEditingKeepsCurrentNoteGuidance() throws {
+        let result = try render(role: "editable-current", mutation: "unsupported-calls")
+        XCTAssertFalse(result.callsEditable)
+        XCTAssertTrue(result.roleGuidance)
     }
 
     func testFormulaCachesAndPayloadTextRemainLiteral() throws {
@@ -92,6 +114,17 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         let explicitEmptyFormulaCache: Bool
         let literalPayloadHeadings: Bool
         let literalMetadata: Bool
+        let selectionAllowed: Bool
+        let adjacentCalls: Bool
+        let callColorParity: Bool
+        let displayLabelParity: Bool
+        let readableLayout: Bool
+        let singleScope: Bool
+        let reviewStyles: Bool
+        let analystStyles: Bool
+        let nativeDifferentialFill: Bool
+        let roleGuidance: Bool
+        let metadataFits: Bool
     }
 
     private func render(role: String, mutation: String? = nil) throws -> Result {
@@ -109,10 +142,21 @@ import json, sys
 from openpyxl import load_workbook
 """# + "\n" + GenotypeWorkbookPresentation.pythonScript + "\n" + #"""
 p=json.load(open(sys.argv[1])); out=sys.argv[2]
+if sys.argv[4]=='acceptance-styles':
+    p['rows'][0]['style']={'fillHex':'#123456','textHex':'#ABCDEF','borderHex':'#654321','isBold':True,'isItalic':True}
+    p['rows'][0]['cells'][0]['style']={'fillHex':None,'textHex':'#112233','borderHex':'#223344','isBold':False,'isItalic':False}
+    p['rows'][1]['cells'][0]['review']='false-positive'
+    p['rows'][2]['cells'][0]['displayValue']=0
+    p['rows'][2]['cells'][0]['review']='false-negative'
 m=render_three_sheet_workbook(p,out); notes=list(m['noteTargets'].values())
 with zipfile.ZipFile(out) as z: sheet_xml=z.read('xl/worksheets/sheet1.xml').decode('utf-8')
 wf=load_workbook(out,data_only=False); wc=load_workbook(out,data_only=True)
 gmf=wf['Genotype Matrix']; gmc=wc['Genotype Matrix']; calls=wf['Haplotype Calls']
+target=m['callTargets']['call-S1-DR']; h1=calls[target['h1']['valueCell']]; h2=calls[target['h2']['valueCell']]
+fp=gmf[next(x['cell'] for x in notes if x['target'].get('rowID')=='row-DQ' and x['target'].get('sampleID')=='S1')]
+fn=gmf[next(x['cell'] for x in notes if x['target'].get('rowID')=='row-A' and x['target'].get('sampleID')=='S1')]
+styled=gmf['D13']; label=gmf['C13']
+def rgb(color): return color.rgb[-6:] if color and color.type=='rgb' else None
 result={'sheetNames':wf.sheetnames,'cachedDRSlots':[wc['Genotype Matrix']['D2'].value,wc['Genotype Matrix']['D3'].value],
 'matrixEvidence':[gmc['D17'].value,gmc['E17'].value], 'zeroRawSupport':next(x['rawSupport'] for x in notes if x['target'].get('rowID')=='row-A' and x['target'].get('sampleID')=='S1'),
 'unknownRawSupport':next(x['rawSupport'] for x in notes if x['target'].get('rowID')=='row-C' and x['target'].get('sampleID')=='S1'), 'formulaDRSlots':[gmf['D2'].value,gmf['D3'].value],
@@ -127,14 +171,25 @@ result={'sheetNames':wf.sheetnames,'cachedDRSlots':[wc['Genotype Matrix']['D2'].
 'clusterIdentity':next((x['target'].get('stableClusterID') for x in notes if x['target'].get('rowID')=='row-F' and x['target'].get('sampleID')=='S1'),None),
 'hasUnannotatedRowTarget':'row:row-C' in m['noteTargets'],'hasUnannotatedSampleTarget':'sample:S2' in m['noteTargets'],
 'sparseCachedSlot':wc['Genotype Matrix']['E10'].value,'cachedDQSlots':[wc['Genotype Matrix']['E4'].value,wc['Genotype Matrix']['E5'].value],
-'explicitEmptyFormulaCache':re.search(r'<c r="E5" t="str"><f>.*?</f><v></v></c>',sheet_xml) is not None,
+'explicitEmptyFormulaCache':re.search(r'<c r="E5"[^>]*t="str"><f>.*?</f><v></v></c>',sheet_xml) is not None,
 'literalPayloadHeadings':gmf['E1'].data_type=='s' and gmf['E12'].data_type=='s',
-'literalMetadata':wf['Export Metadata']['B8'].data_type=='s'}
+'literalMetadata':all(c.data_type=='s' for row in wf['Export Metadata'] for c in row if isinstance(c.value,str)),
+'selectionAllowed':all(not ws.protection.selectLockedCells and not ws.protection.selectUnlockedCells and not ws.protection.autoFilter for ws in [gmf,calls]),
+'adjacentCalls':h2.column==h1.column+1,
+'callColorParity':rgb(h1.fill.fgColor)==rgb(gmf['D2'].fill.fgColor)=='123456' and rgb(h2.font.color)=='FFFFFF' and len(calls.conditional_formatting)>0,
+'displayLabelParity':calls['B2'].value==gmf['D1'].value,
+'readableLayout':gmf.column_dimensions['C'].width>=60 and gmf.column_dimensions['D'].width>=18 and gmf['C13'].alignment.wrap_text and calls['D1'].alignment.wrap_text and gmf.row_dimensions[13].height<=30,
+'singleScope':sum(row[0].value=='Scope' for row in wf['Export Metadata'])==1,
+'roleGuidance':('Filtered snapshot' not in dict(wf['Export Metadata'].values)['Editing'] and 'Apply edits' in dict(wf['Export Metadata'].values)) if p['role']=='editable-current' else not any('[LGE Edit v2]' in str(c.value) or 'Save the workbook' in str(c.value) for row in wf['Export Metadata'] for c in row),
+'metadataFits':wf['Export Metadata'].row_dimensions[2].height>=16*((len(str(wf['Export Metadata']['B2'].value))+89)//90),
+'nativeDifferentialFill':all(rule.dxf.fill.fgColor.rgb==rule.dxf.fill.bgColor.rgb and rule.dxf.fill.fgColor.rgb.startswith('FF') for ws in [gmf,calls] for rules in ws.conditional_formatting._cf_rules.values() for rule in rules),
+'reviewStyles':fp.value==1 and fp.data_type=='n' and fp.number_format=='"["0"]"' and fp.font.italic and rgb(fp.font.color)=='767676' and fn.value==0 and fn.data_type=='n' and '"FN"' in fn.number_format and fn.font.bold and rgb(fn.fill.fgColor)=='FFF2CC' and rgb(fn.font.color)=='7F6000' and all(getattr(fn.border,s).style=='mediumDashed' and rgb(getattr(fn.border,s).color)=='C65911' for s in ['left','right','top','bottom']),
+'analystStyles':rgb(label.fill.fgColor)=='123456' and label.font.bold and label.font.italic and rgb(label.font.color)=='ABCDEF' and rgb(label.border.left.color)=='654321' and styled.fill.patternType is None and not styled.font.bold and not styled.font.italic and rgb(styled.font.color)=='112233' and rgb(styled.border.left.color)=='223344'}
 json.dump(result,open(sys.argv[3],'w'))
 """#
         let python = URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
         let process = Process(); process.executableURL = python
-        process.arguments = ["-c", runner, payloadURL.path, workbookURL.path, resultURL.path]
+        process.arguments = ["-c", runner, payloadURL.path, workbookURL.path, resultURL.path, mutation ?? ""]
         let errorPipe = Pipe(); process.standardError = errorPipe
         try process.run(); process.waitUntilExit()
         let error = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -197,6 +252,6 @@ json.dump(result,open(sys.argv[3],'w'))
                 .init(locus: "DR", call: "OtherDR", fillHex: "#654321", fontHex: "#FFFFFF"),
                 .init(locus: "A", call: "M1A", fillHex: "#112233", fontHex: "#FFFFFF"),
                 .init(locus: "A", call: "OtherA", fillHex: "#332211", fontHex: "#FFFFFF")
-            ], metadata: [["Scope", "=All evidence"]], callEditingSupported: role == "editable-current")
+            ], metadata: [["Scope", "=All evidence"]], callEditingSupported: role == "editable-current" && mutation != "unsupported-calls")
     }
 }

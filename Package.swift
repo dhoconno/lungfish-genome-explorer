@@ -349,7 +349,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishGenotypeUITests",
-            dependencies: ["LungfishGenotypeUI", "LungfishKit", "LungfishTestSupport"],
+            dependencies: ["LungfishGenotypeUI", "LungfishKit", "LungfishTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishGenotypeUITests"
         ),
 

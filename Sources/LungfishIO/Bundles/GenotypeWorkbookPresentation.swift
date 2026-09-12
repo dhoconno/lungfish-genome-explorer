@@ -1,6 +1,19 @@
 import Foundation
 
 public enum GenotypeWorkbookPresentation {
+    /// Fully resolved presentation. A present record with nil colors and false
+    /// traits explicitly means no decoration, never an inheritance request.
+    public struct Style: Codable, Sendable, Equatable {
+        public let fillHex: String?
+        public let textHex: String?
+        public let borderHex: String?
+        public let isBold: Bool
+        public let isItalic: Bool
+        public init(fillHex: String? = nil, textHex: String? = nil, borderHex: String? = nil, isBold: Bool = false, isItalic: Bool = false) {
+            self.fillHex = fillHex; self.textHex = textHex; self.borderHex = borderHex
+            self.isBold = isBold; self.isItalic = isItalic
+        }
+    }
     public struct Payload: Codable, Sendable {
         public let schemaVersion: Int
         public let role: String
@@ -54,6 +67,7 @@ public enum GenotypeWorkbookPresentation {
     }
 
     public struct Cell: Codable, Sendable {
+        public let style: Style?
         public let sampleID: String
         public let displayValue: Int?
         public let rawSupport: Int?
@@ -62,7 +76,8 @@ public enum GenotypeWorkbookPresentation {
         public let comment: String?
         public let review: String?
 
-        public init(sampleID: String, displayValue: Int?, rawSupport: Int?, reviewEligible: Bool, fillHex: String?, comment: String?, review: String?) {
+        public init(sampleID: String, displayValue: Int?, rawSupport: Int?, reviewEligible: Bool, fillHex: String?, comment: String?, review: String?, style: Style? = nil) {
+            self.style = style
             self.sampleID = sampleID
             self.displayValue = displayValue
             self.rawSupport = rawSupport
@@ -74,6 +89,7 @@ public enum GenotypeWorkbookPresentation {
     }
 
     public struct Row: Codable, Sendable {
+        public let style: Style?
         public let id: String
         public let target: Target
         public let displayName: String
@@ -81,7 +97,8 @@ public enum GenotypeWorkbookPresentation {
         public let fillHex: String?
         public var cells: [Cell]
 
-        public init(id: String, target: Target, displayName: String, comment: String?, fillHex: String?, cells: [Cell]) {
+        public init(id: String, target: Target, displayName: String, comment: String?, fillHex: String?, cells: [Cell], style: Style? = nil) {
+            self.style = style
             self.id = id
             self.target = target
             self.displayName = displayName

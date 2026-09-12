@@ -216,7 +216,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         sidecar.matrixStyles = [
             .init(
                 target: target,
-                style: .init(borderColor: "#336699"),
+                style: .init(fillColor: "#CCDDFF", borderColor: "#336699"),
                 author: "test",
                 timestamp: "2026-07-24T00:00:01Z"
             ),
@@ -267,6 +267,9 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertNil(none.chrome.decorativeBorderWidth)
         XCTAssertNotNil(none.chrome.selectionCornerBracketWidth)
         XCTAssertTrue(none.hasNativeCellCommentMarker)
+        let exported = try exportedStyle(matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style-fixture"), analysisName: "Style", lens: "matrix"), genotype: genotype, sample: "AnimalA")
+        XCTAssertNil(exported["fillHex"])
+        XCTAssertNil(exported["borderHex"])
     }
 
 

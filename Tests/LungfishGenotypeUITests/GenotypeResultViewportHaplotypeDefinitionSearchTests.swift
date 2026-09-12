@@ -299,7 +299,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         sidecar.matrixStyles = [
             .init(
                 target: .row(locus: "MHC-A", genotype: genotype),
-                style: .init(fillColor: "#FFF2CC", textColor: nil, borderColor: nil, isBold: true, isItalic: false),
+                style: .init(fillColor: "#FFF2CC", textColor: "#0000FF", borderColor: nil, isBold: true, isItalic: false),
                 author: "test",
                 timestamp: "2026-06-30T12:00:00Z"
             ),
@@ -329,6 +329,12 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         XCTAssertEqual(style.borderColor?.hexString, "#666666")
         XCTAssertTrue(style.isBold)
         XCTAssertTrue(style.isItalic)
+        let captured = try exportedStyle(XCTUnwrap(controller.testingCurrentExportSnapshot()), genotype: genotype, sample: "AnimalA")
+        XCTAssertEqual(captured["fillHex"] as? String, "#E0EDDB") // Actual NSColor composited on spreadsheet white.
+        XCTAssertEqual(captured["textHex"] as? String, "#C00000")
+        XCTAssertNotNil(captured["borderHex"])
+        XCTAssertEqual(captured["isBold"] as? Bool, true)
+        XCTAssertEqual(captured["isItalic"] as? Bool, true)
     }
 
 
@@ -342,7 +348,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         sidecar.matrixStyles = [
             .init(
                 target: .row(locus: "MHC-A", genotype: genotype),
-                style: .init(fillColor: nil, textColor: nil, borderColor: nil, isBold: true, isItalic: false),
+                style: .init(fillColor: "#FFFF00", textColor: nil, borderColor: nil, isBold: true, isItalic: true),
                 author: "test",
                 timestamp: "2026-06-30T12:00:00Z"
             ),
@@ -354,7 +360,8 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
                     borderColor: nil,
                     isBold: false,
                     isItalic: false,
-                    boldOverride: false
+                    boldOverride: false,
+                    italicOverride: false
                 ),
                 author: "test",
                 timestamp: "2026-06-30T12:01:00Z"
@@ -370,6 +377,10 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let style = try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA"))
         XCTAssertEqual(style.fillColor?.hexString, "#D9EAD3")
         XCTAssertFalse(style.isBold)
+        XCTAssertFalse(style.isItalic)
+        let captured = try exportedStyle(XCTUnwrap(controller.testingCurrentExportSnapshot()), genotype: genotype, sample: "AnimalA")
+        XCTAssertEqual(captured["isBold"] as? Bool, false)
+        XCTAssertEqual(captured["isItalic"] as? Bool, false)
     }
 
 

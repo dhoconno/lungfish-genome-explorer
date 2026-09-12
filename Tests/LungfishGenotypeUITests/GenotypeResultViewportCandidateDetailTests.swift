@@ -1978,6 +1978,10 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
         XCTAssertNotNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .sample("AnimalA")))
         XCTAssertNil(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
+        let snapshot = matrix.exportSnapshot(bundleURL: result.bundleURL, analysisName: "Contrast", lens: "matrix")
+        for (genotype, expected) in [("Dark_nov", "#FFFFFF"), ("Light_nov", "#000000"), ("Semi_ext", "#000000"), ("Manual_ext", "#CC1933")] {
+            XCTAssertEqual(try exportedStyle(snapshot, genotype: genotype, sample: nil)["textHex"] as? String, expected)
+        }
     }
 
 
@@ -2189,6 +2193,13 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             XCTAssertEqual(color.alphaComponent, expected.alpha, accuracy: 0.000_000_1)
             XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .locus))
             XCTAssertNotNil(matrix.testingBackgroundColor(rowID: rowID, column: .sample("AnimalA")))
+            let snapshot = matrix.exportSnapshot(bundleURL: result.bundleURL, analysisName: "Tints", lens: "matrix")
+            let srgb = try XCTUnwrap(color.usingColorSpace(.sRGB))
+            let serializedColor = AnnotationColor(red: srgb.redComponent, green: srgb.greenComponent, blue: srgb.blueComponent, alpha: srgb.alphaComponent)
+            XCTAssertEqual(try exportedStyle(snapshot, genotype: id, sample: nil)["fillHex"] as? String,
+                           GenotypeViewProjectionSerializer.normalizedHex(serializedColor))
+            XCTAssertNotEqual(try exportedStyle(snapshot, genotype: id, sample: "AnimalA")["fillHex"] as? String,
+                              GenotypeViewProjectionSerializer.normalizedHex(expected))
         }
     }
 
@@ -2323,6 +2334,20 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 )
             }
 
+            let snapshot = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style-fixture"), analysisName: "Style", lens: "matrix")
+            let captured = try XCTUnwrap(snapshot.rows.first { $0.genotype == namedGenotype }?.renderedCellStyles?["AnimalA"]?.fillColor)
+            let painted = try XCTUnwrap(supportedColors[0].usingColorSpace(.sRGB))
+            XCTAssertEqual(captured.red, painted.redComponent, accuracy: 0.000001)
+            XCTAssertEqual(captured.green, painted.greenComponent, accuracy: 0.000001)
+            XCTAssertEqual(captured.blue, painted.blueComponent, accuracy: 0.000001)
+            XCTAssertEqual(captured.alpha, painted.alphaComponent, accuracy: 0.000001)
+            XCTAssertNil(try exportedStyle(snapshot, genotype: zeroSupportGenotype, sample: "AnimalA")["fillHex"])
+            if snapshot.sampleNames.contains("AnimalB") {
+                XCTAssertNil(try exportedStyle(snapshot, genotype: namedGenotype, sample: "AnimalB")["fillHex"])
+            } else {
+                XCTAssertNil(snapshot.rows.first { $0.genotype == namedGenotype }?.renderedCellStyles?["AnimalB"])
+            }
+
             XCTAssertNil(matrix.testingBackgroundColor(
                 rowID: .known(
                     locus: zeroSupport.locusGroup,
@@ -2395,6 +2420,13 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 0.20,
                 kind.rawValue
             )
+            let snapshot = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style-fixture"), analysisName: "Style", lens: "matrix")
+            let lowCaptured = try XCTUnwrap(snapshot.rows.first { $0.genotype == low.genotype }?.renderedCellStyles?["AnimalA"]?.fillColor)
+            let highCaptured = try XCTUnwrap(snapshot.rows.first { $0.genotype == high.genotype }?.renderedCellStyles?["AnimalA"]?.fillColor)
+            XCTAssertEqual(lowCaptured.alpha, lowColor.alphaComponent, accuracy: 0.000001)
+            XCTAssertEqual(highCaptured.alpha, highColor.alphaComponent, accuracy: 0.000001)
+            XCTAssertNotEqual(try exportedStyle(snapshot, genotype: low.genotype, sample: "AnimalA")["fillHex"] as? String,
+                              try exportedStyle(snapshot, genotype: high.genotype, sample: "AnimalA")["fillHex"] as? String)
         }
     }
 

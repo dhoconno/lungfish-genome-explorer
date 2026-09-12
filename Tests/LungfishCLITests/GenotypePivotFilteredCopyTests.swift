@@ -9,6 +9,61 @@ import LungfishTestSupport
 /// LGE projection. Legacy source workbooks remain fixtures only: their extra
 /// worksheets and presentation geometry do not flow into the export.
 final class GenotypePivotFilteredCopyTests: XCTestCase {
+    func testCapturedPaletteAndAttestedReviewStylesSurviveProductionFilteredExport() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = try TestTempDirectory.make(prefix: "CapturedPaletteReview")
+        defer { TestTempDirectory.cleanup(root) }
+        let base = makeResult(bundleURL: root)
+        let values = [("01_Mafa_A1_Middle", 8), ("01_Mafa_A1_Second", 9), ("01_Mafa_A1_Background", 0)]
+        try ONTGenotypeResultBundle.writeManifest(base.manifest, to: root)
+        let raw = "sample,genotype,passed_alignments,passed_unique_reads\n" + values.map { "Animal2,\($0.0),\($0.1),\($0.1)\n" }.joined()
+        try raw.write(to: base.artifacts.longSummaryCSVURL, atomically: true, encoding: .utf8)
+        let calls = values.map { genotype, reads in
+            ONTGenotypeCall(sample: "Animal2", genotype: genotype, passedAlignments: reads, passedUniqueReads: reads, sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil, overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)
+        }
+        let result = ONTGenotypeResultBundleData(bundleURL: root, manifest: base.manifest, artifacts: base.artifacts, stats: base.stats, calls: calls, samples: base.samples, haplotypeAnalysis: nil)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixReviews = values.map { genotype, reads in
+            .init(target: .cell(locus: "MHC-A", genotype: genotype, sample: "Animal2"), disposition: reads == 0 ? .falseNegative : .falsePositive, author: "QA", timestamp: "2026-09-12T00:00:00Z")
+        }
+        sidecar.matrixComments = [.init(target: .cell(locus: "MHC-A", genotype: "01_Mafa_A1_Middle", sample: "Animal2"), body: "Retained analyst note", author: "QA", timestamp: "2026-09-12T00:00:00Z")]
+        let projection = GenotypeViewProjection(lens: "matrix", sampleColumns: ["Animal2"], rows: values.map { genotype, reads in
+            .init(label: genotype, rawGenotype: genotype, locus: "MHC-A", cells: [String(reads)], cellStyles: [reads > 0 ? .init(fillHex: "#654321", borderHex: "#666666", isBold: false, isItalic: false) : .init()])
+        }, haplotypeCalls: [.init(sample: "Animal2", locus: "MHC-A", haplotype1: "M3A", haplotype2: "M6A", haplotype1Status: "called", haplotype2Status: "overridden", haplotype1Source: "pipeline", haplotype2Source: "override", baselineHaplotype1: "M3A", baselineHaplotype2: "M4A")], presentationColors: [
+            .init(locus: "MHC-A", call: "M3A", fillHex: "#F1F2F3", fontHex: "#0432FF"),
+            .init(locus: "MHC-A", call: "M6A", fillHex: "#E1E2E3", fontHex: "#595959")
+        ])
+        let output = root.appendingPathComponent("filtered.xlsx")
+        let build = root.appendingPathComponent("build")
+        try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+        try await Command.parse(["--bundle", root.path, "--output", output.path]).exportFilteredCopy(of: nil, result: result, sidecar: sidecar, thresholds: .init(), projection: projection, bundleURL: root, outputURL: output, buildDir: build, managedPythonResolver: { python }, startedAt: Date())
+        _ = try await runPython(python, script: #"""
+import sys
+from openpyxl import load_workbook
+w=load_workbook(sys.argv[1]); m=w['Genotype Matrix']; h=w['Haplotype Calls']; cached=load_workbook(sys.argv[1],data_only=True)
+def rgb(c): return c.rgb[-6:] if c is not None and c.type=='rgb' else ''
+for cell,value,fill,font in [('D2','M3A','F1F2F3','0432FF'),('E2','M6A','E1E2E3','595959')]:
+    c=h[cell]; assert c.value==value and rgb(c.fill.fgColor)==fill and rgb(c.font.color)==font
+for c in [c for row in m for c in row if c.data_type=='f']:
+    v=cached[m.title][c.coordinate].value; assert rgb(c.font.color)=={'M3A':'0432FF','M6A':'595959'}[v]
+for name,value in [('01_Mafa_A1_Middle',8),('01_Mafa_A1_Second',9),('01_Mafa_A1_Background',0)]:
+    row=next(row for row in m if row[2].value==name); c=row[3]
+    assert c.value==value and c.data_type=='n'
+    if value:
+        assert c.number_format=='"["0"]"' and c.font.italic and rgb(c.font.color)=='767676'
+        assert rgb(c.fill.fgColor)=='654321' and rgb(c.border.left.color)=='666666'
+    else:
+        assert c.number_format=='0;-0;"FN"' and c.font.bold and rgb(c.fill.fgColor)=='FFF2CC'
+        assert all(getattr(c.border,s).style=='mediumDashed' and rgb(getattr(c.border,s).color)=='C65911' for s in ['left','right','top','bottom'])
+    if name=='01_Mafa_A1_Middle': assert 'Retained analyst note' in c.comment.text
+assert m.column_dimensions['D'].width>=18 and m.column_dimensions['C'].width>=60
+assert m['D1'].alignment.wrap_text
+"""#, arguments: [output.path], in: root)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)))
+        let record = try XCTUnwrap(provenance.files.first { $0.path.hasSuffix("/g.csv") })
+        XCTAssertEqual(record.checksumSHA256, try ProvenanceFileHasher.sha256(of: base.artifacts.longSummaryCSVURL))
+    }
+
     func testSparseSampleRosterDoesNotAttestMissingFilteredCellSupport() throws {
         let base = makeResult(bundleURL: URL(fileURLWithPath: "/tmp/synthetic-sparse-pairs.lungfishgenotype"))
         let calls = [("S1", "G", 5), ("S2", "Z", 0)].map { sample, genotype, reads in
@@ -311,7 +366,8 @@ calls = wb["Haplotype Calls"]
 exact = next((row for row in range(2, calls.max_row + 1)
               if calls.cell(row, 2).value == "Animal2" and calls.cell(row, 3).value == "MHC-DRB"), None)
 if exact:
-    out["exactCall"] = [calls.cell(exact, column).value for column in (2, 3, 4, 9, 6, 11)]
+    call_columns = {c.value:c.column for c in calls[1]}
+    out["exactCall"] = [calls.cell(exact, call_columns[name]).value for name in ('Sample','Locus','Effective H1','Effective H2','H1 status','H2 status')]
     out["exactComment"] = calls.cell(exact, 14).value
     out["exactCommentType"] = calls.cell(exact, 14).data_type
 for row in range(2, matrix.max_row + 1):

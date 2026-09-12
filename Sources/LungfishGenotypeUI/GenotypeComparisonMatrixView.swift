@@ -1089,7 +1089,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 totalUniqueReads: reads.values.reduce(0, +),
                 sampleReads: reads,
                 rowStyle: rowStyles[RowKey(locus: row.locus, genotype: row.genotype, stableClusterID: row.stableClusterID)] ?? .default,
-                cellStyles: styles
+                cellStyles: styles,
+                renderedRowStyle: exportRenderedStyle(for: ColumnID.genotype, row: row),
+                renderedCellStyles: Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample in
+                    sampleColumnIdentifierByName[sample].map { (sample, exportRenderedStyle(for: $0, row: row)) }
+                })
             )
         }
         return GenotypeViewportExportSnapshot(
@@ -1119,6 +1123,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } else {
             onCandidateRowSelected?(visibleRows[0], nil, selectedMatrixTargets)
         }
+    }
+
+    private func exportRenderedStyle(for identifier: NSUserInterfaceItemIdentifier, row: GenotypeCandidateMatrixRow) -> GenotypeMatrixRenderedStyle {
+        var style = renderedStyle(for: identifier, row: row)
+        func annotation(_ color: NSColor?) -> AnnotationColor? {
+            guard let color = color?.usingColorSpace(.sRGB) else { return nil }
+            return AnnotationColor(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent, alpha: color.alphaComponent)
+        }
+        style.fillColor = annotation(backgroundColor(for: identifier, row: row, renderedStyle: style))
+        style.borderColor = annotation(borderColor(for: identifier, row: row, renderedStyle: style))
+        return style
     }
 
     private func buildView() {

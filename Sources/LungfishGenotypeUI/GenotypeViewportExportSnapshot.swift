@@ -24,10 +24,8 @@ struct GenotypeViewportExportSnapshot: Equatable {
     /// Immutable bytes captured with the viewport. When present, export uses
     /// these rather than rereading the live bundle sidecar path.
     let annotationSidecarData: Data?
-    /// Optional annotation sidecar to surface in additional worksheets.
-    /// When non-nil, the export adds an Overrides sheet and an Audit Log
-    /// sheet so consumers reading the workbook see what the analyst has
-    /// changed without needing the bundle's annotations.json.
+    /// Captured annotation context. Workbook presentation uses direct call
+    /// values and matrix Notes; the full audit stays in the LGE bundle.
     let sidecar: GenotypeAnnotationSidecarSnapshot?
     let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
     let sourceRevision: GenotypeViewProjectionSourceRevision?
@@ -165,6 +163,8 @@ struct GenotypeViewportExportRow: Equatable {
     let sampleReads: [String: Int]
     let rowStyle: GenotypeResultHighlightStyle
     let cellStyles: [String: GenotypeResultHighlightStyle]
+    let renderedRowStyle: GenotypeMatrixRenderedStyle?
+    let renderedCellStyles: [String: GenotypeMatrixRenderedStyle]?
 
     init(
         genotype: String,
@@ -175,7 +175,9 @@ struct GenotypeViewportExportRow: Equatable {
         totalUniqueReads: Int,
         sampleReads: [String: Int],
         rowStyle: GenotypeResultHighlightStyle,
-        cellStyles: [String: GenotypeResultHighlightStyle]
+        cellStyles: [String: GenotypeResultHighlightStyle],
+        renderedRowStyle: GenotypeMatrixRenderedStyle? = nil,
+        renderedCellStyles: [String: GenotypeMatrixRenderedStyle]? = nil
     ) {
         self.genotype = genotype
         self.displayName = displayName ?? genotype
@@ -186,5 +188,7 @@ struct GenotypeViewportExportRow: Equatable {
         self.sampleReads = sampleReads
         self.rowStyle = rowStyle
         self.cellStyles = cellStyles
+        self.renderedRowStyle = renderedRowStyle
+        self.renderedCellStyles = renderedCellStyles
     }
 }

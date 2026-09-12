@@ -104,7 +104,26 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         let revisionService = GenotypeWorkbookRevisionService(pythonExecutableURL: python)
         _ = try revisionService.applyHaplotypeOverrides(requests[0].snapshot.calls, annotationSidecarURL: annotations, into: root)
         workbook = try ONTGenotypeResultBundle.currentWorkbookURL(for: root)
-        try run("from openpyxl import load_workbook\nw=load_workbook(p)\nassert w['Haplotype Calls']['D2'].value == '\(mixed ? "M3A" : "M1A")'\nfor row in w['Edit Matrix'].iter_rows(min_row=2):\n if json.loads(row[1].value).get('kind') == 'cell' and json.loads(row[1].value).get('genotype') == '02_M2_A_marker':\n  row[5].value='clear'\nw.save(p)")
+        XCTAssertTrue(try service.inspect(bundleURL: root).changes.isEmpty)
+        let migratedBytes = try Data(contentsOf: workbook)
+        _ = try revisionService.applyHaplotypeOverrides(requests[0].snapshot.calls, annotationSidecarURL: annotations, into: root)
+        XCTAssertEqual(try Data(contentsOf: workbook), migratedBytes, "Retry after accepted v1 migration must be a byte no-op")
+        let baselinePath = root.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath).path
+        try run("""
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+import base64
+w=load_workbook(p)
+b=json.load(open(\(String(reflecting: baselinePath))))
+m=json.loads(base64.b64decode(b['trustedManifest']))
+assert w.sheetnames==['Genotype Matrix','Haplotype Calls','Export Metadata']
+target=next(iter(m['callTargets'].values()))
+assert w['Haplotype Calls'][target['h2']['valueCell']].value == '\(mixed ? "M3A" : "M1A")'
+n=next(n for n in m['noteTargets'].values() if n['target'].get('kind')=='cell' and n['target'].get('genotype')=='02_M2_A_marker')
+c=w[n['sheet']][n['cell']]
+c.comment=Comment(c.comment.text.replace('Review operation: keep','Review operation: clear'),'LGE')
+w.save(p)
+""")
         try controller.acceptEditableWorkbook(service.inspect(bundleURL: root), using: service)
         XCTAssertEqual(requests.count, 2)
         XCTAssertFalse(requests[1].snapshot.annotationOnly)
@@ -113,7 +132,17 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         XCTAssertEqual(controller.testingCurrentCallEvidence?.observedGenotypes, rawCalls.map(\.genotype))
         _ = try revisionService.applyHaplotypeOverrides(requests[1].snapshot.calls, annotationSidecarURL: annotations, into: root)
         workbook = try ONTGenotypeResultBundle.currentWorkbookURL(for: root)
-        try run("from openpyxl import load_workbook\nw=load_workbook(p)\nassert w['Haplotype Calls']['D2'].value == '\(mixed ? "M3A" : "M2A")'\nassert w['Reads']['C3'].value == 3")
+        try run("""
+from openpyxl import load_workbook
+import base64
+w=load_workbook(p)
+b=json.load(open(\(String(reflecting: baselinePath))))
+m=json.loads(base64.b64decode(b['trustedManifest']))
+target=next(iter(m['callTargets'].values()))
+assert w['Haplotype Calls'][target['h2']['valueCell']].value == '\(mixed ? "M3A" : "M2A")'
+n=next(n for n in m['noteTargets'].values() if n['target'].get('kind')=='cell' and n['target'].get('genotype')=='02_M2_A_marker')
+assert w[n['sheet']][n['cell']].value == 3
+""")
         let cleared = GenotypeResultViewController()
         _ = cleared.view
         cleared.configure(result: result)

@@ -155,6 +155,8 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
     /// Row-wide highlight color hex (`#RRGGBB`), or `nil` for none. Applied
     /// to the row header / all cells lacking an explicit cell color.
     public let rowColorHex: String?
+    public let rowStyle: GenotypeWorkbookPresentation.Style?
+    public let cellStyles: [GenotypeWorkbookPresentation.Style?]?
 
     public init(
         label: String,
@@ -163,7 +165,9 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
         stableClusterID: String? = nil,
         cells: [String],
         cellColorsHex: [String?]? = nil,
-        rowColorHex: String? = nil
+        rowColorHex: String? = nil,
+        rowStyle: GenotypeWorkbookPresentation.Style? = nil,
+        cellStyles: [GenotypeWorkbookPresentation.Style?]? = nil
     ) {
         self.label = label
         self.rawGenotype = rawGenotype
@@ -172,5 +176,7 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
         self.cells = cells
         self.cellColorsHex = cellColorsHex
         self.rowColorHex = rowColorHex
+        self.rowStyle = rowStyle
+        self.cellStyles = cellStyles
     }
 }

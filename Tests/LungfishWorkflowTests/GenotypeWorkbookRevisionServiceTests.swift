@@ -277,14 +277,14 @@ print('semantic calls and formula caches retained')
         let presentation = try currentPresentationPayload(in: fixture.bundleURL)
         let row = try XCTUnwrap(presentation.rows.first { $0.target.genotype == raw })
         XCTAssertEqual(row.target.locus, "MHC-DQB1")
-        XCTAssertTrue(row.displayName.contains("Mafa-DQB1"))
+        XCTAssertEqual(row.displayName, "Mafa-DQB1_01:01 / Mafa-DQB1_01:02")
         XCTAssertEqual(
             Dictionary(uniqueKeysWithValues: row.cells.map { ($0.sampleID, $0.rawSupport) })["AnimalA"]!,
             12
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             Dictionary(uniqueKeysWithValues: row.cells.map { ($0.sampleID, $0.rawSupport) })["AnimalB"]!,
-            0
+            "An omitted CSV pair is unknown even when the sample total is zero"
         )
         XCTAssertEqual(
             row.cells.first { $0.sampleID == "AnimalA" }?.review,
@@ -446,16 +446,19 @@ w.save(p)
         let output = try runPython([
             "-c",
             #"""
-import json, sys
+import json, sys, base64, os
 from openpyxl import load_workbook
 wb = load_workbook(sys.argv[1], data_only=False)
 calls = wb["Haplotype Calls"]
+b=json.load(open(os.path.join(os.path.dirname(sys.argv[1]),'editable-baseline.json')))
+m=json.loads(base64.b64decode(b['trustedManifest']))
+targets=[m['callTargets'][calls.cell(row,1).value] for row in range(2,calls.max_row+1)]
 payload = {
     "sheets": wb.sheetnames,
     "calls": [calls.cell(row, 3).value for row in range(2, calls.max_row + 1)],
     "slots": [
-        [calls.cell(row, 3).value, calls.cell(row, 4).value, calls.cell(row, 9).value]
-        for row in range(2, calls.max_row + 1)
+        [target['locus'],calls[target['h1']['valueCell']].value,calls[target['h2']['valueCell']].value]
+        for target in targets
     ],
 }
 print(json.dumps(payload, sort_keys=True))
@@ -7180,6 +7183,18 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(row.cells.allSatisfy(\.reviewEligible))
         XCTAssertTrue(row.cells.allSatisfy { $0.review == "false-negative" })
 
+        for sample in ["Sample-A", "Sample-B"] {
+            let style = try inspectExactThreeSheetCell(in: fixture.bundleURL, genotype: row.target.genotype, sample: sample)
+            XCTAssertEqual(style["value"], "0")
+            XCTAssertEqual(style["type"], "n")
+            XCTAssertEqual(style["format"], "0;-0;\"FN\"")
+            XCTAssertEqual(style["fill"], "FFF2CC")
+            XCTAssertEqual(style["font"], "7F6000|true|false")
+            XCTAssertEqual(style["borders"], Array(repeating: "mediumDashed:C65911", count: 4).joined(separator: "|"))
+            XCTAssertEqual(style["ooxmlNumericZero"], "true")
+            XCTAssertEqual(style["ooxmlFNStyle"], "true")
+        }
+
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
             for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
             in: fixture.bundleURL
@@ -9403,10 +9418,46 @@ matrix[sample_b["cell"]] = matrix[sample_a["cell"]].value
         XCTAssertEqual(cell.rawSupport, 0)
         XCTAssertEqual(cell.fillHex, "#FFF2CC")
         XCTAssertEqual(cell.comment, "Expected genotype missing from reads.")
+        XCTAssertEqual(cell.style?.textHex, "#C00000")
+        XCTAssertEqual(cell.style?.borderHex, "#666666")
+        XCTAssertEqual(cell.style?.isBold, true)
+        XCTAssertEqual(cell.style?.isItalic, true)
+        let visible = try inspectExactThreeSheetCell(in: fixture.bundleURL, genotype: callID, sample: "AR3628")
+        XCTAssertEqual(visible["fill"], "FFF2CC")
+        XCTAssertEqual(visible["font"], "C00000|true|true")
+        XCTAssertEqual(visible["borders"], Array(repeating: "thin:666666", count: 4).joined(separator: "|"))
+        XCTAssertTrue(visible["note"]?.contains("Expected genotype missing from reads.") == true)
         let workbook = try inspectMCMWorkbook(
             try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         )
         XCTAssertEqual(workbook["sheetNames"], "Genotype Matrix|Haplotype Calls|Export Metadata")
+
+        // One Excel edge cannot display both the analyst border and the FN
+        // semantic frame. The frame wins only while the valid review exists.
+        let service = GenotypeWorkbookRevisionService(pythonExecutableURL: testPythonExecutableURL)
+        sidecar.matrixReviews = [.init(target: target, disposition: .falseNegative, author: "curator", timestamp: "2026-06-30T12:01:00Z")]
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+        let reviewed = try inspectExactThreeSheetCell(in: fixture.bundleURL, genotype: callID, sample: "AR3628")
+        XCTAssertEqual(reviewed["font"], "C00000|true|true")
+        XCTAssertEqual(reviewed["borders"], Array(repeating: "mediumDashed:C65911", count: 4).joined(separator: "|"))
+        XCTAssertEqual(try currentPresentationPayload(in: fixture.bundleURL).rows.first?.cells.first?.style?.borderHex, "#666666")
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+        XCTAssertEqual(try inspectExactThreeSheetCell(in: fixture.bundleURL, genotype: callID, sample: "AR3628")["borders"], visible["borders"])
+
+        sidecar.matrixStyles = [
+            .init(target: .row(locus: "MHC-B", genotype: callID), style: .init(fillColor: "#FFF2CC", textColor: "#FF0000", borderColor: "#666666", isBold: true, isItalic: true), author: "curator", timestamp: "2026-06-30T12:02:00Z"),
+            .init(target: .column(sample: "AR3628"), style: .init(textColor: "#C00000"), author: "curator", timestamp: "2026-06-30T12:02:00Z"),
+            .init(target: target, style: .init(boldOverride: false, italicOverride: false), author: "curator", timestamp: "2026-06-30T12:02:00Z")
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
+        let resolved = try inspectExactThreeSheetCell(in: fixture.bundleURL, genotype: callID, sample: "AR3628")
+        XCTAssertEqual(resolved["fill"], "FFF2CC")
+        XCTAssertEqual(resolved["font"], "C00000|false|false")
+        XCTAssertEqual(resolved["borders"], visible["borders"])
     }
 
     func testApplyHaplotypeOverridesFormatsReviewsUsingExactSemanticIdentity() throws {
@@ -9507,6 +9558,11 @@ matrix[sample_b["cell"]] = matrix[sample_a["cell"]].value
         XCTAssertEqual(inspection["explicitZeroReview"], "false-negative")
         XCTAssertEqual(inspection["absentReview"], "false-negative")
         XCTAssertEqual(inspection["invalidPositiveSupportReview"], "")
+        XCTAssertEqual(inspection["falsePositiveFormat"], "\"[\"0\"]\"")
+        XCTAssertEqual(inspection["falsePositiveFont"], "767676|false|true")
+        for key in ["explicitZeroStyle", "absentStyle"] {
+            XCTAssertEqual(inspection[key], "0;-0;\"FN\"|FFF2CC|7F6000|true|mediumDashed:C65911|mediumDashed:C65911|mediumDashed:C65911|mediumDashed:C65911")
+        }
         let presentation = try currentPresentationPayload(in: fixture.bundleURL)
         let eligibleRow = try XCTUnwrap(
             presentation.rows.first { $0.target.stableClusterID == "cluster-a" }
@@ -9794,6 +9850,9 @@ wb.save(path)
         )
         XCTAssertEqual(cell.rawSupport, 42)
         XCTAssertNil(cell.review, "false-negative is invalid for positive raw support")
+        let restored = try inspectSemanticReviewWorkbook(try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL))
+        XCTAssertEqual(restored["falsePositiveFormat"], "General")
+        XCTAssertTrue(restored["falsePositiveFont"]?.hasSuffix("|false|false") == true)
         let retainedSidecarData = try Data(contentsOf: annotationURL)
         XCTAssertEqual(retainedSidecarData, submittedInvalidSidecarData)
         let retainedSidecar = try GenotypeAnnotationSidecar.decode(
@@ -11166,6 +11225,28 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: String])
     }
 
+    private func inspectExactThreeSheetCell(in bundle: URL, genotype: String, sample: String, stableID: String = "") throws -> [String: String] {
+        let code = #"""
+import base64,json,os,sys,zipfile,xml.etree.ElementTree as ET
+from openpyxl import load_workbook
+bundle,genotype,sample,stable=sys.argv[1:]
+b=json.load(open(os.path.join(bundle,'artifacts/workbooks/editable-baseline.json')))
+m=json.loads(base64.b64decode(b['trustedManifest']))
+t=next(n for n in m['noteTargets'].values() if n['target'].get('kind')=='cell' and n['target'].get('genotype')==genotype and n['target'].get('sampleID')==sample and (n['target'].get('stableClusterID') or '')==stable)
+path=os.path.join(bundle,b['workbook']['path']); w=load_workbook(path); c=w[t['sheet']][t['cell']]
+def rgb(c): return c.rgb[-6:] if c is not None and c.type=='rgb' else ''
+ns={'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+with zipfile.ZipFile(path) as z:
+    xml=ET.fromstring(z.read('xl/worksheets/sheet1.xml')); node=xml.find("s:sheetData/s:row/s:c[@r='%s']"%c.coordinate,ns)
+    styles=z.read('xl/styles.xml').decode()
+    numeric=node is not None and node.get('t','n')=='n' and node.find('s:v',ns).text=='0'
+    portable=all(s in styles for s in ['FN','mediumDashed','C65911','FFF2CC','7F6000'])
+print(json.dumps(dict(value=str(c.value),type=c.data_type,format=c.number_format,fill=rgb(c.fill.fgColor),font='|'.join([rgb(c.font.color),str(bool(c.font.bold)).lower(),str(bool(c.font.italic)).lower()]),borders='|'.join(str(getattr(c.border,s).style)+':'+rgb(getattr(c.border,s).color) for s in ['left','right','top','bottom']),note=c.comment.text if c.comment else '',ooxmlNumericZero=str(numeric).lower(),ooxmlFNStyle=str(portable).lower())))
+"""#
+        let output = try runPython(["-c", code, bundle.path, genotype, sample, stableID])
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: String])
+    }
+
     private func inspectSemanticReviewWorkbook(_ url: URL) throws -> [String: String] {
         let code = #"""
 import base64
@@ -11197,9 +11278,16 @@ def value(stable, sample):
 zero = cell("cluster-a", "Sample-Zero")
 absent = cell("cluster-a", "Sample-Absent")
 other_stable = cell("cluster-c", "Sample-FP")
+fp = cell("cluster-a", "Sample-FP")
+def rgb(c): return c.rgb[-6:] if c is not None and c.type=='rgb' else ''
+def fn_style(c):
+    return '|'.join([c.number_format,rgb(c.fill.fgColor),rgb(c.font.color),str(bool(c.font.bold)).lower()]+[str(getattr(c.border,s).style)+':'+rgb(getattr(c.border,s).color) for s in ['left','right','top','bottom']])
 
 payload = {
     "falsePositiveValue": value("cluster-a", "Sample-FP"),
+    "falsePositiveFormat": fp.number_format,
+    "falsePositiveFont": '|'.join([rgb(fp.font.color),str(bool(fp.font.bold)).lower(),str(bool(fp.font.italic)).lower()]),
+    "explicitZeroStyle": fn_style(zero), "absentStyle": fn_style(absent),
     "explicitZeroValue": value("cluster-a", "Sample-Zero"), "explicitZeroType": text(zero.data_type),
     "explicitZeroBold": str(bool(zero.font.bold)).lower(),
     "explicitZeroComment": "" if zero.comment is None else zero.comment.text,

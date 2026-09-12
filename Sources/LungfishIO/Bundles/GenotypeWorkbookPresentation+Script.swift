@@ -7,7 +7,8 @@ from xml.sax.saxutils import escape as xml_escape
 from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.formatting.rule import FormulaRule
-from openpyxl.styles import Font, PatternFill, Protection
+from openpyxl.styles import Font, PatternFill, Protection, Alignment, Border, Side
+from copy import copy
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 
@@ -22,6 +23,31 @@ def _note(generated):
 def _literal(cell, value):
     cell.value = value
     if isinstance(value, str): cell.data_type = 's'
+
+def _apply_style(cell, style, legacy_fill=None):
+    # A captured record, including nil fill/false traits, is authoritative.
+    style = style if style is not None else {'fillHex':legacy_fill}
+    fill=style.get('fillHex'); text=style.get('textHex'); border=style.get('borderHex')
+    cell.fill=PatternFill('solid',fgColor=fill.lstrip('#')) if fill else PatternFill()
+    cell.font=Font(color=text.lstrip('#') if text else None,bold=style.get('isBold',False),italic=style.get('isItalic',False))
+    if border:
+        side=Side(style='thin',color=border.lstrip('#')); cell.border=Border(left=side,right=side,top=side,bottom=side)
+
+def _opaque_fill(rgb):
+    rgb=rgb.lstrip('#')[-6:]
+    return PatternFill('solid',fgColor='FF'+rgb,bgColor='FF'+rgb)
+
+def _call_color(sheet, cell, locus, value, colors):
+    if (locus,value) in colors:
+        fill,font=colors[(locus,value)]; cell.fill=PatternFill('solid',fgColor=fill); cell.font=Font(color=font)
+    definitions=[]; addr=cell.coordinate
+    for (defined_locus,defined_call),(fill,font) in colors.items():
+        if defined_locus != locus: continue
+        definitions.append(defined_call)
+        sheet.conditional_formatting.add(addr,FormulaRule(formula=['%s="%s"'%(addr,defined_call.replace('"','""'))],fill=_opaque_fill(fill),font=Font(color=font),stopIfTrue=True))
+    if definitions:
+        comparisons=','.join('%s<>"%s"'%(addr,x.replace('"','""')) for x in definitions)
+        sheet.conditional_formatting.add(addr,FormulaRule(formula=['AND('+comparisons+')'],fill=_opaque_fill('FFFFFF'),font=Font(color='000000'),stopIfTrue=True))
 
 def _validate(p):
     if p.get('schemaVersion') != 2: raise ValueError('unsupported schema')
@@ -76,22 +102,29 @@ def render_three_sheet_workbook(payload, output_path):
     call_lookup={(c['sampleID'],c['locus']):(i+2,c) for i,c in enumerate(payload['calls'])}
     colors={(c['locus'],c['call']):(c['fillHex'].lstrip('#').upper(),c['fontHex'].lstrip('#').upper()) for c in payload['colors']}
     manifest={'schemaVersion':2,'role':payload['role'],'sourceRevision':payload['sourceRevision'],'callEditingSupported':payload.get('callEditingSupported',False),'sheetOrder':['Genotype Matrix','Haplotype Calls','Export Metadata'],'callTargets':{},'noteTargets':{},'immutableCells':{},'expectedFormulas':{},'identityCells':{},'allowedNoteGrammarVersion':2}
-    headers=['Stable ID','Sample','Locus','Effective H1','H1 import action','H1 status','H1 source','Pipeline H1','Effective H2','H2 import action','H2 status','H2 source','Pipeline H2','Comment']
+    headers=['Stable ID','Sample','Locus','Effective H1','Effective H2','H1 import action','H2 import action','H1 status','H2 status','H1 source','H2 source','Pipeline H1','Pipeline H2','Comment']
     calls.append(headers); calls.freeze_panes='B2'; calls.auto_filter.ref='B1:N'+str(len(payload['calls'])+1); calls.column_dimensions['A'].hidden=True
     editable=payload['role']=='editable-current' and payload.get('callEditingSupported',False)
     action_validation=DataValidation(type='list',formula1='"Use entered call,Use pipeline call"'); calls.add_data_validation(action_validation)
     for r,call in enumerate(payload['calls'],2):
-        vals=[call['id'],call['sampleID'],call['locus'],call['h1']['effective'],'Use entered call',call['h1']['status'],call['h1']['source'],call['h1'].get('pipeline'),call['h2']['effective'],'Use entered call',call['h2']['status'],call['h2']['source'],call['h2'].get('pipeline'),call.get('comment')]
+        sample_name=next(s['name'] for s in payload['samples'] if s['id']==call['sampleID'])
+        vals=[call['id'],sample_name,call['locus'],call['h1']['effective'],call['h2']['effective'],'Use entered call','Use entered call',call['h1']['status'],call['h2']['status'],call['h1']['source'],call['h2']['source'],call['h1'].get('pipeline'),call['h2'].get('pipeline'),call.get('comment')]
         for col,val in enumerate(vals,1): _literal(calls.cell(r,col),val)
-        action_validation.add(calls.cell(r,5)); action_validation.add(calls.cell(r,10))
-        for slot,prefix,vcol,acol in [('h1','H1',4,5),('h2','H2',9,10)]:
+        action_validation.add(calls.cell(r,6)); action_validation.add(calls.cell(r,7))
+        for slot,prefix,vcol,acol in [('h1','H1',4,6),('h2','H2',5,7)]:
             s=call[slot]; slot_editable=editable and s['baselineAvailable']
             calls.cell(r,vcol).protection=Protection(locked=not slot_editable); calls.cell(r,acol).protection=Protection(locked=not slot_editable)
             target=manifest['callTargets'].setdefault(call['id'],{'sampleID':call['sampleID'],'locus':call['locus']})
             target[slot]={'valueCell':calls.cell(r,vcol).coordinate,'actionCell':calls.cell(r,acol).coordinate,'baselineAvailable':s['baselineAvailable'],'pipeline':s.get('pipeline'),'effective':s['effective']}
+            _call_color(calls,calls.cell(r,vcol),call['locus'],s['effective'],colors)
         manifest['identityCells']['call:'+call['id']]={'sheet':'Haplotype Calls','cell':'A'+str(r),'value':call['id']}
-    calls.protection.sheet=True; calls.protection.selectLockedCells=False; calls.protection.selectUnlockedCells=True
+    calls.protection.sheet=True; calls.protection.selectLockedCells=False; calls.protection.selectUnlockedCells=False; calls.protection.autoFilter=False
     for cell in calls[1]: cell.font=Font(bold=True)
+    for col in range(2,15): calls.column_dimensions[get_column_letter(col)].width=24 if col in (6,7) else (40 if col==14 else 18)
+    for row in calls:
+        for cell in row: cell.alignment=Alignment(vertical='center',wrap_text=True)
+    calls.row_dimensions[1].height=32
+    for r in range(2,calls.max_row+1): calls.row_dimensions[r].height=30
     matrix['A1']='Stable ID'; matrix['B1']='Locus'; matrix['C1']='Slot / allele'; matrix.column_dimensions['A'].hidden=True
     for c,sample in enumerate(payload['samples'],4):
         _literal(matrix.cell(1,c),sample['name']); manifest['identityCells']['sample:'+sample['id']]={'sheet':'Genotype Matrix','cell':matrix.cell(1,c).coordinate,'value':sample['name']}
@@ -107,32 +140,32 @@ def render_three_sheet_workbook(payload, output_path):
                 if present is None:
                     matrix.cell(r,c).value=None
                     continue
-                callrow,call=present; source_col='D' if slot=='h1' else 'I'
+                callrow,call=present; source_col='D' if slot=='h1' else 'E'
                 formula="=IF('Haplotype Calls'!%s%d=\"\",\"\",'Haplotype Calls'!%s%d)"%(source_col,callrow,source_col,callrow)
                 matrix.cell(r,c).value=formula; manifest['expectedFormulas'].setdefault('Genotype Matrix',{})[addr]=formula; formula_caches[addr]=call[slot]['effective']
-                if (locus,call[slot]['effective']) in colors:
-                    fill,font=colors[(locus,call[slot]['effective'])]; matrix.cell(r,c).fill=PatternFill('solid',fgColor=fill); matrix.cell(r,c).font=Font(color=font)
-                definitions=[]
-                for (defined_locus,defined_call),(fill,font) in colors.items():
-                    if defined_locus != locus: continue
-                    definitions.append(defined_call)
-                    matrix.conditional_formatting.add(addr,FormulaRule(formula=['%s="%s"'%(addr,defined_call.replace('"','""'))],fill=PatternFill('solid',fgColor=fill),font=Font(color=font),stopIfTrue=True))
-                if definitions:
-                    comparisons=','.join('%s<>"%s"'%(addr,x.replace('"','""')) for x in definitions)
-                    matrix.conditional_formatting.add(addr,FormulaRule(formula=['AND('+comparisons+')'],fill=PatternFill('solid',fgColor='FFFFFF'),font=Font(color='000000'),stopIfTrue=True))
+                _call_color(matrix,matrix.cell(r,c),locus,call[slot]['effective'],colors)
     header=2+2*len(payload['loci']); matrix.cell(header,1).value='Stable ID'; matrix.cell(header,2).value='Locus'; matrix.cell(header,3).value='Allele'
     for c,sample in enumerate(payload['samples'],4): _literal(matrix.cell(header,c),sample['name'])
     for rr,row in enumerate(payload['rows'],header+1):
         _literal(matrix.cell(rr,1),row['id']); _literal(matrix.cell(rr,2),row['target']['locus']); _literal(matrix.cell(rr,3),row['displayName'])
         manifest['identityCells']['row:'+row['id']]={'sheet':'Genotype Matrix','cell':'A'+str(rr),'value':row['id']}
-        if row.get('fillHex'): matrix.cell(rr,3).fill=PatternFill('solid',fgColor=row['fillHex'].lstrip('#'))
+        _apply_style(matrix.cell(rr,3),row.get('style'),row.get('fillHex'))
         generated='Row comment: '+json.dumps(row['comment'],ensure_ascii=False) if row.get('comment') is not None else ''
         if generated: matrix.cell(rr,3).comment=Comment(_note(generated),'LGE')
         manifest['noteTargets']['row:'+row['id']]={'sheet':'Genotype Matrix','cell':'C'+str(rr),'target':row['target'],'rawSupport':None,'reviewEligible':False,'currentComment':row.get('comment'),'currentReview':None,'generatedText':_note(generated) if generated else ''}
         by_sample={x['sampleID']:x for x in row['cells']}
         for c,sample in enumerate(payload['samples'],4):
             cell=by_sample[sample['id']]; out=matrix.cell(rr,c); out.value=cell.get('displayValue')
-            if cell.get('fillHex'): out.fill=PatternFill('solid',fgColor=cell['fillHex'].lstrip('#'))
+            _apply_style(out,cell.get('style'),cell.get('fillHex'))
+            if cell.get('review')=='false-positive':
+                out.number_format='"["0"]"'; font=copy(out.font); font.italic=True; font.color='767676'; out.font=font
+            elif cell.get('review')=='false-negative':
+                out.number_format='0;-0;"FN"'
+                side=Side(style='mediumDashed',color='C65911'); out.border=Border(left=side,right=side,top=side,bottom=side)
+                if out.fill.patternType is None: out.fill=PatternFill('solid',fgColor='FFF2CC')
+                font=copy(out.font); font.bold=True
+                if font.color is None: font.color='7F6000'
+                out.font=font
             target={'kind':'cell','rowID':row['id'],'sampleID':sample['id'],'locus':row['target']['locus'],'genotype':row['target']['genotype']}
             if row['target'].get('stableClusterID') is not None: target['stableClusterID']=row['target']['stableClusterID']
             raw=cell.get('rawSupport'); display=cell.get('displayValue')
@@ -144,12 +177,31 @@ def render_three_sheet_workbook(payload, output_path):
             if text: out.comment=Comment(text,'LGE')
             manifest['noteTargets'][target_id]={'sheet':'Genotype Matrix','cell':out.coordinate,'target':target,'rawSupport':raw,'reviewEligible':cell['reviewEligible'],'currentComment':cell.get('comment'),'currentReview':cell.get('review'),'generatedText':text}
     matrix.freeze_panes='D'+str(header); matrix.auto_filter.ref='B%d:%s%d'%(header,get_column_letter(3+len(payload['samples'])),header+len(payload['rows']))
-    matrix.protection.sheet=True; matrix.protection.selectLockedCells=True; matrix.protection.selectUnlockedCells=True
+    matrix.protection.sheet=True; matrix.protection.selectLockedCells=False; matrix.protection.selectUnlockedCells=False; matrix.protection.autoFilter=False
+    # Notes attach to locked evidence; allow editing drawing objects (traditional
+    # Notes) while importer validation still protects generated text and counts.
+    matrix.protection.objects=False
+    matrix.column_dimensions['B'].width=18; matrix.column_dimensions['C'].width=64
+    for c in range(4,matrix.max_column+1): matrix.column_dimensions[get_column_letter(c)].width=18
+    for row in matrix:
+        for cell in row: cell.alignment=Alignment(vertical='center',wrap_text=True)
+    for r in range(1,matrix.max_row+1): matrix.row_dimensions[r].height=30 if r>header or r in (1,header) else 22
     for c in range(1,matrix.max_column+1): matrix.cell(header,c).font=Font(bold=True)
-    instructions=[['Workbook role',payload['role']],['Source revision',json.dumps(payload['sourceRevision'],sort_keys=True)],['Scope','All evidence' if payload['role']=='editable-current' else 'Captured filtered evidence'],['Editing','Edit current H1/H2 and explicit import action only; legacy slots without baselines stay locked.'],['Notes','Traditional Excel Notes contain immutable generated evidence plus an editable LGE block. Threaded Comments are not imported.'],['Clear semantics','Deleting or blanking a Note never clears data. Use explicit clear in the block and review in LGE.'],['Eligible Note template',_NOTE_BLOCK]]+payload.get('metadata',[])
+    extra=payload.get('metadata',[])
+    scope=next((r[1] for r in extra if r[0]=='Scope'),'All evidence' if payload['role']=='editable-current' else 'Captured filtered evidence')
+    editing='Filtered snapshot for viewing. Edit calls and annotations in LGE or current.xlsx.'
+    if payload['role']=='editable-current':
+        editing='Edit H1/H2 in Haplotype Calls; choose Use pipeline call to queue a reset for LGE review. Slots without baselines stay locked.' if editable else 'Current workbook. Haplotype calls are read-only here; edit them in LGE. Eligible matrix Notes can be reviewed and imported using the instructions below.'
+    instructions=[['Workbook role',payload['role']],['Source revision',json.dumps(payload['sourceRevision'],sort_keys=True)],['Scope',scope],['Editing',editing],['Notes','Edit the existing LGE block in a traditional Excel Note, or append one after the evidence if absent. Never add a second block. Keep generated evidence unchanged.'],['Note operations','Use keep, set, or clear. Values must be quoted JSON strings. Set review to "false-positive" (positive reads) or "false-negative" (exact zero). Set comment to your text.'],['Apply edits','Save the workbook, return to LGE, then choose Review Excel changes and accept the proposed edits.'],['JSON values','Use quoted JSON strings; for a line break enter \\n inside the quotes (for example "first\\nsecond").'],['Clear semantics','Deleting a Note never clears data. Set the relevant operation to clear and its value to ""; review changes in LGE.'],['Eligible Note template',_NOTE_BLOCK],['Comment example','[LGE Edit v2]\nReview operation: keep\nReview value: ""\nComment operation: set\nComment value: "Check this allele"\n[/LGE Edit v2]']]+[r for r in extra if r[0]!='Scope']
+    if payload['role']=='filtered-snapshot':
+        edit_keys={'Notes','Note operations','Apply edits','JSON values','Clear semantics','Eligible Note template','Comment example'}
+        instructions=[r for r in instructions if r[0] not in edit_keys]
     for r,row in enumerate(instructions,1):
         for c,value in enumerate(row,1): _literal(metadata.cell(r,c),value)
     metadata.freeze_panes='A2'; metadata.column_dimensions['A'].width=24; metadata.column_dimensions['B'].width=100; metadata['A1'].font=Font(bold=True)
+    for row in metadata:
+        for cell in row: cell.alignment=Alignment(vertical='top',wrap_text=True)
+        metadata.row_dimensions[row[0].row].height=max(30,8+16*sum(max(1,(len(line)+89)//90) for line in str(row[1].value).split('\n')))
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:

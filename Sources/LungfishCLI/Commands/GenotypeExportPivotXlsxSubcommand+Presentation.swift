@@ -45,10 +45,11 @@ extension GenotypeExportPivotXlsxSubcommand {
                 }
                 let color = row.cellColorsHex.flatMap { index < $0.count ? $0[index] : nil }
                 return .init(sampleID: sample, displayValue: Int(captured), rawSupport: raw, reviewEligible: raw != nil,
-                    fillHex: color, comment: comments[cellTarget]?.body, review: token)
+                    fillHex: color, comment: comments[cellTarget]?.body, review: token,
+                    style: row.cellStyles.flatMap { index < $0.count ? $0[index] : nil })
             }
             return .init(id: try identity(target), target: target, displayName: row.label,
-                comment: comments[annotationTarget]?.body, fillHex: row.rowColorHex, cells: cells)
+                comment: comments[annotationTarget]?.body, fillHex: row.rowColorHex, cells: cells, style: row.rowStyle)
         }
         var projectedCalls = projection?.haplotypeCalls ?? []
         if projection == nil, case .eligible = GenotypeManualHaplotypeAuthority.evaluate(result.manifest) {
