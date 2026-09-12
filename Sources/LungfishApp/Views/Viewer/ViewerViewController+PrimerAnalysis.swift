@@ -10,7 +10,8 @@ extension ViewerViewController {
     func displayPrimerAnalysisBundle(
         at url: URL,
         onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
-        onDismiss: @escaping @MainActor () -> Void = {}
+        onDismiss: @escaping @MainActor () -> Void = {},
+        onExportRequested: (@MainActor (PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)? = nil
     ) {
         clearViewport()
         let installationID = UUID()
@@ -19,6 +20,12 @@ extension ViewerViewController {
                 guard let installed = self?.primerAnalysisViewController as? PrimerAnalysisHostingController,
                     installed.installationID == installationID else { return }
                 onLoadStateChanged(state)
+            }, onExportRequested: onExportRequested.map { callback in
+                { [weak self] selection, kind in
+                    guard let installed = self?.primerAnalysisViewController as? PrimerAnalysisHostingController,
+                        installed.installationID == installationID else { return }
+                    callback(selection, kind)
+                }
             }))
         controller.installationID = installationID
         controller.onDismiss = onDismiss

@@ -164,6 +164,11 @@ struct PrimerDesignDialog: View {
         numberField("Primer pools", $state.poolCount)
       }
       Text(state.effectiveAmpliconRange).font(.caption).foregroundStyle(.secondary)
+      numberField("Minimum primer-variant frequency (%)", $state.minimumPrimerVariantFrequencyPercent)
+      Text("Filters each distinct candidate primer sequence independently. Zero retains the native default. This is not a maximum percentage of unmatched alignment rows and does not restrict mismatches to the 5′ end.")
+        .font(.caption).foregroundStyle(.secondary)
+      Text("Frequency is based on alignment observations, not read abundance or population allele frequency. Uncovered terminal observations are excluded when the missing-ends option is enabled.")
+        .font(.caption).foregroundStyle(.secondary)
     }
   }
 
@@ -188,10 +193,7 @@ struct PrimerDesignDialog: View {
             numberField("Maximum GC (%)", $state.primerMaxGC)
           }
         } else {
-          HStack {
-            numberField("Minimum base frequency (0–1)", $state.minimumBaseFrequency)
-            numberField("CPU cores", $state.coreCount)
-          }
+          numberField("CPU cores", $state.coreCount)
           numberField("Dimer score threshold", $state.dimerScore)
           Toggle("Check the primer mispriming database", isOn: $state.useMatchDB)
           if state.grouping == .independent {

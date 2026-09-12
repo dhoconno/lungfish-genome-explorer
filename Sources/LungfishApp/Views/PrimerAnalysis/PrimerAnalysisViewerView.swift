@@ -18,14 +18,17 @@ struct PrimerAnalysisViewerView: View {
 
   let bundleURL: URL
   let onLoadStateChanged: @MainActor (PrimerAnalysisViewerModel.State) -> Void
+  let onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)?
   @StateObject private var model: PrimerAnalysisViewerModel
   @State private var selectedSection: Section
   @State private var retryGeneration: UInt64 = 0
   @State private var selection: PrimerReviewSelection?
   @State private var resultInspectionGeneration = 0
 
-  init(bundleURL: URL, onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in }) {
-    self.init(bundleURL: bundleURL, model: PrimerAnalysisViewerModel(), onLoadStateChanged: onLoadStateChanged)
+  init(bundleURL: URL, onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
+       onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)? = nil) {
+    self.init(bundleURL: bundleURL, model: PrimerAnalysisViewerModel(), onLoadStateChanged: onLoadStateChanged,
+      onExportRequested: onExportRequested)
   }
 
   init(
@@ -33,10 +36,12 @@ struct PrimerAnalysisViewerView: View {
     model: PrimerAnalysisViewerModel,
     selectedSection: Section = .overview,
     selection: PrimerReviewSelection? = nil,
-    onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in }
+    onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
+    onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)? = nil
   ) {
     self.bundleURL = bundleURL
     self.onLoadStateChanged = onLoadStateChanged
+    self.onExportRequested = onExportRequested
     _model = StateObject(wrappedValue: model)
     _selectedSection = State(initialValue: selectedSection)
     _selection = State(initialValue: selection)
@@ -117,6 +122,12 @@ struct PrimerAnalysisViewerView: View {
       }
       }
     }
+    .environment(\.primerReviewActions, PrimerReviewContextActions(
+      targets: snapshot.designReview,
+      bindingPrimerIDs: Set(snapshot.bindingContexts.flatMap { $0.primers.map(\.reviewPrimerID) }),
+      onInspectDetails: { if selectedSection == .results { resultInspectionGeneration &+= 1 } },
+      onInspectBinding: { clicked in selection = clicked; selectedSection = .binding },
+      onExportRequested: onExportRequested))
   }
 
   private func overview(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {

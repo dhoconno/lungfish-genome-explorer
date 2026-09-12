@@ -144,9 +144,9 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     state.engine = .primalScheme
     XCTAssertEqual(try state.primalSchemeOptions().terminalGapPolicy, .observedOnly)
     state.excludeUncoveredEnds = false
-    state.minimumBaseFrequency = "1.1"
+    state.minimumPrimerVariantFrequencyPercent = "110"
     XCTAssertNotNil(state.validationMessage)
-    state.minimumBaseFrequency = "0.5"
+    state.minimumPrimerVariantFrequencyPercent = "50"
     state.coreCount = "0"
     XCTAssertNotNil(state.validationMessage)
     state.coreCount = "2"
@@ -168,6 +168,18 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(try state.primalSchemeOptions().terminalGapPolicy, .observedOnly)
     XCTAssertEqual(try state.primalSchemeOptions().coreCount, 2)
     XCTAssertTrue(state.engine.rawValue.contains("custom fork"))
+  }
+
+  func testPrimerVariantPercentResolvesToNativeFractionWithoutChangingDefaults() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    XCTAssertEqual(try state.primalSchemeOptions().minimumBaseFrequency, 0)
+    state.minimumPrimerVariantFrequencyPercent = "2.5"
+    XCTAssertEqual(try state.primalSchemeOptions().minimumBaseFrequency, 0.025, accuracy: 0.000001)
+    for value in ["-1", "100.1", "nan", "inf", ""] {
+      state.minimumPrimerVariantFrequencyPercent = value
+      XCTAssertThrowsError(try state.primalSchemeOptions(), value)
+    }
   }
 
   func testPrimalModeSpecificOptionsDoNotLeakAcrossGrouping() throws {

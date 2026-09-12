@@ -75,6 +75,10 @@ final class PrimerDesignDialogPresenter {
         "projectPath": .string(state.projectURL!.path),
       ]
       if state.engine == .primer3 { visibleOptions["assay"] = .string(state.chemistry.rawValue) }
+      else {
+        visibleOptions["minimumPrimerVariantFrequencyPercent"] = .number(try state.primalSchemeOptions().minimumBaseFrequency * 100)
+        visibleOptions["primerVariantFrequencySemantics"] = .string("independent candidate-sequence frequency; not a cumulative unmatched-row or 5prime-specific mismatch quota")
+      }
       let invocation = PrimerAnalysisWrapperInvocation(
         argv: CommandLine.arguments, callerVersion: runtime.appVersion,
         explicitOptions: visibleOptions, runtimeIdentity: runtime)

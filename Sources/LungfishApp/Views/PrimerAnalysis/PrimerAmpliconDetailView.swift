@@ -23,6 +23,7 @@ struct PrimerAmpliconDetailView: View {
             Text(interval.pool.map { "Pool \($0)" } ?? "Not pooled")
               .font(.subheadline.weight(.medium))
           }
+          .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
           HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(interval.length.formatted()) bp").font(.title2.weight(.semibold)).monospacedDigit()
             Text(interval.sizeLabel).font(.caption).foregroundStyle(.secondary)
@@ -80,5 +81,6 @@ struct PrimerAmpliconDetailView: View {
     .padding(8)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(selected ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
+    .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
   }
 }

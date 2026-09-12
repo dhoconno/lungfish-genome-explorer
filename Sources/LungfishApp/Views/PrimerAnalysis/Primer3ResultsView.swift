@@ -116,6 +116,12 @@ struct Primer3ResultsView: View {
             .background(selectedPair?.id == candidate.id ? Color.accentColor.opacity(0.15) : .clear,
                         in: RoundedRectangle(cornerRadius: 6))
         }.buttonStyle(.plain)
+          .contextMenu {
+            if let target = targets.first(where: { $0.id == candidate.id.uuidString }),
+              let interval = target.intervals.first(where: { $0.id == candidate.id.uuidString }) {
+              PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: activeSelection)
+            }
+          }
       }
     }
   }
@@ -174,6 +180,12 @@ struct Primer3ResultsView: View {
       }.buttonStyle(.plain)
       Text(String(format: "%d nt · Tm %.1f °C · GC %.1f%%", oligo.sequence.utf8.count, oligo.meltingTemperature, oligo.gcPercent))
         .font(.caption).foregroundStyle(.secondary)
+    }
+    .contextMenu {
+      if let target = targets.first(where: { $0.id == pair.id.uuidString }),
+        let primer = target.primers.first(where: { $0.id == oligo.id.uuidString }) {
+        PrimerReviewContextMenu(target: target, item: .primer(primer), selection: activeSelection)
+      }
     }
   }
 

@@ -112,6 +112,12 @@ struct PrimalSchemeResultsView: View {
                 .background(activeSelection.wrappedValue?.primerID == "\(result.id)-primer-\(primer.id)" ? Color.accentColor.opacity(0.12) : .clear,
                             in: RoundedRectangle(cornerRadius: 5))
             }.buttonStyle(.plain)
+              .contextMenu {
+                let review = target(for: primer, in: result)
+                if let record = review.primers.first(where: { $0.id == "\(result.id)-primer-\(primer.id)" }) {
+                  PrimerReviewContextMenu(target: review, item: .primer(record), selection: activeSelection)
+                }
+              }
               .accessibilityIdentifier("primerResults.primer.\(result.id)-\(primer.id)")
           }
         }

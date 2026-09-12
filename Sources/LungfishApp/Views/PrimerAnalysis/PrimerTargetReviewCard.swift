@@ -32,7 +32,7 @@ struct PrimerTargetReviewCard: View {
           legend("Probe", color: .purple)
         }
       }.font(.caption2)
-      Text("Select an amplicon or primer to inspect its span and pool.")
+      Text("Select an amplicon or primer to inspect its span and pool. Control-click for copy, alignment and extraction actions.")
         .font(.caption).foregroundStyle(.secondary)
       if selection.wrappedValue?.targetID == target.id {
         PrimerAmpliconDetailView(target: target, selection: selection)
@@ -115,6 +115,7 @@ struct PrimerReferenceCoverageTrack: View {
         .frame(height: 20).contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
     .offset(x: position, y: 20)
     .help(label).accessibilityLabel(label)
     .accessibilityIdentifier("primerReview.amplicon.\(interval.id)")
@@ -137,6 +138,7 @@ struct PrimerReferenceCoverageTrack: View {
         .frame(width: hitWidth, height: 20).contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
     .offset(x: x, y: y)
     .help("\(primer.name): \(primer.start + 1)–\(primer.end) (\(primer.strand))")
     .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), \(primer.pool.map { "pool \($0)" } ?? "candidate pair")")
