@@ -39,6 +39,7 @@ enum GenotypeThreeSheetCohortAcceptance {
         let execution = GenotypeCurrentWorkbookUpdateExecutionService(processRunner: ProcessLocalWorkflowCLIProcessRunner(executableURL: cli))
         let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
         let rawCalls = result.calls
+        try JSONEncoder().encode(GenotypeFullCurrentEvidenceOracle.capture(result)).write(to: root.appendingPathComponent("raw-evidence-oracle.json"))
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: result)
@@ -104,7 +105,7 @@ enum GenotypeThreeSheetCohortAcceptance {
             XCTAssertEqual(reopenedProjection.haplotypeCalls, immediateProjection.haplotypeCalls)
             XCTAssertEqual(try ONTGenotypeResultBundle.loadResult(from: bundle).calls, rawCalls)
             do {
-                print(try runPython(python, script: provenanceScript, arguments: [bundle.path, cli.path]))
+                print(try runPython(python, script: provenanceScript, arguments: [bundle.path, cli.path, inspection.workbookSHA256]))
             } catch {
                 print("Cohort retained provenance failure (\(phase)): \(error.localizedDescription)")
                 throw error
@@ -213,7 +214,7 @@ else: w['Haplotype Calls'][t['h1']['actionCell']]='Use pipeline call'
 w.save(path)
 """#
 
-    private static let parityScript = #"""
+    private static let parityScript = GenotypeFullCurrentEvidenceOracle.pythonScript + "\n" + #"""
 import json,sys,os,base64,glob,hashlib
 from openpyxl import load_workbook
 filtered,bundle,current,calls_path,dump_path=sys.argv[1:]
@@ -221,6 +222,11 @@ projection=json.load(open(filtered+'.view-projection.json'))
 b=json.load(open(os.path.join(bundle,'artifacts/workbooks/editable-baseline.json')))
 m=json.loads(base64.b64decode(b['trustedManifest']))
 payload=json.load(open(os.path.join(bundle,next(x['path'] for x in b['inputs'] if x['path'].endswith('/presentation-payload.json')))))
+oracle=json.load(open(os.path.join(os.path.dirname(filtered),'raw-evidence-oracle.json')))
+# Accepted LGE call records can legitimately add a call-only sample. They do
+# not attest evidence for it: absent support stays None for every exact row.
+oracle['samples']=sorted(set(oracle['samples'])|{x['sample'] for x in json.load(open(calls_path))})
+independent=verify_full_current_evidence(oracle,payload,m,load_workbook(current,data_only=False))
 unfiltered=json.load(open(os.path.join(os.path.dirname(filtered),'unfiltered-display.json')))
 labels={(r['locus'],r['rawGenotype'],r.get('stableClusterID')):r['label'] for r in unfiltered['rows']}
 for r in payload['rows']:
@@ -288,7 +294,7 @@ def check(path,p):
                 if style.get('borderHex'): assert rgb(cell.border.left.color)==style['borderHex'].lstrip('#')[-6:].upper()
             count+=1
     return dict(rows=len(p['rows']),samples=len(p['samples']),slots=slots,evidenceCells=count)
-result=dict(filtered=check(filtered,fp),current=check(current,payload))
+result=dict(filtered=check(filtered,fp),current=check(current,payload),independentRawEvidence=independent)
 json.dump(result,open(dump_path,'w'),indent=2)
 print(json.dumps(result))
 """#
@@ -319,6 +325,7 @@ p=json.load(open(os.path.join(bundle,'annotations.json.lungfish-provenance.json'
 e=p['options']['explicit']['acceptedEditableWorkbook']['evidenceDirectory']
 assert os.path.isdir(e)
 for name in ['input.xlsx','baseline.json','provenance.json']: assert os.path.isfile(os.path.join(e,name))
+assert hashlib.sha256(open(os.path.join(e,'input.xlsx'),'rb').read()).hexdigest()==sys.argv[3], ('retained input.xlsx differs from accepted Inspection.workbookSHA256',e,sys.argv[3])
 receipt=json.load(open(os.path.join(e,'provenance.json')))
 assert receipt['argv'] and receipt['options'] and receipt['runtimeIdentity']
 assert receipt['exitStatus']==0 and receipt['wallTimeSeconds']>=0
@@ -326,6 +333,6 @@ for item in receipt['inputs']+receipt['outputs']:
     data=open(item['path'],'rb').read()
     assert len(data)==item['sizeBytes'] and hashlib.sha256(data).hexdigest()==item['sha256']
 assert os.path.isfile(receipt['argv'][0]) and os.path.isfile(receipt['argv'][1])
-print('Retained baseline, payload, layout, renderer, runtime and reviewed bytes verified')
+print('Retained baseline, payload, layout, renderer, runtime and reviewed bytes verified; input.xlsx SHA256 equals accepted Inspection.workbookSHA256')
 """#
 }

@@ -105,8 +105,47 @@ That run passed 11 of 12 tests (0 skips, 0 unexpected). The remaining app-fixtur
 swift test --jobs 6 --filter GenotypeViewportExcelExportTests/testReviewedActiveAnalysisReachesProductionFilteredWorkbookAndProvenance > /tmp/task6-final-fixture-green.log 2>&1
 ```
 
-Final focused result: **1 test passed, 0 failures, 0 unexpected, 0 skips, 0.907 seconds**. All integrated failures are accounted for by fresh passing checks. The integrated run was not repeated or represented as clean. Existing unrelated test-build warnings concern unused cleanup executor results and a FileManager Sendable conformance; no unrelated fixes were made. Parent final whole-branch review remains pending and is not represented as completed by this task.
+Final focused result: **1 test passed, 0 failures, 0 unexpected, 0 skips, 0.907 seconds**. All integrated failures are accounted for by fresh passing checks. The integrated run was not repeated or represented as clean. Existing unrelated test-build warnings concern unused cleanup executor results, a FileManager Sendable conformance, and a redundant `public` modifier at `Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift:738` (covering log line 13); no unrelated fixes were made. These diagnostics are not claimed pristine. Parent final whole-branch review remains pending and is not represented as completed by this task.
 
 ## Self-review and handoff
 
 Reviewed the scoped source/test diff and checked whitespace with `git diff --check`. Exact science/eligibility/no-clobber/provenance boundaries remain unchanged. No native retest is inferred from library output. All optional cohort/native cases were enabled. Both requested reports omit private paths/IDs. Independent QA artifact locations were delivered to the parent through the task channel and are retained outside the repository. Only final whole-branch review remains a separate parent-owned acceptance gate.
+
+## Review fix round 1 — I1 and accepted-input byte binding
+
+Fix base: `7de7c192eb5e5bb53f23c89290bdb84db72f27cb`. Read the formal Task 6 review. This wave changes tests/documentation only; no production calling, support, eligibility, scheduling, exporter or importer behavior changes. M1/M2 are explicitly deferred to parent final-review triage. M3 is addressed by adding the existing redundant-public warning category above and in the sanitized QA ledger.
+
+`GenotypeFullCurrentEvidenceOracle.capture` freezes the validated raw LGE evidence model before current generation or accepted edits. Catalog rows/support are authoritative when present; otherwise exact raw reference/candidate/unnameable identities and observations establish the evidence map. No presentation builder, output manifest, source XLSX or viewport filter establishes this oracle. The phase's accepted LGE call records may add a call-only sample but cannot attest missing support. A shared checker requires complete unique row/sample sets, the full exact `(locus, genotype, stableClusterID, sample)` Cartesian roster and every payload rawSupport/displayValue. It independently checks the trusted manifest's semantic roster and unique addresses, then reads each corresponding XLSX cell. All existing filtered projection/style/call/provenance checks remain in place.
+
+The same set/clear acceptance check now also hashes retained `input.xlsx` directly against that phase's accepted `Inspection.workbookSHA256`, in addition to existing receipt-descriptor checks.
+
+Commands below ran serially from the task worktree. The cohort command used `LUNGFISH_EXCEL_QA_PROJECT` and `LUNGFISH_EXCEL_QA_BUNDLE` assigned to the same private disposable fixture described above; literal private values are omitted. The test itself makes another whole-project clone and verifies its source witness before/after. Python uses the existing managed openpyxl environment. No native app or other worktree was touched.
+
+```sh
+swift test --jobs 6 --filter GenotypeFullCurrentEvidenceOracleTests > /tmp/task6-fix1-oracle-red.log 2>&1
+swift test --jobs 6 --filter GenotypeFullCurrentEvidenceOracleTests > /tmp/task6-fix1-oracle-green.log 2>&1
+swift test --jobs 6 --filter GenotypeViewportExcelExportTests/testDisposableRealBundleControllerAndProductionExcelParity > /tmp/task6-fix1-cohort.log 2>&1
+```
+
+RED: **1 test, 1 expected failure, 0 unexpected/skips, 3.250 seconds**, exit 1. With the checker absent, actual shipping-rendered XLSX files remained internally consistent with their mutated payloads and the test reported `independent oracle accepted coherent corruption` for all five corruptions. GREEN: **1 test, 0 failures/unexpected/skips, 0.378 seconds**, exit 0. Exact output:
+
+```text
+REJECTED drop-row: payload row roster differs from raw authority
+REJECTED drop-sample: payload sample roster differs from raw authority
+REJECTED coherent-count: ('rawSupport', ('MHC-A', 'Candidate', 'cluster-a', 'S1'), 7, 700)
+REJECTED unknown-to-zero: ('rawSupport', ('MHC-A', 'Reference', None, 'CallOnly'), None, 0)
+REJECTED retarget-stable-id: payload row roster differs from raw authority
+Accepted exact zero/sparse/call-only baseline; rejected all five coherent mutations
+```
+
+The mutation fixture first verifies that each actual XLSX agrees with its own payload, including the coerced count, before invoking the independent checker. It uses only the shipping Python renderer to author artifacts. Literal expected source values and stable identities are separate from that payload. The positive control preserves explicit zero, sparse unknowns and all-unknown call-only samples; two identically named candidate rows remain distinct by stable ID.
+
+Sole actual-cohort rerun: **1 test, 0 failures/unexpected/skips, 88.216 seconds**, exit 0. Initial, set and clear each reported:
+
+```json
+{"filtered":{"rows":160,"samples":26,"slots":260,"evidenceCells":4160},"current":{"rows":169,"samples":26,"slots":260,"evidenceCells":4394},"independentRawEvidence":{"rows":169,"samples":26,"evidenceCells":4394,"knownCells":1909,"unknownCells":2485}}
+```
+
+Both accepted phases printed `input.xlsx SHA256 equals accepted Inspection.workbookSHA256`. No raw support was synthesized for the 2,485 unknown pairs. The existing no-attested-zero cohort guard, set/clear/reopen parity and original disposable-source before/after witness all passed. Final artifact root (including `raw-evidence-oracle.json`, per-phase dumps, current/filtered workbooks, CLI witness and retained accepted evidence) was delivered privately to the parent, not committed. Prior native/visual evidence is unchanged; this fix does not claim additional native testing.
+
+The two GREEN selections total **2 tests, 0 failures/unexpected/skips**, with the intentional RED recorded separately. The integrated suite was not rerun. Existing FileManager Sendable diagnostics appeared during focused compilation; all pre-existing warning categories remain disclosed above. Self-review checked complete exact identities, unknown preservation, unchanged filtered assertions, accepted-input hash linkage, absence of production edits and `git diff --check`. Parent owns final whole-branch acceptance and deferred minor triage.
