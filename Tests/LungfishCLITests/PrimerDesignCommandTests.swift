@@ -5,6 +5,15 @@ import LungfishWorkflow
 @testable import LungfishCLI
 
 final class PrimerDesignCommandTests: XCTestCase {
+    func testPrimalSchemeParsesIndependentAmpliconSizeBounds() throws {
+        let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--amplicon-size", "200", "--amplicon-size-min", "150", "--amplicon-size-max", "250"])
+        XCTAssertEqual(command.ampliconSize, 200)
+        XCTAssertEqual(command.ampliconSizeMinimum, 150)
+        XCTAssertEqual(command.ampliconSizeMaximum, 250)
+    }
+
     func testPrimer3ParsesExplicitFASTAAndMSATemplateSelections() throws {
         let command = try PrimerDesignCommand.Primer3Subcommand.parse([
             "--fasta-record", "/tmp/mhc.fa@1",

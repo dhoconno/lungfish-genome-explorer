@@ -1,5 +1,7 @@
 import Foundation
 import XCTest
+import LungfishIO
+import LungfishWorkflow
 @testable import LungfishApp
 
 @MainActor
@@ -170,6 +172,95 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertTrue(state.engine.rawValue.contains("custom fork"))
   }
 
+  func testPrimalAmpliconBoundsFollowTargetUntilCustomized() throws {
+    let state = configuredState()
+    let defaults = try state.primalSchemeOptions()
+    XCTAssertEqual(defaults.ampliconSizeMinimum, 360)
+    XCTAssertEqual(defaults.ampliconSize, 400)
+    XCTAssertEqual(defaults.ampliconSizeMaximum, 440)
+
+    state.ampliconSize = "200"
+    let smaller = try state.primalSchemeOptions()
+    XCTAssertEqual(smaller.ampliconSizeMinimum, 180)
+    XCTAssertEqual(smaller.ampliconSizeMaximum, 220)
+
+    state.ampliconSizeMinimum = "150"
+    state.ampliconSizeMaximum = "250"
+    state.ampliconSize = "210"
+    let customized = try state.primalSchemeOptions()
+    XCTAssertEqual(customized.ampliconSizeMinimum, 150)
+    XCTAssertEqual(customized.ampliconSize, 210)
+    XCTAssertEqual(customized.ampliconSizeMaximum, 250)
+  }
+
+  func testPrimalAmpliconBoundsAreCustomizedIndependently() throws {
+    let minimumOnly = configuredState()
+    minimumOnly.ampliconSizeMinimum = "150"
+    minimumOnly.ampliconSize = "200"
+    XCTAssertEqual(try minimumOnly.primalSchemeOptions().ampliconSizeMinimum, 150)
+    XCTAssertEqual(try minimumOnly.primalSchemeOptions().ampliconSizeMaximum, 220)
+
+    let maximumOnly = configuredState()
+    maximumOnly.ampliconSizeMaximum = "500"
+    maximumOnly.ampliconSize = "200"
+    XCTAssertEqual(try maximumOnly.primalSchemeOptions().ampliconSizeMinimum, 180)
+    XCTAssertEqual(try maximumOnly.primalSchemeOptions().ampliconSizeMaximum, 500)
+  }
+
+  func testPrimalCustomAmpliconBoundsApplyToBothGroupingModes() throws {
+    let state = configuredState()
+    state.ampliconSize = "200"
+    state.ampliconSizeMinimum = "150"
+    state.ampliconSizeMaximum = "250"
+    for grouping in [PrimerAnalysisGrouping.independent, .combined] {
+      state.grouping = grouping
+      let options = try state.primalSchemeOptions()
+      XCTAssertEqual(options.ampliconSize, 200)
+      XCTAssertEqual(options.ampliconSizeMinimum, 150)
+      XCTAssertEqual(options.ampliconSizeMaximum, 250)
+    }
+  }
+
+  func testPrimalAmpliconBoundsRejectInvalidAndUnorderedValues() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.ampliconSize = "200"
+    for value in ["", "0", "-1", "150.5", "invalid"] {
+      state.ampliconSizeMinimum = value
+      state.ampliconSizeMaximum = "250"
+      XCTAssertThrowsError(try state.primalSchemeOptions(), "minimum: \(value)")
+      XCTAssertNotNil(state.validationMessage)
+      state.ampliconSizeMinimum = "150"
+      state.ampliconSizeMaximum = value
+      XCTAssertThrowsError(try state.primalSchemeOptions(), "maximum: \(value)")
+      XCTAssertNotNil(state.validationMessage)
+    }
+    for (minimum, maximum) in [("201", "250"), ("150", "199"), ("250", "150")] {
+      state.ampliconSizeMinimum = minimum
+      state.ampliconSizeMaximum = maximum
+      XCTAssertThrowsError(try state.primalSchemeOptions())
+    }
+    state.ampliconSizeMinimum = "200"
+    state.ampliconSizeMaximum = "200"
+    XCTAssertNil(state.validationMessage)
+    XCTAssertEqual(try state.primalSchemeOptions().ampliconSizeMinimum, 200)
+    XCTAssertEqual(try state.primalSchemeOptions().ampliconSizeMaximum, 200)
+  }
+
+  func testPrimalTargetKeepsItsSupportedRangeWithExplicitBounds() throws {
+    let state = configuredState()
+    state.ampliconSizeMinimum = "1"
+    state.ampliconSizeMaximum = "2500"
+    for value in ["99", "2001", "", "invalid"] {
+      state.ampliconSize = value
+      XCTAssertThrowsError(try state.primalSchemeOptions(), value)
+    }
+    for value in ["100", "2000"] {
+      state.ampliconSize = value
+      XCTAssertNoThrow(try state.primalSchemeOptions(), value)
+    }
+  }
+
   func testPrimerVariantPercentResolvesToNativeFractionWithoutChangingDefaults() throws {
     let state = configuredState()
     state.engine = .primalScheme
@@ -209,7 +300,6 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertThrowsError(try state.primalSchemeOptions())
     state.maxAmplicons = ""
     XCTAssertNil(try state.primalSchemeOptions().maxAmplicons)
-    XCTAssertTrue(state.effectiveAmpliconRange.contains("360–440"))
   }
 
   private func configuredState() -> PrimerDesignDialogState {

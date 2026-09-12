@@ -98,6 +98,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("grouping"), help: "independent or combined") var grouping = "independent"
         @Option(name: .customLong("primalscheme3-path")) var executablePath: String?
         @Option(name: .customLong("amplicon-size")) var ampliconSize = 400
+        @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum reference amplicon span, including primer sites. Supplying either bound enables reference-span sizing.") var ampliconSizeMinimum: Int?
+        @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum reference amplicon span, including primer sites.") var ampliconSizeMaximum: Int?
         @Option(name: .customLong("pool-count")) var poolCount = 2
         @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent designs; combined designs require the default 10.") var minOverlap = 10
         @Option(name: .customLong("minimum-base-frequency")) var minimumBaseFrequency = 0.0
@@ -138,7 +140,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             guard let resolvedPanelMode = PrimalScheme3PanelMode(rawValue: panelMode) else {
                 throw ValidationError("--panel-mode must be equal or entropy.")
             }
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA)
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum, ampliconSizeMaximum: ampliconSizeMaximum)
             let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))

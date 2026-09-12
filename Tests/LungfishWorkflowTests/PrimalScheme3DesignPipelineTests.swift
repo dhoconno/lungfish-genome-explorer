@@ -4,6 +4,61 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimalScheme3DesignPipelineTests: XCTestCase {
+    func testExplicitAmpliconBoundsReachBothCommandsAndProvenance() throws {
+        let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 250)
+        for grouping in [PrimerAnalysisGrouping.independent, .combined] {
+            let args = try PrimalScheme3DesignPipeline.arguments(inputs: [URL(fileURLWithPath: "/input")],
+                output: URL(fileURLWithPath: "/output"), grouping: grouping, options: options)
+            XCTAssertEqual(args[try XCTUnwrap(args.firstIndex(of: "--amplicon-size-min")) + 1], "150")
+            XCTAssertEqual(args[try XCTUnwrap(args.firstIndex(of: "--amplicon-size-max")) + 1], "250")
+        }
+        XCTAssertEqual(options.provenanceOptions["ampliconSizeMinimum"], .integer(150))
+        XCTAssertEqual(options.provenanceOptions["ampliconSizeMaximum"], .integer(250))
+        XCTAssertEqual(options.provenanceOptions["ampliconSizeMetric"], .string("reference-span"))
+        XCTAssertEqual(try JSONDecoder().decode(PrimalScheme3DesignOptions.self, from: JSONEncoder().encode(options)), options)
+    }
+
+    func testLegacyOptionsDecodeWithoutNewFieldsAndSingleExplicitBoundResolvesOther() throws {
+        let original = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2)
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        payload.removeValue(forKey: "requestedAmpliconSizeMinimum")
+        payload.removeValue(forKey: "requestedAmpliconSizeMaximum")
+        let decoded = try JSONDecoder().decode(PrimalScheme3DesignOptions.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertEqual(decoded.ampliconSizeMinimum, 180)
+        XCTAssertEqual(decoded.ampliconSizeMaximum, 220)
+        XCTAssertEqual(decoded.ampliconSizeMetric, "legacy-pairing")
+        let lower = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150)
+        XCTAssertEqual(lower.ampliconSizeMaximum, 220)
+        XCTAssertEqual(lower.ampliconSizeMetric, "reference-span")
+    }
+
+    func testInvalidExplicitAmpliconBoundsAreRejectedBeforeExecution() {
+        for (minimum, maximum) in [(0, 250), (-1, 250), (251, 150), (201, 250), (150, 199)] {
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.arguments(inputs: [URL(fileURLWithPath: "/input")],
+                output: URL(fileURLWithPath: "/output"), grouping: .independent,
+                options: .init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: minimum, ampliconSizeMaximum: maximum)))
+        }
+    }
+
+    func testNativeFullReferenceSpansMustHonorExplicitInclusiveBounds() throws {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 250)
+        let bed = output.appendingPathComponent("amplicon.bed")
+        for length in [150, 200, 250] {
+            try "reference\t10\t\(10 + length)\tamplicon\t1\n".write(to: bed, atomically: true, encoding: .utf8)
+            XCTAssertNoThrow(try PrimalScheme3DesignPipeline.validateNativeAmpliconSpans(at: output, options: options))
+        }
+        for text in ["reference\t10\t159\ta\t1\n", "reference\t10\t261\ta\t1\n", "reference\t0\tbad\n", "reference\t-1\t200\n"] {
+            try text.write(to: bed, atomically: true, encoding: .utf8)
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.validateNativeAmpliconSpans(at: output, options: options))
+        }
+    }
+
     func testSupportedPanelControlsAndEffectiveRange() throws {
         let options = PrimalScheme3DesignOptions(ampliconSize: 401, poolCount: 2,
             dimerScore: -30, useMatchDB: false, panelMode: .entropy,

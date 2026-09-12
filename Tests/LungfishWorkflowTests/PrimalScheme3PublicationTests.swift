@@ -46,7 +46,7 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertTrue(envelope.outputs.allSatisfy { $0.path.hasPrefix(output.path + "/") })
     XCTAssertEqual(envelope.argv.first, "/fixture/primalscheme3")
     XCTAssertEqual(envelope.toolName, "PrimalScheme3-LGE (custom fork)")
-    XCTAssertEqual(envelope.toolVersion, "3.3.0+lge.1")
+    XCTAssertEqual(envelope.toolVersion, "3.3.0+lge.2")
     let policyFlag = try XCTUnwrap(envelope.argv.firstIndex(of: "--terminal-gap-policy"))
     XCTAssertEqual(envelope.argv[policyFlag + 1], "observed-only")
     let orderArtifact = try XCTUnwrap(loaded.manifest.artifacts.first { $0.role == "derived-order-sheet" })
@@ -128,6 +128,27 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
   }
 
+  func testNativeSizeSettingsMustMatchRequestedBoundsBeforePublication() async throws {
+    for changedKey in ["amplicon_size", "amplicon_size_min", "amplicon_size_max", "amplicon_size_metric"] {
+      let fixture = try fixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+        let execution = try Self.nativeFixture(command)
+        let index = try XCTUnwrap(command.arguments.firstIndex(of: "--output"))
+        let configURL = URL(fileURLWithPath: command.arguments[index + 1]).appendingPathComponent("config.json")
+        var config = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any])
+        config[changedKey] = changedKey == "amplicon_size_metric" ? "reference-span" : 199
+        try JSONSerialization.data(withJSONObject: config).write(to: configURL)
+        return execution
+      })
+      do {
+        _ = try await pipeline.run(request: request(fixture, grouping: .combined))
+        XCTFail("Mismatched native \(changedKey) must not publish")
+      } catch { XCTAssertTrue(error.localizedDescription.contains("amplicon"), error.localizedDescription) }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    }
+  }
+
   private struct Fixture {
     let root: URL
     let inputs: [URL]
@@ -161,6 +182,7 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     let output = URL(fileURLWithPath: command.arguments[outputIndex + 1])
     try FileManager.default.createDirectory(at: output.appendingPathComponent("nested"), withIntermediateDirectories: true)
     let config: [String: Any] = ["mode": "equal", "amplicon_size": 400, "n_pools": 2,
+      "amplicon_size_min": 360, "amplicon_size_max": 440, "amplicon_size_metric": "legacy-pairing",
       "terminal_gap_policy": policy, "discovery_core_count": workers, "discovery_backend": policy == "legacy" ? "rust-legacy" : "python-observed-only"]
     try JSONSerialization.data(withJSONObject: config).write(to: output.appendingPathComponent("config.json"))
     try Data("fixture\t0\t4\tprimer\t1\t+\tACGT\n".utf8).write(to: output.appendingPathComponent("primer.bed"))

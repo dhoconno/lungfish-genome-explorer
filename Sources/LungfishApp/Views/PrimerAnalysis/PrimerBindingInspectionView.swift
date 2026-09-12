@@ -6,6 +6,7 @@ struct PrimerBindingInspectionView: View {
     var selectedReviewPrimerID: String? = nil
     @State private var selectedContextID: String?
     @State private var selectedPrimerID: String?
+    @State private var showIdentityDots = true
 
     private var context: PrimerBindingInspectionContext? {
         contexts.first { $0.id == selectedContextID } ?? contexts.first
@@ -23,14 +24,24 @@ struct PrimerBindingInspectionView: View {
                 if let reason = context.unavailableReason {
                     Text(reason).foregroundStyle(.secondary)
                 }
-                PrimerBindingAlignmentCanvas(context: context, selectedPrimerID: selectedPrimerID)
-                    .frame(minHeight: 200, idealHeight: 320, maxHeight: 400)
-                    .border(Color.secondary.opacity(0.25))
-                    .accessibilityIdentifier("primerAnalysisViewer.bindingAlignment")
-                if let primer = context.primers.first(where: { $0.id == selectedPrimerID }) ?? context.primers.first {
+                let primer = context.primers.first(where: { $0.id == selectedPrimerID }) ?? context.primers.first
+                let track = primer.flatMap { try? context.displayTrack(for: $0, showIdentityDots: showIdentityDots) }
+                if let primer {
                     Picker("Compare primer", selection: Binding(get: { primer.id }, set: { selectedPrimerID = $0 })) {
                         ForEach(context.primers) { Text($0.name).tag($0.id) }
                     }
+                    Toggle("Show matching observed bases as dots", isOn: $showIdentityDots)
+                        .disabled(track == nil)
+                    Text(track?.label ?? "Primer sequence track unavailable: sequence length and mapped columns do not agree.")
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                PrimerBindingAlignmentCanvas(context: context, selectedPrimerID: primer?.id, track: track)
+                    .frame(minHeight: 200, idealHeight: 320, maxHeight: 400)
+                    .border(Color.secondary.opacity(0.25))
+                    .accessibilityIdentifier("primerAnalysisViewer.bindingAlignment")
+                Text(Self.legend(hasTrack: track != nil, showIdentityDots: showIdentityDots))
+                    .font(.caption2).foregroundStyle(.secondary)
+                if let primer {
                     Text("5′ \(primer.sequence) 3′ · strand \(primer.strand) · alignment columns \(primer.alignedStart + 1)–\(primer.alignedEnd)")
                         .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                     Text("Sequence comparison at the mapped site. Reverse primers are compared in reverse-complement orientation. Zero mismatches means sequence compatibility, not measured amplification. Gaps and ambiguous target bases remain unresolved.")
@@ -48,6 +59,19 @@ struct PrimerBindingInspectionView: View {
         .onChange(of: selectedReviewPrimerID) { _, _ in adoptReviewSelection() }
     }
 
+    nonisolated static func legend(hasTrack: Bool, showIdentityDots: Bool) -> String {
+        let comparison: String
+        if !hasTrack {
+            comparison = "No primer comparison track is available. The alignment retains its standard display."
+        } else if showIdentityDots {
+            comparison = "Dots: compatible observed bases within the primer site. Letters in the site: differences or unknowns; outside: original bases."
+        } else {
+            comparison = "Letters: original bases, including matches, differences and unknowns."
+        }
+        return comparison + " –: alignment gap. Purple ruler marks: variable MSA columns. Orange overview: gap-bearing columns. Underline: saved primer footprint."
+            + (hasTrack ? " Zoomed-out difference colors show known primer mismatches only." : "")
+    }
+
     private func adoptReviewSelection() {
         guard let selectedReviewPrimerID,
           let context = contexts.first(where: { $0.primers.contains { $0.reviewPrimerID == selectedReviewPrimerID } }),
@@ -60,10 +84,12 @@ struct PrimerBindingInspectionView: View {
 private struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
     let context: PrimerBindingInspectionContext
     let selectedPrimerID: String?
+    let track: MSAReadOnlyPrimerTrack?
 
     final class Coordinator {
         var loadedID: String?
         var focusedPrimerID: String?
+        var loadedTrack: MSAReadOnlyPrimerTrack?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -78,6 +104,11 @@ private struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
                 try controller.displayReadOnlyAlignment(fasta: self.context.alignedFASTA, annotations: self.context.annotations)
                 context.coordinator.loadedID = self.context.id
                 context.coordinator.focusedPrimerID = nil
+                context.coordinator.loadedTrack = nil
+            }
+            if context.coordinator.loadedTrack != track {
+                controller.applyReadOnlyPrimerTrack(track)
+                context.coordinator.loadedTrack = track
             }
             if let selectedPrimerID, selectedPrimerID != context.coordinator.focusedPrimerID {
                 controller.focusReadOnlyAnnotation(id: selectedPrimerID)

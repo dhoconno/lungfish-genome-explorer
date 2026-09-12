@@ -13,19 +13,19 @@ final class ManagedPythonRuntimeInstallerTests: XCTestCase {
         XCTAssertTrue(ManagedPythonRuntimeInstaller.requirementsContainPinnedWheel(
             requirements,
             contain: "primalscheme3",
-            version: "3.3.0+lge.1",
-            sha256: "62841f9bf3a64e788a7162f333b9c8715667b39c1d422d560632b1f5e80cb55d"))
+            version: "3.3.0+lge.2",
+            sha256: "98eeac686148aa9f14de2584f80ef845f9474969c5421890c1210aef13afe54c"))
         XCTAssertFalse(ManagedPythonRuntimeInstaller.requirementsContainPinnedWheel(
             requirements,
             contain: "primalscheme3",
-            version: "3.3.0+lge.1",
+            version: "3.3.0+lge.2",
             sha256: String(repeating: "0", count: 64)))
     }
 
     func testReleaseWheelSourceRequiresImmutableGitHubAssetIdentity() throws {
         let source = ManagedPythonRuntimeWheelSource(
             url: try XCTUnwrap(URL(string:
-                "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.1/primalscheme3-3.3.0+lge.1-py3-none-any.whl")),
+                "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.2/primalscheme3-3.3.0+lge.2-py3-none-any.whl")),
             sha256: String(repeating: "a", count: 64),
             sourceRevision: String(repeating: "b", count: 40),
             upstreamRevision: String(repeating: "c", count: 40))

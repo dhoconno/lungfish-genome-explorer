@@ -37,6 +37,13 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
     struct Row: Sendable { let name: String; let sequence: [Character] }
     let rows: [Row]
 
+    func displayTrack(for primer: PrimerBindingInspectionPrimer, showIdentityDots: Bool) throws -> MSAReadOnlyPrimerTrack {
+        let intervals = annotations.first { $0.id == primer.id }?.alignedIntervals ?? []
+        let columns = intervals.flatMap { Array($0.start..<$0.end) }
+        return try MSAReadOnlyPrimerTrack.make(id: primer.id, name: primer.name, sequence: primer.sequence,
+            strand: primer.strand, columns: columns, showIdentityDots: showIdentityDots)
+    }
+
     /// Only the selected primer is compared; no primers × rows result matrix is retained.
     func comparisons(for primer: PrimerBindingInspectionPrimer) throws -> [PrimerBindingRowComparison] {
         try rows.enumerated().map { index, row in

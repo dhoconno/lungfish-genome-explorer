@@ -25,10 +25,15 @@ final class PrimerDesignDialogVisualTests: XCTestCase {
     state.targetEnabled = true
     state.targetStart = "100"
     state.targetEnd = "200"
-    for (variant, engine) in [PrimerDesignEngine.primer3, .primalScheme, .primalScheme].enumerated() {
+    for (variant, engine) in [PrimerDesignEngine.primer3, .primalScheme, .primalScheme, .primalScheme].enumerated() {
       state.engine = engine
       state.advancedExpanded = variant == 2
       state.grouping = variant == 2 ? .combined : .independent
+      if variant >= 2 {
+        state.ampliconSize = "200"
+        state.ampliconSizeMinimum = "150"
+        state.ampliconSizeMaximum = "250"
+      }
       let height: CGFloat = variant == 2 ? 1240 : 780
       let host = NSHostingView(rootView: PrimerDesignDialog(
         state: state, onRun: {}, onClose: {}))
@@ -44,7 +49,8 @@ final class PrimerDesignDialogVisualTests: XCTestCase {
       let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
       host.cacheDisplay(in: host.bounds, to: bitmap)
       let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-      try png.write(to: output.appendingPathComponent("primer-design-\(engine.rawValue.lowercased())\(variant == 2 ? "-advanced-panel" : "").png"))
+      let suffix = variant == 2 ? "-advanced-panel" : variant == 3 ? "-custom-bounds" : ""
+      try png.write(to: output.appendingPathComponent("primer-design-\(engine.rawValue.lowercased())\(suffix).png"))
       window.close()
     }
   }

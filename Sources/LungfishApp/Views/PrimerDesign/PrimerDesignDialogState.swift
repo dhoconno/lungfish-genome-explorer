@@ -53,7 +53,22 @@ final class PrimerDesignDialogState {
   var primerMinGC = "20"
   var primerMaxGC = "80"
   var advancedExpanded = false
-  var ampliconSize = "400"
+  var ampliconSize = "400" {
+    didSet { updateDefaultAmpliconBounds() }
+  }
+  var ampliconSizeMinimum = "360" {
+    didSet {
+      if !isUpdatingAmpliconBounds, ampliconSizeMinimum != oldValue { minimumAmpliconSizeWasCustomized = true }
+    }
+  }
+  var ampliconSizeMaximum = "440" {
+    didSet {
+      if !isUpdatingAmpliconBounds, ampliconSizeMaximum != oldValue { maximumAmpliconSizeWasCustomized = true }
+    }
+  }
+  private var minimumAmpliconSizeWasCustomized = false
+  private var maximumAmpliconSizeWasCustomized = false
+  private var isUpdatingAmpliconBounds = false
   var poolCount = "2"
   var minOverlap = "10"
   var minimumPrimerVariantFrequencyPercent = "0"
@@ -112,9 +127,11 @@ final class PrimerDesignDialogState {
     return destination
   }
 
-  var effectiveAmpliconRange: String {
-    guard let value = Int(ampliconSize), (100...2000).contains(value) else { return "Enter a target from 100 to 2000 bp." }
-    return "Configured range: \(Int(Double(value) * 0.9))–\(Int(Double(value) * 1.1)) bp (PrimalScheme's nominal ±10% pairing interval; not exact product-length bounds)." + (grouping == .combined ? " This fork’s combined-panel selection uses the upper limit for both pairing bounds." : "")
+  var ampliconSpanDescription: String {
+    do {
+      let sizes = try validatedAmpliconSizes()
+      return "Saved reference amplicon span: \(sizes.minimum)–\(sizes.maximum) bp, inclusive of both primer sites. Alternative primers and alleles may have different spans."
+    } catch { return error.localizedDescription }
   }
 
   func addInputs(_ urls: [URL]) {
@@ -208,8 +225,7 @@ final class PrimerDesignDialogState {
   }
 
   func primalSchemeOptions() throws -> PrimalScheme3DesignOptions {
-    let size = try positiveInteger(ampliconSize, "Amplicon size")
-    guard (100...2000).contains(size) else { throw invalid("PrimalScheme3 amplicon size must be between 100 and 2000 bp.") }
+    let sizes = try validatedAmpliconSizes()
     let overlap: Int
     if grouping == .independent {
       guard let value = Int(minOverlap.trimmingCharacters(in: .whitespacesAndNewlines)), value >= 0 else {
@@ -221,7 +237,7 @@ final class PrimerDesignDialogState {
     guard (0...100).contains(frequencyPercent) else { throw invalid("Minimum primer-variant frequency must be between 0 and 100 percent.") }
     let frequency = frequencyPercent / 100
     return PrimalScheme3DesignOptions(
-      ampliconSize: size, poolCount: try positiveInteger(poolCount, "Pool count"),
+      ampliconSize: sizes.target, poolCount: try positiveInteger(poolCount, "Pool count"),
       minOverlap: overlap, minimumBaseFrequency: frequency, highGC: highGC,
       coreCount: try positiveInteger(coreCount, "CPU cores"),
       terminalGapPolicy: excludeUncoveredEnds ? .observedOnly : .legacy,
@@ -230,7 +246,30 @@ final class PrimerDesignDialogState {
       ignoreN: grouping == .independent && ignoreN,
       panelMode: grouping == .combined ? panelMode : .equal,
       maxAmplicons: grouping == .combined ? try optionalPositiveInteger(maxAmplicons, "Maximum panel amplicons") : nil,
-      maxAmpliconsPerMSA: grouping == .combined ? try optionalPositiveInteger(maxAmpliconsPerMSA, "Maximum amplicons per MSA") : nil)
+      maxAmpliconsPerMSA: grouping == .combined ? try optionalPositiveInteger(maxAmpliconsPerMSA, "Maximum amplicons per MSA") : nil,
+      ampliconSizeMinimum: sizes.minimum, ampliconSizeMaximum: sizes.maximum)
+  }
+
+  private func updateDefaultAmpliconBounds() {
+    guard let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
+      (100...2000).contains(target) else { return }
+    isUpdatingAmpliconBounds = true
+    defer { isUpdatingAmpliconBounds = false }
+    if !minimumAmpliconSizeWasCustomized { ampliconSizeMinimum = String(Int(Double(target) * 0.9)) }
+    if !maximumAmpliconSizeWasCustomized { ampliconSizeMaximum = String(Int(Double(target) * 1.1)) }
+  }
+
+  private func validatedAmpliconSizes() throws -> (minimum: Int, target: Int, maximum: Int) {
+    let target = try positiveInteger(ampliconSize, "Target amplicon size")
+    guard (100...2000).contains(target) else {
+      throw invalid("PrimalScheme3 target amplicon size must be between 100 and 2000 bp.")
+    }
+    let minimum = try positiveInteger(ampliconSizeMinimum, "Minimum amplicon size")
+    let maximum = try positiveInteger(ampliconSizeMaximum, "Maximum amplicon size")
+    guard minimum <= target, target <= maximum else {
+      throw invalid("Amplicon sizes must be ordered minimum ≤ target ≤ maximum.")
+    }
+    return (minimum, target, maximum)
   }
 
   func primer3Options() throws -> Primer3DesignOptions {

@@ -18,8 +18,13 @@ public enum PrimalScheme3PanelMode: String, Codable, CaseIterable, Sendable {
 
 public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public static var defaultCoreCount: Int { max(1, min(4, ProcessInfo.processInfo.activeProcessorCount)) }
-    public var ampliconSizeMinimum: Int { (100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 0.9) : 0 }
-    public var ampliconSizeMaximum: Int { (100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 1.1) : 0 }
+    public let requestedAmpliconSizeMinimum: Int?
+    public let requestedAmpliconSizeMaximum: Int?
+    public var ampliconSizeMinimum: Int { requestedAmpliconSizeMinimum ?? ((100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 0.9) : 0) }
+    public var ampliconSizeMaximum: Int { requestedAmpliconSizeMaximum ?? ((100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 1.1) : 0) }
+    public var ampliconSizeMetric: String {
+        requestedAmpliconSizeMinimum != nil || requestedAmpliconSizeMaximum != nil ? "reference-span" : "legacy-pairing"
+    }
     public let dimerScore: Double
     public let useMatchDB: Bool
     public let backtrack: Bool
@@ -40,7 +45,10 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
                 dimerScore: Double = -26, useMatchDB: Bool = true,
                 backtrack: Bool = false, ignoreN: Bool = false,
                 panelMode: PrimalScheme3PanelMode = .equal,
-                maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil) {
+                maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil,
+                ampliconSizeMinimum: Int? = nil, ampliconSizeMaximum: Int? = nil) {
+        self.requestedAmpliconSizeMinimum = ampliconSizeMinimum
+        self.requestedAmpliconSizeMaximum = ampliconSizeMaximum
         self.dimerScore = dimerScore
         self.useMatchDB = useMatchDB
         self.backtrack = backtrack
@@ -59,7 +67,10 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
 
     public var provenanceOptions: [String: ParameterValue] {
         ["ampliconSize": .integer(ampliconSize), "ampliconSizeMinimum": .integer(ampliconSizeMinimum),
-         "ampliconSizeMaximum": .integer(ampliconSizeMaximum), "poolCount": .integer(poolCount),
+         "ampliconSizeMaximum": .integer(ampliconSizeMaximum), "ampliconSizeMetric": .string(ampliconSizeMetric),
+         "requestedAmpliconSizeMinimum": requestedAmpliconSizeMinimum.map(ParameterValue.integer) ?? .null,
+         "requestedAmpliconSizeMaximum": requestedAmpliconSizeMaximum.map(ParameterValue.integer) ?? .null,
+         "poolCount": .integer(poolCount),
          "minOverlap": .integer(minOverlap), "minimumBaseFrequency": .number(minimumBaseFrequency),
          "highGC": .boolean(highGC), "coreCount": .integer(coreCount),
          "terminalGapPolicy": .string(terminalGapPolicy.rawValue), "dimerScore": .number(dimerScore),
@@ -123,7 +134,7 @@ struct PrimalScheme3Execution: Sendable {
 }
 
 public struct PrimalScheme3DesignPipeline: Sendable {
-    public static let toolVersion = "3.3.0+lge.1"
+    public static let toolVersion = "3.3.0+lge.2"
     public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
     public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
     typealias Runner = @Sendable (PrimalScheme3Command) async throws -> PrimalScheme3Execution
@@ -159,6 +170,11 @@ public struct PrimalScheme3DesignPipeline: Sendable {
               grouping == .combined || inputs.count == 1 else {
             throw PrimalScheme3DesignError.invalidRequest("Choose an amplicon size from 100 to 2000, positive pool/core counts, nonnegative overlap, base frequency from 0 to 1, and explicit alignment inputs. Custom overlap applies only to independent schemes.")
         }
+        guard options.ampliconSizeMinimum > 0,
+              options.ampliconSizeMinimum <= options.ampliconSize,
+              options.ampliconSize <= options.ampliconSizeMaximum else {
+            throw PrimalScheme3DesignError.invalidRequest("Amplicon bounds must be positive, with minimum ≤ target ≤ maximum.")
+        }
         guard options.dimerScore.isFinite,
               options.maxAmplicons.map({ $0 > 0 }) ?? true,
               options.maxAmpliconsPerMSA.map({ $0 > 0 }) ?? true,
@@ -177,6 +193,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                  options.highGC ? "--high-gc" : "--no-high-gc", "--ncores", String(options.coreCount),
                  "--terminal-gap-policy", options.terminalGapPolicy.rawValue]
         args += ["--dimer-score", String(options.dimerScore), options.useMatchDB ? "--use-matchdb" : "--no-use-matchdb", "--offline-plots"]
+        if let minimum = options.requestedAmpliconSizeMinimum { args += ["--amplicon-size-min", String(minimum)] }
+        if let maximum = options.requestedAmpliconSizeMaximum { args += ["--amplicon-size-max", String(maximum)] }
         if grouping == .independent {
             args += ["--min-overlap", String(options.minOverlap), options.backtrack ? "--backtrack" : "--no-backtrack",
                      options.ignoreN ? "--ignore-n" : "--no-ignore-n"]
@@ -185,6 +203,22 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             if let count = options.maxAmpliconsPerMSA { args += ["--max-amplicons-msa", String(count)] }
         }
         return args
+    }
+
+    static func validateNativeAmpliconSpans(at output: URL, options: PrimalScheme3DesignOptions) throws {
+        guard options.ampliconSizeMetric == "reference-span" else { return }
+        let bed = output.appendingPathComponent("amplicon.bed")
+        let text = try String(contentsOf: bed, encoding: .utf8)
+        for line in text.split(whereSeparator: \.isNewline) where !line.hasPrefix("#") {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count >= 3, !fields[0].isEmpty,
+                  let start = Int(fields[1]), let end = Int(fields[2]), start >= 0, end > start else {
+                throw PrimalScheme3DesignError.invalidRequest("The native amplicon BED contains an invalid reference interval.")
+            }
+            guard (options.ampliconSizeMinimum...options.ampliconSizeMaximum).contains(end - start) else {
+                throw PrimalScheme3DesignError.invalidRequest("A native amplicon span falls outside the requested minimum and maximum sizes.")
+            }
+        }
     }
 
     private struct Input: Sendable {
@@ -304,6 +338,13 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                   configuration["discovery_backend"] as? String == request.options.terminalGapPolicy.discoveryBackend else {
                 throw PrimalScheme3DesignError.invalidRequest("The custom fork's native policy or discovery backend does not match the requested policy.")
             }
+            guard configuration["amplicon_size"] as? Int == request.options.ampliconSize,
+                  configuration["amplicon_size_min"] as? Int == request.options.ampliconSizeMinimum,
+                  configuration["amplicon_size_max"] as? Int == request.options.ampliconSizeMaximum,
+                  configuration["amplicon_size_metric"] as? String == request.options.ampliconSizeMetric else {
+                throw PrimalScheme3DesignError.invalidRequest("The native amplicon size bounds or size interpretation do not match the request.")
+            }
+            try Self.validateNativeAmpliconSpans(at: output, options: request.options)
             guard let effectiveWorkers = configuration["discovery_core_count"] as? Int,
                   (1...request.options.coreCount).contains(effectiveWorkers) else {
                 throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report a valid effective discovery worker count.")
