@@ -67,3 +67,23 @@ Workbook metadata is explanatory only and grants no authority. The returned mani
 - Task 1 does not activate either production writer and therefore does not itself publish provenance or an attested baseline. The activating production tasks must retain exact workbook bytes plus this trusted manifest and record the required scientific export provenance against final stored paths.
 - Validation intentionally rejects duplicate/missing physical identities via future importer attestation rather than attempting to relocate edits; importer behavior is outside Task 1.
 - Verification used openpyxl/ZIP inspection, not native Microsoft Excel visual QA; native Excel checks remain a release/integration responsibility.
+
+## Review fix round 1
+
+Implementation commit: `1b7509c33` (`Complete workbook renderer trust contract`).
+
+TDD command: `swift test --jobs 6 --filter GenotypeWorkbookPresentationTests`.
+
+- RED: 6 tests executed with 5 failures. The run reproduced missing `stableClusterID`, missing unannotated row/sample targets, incomplete conditional-format rules, and the exact `re.error: invalid group reference 1` from a cached value containing `\\1`.
+- GREEN: 6 tests executed with 0 failures in 2.019 seconds after the fixes; build completed successfully in 10.19 seconds.
+- `git diff --check` passed for the renderer, tests, and report.
+
+Covering behavior added or strengthened:
+
+- Every cell Note target carries an available `stableClusterID`; every sample and row has a trusted `noteTargets` entry even before its first Note/comment.
+- Every matrix call cell receives rules for all supplied exact-locus definitions plus a bounded neutral fallback for undefined values, including initially blank/uncolored cells.
+- Cache XML replacement uses callbacks, preserving literal backslashes, `<`, `&`, quotes, and empty caches. The test checks special text through data-only openpyxl and checks the exact explicit empty cache in worksheet XML (openpyxl correctly exposes that blank as nil).
+- Payload sample labels, evidence headers, row identities/loci/display labels, and caller metadata use literal-string assignment; formula-like payload text remains non-executable.
+- Invalid-input coverage now includes duplicate row IDs, duplicate call IDs, and duplicate sample/locus call targets. DQ special/unresolved caches, sparse missing-call cache behavior, and the MHC-F cluster identity are asserted directly.
+
+Manifest clarification after fixes: `noteTargets` always includes `sample:<sample-id>` and `row:<row-id>` entries with null current comment and empty generated text when initially unannotated. Cell target dictionaries include `stableClusterID` when supplied by the row target. No authority moved into workbook metadata.
