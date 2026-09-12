@@ -145,12 +145,16 @@ XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.value, "
 - Modify: `Tests/LungfishAppTests/GenotypeViewportExcelExportTests.swift`
 - Modify: `Tests/LungfishGenotypeUITests/GenotypeReviewedHaplotypeInferenceTests.swift`
 - Modify as needed: `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift` and existing Excel review presenter guidance referring to Edit Calls/Edit Matrix.
+- Modify: `Sources/LungfishGenotypeUI/GenotypeAuditTimelineSection.swift`
+- Modify: `Sources/LungfishCLI/Commands/FastqUpdateCurrentWorkbookSubcommand.swift`
+- Create: `Tests/LungfishGenotypeUITests/GenotypeAuditTimelineExpansionTests.swift`
 - Create: `docs/reviews/2026-09-12-three-sheet-excel-qa.md`
 
 **Interfaces:** Exercise existing Inspector export/review paths; no new permanent buttons. Consume completed Tasks 1–3.
 
 - [ ] Extend real-controller tests to edit direct calls/Notes in generated current.xlsx, accept through the existing annotation store, and assert immediate matrix/call refresh, regenerated three-sheet current, filtered export, and save/reopen parity. Include mixed call+FP+comment and explicit clears. Run focused RED/GREEN for any stale legacy UI routing.
 - [ ] Replace obsolete sheet-navigation instructions with direct-cell/Note guidance. Verify audit/history and original payloads remain accessible from LGE; do not delete storage. Keep existing single Inspector Export to Excel dialog and role explanations.
+- [ ] The read-only interface audit confirmed both existing timeline usages truncate history, with no full-list action. Add a contextual Show all / Show recent toggle to the existing timeline, without new Inspector panels. Add a behavioral ViewInspector test with 13 uniquely named entries: oldest entry initially absent, present after Show all, absent after Show recent; all entries remain unchanged. Update CLI current-workbook help that still promises Overrides/Audit Log worksheets. Run `swift test --jobs 6 --filter GenotypeAuditTimelineExpansionTests` RED/GREEN.
 - [ ] Use an additional disposable copy of the whole reported project for actual-cohort acceptance. Hash original before/after without invoking recovery-capable loaders on it. Compare both roles' every call slot, matrix values/annotations, colors, cache/formula parity, and exactly-three-sheet schema before/after a reviewed edit. Keep private paths/identifiers out of committed fixtures/docs.
 - [ ] Independently render each sheet and changed header region with Artifact Tool, inspecting cells/formulas and testing dependent formula recalculation on a disposable in-memory copy. Native Excel Notes/protection/recalculation checks, if available through an approved QA environment, are recorded separately; never imply native testing from a library render.
 - [ ] Run one integrated affected suite with `swift test --jobs 6 --filter 'GenotypeWorkbookPresentationTests|GenotypeThreeSheetEditableWorkbookTests|GenotypeEditableWorkbookTests|GenotypePivotFilteredCopyTests|GenotypeWorkbookRevisionServiceTests|GenotypeViewportExcelExportTests|GenotypeReviewedHaplotypeInferenceTests|GenotypeEffectiveHaplotypeProjectionTests|GenotypeCurrentWorkbookSyncCoordinatorTests|GenotypeExcelDialogBehaviorTests'`. Record counts, skips, failures, exact commands and limitations in QA doc. No passing claim if a required invariant remains unverified.
