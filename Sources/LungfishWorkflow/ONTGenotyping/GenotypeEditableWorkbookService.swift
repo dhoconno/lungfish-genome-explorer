@@ -34,11 +34,11 @@ public struct GenotypeEditableWorkbookService: Sendable {
         public let bundleURL: URL
         public let baselineSHA256: String
         public var supportsCallOverrides: Bool { baseline.callEditingSupported }
-        fileprivate let workbookData: Data
-        fileprivate let baseline: Baseline
-        fileprivate let runtime: Runtime
-        fileprivate let parsedData: Data
-        fileprivate let wallTimeSeconds: Double
+        let workbookData: Data
+        let baseline: Baseline
+        let runtime: Runtime
+        let parsedData: Data
+        let wallTimeSeconds: Double
     }
     struct Witness: Codable, Equatable, Sendable {
         let path: String
@@ -55,6 +55,18 @@ public struct GenotypeEditableWorkbookService: Sendable {
         let workbook: Witness
         let inputs: [Witness]
         let document: Document
+        let trustedManifest: Data?
+        let workbookSnapshot: Data?
+
+        init(schemaVersion: Int, callEditingSupported: Bool, workbook: Witness, inputs: [Witness], document: Document, trustedManifest: Data? = nil, workbookSnapshot: Data? = nil) {
+            self.schemaVersion = schemaVersion
+            self.callEditingSupported = callEditingSupported
+            self.workbook = workbook
+            self.inputs = inputs
+            self.document = document
+            self.trustedManifest = trustedManifest
+            self.workbookSnapshot = workbookSnapshot
+        }
     }
     struct Runtime: Codable, Sendable {
         let executable: String
@@ -63,7 +75,7 @@ public struct GenotypeEditableWorkbookService: Sendable {
         let platform: String
     }
     private struct Parsed: Codable { let document: Document; let runtime: Runtime }
-    private let pythonExecutableURL: URL
+    let pythonExecutableURL: URL
     public init(pythonExecutableURL: URL) { self.pythonExecutableURL = pythonExecutableURL }
 
     /// Cheap byte-level gate used before regeneration or opening. A valid
@@ -147,6 +159,14 @@ public struct GenotypeEditableWorkbookService: Sendable {
     }
 
     func attestGeneratedWorkbook(workbookURL: URL, bundleURL: URL, scientificInputURLs: [URL] = [], callEditingSupported: Bool) throws {
+        try attestGeneratedWorkbook(workbookURL: workbookURL, bundleURL: bundleURL, scientificInputURLs: scientificInputURLs, callEditingSupported: callEditingSupported, trustedManifest: nil)
+    }
+
+    func attestGeneratedWorkbook(workbookURL: URL, bundleURL: URL, scientificInputURLs: [URL] = [], callEditingSupported: Bool = true, trustedManifest: Data?) throws {
+        if let trustedManifest {
+            try attestThreeSheetWorkbook(workbookURL: workbookURL, bundleURL: bundleURL, scientificInputURLs: scientificInputURLs, trustedManifest: trustedManifest)
+            return
+        }
         let parsed = try parse(workbookURL)
         _ = try rows(parsed.document.sheets["Edit Calls"], sheet: "Edit Calls")
         _ = try rows(parsed.document.sheets["Edit Matrix"], sheet: "Edit Matrix")
@@ -167,10 +187,13 @@ public struct GenotypeEditableWorkbookService: Sendable {
         let startedAt = Date()
         let baselineData = try Self.readRegular(bundleURL.appendingPathComponent(Self.baselinePath))
         let baseline = try JSONDecoder().decode(Baseline.self, from: baselineData)
-        guard baseline.schemaVersion == 1 else { throw reject("Unsupported editing schema.") }
+        guard baseline.schemaVersion == 1 || baseline.schemaVersion == 2 else { throw reject("Unsupported editing schema.") }
         try validateInputs(baseline, bundleURL: bundleURL)
         let workbookURL = try containedURL(baseline.workbook.path, in: bundleURL)
         let data = try Self.readRegular(workbookURL)
+        if baseline.schemaVersion == 2 {
+            return try inspectThreeSheet(baseline: baseline, baselineData: baselineData, bundleURL: bundleURL, workbookURL: workbookURL, workbookData: data, startedAt: startedAt)
+        }
         let parsed = try parse(workbookURL)
         guard Self.hash(try Self.readRegular(workbookURL)) == Self.hash(data) else { throw reject("Excel saved during inspection. Inspect again.") }
         guard parsed.document.evidence == baseline.document.evidence,
@@ -239,7 +262,8 @@ public struct GenotypeEditableWorkbookService: Sendable {
         try inspection.workbookData.write(to: input, options: .withoutOverwriting)
         try inspection.parsedData.write(to: directory.appendingPathComponent("inspection.json"), options: .withoutOverwriting)
         try Self.readRegular(inspection.bundleURL.appendingPathComponent(Self.baselinePath)).write(to: directory.appendingPathComponent("baseline.json"), options: .withoutOverwriting)
-        try Data(Self.readerScript.utf8).write(to: directory.appendingPathComponent("inspect-workbook.py"), options: .withoutOverwriting)
+        let inspectionScript = inspection.baseline.schemaVersion == 2 ? Self.threeSheetReaderScript : Self.readerScript
+        try Data(inspectionScript.utf8).write(to: directory.appendingPathComponent("inspect-workbook.py"), options: .withoutOverwriting)
         var sourceInputs: [[String: Any]] = []
         for witness in inspection.baseline.inputs {
             var url = try containedURL(witness.path, in: inspection.bundleURL)
@@ -258,7 +282,7 @@ public struct GenotypeEditableWorkbookService: Sendable {
             "workflowName": "Inspect supported genotype workbook edits", "workflowVersion": WorkflowRun.currentAppVersion,
             "toolName": "Lungfish Genome Explorer", "toolVersion": WorkflowRun.currentAppVersion,
             "argv": argv, "runtimeIdentity": ["executable": inspection.runtime.executable, "python": inspection.runtime.python, "openpyxl": inspection.runtime.openpyxl, "platform": inspection.runtime.platform],
-            "options": ["schemaVersion": 1, "blankCellsDelete": false, "readOnlyEvidenceRequired": true],
+            "options": ["schemaVersion": inspection.baseline.schemaVersion, "blankCellsDelete": false, "readOnlyEvidenceRequired": true],
             "inputs": [["path": input.path, "sha256": inspection.workbookSHA256, "sizeBytes": inspection.workbookData.count],
                        ["path": directory.appendingPathComponent("baseline.json").path, "sha256": inspection.baselineSHA256, "sizeBytes": try Self.readRegular(directory.appendingPathComponent("baseline.json")).count]]
                 + sourceInputs,
@@ -296,22 +320,22 @@ public struct GenotypeEditableWorkbookService: Sendable {
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw EditError.rejected("Unsafe file at \(url.path).") }
         return try handle.readToEnd() ?? Data()
     }
-    private var encoder: JSONEncoder { let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; return encoder }
-    private func reject(_ message: String) -> EditError { .rejected(message) }
-    private func relative(_ url: URL, in bundle: URL) -> String { String(url.standardizedFileURL.path.dropFirst(bundle.standardizedFileURL.path.count + 1)) }
-    private func containedURL(_ path: String, in bundle: URL) throws -> URL {
+    var encoder: JSONEncoder { let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; return encoder }
+    func reject(_ message: String) -> EditError { .rejected(message) }
+    func relative(_ url: URL, in bundle: URL) -> String { String(url.standardizedFileURL.path.dropFirst(bundle.standardizedFileURL.path.count + 1)) }
+    func containedURL(_ path: String, in bundle: URL) throws -> URL {
         guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { throw reject("Unsafe bundle path.") }
         let url = bundle.appendingPathComponent(path)
         guard url.resolvingSymlinksInPath().path.hasPrefix(bundle.resolvingSymlinksInPath().path + "/") else { throw reject("File escapes the bundle.") }
         return url
     }
-    private func witness(_ url: URL, in bundle: URL) throws -> Witness {
+    func witness(_ url: URL, in bundle: URL) throws -> Witness {
         let path = relative(url, in: bundle)
         let data = try Self.readRegular(containedURL(path, in: bundle))
         return Witness(path: path, sha256: Self.hash(data), size: data.count)
     }
-    private func sidecarData(in bundle: URL) throws -> Data? { try GenotypeAnnotationPublicationFileAccess.readFileIfPresent(named: GenotypeAnnotationSidecar.filename, inBundleAt: bundle) }
-    private func validateInputs(_ baseline: Baseline, bundleURL: URL) throws {
+    func sidecarData(in bundle: URL) throws -> Data? { try GenotypeAnnotationPublicationFileAccess.readFileIfPresent(named: GenotypeAnnotationSidecar.filename, inBundleAt: bundle) }
+    func validateInputs(_ baseline: Baseline, bundleURL: URL) throws {
         for input in baseline.inputs {
             let data: Data
             if input.path == GenotypeAnnotationSidecar.filename {

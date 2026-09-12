@@ -1,6 +1,25 @@
 import Foundation
 
 extension GenotypeEditableWorkbookService {
+    static let threeSheetReaderScript = #"""
+import sys, json, platform, openpyxl
+from openpyxl import load_workbook
+wb=load_workbook(sys.argv[1],data_only=False,keep_links=True)
+cells={}
+merged={}
+for ws in wb.worksheets:
+    merged[ws.title]=sorted(str(x) for x in ws.merged_cells.ranges)
+    for row in ws.iter_rows():
+        for c in row:
+            if c.value is not None or c.comment is not None or c.hyperlink is not None:
+                cells[ws.title+'!'+c.coordinate]=json.dumps({'type':c.data_type,'value':c.value,'hyperlink':c.hyperlink.target if c.hyperlink else None,'comment':c.comment.text if c.comment else None},sort_keys=True,separators=(',',':'),default=str)
+result={'sheetOrder':wb.sheetnames,'cells':cells,'mergedRanges':merged,
+ 'definedNames':{k:v.attr_text for k,v in wb.defined_names.items()},
+ 'externalLinks':[str(getattr(getattr(x,'file_link',None),'Target','')) for x in wb._external_links],
+ 'runtime':{'executable':sys.executable,'python':platform.python_version(),'openpyxl':openpyxl.__version__,'platform':platform.platform()}}
+json.dump(result,open(sys.argv[2],'w'),sort_keys=True,separators=(',',':'))
+"""#
+
     static let readerScript = #"""
 import sys, json, platform, openpyxl
 from openpyxl import load_workbook
