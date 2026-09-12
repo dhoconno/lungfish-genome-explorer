@@ -9,6 +9,153 @@ import LungfishWorkflow
 import LungfishTestSupport
 
 final class GenotypeViewportExcelExportTests: XCTestCase {
+    /// Opt-in integration against a caller-owned disposable bundle. The test
+    /// clones even that input before invoking recovery-capable production APIs.
+    @MainActor
+    func testDisposableRealBundleControllerAndProductionExcelParity() throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNGFISH_EXCEL_QA_BUNDLE"] else {
+            throw XCTSkip("Set LUNGFISH_EXCEL_QA_BUNDLE to a disposable genotype bundle")
+        }
+        let python = try XCTUnwrap(managedOpenpyxlPythonURL())
+        let root = try temporaryDirectory()
+        // Retain private artifacts outside the repository for independent QA.
+        print("Excel QA retained artifacts: \(root.path)")
+        let input = URL(fileURLWithPath: path)
+        let before = try bundleWitness(input)
+        defer { XCTAssertEqual(try? bundleWitness(input), before) }
+        let bundle = root.appendingPathComponent("working.lungfishgenotype")
+        try FileManager.default.copyItem(at: input, to: bundle)
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
+        let source = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundle)
+        try FileManager.default.copyItem(at: source, to: root.appendingPathComponent("source-current.xlsx"))
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        controller.testingApplyDisplayState(.init(summaryViewMode: .matrix, matrixMinimumReads: 5))
+        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        XCTAssertEqual(snapshot.filters["matrixMinimumReads"], "5")
+        XCTAssertFalse(snapshot.rows.isEmpty)
+        XCTAssertFalse(snapshot.haplotypeCalls?.isEmpty ?? true)
+        let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
+        let output = root.appendingPathComponent("filtered.xlsx")
+        _ = try GenotypeViewportExportService().export(snapshot: snapshot, format: .pivotExcel, to: output)
+        let projectionURL = output.appendingPathExtension("view-projection.json")
+        XCTAssertEqual(try JSONDecoder().decode(GenotypeViewProjection.self, from: Data(contentsOf: projectionURL)), projection)
+        let currentCalls = controller.testingCurrentWorkbookHaplotypeCalls()
+        let annotationURL = output.appendingPathExtension("annotations.json")
+        let manifest = try GenotypeWorkbookRevisionService(pythonExecutableURL: python).applyHaplotypeOverrides(
+            currentCalls, annotationSidecarURL: annotationURL, into: bundle
+        )
+        let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundle)
+        try FileManager.default.copyItem(at: current, to: root.appendingPathComponent("generated-current.xlsx"))
+        let expectedCalls = root.appendingPathComponent("expected-current-calls.json")
+        try JSONEncoder().encode(currentCalls).write(to: expectedCalls)
+        let report = try runPython(python, script: Self.realBundleParityScript, arguments: [
+            output.path, projectionURL.path, current.path, expectedCalls.path,
+            root.appendingPathComponent("workbook-dump.json").path,
+        ])
+        print(report)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)))
+        XCTAssertTrue(provenance.argv.containsSubsequence(["--min-reads", "5"]))
+        XCTAssertEqual(provenance.options.resolvedDefaults["minReads"], .integer(5))
+        let records = provenance.files + provenance.steps.flatMap(\.inputs) + provenance.steps.flatMap(\.outputs)
+        for url in [output, projectionURL, annotationURL] {
+            let record = try XCTUnwrap(records.first { $0.path == url.path })
+            XCTAssertNotNil(record.checksumSHA256)
+            XCTAssertNotNil(record.fileSize)
+        }
+        let latest = try XCTUnwrap(manifest.workbookRevisions?.last)
+        XCTAssertEqual(latest.sha256, try ProvenanceFileHasher.sha256(of: current))
+        let currentProvenance = bundle.appendingPathComponent(try XCTUnwrap(latest.provenancePath))
+        try FileManager.default.copyItem(at: currentProvenance, to: root.appendingPathComponent("current-provenance.json"))
+        XCTAssertEqual(try bundleWitness(input), before)
+    }
+
+    private func bundleWitness(_ root: URL) throws -> [String: String] {
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]))
+        var witness: [String: String] = [:]
+        for case let url as URL in enumerator {
+            if try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+                witness[String(url.path.dropFirst(root.path.count))] = try ProvenanceFileHasher.sha256(of: url)
+            }
+        }
+        return witness
+    }
+
+    private static let realBundleParityScript = #"""
+import json, sys
+from openpyxl import load_workbook
+filtered, projection_path, current_path, calls_path, dump_path = sys.argv[1:]
+projection = json.load(open(projection_path))
+wb = load_workbook(filtered, data_only=False)
+assert wb.sheetnames == ["Genotype Matrix", "Haplotype Calls", "Export Metadata"], wb.sheetnames
+matrix = wb["Genotype Matrix"]
+samples = projection["sampleColumns"]
+assert [c.value for c in matrix[1]] == ["Genotype", "Locus", "Stable Cluster ID"] + samples
+assert matrix.max_row == len(projection["rows"]) + 1
+assert matrix.max_column == len(samples) + 3
+def text(value):
+    return "" if value is None else str(value)
+def cells(sheet):
+    return [[text(c.value) for c in row] for row in sheet]
+checked = 0
+for index, expected in enumerate(projection["rows"], 2):
+    row = matrix[index]
+    assert [text(c.value) for c in row[:3]] == [expected.get("rawGenotype", expected["label"]), expected.get("locus", ""), expected.get("stableClusterID", "")], index
+    assert [text(c.value) for c in row[3:]] == expected["cells"], index
+    for offset, c in enumerate(row[3:]):
+        colors = expected.get("cellColorsHex") or []
+        color = colors[offset] if offset < len(colors) else None
+        color = color or expected.get("rowColorHex")
+        if color:
+            assert c.fill.fgColor.type == "rgb" and c.fill.fgColor.rgb[-6:].upper() == color.lstrip("#").upper(), (index, offset, c.fill.fgColor, color)
+        checked += 1
+keys = ["sample", "locus", "haplotype1", "haplotype2", "haplotype1Status", "haplotype2Status", "haplotype1Source", "haplotype2Source", "baselineHaplotype1", "baselineHaplotype2", "comment"]
+assert cells(wb["Haplotype Calls"])[1:] == [[text(call.get(key)) for key in keys] for call in projection["haplotypeCalls"]]
+metadata = {r[0]: r[1] for r in cells(wb["Export Metadata"])[1:]}
+for key, value in projection["filterContext"].items():
+    assert metadata[key] == value, key
+for key, value in projection["sourceRevision"].items():
+    assert metadata["Source " + key] == text(value), key
+current = load_workbook(current_path, data_only=False)
+source = load_workbook(__import__('os').path.join(__import__('os').path.dirname(filtered), 'source-current.xlsx'), data_only=False)
+expected = json.load(open(calls_path))
+actual = cells(current["Haplotype Calls"])
+headers = actual[0]
+index = {name: i for i, name in enumerate(headers)}
+want = {(c["sample"], c["locus"]): (c["haplotype1"], c["haplotype2"]) for c in expected}
+got = {(r[0], r[1]): (r[2], r[3]) for r in actual[1:]}
+assert got == want, (got, want)
+evidence_cells = 0
+for source_sheet in source:
+    if not source_sheet.title.startswith("Full Sequencing Results"):
+        continue
+    current_sheet = current[source_sheet.title]
+    old = cells(source_sheet)
+    new = cells(current_sheet)
+    first = next(i for i, row in enumerate(old) if row[0].endswith(" alleles"))
+    new_by_label = {row[0]: row for row in new}
+    for row in old[first:]:
+        if not row[0] or row[0].endswith(" alleles"):
+            continue
+        assert new_by_label[row[0]][3:] == row[3:], row[0]
+        evidence_cells += len(row[3:])
+def dump(book):
+    return {sheet.title: {"values": cells(sheet), "annotations": [
+        {"cell": cell.coordinate, "comment": cell.comment.text if cell.comment else None,
+         "fill": str(cell.fill.fgColor), "bold": cell.font.bold, "italic": cell.font.italic,
+         "font": str(cell.font.color), "border": str(cell.border)}
+        for row in sheet for cell in row
+    ]} for sheet in book}
+json.dump({"filtered": dump(wb), "current": dump(current)}, open(dump_path, "w"), indent=2)
+print(json.dumps({"matrixRows": len(projection["rows"]), "samples": len(samples), "checkedCells": checked, "unfilteredEvidenceCells": evidence_cells, "filteredCalls": len(projection["haplotypeCalls"]), "currentCalls": len(want), "currentHeaders": headers}), flush=True)
+sidecar = json.load(open(filtered + '.annotations.json'))
+if sidecar.get('matrixReviews'):
+    annotations = cells(current['Matrix Annotations'])
+    validation = annotations[0].index('Validation Status')
+    assert all(row[validation] != 'invalid' for row in annotations[1:]), 'Current workbook could not map captured matrix annotations to exact evidence identities'
+"""#
+
     @MainActor
     func testReviewedActiveAnalysisReachesProductionFilteredWorkbookAndProvenance()
         async throws
