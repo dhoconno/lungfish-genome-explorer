@@ -931,15 +931,16 @@ print(json.dumps(payload, sort_keys=True))
             to: fixture.bundleURL
         )
         let installedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
-        let unnameableDocument = try JSONDecoder().decode(
-            ONTMHCUnnameableClustersDocument.self,
-            from: Data(contentsOf: ONTGenotypeResultBundle.resolvedURL(
-                for: try XCTUnwrap(installedManifest.mhcCandidateArtifacts?.unnameableJSON?.path),
-                in: fixture.bundleURL
-            ))
+        let installedUnnameableReference = try XCTUnwrap(
+            installedManifest.mhcCandidateArtifacts?.unnameableJSON
         )
-        XCTAssertEqual(unnameableDocument.clusters.first?.stableClusterID, "raw-cluster-u")
-        XCTAssertEqual(unnameableDocument.clusters.first?.fastaRecordID, "canonical-cluster-u")
+        let installedUnnameableURL = ONTGenotypeResultBundle.resolvedURL(
+            for: installedUnnameableReference.path,
+            in: fixture.bundleURL
+        )
+        let installedUnnameableChecksum = try ProvenanceFileHasher.sha256(
+            of: installedUnnameableURL
+        )
 
         let updatedManifest = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 7_200) },
@@ -950,7 +951,29 @@ print(json.dumps(payload, sort_keys=True))
         XCTAssertEqual(updatedManifest.workflowMode, .genotypeOnly)
 
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
-        XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
+        let retainedUnnameableReference = try XCTUnwrap(
+            updatedManifest.mhcCandidateArtifacts?.unnameableJSON
+        )
+        let retainedUnnameableURL = ONTGenotypeResultBundle.resolvedURL(
+            for: retainedUnnameableReference.path,
+            in: fixture.bundleURL
+        )
+        XCTAssertEqual(
+            try ProvenanceFileHasher.sha256(of: retainedUnnameableURL),
+            installedUnnameableChecksum
+        )
+        let retainedUnnameableDocument = try JSONDecoder().decode(
+            ONTMHCUnnameableClustersDocument.self,
+            from: Data(contentsOf: retainedUnnameableURL)
+        )
+        XCTAssertEqual(
+            retainedUnnameableDocument.clusters.first?.stableClusterID,
+            "raw-cluster-u"
+        )
+        XCTAssertEqual(
+            retainedUnnameableDocument.clusters.first?.fastaRecordID,
+            "canonical-cluster-u"
+        )
         XCTAssertEqual(updatedManifest.alignmentArtifacts, alignmentArtifacts)
         XCTAssertEqual(updatedManifest.provisionalExon2Artifacts, provisionalArtifacts)
         XCTAssertFalse((updatedManifest.workbookRevisions ?? []).isEmpty)
@@ -961,7 +984,7 @@ print(json.dumps(payload, sort_keys=True))
             inspection["unmatchedIDs"]?.split(separator: "|").contains("raw-cluster-u") == true
         )
         XCTAssertEqual(
-            unnameableDocument.clusters.first?.sequenceSHA256,
+            retainedUnnameableDocument.clusters.first?.sequenceSHA256,
             sha256Hex(String(repeating: "N", count: 40))
         )
     }
@@ -1158,10 +1181,28 @@ wb.save(path)
         let swiftOrderedDisplayNames = (
             knownNames.map { $0.name } + candidateNames.values.map { $0.name }
         ).sorted(by: MHCAlleleDisplayOrder.lessThan)
+        let literalExpectedOrder = [
+            "Mamu-A1*001", "Mamu-A2*003_ext", "Mamu-A2*010",
+            "Mamu-A10*001", "Mamu-B*001:01_ext", "Mamu-B*001:01N",
+            "Mamu-B*002", "Mamu-B*010", "Mamu-B02ps*001_5nt_nov",
+            "Mamu-B02ps*001_5nt_nov", "Mamu-B16*001", "Mamu-I*001",
+            "Mamu-F*001", "Mamu-G*001", "Mamu-AG*001", "Mamu-J*001",
+            "Mamu-K*001", "Mamu-K*002_ext", "Mamu-DRB*001",
+        ]
         XCTAssertEqual(
-            inspection["unifiedDisplayNames"],
-            swiftOrderedDisplayNames.joined(separator: "|"),
+            swiftOrderedDisplayNames,
+            literalExpectedOrder,
+            "The independent literal biological-order oracle must remain stable"
+        )
+        XCTAssertEqual(
+            inspection["namedDisplayNames"],
+            literalExpectedOrder.joined(separator: "|"),
             "Explicit workbook refresh and Swift viewport ordering must remain identical"
+        )
+        XCTAssertEqual(
+            inspection["unnameableDisplayNames"],
+            "cluster-u",
+            "Unnameable evidence is retained outside the named biological-order domain"
         )
         XCTAssertEqual(
             Set(inspection["unmatchedIDs"]?.split(separator: "|").map(String.init) ?? []),
@@ -1222,7 +1263,6 @@ wb.save(path)
         XCTAssertEqual(inspection["sampleADPHaplotype1"], "DP-H1")
         XCTAssertEqual(inspection["sampleADPHaplotype2"], "DP-H2")
         XCTAssertEqual(inspection["knownDisplayName"], "Mafa-A1*001:01:01:01")
-        XCTAssertEqual(inspection["knownClosestReference"], "Mafa-A1*001:01:01:01")
         XCTAssertEqual(inspection["knownSampleAReads"], "101")
         XCTAssertEqual(inspection["knownSampleBReads"], "202")
         XCTAssertEqual(inspection["candidateIDs"], "cluster-1|cluster-2|cluster-3|cluster-4")
@@ -1262,10 +1302,10 @@ wb.save(path)
                 author: "reviewer",
                 timestamp: "2026-07-24T10:00:00Z"
             )
-        ]
-        try sidecar.encoded().write(to: annotationURL)
+            ]
+            try sidecar.encoded().write(to: annotationURL)
 
-        _ = try GenotypeWorkbookRevisionService(
+            _ = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 7_150) },
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
@@ -1673,7 +1713,55 @@ print(canonical)
             .applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
 
         let payload = try currentPresentationPayload(in: fixture.bundleURL)
-        XCTAssertEqual(Set(payload.rows.compactMap { $0.target.stableClusterID }), ["cluster-1", "cluster-2", "cluster-3", "cluster-4", "cluster-u"])
+        XCTAssertEqual(payload.samples.map(\.id), ["sample-a", "sample-b"])
+        let manifestMatrix = try inspectManifestEvidenceMatrix(
+            try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: manifestMatrix,
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            displayName: "Mafa-A1*018:01:01:01_5nt_nov",
+            locus: "Mafa-A1",
+            stableClusterID: "cluster-1",
+            samples: [("sample-a", 7, nil), ("sample-b", 3, nil)]
+        )
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: manifestMatrix,
+            genotype: "Mafa-A1*018:01:01:01_5nt_nov",
+            displayName: "Mafa-A1*018:01:01:01_5nt_nov",
+            locus: "Mafa-A1",
+            stableClusterID: "cluster-2",
+            samples: [("sample-a", 4, nil), ("sample-b", nil, nil)]
+        )
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: manifestMatrix,
+            genotype: "Mafa-B*001:01_ext",
+            displayName: "Mafa-B*001:01_ext",
+            locus: "Mafa-B",
+            stableClusterID: "cluster-3",
+            samples: [("sample-a", 4, nil), ("sample-b", 2, nil)]
+        )
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: manifestMatrix,
+            genotype: "Mafa-B*002:01_ext",
+            displayName: "Mafa-B*002:01_ext",
+            locus: "Mafa-B",
+            stableClusterID: "cluster-4",
+            samples: [("sample-a", 4, nil), ("sample-b", nil, nil)]
+        )
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: manifestMatrix,
+            genotype: "cluster-u",
+            displayName: "cluster-u",
+            locus: "",
+            stableClusterID: "cluster-u",
+            samples: [("sample-a", 4, nil), ("sample-b", nil, nil)]
+        )
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: originalURL), originalChecksum)
     }
 
@@ -6673,8 +6761,18 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             into: fixture.bundleURL
         )
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
-        let scientificBefore = try inspectTwoSheetCandidateWorkbook(currentURL)
-        XCTAssertNotNil(scientificBefore["candidateIDs"])
+        let scientificBefore = try currentPresentationPayload(in: fixture.bundleURL)
+        let evidenceBefore = scientificBefore.rows.map { row in
+            [
+                row.target.locus,
+                row.target.genotype,
+                row.target.stableClusterID ?? "",
+                row.displayName,
+                row.cells.map {
+                    "\($0.sampleID)=\($0.rawSupport.map(String.init) ?? "nil")"
+                }.joined(separator: ","),
+            ].joined(separator: "\t")
+        }
         let displayedCalls = [
             GenotypeWorkbookHaplotypeCall(
                 sample: "sample-a",
@@ -6693,6 +6791,16 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         sidecar.lastEditor = "annotation-only-reviewer"
         try sidecar.encoded().write(to: annotationURL)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let candidateFASTAReference = try XCTUnwrap(
+            manifest.mhcCandidateArtifacts?.candidateFASTA
+        )
+        let candidateFASTAURL = ONTGenotypeResultBundle.resolvedURL(
+            for: candidateFASTAReference.path,
+            in: fixture.bundleURL
+        )
+        let candidateFASTAChecksum = try ProvenanceFileHasher.sha256(
+            of: candidateFASTAURL
+        )
         let expectedFingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: displayedCalls,
             includedLoci: displayedLoci,
@@ -6731,16 +6839,47 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             )
         )
 
-        let scientificAfter = try inspectTwoSheetCandidateWorkbook(currentURL)
-        for key in [
-            "candidateIDs",
-            "candidateSequence",
-            "unmatchedIDs",
-            "sampleADPBHaplotype1",
-            "sampleBDQAHaplotype1",
-        ] {
-            XCTAssertEqual(scientificAfter[key], scientificBefore[key], key)
-        }
+        let scientificAfter = try currentPresentationPayload(in: fixture.bundleURL)
+        XCTAssertEqual(
+            scientificAfter.rows.map { row in
+                [
+                    row.target.locus,
+                    row.target.genotype,
+                    row.target.stableClusterID ?? "",
+                    row.displayName,
+                    row.cells.map {
+                        "\($0.sampleID)=\($0.rawSupport.map(String.init) ?? "nil")"
+                    }.joined(separator: ","),
+                ].joined(separator: "\t")
+            },
+            evidenceBefore
+        )
+        let retainedCall = try XCTUnwrap(
+            scientificAfter.calls.first {
+                $0.sampleID == "sample-a" && $0.locus == "MHC-A"
+            }
+        )
+        XCTAssertEqual(retainedCall.h1.effective, "A-H1")
+        XCTAssertEqual(retainedCall.h2.effective, "A-H2")
+        XCTAssertEqual(retainedCall.comment, "displayed effective call")
+        let finalManifest = try ONTGenotypeResultBundle.loadManifest(
+            from: fixture.bundleURL
+        )
+        let retainedCandidateFASTA = try XCTUnwrap(
+            finalManifest.mhcCandidateArtifacts?.candidateFASTA
+        )
+        XCTAssertEqual(retainedCandidateFASTA.path, candidateFASTAReference.path)
+        XCTAssertEqual(retainedCandidateFASTA.sha256, candidateFASTAReference.sha256)
+        XCTAssertEqual(retainedCandidateFASTA.sizeBytes, candidateFASTAReference.sizeBytes)
+        XCTAssertEqual(
+            try ProvenanceFileHasher.sha256(
+                of: ONTGenotypeResultBundle.resolvedURL(
+                    for: retainedCandidateFASTA.path,
+                    in: fixture.bundleURL
+                )
+            ),
+            candidateFASTAChecksum
+        )
         XCTAssertEqual(
             try GenotypeCurrentWorkbookInputFingerprint.recorded(
                 in: updated,
@@ -8056,13 +8195,13 @@ cell.font = font
         try mutateTrustedWorkbook(
             currentURL,
             python: #"""
-key, expected = next(
-    (key, value) for key, value in manifest["immutableCells"].items()
-    if key.startswith("Export Metadata!")
-)
-sheet, address = key.split("!", 1)
-cell = wb[sheet][address]
-cell.value = ("externally changed " + str(cell.value))
+metadata = wb["Export Metadata"]
+label = next(cell for row in metadata.iter_rows() for cell in row
+             if cell.value == "Presentation schema")
+version = metadata.cell(label.row, label.column + 1)
+assert str(version.value) == "2"
+assert "Export Metadata!" + version.coordinate in manifest["immutableCells"]
+version.value = "3"
 """#
         )
 
@@ -8471,10 +8610,19 @@ wb.save(path)
         ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
 
         let payload = try currentPresentationPayload(in: fixture.bundleURL)
-        let row = try XCTUnwrap(payload.rows.first { $0.displayName == displayName })
         XCTAssertEqual(payload.rows.filter { $0.displayName == displayName }.count, 1)
-        XCTAssertNil(row.target.stableClusterID)
-        XCTAssertEqual(row.cells.first { $0.sampleID == "Sample-A" }?.review, "false-negative")
+        XCTAssertEqual(payload.samples.map(\.id), ["Sample-A", "Sample-B"])
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: try inspectManifestEvidenceMatrix(currentURL),
+            genotype: "reference:MHC-A:\(displayName)",
+            displayName: displayName,
+            locus: "MHC-A",
+            samples: [
+                ("Sample-A", 0, "false-negative"),
+                ("Sample-B", 0, nil),
+            ]
+        )
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: originalURL), originalChecksum)
     }
 
@@ -8558,9 +8706,18 @@ wb.save(path)
         ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
 
         let payload = try currentPresentationPayload(in: fixture.bundleURL)
-        let row = try XCTUnwrap(payload.rows.first { $0.displayName == displayName })
-        XCTAssertNil(row.target.stableClusterID)
-        XCTAssertEqual(row.cells.first { $0.sampleID == "Sample-A" }?.review, "false-negative")
+        XCTAssertEqual(payload.samples.map(\.id), ["Sample-A", "Sample-B"])
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: try inspectManifestEvidenceMatrix(currentURL),
+            genotype: "reference:MHC-A:\(displayName)",
+            displayName: displayName,
+            locus: "MHC-A",
+            samples: [
+                ("Sample-A", 0, "false-negative"),
+                ("Sample-B", 0, nil),
+            ]
+        )
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: originalURL), originalChecksum)
     }
 
@@ -8660,8 +8817,19 @@ wb.save(path)
         let payload = try currentPresentationPayload(in: fixture.bundleURL)
         let rows = payload.rows.filter { $0.target.stableClusterID == stableID }
         XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows.first?.displayName, displayName)
-        XCTAssertEqual(rows.first?.cells.first { $0.sampleID == "Sample-A" }?.review, "false-negative")
+        XCTAssertEqual(payload.samples.map(\.id), ["Sample-A", "Sample-B"])
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: try inspectManifestEvidenceMatrix(currentURL),
+            genotype: stableID,
+            displayName: displayName,
+            locus: "MHC-A",
+            stableClusterID: stableID,
+            samples: [
+                ("Sample-A", 0, "false-negative"),
+                ("Sample-B", 0, nil),
+            ]
+        )
         XCTAssertEqual(try ProvenanceFileHasher.sha256(of: originalURL), originalChecksum)
     }
 
@@ -8899,7 +9067,26 @@ wb.save(path)
             let payload = try currentPresentationPayload(in: fixture.bundleURL)
             let matching = payload.rows.filter { $0.displayName == targetName }
             XCTAssertEqual(matching.count, scenario == "duplicate-alias" ? 2 : 1)
-            XCTAssertEqual(matching.first { $0.target.locus == "MHC-A" }?.cells.first { $0.sampleID == "AR3628" }?.review, "false-negative")
+            XCTAssertEqual(payload.samples.map(\.id), ["AR3628"])
+            let manifestMatrix = try inspectManifestEvidenceMatrix(currentURL)
+            try assertExactEvidenceRow(
+                in: payload,
+                manifestMatrix: manifestMatrix,
+                genotype: targetCallID,
+                displayName: targetName,
+                locus: "MHC-A",
+                samples: [("AR3628", 0, "false-negative")]
+            )
+            if scenario == "duplicate-alias" {
+                try assertExactEvidenceRow(
+                    in: payload,
+                    manifestMatrix: manifestMatrix,
+                    genotype: "reference:MHC-B:Mamu-X*same",
+                    displayName: "Mamu-X*same",
+                    locus: "MHC-B",
+                    samples: [("AR3628", 0, nil)]
+                )
+            }
             XCTAssertEqual(try ProvenanceFileHasher.sha256(of: originalURL), originalChecksum)
         }
     }
@@ -9203,8 +9390,31 @@ matrix[sample_b["cell"]] = matrix[sample_a["cell"]].value
         XCTAssertEqual(inspection["absentValue"], "0")
         XCTAssertEqual(inspection["absentType"], "n")
         XCTAssertEqual(inspection["otherStableIDValue"], "42")
-        XCTAssertEqual(inspection["validReviewRow"], "false-positive")
-        XCTAssertEqual(inspection["invalidReviewRow"], "")
+        XCTAssertEqual(inspection["falsePositiveReview"], "false-positive")
+        XCTAssertEqual(inspection["explicitZeroReview"], "false-negative")
+        XCTAssertEqual(inspection["absentReview"], "false-negative")
+        XCTAssertEqual(inspection["invalidPositiveSupportReview"], "")
+        let presentation = try currentPresentationPayload(in: fixture.bundleURL)
+        let eligibleRow = try XCTUnwrap(
+            presentation.rows.first { $0.target.stableClusterID == "cluster-a" }
+        )
+        for sample in ["Sample-Zero", "Sample-Absent"] {
+            let cell = try XCTUnwrap(
+                eligibleRow.cells.first { $0.sampleID == sample }
+            )
+            XCTAssertEqual(cell.rawSupport, 0)
+            XCTAssertTrue(cell.reviewEligible)
+            XCTAssertEqual(cell.review, "false-negative")
+        }
+        let incompatibleRow = try XCTUnwrap(
+            presentation.rows.first { $0.target.stableClusterID == "cluster-c" }
+        )
+        let incompatibleCell = try XCTUnwrap(
+            incompatibleRow.cells.first { $0.sampleID == "Sample-FP" }
+        )
+        XCTAssertEqual(incompatibleCell.rawSupport, 42)
+        XCTAssertTrue(incompatibleCell.reviewEligible)
+        XCTAssertNil(incompatibleCell.review)
         let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
             for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
             in: fixture.bundleURL
@@ -9288,7 +9498,7 @@ matrix[sample_b["cell"]] = matrix[sample_a["cell"]].value
         XCTAssertEqual(try inspectSemanticReviewWorkbook(currentURL)["falsePositiveValue"], "42")
         let applied = try inspectSemanticReviewWorkbook(currentURL)
         XCTAssertEqual(applied["explicitZeroValue"], "0")
-        XCTAssertEqual(applied["validReviewRow"], "false-positive")
+        XCTAssertEqual(applied["falsePositiveReview"], "false-positive")
         _ = try runPython(["-c", #"""
 import base64, json, os, sys
 from copy import copy
@@ -9376,6 +9586,7 @@ wb.save(path)
                 )
             }
             try sidecar.encoded().write(to: annotationURL)
+            let submittedSidecarData = try Data(contentsOf: annotationURL)
 
             _ = try GenotypeWorkbookRevisionService(
                 dateProvider: { Date(timeIntervalSince1970: 8_035) },
@@ -9387,6 +9598,11 @@ wb.save(path)
                 into: fixture.bundleURL
             )
 
+            let retainedSidecarData = try Data(contentsOf: annotationURL)
+            XCTAssertEqual(retainedSidecarData, submittedSidecarData)
+            let retainedSidecar = try GenotypeAnnotationSidecar.decode(
+                retainedSidecarData
+            )
             let presentation = try currentPresentationPayload(in: fixture.bundleURL)
             let row = try XCTUnwrap(
                 presentation.rows.first { $0.target.stableClusterID == "cluster-a" }
@@ -9396,7 +9612,11 @@ wb.save(path)
             )
             XCTAssertEqual(cell.rawSupport, 42)
             XCTAssertNil(cell.review, "duplicate exact reviews are withheld in either order")
-            XCTAssertEqual(sidecar.matrixReviews.count, 2, "source conflict records remain preserved")
+            XCTAssertEqual(
+                retainedSidecar.matrixReviews.map(\.disposition),
+                dispositions,
+                "final stored conflict records remain preserved in source order"
+            )
         }
     }
 
@@ -9445,6 +9665,7 @@ wb.save(path)
             )
         ]
         try sidecar.encoded().write(to: annotationURL)
+        let submittedInvalidSidecarData = try Data(contentsOf: annotationURL)
         _ = try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
@@ -9460,7 +9681,15 @@ wb.save(path)
         )
         XCTAssertEqual(cell.rawSupport, 42)
         XCTAssertNil(cell.review, "false-negative is invalid for positive raw support")
-        XCTAssertEqual(sidecar.matrixReviews.first?.disposition, .falseNegative)
+        let retainedSidecarData = try Data(contentsOf: annotationURL)
+        XCTAssertEqual(retainedSidecarData, submittedInvalidSidecarData)
+        let retainedSidecar = try GenotypeAnnotationSidecar.decode(
+            retainedSidecarData
+        )
+        XCTAssertEqual(
+            retainedSidecar.matrixReviews.first?.disposition,
+            .falseNegative
+        )
     }
 
     func testApplyHaplotypeOverridesWritesResolvedSidecarNotesByExactScope() throws {
@@ -9945,6 +10174,100 @@ wb.save(path)
             GenotypeWorkbookPresentation.Payload.self,
             from: Data(contentsOf: bundleURL.appendingPathComponent(input.path))
         )
+    }
+
+    private func inspectManifestEvidenceMatrix(
+        _ workbookURL: URL
+    ) throws -> [String: String] {
+        let code = #"""
+import base64
+import json
+import os
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path, data_only=False)
+baseline = json.load(open(os.path.join(os.path.dirname(path), "editable-baseline.json")))
+manifest = json.loads(base64.b64decode(baseline["trustedManifest"]))
+
+def text(value):
+    return "<null>" if value is None else str(value)
+
+observed = {}
+for item in manifest["noteTargets"].values():
+    target = item["target"]
+    if target.get("kind") != "cell":
+        continue
+    identity = "\t".join([
+        target.get("locus") or "",
+        target.get("genotype") or "",
+        target.get("stableClusterID") or "",
+        target.get("sampleID") or target.get("sample") or "",
+    ])
+    cell = wb[item["sheet"]][item["cell"]]
+    observed[identity] = "|".join([
+        text(cell.value),
+        text(cell.data_type),
+        text(item.get("rawSupport")),
+        text(item.get("currentReview")),
+    ])
+print(json.dumps(observed, sort_keys=True))
+"""#
+        let output = try runPython(["-c", code, workbookURL.path])
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(output.utf8))
+                as? [String: String]
+        )
+    }
+
+    private func manifestEvidenceKey(
+        locus: String,
+        genotype: String,
+        stableClusterID: String? = nil,
+        sample: String
+    ) -> String {
+        [locus, genotype, stableClusterID ?? "", sample].joined(separator: "\t")
+    }
+
+    private func assertExactEvidenceRow(
+        in payload: GenotypeWorkbookPresentation.Payload,
+        manifestMatrix: [String: String],
+        genotype: String,
+        displayName: String,
+        locus: String,
+        stableClusterID: String? = nil,
+        samples: [(id: String, rawSupport: Int?, review: String?)]
+    ) throws {
+        let row = try XCTUnwrap(
+            payload.rows.first {
+                $0.target.genotype == genotype
+                    && $0.target.locus == locus
+                    && $0.target.stableClusterID == stableClusterID
+            }
+        )
+        XCTAssertEqual(row.displayName, displayName)
+        XCTAssertEqual(row.cells.map(\.sampleID), samples.map(\.id))
+        for expected in samples {
+            let cell = try XCTUnwrap(
+                row.cells.first { $0.sampleID == expected.id }
+            )
+            XCTAssertEqual(cell.displayValue, expected.rawSupport)
+            XCTAssertEqual(cell.rawSupport, expected.rawSupport)
+            XCTAssertEqual(cell.reviewEligible, expected.rawSupport != nil)
+            XCTAssertEqual(cell.review, expected.review)
+            let key = manifestEvidenceKey(
+                locus: locus,
+                genotype: genotype,
+                stableClusterID: stableClusterID,
+                sample: expected.id
+            )
+            let supportText = expected.rawSupport.map(String.init) ?? "<null>"
+            XCTAssertEqual(
+                manifestMatrix[key],
+                "\(supportText)|n|\(supportText)|\(expected.review ?? "<null>")"
+            )
+        }
     }
 
     private func writeMinimalNativeArtifacts(
@@ -10745,65 +11068,34 @@ manifest = json.loads(base64.b64decode(baseline["trustedManifest"]))
 def text(value):
     return "" if value is None else str(value)
 
-def color_suffix(color):
-    value = getattr(color, "rgb", None)
-    return "" if not value else str(value)[-6:]
-
-def borders(cell):
-    return "|".join(text(getattr(getattr(cell.border, side), "style", None)) for side in ("left", "right", "top", "bottom"))
-
-def fill(cell):
-    return "|".join([
-        text(cell.fill.fill_type),
-        color_suffix(cell.fill.fgColor),
-    ])
-
 def target(stable, sample):
-    return next((value for value in manifest["noteTargets"].values()
-                 if value["target"].get("kind") == "cell"
-                 and value["target"].get("stableClusterID") == stable
-                 and value["target"].get("sampleID") == sample), None)
+    return next(value for value in manifest["noteTargets"].values()
+                if value["target"].get("kind") == "cell"
+                and value["target"].get("stableClusterID") == stable
+                and value["target"].get("sampleID") == sample)
 
 def cell(stable, sample):
     item = target(stable, sample)
-    return None if item is None else wb[item["sheet"]][item["cell"]]
+    return wb[item["sheet"]][item["cell"]]
 
 def value(stable, sample):
-    item = cell(stable, sample)
-    return "" if item is None else text(item.value)
+    return text(cell(stable, sample).value)
 
-fp = cell("cluster-a", "Sample-FP")
 zero = cell("cluster-a", "Sample-Zero")
 absent = cell("cluster-a", "Sample-Absent")
 other_stable = cell("cluster-c", "Sample-FP")
-row_note = next((value for value in manifest["noteTargets"].values()
-                 if value["target"].get("kind") == "row" and value["target"].get("stableClusterID") == "cluster-a"), None)
-sample_note = next((value for value in manifest["noteTargets"].values()
-                    if value["target"].get("kind") == "sample" and value["target"].get("sampleID") == "Sample-FP"), None)
 
 payload = {
     "falsePositiveValue": value("cluster-a", "Sample-FP"),
-    "falsePositiveItalic": str(bool(fp.font.italic)).lower(), "falsePositiveBold": str(bool(fp.font.bold)).lower(),
-    "falsePositiveColor": color_suffix(fp.font.color), "falsePositiveBorders": borders(fp),
     "explicitZeroValue": value("cluster-a", "Sample-Zero"), "explicitZeroType": text(zero.data_type),
-    "explicitZeroBorders": borders(zero), "explicitZeroFill": fill(zero),
-    "explicitZeroFillBackground": color_suffix(zero.fill.bgColor),
-    "explicitZeroDiagonalBorder": "|".join([text(getattr(zero.border.diagonal, "style", None)), color_suffix(getattr(zero.border.diagonal, "color", None))]),
-    "explicitZeroDiagonalUp": str(bool(zero.border.diagonalUp)).lower(), "explicitZeroBold": str(bool(zero.font.bold)).lower(),
-    "explicitZeroColor": color_suffix(zero.font.color), "explicitZeroComment": "" if zero.comment is None else zero.comment.text,
-    "absentValue": value("cluster-a", "Sample-Absent"), "absentType": "n" if absent is None else text(absent.data_type),
-    "absentBorders": "" if absent is None else borders(absent), "otherLocusValue": "",
-    "otherStableIDValue": "" if other_stable is None else text(other_stable.value),
-    "invalidReviewValue": "" if other_stable is None else text(other_stable.value),
-    "invalidReviewBorders": "" if other_stable is None else borders(other_stable),
-    "rowComment": "" if row_note is None or wb[row_note["sheet"]][row_note["cell"]].comment is None else wb[row_note["sheet"]][row_note["cell"]].comment.text,
-    "columnComment": "" if sample_note is None or wb[sample_note["sheet"]][sample_note["cell"]].comment is None else wb[sample_note["sheet"]][sample_note["cell"]].comment.text,
-    "cellComment": "" if fp.comment is None else fp.comment.text,
-    "validReviewRow": text(target("cluster-a", "Sample-FP").get("currentReview")),
-    "invalidReviewRow": "", "invalidAuditRow": "", "commentIdentityRow": "cluster-a|Sample-FP",
-    "resolvedCellCommentRows": "1" if target("cluster-a", "Sample-FP").get("currentComment") is not None else "0",
-    "conflictingReviewRows": "0", "conflictingAuditRows": "0", "conflictingReviewReasons": "",
-    "hasMatrixAnnotationsSheet": "false", "hasManagedReviewStateSheet": "false",
+    "explicitZeroBold": str(bool(zero.font.bold)).lower(),
+    "explicitZeroComment": "" if zero.comment is None else zero.comment.text,
+    "absentValue": value("cluster-a", "Sample-Absent"), "absentType": text(absent.data_type),
+    "otherStableIDValue": text(other_stable.value),
+    "falsePositiveReview": text(target("cluster-a", "Sample-FP").get("currentReview")),
+    "explicitZeroReview": text(target("cluster-a", "Sample-Zero").get("currentReview")),
+    "absentReview": text(target("cluster-a", "Sample-Absent").get("currentReview")),
+    "invalidPositiveSupportReview": text(target("cluster-c", "Sample-FP").get("currentReview")),
 }
 print(json.dumps(payload))
 """#
@@ -11546,13 +11838,11 @@ if "Genotype Matrix" in wb.sheetnames:
         "sampleABHaplotype2": call("sample-a", "MHC-B", "h2"), "sampleABHaplotype2Type": call_type("sample-a", "MHC-B", "h2"),
         "sampleBDQAHaplotype1": call("sample-b", "MHC-DQA", "h1"), "sampleBDPBHaplotype1": call("sample-b", "MHC-DPB", "h1"),
         "knownDisplayName": "" if known is None else text(matrix.cell(row(known), 3).value),
-        "knownClosestReference": "" if known is None else text(matrix.cell(row(known), 3).value),
         "knownSampleAReads": "" if known is None else sample(known["target"].get("stableClusterID"), "sample-a"),
         "knownSampleBReads": "" if known is None else sample(known["target"].get("stableClusterID"), "sample-b"),
-        "knownTotalReads": "", "candidateIDs": "|".join(candidates),
+        "candidateIDs": "|".join(candidates),
         "candidateNameFills": "|".join(text(matrix.cell(row(by_stable[x]), 3).fill.fgColor.rgb) for x in candidates),
-        "unmatchedIDs": "|".join(unmatched), "candidateSequence": "", "legacySequenceColumns": "false",
-        "candidateTranslation": "", "candidateTranslationStatus": "", "unnameableSequence": "", "unnameableTranslationStatus": "",
+        "unmatchedIDs": "|".join(unmatched),
     }
     print(json.dumps(payload))
     sys.exit(0)
@@ -11624,7 +11914,6 @@ payload = {
     "sampleBDQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_b_col else "",
     "sampleBDPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_b_col else "",
     "knownDisplayName": text(unified.cell(table_header_row + 1, headers["display_name"]).value),
-    "knownClosestReference": text(unified.cell(table_header_row + 1, headers["closest_reference"]).value),
     "knownSampleAReads": text(unified.cell(table_header_row + 1, headers["sample-a"]).value) if "sample-a" in headers else "",
     "knownSampleBReads": text(unified.cell(table_header_row + 1, headers["sample-b"]).value) if "sample-b" in headers else "",
     "knownTotalReads": text(unified.cell(table_header_row + 1, headers["total_cluster_reads"]).value),
@@ -11670,8 +11959,15 @@ if "Genotype Matrix" in wb.sheetnames:
         return "" if target is None else text(calls[target["h1"]["valueCell"]].value)
     print(json.dumps({
         "sheetNames": "|".join(wb.sheetnames),
-        "analystHaplotype": call("sample-a", "MHC-A"), "analystComment": "",
-        "unifiedDisplayNames": "|".join(text(matrix[value["cell"]].value) for value in ordered),
+        "analystHaplotype": call("sample-a", "MHC-A"),
+        "namedDisplayNames": "|".join(
+            text(matrix[value["cell"]].value) for value in ordered
+            if "*" in text(matrix[value["cell"]].value)
+        ),
+        "unnameableDisplayNames": "|".join(
+            text(matrix[value["cell"]].value) for value in ordered
+            if "*" not in text(matrix[value["cell"]].value)
+        ),
         "unmatchedNames": "|".join(text(matrix[value["cell"]].value) for value in ordered if value["target"].get("stableClusterID")),
         "unmatchedIDs": "|".join(value["target"].get("stableClusterID", "") for value in ordered if value["target"].get("stableClusterID")),
     }))
@@ -11704,7 +12000,8 @@ payload = {
     "sheetNames": "|".join(wb.sheetnames),
     "analystHaplotype": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).value),
     "analystComment": text(unified.cell(row_for_label("Comments"), sample_a_col).value),
-    "unifiedDisplayNames": "|".join(text(unified.cell(row, headers["display_name"]).value) for row in data_rows),
+    "namedDisplayNames": "|".join(text(unified.cell(row, headers["display_name"]).value) for row in data_rows if "*" in text(unified.cell(row, headers["display_name"]).value)),
+    "unnameableDisplayNames": "|".join(text(unified.cell(row, headers["display_name"]).value) for row in data_rows if "*" not in text(unified.cell(row, headers["display_name"]).value)),
     "unmatchedNames": "|".join(
         text(unmatched.cell(row, unmatched_headers["Provisional Allele Name"]).value)
         for row in range(2, unmatched.max_row + 1)
