@@ -22,6 +22,8 @@ struct PrimerBindingInspectionPrimer: Identifiable, Sendable {
     let alignedStart: Int
     let alignedEnd: Int
     let contiguousReference: Bool
+    /// Same saved-output identity used by the Overview and Results selection.
+    var reviewPrimerID: String = ""
 }
 
 struct PrimerBindingInspectionContext: Identifiable, Sendable {
@@ -128,7 +130,8 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
                         note: "Stored reference binding footprint projected into the alignment; not evidence of binding on every row.",
                         projection: nil, warnings: []))
                     primers.append(.init(id: primerID, name: primer.name, sequence: primer.sequence,
-                        strand: primer.strand, alignedStart: lower, alignedEnd: upper, contiguousReference: intervals.count == 1))
+                        strand: primer.strand, alignedStart: lower, alignedEnd: upper, contiguousReference: intervals.count == 1,
+                        reviewPrimerID: "\(scheme.id)-primer-\(primer.id)"))
                 }
                 contexts.append(.init(id: contextID, title: title, alignedFASTA: displayFASTA,
                     annotations: annotations, primers: primers, unavailableReason: nil, rows: displayRows))

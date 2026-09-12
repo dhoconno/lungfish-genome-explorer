@@ -26,9 +26,12 @@ final class PrimerAnalysisViewerVisualTests: XCTestCase {
             for width in [CGFloat(1100), CGFloat(650)] {
                 let model = PrimerAnalysisViewerModel()
                 await model.load(from: bundleURL)
-                guard case .loaded = model.state else { return XCTFail("Visual fixture did not load") }
+                guard case .loaded(let snapshot) = model.state else { return XCTFail("Visual fixture did not load") }
+                let target = try XCTUnwrap(snapshot.designReview.first)
+                let primer = try XCTUnwrap(target.primers.first)
                 let host = NSHostingView(rootView: PrimerAnalysisViewerView(
-                    bundleURL: bundleURL, model: model, selectedSection: section))
+                    bundleURL: bundleURL, model: model, selectedSection: section,
+                    selection: .selecting(primer: primer, in: target)))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 800),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
@@ -61,8 +64,8 @@ final class PrimerAnalysisViewerVisualTests: XCTestCase {
         }
         let nativeFiles: [(String, String, String)] = [
             ("reference.fasta", ">target_A\n" + String(repeating: "ACGT", count: 250) + "\n>target_B\n" + String(repeating: "ACGT", count: 200) + "\n", "fasta"),
-            ("primer.bed", "target_A\t50\t70\tfirst_LEFT\t1\t+\tACGTACGTACGTACGTACGT\n" + "target_A\t430\t450\tfirst_RIGHT\t1\t-\tACGTACGTACGTACGTACGT\n" + "target_A\t350\t370\tsecond_LEFT\t2\t+\tACGTACGTACGTACGTACGT\n" + "target_A\t780\t800\tsecond_RIGHT\t2\t-\tACGTACGTACGTACGTACGT\n", "bed"),
-            ("amplicon.bed", "target_A\t50\t450\tfirst\t1\n" + "target_A\t350\t800\tsecond\t2\n", "bed")
+            ("primer.bed", "target_A\t50\t70\tfirst_1_LEFT_1\t1\t+\tACGTACGTACGTACGTACGT\n" + "target_A\t430\t450\tfirst_1_RIGHT_1\t1\t-\tACGTACGTACGTACGTACGT\n" + "target_A\t350\t370\tsecond_2_LEFT_1\t2\t+\tACGTACGTACGTACGTACGT\n" + "target_A\t780\t800\tsecond_2_RIGHT_1\t2\t-\tACGTACGTACGTACGTACGT\n", "bed"),
+            ("amplicon.bed", "target_A\t50\t450\tfirst_1\t1\n" + "target_A\t350\t800\tsecond_2\t2\n", "bed")
         ]
         for (name, contents, format) in nativeFiles {
             let source = root.appendingPathComponent(name)

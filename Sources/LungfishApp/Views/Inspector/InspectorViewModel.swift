@@ -31,6 +31,7 @@ public final class InspectorViewModel {
 
     /// Returns the set of inspector tabs available for the current content mode.
     var availableTabs: [InspectorTab] {
+        if primerAnalysisDocument != nil { return [.bundle, .files, .provenance] }
         switch contentMode {
         case .genomics:
             var tabs: [InspectorTab] = [.bundle, .selectedItem, .view]
@@ -131,6 +132,9 @@ public final class InspectorViewModel {
 
     /// View model for the document section (bundle metadata)
     let documentSectionViewModel = DocumentSectionViewModel()
+
+    /// Verified primer-analysis data, scoped to the currently installed result viewport.
+    var primerAnalysisDocument: PrimerAnalysisInspectorDocument?
 
     /// View model for the selection section
     let selectionSectionViewModel = SelectionSectionViewModel()

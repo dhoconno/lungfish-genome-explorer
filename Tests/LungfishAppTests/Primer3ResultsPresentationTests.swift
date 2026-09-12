@@ -45,25 +45,34 @@ final class Primer3ResultsPresentationTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
     let results = try XCTUnwrap(snapshot.primer3Results)
-    let host = NSHostingView(rootView: Primer3ResultsView(results: results, bundleURL: fixture.bundle).padding(24)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .background(Color(nsColor: .windowBackgroundColor)))
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    defer { window.close() }
-    window.contentView = host
-    window.appearance = NSAppearance(named: .aqua)
-    host.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
-    host.layoutSubtreeIfNeeded()
-    try await Task.sleep(for: .milliseconds(200))
-    host.layoutSubtreeIfNeeded()
-    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-    host.cacheDisplay(in: host.bounds, to: bitmap)
-    let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    let target = try XCTUnwrap(snapshot.designReview.first)
+    let primer = try XCTUnwrap(target.primers.first)
+    let selection = PrimerReviewSelection.selecting(primer: primer, in: target)
     let output = URL(fileURLWithPath: outputPath, isDirectory: true)
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-    try png.write(to: output.appendingPathComponent("primer3-normalized-results.png"))
+    for width in [CGFloat(1000), CGFloat(650)] {
+      let host = NSHostingView(rootView: ScrollView {
+        Primer3ResultsView(results: results, bundleURL: fixture.bundle,
+          reviewTargets: snapshot.designReview, selection: .constant(selection)).padding(24)
+      }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor)))
+      let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 900),
+                            styleMask: [.borderless], backing: .buffered, defer: false)
+      window.isReleasedWhenClosed = false
+      window.contentView = host
+      window.appearance = NSAppearance(named: .aqua)
+      host.frame = NSRect(x: 0, y: 0, width: width, height: 900)
+      host.layoutSubtreeIfNeeded()
+      try await Task.sleep(for: .milliseconds(200))
+      host.layoutSubtreeIfNeeded()
+      let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+      let suffix = width == 650 ? "-narrow" : ""
+      try png.write(to: output.appendingPathComponent("primer3-normalized-results\(suffix).png"))
+      window.close()
+    }
+
   }
 
   private func makeFixture(rightEnd: Int = 8, wrongMembership: Bool = false, omitNormalizedResult: Bool = false) throws -> (root: URL, bundle: URL) {

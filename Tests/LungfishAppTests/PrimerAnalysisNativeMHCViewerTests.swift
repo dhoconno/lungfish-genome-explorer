@@ -17,12 +17,28 @@ final class PrimerAnalysisNativeMHCViewerTests: XCTestCase {
     for url in urls.sorted(by: { $0.path < $1.path }) {
       let snapshot = try PrimerAnalysisViewerSnapshot.load(from: url)
       let engine = snapshot.primer3Results == nil ? "primalscheme3" : "primer3"
-      if engine == "primalscheme3" { XCTAssertFalse(snapshot.primalSchemeResults.isEmpty, url.path) }
+      if engine == "primalscheme3" {
+        XCTAssertFalse(snapshot.primalSchemeResults.isEmpty, url.path)
+        for target in snapshot.designReview where !target.intervals.isEmpty {
+          XCTAssertTrue(target.intervals.allSatisfy { !$0.primerIDs.isEmpty }, url.path + " " + target.label)
+          XCTAssertTrue(target.primers.allSatisfy { $0.ampliconIDs.count == 1 }, url.path + " " + target.label)
+          XCTAssertTrue(target.primers.allSatisfy { !$0.sequence.isEmpty })
+        }
+        for context in snapshot.bindingContexts {
+          let known = Set(snapshot.designReview.flatMap(\.primers).map(\.id))
+          XCTAssertTrue(context.primers.allSatisfy { known.contains($0.reviewPrimerID) }, url.path)
+        }
+      }
       guard let outputPath = ProcessInfo.processInfo.environment["LUNGFISH_PRIMER_VIEWER_SNAPSHOT_DIR"],
         rendered.insert(engine).inserted else { continue }
       let model = PrimerAnalysisViewerModel()
       await model.load(from: url)
-      let host = NSHostingView(rootView: PrimerAnalysisViewerView(bundleURL: url, model: model, selectedSection: .results))
+      let selectedTarget = snapshot.designReview.first { !$0.primers.isEmpty }
+      let selection = selectedTarget.flatMap { target in
+        target.primers.first.map { PrimerReviewSelection.selecting(primer: $0, in: target) }
+      }
+      let host = NSHostingView(rootView: PrimerAnalysisViewerView(bundleURL: url, model: model,
+        selectedSection: .results, selection: selection))
       let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
                             styleMask: [.borderless], backing: .buffered, defer: false)
       window.isReleasedWhenClosed = false

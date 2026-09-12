@@ -6,6 +6,10 @@ struct PrimerReviewInterval: Identifiable, Sendable {
   let start: Int
   let end: Int
   let pool: Int?
+  var name: String = "Amplicon"
+  var primerIDs: [String] = []
+  var sizeLabel: String = "Reference span, including primers"
+  var length: Int { end - start }
 }
 
 struct PrimerReviewPrimer: Identifiable, Sendable {
@@ -15,6 +19,8 @@ struct PrimerReviewPrimer: Identifiable, Sendable {
   let end: Int
   let strand: String
   let pool: Int?
+  var sequence: String = ""
+  var ampliconIDs: [String] = []
 }
 
 struct PrimerTargetDesignReview: Identifiable, Sendable {
@@ -27,6 +33,8 @@ struct PrimerTargetDesignReview: Identifiable, Sendable {
   let intervals: [PrimerReviewInterval]
   let primers: [PrimerReviewPrimer]
   let notes: [String]
+  var sourceResultID: String = ""
+  var referenceID: String = ""
 }
 
 enum PrimerDesignReview {
@@ -70,18 +78,23 @@ enum PrimerDesignReview {
         guard fields.count >= 5, let length = lengths[fields[0]],
           let start = Int(fields[1]), let end = Int(fields[2]), start >= 0, end > start, end <= length,
           let pool = Int(fields[4]), pool > 0 else { throw invalid() }
-        spans[fields[0], default: []].append(.init(id: "\(id)-span-\(index)", start: start, end: end, pool: pool))
+        spans[fields[0], default: []].append(.init(id: "\(id)-span-\(index)", start: start, end: end, pool: pool,
+          name: fields[3]))
       }
     }
     return names.map { name in
-      let intervals = spans[name] ?? []
+      var intervals = spans[name] ?? []
+      var targetPrimers: [PrimerReviewPrimer] = primers.filter { $0.reference == name }.map {
+        .init(id: "\(id)-primer-\($0.id)", name: $0.name, start: $0.start, end: $0.end, strand: $0.strand,
+          pool: $0.pool, sequence: $0.sequence)
+      }
+      associateNativeAmplicons(intervals: &intervals, primers: &targetPrimers)
       return PrimerTargetDesignReview(id: "\(id)-\(name)", label: "\(label) · \(labels[name] ?? name)",
         referenceLength: lengths[name]!, coverageLabel: "Reference spanned by amplicons",
         coveredBases: amplicons == nil ? nil : coveredBases(intervals), intervals: intervals,
-        primers: primers.filter { $0.reference == name }.map {
-          .init(id: "\(id)-primer-\($0.id)", name: $0.name, start: $0.start, end: $0.end, strand: $0.strand, pool: $0.pool)
-        }, notes: ["Denominator: the full saved mapping reference. Overlapping amplicon spans count once; primer sequences are included.",
-          amplicons == nil ? "No saved amplicon BED is available; coverage is unknown." : "Positional reference coverage does not establish coverage of every alignment row or successful amplification."])
+        primers: targetPrimers, notes: ["Denominator: the full saved mapping reference. Overlapping amplicon spans count once; primer sequences are included.",
+          amplicons == nil ? "No saved amplicon BED is available; coverage is unknown." : "Positional reference coverage does not establish coverage of every alignment row or successful amplification."],
+        sourceResultID: id, referenceID: name)
     }
   }
 
@@ -90,19 +103,57 @@ enum PrimerDesignReview {
       if result.pairs.isEmpty {
         return [.init(id: result.resultID.uuidString, label: result.title, referenceLength: result.templateSequence.utf8.count,
           coverageLabel: "Template spanned by candidate", coveredBases: 0, intervals: [], primers: [],
-          notes: [result.error ?? result.explanation ?? "No candidate primer pairs were returned."])]
+          notes: [result.error ?? result.explanation ?? "No candidate primer pairs were returned."],
+          sourceResultID: result.resultID.uuidString, referenceID: result.sourceRecordID)]
       }
       return result.pairs.enumerated().map { index, pair in
-        let interval = PrimerReviewInterval(id: pair.id.uuidString, start: pair.left.start, end: pair.right.end, pool: nil)
+        let oligos = [pair.left, pair.right] + (pair.internalOligo.map { [$0] } ?? [])
+        let interval = PrimerReviewInterval(id: pair.id.uuidString, start: pair.left.start, end: pair.right.end, pool: nil,
+          name: "Candidate \(index + 1)", primerIDs: oligos.map { $0.id.uuidString }, sizeLabel: "Product size on saved template")
         return .init(id: pair.id.uuidString, label: "\(result.title) · Candidate \(index + 1)",
           referenceLength: result.templateSequence.utf8.count, coverageLabel: "Template spanned by this candidate",
           coveredBases: interval.end - interval.start, intervals: [interval],
-          primers: ([pair.left, pair.right] + (pair.internalOligo.map { [$0] } ?? [])).map {
+          primers: oligos.map {
             .init(id: $0.id.uuidString, name: $0.id == pair.internalOligo?.id ? "Internal probe" : ($0.orientation == .forward ? "Forward primer" : "Reverse primer"),
-              start: $0.start, end: $0.end, strand: $0.orientation == .forward ? "+" : "-", pool: nil)
+              start: $0.start, end: $0.end, strand: $0.orientation == .forward ? "+" : "-", pool: nil,
+              sequence: $0.sequence, ampliconIDs: [interval.id])
           }, notes: ["Alternative candidates are shown separately, not combined into a scheme.",
-            "Denominator: the full saved template, not a selected subregion. Positional span is not an assay-success estimate."])
+            "Denominator: the full saved template, not a selected subregion. Positional span is not an assay-success estimate."],
+          sourceResultID: result.resultID.uuidString, referenceID: result.sourceRecordID)
       }
+    }
+  }
+
+  /// Native alternatives are independent forward/reverse clouds. Their shared amplicon
+  /// name identifies membership; matching alternative suffixes do not establish pairs.
+  /// Called separately for each saved native result and reference to prevent cross-target joins.
+  private static func associateNativeAmplicons(intervals: inout [PrimerReviewInterval], primers: inout [PrimerReviewPrimer]) {
+    struct Membership { let index: Int; let side: String }
+    let pattern = try! NSRegularExpression(pattern: "^([A-Za-z0-9-]+_[0-9]+)_(LEFT|RIGHT|PROBE)_([0-9]+)$")
+    var groups: [String: [Membership]] = [:]
+    for (index, primer) in primers.enumerated() {
+      let name = primer.name as NSString
+      guard let match = pattern.firstMatch(in: primer.name, range: NSRange(location: 0, length: name.length)) else { continue }
+      groups[name.substring(with: match.range(at: 1)), default: []].append(
+        .init(index: index, side: name.substring(with: match.range(at: 2))))
+    }
+    let spanCounts = Dictionary(grouping: intervals, by: \.name).mapValues(\.count)
+    for index in intervals.indices {
+      let span = intervals[index]
+      guard spanCounts[span.name] == 1, let members = groups[span.name],
+        Set(members.map { primers[$0.index].name }).count == members.count,
+        members.allSatisfy({ member in
+          let primer = primers[member.index]
+          return primer.pool == span.pool && primer.start >= span.start && primer.end <= span.end &&
+            (member.side == "PROBE" || primer.strand == (member.side == "LEFT" ? "+" : "-"))
+        }) else { continue }
+      let left = members.filter { $0.side == "LEFT" }.map { primers[$0.index] }
+      let right = members.filter { $0.side == "RIGHT" }.map { primers[$0.index] }
+      // Verify the native writer's full envelope; partial or inconsistent groups remain unlinked.
+      guard !left.isEmpty, !right.isEmpty, left.map(\.start).min() == span.start,
+        right.map(\.end).max() == span.end else { continue }
+      intervals[index].primerIDs = members.map { primers[$0.index].id }
+      for member in members { primers[member.index].ampliconIDs.append(span.id) }
     }
   }
 }

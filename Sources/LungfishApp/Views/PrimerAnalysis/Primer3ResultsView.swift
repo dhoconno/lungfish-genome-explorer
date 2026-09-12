@@ -6,14 +6,31 @@ import LungfishWorkflow
 struct Primer3ResultsView: View {
   let results: Primer3NormalizedResults
   let bundleURL: URL
+  var reviewTargets: [PrimerTargetDesignReview] = []
+  var selection: Binding<PrimerReviewSelection?> = .constant(nil)
+  var onInspectSelection: () -> Void = {}
+  @State private var localSelection: PrimerReviewSelection?
   @State private var selectedResultID: UUID?
   @State private var selectedPairIDs: [UUID: UUID] = [:]
   @State private var isCreatingReference = false
   @State private var referenceMessage: String?
   @State private var createdReferenceURL: URL?
 
+  private var targets: [PrimerTargetDesignReview] {
+    reviewTargets.isEmpty ? PrimerDesignReview.primer3(results) : reviewTargets
+  }
+
+  private var activeSelection: Binding<PrimerReviewSelection?> {
+    Binding(get: { selection.wrappedValue ?? localSelection }, set: { selection.wrappedValue = $0; localSelection = $0 })
+  }
+
+  private var selectedTarget: PrimerTargetDesignReview? {
+    targets.first { $0.id == activeSelection.wrappedValue?.targetID }
+  }
+
   private var selectedResult: Primer3TemplateResult? {
-    results.results.first { $0.resultID == selectedResultID } ?? results.results.first
+    results.results.first { $0.resultID.uuidString == selectedTarget?.sourceResultID }
+      ?? results.results.first { $0.resultID == selectedResultID } ?? results.results.first
   }
 
   var body: some View {
@@ -23,7 +40,7 @@ struct Primer3ResultsView: View {
         Text("No template results were returned.").foregroundStyle(.secondary)
       } else {
         Picker("Template", selection: Binding(
-          get: { selectedResult?.resultID }, set: { selectedResultID = $0 })) {
+          get: { selectedResult?.resultID }, set: { selectedResultID = $0; activeSelection.wrappedValue = nil })) {
           ForEach(results.results, id: \.resultID) { result in
             Text("\(result.sourceIndex + 1). \(result.title)").tag(Optional(result.resultID))
           }
@@ -39,7 +56,8 @@ struct Primer3ResultsView: View {
   }
 
   private func templateResults(_ result: Primer3TemplateResult) -> some View {
-    let pair = result.pairs.first { $0.id == selectedPairIDs[result.resultID] } ?? result.pairs.first
+    let pair = result.pairs.first { $0.id.uuidString == selectedTarget?.id }
+      ?? result.pairs.first { $0.id == selectedPairIDs[result.resultID] } ?? result.pairs.first
     return VStack(alignment: .leading, spacing: 16) {
       Text("\(result.templateSequence.utf8.count) bp • \(result.pairs.count) candidate pairs • coordinates are 1-based inclusive")
         .font(.caption).foregroundStyle(.secondary)
@@ -61,36 +79,17 @@ struct Primer3ResultsView: View {
         Text("Create a native reference with all candidate primers and probes as linked annotations.")
           .font(.caption).foregroundStyle(.secondary)
         if let referenceMessage { Text(referenceMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-        HStack(alignment: .top, spacing: 20) {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Candidates").font(.headline)
-            ForEach(Array(result.pairs.enumerated()), id: \.element.id) { index, candidate in
-              Button { selectedPairIDs[result.resultID] = candidate.id } label: {
-                HStack {
-                  Text("Pair \(index + 1)")
-                  Spacer()
-                  Text("\(candidate.productSize) bp").foregroundStyle(.secondary)
-                }.padding(10)
-                  .background(pair?.id == candidate.id ? Color.accentColor.opacity(0.15) : .clear,
-                              in: RoundedRectangle(cornerRadius: 6))
-              }.buttonStyle(.plain)
-            }
-          }.frame(width: 160)
-          if let pair {
-            VStack(alignment: .leading, spacing: 14) {
-              Text("Annotated template").font(.headline)
-              Primer3TemplateTrack(templateLength: result.templateSequence.utf8.count, pair: pair)
-                .frame(height: pair.internalOligo == nil ? 85 : 110)
-              oligoRow("Forward primer", pair.left, color: .blue)
-              oligoRow("Reverse primer", pair.right, color: .orange)
-              if let probe = pair.internalOligo { oligoRow("Internal probe", probe, color: .purple) }
-              DisclosureGroup("Template sequence with selected binding sites") {
-                annotatedSequence(result.templateSequence, pair: pair)
-                  .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-              }
-            }.frame(maxWidth: .infinity, alignment: .leading)
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .top, spacing: 20) {
+            candidateList(result, selectedPair: pair).frame(width: 160)
+            if let pair { candidateDetails(result, pair: pair).frame(minWidth: 460) }
+          }
+          VStack(alignment: .leading, spacing: 16) {
+            candidateList(result, selectedPair: pair)
+            if let pair { candidateDetails(result, pair: pair) }
           }
         }
+
       }
       if let explanation = result.explanation, !explanation.isEmpty {
         DisclosureGroup("Primer3 explanation") {
@@ -98,6 +97,44 @@ struct Primer3ResultsView: View {
         }
       }
     }
+  }
+
+  private func candidateList(_ result: Primer3TemplateResult, selectedPair: Primer3Pair?) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Candidates").font(.headline)
+      ForEach(Array(result.pairs.enumerated()), id: \.element.id) { index, candidate in
+        Button {
+          selectedPairIDs[result.resultID] = candidate.id
+          activeSelection.wrappedValue = .init(targetID: candidate.id.uuidString, primerID: nil, ampliconID: candidate.id.uuidString)
+          onInspectSelection()
+        } label: {
+          HStack {
+            Text("Pair \(index + 1)")
+            Spacer()
+            Text("\(candidate.productSize) bp").foregroundStyle(.secondary)
+          }.padding(10)
+            .background(selectedPair?.id == candidate.id ? Color.accentColor.opacity(0.15) : .clear,
+                        in: RoundedRectangle(cornerRadius: 6))
+        }.buttonStyle(.plain)
+      }
+    }
+  }
+
+  private func candidateDetails(_ result: Primer3TemplateResult, pair: Primer3Pair) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      if let target = targets.first(where: { $0.id == pair.id.uuidString }) {
+        PrimerTargetReviewCard(target: target, selection: activeSelection)
+          .id(PrimerReviewSelection.selectedDesignAnchor)
+      }
+      Text("Primer properties").font(.headline)
+      oligoRow("Forward primer", pair.left, color: .blue, pair: pair)
+      oligoRow("Reverse primer", pair.right, color: .orange, pair: pair)
+      if let probe = pair.internalOligo { oligoRow("Internal probe", probe, color: .purple, pair: pair) }
+      DisclosureGroup("Template sequence with selected binding sites") {
+        annotatedSequence(result.templateSequence, pair: pair)
+          .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+      }
+    }.frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func createReference(for result: Primer3TemplateResult) {
@@ -124,13 +161,17 @@ struct Primer3ResultsView: View {
     }
   }
 
-  private func oligoRow(_ title: String, _ oligo: Primer3Oligo, color: Color) -> some View {
+  private func oligoRow(_ title: String, _ oligo: Primer3Oligo, color: Color, pair: Primer3Pair) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-      HStack {
-        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
-        Text("\(oligo.start + 1)–\(oligo.end)").font(.caption).foregroundStyle(.secondary)
-      }
-      Text("5′ \(oligo.sequence) 3′").font(.system(.body, design: .monospaced)).textSelection(.enabled)
+      Button {
+        activeSelection.wrappedValue = .init(targetID: pair.id.uuidString, primerID: oligo.id.uuidString, ampliconID: pair.id.uuidString)
+        onInspectSelection()
+      } label: {
+        HStack {
+          Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+          Text("\(oligo.start + 1)–\(oligo.end)").font(.caption).foregroundStyle(.secondary)
+        }.contentShape(Rectangle())
+      }.buttonStyle(.plain)
       Text(String(format: "%d nt · Tm %.1f °C · GC %.1f%%", oligo.sequence.utf8.count, oligo.meltingTemperature, oligo.gcPercent))
         .font(.caption).foregroundStyle(.secondary)
     }
@@ -151,35 +192,5 @@ struct Primer3ResultsView: View {
       text.append(AttributedString("\n"))
     }
     return Text(text)
-  }
-}
-
-private struct Primer3TemplateTrack: View {
-  let templateLength: Int
-  let pair: Primer3Pair
-
-  var body: some View {
-    GeometryReader { geometry in
-      let width = max(1, geometry.size.width - 12)
-      let scale = width / CGFloat(max(1, templateLength))
-      ZStack(alignment: .topLeading) {
-        Rectangle().fill(.secondary.opacity(0.4)).frame(width: width, height: 2).offset(y: 16)
-        Text("1").font(.caption2).offset(y: 0)
-        Text("\(templateLength)").font(.caption2).frame(width: width, alignment: .trailing)
-        arrow(pair.left, color: .blue, scale: scale).offset(y: 30)
-        arrow(pair.right, color: .orange, scale: scale).offset(y: 55)
-        if let probe = pair.internalOligo { arrow(probe, color: .purple, scale: scale).offset(y: 80) }
-      }
-    }.accessibilityLabel("Forward primer \(pair.left.start + 1) to \(pair.left.end); reverse primer \(pair.right.start + 1) to \(pair.right.end)")
-  }
-
-  private func arrow(_ oligo: Primer3Oligo, color: Color, scale: CGFloat) -> some View {
-    let width = max(4, CGFloat(oligo.end - oligo.start) * scale)
-    return ZStack {
-      Capsule().fill(color).frame(width: width, height: 6)
-      Image(systemName: oligo.orientation == .forward ? "arrowtriangle.right.fill" : "arrowtriangle.left.fill")
-        .font(.system(size: 10)).foregroundStyle(color)
-        .offset(x: (oligo.orientation == .forward ? 1 : -1) * max(0, width / 2 - 3))
-    }.offset(x: CGFloat(oligo.start) * scale)
   }
 }

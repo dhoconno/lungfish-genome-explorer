@@ -83,6 +83,8 @@ enum InspectorTab: String, CaseIterable {
     case resultSummary
     /// Per-selection detail for the 12S amplicon viewport (metagenomics mode).
     case twelveSDetail = "twelveSDetail"
+    /// Verified payloads belonging to the selected scientific result.
+    case files
     /// Reproducibility provenance for selected scientific bundles/results.
     case provenance
 }

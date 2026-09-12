@@ -183,7 +183,7 @@ public enum SidebarItemType: Sendable {
         case .primerAnalysisBundle:
             return SidebarBundleCapabilities(
                 canOpen: true, canShowPackageContents: true, canGetBundleInfo: true,
-                canShowInInspector: false, canExportSequences: false
+                canShowInInspector: true, canExportSequences: false
             )
         case .mhcReferenceBundle, .fastqBundle, .phylogeneticTreeBundle,
              .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:

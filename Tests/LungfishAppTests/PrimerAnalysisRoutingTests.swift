@@ -18,7 +18,7 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         XCTAssertTrue(node.type.isBundle)
         XCTAssertTrue(node.type.bundleCapabilities.canOpen)
         XCTAssertFalse(node.type.bundleCapabilities.canExportSequences)
-        XCTAssertFalse(node.type.bundleCapabilities.canShowInInspector)
+        XCTAssertTrue(node.type.bundleCapabilities.canShowInInspector)
         XCTAssertTrue(ProjectDeletionPlanner.projectObjectDirectoryExtensions.contains("lungfishprimeranalysis"))
     }
 
@@ -46,7 +46,12 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         split.displayContent(for: SidebarItem(title: "Example", type: .primerAnalysisBundle,
                                              url: URL(fileURLWithPath: "/absent.lungfishprimeranalysis")))
         XCTAssertNotNil(split.viewerController.primerAnalysisViewController)
+        XCTAssertEqual(split.inspectorController.viewModel.primerAnalysisDocument?.bundleURL,
+                       URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
+        XCTAssertEqual(split.inspectorController.viewModel.availableTabs, [.bundle, .files, .provenance])
         split.viewerController.clearViewport()
+        XCTAssertNil(split.inspectorController.viewModel.primerAnalysisDocument)
+        XCTAssertFalse(split.inspectorController.viewModel.availableTabs.contains(.files))
     }
 
     func testGenericInspectorDoesNotDiscoverOrRepairAnalysisProvenance() {

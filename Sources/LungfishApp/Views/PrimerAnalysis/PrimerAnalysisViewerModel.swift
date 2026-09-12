@@ -11,6 +11,8 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
   let primer3Results: Primer3NormalizedResults?
   let toolProvenance: [ProvenanceEnvelope]
   let primalSchemeResults: [PrimalSchemeDisplayResult]
+  var derivedProvenance: [ProvenanceEnvelope] = []
+  var workflowProvenance: [ProvenanceEnvelope] = []
   var designReview: [PrimerTargetDesignReview] = []
   var bindingContexts: [PrimerBindingInspectionContext] = []
 
@@ -31,6 +33,12 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
       normalized = decoded
     } else { normalized = nil }
     let toolProvenance = try bundle.manifest.artifacts.filter { $0.role == "toolProvenance" }.map {
+      try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
+    }
+    let derivedProvenance = try bundle.manifest.artifacts.filter { $0.role == "derivedProvenance" }.map {
+      try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
+    }
+    let workflowProvenance = try bundle.manifest.artifacts.filter { $0.role == "workflowProvenance" }.map {
       try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
     }
     struct RowMap: Decodable {
@@ -90,6 +98,7 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
     }
     return Self(bundle: bundle, provenance: provenance, provenanceJSON: provenanceJSON,
                 primer3Results: normalized, toolProvenance: toolProvenance, primalSchemeResults: schemes,
+                derivedProvenance: derivedProvenance, workflowProvenance: workflowProvenance,
                 designReview: reviews, bindingContexts: try PrimerBindingInspectionContext.load(bundle: bundle, schemes: schemes))
   }
 

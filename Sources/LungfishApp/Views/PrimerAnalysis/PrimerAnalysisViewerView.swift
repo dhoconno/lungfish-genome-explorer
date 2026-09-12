@@ -12,29 +12,34 @@ struct PrimerAnalysisViewerView: View {
     case overview = "Overview"
     case results = "Results"
     case binding = "Binding inspection"
-    case files = "Files"
-    case provenance = "Provenance"
 
     var id: Self { self }
   }
 
   let bundleURL: URL
+  let onLoadStateChanged: @MainActor (PrimerAnalysisViewerModel.State) -> Void
   @StateObject private var model: PrimerAnalysisViewerModel
   @State private var selectedSection: Section
   @State private var retryGeneration: UInt64 = 0
+  @State private var selection: PrimerReviewSelection?
+  @State private var resultInspectionGeneration = 0
 
-  init(bundleURL: URL) {
-    self.init(bundleURL: bundleURL, model: PrimerAnalysisViewerModel())
+  init(bundleURL: URL, onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in }) {
+    self.init(bundleURL: bundleURL, model: PrimerAnalysisViewerModel(), onLoadStateChanged: onLoadStateChanged)
   }
 
   init(
     bundleURL: URL,
     model: PrimerAnalysisViewerModel,
-    selectedSection: Section = .overview
+    selectedSection: Section = .overview,
+    selection: PrimerReviewSelection? = nil,
+    onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in }
   ) {
     self.bundleURL = bundleURL
+    self.onLoadStateChanged = onLoadStateChanged
     _model = StateObject(wrappedValue: model)
     _selectedSection = State(initialValue: selectedSection)
+    _selection = State(initialValue: selection)
   }
 
   var body: some View {
@@ -61,6 +66,8 @@ struct PrimerAnalysisViewerView: View {
     .background(Color(nsColor: .windowBackgroundColor))
     .task(id: LoadIdentity(bundleURL: bundleURL, retryGeneration: retryGeneration)) {
       await model.load(from: bundleURL)
+      guard !Task.isCancelled else { return }
+      onLoadStateChanged(model.state)
     }
   }
 
@@ -74,27 +81,39 @@ struct PrimerAnalysisViewerView: View {
       .padding()
       .accessibilityIdentifier("primerAnalysisViewer.tabs")
 
+      if selectedSection != .binding, let primerID = selection?.primerID,
+        snapshot.bindingContexts.contains(where: { $0.primers.contains(where: { $0.reviewPrimerID == primerID }) }) {
+        HStack {
+          Text("Selected primer").font(.caption).foregroundStyle(.secondary)
+          Button("Inspect in alignment") { selectedSection = .binding }
+            .accessibilityIdentifier("primerAnalysisViewer.inspectSelectedBinding")
+          Spacer()
+        }.padding(.horizontal).padding(.bottom, 10)
+      }
       Divider()
       if selectedSection == .binding {
-        PrimerBindingInspectionView(contexts: snapshot.bindingContexts)
+        PrimerBindingInspectionView(contexts: snapshot.bindingContexts, selectedReviewPrimerID: selection?.primerID)
           .padding(20)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
+      ScrollViewReader { proxy in
       ScrollView {
         Group {
           switch selectedSection {
           case .overview: overview(snapshot)
           case .results:
-            if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url) }
-            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3") }
-            else { Text("Native scheme outputs are preserved in the Files inventory.").foregroundStyle(.secondary) }
+            if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
+            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3", reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
+            else { Text("Native scheme outputs are preserved in the Inspector’s Files tab.").foregroundStyle(.secondary) }
           case .binding: EmptyView()
-          case .files: files(snapshot)
-          case .provenance: provenance(snapshot)
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+      }
+      .onChange(of: resultInspectionGeneration) {
+        withAnimation { proxy.scrollTo(PrimerReviewSelection.selectedDesignAnchor, anchor: .top) }
+      }
       }
       }
     }
@@ -119,7 +138,7 @@ struct PrimerAnalysisViewerView: View {
       }
 
       if snapshot.designReview.isEmpty {
-        ContentUnavailableView("Design summary unavailable", systemImage: "chart.bar.xaxis", description: Text("This saved analysis has no supported coordinates to summarize. Its original outputs remain available in Files."))
+        ContentUnavailableView("Design summary unavailable", systemImage: "chart.bar.xaxis", description: Text("This saved analysis has no supported coordinates to summarize. Its original outputs remain available in the Inspector’s Files tab."))
       } else {
         HStack(spacing: 28) {
           summaryMetric(snapshot.primer3Results == nil ? "Mapping references" : "Candidate reviews", value: String(snapshot.designReview.count))
@@ -133,7 +152,7 @@ struct PrimerAnalysisViewerView: View {
           : "Review each candidate pair separately. Template span is the portion between that pair’s outer primer boundaries; alternative pairs are not combined into a scheme.")
           .font(.callout).foregroundStyle(.secondary)
         ForEach(snapshot.designReview) { target in
-          PrimerTargetReviewCard(target: target)
+          PrimerTargetReviewCard(target: target, selection: $selection)
         }
         Button("Inspect primers and pools") { selectedSection = .results }
           .accessibilityIdentifier("primerAnalysisViewer.inspectResults")
@@ -141,73 +160,6 @@ struct PrimerAnalysisViewerView: View {
 
     }
     .accessibilityIdentifier("primerAnalysisViewer.overview")
-  }
-
-  private func files(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {
-    VStack(alignment: .leading, spacing: 16) {
-      sectionTitle("Stored files")
-      field("Current bundle location", snapshot.bundle.url.path)
-      ForEach(
-        snapshot.bundle.manifest.artifacts + [snapshot.bundle.manifest.provenance],
-        id: \.relativePath
-      ) { artifact in
-        VStack(alignment: .leading, spacing: 4) {
-          HStack {
-            Text(artifact.relativePath).font(.headline).textSelection(.enabled)
-            Spacer()
-            Button("Show in Finder") {
-              if let url = try? snapshot.bundle.artifactURL(forRelativePath: artifact.relativePath) {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-              }
-            }.controlSize(.small)
-          }
-          Text("Role: \(artifact.role) • Format: \(artifact.format)")
-          Text("Size: \(artifact.byteSize) bytes")
-          Text("SHA-256: \(artifact.sha256)").font(.system(.caption, design: .monospaced))
-            .textSelection(.enabled)
-        }
-      }
-    }
-    .accessibilityIdentifier("primerAnalysisViewer.files")
-  }
-
-  private func provenance(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {
-    let provenance = snapshot.provenance
-    return VStack(alignment: .leading, spacing: 16) {
-      ForEach(Array(snapshot.toolProvenance.enumerated()), id: \.offset) { index, execution in
-        sectionTitle("Tool execution \(index + 1)")
-        field("Tool", "\(execution.toolName) \(execution.toolVersion)")
-        field("Executed argv", execution.argv.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " "))
-        field("Recorded command", execution.reproducibleCommand)
-        field("Exit status", execution.exitStatus.map(String.init) ?? "Not recorded")
-        field("Wall time", execution.wallTimeSeconds.map { String(format: "%.3f seconds", $0) } ?? "Not recorded")
-        field("Runtime", execution.runtimeIdentity.executablePath)
-        if let environment = execution.runtimeIdentity.condaEnvironment { field("Conda environment", environment) }
-        if let stderr = execution.stderr, !stderr.isEmpty {
-          DisclosureGroup("Tool stderr") { Text(stderr).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-        }
-        Divider()
-      }
-      sectionTitle("Wrapper provenance")
-      field("Workflow", "\(provenance.workflowName) \(provenance.workflowVersion)")
-      field("Tool", "\(provenance.toolName) \(provenance.toolVersion)")
-      field("Command", provenance.reproducibleCommand)
-      field("Exit status", provenance.exitStatus.map(String.init) ?? "Not recorded")
-      field(
-        "Wall time", provenance.wallTimeSeconds.map { String(format: "%.3f seconds", $0) }
-          ?? "Not recorded")
-      field("Published bundle location", snapshot.bundle.manifest.publishedRootPath)
-      field("Current bundle location", snapshot.bundle.url.path)
-      sectionTitle("Original canonical JSON")
-      Text(snapshot.provenanceJSON)
-        .font(.system(.caption, design: .monospaced))
-        .textSelection(.enabled)
-    }
-    .accessibilityIdentifier("primerAnalysisViewer.provenance")
-  }
-
-  private func sectionTitle(_ title: String) -> some View {
-    Text(title).font(.title3.weight(.semibold))
   }
 
   private func field(_ label: String, _ value: String) -> some View {

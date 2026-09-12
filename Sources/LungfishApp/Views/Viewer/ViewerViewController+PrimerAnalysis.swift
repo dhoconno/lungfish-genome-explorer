@@ -1,10 +1,27 @@
 import AppKit
 import SwiftUI
 
+private final class PrimerAnalysisHostingController: NSHostingController<PrimerAnalysisViewerView> {
+    var installationID = UUID()
+    var onDismiss: (@MainActor () -> Void)?
+}
+
 extension ViewerViewController {
-    func displayPrimerAnalysisBundle(at url: URL) {
+    func displayPrimerAnalysisBundle(
+        at url: URL,
+        onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
+        onDismiss: @escaping @MainActor () -> Void = {}
+    ) {
         clearViewport()
-        let controller = NSHostingController(rootView: PrimerAnalysisViewerView(bundleURL: url))
+        let installationID = UUID()
+        let controller = PrimerAnalysisHostingController(rootView: PrimerAnalysisViewerView(
+            bundleURL: url, model: PrimerAnalysisViewerModel(), onLoadStateChanged: { [weak self] state in
+                guard let installed = self?.primerAnalysisViewController as? PrimerAnalysisHostingController,
+                    installed.installationID == installationID else { return }
+                onLoadStateChanged(state)
+            }))
+        controller.installationID = installationID
+        controller.onDismiss = onDismiss
         addChild(controller)
         let resultsView = controller.view
         resultsView.translatesAutoresizingMaskIntoConstraints = false
@@ -23,5 +40,6 @@ extension ViewerViewController {
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         primerAnalysisViewController = nil
+        (controller as? PrimerAnalysisHostingController)?.onDismiss?()
     }
 }

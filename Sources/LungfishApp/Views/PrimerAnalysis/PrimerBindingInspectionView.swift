@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PrimerBindingInspectionView: View {
     let contexts: [PrimerBindingInspectionContext]
+    var selectedReviewPrimerID: String? = nil
     @State private var selectedContextID: String?
     @State private var selectedPrimerID: String?
 
@@ -43,7 +44,16 @@ struct PrimerBindingInspectionView: View {
                 Text("Alignment binding inspection is available for stored PrimalScheme results with a verified input alignment and reference mapping.")
                     .foregroundStyle(.secondary)
             }
-        }
+        }.onAppear { adoptReviewSelection() }
+        .onChange(of: selectedReviewPrimerID) { _, _ in adoptReviewSelection() }
+    }
+
+    private func adoptReviewSelection() {
+        guard let selectedReviewPrimerID,
+          let context = contexts.first(where: { $0.primers.contains { $0.reviewPrimerID == selectedReviewPrimerID } }),
+          let primer = context.primers.first(where: { $0.reviewPrimerID == selectedReviewPrimerID }) else { return }
+        selectedContextID = context.id
+        selectedPrimerID = primer.id
     }
 }
 
