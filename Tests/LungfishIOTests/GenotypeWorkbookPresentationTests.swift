@@ -20,6 +20,7 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         XCTAssertTrue(result.fullCalculation)
         XCTAssertTrue(result.matrixFrozenAndFiltered)
         XCTAssertTrue(result.customColorApplied)
+        XCTAssertTrue(result.allColorRulesApplied)
         XCTAssertTrue(result.callsEditable)
         XCTAssertTrue(result.snapshotFieldsLocked)
         XCTAssertTrue(result.specialTextLiteral)
@@ -38,6 +39,10 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         let result = try render(role: "editable-current", mutation: "sparse-valid")
         XCTAssertEqual(result.callTargetCount, 9)
         XCTAssertEqual(result.sheetNames, ["Genotype Matrix", "Haplotype Calls", "Export Metadata"])
+        XCTAssertEqual(result.clusterIdentity, "cluster-F")
+        XCTAssertTrue(result.hasUnannotatedRowTarget)
+        XCTAssertTrue(result.hasUnannotatedSampleTarget)
+        XCTAssertNil(result.sparseCachedSlot)
     }
 
     func testBaselineUnavailableCallSlotsStayLocked() throws {
@@ -45,8 +50,16 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         XCTAssertFalse(result.callsEditable)
     }
 
+    func testFormulaCachesAndPayloadTextRemainLiteral() throws {
+        let result = try render(role: "editable-current", mutation: "literal-edge-values")
+        XCTAssertEqual(result.cachedDQSlots, ["Slash\\1<&\"", nil])
+        XCTAssertTrue(result.explicitEmptyFormulaCache)
+        XCTAssertTrue(result.literalPayloadHeadings)
+        XCTAssertTrue(result.literalMetadata)
+    }
+
     func testRendererRejectsInvalidRostersAndTargets() throws {
-        for mutation in ["duplicate-sample", "duplicate-cell", "missing-cell", "unknown-call-sample", "negative-support", "inconsistent-baseline"] {
+        for mutation in ["duplicate-sample", "duplicate-row-id", "duplicate-call-id", "duplicate-call-target", "duplicate-cell", "missing-cell", "unknown-call-sample", "negative-support", "inconsistent-baseline"] {
             XCTAssertThrowsError(try render(role: "editable-current", mutation: mutation), mutation)
         }
     }
@@ -67,9 +80,18 @@ final class GenotypeWorkbookPresentationTests: XCTestCase {
         let fullCalculation: Bool
         let matrixFrozenAndFiltered: Bool
         let customColorApplied: Bool
+        let allColorRulesApplied: Bool
         let callsEditable: Bool
         let snapshotFieldsLocked: Bool
         let specialTextLiteral: Bool
+        let clusterIdentity: String?
+        let hasUnannotatedRowTarget: Bool
+        let hasUnannotatedSampleTarget: Bool
+        let sparseCachedSlot: String?
+        let cachedDQSlots: [String?]
+        let explicitEmptyFormulaCache: Bool
+        let literalPayloadHeadings: Bool
+        let literalMetadata: Bool
     }
 
     private func render(role: String, mutation: String? = nil) throws -> Result {
@@ -88,6 +110,7 @@ from openpyxl import load_workbook
 """# + "\n" + GenotypeWorkbookPresentation.pythonScript + "\n" + #"""
 p=json.load(open(sys.argv[1])); out=sys.argv[2]
 m=render_three_sheet_workbook(p,out); notes=list(m['noteTargets'].values())
+with zipfile.ZipFile(out) as z: sheet_xml=z.read('xl/worksheets/sheet1.xml').decode('utf-8')
 wf=load_workbook(out,data_only=False); wc=load_workbook(out,data_only=True)
 gmf=wf['Genotype Matrix']; gmc=wc['Genotype Matrix']; calls=wf['Haplotype Calls']
 result={'sheetNames':wf.sheetnames,'cachedDRSlots':[wc['Genotype Matrix']['D2'].value,wc['Genotype Matrix']['D3'].value],
@@ -98,8 +121,15 @@ result={'sheetNames':wf.sheetnames,'cachedDRSlots':[wc['Genotype Matrix']['D2'].
 'noExtraSheets':len(wf.worksheets)==3,'fullCalculation':wf.calculation.fullCalcOnLoad and wf.calculation.forceFullCalc,
 'matrixFrozenAndFiltered':gmf.freeze_panes=='D12' and gmf.auto_filter.ref=='B12:E17',
 'customColorApplied':gmf['D2'].fill.fgColor.rgb.endswith('123456'),
+'allColorRulesApplied':sum(len(x) for x in gmf.conditional_formatting._cf_rules.values())>=24 and 'OtherDR' in str(gmf.conditional_formatting._cf_rules) and 'AND(' in str(gmf.conditional_formatting._cf_rules),
 'callsEditable':not calls['D2'].protection.locked,'snapshotFieldsLocked':calls['H2'].protection.locked,
-'specialTextLiteral':calls['N2'].data_type=='s' and calls['N2'].value.startswith('=literal')}
+'specialTextLiteral':calls['N2'].data_type=='s' and calls['N2'].value.startswith('=literal'),
+'clusterIdentity':next((x['target'].get('stableClusterID') for x in notes if x['target'].get('rowID')=='row-F' and x['target'].get('sampleID')=='S1'),None),
+'hasUnannotatedRowTarget':'row:row-C' in m['noteTargets'],'hasUnannotatedSampleTarget':'sample:S2' in m['noteTargets'],
+'sparseCachedSlot':wc['Genotype Matrix']['E10'].value,'cachedDQSlots':[wc['Genotype Matrix']['E4'].value,wc['Genotype Matrix']['E5'].value],
+'explicitEmptyFormulaCache':re.search(r'<c r="E5" t="str"><f>.*?</f><v></v></c>',sheet_xml) is not None,
+'literalPayloadHeadings':gmf['E1'].data_type=='s' and gmf['E12'].data_type=='s',
+'literalMetadata':wf['Export Metadata']['B8'].data_type=='s'}
 json.dump(result,open(sys.argv[3],'w'))
 """#
         let python = URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
@@ -134,6 +164,9 @@ json.dump(result,open(sys.argv[3],'w'))
         }}
         switch mutation {
         case "duplicate-sample": samples.append(samples[0])
+        case "duplicate-row-id": rows.append(rows[0])
+        case "duplicate-call-id": calls.append(calls[0])
+        case "duplicate-call-target": calls.append(.init(id: "other-id", sampleID: calls[0].sampleID, locus: calls[0].locus, h1: calls[0].h1, h2: calls[0].h2, comment: nil))
         case "duplicate-cell": rows[0].cells.append(rows[0].cells[0])
         case "missing-cell": rows[0].cells.removeLast()
         case "unknown-call-sample": calls[0] = .init(id: calls[0].id, sampleID: "missing", locus: calls[0].locus, h1: calls[0].h1, h2: calls[0].h2, comment: calls[0].comment)
@@ -149,9 +182,21 @@ json.dump(result,open(sys.argv[3],'w'))
             calls[0] = .init(id: calls[0].id, sampleID: calls[0].sampleID, locus: calls[0].locus,
                 h1: .init(effective: "legacy", pipeline: nil, baselineAvailable: false, status: "legacy", source: "manual"),
                 h2: calls[0].h2, comment: calls[0].comment)
+        case "literal-edge-values":
+            samples[1] = .init(id: "S2", name: "=1+1", comment: nil)
+            if let index = calls.firstIndex(where: { $0.sampleID == "S2" && $0.locus == "DQ" }) {
+                calls[index] = .init(id: calls[index].id, sampleID: "S2", locus: "DQ",
+                    h1: .init(effective: "Slash\\1<&\"", pipeline: "Slash\\1<&\"", baselineAvailable: true, status: "ok", source: "pipeline"),
+                    h2: .init(effective: "", pipeline: "", baselineAvailable: true, status: "unresolved", source: "pipeline"), comment: nil)
+            }
         default: break
         }
         return .init(schemaVersion: 2, role: role, sourceRevision: ["sha256": "abc"], samples: samples, loci: loci, rows: rows, calls: calls,
-            colors: [.init(locus: "DR", call: "M4DR", fillHex: "#123456", fontHex: "#FFFFFF")], metadata: [["Scope", "All evidence"]], callEditingSupported: role == "editable-current")
+            colors: [
+                .init(locus: "DR", call: "M4DR", fillHex: "#123456", fontHex: "#FFFFFF"),
+                .init(locus: "DR", call: "OtherDR", fillHex: "#654321", fontHex: "#FFFFFF"),
+                .init(locus: "A", call: "M1A", fillHex: "#112233", fontHex: "#FFFFFF"),
+                .init(locus: "A", call: "OtherA", fillHex: "#332211", fontHex: "#FFFFFF")
+            ], metadata: [["Scope", "=All evidence"]], callEditingSupported: role == "editable-current")
     }
 }

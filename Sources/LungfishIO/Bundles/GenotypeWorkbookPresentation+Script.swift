@@ -58,8 +58,8 @@ def _inject_formula_caches(path, caches):
                             prefix=re.sub(r'\s+t="[^"]*"','',match.group(1))+' t="str"'
                             body=match.group(3)
                             cached='<v>'+xml_escape(value)+'</v>'
-                            if re.search(r'<v(?:\s[^>]*)?>.*?</v>',body,flags=re.S): body=re.sub(r'<v(?:\s[^>]*)?>.*?</v>',cached,body,count=1,flags=re.S)
-                            elif re.search(r'<v(?:\s[^>]*)?\s*/>',body): body=re.sub(r'<v(?:\s[^>]*)?\s*/>',cached,body,count=1)
+                            if re.search(r'<v(?:\s[^>]*)?>.*?</v>',body,flags=re.S): body=re.sub(r'<v(?:\s[^>]*)?>.*?</v>',lambda _:cached,body,count=1,flags=re.S)
+                            elif re.search(r'<v(?:\s[^>]*)?\s*/>',body): body=re.sub(r'<v(?:\s[^>]*)?\s*/>',lambda _:cached,body,count=1)
                             else: body=body.replace('</c>',cached+'</c>')
                             return prefix+match.group(2)+body
                         text,n=re.subn(pattern,replacement,text,count=1,flags=re.S)
@@ -95,13 +95,13 @@ def render_three_sheet_workbook(payload, output_path):
     matrix['A1']='Stable ID'; matrix['B1']='Locus'; matrix['C1']='Slot / allele'; matrix.column_dimensions['A'].hidden=True
     for c,sample in enumerate(payload['samples'],4):
         _literal(matrix.cell(1,c),sample['name']); manifest['identityCells']['sample:'+sample['id']]={'sheet':'Genotype Matrix','cell':matrix.cell(1,c).coordinate,'value':sample['name']}
-        if sample.get('comment') is not None:
-            generated='Sample comment: '+json.dumps(sample['comment'],ensure_ascii=False); matrix.cell(1,c).comment=Comment(_note(generated),'LGE')
-            manifest['noteTargets']['sample:'+sample['id']]={'sheet':'Genotype Matrix','cell':matrix.cell(1,c).coordinate,'target':{'kind':'sample','sampleID':sample['id']},'rawSupport':None,'reviewEligible':False,'currentComment':sample['comment'],'currentReview':None,'generatedText':_note(generated)}
+        generated='Sample comment: '+json.dumps(sample['comment'],ensure_ascii=False) if sample.get('comment') is not None else ''
+        if generated: matrix.cell(1,c).comment=Comment(_note(generated),'LGE')
+        manifest['noteTargets']['sample:'+sample['id']]={'sheet':'Genotype Matrix','cell':matrix.cell(1,c).coordinate,'target':{'kind':'sample','sampleID':sample['id']},'rawSupport':None,'reviewEligible':False,'currentComment':sample.get('comment'),'currentReview':None,'generatedText':_note(generated) if generated else ''}
     formula_caches={}
     for li,locus in enumerate(payload['loci']):
         for offset,slot in enumerate(('h1','h2')):
-            r=2+li*2+offset; matrix.cell(r,2).value=locus; matrix.cell(r,3).value=slot.upper()
+            r=2+li*2+offset; _literal(matrix.cell(r,2),locus); matrix.cell(r,3).value=slot.upper()
             for c,sample in enumerate(payload['samples'],4):
                 present=call_lookup.get((sample['id'],locus)); addr=matrix.cell(r,c).coordinate
                 if present is None:
@@ -112,21 +112,29 @@ def render_three_sheet_workbook(payload, output_path):
                 matrix.cell(r,c).value=formula; manifest['expectedFormulas'].setdefault('Genotype Matrix',{})[addr]=formula; formula_caches[addr]=call[slot]['effective']
                 if (locus,call[slot]['effective']) in colors:
                     fill,font=colors[(locus,call[slot]['effective'])]; matrix.cell(r,c).fill=PatternFill('solid',fgColor=fill); matrix.cell(r,c).font=Font(color=font)
-                    matrix.conditional_formatting.add(addr,FormulaRule(formula=['%s="%s"'%(addr,call[slot]['effective'].replace('"','""'))],fill=PatternFill('solid',fgColor=fill),font=Font(color=font)))
+                definitions=[]
+                for (defined_locus,defined_call),(fill,font) in colors.items():
+                    if defined_locus != locus: continue
+                    definitions.append(defined_call)
+                    matrix.conditional_formatting.add(addr,FormulaRule(formula=['%s="%s"'%(addr,defined_call.replace('"','""'))],fill=PatternFill('solid',fgColor=fill),font=Font(color=font),stopIfTrue=True))
+                if definitions:
+                    comparisons=','.join('%s<>"%s"'%(addr,x.replace('"','""')) for x in definitions)
+                    matrix.conditional_formatting.add(addr,FormulaRule(formula=['AND('+comparisons+')'],fill=PatternFill('solid',fgColor='FFFFFF'),font=Font(color='000000'),stopIfTrue=True))
     header=2+2*len(payload['loci']); matrix.cell(header,1).value='Stable ID'; matrix.cell(header,2).value='Locus'; matrix.cell(header,3).value='Allele'
-    for c,sample in enumerate(payload['samples'],4): matrix.cell(header,c).value=sample['name']
+    for c,sample in enumerate(payload['samples'],4): _literal(matrix.cell(header,c),sample['name'])
     for rr,row in enumerate(payload['rows'],header+1):
-        matrix.cell(rr,1).value=row['id']; matrix.cell(rr,2).value=row['target']['locus']; _literal(matrix.cell(rr,3),row['displayName'])
+        _literal(matrix.cell(rr,1),row['id']); _literal(matrix.cell(rr,2),row['target']['locus']); _literal(matrix.cell(rr,3),row['displayName'])
         manifest['identityCells']['row:'+row['id']]={'sheet':'Genotype Matrix','cell':'A'+str(rr),'value':row['id']}
         if row.get('fillHex'): matrix.cell(rr,3).fill=PatternFill('solid',fgColor=row['fillHex'].lstrip('#'))
-        if row.get('comment') is not None:
-            generated='Row comment: '+json.dumps(row['comment'],ensure_ascii=False); matrix.cell(rr,3).comment=Comment(_note(generated),'LGE')
-            manifest['noteTargets']['row:'+row['id']]={'sheet':'Genotype Matrix','cell':'C'+str(rr),'target':row['target'],'rawSupport':None,'reviewEligible':False,'currentComment':row['comment'],'currentReview':None,'generatedText':_note(generated)}
+        generated='Row comment: '+json.dumps(row['comment'],ensure_ascii=False) if row.get('comment') is not None else ''
+        if generated: matrix.cell(rr,3).comment=Comment(_note(generated),'LGE')
+        manifest['noteTargets']['row:'+row['id']]={'sheet':'Genotype Matrix','cell':'C'+str(rr),'target':row['target'],'rawSupport':None,'reviewEligible':False,'currentComment':row.get('comment'),'currentReview':None,'generatedText':_note(generated) if generated else ''}
         by_sample={x['sampleID']:x for x in row['cells']}
         for c,sample in enumerate(payload['samples'],4):
             cell=by_sample[sample['id']]; out=matrix.cell(rr,c); out.value=cell.get('displayValue')
             if cell.get('fillHex'): out.fill=PatternFill('solid',fgColor=cell['fillHex'].lstrip('#'))
             target={'kind':'cell','rowID':row['id'],'sampleID':sample['id'],'locus':row['target']['locus'],'genotype':row['target']['genotype']}
+            if row['target'].get('stableClusterID') is not None: target['stableClusterID']=row['target']['stableClusterID']
             raw=cell.get('rawSupport'); display=cell.get('displayValue')
             target_id='cell:'+row['id']+':'+sample['id']
             generated='Evidence: display='+json.dumps(display)+', raw support='+json.dumps(raw)
@@ -139,7 +147,8 @@ def render_three_sheet_workbook(payload, output_path):
     matrix.protection.sheet=True; matrix.protection.selectLockedCells=True; matrix.protection.selectUnlockedCells=True
     for c in range(1,matrix.max_column+1): matrix.cell(header,c).font=Font(bold=True)
     instructions=[['Workbook role',payload['role']],['Source revision',json.dumps(payload['sourceRevision'],sort_keys=True)],['Scope','All evidence' if payload['role']=='editable-current' else 'Captured filtered evidence'],['Editing','Edit current H1/H2 and explicit import action only; legacy slots without baselines stay locked.'],['Notes','Traditional Excel Notes contain immutable generated evidence plus an editable LGE block. Threaded Comments are not imported.'],['Clear semantics','Deleting or blanking a Note never clears data. Use explicit clear in the block and review in LGE.'],['Eligible Note template',_NOTE_BLOCK]]+payload.get('metadata',[])
-    for row in instructions: metadata.append(row)
+    for r,row in enumerate(instructions,1):
+        for c,value in enumerate(row,1): _literal(metadata.cell(r,c),value)
     metadata.freeze_panes='A2'; metadata.column_dimensions['A'].width=24; metadata.column_dimensions['B'].width=100; metadata['A1'].font=Font(bold=True)
     for ws in wb.worksheets:
         for row in ws.iter_rows():
