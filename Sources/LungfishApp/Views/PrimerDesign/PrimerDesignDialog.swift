@@ -11,53 +11,40 @@ struct PrimerDesignDialog: View {
   }
   @Bindable var state: PrimerDesignDialogState
   let onRun: () -> Void
-  let onCancelRun: () -> Void
   let onClose: () -> Void
-  let onOpenResult: (URL) -> Void
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 5) {
-          Text("PCR Primer Design").font(.title2.bold())
-          Text("Design from sequences or alignments and save the complete analysis in this project.")
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-        Button("Manage Tools…") { PluginManagerWindowController.show(packID: "pcr-primer-design") }
-      }.padding(20)
-      Divider()
-      HStack(spacing: 0) {
-        VStack(alignment: .leading, spacing: 12) {
-          ForEach(PrimerDesignEngine.allCases) { engine in
-            Button { state.engine = engine } label: {
-              VStack(alignment: .leading, spacing: 5) {
-                Text(engine.rawValue).font(.headline)
-                Text(engine == .primer3 ? "Primer pairs & qPCR probes" : "Tiled primer pool schemes")
-                  .font(.caption).foregroundStyle(.secondary)
-              }
-              .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-              .background(state.engine == engine ? Color.accentColor.opacity(0.12) : .clear,
-                          in: RoundedRectangle(cornerRadius: 8))
-            }.buttonStyle(.plain)
+    DatasetOperationsDialog(
+      title: "PCR Primer Design",
+      subtitle: "Primer pairs, probes and tiled pools",
+      datasetLabel: "\(state.inputURLs.count) input files · Results saved in this project",
+      tools: PrimerDesignEngine.allCases.map { engine in
+        DatasetOperationToolSidebarItem(id: engine.rawValue, title: engine.rawValue,
+          subtitle: engine == .primer3 ? "Primer pairs & qPCR probes" : "Tiled primer pool schemes",
+          availability: .available)
+      },
+      selectedToolID: state.engine.rawValue,
+      statusText: state.errorMessage ?? state.validationMessage ?? state.inputReadinessMessage ?? "Ready. Progress will appear in Operations.",
+      isRunEnabled: !state.isRunning && state.validationMessage == nil && state.inputReadinessMessage == nil,
+      primaryActionTitle: "Run", accessibilityNamespace: "primer-design",
+      onSelectTool: { if let engine = PrimerDesignEngine(rawValue: $0) { state.engine = engine } },
+      onCancel: onClose, onRun: onRun
+    ) {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+          HStack {
+            Text(state.engine.rawValue).font(.title2.weight(.semibold))
+            Spacer()
+            Button("Manage Tools…") { PluginManagerWindowController.show(packID: "pcr-primer-design") }
           }
-          Spacer()
-        }.padding(16).frame(width: 220).background(.quaternary.opacity(0.2))
-        Divider()
-        ScrollView {
-          VStack(alignment: .leading, spacing: 24) {
-            inputSection
-            if state.engine == .primer3 { primer3Section } else { schemeSection }
-            advancedSection
-            outputSection
-          }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-        }
-      }.disabled(state.isRunning)
-      Divider()
-      footer.padding(16)
+          inputSection
+          if state.engine == .primer3 { primer3Section } else { schemeSection }
+          advancedSection
+          outputSection
+        }.frame(maxWidth: .infinity, alignment: .leading)
+      }
     }
     .frame(minWidth: 840, minHeight: 640)
-    .background(Color(nsColor: .windowBackgroundColor))
     .task(id: InputLoadIdentity(urls: state.inputURLs, revision: state.inspectionRevision)) {
       await state.inspectInputs()
     }
@@ -244,31 +231,6 @@ struct PrimerDesignDialog: View {
         .font(.caption).foregroundStyle(.secondary)
       Text("The bundle preserves inputs, native outputs, result links, settings and reproducibility provenance.")
         .font(.caption).foregroundStyle(.secondary)
-    }
-  }
-
-  private var footer: some View {
-    HStack(spacing: 12) {
-      if state.isRunning { ProgressView().controlSize(.small) }
-      VStack(alignment: .leading, spacing: 4) {
-        if let error = state.errorMessage {
-          Text(error).foregroundStyle(.red).textSelection(.enabled)
-        } else {
-          Text(state.progressMessage ?? state.validationMessage ?? state.inputReadinessMessage ?? "Ready to design.")
-            .foregroundStyle(.secondary)
-        }
-      }.font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-      if state.isRunning {
-        Button("Cancel Run", action: onCancelRun)
-      } else {
-        Button("Close", action: onClose).keyboardShortcut(.cancelAction)
-        if let result = state.completedURL {
-          Button("Open Results") { onOpenResult(result) }
-        }
-        Button(state.completedURL == nil ? "Design" : "Design Again", action: onRun)
-          .disabled(state.validationMessage != nil || state.inputReadinessMessage != nil)
-          .keyboardShortcut(.defaultAction)
-      }
     }
   }
 

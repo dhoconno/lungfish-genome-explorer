@@ -64,3 +64,11 @@ Basic settings show the target size and configured native amplicon interval (int
 Known pinned-fork limitation: combined-panel pairing passes the configured maximum as both pairing bounds. The dialog discloses this distinction; the displayed configured interval must not be interpreted as independently enforced panel bounds. Independent scheme creation passes the configured minimum and maximum separately. Arbitrary minimum/maximum creation controls remain unavailable in this release.
 
 The native size bounds constrain primer pairing offsets, not exact outer product length. The dialog labels the interval as nominal; users should inspect the resulting binding positions rather than treat it as a product-length guarantee.
+
+## Operations and visual review
+
+Primer3 and PrimalScheme runs appear immediately in the shared Operations Panel. The configuration dialog uses LGE's standard dataset-operation shell and closes on launch. Operations retain project routing, progress messages, cancellation, failure details and saved-result links independently of the sheet lifetime.
+
+Overview reports per-reference geometric coverage from the union of saved amplicon spans, with reference-length denominators, uncovered bases and separate primer tracks. Zero-coverage references remain visible; absent amplicon evidence is unknown. Primer3 candidates are reviewed individually and are never unioned as if all alternatives formed a scheme. These displays describe saved design coordinates rather than experimentally established amplification success.
+
+For PrimalScheme outputs with verified alignment/reference mappings, Binding inspection reuses the native MSA canvas, consensus display and annotation tracks in read-only mode. Selecting a primer focuses its footprint. The per-row comparison table highlights known mismatches at the mapped site; reverse primers are compared in reverse-complement orientation. Missing terminal data, internal gaps and ambiguous target bases are shown as unresolved rather than matches. Comparisons run on demand for the selected primer, and every row remains accessible. Primer3 MSA binding inspection is not yet supported; its normalized candidate/reference review remains available.

@@ -67,9 +67,7 @@ final class PrimerDesignDialogState {
   var maxAmpliconsPerMSA = ""
   var coreCount = String(PrimalScheme3DesignOptions.defaultCoreCount)
   var excludeUncoveredEnds = true
-  var progressMessage: String?
   var errorMessage: String?
-  var completedURL: URL?
   var isRunning = false
 
   init(projectURL: URL? = nil) { self.projectURL = projectURL?.resolvingSymlinksInPath().standardizedFileURL }
@@ -140,8 +138,6 @@ final class PrimerDesignDialogState {
     inputErrors = [:]
     selectedRecordIndices = [:]
     templateRowIndices = [:]
-    completedURL = nil
-    progressMessage = nil
     errorMessage = nil
     inspectionRevision &+= 1
   }

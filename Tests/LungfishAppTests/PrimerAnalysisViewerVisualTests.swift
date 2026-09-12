@@ -49,7 +49,7 @@ final class PrimerAnalysisViewerVisualTests: XCTestCase {
     }
 
     private func makeFixture(in root: URL) throws -> URL {
-        let labels = ["MHC class I", "MHC class II DP", "MHC class II DQ", "MHC class II DRB"]
+        let labels = ["Synthetic alignment A", "Synthetic alignment B"]
         var inputs: [PrimerAnalysisInput] = []
         var artifacts: [PrimerAnalysisSourceArtifact] = []
         for (index, label) in labels.enumerated() {
@@ -59,13 +59,20 @@ final class PrimerAnalysisViewerVisualTests: XCTestCase {
             inputs.append(.init(id: UUID(), label: label, artifactPaths: [path]))
             artifacts.append(.init(sourceURL: source, relativePath: path, role: "input", format: "text"))
         }
-        let source = root.appendingPathComponent("result.txt")
-        try Data("Opaque example result; no biological design\n".utf8).write(to: source)
-        artifacts.append(.init(sourceURL: source, relativePath: "native/result.txt", role: "nativeOutput", format: "text"))
-        let destination = root.appendingPathComponent("MHC example results.lungfishprimeranalysis")
+        let nativeFiles: [(String, String, String)] = [
+            ("reference.fasta", ">target_A\n" + String(repeating: "ACGT", count: 250) + "\n>target_B\n" + String(repeating: "ACGT", count: 200) + "\n", "fasta"),
+            ("primer.bed", "target_A\t50\t70\tfirst_LEFT\t1\t+\tACGTACGTACGTACGTACGT\n" + "target_A\t430\t450\tfirst_RIGHT\t1\t-\tACGTACGTACGTACGTACGT\n" + "target_A\t350\t370\tsecond_LEFT\t2\t+\tACGTACGTACGTACGTACGT\n" + "target_A\t780\t800\tsecond_RIGHT\t2\t-\tACGTACGTACGTACGTACGT\n", "bed"),
+            ("amplicon.bed", "target_A\t50\t450\tfirst\t1\n" + "target_A\t350\t800\tsecond\t2\n", "bed")
+        ]
+        for (name, contents, format) in nativeFiles {
+            let source = root.appendingPathComponent(name)
+            try Data(contents.utf8).write(to: source)
+            artifacts.append(.init(sourceURL: source, relativePath: "native/" + name, role: "nativeOutput", format: format))
+        }
+        let destination = root.appendingPathComponent("Synthetic scheme review.lungfishprimeranalysis")
         return try PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(.init(
             analysisID: UUID(), runID: UUID(), grouping: .combined, inputs: inputs,
-            results: [.init(id: UUID(), label: "Combined example", inputIDs: inputs.map(\.id), artifactPaths: ["native/result.txt"])],
+            results: [.init(id: UUID(), label: "Combined example", inputIDs: inputs.map(\.id), artifactPaths: nativeFiles.map { "native/" + $0.0 })],
             artifacts: artifacts, destinationURL: destination,
             invocation: .init(argv: CommandLine.arguments, callerVersion: "visual-test",
                               explicitOptions: [:], runtimeIdentity: .init())

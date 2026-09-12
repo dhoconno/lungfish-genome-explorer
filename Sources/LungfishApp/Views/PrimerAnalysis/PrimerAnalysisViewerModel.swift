@@ -11,6 +11,8 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
   let primer3Results: Primer3NormalizedResults?
   let toolProvenance: [ProvenanceEnvelope]
   let primalSchemeResults: [PrimalSchemeDisplayResult]
+  var designReview: [PrimerTargetDesignReview] = []
+  var bindingContexts: [PrimerBindingInspectionContext] = []
 
   nonisolated static func load(from url: URL) throws -> Self {
     let bundle = try PrimerAnalysisBundle.load(from: url) {
@@ -56,6 +58,7 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
       }
     }
     var schemes: [PrimalSchemeDisplayResult] = []
+    var reviews: [PrimerTargetDesignReview] = normalized.map(PrimerDesignReview.primer3) ?? []
     for result in bundle.manifest.results {
       for path in result.artifactPaths where path.hasSuffix("/primer.bed") {
         let referencePath = String(path.dropLast("primer.bed".count)) + "reference.fasta"
@@ -75,10 +78,19 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
         schemes.append(try PrimalSchemeDisplayResult.parse(id: path,
           title: result.label ?? result.id.uuidString,
           bed: verifiedBytes(bed, in: bundle), reference: verifiedBytes(reference, in: bundle), referenceLabels: labels, orderSheetURL: orderSheetURL))
+        let ampliconPath = String(path.dropLast("primer.bed".count)) + "amplicon.bed"
+        let ampliconArtifact = result.artifactPaths.contains(ampliconPath)
+          ? bundle.manifest.artifacts.first(where: { $0.relativePath == ampliconPath }) : nil
+        reviews += try PrimerDesignReview.primalScheme(id: path, label: result.label ?? result.id.uuidString,
+          reference: verifiedBytes(reference, in: bundle),
+          amplicons: ampliconArtifact.map { try verifiedBytes($0, in: bundle) },
+          primers: schemes.last!.primers, labels: labels)
+
       }
     }
     return Self(bundle: bundle, provenance: provenance, provenanceJSON: provenanceJSON,
-                primer3Results: normalized, toolProvenance: toolProvenance, primalSchemeResults: schemes)
+                primer3Results: normalized, toolProvenance: toolProvenance, primalSchemeResults: schemes,
+                designReview: reviews, bindingContexts: try PrimerBindingInspectionContext.load(bundle: bundle, schemes: schemes))
   }
 
   private nonisolated static func verifiedBytes(_ artifact: PrimerAnalysisArtifact, in bundle: PrimerAnalysisBundle) throws -> Data {

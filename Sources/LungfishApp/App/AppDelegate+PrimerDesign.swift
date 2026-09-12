@@ -1,4 +1,5 @@
 import AppKit
+import LungfishKit
 
 extension AppDelegate {
   @objc func showPCRPrimerDesign(_ sender: Any?) {
@@ -26,13 +27,12 @@ extension AppDelegate {
     }
     PrimerDesignDialogPresenter.present(from: window, projectURL: projectURL, inputURLs: supported,
       canRun: canRun,
+      routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: controller.projectSession.windowStateScope),
+      onShowOperations: { [weak self] in self?.showOperationsPanel(nil) },
       onResultSaved: { [weak controller] _ in
+        guard (controller?.projectSession.projectURL ?? controller?.mainSplitViewController?.sidebarController?.currentProjectURL)?
+          .standardizedFileURL == projectURL.standardizedFileURL else { return }
         controller?.mainSplitViewController?.sidebarController?.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
-      }, onOpenResult: { [weak controller] url in
-        guard let split = controller?.mainSplitViewController,
-          split.sidebarController?.currentProjectURL?.standardizedFileURL == projectURL.standardizedFileURL else { return }
-        _ = split.sidebarController?.selectItem(forURL: url)
-        split.displayPrimerAnalysisBundleFromSidebar(at: url)
       })
   }
 }

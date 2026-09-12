@@ -479,6 +479,55 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         return true
     }
 
+    /// Displays a stored scientific snapshot with transient, read-only overlays.
+    /// No bundle URL is retained: annotation mutations and scientific exports are unavailable.
+    func displayReadOnlyAlignment(
+        fasta: String,
+        annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord]
+    ) throws {
+        _ = view
+        let parsedRows = try Self.parseAlignedFASTA(fasta)
+        bundleURL = nil
+        bundle = nil
+        onAddAnnotationRequested = nil
+        onProjectAnnotationRequested = nil
+        onInferTreeRequested = nil
+        alignmentRows = parsedRows
+        rowIDsByIndex = parsedRows.indices.map { "inspection-row-\($0)" }
+        coordinateMapsByRowID = [:]
+        columnSummaries = Self.computeColumnSummaries(for: parsedRows)
+        annotationStore = .init(sourceAnnotations: annotations)
+        refreshAnnotationTracks()
+        displayedColumns = Array(0..<columnSummaries.count)
+        selectedRowIndex = parsedRows.isEmpty ? nil : 0
+        selectedAlignmentColumn = displayedColumns.first
+        selectedRowIndices = selectedRowIndex.map { IndexSet(integer: $0) } ?? []
+        rowSelectionAnchor = selectedRowIndex
+        isWholeRowSelection = false
+        selectedAlignmentColumnRange = selectedAlignmentColumn.map { $0...$0 }
+        selectionAnchor = selectedRowIndex.flatMap { row in selectedAlignmentColumn.map { (row, $0) } }
+        colorScheme = .nucleotide
+        numberingMode = .alignmentColumns
+        consensusDisplayOptions = MSAConsensusDisplayOptions()
+        referenceRowID = rowIDsByIndex.first
+        residueIdentityDisplayMode = .letters
+        colorSchemeControl.selectedSegment = colorScheme.rawValue
+        siteModeControl.selectedSegment = 0
+        searchField.stringValue = ""
+        configureCanvasViews()
+        zoomToFit()
+        refreshAnnotationDrawer()
+        updateVariableSiteButtonAvailability()
+    }
+
+    /// Focuses a transient inspection overlay without mutating a stored annotation.
+    func focusReadOnlyAnnotation(id: String) {
+        guard bundleURL == nil,
+              let annotation = annotationStore.allAnnotations.first(where: { $0.id == id }) else { return }
+        selectAnnotation(annotation, zoom: true)
+        centerAnnotation(annotation)
+    }
+
     @objc private func siteModeChanged(_ sender: NSSegmentedControl) {
         applySiteMode()
     }
@@ -1666,6 +1715,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         addAnnotationItem.target = self
+        addAnnotationItem.isEnabled = bundle != nil
         menu.addItem(addAnnotationItem)
         let applyAnnotationItem = NSMenuItem(
             title: "Apply Annotation to Selected Rows",
@@ -1673,7 +1723,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         applyAnnotationItem.target = self
-        applyAnnotationItem.isEnabled = selectedRowIndices.count > 1 && !selectedAnnotations().isEmpty
+        applyAnnotationItem.isEnabled = bundle != nil && selectedRowIndices.count > 1 && !selectedAnnotations().isEmpty
         menu.addItem(applyAnnotationItem)
         return menu
     }

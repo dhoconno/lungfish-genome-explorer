@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LungfishWorkflow
+import LungfishKit
 
 @MainActor
 final class PrimerDesignDialogPresenter {
@@ -8,9 +9,8 @@ final class PrimerDesignDialogPresenter {
   private let id = UUID()
   private let state: PrimerDesignDialogState
   private let panel = NSPanel(contentRect: .zero, styleMask: [.titled, .resizable], backing: .buffered, defer: true)
-  private var runTask: Task<Void, Never>?
-  private var runID: UUID?
-  private var openResult: ((URL) -> Void)?
+  private var routeContext: OperationRouteContext?
+  private var showOperations: (() -> Void)?
   private var parentCloseObserver: NSObjectProtocol?
   private var resultSaved: ((URL) -> Void)?
   private var canRun: (() -> Bool)?
@@ -18,34 +18,26 @@ final class PrimerDesignDialogPresenter {
   private init(projectURL: URL) { state = PrimerDesignDialogState(projectURL: projectURL) }
 
   static func present(from window: NSWindow, projectURL: URL, inputURLs: [URL],
-                      canRun: @escaping () -> Bool, onResultSaved: @escaping (URL) -> Void,
-                      onOpenResult: @escaping (URL) -> Void) {
+                      canRun: @escaping () -> Bool, routeContext: OperationRouteContext,
+                      onShowOperations: @escaping () -> Void, onResultSaved: @escaping (URL) -> Void) {
     let presenter = PrimerDesignDialogPresenter(projectURL: projectURL)
     presenter.canRun = canRun
+    presenter.routeContext = routeContext
+    presenter.showOperations = onShowOperations
     presenter.resultSaved = onResultSaved
-    presenter.openResult = onOpenResult
     presenter.state.addInputs(inputURLs)
     presenter.panel.title = "PCR Primer Design"
     presenter.panel.isReleasedWhenClosed = false
     presenter.panel.contentViewController = NSHostingController(rootView: PrimerDesignDialog(
       state: presenter.state,
       onRun: { [weak presenter] in presenter?.run() },
-      onCancelRun: { [weak presenter] in presenter?.cancelRun() },
-      onClose: { [weak presenter] in presenter?.close() },
-      onOpenResult: { [weak presenter] url in
-        guard let presenter else { return }
-        let callback = presenter.openResult
-        presenter.close()
-        callback?(url)
-      }))
+      onClose: { [weak presenter] in presenter?.close() }))
     presenter.panel.setContentSize(NSSize(width: 1020, height: 780))
     presenter.parentCloseObserver = NotificationCenter.default.addObserver(
       forName: NSWindow.willCloseNotification, object: window, queue: .main
     ) { [weak presenter] _ in
       Task { @MainActor [weak presenter] in
         guard let presenter else { return }
-        presenter.runTask?.cancel()
-        presenter.runID = nil
         presenter.dismiss()
       }
     }
@@ -62,18 +54,12 @@ final class PrimerDesignDialogPresenter {
     if let parent = panel.sheetParent { parent.endSheet(panel) }
     panel.orderOut(nil)
     panel.contentViewController = nil
-    openResult = nil
     resultSaved = nil
     canRun = nil
+    showOperations = nil
     if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
     parentCloseObserver = nil
     Self.activePresenters[id] = nil
-  }
-
-  private func cancelRun() {
-    state.progressMessage = "Cancelling…"
-    runID = nil
-    runTask?.cancel()
   }
 
   private func run() {
@@ -94,50 +80,28 @@ final class PrimerDesignDialogPresenter {
         explicitOptions: visibleOptions, runtimeIdentity: runtime)
       let checksums = state.inputSummaries.mapValues(\.checksumSHA256)
       let executable: URL? = nil
-      let generation = UUID()
-      let progress: @Sendable (Double, String) -> Void = { [weak self] _, message in
-        Task { @MainActor [weak self] in
-          guard let self, self.runID == generation, self.state.isRunning else { return }
-          self.state.progressMessage = message
-        }
-      }
-      let operation: @Sendable () async throws -> URL
+      let operation: @Sendable (@escaping @Sendable (Double, String) -> Void) async throws -> URL
       if state.engine == .primer3 {
         let request = Primer3DesignRequest(
           inputURLs: state.inputURLs, selections: try state.primer3Selections(), destinationURL: destination,
           options: try state.primer3Options(), invocation: invocation, executableURL: executable,
           expectedInputChecksums: checksums)
-        operation = { try await Primer3DesignPipeline().run(request: request, progress: progress) }
+        operation = { progress in try await Primer3DesignPipeline().run(request: request, progress: progress) }
       } else {
         let request = PrimalScheme3DesignRequest(
           inputURLs: state.inputURLs, destinationURL: destination,
           options: try state.primalSchemeOptions(),
           grouping: state.grouping, invocation: invocation, executableURL: executable,
           expectedInputChecksums: checksums)
-        operation = { try await PrimalScheme3DesignPipeline().run(request: request, progress: progress) }
+        operation = { progress in try await PrimalScheme3DesignPipeline().run(request: request, progress: progress) }
       }
-      runID = generation
-      state.isRunning = true
-      state.errorMessage = nil
-      state.completedURL = nil
-      state.progressMessage = "Starting \(state.engine.rawValue)…"
-      runTask = Task { [weak self] in
-        guard let self else { return }
-        do {
-          let output = try await operation()
-          self.resultSaved?(output)
-          self.state.completedURL = output
-          self.state.progressMessage = "Analysis saved."
-        } catch is CancellationError {
-          self.state.progressMessage = "Run cancelled."
-        } catch {
-          self.state.errorMessage = error.localizedDescription
-          self.state.progressMessage = nil
-        }
-        self.state.isRunning = false
-        self.runID = nil
-        self.runTask = nil
-      }
+      let saved = resultSaved
+      let showPanel = showOperations
+      _ = PrimerDesignOperation.start(title: "\(state.engine.rawValue) · \(state.analysisName)",
+        destination: destination, routeContext: routeContext, operation: operation,
+        onResultSaved: { output in saved?(output) })
+      dismiss()
+      showPanel?()
     } catch { state.errorMessage = error.localizedDescription }
   }
 }

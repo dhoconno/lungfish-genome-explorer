@@ -201,6 +201,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
     private func runOffMain(request: PrimalScheme3DesignRequest,
                             progress: (@Sendable (Double, String) -> Void)?) async throws -> URL {
         try Task.checkCancellation()
+        progress?(0.02, "Validating alignment inputs")
         guard !request.inputURLs.isEmpty, Set(request.inputURLs).count == request.inputURLs.count else {
             throw PrimalScheme3DesignError.invalidRequest("Select distinct alignment inputs.")
         }
@@ -219,8 +220,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         defer { try? FileManager.default.removeItem(at: scratch) }
         var artifacts: [PrimerAnalysisSourceArtifact] = []
         var inputs: [Input] = []
-        for url in request.inputURLs {
+        for (inputIndex, url) in request.inputURLs.enumerated() {
             try Task.checkCancellation()
+            progress?(0.05 + 0.15 * Double(inputIndex) / Double(request.inputURLs.count), "Preparing alignment \(inputIndex + 1)/\(request.inputURLs.count)")
             guard let expected = request.expectedInputChecksums[url], expected.count == 64,
                   expected == (try Primer3InputLoader.fingerprint(url)) else {
                 throw PrimalScheme3DesignError.invalidRequest("An input changed after inspection or has no inspection checksum: \(url.lastPathComponent)")
@@ -278,7 +280,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         var results: [PrimerAnalysisResult] = []
         for (index, group) in groups.enumerated() {
             try Task.checkCancellation()
-            progress?(Double(index) / Double(groups.count), "Running PrimalScheme3-LGE custom fork (\(index + 1)/\(groups.count))")
+            progress?(0.2 + 0.7 * Double(index) / Double(groups.count), "Running PrimalScheme3-LGE custom fork (\(index + 1)/\(groups.count))")
             let resultID = UUID()
             let output = scratch.appendingPathComponent("native/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -419,6 +421,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                                  inputIDs: group.map(\.id), artifactPaths: resultPaths))
         }
         try Task.checkCancellation()
+        progress?(0.95, "Publishing primer analysis and ordering worksheets")
         let bundle = try writer.write(.init(analysisID: analysisID, runID: runID, grouping: request.grouping,
             inputs: inputs.map { .init(id: $0.id, label: $0.originalURL.lastPathComponent, artifactPaths: $0.paths) },
             results: results, artifacts: artifacts, destinationURL: destination, invocation: request.invocation))

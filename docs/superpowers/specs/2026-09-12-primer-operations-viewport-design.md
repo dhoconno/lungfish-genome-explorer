@@ -1,0 +1,15 @@
+# Primer operations and visual review
+
+Both Primer3 and PrimalScheme register synchronously with the shared OperationCenter before execution. The standard dataset-operations dialog shell matches existing LGE tools and dismisses on launch. Progress, cancellation, errors and result links live in Operations, independent of the configuration sheet's lifetime. Runs retain the originating project route and destination locking.
+
+The Overview replaces file lists with reference-wide amplicon and primer tracks. PrimalScheme coverage is the union of validated intervals in the saved amplicon BED divided by full saved reference length; overlaps count once. All saved references remain visible, including zero-coverage references. Missing amplicon evidence is unknown rather than zero. Primer3 candidate pairs are shown separately, with product spans over their full template and probes distinguished from primers. No experimental quality score or allele amplification percentage is inferred.
+
+PrimalScheme binding inspection reuses the native MSA canvas in a read-only mode. It verifies the stored reference against the ungapped first input row, maps saved BED coordinates into alignment columns, and displays transient primer pool tracks alongside the consensus. Selection focuses the corresponding annotation. Per-row comparisons are computed only for the selected primer on a cancellable background task; the scrolling table retains all rows. Reverse primers use reverse-complement orientation. Primer IUPAC codes permit compatible concrete target bases; ambiguous target symbols, uncovered ends and internal/reference indels remain unresolved. Primer3 MSA binding inspection is not yet available and has an explicit unavailable state.
+
+No scientific payload is modified or exported by these views. The scientific source files are checksum-verified before computation; existing bundle provenance and ordering artifacts remain intact. Persisted exports continue to use their established provenance-writing workflows.
+
+Validation covers operation registration before execution, progress while running, completion/failure/cancellation and locked destinations; interval union/zero/unknown coverage; separate Primer3 candidates; coordinate orientation, missingness and ambiguity; read-only canvas state; preservation of all rows in a 2,000-row comparison; and reopening/rendering saved human MHC results. Offscreen snapshots are used instead of launching the user's active app session.
+
+## Verification evidence
+
+The integrated focused suite passed 58 tests, including live progress before completion and stored human MHC binding inspection. A final 10-test render/binding check passed after viewport spacing and snapshot timing adjustments. The standard invocation shell, coverage Overview and complete MHC binding pane were visually inspected from offscreen snapshots. Logs and images remain in `.build/primer-viewport-*` in the isolated worktree. No new biological design runs or engine changes were needed.

@@ -31,7 +31,7 @@ final class PrimerDesignDialogVisualTests: XCTestCase {
       state.grouping = variant == 2 ? .combined : .independent
       let height: CGFloat = variant == 2 ? 1240 : 780
       let host = NSHostingView(rootView: PrimerDesignDialog(
-        state: state, onRun: {}, onCancelRun: {}, onClose: {}, onOpenResult: { _ in }))
+        state: state, onRun: {}, onClose: {}))
       let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: height),
                             styleMask: [.borderless], backing: .buffered, defer: false)
       window.isReleasedWhenClosed = false

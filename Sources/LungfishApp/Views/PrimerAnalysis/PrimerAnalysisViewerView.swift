@@ -11,6 +11,7 @@ struct PrimerAnalysisViewerView: View {
   enum Section: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case results = "Results"
+    case binding = "Binding inspection"
     case files = "Files"
     case provenance = "Provenance"
 
@@ -74,6 +75,11 @@ struct PrimerAnalysisViewerView: View {
       .accessibilityIdentifier("primerAnalysisViewer.tabs")
 
       Divider()
+      if selectedSection == .binding {
+        PrimerBindingInspectionView(contexts: snapshot.bindingContexts)
+          .padding(20)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
       ScrollView {
         Group {
           switch selectedSection {
@@ -82,12 +88,14 @@ struct PrimerAnalysisViewerView: View {
             if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url) }
             else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3") }
             else { Text("Native scheme outputs are preserved in the Files inventory.").foregroundStyle(.secondary) }
+          case .binding: EmptyView()
           case .files: files(snapshot)
           case .provenance: provenance(snapshot)
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+      }
       }
     }
   }
@@ -110,20 +118,27 @@ struct PrimerAnalysisViewerView: View {
         .padding(.top, 6)
       }
 
-      sectionTitle("Inputs")
-      ForEach(manifest.inputs, id: \.id) { input in
-        record(label: input.label, id: input.id, lines: input.artifactPaths)
+      if snapshot.designReview.isEmpty {
+        ContentUnavailableView("Design summary unavailable", systemImage: "chart.bar.xaxis", description: Text("This saved analysis has no supported coordinates to summarize. Its original outputs remain available in Files."))
+      } else {
+        HStack(spacing: 28) {
+          summaryMetric(snapshot.primer3Results == nil ? "Mapping references" : "Candidate reviews", value: String(snapshot.designReview.count))
+          summaryMetric("Primer sites", value: String(snapshot.designReview.reduce(0) { $0 + $1.primers.count }))
+          if snapshot.primer3Results == nil {
+            summaryMetric("Scheme pools", value: String(snapshot.primalSchemeResults.reduce(0) { $0 + Set($1.primers.map(\.pool)).count }))
+          }
+        }
+        Text(snapshot.primer3Results == nil
+          ? "Coverage shows the span of saved amplicons across each mapping reference. It does not measure amplification success or the fraction of alleles that will amplify."
+          : "Review each candidate pair separately. Template span is the portion between that pair’s outer primer boundaries; alternative pairs are not combined into a scheme.")
+          .font(.callout).foregroundStyle(.secondary)
+        ForEach(snapshot.designReview) { target in
+          PrimerTargetReviewCard(target: target)
+        }
+        Button("Inspect primers and pools") { selectedSection = .results }
+          .accessibilityIdentifier("primerAnalysisViewer.inspectResults")
       }
 
-      sectionTitle("Results")
-      if manifest.results.isEmpty {
-        Text("No result records are stored in this bundle.")
-          .foregroundStyle(.secondary)
-      } else {
-        ForEach(manifest.results, id: \.id) { result in
-          resultRecord(result, inputs: manifest.inputs)
-        }
-      }
     }
     .accessibilityIdentifier("primerAnalysisViewer.overview")
   }
@@ -202,43 +217,10 @@ struct PrimerAnalysisViewerView: View {
     }
   }
 
-  private func record(label: String?, id: UUID, lines: [String]) -> some View {
+  private func summaryMetric(_ label: String, value: String) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(label ?? "Unlabeled record").font(.headline)
-      ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-        Text(line).font(.caption).textSelection(.enabled)
-      }
-      DisclosureGroup("Stable identifier") {
-        Text(id.uuidString).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-      }
-    }
-  }
-
-  private func resultRecord(
-    _ result: PrimerAnalysisResult,
-    inputs: [PrimerAnalysisInput]
-  ) -> some View {
-    let labelsByID = Dictionary(uniqueKeysWithValues: inputs.map { ($0.id, $0.label) })
-    let membershipLabels = result.inputIDs.map { id in
-      (labelsByID[id] ?? nil) ?? "Unlabeled input"
-    }
-    return VStack(alignment: .leading, spacing: 4) {
-      Text(result.label ?? "Unlabeled record").font(.headline)
-      Text("Input memberships: \(membershipLabels.joined(separator: ", "))")
-        .font(.caption)
-      ForEach(result.artifactPaths, id: \.self) { path in
-        Text("Artifact: \(path)").font(.caption).textSelection(.enabled)
-      }
-      DisclosureGroup("Stable identifiers") {
-        VStack(alignment: .leading, spacing: 3) {
-          Text("Result: \(result.id.uuidString)")
-          ForEach(result.inputIDs, id: \.self) { id in
-            Text("Input: \(id.uuidString)")
-          }
-        }
-        .font(.system(.caption, design: .monospaced))
-        .textSelection(.enabled)
-      }
+      Text(value).font(.title2.weight(.semibold)).monospacedDigit()
+      Text(label).font(.caption).foregroundStyle(.secondary)
     }
   }
 }
