@@ -147,7 +147,22 @@ XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.value, "
 - [ ] Finish current generation with the renderer as the last XLSX writer; no subsequent save erases caches. Keep no-clobber, stage/commit, provenance and atomic baseline/workbook publication. Block migration while unreviewed v1 edits exist; accepted v1 edits can regenerate v2 through existing review/retry guard.
 - [ ] Run targeted writer/projection suites, adapt legacy-layout assertions only where user intentionally changed the contract, and retain old-input migration tests. Verify receipts bind final cached workbook bytes and resolved palette input. Self-review and commit.
 
-## Task 4: Integrated workflow, user guidance, and acceptance
+## Task 4: Migrate legacy writer regression expectations
+
+**Files:**
+- Modify: `Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift`
+- Modify: `Tests/LungfishCLITests/GenotypePivotFilteredCopyTests.swift`
+- Modify production only to resolve a concretely reproduced behavioral defect, with controller approval of its scope.
+
+**Interfaces:** Consume Task3 production writer and its classified affected-suite report. This task updates intentionally changed workbook presentation expectations without deleting scientific integrity coverage. Final visual/UI acceptance is Task5.
+
+- [ ] Read Task3 failure classification. The affected run had 56 failing methods: 47 removed-sheet lookups, 2 old shape/address assumptions, 5 initial-geometry authority expectations, 1 obsolete scan-counter test, and 1 genuine initial MiSeq refresh issue fixed in Task3. Do not infer that all failures are harmless; follow each test's scientific purpose.
+- [ ] Adapt old output worksheet/coordinate access to the new three-sheet schema and retained trusted manifest. Preserve old-schema fixtures when they exercise migration, pending edits, or original-data retention. Do not mass-replace all legacy sheet names or skip/delete tests to make the suite green.
+- [ ] For the five initial-geometry cases, assert exact catalog/CSV-derived rebuild and unchanged original source checksum. An initial un-attested legacy workbook is presentation input, not scientific identity authority. Keep attested-v1 pending-edit and post-attestation layout/raw-value mutation rejection tests intact.
+- [ ] Replace obsolete scan counters with behavior/no-op assertions. Route any genuinely absent planned style behavior to Task5 with exact test names; do not fake old metrics. Report behavioral failures immediately, implement only scoped fixes after confirming the cause.
+- [ ] Run focused changed methods, then one affected revision/filtered suite. Record exact counts, remaining pending-style tests if any, and coverage mappings in task report. Commit the bounded migration with no unrelated source changes.
+
+## Task 5: Integrated workflow, user guidance, and acceptance
 
 **Files:**
 - Modify: `Tests/LungfishAppTests/GenotypeViewportExcelExportTests.swift`
@@ -160,7 +175,7 @@ XCTAssertEqual(inspection.changes.first(where: { $0.kind == .review })?.value, "
 - Modify as needed for existing analyst style parity: presentation payload, current presentation adapter, viewport snapshot/projection serializer and capture; preserve existing font, border, and row/column/cell precedence semantics.
 - Create: `docs/reviews/2026-09-12-three-sheet-excel-qa.md`
 
-**Interfaces:** Exercise existing Inspector export/review paths; no new permanent buttons. Consume completed Tasks 1–3.
+**Interfaces:** Exercise existing Inspector export/review paths; no new permanent buttons. Consume completed Tasks 1–4 and the higher-reasoning expert acceptance findings in the QA handoff.
 
 - [ ] Extend real-controller tests to edit direct calls/Notes in generated current.xlsx, accept through the existing annotation store, and assert immediate matrix/call refresh, regenerated three-sheet current, filtered export, and save/reopen parity. Include mixed call+FP+comment and explicit clears. Run focused RED/GREEN for any stale legacy UI routing.
 - [ ] Replace obsolete sheet-navigation instructions with direct-cell/Note guidance. Verify audit/history and original payloads remain accessible from LGE; do not delete storage. Keep existing single Inspector Export to Excel dialog and role explanations.
