@@ -19,7 +19,7 @@ The affected runner executed 177 tests: 174 passed and exactly three retained as
 - Scientific assertions read actual retained payload fields, manifest fields and workbook cells. Helpers now read actual `data_type`, reviews, retained calls, comments and manifest loci. Obsolete fabricated invalid-review rows, conflict counts, sheet flags, missing-target types and display-as-closest-reference aliases were removed.
 - A focused failure was initially misdiagnosed as call fan-out. Inspection proved both retained semantic payload and trusted manifest contained all seven supplied loci (`MHC-A`, `MHC-B`, `MHC-DRB`, `MHC-DQA`, `MHC-DQB`, `MHC-DPA`, `MHC-DPB`). The defect was test-helper aggregation of DQA/DQB and DPA/DPB. The helper was corrected, and all fourteen literal call assertions pass.
 - Candidate review targets use the exact scientific genotype (`Mafa-A1*018:01:01:01_5nt_nov`) plus stable ID `cluster-1`; stable ID alone is not substituted for genotype identity.
-- Candidate raw-support expectations come from the fixture observations: shared `cluster-1` and `cluster-3` have `sample-a/sample-b` values `7/3` and `4/2`; singleton `cluster-2`, singleton `cluster-4`, and unnameable `cluster-u` have `sample-a` value `4` and no `sample-b` observation, so their final `sample-b` cells are `nil` and ineligible, not fabricated zeroes. The four reviewable-catalog authority cases separately assert their explicit roster-attested zeroes.
+- Candidate raw-support expectations come from the fixture observations: shared `cluster-1` and `cluster-3` have `sample-a/sample-b` values `7/3` and `4/2`; singleton `cluster-2`, singleton `cluster-4`, and unnameable `cluster-u` have `sample-a` value `4` and no `sample-b` observation, so their final `sample-b` cells are `nil` and ineligible, not fabricated zeroes. The same missing-pivot fixture's validated long-summary CSV attests the nil-stable-ID reference `NHP00001` at `101/202`; its reference record supplies display name `Mafa-A1*001:01:01:01`, and the established genotype locus grouping yields `MHC-NHP00001`. The test asserts that exact reference tuple and values alongside the five candidate/unnameable tuples. The four reviewable-catalog authority cases separately assert their explicit roster-attested zeroes.
 - Retention checks reload the final stored unnameable JSON and annotation sidecars after publication, compare their bytes/checksums, and then assert exact retained records. They no longer inspect only a pre-update decode or the submitted in-memory object.
 - The version guard changes the actual manifest-bound `Export Metadata` `Presentation schema` cell from `2` to `3`; regeneration rejects it without mutation.
 - The biological-order test now has three independent checks: a literal expected named-allele sequence, agreement with `MHCAlleleDisplayOrder.lessThan`, and separately retained unnameable `cluster-u` evidence.
@@ -67,7 +67,7 @@ Every method from the Task 3 failure ledger is mapped below. “Same name” mea
 | `testApplyHaplotypeOverridesPatchesCurrentWorkbookAndRecordsSidecarProvenance` | same name | supplied calls, exact DP/DRB comments, revision/provenance and sidecar descriptors |
 | `testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook` | same name | exact reference catalog row, raw zero, fill/comment Notes, three-sheet output |
 | `testApplyManualHaplotypeSnapshotWritesFourteenLiteralValuesAndSidecarRevisionProvenance` | same name | all fourteen values at seven exact loci plus sidecar revision provenance |
-| `testCandidateUpdateRejectsMissingUnifiedPivotWithoutBundleMutation` | `testCandidateUpdateRebuildsMissingUnifiedPivotFromValidatedArtifacts` | validated artifact rebuild with literal five-row identity, exact `sample-a/sample-b` raw matrix (`7/3`, `4/nil`, `4/2`, `4/nil`, `4/nil`), manifest-cell agreement, eligibility/reviews and original source checksum |
+| `testCandidateUpdateRejectsMissingUnifiedPivotWithoutBundleMutation` | `testCandidateUpdateRebuildsMissingUnifiedPivotFromValidatedArtifacts` | validated artifact rebuild with an exact complete six-row tuple roster: CSV/reference `MHC-NHP00001` / `NHP00001` / nil stable ID at `101/202`, plus the five candidate/unnameable identities and raw matrix (`7/3`, `4/nil`, `4/2`, `4/nil`, `4/nil`); manifest-cell agreement, eligibility/reviews and original source checksum |
 | `testCommittedCleanupFailureReturnsSuccessWarningWithoutSecondRetiredGeneration` | same name | cleanup warning/recovery semantics and single retired generation |
 | `testCompleteSevenLocusHaplotypedSnapshotIsNeverInferredAsManual` | same name | seven-locus haplotyped authority classification, exact calls |
 | `testCurrentWorkbookScientificAndEditingTablesRetainEveryExactLocus` | same name | payload and manifest each retain every supplied exact locus; no DQ/DP helper aggregation |
@@ -133,3 +133,13 @@ Self-review confirmed:
 - the version guard mutates the actual workbook schema value;
 - deferred visual/OOXML expectations above distinguish numeric raw science from visible presentation;
 - the review-fix diff remains limited to `GenotypeWorkbookRevisionServiceTests.swift` and this report; the other owned filtered-copy test file needed no review-fix change, and there are no production changes.
+
+## Scoped rereview-fix verification
+
+The rereview fix used only the two requested methods:
+
+`swift test --jobs 6 --filter 'GenotypeWorkbookRevisionServiceTests/(testCandidateUpdateRebuildsMissingUnifiedPivotFromValidatedArtifacts|testAnnotationOnlyUpdateAttestsFullSemanticCallsAndRetainsTheirProvenance)'`
+
+Result: 2 executed, 2 passed, 0 failures, 6.088 seconds. Full log: `/tmp/task4-fix2-focused-final.log`.
+
+The removed `currentURL` declaration emits no warning. The build emitted only existing `result of call to 'execute' is unused [#no-usage]` warnings from the untouched `ProjectStorageCleanupExecutorTests.swift` at lines 846, 918, 1087, 2025, 2145, 2229, 2292, 2359, 2426, 2489, 2610, 2743, 2836, 2930, 2989, 3044, 3092, and 3319; the changed test file emitted no warning.

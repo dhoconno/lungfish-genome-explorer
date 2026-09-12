@@ -1714,8 +1714,34 @@ print(canonical)
 
         let payload = try currentPresentationPayload(in: fixture.bundleURL)
         XCTAssertEqual(payload.samples.map(\.id), ["sample-a", "sample-b"])
+        let actualRowRoster = payload.rows.map { row in
+            [
+                row.target.locus,
+                row.target.genotype,
+                row.target.stableClusterID ?? "<nil>",
+            ].joined(separator: "|")
+        }.sorted()
+        XCTAssertEqual(
+            actualRowRoster,
+            [
+                "MHC-NHP00001|NHP00001|<nil>",
+                "Mafa-A1|Mafa-A1*018:01:01:01_5nt_nov|cluster-1",
+                "Mafa-A1|Mafa-A1*018:01:01:01_5nt_nov|cluster-2",
+                "Mafa-B|Mafa-B*001:01_ext|cluster-3",
+                "Mafa-B|Mafa-B*002:01_ext|cluster-4",
+                "|cluster-u|cluster-u",
+            ].sorted()
+        )
         let manifestMatrix = try inspectManifestEvidenceMatrix(
             try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
+        )
+        try assertExactEvidenceRow(
+            in: payload,
+            manifestMatrix: manifestMatrix,
+            genotype: "NHP00001",
+            displayName: "Mafa-A1*001:01:01:01",
+            locus: "MHC-NHP00001",
+            samples: [("sample-a", 101, nil), ("sample-b", 202, nil)]
         )
         try assertExactEvidenceRow(
             in: payload,
@@ -6760,7 +6786,6 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             annotationSidecarURL: nil,
             into: fixture.bundleURL
         )
-        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         let scientificBefore = try currentPresentationPayload(in: fixture.bundleURL)
         let evidenceBefore = scientificBefore.rows.map { row in
             [
