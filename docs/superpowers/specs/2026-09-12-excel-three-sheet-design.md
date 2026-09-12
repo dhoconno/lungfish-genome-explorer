@@ -1,7 +1,7 @@
 # Three-sheet Excel viewing and reviewed editing
 
 Date: 2026-09-12
-Status: Proposed detailed design for user review; no implementation yet.
+Status: Approved by the user; implementation underway in codex/excel-three-sheet-layout.
 
 ## Approved direction
 
