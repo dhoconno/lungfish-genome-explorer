@@ -66,3 +66,32 @@ PrimalScheme3 keeps every native output under `native/<resultID>/`, including BE
 `Create Annotated Reference` and `primers analysis annotated-reference` materialize the selected Primer3 template and linked BED14 features into a new `.lungfishref`. The import and annotation steps record their real invocation and source analysis, and retain the stable analysis/result/input links. The analysis remains immutable.
 
 New PrimalScheme3-LGE custom-fork runs record their distinct tool name/version, explicit terminal-gap policy and native discovery backend. Their managed runtime receipt includes exact fork/upstream source revisions and a pinned release wheel. Stock PrimalScheme3 analyses retain their original provenance and remain readable.
+
+### PrimalScheme ordering worksheet, version 1
+
+New PrimalScheme analyses include `ordering-v1.csv` beside each stored
+`primer.bed`. This is an LGE-derived artifact, not a file emitted by PrimalScheme.
+It belongs to that scheme's result membership and is included in the bundle's
+checksummed artifact inventory and publication provenance. The bundle format
+remains version 1: older bundles without this optional artifact remain readable.
+
+The vendor-neutral CSV has one row per native BED record, sorted by numeric pool
+and retaining native order within each pool. Alternative oligos are never merged,
+and pool identifiers remain scoped to their individual scheme. Columns preserve
+oligo name, native 5′–3′ sequence (including reverse-strand oligos), length, native
+reference identifier, 1-based inclusive binding coordinates, strand, and ambiguous
+base count. Synthesis scale, purification, modifications, and order notes are
+intentionally blank for the researcher to complete in a working copy. No vendor,
+quantity, mixing ratio, completeness, or assay performance is inferred. CSV cells
+are quoted and spreadsheet formula triggers are escaped with a leading apostrophe.
+
+The result viewer groups oligos by pool, exposes sequences and ambiguity, and
+reveals the stored worksheet. Its loader verifies the worksheet checksum and
+recomputes the deterministic CSV from the stored BED before offering it. Editing
+files inside a bundle invalidates integrity checks; make a working copy for order
+preparation. All native outputs remain available in the Files inventory.
+
+Mapped reference spans may differ from oligo sequence lengths because alignment
+insertions or deletions affect coordinates. The worksheet preserves both values
+separately; the oligo length is computed from its synthesis sequence, never from
+the reference span.

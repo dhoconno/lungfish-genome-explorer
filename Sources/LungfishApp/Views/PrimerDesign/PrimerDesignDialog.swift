@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import LungfishIO
+import LungfishWorkflow
 
 struct PrimerDesignDialog: View {
   private struct InputLoadIdentity: Hashable {
@@ -19,7 +20,7 @@ struct PrimerDesignDialog: View {
       HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 5) {
           Text("PCR Primer Design").font(.title2.bold())
-          Text("Design from sequences or aligned MHC alleles, and keep the complete analysis.")
+          Text("Design from sequences or alignments and save the complete analysis in this project.")
             .foregroundStyle(.secondary)
         }
         Spacer()
@@ -41,12 +42,6 @@ struct PrimerDesignDialog: View {
             }.buttonStyle(.plain)
           }
           Spacer()
-          Text("MHC examples").font(.caption.bold()).foregroundStyle(.secondary)
-          ForEach(PrimerDesignMHCExemplar.allCases) { example in
-            Button(example.rawValue) { state.applyExemplar(example) }.buttonStyle(.link)
-          }
-          Text("Example names only. Choose full-length input sequences and appropriate design settings.")
-            .font(.caption).foregroundStyle(.secondary)
         }.padding(16).frame(width: 220).background(.quaternary.opacity(0.2))
         Divider()
         ScrollView {
@@ -175,16 +170,13 @@ struct PrimerDesignDialog: View {
       }
       Text(state.grouping == .independent
         ? "Each alignment produces a separate scheme and retains its input identity."
-        : "Run PrimalScheme3-LGE custom fork panel-create once with all selected alignments to design a combined panel.")
+        : "Design a combined panel from all selected alignments.")
         .font(.caption).foregroundStyle(.secondary)
-      if state.grouping == .combined {
-        Text("Combined panel mode: Equal. Reference identifiers are normalized for execution, with a stored mapping to the original allele names.")
-          .font(.caption).foregroundStyle(.secondary)
-      }
       HStack {
-        numberField("Amplicon size (bp)", $state.ampliconSize)
+        numberField("Target amplicon size (bp)", $state.ampliconSize)
         numberField("Primer pools", $state.poolCount)
       }
+      Text(state.effectiveAmpliconRange).font(.caption).foregroundStyle(.secondary)
     }
   }
 
@@ -213,18 +205,31 @@ struct PrimerDesignDialog: View {
             numberField("Minimum base frequency (0–1)", $state.minimumBaseFrequency)
             numberField("CPU cores", $state.coreCount)
           }
-          if state.grouping == .independent { numberField("Minimum overlap (bp)", $state.minOverlap) }
+          numberField("Dimer score threshold", $state.dimerScore)
+          Toggle("Check the primer mispriming database", isOn: $state.useMatchDB)
+          if state.grouping == .independent {
+            numberField("Minimum overlap (bp)", $state.minOverlap)
+            Toggle("Backtrack when extending the scheme", isOn: $state.backtrack)
+            Toggle("Ignore unknown bases (N)", isOn: $state.ignoreN)
+          } else {
+            Picker("Panel selection", selection: $state.panelMode) {
+              Text("Equal representation").tag(PrimalScheme3PanelMode.equal)
+              Text("Entropy").tag(PrimalScheme3PanelMode.entropy)
+            }
+            HStack {
+              numberField("Maximum panel amplicons (optional)", $state.maxAmplicons)
+              numberField("Maximum per MSA (optional)", $state.maxAmpliconsPerMSA)
+            }
+            Text("Leave limits blank to use PrimalScheme's unrestricted panel selection.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
           Toggle("Use high-GC design settings", isOn: $state.highGC)
           Text("Mapping reference: first alignment row. Original allele names are retained in the analysis.")
             .font(.caption).foregroundStyle(.secondary)
           Toggle("Treat uncovered alignment ends as missing observations", isOn: $state.excludeUncoveredEnds)
-          Text("PrimalScheme3-LGE custom fork: excludes missing terminal observations at each candidate site while retaining available internal sequence. Uses Python discovery with the selected CPU count. Turn off for legacy Rust behavior. Unobserved alleles are not evidence of a match.")
+          Text("Missing terminal observations are excluded at each candidate site while available internal sequence is retained. Missing data does not count as a match. Turn off to use the upstream coverage policy.")
             .font(.caption).foregroundStyle(.secondary)
         }
-        TextField("Executable override (optional)", text: $state.executableOverride)
-          .textFieldStyle(.roundedBorder)
-        Text("Leave blank to use the optional managed tool pack.")
-          .font(.caption).foregroundStyle(.secondary)
       }.padding(.top, 12)
     }
   }
@@ -233,12 +238,10 @@ struct PrimerDesignDialog: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Save analysis").font(.headline)
       TextField("Analysis name", text: $state.analysisName).textFieldStyle(.roundedBorder)
-      HStack {
-        Text(state.destinationURL?.path ?? "No destination selected")
-          .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-        Spacer()
-        Button("Choose…", action: chooseDestination)
-      }
+      Label(state.projectURL?.lastPathComponent ?? "No project open", systemImage: "folder")
+        .font(.callout)
+      Text("Saved in this project's Analyses folder as a Lungfish primer analysis bundle.")
+        .font(.caption).foregroundStyle(.secondary)
       Text("The bundle preserves inputs, native outputs, result links, settings and reproducibility provenance.")
         .font(.caption).foregroundStyle(.secondary)
     }
@@ -286,13 +289,4 @@ struct PrimerDesignDialog: View {
     if panel.runModal() == .OK { state.addInputs(panel.urls) }
   }
 
-  private func chooseDestination() {
-    let panel = NSSavePanel()
-    panel.title = "Save primer analysis"
-    panel.nameFieldStringValue = state.analysisName.replacingOccurrences(of: "/", with: "-") + ".lungfishprimeranalysis"
-    panel.canCreateDirectories = true
-    if panel.runModal() == .OK, let url = panel.url {
-      state.destinationURL = url
-    }
-  }
 }

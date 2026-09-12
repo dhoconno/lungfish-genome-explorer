@@ -49,6 +49,13 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertEqual(envelope.toolVersion, "3.3.0+lge.1")
     let policyFlag = try XCTUnwrap(envelope.argv.firstIndex(of: "--terminal-gap-policy"))
     XCTAssertEqual(envelope.argv[policyFlag + 1], "observed-only")
+    let orderArtifact = try XCTUnwrap(loaded.manifest.artifacts.first { $0.role == "derived-order-sheet" })
+    let orderProvenance = try XCTUnwrap(loaded.manifest.artifacts.first { $0.role == "derivedProvenance" })
+    let derived = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: loaded.artifactURL(forRelativePath: orderProvenance.relativePath)))
+    XCTAssertEqual(derived.toolName, "Lungfish Primer Order Sheet")
+    XCTAssertEqual(derived.outputs.first?.path, output.appendingPathComponent(orderArtifact.relativePath).path)
+    XCTAssertTrue(derived.files.allSatisfy { $0.path.hasPrefix(output.path + "/") })
+    XCTAssertFalse(envelope.outputs.contains { $0.path.hasSuffix(PrimalSchemeOrderSheet.filename) })
     let moved = fixture.root.appendingPathComponent("moved.lungfishprimeranalysis")
     try FileManager.default.moveItem(at: output, to: moved)
     for input in fixture.inputs { try FileManager.default.removeItem(at: input.deletingLastPathComponent()) }
@@ -156,7 +163,7 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     let config: [String: Any] = ["mode": "equal", "amplicon_size": 400, "n_pools": 2,
       "terminal_gap_policy": policy, "discovery_core_count": workers, "discovery_backend": policy == "legacy" ? "rust-legacy" : "python-observed-only"]
     try JSONSerialization.data(withJSONObject: config).write(to: output.appendingPathComponent("config.json"))
-    try Data("fixture\t0\t4\tprimer\t1\t+\n".utf8).write(to: output.appendingPathComponent("primer.bed"))
+    try Data("fixture\t0\t4\tprimer\t1\t+\tACGT\n".utf8).write(to: output.appendingPathComponent("primer.bed"))
     try Data(">fixture\nACGT\n".utf8).write(to: output.appendingPathComponent("reference.fasta"))
     try Data([0, 1, 255]).write(to: output.appendingPathComponent("nested/extra.dat"))
     return .init(argv: ["/fixture/primalscheme3"] + command.arguments, stdout: "fixture output",

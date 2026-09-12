@@ -34,13 +34,54 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(state.inputURLs, [second])
   }
 
-  func testExemplarChangesNameWithoutInventingAssayParameters() {
-    let state = configuredState()
-    state.productSizeMin = "150"
-    state.applyExemplar(.classIIDQ)
-    XCTAssertEqual(state.analysisName, "MHC class II DQ")
-    XCTAssertEqual(state.productSizeMin, "150")
-    XCTAssertEqual(PrimerDesignMHCExemplar.allCases.count, 4)
+  func testDestinationRequiresProjectAndRejectsTraversalAndCollisions() throws {
+    let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: project) }
+    XCTAssertThrowsError(try PrimerDesignDialogState().validatedDestinationURL())
+    let state = PrimerDesignDialogState(projectURL: project)
+    state.analysisName = "Class I design"
+    let destination = try state.validatedDestinationURL()
+    XCTAssertEqual(destination.deletingLastPathComponent().lastPathComponent, "Analyses")
+    XCTAssertEqual(destination.lastPathComponent, "Class I design.lungfishprimeranalysis")
+    for name in ["../outside", "a/b", "a\\b", ".", "..", "", "a:b", "hidden\nname"] {
+      state.analysisName = name
+      XCTAssertThrowsError(try state.validatedDestinationURL(), name)
+    }
+    state.analysisName = "Class I design"
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    XCTAssertThrowsError(try state.validatedDestinationURL())
+  }
+
+  func testDestinationRejectsDanglingBundleLinkAndChangedProjectRoot() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    let outside = root.appendingPathComponent("outside")
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let state = PrimerDesignDialogState(projectURL: project)
+    let destination = try state.validatedDestinationURL(createParent: true)
+    try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: outside.appendingPathComponent("missing"))
+    XCTAssertThrowsError(try state.validatedDestinationURL())
+    try FileManager.default.removeItem(at: project)
+    try FileManager.default.createSymbolicLink(at: project, withDestinationURL: outside)
+    XCTAssertThrowsError(try state.validatedDestinationURL())
+  }
+
+  func testDestinationRejectsAnalysesSymlinkEscapeIncludingDanglingLinks() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let project = root.appendingPathComponent("project")
+    let outside = root.appendingPathComponent("outside")
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let analyses = project.appendingPathComponent("Analyses")
+    try FileManager.default.createSymbolicLink(at: analyses, withDestinationURL: outside)
+    let state = PrimerDesignDialogState(projectURL: project)
+    XCTAssertThrowsError(try state.validatedDestinationURL())
+    try FileManager.default.removeItem(at: outside)
+    XCTAssertThrowsError(try state.validatedDestinationURL())
   }
 
   func testChemistryControlsInternalProbeSelection() throws {
@@ -129,10 +170,40 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertTrue(state.engine.rawValue.contains("custom fork"))
   }
 
+  func testPrimalModeSpecificOptionsDoNotLeakAcrossGrouping() throws {
+    let state = configuredState()
+    state.backtrack = true
+    state.ignoreN = true
+    state.panelMode = .entropy
+    state.maxAmplicons = "12"
+    state.maxAmpliconsPerMSA = "3"
+    state.dimerScore = "-28"
+    state.useMatchDB = false
+    let single = try state.primalSchemeOptions()
+    XCTAssertTrue(single.backtrack)
+    XCTAssertTrue(single.ignoreN)
+    XCTAssertEqual(single.panelMode, .equal)
+    XCTAssertNil(single.maxAmplicons)
+    XCTAssertEqual(single.dimerScore, -28)
+    XCTAssertFalse(single.useMatchDB)
+    state.grouping = .combined
+    let panel = try state.primalSchemeOptions()
+    XCTAssertFalse(panel.backtrack)
+    XCTAssertFalse(panel.ignoreN)
+    XCTAssertEqual(panel.panelMode, .entropy)
+    XCTAssertEqual(panel.maxAmplicons, 12)
+    XCTAssertEqual(panel.maxAmpliconsPerMSA, 3)
+    state.maxAmplicons = "0"
+    XCTAssertThrowsError(try state.primalSchemeOptions())
+    state.maxAmplicons = ""
+    XCTAssertNil(try state.primalSchemeOptions().maxAmplicons)
+    XCTAssertTrue(state.effectiveAmpliconRange.contains("360–440"))
+  }
+
   private func configuredState() -> PrimerDesignDialogState {
-    let state = PrimerDesignDialogState()
+    let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
+    state.analysisName = UUID().uuidString
     state.addInputs([URL(fileURLWithPath: "/input/mhc.fasta")])
-    state.destinationURL = URL(fileURLWithPath: "/output/mhc.lungfishprimeranalysis")
     return state
   }
 }

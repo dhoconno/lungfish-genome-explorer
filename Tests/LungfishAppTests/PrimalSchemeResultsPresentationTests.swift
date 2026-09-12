@@ -14,6 +14,24 @@ final class PrimalSchemeResultsPresentationTests: XCTestCase {
     XCTAssertEqual(result.primers[1].sequence, "AC")
   }
 
+  func testPoolReviewDoesNotInventGCForAmbiguousOligos() throws {
+    let result = try PrimalSchemeDisplayResult.parse(id: "test", title: "Test",
+      bed: Data("reference\t0\t2\tambiguous\t1\t+\tAN\nreference\t2\t4\texact\t1\t-\tGC\n".utf8),
+      reference: Data(">reference\nACGT\n".utf8))
+    XCTAssertEqual(result.primers[0].ambiguousBaseCount, 1)
+    XCTAssertEqual(result.primers[0].gcLabel, "GC varies")
+    XCTAssertEqual(result.primers[1].gcLabel, "100.0% GC")
+    XCTAssertNil(result.orderSheetURL)
+  }
+
+  func testMappedIndelsPreserveBindingSpanSeparatelyFromOligoLength() throws {
+    let result = try PrimalSchemeDisplayResult.parse(id: "test", title: "Test",
+      bed: Data("reference\t0\t3\tP\t1\t+\tAC\n".utf8),
+      reference: Data(">reference\nACGT\n".utf8))
+    XCTAssertEqual(result.primers[0].end - result.primers[0].start, 3)
+    XCTAssertEqual(result.primers[0].sequence.count, 2)
+  }
+
   func testMissingReferenceAndOutOfBoundsCoordinatesRejectMisleadingDisplay() {
     let fasta = Data(">reference\nACGTACGT\n".utf8)
     for bed in ["missing\t0\t2\tprimer\t1\t+\tAC", "reference\t7\t9\tprimer\t1\t+\tAC",

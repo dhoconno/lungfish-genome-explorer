@@ -62,9 +62,19 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
         guard result.artifactPaths.contains(referencePath),
           let bed = bundle.manifest.artifacts.first(where: { $0.relativePath == path }),
           let reference = bundle.manifest.artifacts.first(where: { $0.relativePath == referencePath }) else { continue }
+        let orderPath = String(path.dropLast("primer.bed".count)) + PrimalSchemeOrderSheet.filename
+        var orderSheetURL: URL?
+        if result.artifactPaths.contains(orderPath),
+          let orderArtifact = bundle.manifest.artifacts.first(where: { $0.relativePath == orderPath }) {
+          let storedOrder = try verifiedBytes(orderArtifact, in: bundle)
+          guard storedOrder == (try PrimalSchemeOrderSheet.csv(fromBED: verifiedBytes(bed, in: bundle))) else {
+            throw PrimerAnalysisBundleError.invalidArtifact("Ordering worksheet does not agree with the stored primer records")
+          }
+          orderSheetURL = try bundle.artifactURL(forRelativePath: orderPath)
+        }
         schemes.append(try PrimalSchemeDisplayResult.parse(id: path,
           title: result.label ?? result.id.uuidString,
-          bed: verifiedBytes(bed, in: bundle), reference: verifiedBytes(reference, in: bundle), referenceLabels: labels))
+          bed: verifiedBytes(bed, in: bundle), reference: verifiedBytes(reference, in: bundle), referenceLabels: labels, orderSheetURL: orderSheetURL))
       }
     }
     return Self(bundle: bundle, provenance: provenance, provenanceJSON: provenanceJSON,

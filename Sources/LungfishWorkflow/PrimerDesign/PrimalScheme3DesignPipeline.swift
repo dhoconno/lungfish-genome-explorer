@@ -12,8 +12,21 @@ public enum PrimalScheme3TerminalGapPolicy: String, Codable, CaseIterable, Senda
     }
 }
 
+public enum PrimalScheme3PanelMode: String, Codable, CaseIterable, Sendable {
+    case equal, entropy
+}
+
 public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public static var defaultCoreCount: Int { max(1, min(4, ProcessInfo.processInfo.activeProcessorCount)) }
+    public var ampliconSizeMinimum: Int { (100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 0.9) : 0 }
+    public var ampliconSizeMaximum: Int { (100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 1.1) : 0 }
+    public let dimerScore: Double
+    public let useMatchDB: Bool
+    public let backtrack: Bool
+    public let ignoreN: Bool
+    public let panelMode: PrimalScheme3PanelMode
+    public let maxAmplicons: Int?
+    public let maxAmpliconsPerMSA: Int?
     public let ampliconSize: Int
     public let poolCount: Int
     public let minOverlap: Int
@@ -23,7 +36,18 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public let terminalGapPolicy: PrimalScheme3TerminalGapPolicy
     public init(ampliconSize: Int, poolCount: Int, minOverlap: Int = 10,
                 minimumBaseFrequency: Double = 0, highGC: Bool = false, coreCount: Int = PrimalScheme3DesignOptions.defaultCoreCount,
-                terminalGapPolicy: PrimalScheme3TerminalGapPolicy = .observedOnly) {
+                terminalGapPolicy: PrimalScheme3TerminalGapPolicy = .observedOnly,
+                dimerScore: Double = -26, useMatchDB: Bool = true,
+                backtrack: Bool = false, ignoreN: Bool = false,
+                panelMode: PrimalScheme3PanelMode = .equal,
+                maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil) {
+        self.dimerScore = dimerScore
+        self.useMatchDB = useMatchDB
+        self.backtrack = backtrack
+        self.ignoreN = ignoreN
+        self.panelMode = panelMode
+        self.maxAmplicons = maxAmplicons
+        self.maxAmpliconsPerMSA = maxAmpliconsPerMSA
         self.ampliconSize = ampliconSize
         self.poolCount = poolCount
         self.minOverlap = minOverlap
@@ -31,6 +55,18 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         self.highGC = highGC
         self.coreCount = coreCount
         self.terminalGapPolicy = terminalGapPolicy
+    }
+
+    public var provenanceOptions: [String: ParameterValue] {
+        ["ampliconSize": .integer(ampliconSize), "ampliconSizeMinimum": .integer(ampliconSizeMinimum),
+         "ampliconSizeMaximum": .integer(ampliconSizeMaximum), "poolCount": .integer(poolCount),
+         "minOverlap": .integer(minOverlap), "minimumBaseFrequency": .number(minimumBaseFrequency),
+         "highGC": .boolean(highGC), "coreCount": .integer(coreCount),
+         "terminalGapPolicy": .string(terminalGapPolicy.rawValue), "dimerScore": .number(dimerScore),
+         "useMatchDB": .boolean(useMatchDB), "backtrack": .boolean(backtrack), "ignoreN": .boolean(ignoreN),
+         "panelMode": .string(panelMode.rawValue),
+         "maxAmplicons": maxAmplicons.map(ParameterValue.integer) ?? .string("unlimited"),
+         "maxAmpliconsPerMSA": maxAmpliconsPerMSA.map(ParameterValue.integer) ?? .string("unlimited")]
     }
 }
 
@@ -123,17 +159,31 @@ public struct PrimalScheme3DesignPipeline: Sendable {
               grouping == .combined || inputs.count == 1 else {
             throw PrimalScheme3DesignError.invalidRequest("Choose an amplicon size from 100 to 2000, positive pool/core counts, nonnegative overlap, base frequency from 0 to 1, and explicit alignment inputs. Custom overlap applies only to independent schemes.")
         }
+        guard options.dimerScore.isFinite,
+              options.maxAmplicons.map({ $0 > 0 }) ?? true,
+              options.maxAmpliconsPerMSA.map({ $0 > 0 }) ?? true,
+              grouping != .combined || (!options.backtrack && !options.ignoreN),
+              grouping != .independent || (options.panelMode == .equal && options.maxAmplicons == nil && options.maxAmpliconsPerMSA == nil) else {
+            throw PrimalScheme3DesignError.invalidRequest("Dimer score must be finite and amplicon limits positive. Backtracking and unknown-base omission apply only to independent schemes; panel modes and limits apply only to combined panels.")
+        }
         var args = [grouping == .combined ? "panel-create" : "scheme-create"]
         // Stock panel-create defaults to region-only, which requires a BED file.
         // This interface has whole-alignment inputs, so select equal explicitly.
-        if grouping == .combined { args += ["--mode", "equal"] }
+        if grouping == .combined { args += ["--mode", options.panelMode.rawValue] }
         for input in inputs { args += ["--msa", input.path] }
         args += ["--output", output.path, "--amplicon-size", String(options.ampliconSize),
                  "--n-pools", String(options.poolCount),
                  "--min-base-freq", String(options.minimumBaseFrequency), "--mapping", "first",
                  options.highGC ? "--high-gc" : "--no-high-gc", "--ncores", String(options.coreCount),
                  "--terminal-gap-policy", options.terminalGapPolicy.rawValue]
-        if grouping == .independent { args += ["--min-overlap", String(options.minOverlap)] }
+        args += ["--dimer-score", String(options.dimerScore), options.useMatchDB ? "--use-matchdb" : "--no-use-matchdb", "--offline-plots"]
+        if grouping == .independent {
+            args += ["--min-overlap", String(options.minOverlap), options.backtrack ? "--backtrack" : "--no-backtrack",
+                     options.ignoreN ? "--ignore-n" : "--no-ignore-n"]
+        } else {
+            if let count = options.maxAmplicons { args += ["--max-amplicons", String(count)] }
+            if let count = options.maxAmpliconsPerMSA { args += ["--max-amplicons-msa", String(count)] }
+        }
         return args
     }
 
@@ -271,12 +321,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 .durableReplayArgv(replayArgv)
                 .reproducibleCommand(replayArgv.map(shellEscape).joined(separator: " "))
                 .runtime(executed.runtime)
-                .options(explicit: ["ampliconSize": .integer(request.options.ampliconSize),
-                                    "poolCount": .integer(request.options.poolCount), "grouping": .string(request.grouping.rawValue),
-                                    "minOverlap": .integer(request.options.minOverlap),
-                                    "minimumBaseFrequency": .number(request.options.minimumBaseFrequency),
-                                    "highGC": .boolean(request.options.highGC), "coreCount": .integer(request.options.coreCount),
-                                    "terminalGapPolicy": .string(request.options.terminalGapPolicy.rawValue)],
+                .options(explicit: request.options.provenanceOptions.merging(["grouping": .string(request.grouping.rawValue)]) { _, new in new },
                          defaults: [:], resolved: ["nativeConfiguration": Self.parameter(configuration),
                          "customFork": .boolean(true), "sourceRepository": .string(Self.sourceRepository),
                          "terminalGapPolicy": .string(request.options.terminalGapPolicy.rawValue),
@@ -284,7 +329,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                          "effectiveCoreCount": .integer(effectiveWorkers),
                          "analysisID": .string(analysisID.uuidString), "runID": .string(runID.uuidString),
                          "resultID": .string(resultID.uuidString), "inputIDs": .array(group.map { .string($0.id.uuidString) }),
-                         "panelMode": .string(request.grouping == .combined ? "equal" : "not-applicable"),
+                         "panelMode": .string(request.grouping == .combined ? request.options.panelMode.rawValue : "not-applicable"),
                          "mapping": .string("first"),
                          "minOverlap": request.grouping == .combined ? .string("not-applicable") : .integer(request.options.minOverlap),
                          "executableSHA256": executed.executableSHA256.map(ParameterValue.string) ?? .string("injected-test-runner"),
@@ -340,6 +385,36 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let provenancePath = Self.relative(provenance, to: scratch)
             artifacts.append(.init(sourceURL: provenance, relativePath: provenancePath, role: "toolProvenance", format: "json"))
             resultPaths.append(provenancePath)
+            // LGE derives the ordering worksheet; it is not an engine-native output.
+            let orderStarted = Date()
+            let bedURL = output.appendingPathComponent("primer.bed")
+            let orderURL = output.appendingPathComponent(PrimalSchemeOrderSheet.filename)
+            try PrimalSchemeOrderSheet.csv(fromBED: Data(contentsOf: bedURL))
+                .write(to: orderURL, options: .withoutOverwriting)
+            let orderPath = Self.relative(orderURL, to: scratch)
+            let bedPath = Self.relative(bedURL, to: scratch)
+            artifacts.append(.init(sourceURL: orderURL, relativePath: orderPath, role: "derived-order-sheet", format: "csv"))
+            resultPaths.append(orderPath)
+            var orderBuilder = ProvenanceRunBuilder(workflowName: "lungfish.primalscheme3.order-sheet", workflowVersion: "1",
+                toolName: "Lungfish Primer Order Sheet", toolVersion: request.invocation.callerVersion)
+                .argv(request.invocation.argv)
+                .options(explicit: ["schemaVersion": .integer(PrimalSchemeOrderSheet.schemaVersion)], defaults: [:],
+                    resolved: ["ordering": .string("numeric-pool-then-native-row"),
+                               "sequenceOrientation": .string("native-5-prime-to-3-prime"),
+                               "spreadsheetFormulaEscaping": .boolean(true),
+                               "transform": .string("PrimalSchemeOrderSheet.csv(fromBED:), schema 1, applied to the checksummed stored primer.bed"),
+                               "argvMeaning": .string("Exact host-process invocation; GUI launch argv alone does not replay the transformation.")])
+                .runtime(request.invocation.runtimeIdentity)
+            orderBuilder = try orderBuilder.consumedInputSnapshot(Self.descriptor(bedURL,
+                path: destination.appendingPathComponent(bedPath).path, role: .input, origin: bedURL.path))
+            orderBuilder = try orderBuilder.relocatedOutput(Self.descriptor(orderURL,
+                path: destination.appendingPathComponent(orderPath).path, role: .output, origin: orderURL.path))
+            let orderEnvelope = try orderBuilder.complete(exitStatus: 0, stderr: "", startedAt: orderStarted, endedAt: Date())
+            let orderProvenanceURL = logs.appendingPathComponent("order-sheet.json")
+            try encoder.encode(orderEnvelope).write(to: orderProvenanceURL, options: .withoutOverwriting)
+            let orderProvenancePath = Self.relative(orderProvenanceURL, to: scratch)
+            artifacts.append(.init(sourceURL: orderProvenanceURL, relativePath: orderProvenancePath, role: "derivedProvenance", format: "json"))
+            resultPaths.append(orderProvenancePath)
             results.append(.init(id: resultID, label: request.grouping == .combined ? "Combined panel" : group[0].originalURL.deletingPathExtension().lastPathComponent,
                                  inputIDs: group.map(\.id), artifactPaths: resultPaths))
         }

@@ -105,6 +105,14 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("core-count"), help: "CPU workers for custom Python or legacy Rust discovery.") var coreCount = PrimalScheme3DesignOptions.defaultCoreCount
         @Option(name: .customLong("terminal-gap-policy"), help: "Custom fork missing-data policy: observed-only or legacy.") var terminalGapPolicy = "observed-only"
 
+        @Option(name: .customLong("dimer-score")) var dimerScore = -26.0
+        @Flag(name: .customLong("disable-matchdb"), help: "Disable the native mispriming database.") var disableMatchDB = false
+        @Flag(name: .customLong("backtrack"), help: "Independent schemes only.") var backtrack = false
+        @Flag(name: .customLong("ignore-n"), help: "Omit unknown N bases; independent schemes only.") var ignoreN = false
+        @Option(name: .customLong("panel-mode"), help: "Combined panels: equal or entropy.") var panelMode = "equal"
+        @Option(name: .customLong("max-amplicons")) var maxAmplicons: Int?
+        @Option(name: .customLong("max-amplicons-per-msa")) var maxAmpliconsPerMSA: Int?
+
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
             print("PrimalScheme3-LGE custom fork analysis written to \(output.path)")
@@ -127,8 +135,11 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             guard let resolvedTerminalGapPolicy = PrimalScheme3TerminalGapPolicy(rawValue: terminalGapPolicy) else {
                 throw ValidationError("--terminal-gap-policy must be observed-only or legacy.")
             }
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy)
-            let explicit: [String: ParameterValue] = ["ampliconSize": .integer(ampliconSize), "poolCount": .integer(poolCount), "minOverlap": .integer(minOverlap), "minimumBaseFrequency": .number(minimumBaseFrequency), "highGC": .boolean(highGC), "coreCount": .integer(coreCount), "terminalGapPolicy": .string(resolvedTerminalGapPolicy.rawValue), "grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]
+            guard let resolvedPanelMode = PrimalScheme3PanelMode(rawValue: panelMode) else {
+                throw ValidationError("--panel-mode must be equal or entropy.")
+            }
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA)
+            let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
         }

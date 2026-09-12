@@ -51,3 +51,16 @@ Record and row indices after `@` are **zero-based**; target coordinates are **on
 ## Interface references
 
 The sequence-context and explicit-selection approach draws on the [Geneious primer interface](https://manual.geneious.com/en/latest/Primers.html). Engine contracts are based on the [Primer3 manual](https://primer3.org/manual.html) and the [PrimalScheme3 project](https://github.com/artic-network/primalscheme3).
+
+
+## Project-owned design and ordering review
+
+The GUI saves each named analysis under the originating project's `Analyses` directory. There is no external destination chooser or example shortcut in the design dialog. Unsafe names, existing destinations and symbolic-link escapes are rejected; completed bundles appear in that project's sidebar.
+
+PrimalScheme results include pool-organized oligos, native 5′–3′ sequences, synthesis lengths, reference binding spans and GC/ambiguity information. Newly generated results include an `ordering-v1.csv` worksheet inside the custom `.lungfishprimeranalysis` bundle. Every native oligo and alternative stays separate; order specifications remain blank for the user. The derived worksheet has independent LGE workflow provenance and is covered by bundle checksums. Older bundles remain readable without a worksheet.
+
+Basic settings show the target size and configured native amplicon interval (integer 90%–110% of target). The pinned fork does not expose independent minimum/maximum size flags for creation. Advanced settings expose dimer score, mispriming database, independent-scheme overlap/backtracking/unknown-base handling, combined-panel equal/entropy selection and optional panel/per-alignment amplicon limits, alongside CPU count, high-GC and missing-terminal-observation settings. Unsupported controls are not silently forwarded; offline reports remain enabled and coordinates remain mapped to each alignment's first row.
+
+Known pinned-fork limitation: combined-panel pairing passes the configured maximum as both pairing bounds. The dialog discloses this distinction; the displayed configured interval must not be interpreted as independently enforced panel bounds. Independent scheme creation passes the configured minimum and maximum separately. Arbitrary minimum/maximum creation controls remain unavailable in this release.
+
+The native size bounds constrain primer pairing offsets, not exact outer product length. The dialog labels the interval as nominal; users should inspect the resulting binding positions rather than treat it as a product-length guarantee.

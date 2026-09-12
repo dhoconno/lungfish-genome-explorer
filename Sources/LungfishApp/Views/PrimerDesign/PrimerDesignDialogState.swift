@@ -16,14 +16,6 @@ enum PrimerDesignChemistry: String, CaseIterable, Identifiable {
   var id: String { rawValue }
 }
 
-enum PrimerDesignMHCExemplar: String, CaseIterable, Identifiable {
-  case classI = "MHC class I"
-  case classIIDP = "MHC class II DP"
-  case classIIDQ = "MHC class II DQ"
-  case classIIDRB = "MHC class II DRB"
-  var id: String { rawValue }
-}
-
 struct PrimerDesignValidationError: LocalizedError {
   let message: String
   var errorDescription: String? { message }
@@ -42,8 +34,9 @@ final class PrimerDesignDialogState {
   var isInspecting = false
   var inspectionRevision: UInt64 = 0
   private var inspectionGeneration = UUID()
-  var destinationURL: URL?
-  var analysisName = "MHC primer analysis"
+  let projectURL: URL?
+  var destinationURL: URL? { try? validatedDestinationURL() }
+  var analysisName = "Primer analysis"
   var grouping: PrimerAnalysisGrouping = .independent
   var productSizeMin = "100"
   var productSizeMax = "400"
@@ -65,13 +58,66 @@ final class PrimerDesignDialogState {
   var minOverlap = "10"
   var minimumBaseFrequency = "0"
   var highGC = false
+  var dimerScore = "-26"
+  var useMatchDB = true
+  var backtrack = false
+  var ignoreN = false
+  var panelMode: PrimalScheme3PanelMode = .equal
+  var maxAmplicons = ""
+  var maxAmpliconsPerMSA = ""
   var coreCount = String(PrimalScheme3DesignOptions.defaultCoreCount)
   var excludeUncoveredEnds = true
-  var executableOverride = ""
   var progressMessage: String?
   var errorMessage: String?
   var completedURL: URL?
   var isRunning = false
+
+  init(projectURL: URL? = nil) { self.projectURL = projectURL?.resolvingSymlinksInPath().standardizedFileURL }
+
+  /// GUI outputs are always direct children of the originating project's Analyses folder.
+  /// Resolve the project once per check and reject even dangling links at the output boundary.
+  func validatedDestinationURL(createParent: Bool = false) throws -> URL {
+    guard let projectURL, projectURL.isFileURL else { throw invalid("Open a project before designing primers.") }
+    let name = analysisName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, name != ".", name != "..", !name.hasPrefix("."),
+      !name.contains("/"), !name.contains("\\"), !name.contains(":"),
+      name.rangeOfCharacter(from: .controlCharacters) == nil,
+      name.utf8.count <= 200 else {
+      throw invalid("Enter an analysis name without path separators or control characters (up to 200 bytes).")
+    }
+    let project = projectURL.resolvingSymlinksInPath().standardizedFileURL
+    guard project == projectURL else { throw invalid("The originating project location changed. Reopen the primer design window.") }
+    var isDirectory: ObjCBool = false
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: project.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+      throw invalid("The originating project is no longer available.")
+    }
+    let parent = project.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+    if (try? fm.destinationOfSymbolicLink(atPath: parent.path)) != nil {
+      throw invalid("The project's Analyses folder must not be a symbolic link.")
+    }
+    if createParent, !fm.fileExists(atPath: parent.path) {
+      try fm.createDirectory(at: parent, withIntermediateDirectories: false)
+    }
+    let resolvedParent = parent.resolvingSymlinksInPath().standardizedFileURL
+    guard resolvedParent.deletingLastPathComponent() == project else {
+      throw invalid("Primer analyses must be saved inside the originating project.")
+    }
+    if fm.fileExists(atPath: parent.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+      throw invalid("The project's Analyses path is not a folder.")
+    }
+    let destination = resolvedParent.appendingPathComponent(name + ".lungfishprimeranalysis", isDirectory: true)
+    guard !fm.fileExists(atPath: destination.path),
+      (try? fm.destinationOfSymbolicLink(atPath: destination.path)) == nil else {
+      throw invalid("An analysis with this name already exists in the project. Enter a different name.")
+    }
+    return destination
+  }
+
+  var effectiveAmpliconRange: String {
+    guard let value = Int(ampliconSize), (100...2000).contains(value) else { return "Enter a target from 100 to 2000 bp." }
+    return "Configured range: \(Int(Double(value) * 0.9))–\(Int(Double(value) * 1.1)) bp (PrimalScheme's nominal ±10% pairing interval; not exact product-length bounds)." + (grouping == .combined ? " This fork’s combined-panel selection uses the upper limit for both pairing bounds." : "")
+  }
 
   func addInputs(_ urls: [URL]) {
     for url in urls {
@@ -87,7 +133,6 @@ final class PrimerDesignDialogState {
     selectedRecordIndices[url] = nil
     templateRowIndices[url] = nil
   }
-  func applyExemplar(_ exemplar: PrimerDesignMHCExemplar) { analysisName = exemplar.rawValue }
 
   func refreshInputs() {
     inspectionGeneration = UUID()
@@ -156,14 +201,8 @@ final class PrimerDesignDialogState {
 
   var validationMessage: String? {
     if inputURLs.isEmpty { return "Add a FASTA file or multiple sequence alignment." }
-    if analysisName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return "Enter an analysis name."
-    }
-    guard let destinationURL else { return "Choose where to save the analysis." }
-    if destinationURL.pathExtension.lowercased() != "lungfishprimeranalysis" {
-      return "Save the analysis with the .lungfishprimeranalysis extension."
-    }
     do {
+      _ = try validatedDestinationURL()
       if engine == .primer3 { _ = try primer3Options() }
       else {
         _ = try primalSchemeOptions()
@@ -188,7 +227,13 @@ final class PrimerDesignDialogState {
       ampliconSize: size, poolCount: try positiveInteger(poolCount, "Pool count"),
       minOverlap: overlap, minimumBaseFrequency: frequency, highGC: highGC,
       coreCount: try positiveInteger(coreCount, "CPU cores"),
-      terminalGapPolicy: excludeUncoveredEnds ? .observedOnly : .legacy)
+      terminalGapPolicy: excludeUncoveredEnds ? .observedOnly : .legacy,
+      dimerScore: try finiteNumber(dimerScore, "Dimer score threshold"), useMatchDB: useMatchDB,
+      backtrack: grouping == .independent && backtrack,
+      ignoreN: grouping == .independent && ignoreN,
+      panelMode: grouping == .combined ? panelMode : .equal,
+      maxAmplicons: grouping == .combined ? try optionalPositiveInteger(maxAmplicons, "Maximum panel amplicons") : nil,
+      maxAmpliconsPerMSA: grouping == .combined ? try optionalPositiveInteger(maxAmpliconsPerMSA, "Maximum amplicons per MSA") : nil)
   }
 
   func primer3Options() throws -> Primer3DesignOptions {
@@ -222,6 +267,11 @@ final class PrimerDesignDialogState {
       primerMinTm: minimumTm, primerOptTm: optimumTm, primerMaxTm: maximumTm,
       primerMinGC: minimumGC, primerMaxGC: maximumGC,
       pickInternalOligo: chemistry == .hydrolysisProbe)
+  }
+
+  private func optionalPositiveInteger(_ text: String, _ title: String) throws -> Int? {
+    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+    return try positiveInteger(text, title)
   }
 
   func positiveInteger(_ text: String, _ title: String) throws -> Int {

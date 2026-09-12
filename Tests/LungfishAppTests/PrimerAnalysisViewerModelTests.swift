@@ -143,6 +143,26 @@ final class PrimerAnalysisViewerModelTests: XCTestCase {
     XCTAssertEqual(try byteSnapshot(of: fixture.bundleURL), before)
   }
 
+  func testOrderingWorksheetIsVerifiedAndRemainsRelativeAfterRelocation() throws {
+    let fixture = try makeBundle(grouping: .independent, nativeScheme: true)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let moved = fixture.root.appendingPathComponent("relocated.lungfishprimeranalysis")
+    try FileManager.default.moveItem(at: fixture.bundleURL, to: moved)
+    let snapshot = try PrimerAnalysisViewerSnapshot.load(from: moved)
+    XCTAssertEqual(snapshot.primalSchemeResults.count, 1)
+    XCTAssertEqual(snapshot.primalSchemeResults.first?.orderSheetURL,
+      moved.appendingPathComponent("native/ordering-v1.csv"))
+  }
+
+  func testChecksummedButInconsistentOrderingWorksheetRejectsDisplay() throws {
+    let fixture = try makeBundle(grouping: .independent, nativeScheme: true,
+      orderSheetOverride: Data("incorrect but checksummed CSV\n".utf8))
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    XCTAssertThrowsError(try PrimerAnalysisViewerSnapshot.load(from: fixture.bundleURL)) { error in
+      XCTAssertTrue(error.localizedDescription.contains("Ordering worksheet"))
+    }
+  }
+
   private struct Fixture {
     let root: URL
     let bundleURL: URL
@@ -155,14 +175,29 @@ final class PrimerAnalysisViewerModelTests: XCTestCase {
   private func makeBundle(
     grouping: PrimerAnalysisGrouping,
     includeResults: Bool = true,
-    duplicateInputs: Bool = false
+    duplicateInputs: Bool = false,
+    nativeScheme: Bool = false,
+    orderSheetOverride: Data? = nil
   ) throws -> Fixture {
     let root = canonicalTemporaryDirectory().appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let inputURL = root.appendingPathComponent("opaque-input.txt")
     let outputURL = root.appendingPathComponent("opaque-output.txt")
     try Data("input bytes\n".utf8).write(to: inputURL)
-    try Data("output bytes\n".utf8).write(to: outputURL)
+    let bed = Data("reference\t0\t2\tLEFT\t1\t+\tAC\n".utf8)
+    try (nativeScheme ? bed : Data("output bytes\n".utf8)).write(to: outputURL)
+    let outputPath = nativeScheme ? "native/primer.bed" : "native/result.txt"
+    var extraArtifacts: [PrimerAnalysisSourceArtifact] = []
+    if nativeScheme {
+      let referenceURL = root.appendingPathComponent("reference.fasta")
+      try Data(">reference\nACGT\n".utf8).write(to: referenceURL)
+      let orderURL = root.appendingPathComponent("ordering-v1.csv")
+      try (orderSheetOverride ?? PrimalSchemeOrderSheet.csv(fromBED: bed)).write(to: orderURL)
+      extraArtifacts = [
+        .init(sourceURL: referenceURL, relativePath: "native/reference.fasta", role: "nativeOutput", format: "fasta"),
+        .init(sourceURL: orderURL, relativePath: "native/ordering-v1.csv", role: "orderingSheet", format: "csv"),
+      ]
+    }
     let analysisID = UUID()
     let runID = UUID()
     let inputIDs = duplicateInputs ? [UUID(), UUID()] : [UUID()]
@@ -180,12 +215,12 @@ final class PrimerAnalysisViewerModelTests: XCTestCase {
             artifactPaths: [index == 0 ? "inputs/source.txt" : "inputs/source-2.txt"])
         },
         results: includeResults ? inputIDs.map { id in
-          PrimerAnalysisResult(id: UUID(), label: "same label", inputIDs: [id], artifactPaths: ["native/result.txt"])
+          PrimerAnalysisResult(id: UUID(), label: "same label", inputIDs: [id], artifactPaths: [outputPath] + extraArtifacts.map(\.relativePath))
         } : [],
         artifacts: [
           PrimerAnalysisSourceArtifact(sourceURL: inputURL, relativePath: "inputs/source.txt", role: "input", format: "text"),
-          PrimerAnalysisSourceArtifact(sourceURL: outputURL, relativePath: "native/result.txt", role: "nativeOutput", format: "text"),
-        ] + (duplicateInputs ? [PrimerAnalysisSourceArtifact(sourceURL: secondInputURL, relativePath: "inputs/source-2.txt", role: "input", format: "text")] : []),
+          PrimerAnalysisSourceArtifact(sourceURL: outputURL, relativePath: outputPath, role: "nativeOutput", format: "text"),
+        ] + extraArtifacts + (duplicateInputs ? [PrimerAnalysisSourceArtifact(sourceURL: secondInputURL, relativePath: "inputs/source-2.txt", role: "input", format: "text")] : []),
         destinationURL: destination,
         invocation: PrimerAnalysisWrapperInvocation(
           argv: ["primer-viewer-test-host", "--case", "saved-results"],

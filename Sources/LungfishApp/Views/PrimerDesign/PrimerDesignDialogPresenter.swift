@@ -6,15 +6,23 @@ import LungfishWorkflow
 final class PrimerDesignDialogPresenter {
   private static var activePresenters: [UUID: PrimerDesignDialogPresenter] = [:]
   private let id = UUID()
-  private let state = PrimerDesignDialogState()
+  private let state: PrimerDesignDialogState
   private let panel = NSPanel(contentRect: .zero, styleMask: [.titled, .resizable], backing: .buffered, defer: true)
   private var runTask: Task<Void, Never>?
   private var runID: UUID?
   private var openResult: ((URL) -> Void)?
   private var parentCloseObserver: NSObjectProtocol?
+  private var resultSaved: ((URL) -> Void)?
+  private var canRun: (() -> Bool)?
 
-  static func present(from window: NSWindow, inputURLs: [URL], onOpenResult: @escaping (URL) -> Void) {
-    let presenter = PrimerDesignDialogPresenter()
+  private init(projectURL: URL) { state = PrimerDesignDialogState(projectURL: projectURL) }
+
+  static func present(from window: NSWindow, projectURL: URL, inputURLs: [URL],
+                      canRun: @escaping () -> Bool, onResultSaved: @escaping (URL) -> Void,
+                      onOpenResult: @escaping (URL) -> Void) {
+    let presenter = PrimerDesignDialogPresenter(projectURL: projectURL)
+    presenter.canRun = canRun
+    presenter.resultSaved = onResultSaved
     presenter.openResult = onOpenResult
     presenter.state.addInputs(inputURLs)
     presenter.panel.title = "PCR Primer Design"
@@ -55,6 +63,8 @@ final class PrimerDesignDialogPresenter {
     panel.orderOut(nil)
     panel.contentViewController = nil
     openResult = nil
+    resultSaved = nil
+    canRun = nil
     if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
     parentCloseObserver = nil
     Self.activePresenters[id] = nil
@@ -68,21 +78,22 @@ final class PrimerDesignDialogPresenter {
 
   private func run() {
     guard !state.isRunning, state.validationMessage == nil, state.inputReadinessMessage == nil,
-      let destination = state.destinationURL else { return }
+      canRun?() == true else { return }
     do {
+      let destination = try state.validatedDestinationURL(createParent: true)
       let runtime = ProvenanceRuntimeIdentity()
       var visibleOptions: [String: ParameterValue] = [
         "analysisName": .string(state.analysisName),
         "engine": .string(state.engine.rawValue),
         "interface": .string("Lungfish PCR Primer Design"),
+        "projectPath": .string(state.projectURL!.path),
       ]
       if state.engine == .primer3 { visibleOptions["assay"] = .string(state.chemistry.rawValue) }
       let invocation = PrimerAnalysisWrapperInvocation(
         argv: CommandLine.arguments, callerVersion: runtime.appVersion,
         explicitOptions: visibleOptions, runtimeIdentity: runtime)
       let checksums = state.inputSummaries.mapValues(\.checksumSHA256)
-      let overridePath = state.executableOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-      let executable = overridePath.isEmpty ? nil : URL(fileURLWithPath: overridePath)
+      let executable: URL? = nil
       let generation = UUID()
       let progress: @Sendable (Double, String) -> Void = { [weak self] _, message in
         Task { @MainActor [weak self] in
@@ -114,6 +125,7 @@ final class PrimerDesignDialogPresenter {
         guard let self else { return }
         do {
           let output = try await operation()
+          self.resultSaved?(output)
           self.state.completedURL = output
           self.state.progressMessage = "Analysis saved."
         } catch is CancellationError {
