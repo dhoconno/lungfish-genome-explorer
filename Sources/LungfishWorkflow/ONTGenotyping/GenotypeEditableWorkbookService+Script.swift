@@ -12,7 +12,7 @@ for ws in wb.worksheets:
     for row in ws.iter_rows():
         for c in row:
             if c.value is not None or c.comment is not None or c.hyperlink is not None:
-                cells[ws.title+'!'+c.coordinate]=json.dumps({'type':c.data_type,'value':c.value,'hyperlink':c.hyperlink.target if c.hyperlink else None,'comment':c.comment.text if c.comment else None},sort_keys=True,separators=(',',':'),default=str)
+                cells[ws.title+'!'+c.coordinate]=json.dumps({'type':c.data_type,'value':c.value,'hyperlink':{'target':c.hyperlink.target,'location':c.hyperlink.location} if c.hyperlink else None,'comment':c.comment.text if c.comment else None},sort_keys=True,separators=(',',':'),default=str)
 result={'sheetOrder':wb.sheetnames,'cells':cells,'mergedRanges':merged,
  'definedNames':{k:v.attr_text for k,v in wb.defined_names.items()},
  'externalLinks':[str(getattr(getattr(x,'file_link',None),'Target','')) for x in wb._external_links],

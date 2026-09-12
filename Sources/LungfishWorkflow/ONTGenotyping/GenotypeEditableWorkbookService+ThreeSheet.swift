@@ -58,8 +58,12 @@ extension GenotypeEditableWorkbookService {
     private struct PhysicalCell: Codable, Equatable {
         let type: String
         let value: JSONValue
-        let hyperlink: String?
+        let hyperlink: PhysicalHyperlink?
         let comment: String?
+    }
+    private struct PhysicalHyperlink: Codable, Equatable {
+        let target: String?
+        let location: String?
     }
     private struct NoteEdit {
         let reviewOperation: String
@@ -94,7 +98,7 @@ extension GenotypeEditableWorkbookService {
         let manifest = try decodeManifest(trustedManifest)
         guard manifest.schemaVersion == 2, manifest.role == "editable-current", manifest.allowedNoteGrammarVersion == 2 else { throw reject("Unsupported trusted workbook manifest.") }
         let parsed = try parseThreeSheet(workbookURL)
-        _ = try validateThreeSheet(parsed, manifest: manifest, allowChanges: false)
+        _ = try validateThreeSheet(parsed, manifest: manifest, baseline: nil, allowChanges: false)
         var inputs = [try witness(bundleURL.appendingPathComponent(ONTGenotypeResultBundleManifest.filename), in: bundleURL)]
         if let sidecar = try sidecarData(in: bundleURL) { inputs.append(Witness(path: GenotypeAnnotationSidecar.filename, sha256: Self.hash(sidecar), size: sidecar.count)) }
         for url in scientificInputURLs where !inputs.contains(where: { $0.path == relative(url, in: bundleURL) }) { inputs.append(try witness(url, in: bundleURL)) }
@@ -113,7 +117,7 @@ extension GenotypeEditableWorkbookService {
         guard let snapshotData = baseline.workbookSnapshot,
               let snapshot = try? JSONDecoder().decode(ThreeSheetParsed.self, from: snapshotData),
               parsed.definedNames == snapshot.definedNames else { throw reject("Defined names changed from the attested layout.") }
-        let changes = try validateThreeSheet(parsed, manifest: manifest, allowChanges: true)
+        let changes = try validateThreeSheet(parsed, manifest: manifest, baseline: snapshot, allowChanges: true)
         guard Self.hash(try Self.readRegular(workbookURL)) == Self.hash(workbookData) else { throw reject("Excel saved during inspection. Inspect again.") }
         let result = Inspection(changes: changes, workbookURL: workbookURL, workbookSHA256: Self.hash(workbookData), bundleURL: bundleURL.standardizedFileURL, baselineSHA256: Self.hash(baselineData), workbookData: workbookData, baseline: baseline, runtime: parsed.runtime, parsedData: try encoder.encode(parsed), wallTimeSeconds: Date().timeIntervalSince(startedAt))
         try revalidate(result)
@@ -139,11 +143,15 @@ extension GenotypeEditableWorkbookService {
         return try JSONDecoder().decode(ThreeSheetParsed.self, from: Data(contentsOf: output))
     }
 
-    private func validateThreeSheet(_ parsed: ThreeSheetParsed, manifest: ThreeSheetManifest, allowChanges: Bool) throws -> [Change] {
+    private func validateThreeSheet(_ parsed: ThreeSheetParsed, manifest: ThreeSheetManifest, baseline: ThreeSheetParsed?, allowChanges: Bool) throws -> [Change] {
         guard parsed.sheetOrder == manifest.sheetOrder else { throw reject("Worksheet set or order changed; restore the generated three-sheet layout.") }
         guard parsed.externalLinks.isEmpty else { throw reject("External links are not allowed in editable workbooks.") }
         var physical: [String: PhysicalCell] = [:]
         for (key, data) in parsed.cells { physical[key] = try JSONDecoder().decode(PhysicalCell.self, from: Data(data.utf8)) }
+        var baselinePhysical: [String: PhysicalCell] = [:]
+        if let baseline {
+            for (key, data) in baseline.cells { baselinePhysical[key] = try JSONDecoder().decode(PhysicalCell.self, from: Data(data.utf8)) }
+        }
         let noteCells = Set(manifest.noteTargets.values.map { $0.sheet + "!" + $0.cell })
         guard !physical.contains(where: { $0.value.comment != nil && !noteCells.contains($0.key) }) else { throw reject("A Note was added outside a trusted annotation target.") }
         var permitted = Set(manifest.immutableCells.keys)
@@ -153,13 +161,22 @@ extension GenotypeEditableWorkbookService {
         guard Set(physical.keys).isSubset(of: permitted) else { throw reject("A value, formula, link, or Note was added outside a trusted editable target.") }
         for (key, expected) in manifest.immutableCells {
             if expected.value == .string(""), expected.hyperlink == nil, physical[key] == nil { continue }
-            guard let actual = physical[key], actual.type == expected.type, actual.value == expected.value, actual.hyperlink == expected.hyperlink else { throw reject("Read-only scientific cell changed: \(key).") }
+            guard let actual = physical[key], actual.type == expected.type, actual.value == expected.value,
+                  actual.hyperlink?.target == expected.hyperlink, actual.hyperlink?.location == nil else { throw reject("Read-only scientific cell changed: \(key).") }
         }
         for (sheet, formulas) in manifest.expectedFormulas { for (address, formula) in formulas {
             guard let actual = physical[sheet + "!" + address], actual.type == "f", actual.value == .string(formula), actual.hyperlink == nil else { throw reject("Generated formula changed: \(sheet)!\(address).") }
         }}
         for (_, identity) in manifest.identityCells {
             guard physical[identity.sheet + "!" + identity.cell]?.value == identity.value else { throw reject("A trusted target is missing, duplicated, or physically reordered.") }
+        }
+        if baseline != nil {
+            for key in noteCells {
+                let before = baselinePhysical[key], after = physical[key]
+                let beforeType = before?.type ?? "n", afterType = after?.type ?? "n"
+                let beforeValue = before?.value ?? .null, afterValue = after?.value ?? .null
+                guard beforeType == afterType, beforeValue == afterValue, before?.hyperlink == after?.hyperlink else { throw reject("Scientific value, formula, or link changed at Note target: \(key).") }
+            }
         }
         var changes: [Change] = []
         for id in manifest.callTargets.keys.sorted() {

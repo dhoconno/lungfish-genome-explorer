@@ -63,3 +63,20 @@ Renderer-generated tests cover direct call edit/reset, FP proposal, scientific r
 - Merged ranges are captured for evidence replay but not used as scientific authority, so harmless presentation-only merge changes do not invent or retarget edits. Exact identity locations still make structural target moves reject.
 - The production writer remains on v1 until Task 3 explicitly supplies the renderer manifest. Native Excel Notes behavior and visual layout remain later integration/release responsibilities.
 - Swift builds emit pre-existing unrelated warnings; the affected tests have no failures.
+
+## Review fix round 1
+
+Implementation base: `1d1df59e2` (original Task 2 commit `e004df039`).
+
+Two renderer-backed regressions were added before production changes:
+
+- RED: the focused two-test command executed 2 tests with 4 failures. A manifest-authorized Note cell with an attested null display accepted `99`, `=1+1`, and an internal-location hyperlink; an editable call cell also accepted an internal-location hyperlink.
+- GREEN: `swift test --jobs 6 --filter 'GenotypeThreeSheetEditableWorkbookTests.testRejects(ValueFormulaAndInternalLinkOnAttestedNullNoteTarget|InternalHyperlinkOnEditableCallTarget)'` passed 2 tests / 0 failures in 2.236 seconds.
+- Self-review RED: deleting the Note from an attested null-valued target initially rejected because openpyxl omitted the now-empty physical cell. The regression failed with `Scientific value, formula, or link changed at Note target`; absent cells are now normalized only to the same typed null/no-link scientific state.
+- Final affected suite: `swift test --jobs 6 --filter GenotypeThreeSheetEditableWorkbookTests` passed 12 tests / 0 failures in 14.846 seconds.
+
+The v2 reader now serializes both hyperlink `target` and internal `location`. Every Note-authorized address independently compares its typed value, formula status, and complete hyperlink against the attested physical baseline snapshot; only Note text is editable. This covers targets omitted from renderer `immutableCells` because their baseline display is null. Dynamic manifest addressing and v1 dispatch are unchanged.
+
+Test clarity fixes unwrap the H2 reset `Change` before asserting its nil clear value, and rename the repeated-inspection test so it no longer claims to exercise accepted-edit retry behavior.
+
+Warnings observed during the focused Swift build are pre-existing and outside this task: the redundant `public` modifier in `ProvenanceRecorder.swift:738` and unused `execute` results in `ProjectStorageCleanupExecutorTests.swift` (including lines 846, 918, 1087, 2025, 2145, 2229, 2292, 2359, 2426, 2489, 2610, 2743, 2836, 2930, 2989, 3044, 3092, and 3319).
