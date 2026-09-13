@@ -39,7 +39,7 @@ Select an analysis bundle in the project sidebar or open it using File > Open. P
 
 The read-only viewer validates the inventory off the main thread before displaying Overview, Results and Binding inspection. Overview and Results share primer/amplicon selection with saved spans, pools and oligo membership. Files and Provenance live in the standard Inspector. Files lists the inventoried payloads; Provenance displays canonical wrapper, engine execution and derived worksheet records from the bytes verified during loading, without legacy repair or rewriting. Results interprets versioned Primer3 normalized output and native PrimalScheme3 BED/reference files, preserving alternative primers and coordinate conventions. Integrity failures appear as loading errors. Switching to another document removes the analysis viewer, clears its Inspector scope and cancels validation, which checks for cancellation between file reads. These read-only presentations do not change the bundle schema.
 
-This viewer does not require design tools to be installed. It does not invoke generic legacy provenance repair, modify the bundle, or claim experimental validation of the stored designs. Analysis details and provenance live in the viewer rather than the generic sidebar inspector.
+This viewer does not require design tools to be installed. It does not invoke generic legacy provenance repair, modify the bundle, or claim experimental validation of the stored designs. Analysis details, Files and Provenance use the standard Inspector.
 
 ## Annotation links
 

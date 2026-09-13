@@ -423,7 +423,8 @@ extension InspectorViewController {
     ) {
         // Analysis provenance comes from the native loader after integrity validation.
         // Preserve that verified record for this selection; never invoke legacy repair.
-        if sidebarType == .primerAnalysisBundle || url?.pathExtension.lowercased() == "lungfishprimeranalysis" {
+        if sidebarType == .primerAnalysisBundle || url?.pathExtension.lowercased() == "lungfishprimeranalysis"
+            || (sidebarType == .analysisResult && url.map { AnalysesFolder.readAnalysisMetadata(from: $0)?.tool == "primer-order" } == true) {
             if viewModel.primerAnalysisDocument?.bundleURL != url?.standardizedFileURL {
                 clearPrimerAnalysisDocument()
                 viewModel.provenanceSectionViewModel.clear()

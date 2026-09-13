@@ -4,13 +4,14 @@ import LungfishIO
 
 /// Keeps contextual scientific exports inside the captured project's own Analyses directory.
 struct PrimerAnalysisExportDestination: Sendable {
+  enum Kind { case referenceBundle, primerOrder }
   let url: URL
   private let projectURL: URL
   private let parentURL: URL
   private let projectIdentity: DirectoryIdentity
   private let parentIdentity: DirectoryIdentity
 
-  init(projectURL: URL, name: String) throws {
+  init(projectURL: URL, name: String, kind: Kind = .referenceBundle) throws {
     guard projectURL.isFileURL, let physical = realpath(projectURL.path, nil) else {
       throw Self.invalid("The originating project is unavailable.")
     }
@@ -28,7 +29,8 @@ struct PrimerAnalysisExportDestination: Sendable {
     let cleaned = String(name.unicodeScalars.map { permitted.contains($0) ? Character($0) : "-" })
       .trimmingCharacters(in: .whitespacesAndNewlines)
     let stem = String((cleaned.isEmpty ? "Primer extract" : cleaned).prefix(50))
-    url = parentURL.appendingPathComponent(stem + "-" + UUID().uuidString.prefix(8) + ".lungfishref", isDirectory: true)
+    let suffix = kind == .referenceBundle ? ".lungfishref" : ""
+    url = parentURL.appendingPathComponent(stem + "-" + UUID().uuidString.prefix(8) + suffix, isDirectory: true)
     try validateBeforePublication()
   }
 

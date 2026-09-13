@@ -17,6 +17,8 @@ struct PrimerAnalysisInspectorDocument {
     var resultCount = 0
     var toolDescriptions: [String] = []
     var files: [PrimerAnalysisInspectorFile] = []
+    var order: PrimerOrderDocument?
+    var isOrder = false
 
     var title: String { bundleURL.deletingPathExtension().lastPathComponent }
 }
@@ -28,7 +30,7 @@ struct PrimerAnalysisInspectorBundleSection: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(document.title).font(LungfishInspectorStyle.sectionTitleFont)
                 .textSelection(.enabled)
-            Text("Primer Analysis").foregroundStyle(.secondary)
+            Text(document.isOrder ? "Primer Order" : "Primer Analysis").foregroundStyle(.secondary)
             if document.isLoading {
                 ProgressView("Verifying saved analysis…")
             } else if let error = document.errorMessage {
@@ -36,13 +38,25 @@ struct PrimerAnalysisInspectorBundleSection: View {
                 Text(error).foregroundStyle(.secondary).textSelection(.enabled)
             } else {
                 Divider()
-                LabeledContent("Grouping", value: document.grouping)
-                LabeledContent("Inputs", value: String(document.inputCount))
-                LabeledContent("Results", value: String(document.resultCount))
-                ForEach(document.toolDescriptions, id: \.self) { Text($0).foregroundStyle(.secondary) }
+                if let order = document.order {
+                    LabeledContent("Oligos", value: String(order.oligos.count))
+                    LabeledContent("Pools", value: String(Set(order.oligos.map(\.poolName)).count))
+                    LabeledContent("Captured", value: order.selection.capturedAt.formatted())
+                    ForEach([("Requested by", order.metadata.requestedBy), ("Project", order.metadata.project),
+                        ("Order reference", order.metadata.orderReference), ("Notes", order.metadata.notes)], id: \.0) { label, value in
+                        if !value.isEmpty { LabeledContent(label, value: value).textSelection(.enabled) }
+                    }
+                    Text("Displayed oligos captured from the Inspector. Original design retained; this subset has not been redesigned or validated as a complete scheme.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    LabeledContent("Grouping", value: document.grouping)
+                    LabeledContent("Inputs", value: String(document.inputCount))
+                    LabeledContent("Results", value: String(document.resultCount))
+                    ForEach(document.toolDescriptions, id: \.self) { Text($0).foregroundStyle(.secondary) }
+                }
             }
             Divider()
-            Button("Reveal Bundle in Finder") {
+            Button(document.isOrder ? "Reveal Order in Finder" : "Reveal Bundle in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([document.bundleURL])
             }.buttonStyle(.link)
             Text(document.bundleURL.path).foregroundStyle(.tertiary).textSelection(.enabled)
@@ -73,7 +87,9 @@ struct PrimerAnalysisInspectorFilesSection: View {
                 Text("Files are unavailable because the saved analysis could not be verified.")
                 Text(error).foregroundStyle(.secondary).textSelection(.enabled)
             } else {
-                Text("\(document.files.count) verified payloads, including inputs, native outputs and provenance.")
+                Text(document.isOrder
+                    ? "\(document.files.count) verified files, including order sheets, template and retained source evidence."
+                    : "\(document.files.count) verified payloads, including inputs, native outputs and provenance.")
                     .foregroundStyle(.secondary)
                 TextField("Filter files", text: $searchText).textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("primerAnalysisInspector.fileFilter")

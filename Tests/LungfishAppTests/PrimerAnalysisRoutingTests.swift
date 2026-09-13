@@ -1,9 +1,26 @@
 import AppKit
 import XCTest
+import LungfishIO
 @testable import LungfishApp
 
 @MainActor
 final class PrimerAnalysisRoutingTests: XCTestCase {
+    func testOrderDirectoryRoutesToOrderViewportAndClearsItsInspector() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        try AnalysesFolder.writeAnalysisMetadata(.init(tool: "primer-order", isBatch: false), to: root)
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayContent(for: .init(title: "Reviewed primer order", type: .analysisResult, url: root))
+        XCTAssertNotNil(split.viewerController.primerAnalysisViewController)
+        XCTAssertTrue(split.inspectorController.viewModel.primerAnalysisDocument?.isOrder == true)
+        XCTAssertEqual(split.inspectorController.viewModel.availableTabs, [.bundle, .files, .provenance])
+        split.viewerController.clearViewport()
+        XCTAssertNil(split.viewerController.primerAnalysisViewController)
+        XCTAssertNil(split.inspectorController.viewModel.primerAnalysisDocument)
+    }
+
     func testScannerKeepsInvalidAnalysisOpaqueAndRecognizesItsType() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

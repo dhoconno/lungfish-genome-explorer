@@ -5,6 +5,8 @@ struct PrimerAnalysisDisplaySection: View {
     @Bindable var session: PrimerAnalysisDisplaySession
     @State private var selectedTargetID: String?
     @State private var searchText = ""
+    @State private var orderDraft: PrimerOrderDraft?
+    @State private var orderExportError: String?
 
     private var target: PrimerTargetDesignReview? {
         session.targets.first { $0.id == selectedTargetID } ?? session.targets.first
@@ -21,8 +23,24 @@ struct PrimerAnalysisDisplaySection: View {
             Text("\(session.visibleCount) of \(session.totalCount) oligos displayed")
                 .monospacedDigit()
                 .accessibilityIdentifier("primerAnalysisDisplay.count")
-            Text("Display options for this saved run. Saved coverage and the full ordering sheet stay unchanged. Design settings require a new run.")
+            Text("Display options for this saved run. Saved coverage and the original full ordering sheet stay unchanged. Export the displayed set below; design settings require a new run.")
                 .font(.caption).foregroundStyle(.secondary)
+            Button("Export displayed primer order…") {
+                do {
+                    orderExportError = nil
+                    orderDraft = try session.makeOrderDraft()
+                } catch {
+                    orderExportError = error.localizedDescription
+                }
+            }
+            .disabled(session.orderExportUnavailableReason != nil)
+            .accessibilityIdentifier("primerAnalysisDisplay.exportOrder")
+            Text(session.orderExportUnavailableReason
+                ?? "Includes displayed oligos across all schemes and references in this analysis.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let error = orderExportError {
+                Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
 
             Divider()
             Toggle("Forward oligos (+)", isOn: $session.settings.showForward)
@@ -48,6 +66,17 @@ struct PrimerAnalysisDisplaySection: View {
         .toggleStyle(.checkbox)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("primerAnalysisDisplay.section")
+        .sheet(item: $orderDraft) { draft in
+            PrimerOrderExportSheet(draft: draft, onCancel: { orderDraft = nil }, onExport: { frozenDraft, metadata in
+                guard let export = session.onOrderExportRequested else {
+                    orderExportError = "The originating project is no longer available for this order."
+                    orderDraft = nil
+                    return
+                }
+                orderDraft = nil
+                export(frozenDraft, metadata)
+            })
+        }
     }
 
     private var compatibilityControls: some View {

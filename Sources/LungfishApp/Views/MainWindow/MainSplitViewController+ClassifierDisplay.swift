@@ -326,6 +326,9 @@ extension MainSplitViewController {
         case .viralRecon:
             displayViralReconAnalysisFromSidebar(at: batchURL)
             return
+        case .primerOrder:
+            displayPrimerOrderFromSidebar(at: batchURL)
+            return
         case .naoMgs, .nvd, .czId, .unknown:
             break
         }

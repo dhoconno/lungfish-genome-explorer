@@ -8,10 +8,12 @@ enum AnalysisResultDisplayRoute: Equatable {
     case nvd
     case czId
     case viralRecon
+    case primerOrder
     case unknown
 
     static func route(forToolID toolID: String) -> AnalysisResultDisplayRoute {
         let normalized = toolID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized == "primer-order" { return .primerOrder }
 
         if normalized.hasPrefix("naomgs") {
             return .naoMgs

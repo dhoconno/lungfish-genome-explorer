@@ -6,6 +6,11 @@ private final class PrimerAnalysisHostingController: NSHostingController<PrimerA
     var onDismiss: (@MainActor () -> Void)?
 }
 
+private final class PrimerOrderHostingController: NSHostingController<PrimerOrderResultView> {
+    var installationID = UUID()
+    var onDismiss: (@MainActor () -> Void)?
+}
+
 extension ViewerViewController {
     func displayPrimerAnalysisBundle(
         at url: URL,
@@ -43,11 +48,45 @@ extension ViewerViewController {
         primerAnalysisViewController = controller
     }
 
+    func displayPrimerOrder(
+        at url: URL,
+        onLoaded: @escaping @MainActor (PrimerOrderViewerSnapshot) -> Void = { _ in },
+        onLoadFailed: @escaping @MainActor (String) -> Void = { _ in },
+        onDismiss: @escaping @MainActor () -> Void = {}
+    ) {
+        clearViewport()
+        let installationID = UUID()
+        let controller = PrimerOrderHostingController(rootView: PrimerOrderResultView(
+            orderURL: url, onLoaded: { [weak self] document in
+                guard let installed = self?.primerAnalysisViewController as? PrimerOrderHostingController,
+                      installed.installationID == installationID else { return }
+                onLoaded(document)
+            }, onLoadFailed: { [weak self] message in
+                guard let installed = self?.primerAnalysisViewController as? PrimerOrderHostingController,
+                      installed.installationID == installationID else { return }
+                onLoadFailed(message)
+            }))
+        controller.installationID = installationID
+        controller.onDismiss = onDismiss
+        addChild(controller)
+        let resultsView = controller.view
+        resultsView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(resultsView)
+        NSLayoutConstraint.activate([
+            resultsView.topAnchor.constraint(equalTo: view.topAnchor),
+            resultsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            resultsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            resultsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        primerAnalysisViewController = controller
+    }
+
     func hidePrimerAnalysisView() {
         guard let controller = primerAnalysisViewController else { return }
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         primerAnalysisViewController = nil
         (controller as? PrimerAnalysisHostingController)?.onDismiss?()
+        (controller as? PrimerOrderHostingController)?.onDismiss?()
     }
 }

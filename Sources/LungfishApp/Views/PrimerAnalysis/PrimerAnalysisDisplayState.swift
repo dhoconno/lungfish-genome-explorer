@@ -2,8 +2,9 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Rendering preferences only. Never pass these to a design, ordering or export workflow.
-struct PrimerAnalysisDisplaySettings: Equatable, Sendable {
+/// Rendering preferences. An explicit order export may capture these with the displayed IDs;
+/// they never change native design parameters or the saved design.
+struct PrimerAnalysisDisplaySettings: Codable, Equatable, Sendable {
   var hiddenPrimerIDs: Set<String> = []
   var hiddenPoolIDs: Set<String> = []
   var showForward = true
@@ -20,7 +21,7 @@ struct PrimerAnalysisDisplaySettings: Equatable, Sendable {
 }
 
 /// A positional comparison of one saved oligo, not native discovery frequency or assay coverage.
-struct PrimerMSACompatibilitySummary: Equatable, Sendable {
+struct PrimerMSACompatibilitySummary: Codable, Equatable, Sendable {
   let matchingRows: Int
   let assessableRows: Int
   let totalRows: Int
@@ -121,6 +122,8 @@ final class PrimerAnalysisDisplaySession {
   @ObservationIgnored private var generation = UUID()
   @ObservationIgnored private let preferences: PrimerAnalysisDisplayPreferences?
   @ObservationIgnored private var preferenceKey: String?
+  @ObservationIgnored private var sourceSnapshot: PrimerAnalysisViewerSnapshot?
+  var onOrderExportRequested: (@MainActor (PrimerOrderDraft, PrimerOrderMetadata) -> Void)?
 
   init(targets: [PrimerTargetDesignReview] = [], bindingContexts: [PrimerBindingInspectionContext] = [],
        preferences: PrimerAnalysisDisplayPreferences? = nil) {
@@ -137,12 +140,35 @@ final class PrimerAnalysisDisplaySession {
     .init(settings: settings, summaries: compatibilitySummaries, compatibilityReady: compatibilityReady)
   }
 
+  var orderExportUnavailableReason: String? {
+    if !isAvailable || sourceSnapshot == nil { return "Wait for a verified saved analysis." }
+    if onOrderExportRequested == nil { return "Open this analysis in its project to export an order." }
+    if settings.filterByCompatibility && !compatibilityReady {
+      return "Complete the MSA comparison before exporting the filtered order."
+    }
+    if visibleCount == 0 { return "Show at least one oligo to export an order." }
+    return nil
+  }
+
+  func makeOrderDraft() throws -> PrimerOrderDraft {
+    if let reason = orderExportUnavailableReason { throw PrimerOrderExportError.invalid(reason) }
+    guard let snapshot = sourceSnapshot else { throw PrimerOrderExportError.invalid("The saved analysis is unavailable.") }
+    let selection = PrimerOrderSelection(capturedAt: Date(), analysisURL: snapshot.bundle.url,
+      manifest: snapshot.bundle.manifest, settings: settings, compatibilityReady: compatibilityReady,
+      compatibilitySummaries: compatibilityReady ? compatibilitySummaries : [:],
+      selectedPrimerIDs: targets.flatMap { visibility.visiblePrimers(in: $0).map(\.id) })
+    return PrimerOrderDraft(selection: selection,
+      oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
+      defaultName: snapshot.bundle.url.deletingPathExtension().lastPathComponent + " order")
+  }
+
   func isVisible(_ primer: PrimerReviewPrimer, in target: PrimerTargetDesignReview) -> Bool {
     visibility.isVisible(primer, in: target)
   }
 
   func configure(_ snapshot: PrimerAnalysisViewerSnapshot) {
     cancel()
+    sourceSnapshot = snapshot
     targets = snapshot.primer3Results == nil ? snapshot.designReview.filter { $0.presentation == .schemeReference } : []
     bindingContexts = snapshot.inspectableBindingContexts
     compatibilitySummaries = [:]
@@ -201,6 +227,7 @@ final class PrimerAnalysisDisplaySession {
 
   func invalidate() {
     cancel()
+    sourceSnapshot = nil
     targets = []
     bindingContexts = []
     compatibilitySummaries = [:]

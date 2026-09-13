@@ -219,7 +219,7 @@ public class ViewerViewController: NSViewController {
     var referenceBundleViewportController: ReferenceBundleViewportController?
 
     /// Read-only saved primer analysis viewport.
-    var primerAnalysisViewController: NSHostingController<PrimerAnalysisViewerView>?
+    var primerAnalysisViewController: NSViewController?
 
     /// Native MHC amplicon reference bundle viewport.
     var mhcReferenceBundleViewController: NSHostingController<MHCReferenceBundleViewport>?

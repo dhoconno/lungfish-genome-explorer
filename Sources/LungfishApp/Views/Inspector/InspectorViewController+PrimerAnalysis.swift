@@ -1,7 +1,36 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 extension InspectorViewController {
+    func beginPrimerOrderDocument(at url: URL) {
+        beginPrimerAnalysisDocument(at: url)
+        viewModel.primerAnalysisDocument?.isOrder = true
+        viewModel.selectedType = "Primer Order"
+    }
+
+    func updatePrimerOrderDocument(_ snapshot: PrimerOrderViewerSnapshot, at url: URL) {
+        guard viewModel.primerAnalysisDocument?.bundleURL == url.standardizedFileURL else { return }
+        let order = snapshot.document, envelope = snapshot.provenance
+        var uniquePaths: Set<String> = []
+        let files = envelope.outputs.compactMap { output -> PrimerAnalysisInspectorFile? in
+            guard output.path.hasPrefix(order.outputDirectoryPath + "/"),
+                let checksum = output.checksumSHA256, let size = output.fileSize else { return nil }
+            let path = String(output.path.dropFirst(order.outputDirectoryPath.count + 1))
+            guard uniquePaths.insert(path).inserted else { return nil }
+            return .init(artifact: .init(relativePath: path,
+                role: path.hasPrefix("source-analysis/") ? "source evidence" : "order output",
+                format: URL(fileURLWithPath: path).pathExtension, sha256: checksum, byteSize: size),
+                url: url.appendingPathComponent(path))
+        }.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        viewModel.primerAnalysisDocument = .init(bundleURL: url.standardizedFileURL, isLoading: false,
+            files: files, order: order, isOrder: true)
+        let canonicalURL = url.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        viewModel.provenanceSectionViewModel.configureVerifiedSources([.init(id: canonicalURL.path, name: "Primer order",
+            item: .init(url: url, sidebarType: .analysisResult, contentMode: viewModel.contentMode, displayName: order.metadata.name),
+            verifiedRecord: .init(envelope: envelope, sidecarURL: canonicalURL))])
+        viewModel.reconcileSelectedTab()
+    }
     func beginPrimerAnalysisDocument(at url: URL, displaySession: PrimerAnalysisDisplaySession? = nil) {
         viewModel.primerAnalysisDisplaySession?.cancel()
         viewModel.primerAnalysisDisplaySession = displaySession
@@ -55,10 +84,11 @@ extension InspectorViewController {
 
     func failPrimerAnalysisDocument(at url: URL, message: String) {
         guard viewModel.primerAnalysisDocument?.bundleURL == url.standardizedFileURL else { return }
+        let isOrder = viewModel.primerAnalysisDocument?.isOrder == true
         // Retry reuses the viewer's session. Invalidate its data without disconnecting it.
         viewModel.primerAnalysisDisplaySession?.invalidate()
         viewModel.primerAnalysisDocument = .init(bundleURL: url.standardizedFileURL,
-            isLoading: false, errorMessage: message)
+            isLoading: false, errorMessage: message, isOrder: isOrder)
         viewModel.provenanceSectionViewModel.presentUnavailableVerifiedRecord(item: .init(
             url: url, sidebarType: .primerAnalysisBundle, contentMode: viewModel.contentMode,
             displayName: url.deletingPathExtension().lastPathComponent), message: message)
