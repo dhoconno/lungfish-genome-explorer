@@ -104,9 +104,22 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertTrue(result.explicitStyleClearing)
         XCTAssertTrue(result.literalText)
         XCTAssertTrue(result.generatedComments)
-        XCTAssertTrue(result.readOnlyComments)
+        XCTAssertTrue(result.generatedCommentAuthors)
         XCTAssertEqual(result.stableRowIDs, ["row-M4A", "row-zero", "candidate-alt-id"])
         XCTAssertEqual(result.duplicateLabels, ["M4A", "M4A"])
+    }
+
+    func testRendererMakesEverySavedWorksheetAndCellEditable() throws {
+        for mutation in ["annotations-and-literals", "absent-content"] {
+            let result = try render(snapshot: fixture(), mutation: mutation)
+
+            XCTAssertTrue(result.editableSheets, mutation)
+            XCTAssertTrue(result.editableObjects, mutation)
+            XCTAssertTrue(result.editableCells, mutation)
+            XCTAssertTrue(result.savedSheetXMLUnprotected, mutation)
+            XCTAssertTrue(result.savedCellXMLUnlocked, mutation)
+            XCTAssertTrue(result.editSaveReload, mutation)
+        }
     }
 
     func testRendererRejectsInvalidSnapshotsBeforeSaving() throws {
@@ -156,7 +169,13 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         let explicitStyleClearing: Bool
         let literalText: Bool
         let generatedComments: Bool
-        let readOnlyComments: Bool
+        let generatedCommentAuthors: Bool
+        let editableSheets: Bool
+        let editableObjects: Bool
+        let editableCells: Bool
+        let savedSheetXMLUnprotected: Bool
+        let savedCellXMLUnlocked: Bool
+        let editSaveReload: Bool
         let stableRowIDs: [String]
         let duplicateLabels: [String]
         let matrixSpecificPresentation: Bool
@@ -185,12 +204,18 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
 
         let runner = #"""
 import json, sys, zipfile
+import xml.etree.ElementTree as ET
 from openpyxl import load_workbook
 """# + "\n" + mutationPython + "\n" + GenotypeWorkbookPresentation.snapshotPythonScript + "\n" + #"""
 p=json.load(open(sys.argv[1])); out=sys.argv[2]
 mutate(p,sys.argv[4])
 summary=render_genotype_snapshot(p,out)
 wb=load_workbook(out,data_only=False)
+workbook=wb
+editable_sheets = all(not sheet.protection.sheet for sheet in workbook.worksheets)
+editable_objects = all(not sheet.protection.objects for sheet in workbook.worksheets)
+editable_cells = all(not cell.protection.locked for sheet in workbook.worksheets
+                     for row in sheet.iter_rows() for cell in row)
 all_ws=wb['Genotype Matrix - All']; filtered_ws=wb['Genotype Matrix - Filtered']; calls=wb['Haplotype Calls'] if 'Haplotype Calls' in wb.sheetnames else None
 metadata=wb['Export Metadata']
 filtered_shape=[filtered_ws.max_row,filtered_ws.max_column]
@@ -208,7 +233,32 @@ def border_style(cell):
 def note(cell):
     return cell.comment.text if cell.comment else ''
 with zipfile.ZipFile(out) as archive:
-    formula_xml=any(b'<f' in archive.read(name) for name in archive.namelist() if name.startswith('xl/worksheets/sheet'))
+    worksheet_names=sorted(name for name in archive.namelist() if name.startswith('xl/worksheets/sheet') and name.endswith('.xml'))
+    worksheet_xml=[archive.read(name) for name in worksheet_names]
+    formula_xml=any(b'<f' in xml for xml in worksheet_xml)
+    namespace='{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+    styles=ET.fromstring(archive.read('xl/styles.xml'))
+    cell_xfs=styles.find(namespace + 'cellXfs')
+    unlocked_style_ids=set()
+    for index,style in enumerate(cell_xfs or []):
+        protection=style.find(namespace + 'protection')
+        if protection is not None and protection.get('locked') in ('0','false','False'):
+            unlocked_style_ids.add(index)
+    worksheet_roots=[ET.fromstring(xml) for xml in worksheet_xml]
+    serialized_cells=[cell for root in worksheet_roots for cell in root.iter(namespace + 'c')]
+    saved_sheet_xml_unprotected=(len(worksheet_roots)==len(workbook.worksheets) and
+        all(root.find(namespace + 'sheetProtection') is None for root in worksheet_roots))
+    saved_cell_xml_unlocked=(bool(serialized_cells) and
+        all(cell.get('s') is not None and int(cell.get('s')) in unlocked_style_ids for cell in serialized_cells))
+edited_path=out+'.edited.xlsx'
+edited=load_workbook(out,data_only=False)
+markers={}
+for index,sheet in enumerate(edited.worksheets):
+    markers[sheet.title]='edited-'+str(index)
+    sheet['B1']=markers[sheet.title]
+edited.save(edited_path)
+reloaded=load_workbook(edited_path,data_only=False)
+edit_save_reload=all(reloaded[title]['B1'].value==value for title,value in markers.items())
 headers=[cell.value for cell in calls[1]] if calls else []
 annotation_case=sys.argv[4]=='annotations-and-literals'
 explicit_empty=sys.argv[4]=='explicit-empty-columns'
@@ -228,8 +278,10 @@ if annotation_case:
         calls['D2'].value=='=call formula-like' and calls['D2'].data_type=='s' and calls['L2'].data_type=='s')
     generated_comments=(note(all_ws['D1'])=='=sample comment' and note(all_ws['C5'])=='=row comment' and
         note(fp)=='=cell comment' and note(all_ws['E5'])=='' and note(all_ws['D6'])=='')
+    generated_comment_authors=all(cell.comment is not None and cell.comment.author=='LGE' for cell in (
+        all_ws['D1'],all_ws['C5'],fp,filtered_ws['D1'],filtered_ws['C5'],filtered_ws['D5']))
 else:
-    review_styles=invalid_reviews_withheld=explicit_style_clearing=literal_text=generated_comments=False
+    review_styles=invalid_reviews_withheld=explicit_style_clearing=literal_text=generated_comments=generated_comment_authors=False
 matrix_specific=sys.argv[4]=='matrix-specific-presentation'
 if matrix_specific:
     matrix_specific=(fill_rgb(all_ws['C5'])=='AA0000' and font_rgb(all_ws['C5'])=='FFFFFF' and border_rgb(all_ws['C5'])=='770000' and all_ws['C5'].font.bold and
@@ -274,7 +326,13 @@ result={
     'explicitStyleClearing':explicit_style_clearing,
     'literalText':literal_text,
     'generatedComments':generated_comments,
-    'readOnlyComments':annotation_case and all_ws.protection.sheet and all_ws.protection.objects,
+    'generatedCommentAuthors':generated_comment_authors,
+    'editableSheets':editable_sheets,
+    'editableObjects':editable_objects,
+    'editableCells':editable_cells,
+    'savedSheetXMLUnprotected':saved_sheet_xml_unprotected,
+    'savedCellXMLUnlocked':saved_cell_xml_unlocked,
+    'editSaveReload':edit_save_reload,
     'stableRowIDs':[all_ws.cell(r,1).value for r in range(5,8)] if annotation_case else [],
     'duplicateLabels':[all_ws['C5'].value,all_ws['C7'].value] if annotation_case else [],
     'matrixSpecificPresentation':matrix_specific,

@@ -350,12 +350,12 @@ def _finish_sheet(sheet, header_rows):
     for row in sheet.iter_rows():
         for cell in row:
             cell.alignment = Alignment(vertical='center', wrap_text=True)
-            cell.protection = Protection(locked=True)
-    sheet.protection.sheet = True
+            cell.protection = Protection(locked=False)
+    sheet.protection.sheet = False
     sheet.protection.selectLockedCells = False
     sheet.protection.selectUnlockedCells = False
     sheet.protection.autoFilter = False
-    sheet.protection.objects = True
+    sheet.protection.objects = False
 
 def _render_calls(workbook, payload, colors):
     sheet = workbook.create_sheet('Haplotype Calls')
