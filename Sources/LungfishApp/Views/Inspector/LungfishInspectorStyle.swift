@@ -20,6 +20,7 @@ struct LungfishInspectorSegmentedButtonGrid<Option: Hashable>: View {
     @Binding var selection: Option
     let accessibilityLabel: String
     let label: (Option) -> String
+    var minimumLabelScale: CGFloat = 1
 
     private var columns: [GridItem] {
         Array(
@@ -34,21 +35,31 @@ struct LungfishInspectorSegmentedButtonGrid<Option: Hashable>: View {
                 Button {
                     selection = option
                 } label: {
-                    Text(label(option))
-                        .font(LungfishInspectorStyle.segmentedControlFont(isSelected: selection == option))
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, minHeight: max(28, ContentTypographyModel.shared.resolvedNSFont(for: .body).pointSize * 2))
-                        .padding(.horizontal, 4)
-                        .background(background(for: option))
-                        .foregroundStyle(selection == option ? Color.white : Color.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    optionLabel(option)
                 }
                 .buttonStyle(.plain)
                 .help(label(option))
             }
         }
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func optionLabel(_ option: Option) -> some View {
+        let minimumHeight = max(
+            28,
+            ContentTypographyModel.shared.resolvedNSFont(for: .body).pointSize * 2
+        )
+        return Text(label(option))
+            .font(LungfishInspectorStyle.segmentedControlFont(isSelected: selection == option))
+            .lineLimit(minimumLabelScale < 1 ? 1 : 2)
+            .truncationMode(.tail)
+            .minimumScaleFactor(minimumLabelScale)
+            .allowsTightening(minimumLabelScale < 1)
+            .frame(maxWidth: .infinity, minHeight: minimumHeight)
+            .padding(.horizontal, 4)
+            .background(background(for: option))
+            .foregroundStyle(selection == option ? Color.white : Color.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder

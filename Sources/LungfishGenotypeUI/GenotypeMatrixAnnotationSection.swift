@@ -36,10 +36,12 @@ public struct GenotypeMatrixAnnotationSection: View {
             commentCards
             appearanceControls
 
-            Text("Edits are saved in LGE. Export again to create an updated Excel snapshot.")
-                .font(contentBodyFont)
+            Image(systemName: "questionmark.circle")
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .help(annotationSavingHelp)
+                .accessibilityLabel("About saved annotations")
+                .accessibilityHint(annotationSavingHelp)
+                .accessibilityIdentifier("genotype-annotation-saving-help")
         }
     }
 
@@ -60,20 +62,13 @@ public struct GenotypeMatrixAnnotationSection: View {
                 .font(contentBodyFont)
                 .accessibilityIdentifier("genotype-annotation-review-current-state")
 
-            HStack(spacing: 8) {
-                Button("False Positive") {
-                    viewModel.markMatrixFalsePositive()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    reviewButtons
                 }
-                .disabled(!viewModel.matrixFalsePositiveAvailability.isEnabled)
-                .help(viewModel.matrixFalsePositiveAvailability.disabledReason ?? "Mark as false positive")
-                .accessibilityIdentifier("genotype-annotation-review-false-positive-button")
-
-                Button("False Negative") {
-                    viewModel.markMatrixFalseNegative()
+                VStack(alignment: .leading, spacing: 6) {
+                    reviewButtons
                 }
-                .disabled(!viewModel.matrixFalseNegativeAvailability.isEnabled)
-                .help(viewModel.matrixFalseNegativeAvailability.disabledReason ?? "Mark as false negative")
-                .accessibilityIdentifier("genotype-annotation-review-false-negative-button")
             }
             .controlSize(.regular)
 
@@ -98,6 +93,23 @@ public struct GenotypeMatrixAnnotationSection: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("genotype-annotation-review-group")
+    }
+
+    @ViewBuilder
+    private var reviewButtons: some View {
+        Button("False Positive") {
+            viewModel.markMatrixFalsePositive()
+        }
+        .disabled(!viewModel.matrixFalsePositiveAvailability.isEnabled)
+        .help(viewModel.matrixFalsePositiveAvailability.disabledReason ?? "Mark as false positive")
+        .accessibilityIdentifier("genotype-annotation-review-false-positive-button")
+
+        Button("False Negative") {
+            viewModel.markMatrixFalseNegative()
+        }
+        .disabled(!viewModel.matrixFalseNegativeAvailability.isEnabled)
+        .help(viewModel.matrixFalseNegativeAvailability.disabledReason ?? "Mark as false negative")
+        .accessibilityIdentifier("genotype-annotation-review-false-negative-button")
     }
 
     private var commentCards: some View {
@@ -154,7 +166,7 @@ public struct GenotypeMatrixAnnotationSection: View {
                     )
             }
 
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
                 Button {
                     viewModel.saveMatrixComment(scope: card.scope)
                 } label: {
@@ -220,19 +232,31 @@ public struct GenotypeMatrixAnnotationSection: View {
                         color: GenotypeResultDisplaySectionViewModel.nsColor(
                             from: viewModel.matrixFillColor
                         ),
+                        accessibilityName: "Fill color",
+                        accessibilityValue: viewModel.matrixFillColor.description,
                         onChange: { viewModel.setMatrixFillColor($0) }
                     )
-                    .frame(minWidth: 34, minHeight: 28)
+                    .frame(width: 38, height: 28)
+                    .accessibilityLabel("Fill color")
+                    .accessibilityValue(viewModel.matrixFillColor.description)
+                    .accessibilityIdentifier("genotype-annotation-fill-color")
                     Text("Fill")
                         .font(contentBodyFont)
+                }
 
+                HStack(spacing: 10) {
                     MatrixAnnotationColorWell(
                         color: GenotypeResultDisplaySectionViewModel.nsColor(
                             from: viewModel.matrixTextColor
                         ),
+                        accessibilityName: "Text color",
+                        accessibilityValue: viewModel.matrixTextColor.description,
                         onChange: { viewModel.setMatrixTextColor($0) }
                     )
-                    .frame(minWidth: 34, minHeight: 28)
+                    .frame(width: 38, height: 28)
+                    .accessibilityLabel("Text color")
+                    .accessibilityValue(viewModel.matrixTextColor.description)
+                    .accessibilityIdentifier("genotype-annotation-text-color")
                     Text("Text")
                         .font(contentBodyFont)
                 }
@@ -242,25 +266,38 @@ public struct GenotypeMatrixAnnotationSection: View {
                         color: GenotypeResultDisplaySectionViewModel.nsColor(
                             from: viewModel.matrixBorderColor
                         ),
+                        accessibilityName: "Border color",
+                        accessibilityValue: viewModel.matrixBorderColor.description,
                         onChange: { viewModel.setMatrixBorderColor($0) }
                     )
-                    .frame(minWidth: 34, minHeight: 28)
+                    .frame(width: 38, height: 28)
+                    .accessibilityLabel("Border color")
+                    .accessibilityValue(viewModel.matrixBorderColor.description)
+                    .accessibilityIdentifier("genotype-annotation-border-color")
                     Text("Border")
                         .font(contentBodyFont)
+                }
 
-                    Toggle("B", isOn: Binding(
+                HStack(spacing: 8) {
+                    Toggle("Bold", isOn: Binding(
                         get: { viewModel.matrixIsBold },
                         set: { viewModel.setMatrixBold($0) }
                     ))
                     .toggleStyle(.button)
                     .controlSize(.regular)
+                    .accessibilityLabel("Bold")
+                    .accessibilityValue(viewModel.matrixIsBold ? "On" : "Off")
+                    .accessibilityIdentifier("genotype-annotation-bold")
 
-                    Toggle("I", isOn: Binding(
+                    Toggle("Italic", isOn: Binding(
                         get: { viewModel.matrixIsItalic },
                         set: { viewModel.setMatrixItalic($0) }
                     ))
                     .toggleStyle(.button)
                     .controlSize(.regular)
+                    .accessibilityLabel("Italic")
+                    .accessibilityValue(viewModel.matrixIsItalic ? "On" : "Off")
+                    .accessibilityIdentifier("genotype-annotation-italic")
                 }
 
                 paletteControls
@@ -301,9 +338,9 @@ public struct GenotypeMatrixAnnotationSection: View {
                     Text(target.displayName).tag(target)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .controlSize(.regular)
+            .accessibilityHint("Choose whether quick colors change the fill, text, or border.")
 
             paletteGrid(
                 title: "mcm",
@@ -336,20 +373,20 @@ public struct GenotypeMatrixAnnotationSection: View {
                     }
                     .buttonStyle(.plain)
                     .help("\(title) color \(index + 1) \(color.hexString)")
+                    .accessibilityLabel("\(title) color \(index + 1)")
+                    .accessibilityValue(color.hexString)
+                    .accessibilityHint("Apply this color to the selected palette target.")
                 }
             }
         }
     }
 
     private func valueRow(label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .trailing)
-            Text(value)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
+        GenotypeInspectorValueRow(label, value: value, font: contentBodyFont)
+    }
+
+    private var annotationSavingHelp: String {
+        "Edits are saved in Lungfish. Export again to create an updated Excel snapshot."
     }
 
     private func swiftUIColor(from color: AnnotationColor) -> Color {
@@ -465,6 +502,8 @@ public struct GenotypeMatrixAnnotationSection: View {
 
 private struct MatrixAnnotationColorWell: NSViewRepresentable {
     var color: NSColor
+    var accessibilityName: String
+    var accessibilityValue: String
     var onChange: (NSColor) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -477,6 +516,7 @@ private struct MatrixAnnotationColorWell: NSViewRepresentable {
         colorWell.color = color
         colorWell.target = context.coordinator
         colorWell.action = #selector(Coordinator.colorChanged(_:))
+        updateAccessibility(on: colorWell)
         return colorWell
     }
 
@@ -485,6 +525,15 @@ private struct MatrixAnnotationColorWell: NSViewRepresentable {
         if colorWell.color != color {
             colorWell.color = color
         }
+        updateAccessibility(on: colorWell)
+    }
+
+    private func updateAccessibility(on colorWell: NSColorWell) {
+        colorWell.setAccessibilityLabel(accessibilityName)
+        colorWell.setAccessibilityValueDescription(accessibilityValue)
+        colorWell.setAccessibilityHelp(
+            "Choose the \(accessibilityName.lowercased()) for the selected matrix targets."
+        )
     }
 
     final class Coordinator: NSObject {

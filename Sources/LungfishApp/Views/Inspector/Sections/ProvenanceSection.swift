@@ -4,11 +4,13 @@
 
 import AppKit
 import LungfishCore
+import LungfishGenotypeUI
 import LungfishKit
 import SwiftUI
 
 struct ProvenanceSection: View {
     @Bindable var viewModel: ProvenanceInspectorViewModel
+    let usesGenotypePresentation: Bool
 
     @State private var isRunSummaryExpanded = true
     @State private var isWarningsExpanded = true
@@ -17,6 +19,17 @@ struct ProvenanceSection: View {
     @State private var isOptionsExpanded = false
     @State private var isRuntimeExpanded = false
     @State private var isRawJSONExpanded = false
+
+    init(
+        viewModel: ProvenanceInspectorViewModel,
+        usesGenotypePresentation: Bool = false,
+        detailsInitiallyExpanded: Bool = false
+    ) {
+        self.viewModel = viewModel
+        self.usesGenotypePresentation = usesGenotypePresentation
+        _isOptionsExpanded = State(initialValue: detailsInitiallyExpanded)
+        _isRuntimeExpanded = State(initialValue: detailsInitiallyExpanded)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -102,42 +115,24 @@ struct ProvenanceSection: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if usesGenotypePresentation {
                 Text("Provenance")
                     .font(LungfishInspectorStyle.sectionTitleFont)
-                Spacer()
-                Button {
-                    copyToPasteboard(viewModel.copyableText)
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .labelStyle(.iconOnly)
+                    .fixedSize(horizontal: true, vertical: false)
+                headerActions
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Provenance")
+                        .font(LungfishInspectorStyle.sectionTitleFont)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    headerActions
                 }
-                .buttonStyle(.borderless)
-                .font(LungfishInspectorStyle.controlFont)
-                .help("Copy provenance text")
-                .disabled(viewModel.isLoading || viewModel.copyableText.isEmpty)
-                .accessibilityIdentifier("provenance-copy-text")
-                Menu {
-                    ForEach(ProvenanceExportMenuModel.items, id: \.format) { item in
-                        Button(item.title) {
-                            viewModel.export(format: item.format)
-                        }
-                        .disabled(viewModel.resolvedEnvelope == nil)
-                    }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .labelStyle(.titleAndIcon)
-                }
-                .menuStyle(.button)
-                .font(LungfishInspectorStyle.controlFont)
-                .disabled(viewModel.resolvedEnvelope == nil)
-                .accessibilityIdentifier("provenance-export-menu")
             }
 
             Label(viewModel.summary.statusLabel, systemImage: statusSymbol)
                 .font(LungfishInspectorStyle.controlFont)
                 .foregroundStyle(statusForegroundStyle)
-                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
             if viewModel.isLoading {
@@ -150,6 +145,39 @@ struct ProvenanceSection: View {
                 }
                 .accessibilityIdentifier("provenance-loading-indicator")
             }
+        }
+    }
+
+    private var headerActions: some View {
+        HStack(spacing: 8) {
+            Button {
+                copyToPasteboard(viewModel.copyableText)
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .font(LungfishInspectorStyle.controlFont)
+            .help("Copy provenance text")
+            .accessibilityLabel("Copy provenance text")
+            .accessibilityHint("Copies every displayed provenance record as text.")
+            .disabled(viewModel.isLoading || viewModel.copyableText.isEmpty)
+            .accessibilityIdentifier("provenance-copy-text")
+            Menu {
+                ForEach(ProvenanceExportMenuModel.items, id: \.format) { item in
+                    Button(item.title) {
+                        viewModel.export(format: item.format)
+                    }
+                    .disabled(viewModel.resolvedEnvelope == nil)
+                }
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+            }
+            .menuStyle(.button)
+            .font(LungfishInspectorStyle.controlFont)
+            .disabled(viewModel.resolvedEnvelope == nil)
+            .accessibilityIdentifier("provenance-export-menu")
         }
     }
 
@@ -206,7 +234,7 @@ struct ProvenanceSection: View {
                                 Text(run.subtitle)
                                     .font(LungfishInspectorStyle.controlFont)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -337,39 +365,71 @@ struct ProvenanceSection: View {
     }
 
     private func fileRow(_ row: ProvenanceFileRow) -> some View {
+        Group {
+            if usesGenotypePresentation {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.role)
+                        .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    filePathText(row)
+                    Text(fileMetadataSummary(for: row))
+                        .font(LungfishInspectorStyle.controlFont)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    fileChecksumText(row)
+                }
+            } else {
+                legacyFileRow(row)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func legacyFileRow(_ row: ProvenanceFileRow) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(row.role)
                     .font(LungfishInspectorStyle.controlFont.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 62, alignment: .trailing)
-                Text(row.displayPath)
-                    .font(LungfishInspectorStyle.controlFont)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier("provenance-file-path")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(row.path)
+                filePathText(row)
             }
             Text(fileMetadataSummary(for: row))
             .font(LungfishInspectorStyle.controlFont)
             .foregroundStyle(.tertiary)
             .padding(.leading, 68)
 
-            if let checksum = row.checksumSHA256, !checksum.isEmpty {
-                Text("sha256 \(checksum)")
-                    .font(LungfishInspectorStyle.controlFont.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier("provenance-file-checksum")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 68)
-            }
+            fileChecksumText(row)
+                .padding(.leading, 68)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func filePathText(_ row: ProvenanceFileRow) -> some View {
+        Text(row.displayPath)
+            .font(LungfishInspectorStyle.controlFont)
+            .lineLimit(usesGenotypePresentation ? nil : 2)
+            .truncationMode(.middle)
+            .fixedSize(horizontal: false, vertical: usesGenotypePresentation)
+            .textSelection(.enabled)
+            .accessibilityIdentifier("provenance-file-path")
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help(row.path)
+    }
+
+    @ViewBuilder
+    private func fileChecksumText(_ row: ProvenanceFileRow) -> some View {
+        if let checksum = row.checksumSHA256, !checksum.isEmpty {
+            Text("sha256 \(checksum)")
+                .font(LungfishInspectorStyle.controlFont.monospaced())
+                .foregroundStyle(.tertiary)
+                .lineLimit(usesGenotypePresentation ? nil : 1)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: usesGenotypePresentation)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("provenance-file-checksum")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func fileMetadataSummary(for row: ProvenanceFileRow) -> String {
@@ -389,19 +449,37 @@ struct ProvenanceSection: View {
         value: String,
         accessibilityIdentifier: String = "provenance-summary-value"
     ) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .font(LungfishInspectorStyle.controlFont)
-                .foregroundStyle(.secondary)
-                .frame(width: 96, alignment: .trailing)
-            Text(value)
-                .font(LungfishInspectorStyle.controlFont)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-                .accessibilityIdentifier(accessibilityIdentifier)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if usesGenotypePresentation {
+                GenotypeInspectorValueRow(
+                    label,
+                    value: value,
+                    font: LungfishInspectorStyle.controlFont,
+                    valueAccessibilityIdentifier: accessibilityIdentifier
+                )
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(label)
+                        .font(LungfishInspectorStyle.controlFont)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 96, alignment: .trailing)
+                    summaryValueText(value, accessibilityIdentifier: accessibilityIdentifier)
+                }
+            }
         }
+    }
+
+    private func summaryValueText(
+        _ value: String,
+        accessibilityIdentifier: String
+    ) -> some View {
+        Text(value)
+            .font(LungfishInspectorStyle.controlFont)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func emptyMessage(_ text: String) -> some View {

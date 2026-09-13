@@ -913,11 +913,13 @@ public struct SelectionSection: View {
                 Text(selection.title)
                     .font(LungfishInspectorStyle.controlFont.weight(.semibold))
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let subtitle = selection.subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -925,8 +927,11 @@ public struct SelectionSection: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(selection.detailRows.enumerated()), id: \.offset) { _, row in
-                    LabeledContent(row.0, value: row.1)
-                        .font(LungfishInspectorStyle.controlFont)
+                    GenotypeInspectorValueRow(
+                        row.0,
+                        value: row.1,
+                        font: LungfishInspectorStyle.controlFont
+                    )
                 }
             }
 
@@ -947,6 +952,7 @@ public struct SelectionSection: View {
                 }
                 .controlSize(.small)
                 .help("Open the per-locus call list to override haplotype calls for this sample.")
+                .accessibilityHint("Opens the editable per-locus calls for this sample.")
             }
         }
         .padding(.top, 8)

@@ -165,16 +165,22 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let view = GenotypeResultDisplaySection(viewModel: viewModel)
         let inspected = try view.inspect()
 
-        // Converted from source-text grep to behavioral assertions: every heading,
-        // guidance string, and stable accessibility identifier below is proven to
-        // actually render in the live tree, not merely appear as a substring of the
-        // view's source file.
+        // Routine guidance is available on demand instead of occupying persistent
+        // Inspector space; state and actions remain in the rendered tree.
         _ = try inspected.find(text: "Search and Support Filters")
         _ = try inspected.find(text: "Selected Rows and Columns")
-        _ = try inspected.find(text:
+        XCTAssertThrowsError(try inspected.find(text:
             "Select allele row markers or sample column headers to change visibility. "
                 + "Visibility actions use the selection. Search and support filters always "
                 + "apply to the currently visible matrix."
+        ))
+        let visibilityHelp = try inspected.find(ViewType.Image.self, where: {
+            try $0.accessibilityIdentifier() == InspectorAccessibilityID.genotypeVisibilityGuidance
+        })
+        XCTAssertEqual(try visibilityHelp.accessibilityLabel().string(), "About matrix visibility")
+        XCTAssertTrue(
+            try visibilityHelp.accessibilityHint().string()
+                .contains("Visibility actions use the selection")
         )
         for title in [
             "Hide Selected Rows",
@@ -191,7 +197,6 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             InspectorAccessibilityID.genotypeVisibilityGroup,
             InspectorAccessibilityID.genotypeVisibilityScope,
             InspectorAccessibilityID.genotypeVisibilityStatus,
-            InspectorAccessibilityID.genotypeVisibilityGuidance,
             InspectorAccessibilityID.genotypeRowVisibilityMenu,
             InspectorAccessibilityID.genotypeHideSelectedRows,
             InspectorAccessibilityID.genotypeShowOnlySelectedRows,
@@ -276,9 +281,16 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         )
         let inspected = try view.inspect()
 
-        let export = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-to-excel")
-        try export.button().tap()
+        let export = try inspected.find(ViewType.Button.self, where: {
+            try $0.accessibilityIdentifier() == "genotype-inspector-export-to-excel"
+        })
+        try export.tap()
+        XCTAssertEqual(
+            try export.accessibilityHint().string(),
+            "Creates an editable, one-way workbook snapshot. Changes in Excel are not imported into Lungfish."
+        )
         XCTAssertThrowsError(try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes"))
+        XCTAssertThrowsError(try inspected.find(text: GenotypeExcelExportSessionState.disclosure))
         XCTAssertEqual(exportCalls, 1)
         XCTAssertEqual(
             inspected.findAll(ViewType.Button.self).filter {
@@ -339,7 +351,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertEqual(exports, 1)
     }
 
-    func testMissingLastFilteredExportRendersDisabledActionableLink() throws {
+    func testDocumentExcelSectionOmitsPersistentExportHistoryButKeepsActionableFailure() throws {
         let missing = URL(fileURLWithPath: "/tmp/deleted-filtered.xlsx")
         let latest = GenotypeExcelExportPresentation(
             url: missing,
@@ -349,13 +361,45 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let state = GenotypeResultDocumentState(
             title: "Synthetic", bundleURL: URL(fileURLWithPath: "/tmp/readable.lungfishgenotype"), sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
             lastExcelExport: latest,
-            excelExportStatus: "Excel export failed — disk full"
+            excelExportStatus: "Excel export complete"
         )
         let inspected = try GenotypeResultDocumentSection(state: state).inspect()
-        let link = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-last-excel-export")
-        XCTAssertTrue(try link.button().isDisabled())
-        _ = try inspected.find(text: "The last Excel export is no longer available at its saved location.")
-        _ = try inspected.find(text: "Excel export failed — disk full")
+        XCTAssertThrowsError(
+            try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-last-excel-export")
+        )
+        XCTAssertThrowsError(try inspected.find(text: "Excel export complete"))
+        XCTAssertThrowsError(
+            try inspected.find(text: "The last Excel export is no longer available at its saved location.")
+        )
+
+        var failedState = state
+        failedState.excelExportStatus = "Excel export failed — disk full"
+        let failed = try GenotypeResultDocumentSection(state: failedState).inspect()
+        let failure = try failed.find(
+            viewWithAccessibilityIdentifier: "genotype-inspector-excel-export-error"
+        )
+        XCTAssertEqual(try failure.text().string(), "Excel export failed — disk full")
+    }
+
+    func testDocumentExcelSectionShowsProgressAndDisablesExportWhileRunning() throws {
+        let state = GenotypeResultDocumentState(
+            title: "Synthetic",
+            bundleURL: URL(fileURLWithPath: "/tmp/readable.lungfishgenotype"),
+            sampleIds: [],
+            summaryRows: [],
+            qcRows: [],
+            artifactRows: [],
+            isExcelExporting: true
+        )
+        let inspected = try GenotypeResultDocumentSection(state: state).inspect()
+
+        XCTAssertTrue(try inspected.find(
+            viewWithAccessibilityIdentifier: "genotype-inspector-export-to-excel"
+        ).button().isDisabled())
+        let progress = try inspected.find(
+            viewWithAccessibilityIdentifier: "genotype-inspector-excel-export-progress"
+        )
+        XCTAssertEqual(try progress.accessibilityLabel().string(), "Exporting Excel workbook")
     }
 
     func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
@@ -727,36 +771,34 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
         // Converted from source-text grep to behavioral assertions on the actual
         // rendered tree: no live Slider control exists anywhere in the rendered
-        // section, no "Hide Low Support"/"Minimum Reads" text renders, and the
-        // fixed-thresholds guidance copy does render.
+        // section, no legacy filter labels render, and threshold guidance is exposed
+        // through concise accessibility help rather than static prose.
         XCTAssertTrue(inspected.findAll(ViewType.Slider.self).isEmpty)
 
         let renderedText = inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
         XCTAssertFalse(renderedText.contains(where: { $0.contains("Hide Low Support") }))
         XCTAssertFalse(renderedText.contains(where: { $0.contains("Minimum Reads") }))
-        XCTAssertTrue(renderedText.contains(where: { $0.contains("Display filters do not change calls") }))
-        XCTAssertTrue(renderedText.contains(where: { $0.contains("Re-run the analysis to change calling thresholds") }))
+        XCTAssertFalse(renderedText.contains(where: { $0.contains("Display filters do not change calls") }))
+        let filterHelp = try inspected.find(ViewType.Image.self, where: {
+            try $0.accessibilityIdentifier() == "genotype-view-threshold-help"
+        })
+        XCTAssertTrue(try filterHelp.accessibilityHint().string().contains("Re-run the analysis"))
     }
 
-    func testGenotypeDisplaySectionKeepsThresholdGuidanceSeparateFromColorControls() throws {
+    func testGenotypeDisplaySectionAttachesThresholdGuidanceToFilterControls() throws {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         viewModel.update(isAvailable: true)
         let view = GenotypeResultDisplaySection(viewModel: viewModel)
         let inspected = try view.inspect()
 
-        // Converted from a source-range extraction (text between the
-        // `thresholdGuidance` and `matrixFilterControls` property declarations) to a
-        // behavioral assertion on the actual rendered group: the VStack that renders
-        // the "Run and Calling Thresholds" heading has no TextField/Stepper
-        // descendants of its own -- those controls live in sibling groups instead.
-        let thresholdGroup = try inspected.find(ViewType.VStack.self, where: { group in
-            // Match on the group's own direct first child being the heading (rather
-            // than `findAll`, which matches transitively and would also match the
-            // outer DisclosureGroup content VStack that contains everything).
-            (try? group.text(0).string()) == "Run and Calling Thresholds"
+        XCTAssertThrowsError(try inspected.find(text: "Run and Calling Thresholds"))
+        let filterHelp = try inspected.find(ViewType.Image.self, where: {
+            try $0.accessibilityIdentifier() == "genotype-view-threshold-help"
         })
-        XCTAssertTrue(thresholdGroup.findAll(ViewType.TextField.self).isEmpty)
-        XCTAssertTrue(thresholdGroup.findAll(ViewType.Stepper.self).isEmpty)
+        XCTAssertEqual(
+            try filterHelp.accessibilityLabel().string(),
+            "About search and support filters"
+        )
     }
 
     func testMatrixThresholdControlsUseEditableFieldsHiddenLabelSteppersAndOffGuidance() throws {
@@ -768,8 +810,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         // Converted from a source-range extraction to behavioral assertions on the
         // actual rendered controls: both threshold fields render as real, editable
         // TextFields (not static "Min reads: N" labels) with their stable
-        // accessibility identifiers, and the "%"/"0 = Off." guidance text renders
-        // too. The hidden-label stepper alongside each field is NOT a SwiftUI
+        // accessibility identifiers, and Percent Basis remains a named popup. The
+        // hidden-label stepper alongside each field is NOT a SwiftUI
         // `Stepper` -- it is `GenotypeNumericFilterStepper`, a `private`
         // `NSViewRepresentable` wrapping a real `NSStepper` (see
         // GenotypeResultDisplaySection.swift). `find(ViewType.Stepper.self)` cannot
@@ -802,7 +844,11 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         )
 
         _ = try inspected.find(text: "%")
-        _ = try inspected.find(text: "0 = Off.")
+        XCTAssertThrowsError(try inspected.find(text: "0 = Off."))
+        let percentBasis = try inspected.find(ViewType.Picker.self, where: {
+            try $0.accessibilityIdentifier() == "genotype-view-percent-basis"
+        })
+        XCTAssertEqual(try percentBasis.accessibilityLabel().string(), "Percent Basis")
 
         let renderedText = inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
         XCTAssertFalse(renderedText.contains(where: { $0.hasPrefix("Min reads: ") }))
@@ -1623,7 +1669,16 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let view = GenotypeMatrixAnnotationSection(viewModel: viewModel)
         let inspected = try view.inspect()
 
-        _ = try inspected.find(text: "Edits are saved in LGE. Export again to create an updated Excel snapshot.")
+        XCTAssertThrowsError(
+            try inspected.find(text: "Edits are saved in LGE. Export again to create an updated Excel snapshot.")
+        )
+        let savingHelp = try inspected.find(ViewType.Image.self, where: {
+            try $0.accessibilityIdentifier() == "genotype-annotation-saving-help"
+        })
+        XCTAssertEqual(
+            try savingHelp.accessibilityHint().string(),
+            "Edits are saved in Lungfish. Export again to create an updated Excel snapshot."
+        )
         XCTAssertThrowsError(try inspected.find(text: "Edits are saved to annotations.json and synced to current.xlsx."))
         _ = try inspected.find(text: "Appearance")
         _ = try inspected.find(button: "False Positive")
@@ -1639,6 +1694,55 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         ] {
             _ = try inspected.find(viewWithAccessibilityIdentifier: identifier)
         }
+    }
+
+    func testAnnotationAppearanceControlsExposeNamesStatesAndColorValues() throws {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: "01_Mafa_A1_001_01", sample: "AnimalA"
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.updateSelection(.init(
+            title: "Cell",
+            subtitle: "Matrix annotations",
+            detailRows: [],
+            matrixTargets: [target]
+        ))
+        viewModel.updateMatrixReviewCapability(GenotypeMatrixReviewCapability.evaluate(
+            selection: [target], evidence: .init([target: 12]), reviews: [], comments: [],
+            isWritable: true
+        ))
+        viewModel.isMatrixAppearanceExpanded = true
+        let inspected = try GenotypeMatrixAnnotationSection(viewModel: viewModel).inspect()
+
+        for (identifier, label, value) in [
+            ("genotype-annotation-bold", "Bold", "Off"),
+            ("genotype-annotation-italic", "Italic", "Off"),
+        ] {
+            let control = try inspected.find(viewWithAccessibilityIdentifier: identifier)
+            XCTAssertEqual(try control.accessibilityLabel().string(), label)
+            XCTAssertEqual(try control.accessibilityValue().string(), value)
+        }
+    }
+
+    func testGenotypeSelectionKeepsSampleOnlyEditCallsAction() throws {
+        let sampleModel = SelectionSectionViewModel()
+        sampleModel.select(genotypeResultSelection: .init(
+            title: "Animal A",
+            subtitle: "Selected sample",
+            detailRows: [("Identity", "Animal-A-with-a-long-stable-identity")],
+            animalId: "AnimalA"
+        ))
+        _ = try SelectionSection(viewModel: sampleModel).inspect().find(button: "Edit calls…")
+
+        let alleleModel = SelectionSectionViewModel()
+        alleleModel.select(genotypeResultSelection: .init(
+            title: "01_Mafa_A1_001_01",
+            subtitle: "Shared allele",
+            detailRows: [("Samples", "AnimalA, AnimalB")]
+        ))
+        XCTAssertThrowsError(
+            try SelectionSection(viewModel: alleleModel).inspect().find(button: "Edit calls…")
+        )
     }
 
     func testSelectionViewModelEmitsGenotypeHighlightRequests() {

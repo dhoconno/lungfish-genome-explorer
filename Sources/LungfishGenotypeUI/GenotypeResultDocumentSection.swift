@@ -282,12 +282,8 @@ public struct GenotypeResultDocumentSection: View {
     }
 
     private var includedLociSection: some View {
-        DisclosureGroup("Included Loci", isExpanded: $isIncludedLociExpanded) {
+        DisclosureGroup(isExpanded: $isIncludedLociExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Included loci appear in Outline. Excel exports preserve the exact captured locus scope and effective calls.")
-                    .font(contentBodyFont)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     Button("All") {
                         onIncludedLociChange?(Set(state.availableHaplotypeLoci))
@@ -328,6 +324,17 @@ public struct GenotypeResultDocumentSection: View {
                 }
             }
             .padding(.top, 4)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Included Loci")
+                Spacer(minLength: 4)
+                Image(systemName: "questionmark.circle")
+                    .foregroundStyle(.secondary)
+                    .help(includedLociHelp)
+                    .accessibilityLabel("About included loci")
+                    .accessibilityHint(includedLociHelp)
+                    .accessibilityIdentifier("genotype-bundle-included-loci-help")
+            }
         }
         .font(contentHeadingFont)
     }
@@ -380,11 +387,13 @@ public struct GenotypeResultDocumentSection: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(state.title)
                 .font(contentHeadingFont)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             if let subtitle = state.subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(contentBodyFont)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
     }
@@ -408,16 +417,7 @@ public struct GenotypeResultDocumentSection: View {
     private var samplesSection: some View {
         DisclosureGroup("Samples & Metadata", isExpanded: $isSamplesExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top) {
-                    Text("Samples")
-                        .font(contentBodyFont)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: 118, alignment: .trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("\(state.sampleIds.count)")
-                        .font(contentBodyFont)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                valueRow(label: "Samples", value: "\(state.sampleIds.count)")
 
                 Button(state.sampleMetadataStore == nil ? "Import Metadata\u{2026}" : "Replace Metadata\u{2026}") {
                     NotificationCenter.default.post(
@@ -443,35 +443,29 @@ public struct GenotypeResultDocumentSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button("Export to Excel…") { onExcelExportRequested?() }
                     .controlSize(.regular)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .disabled(state.isExcelExporting)
-                    .help(GenotypeExcelExportSessionState.disclosure)
+                    .help(excelExportHelp)
+                    .accessibilityHint(excelExportHelp)
                     .accessibilityIdentifier("genotype-inspector-export-to-excel")
-                Text(GenotypeExcelExportSessionState.disclosure)
-                    .font(contentBodyFont)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let latest = state.lastExcelExport {
-                    let available = latest.isAvailable && FileManager.default.fileExists(atPath: latest.url.path)
-                    Button("Last Excel export: \(latest.url.lastPathComponent)") {
-                        NSWorkspace.shared.activateFileViewerSelecting([latest.url])
-                    }
-                    .buttonStyle(.link)
-                    .disabled(!available)
-                    .help(available ? "Reveal the last successful Excel export in Finder." : "The last Excel export is no longer available at its saved location.")
-                    .accessibilityIdentifier("genotype-inspector-last-excel-export")
-                    if !available {
-                        Text("The last Excel export is no longer available at its saved location.")
-                            .font(contentBodyFont).foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
                 if state.isExcelExporting {
-                    ProgressView().controlSize(.small).accessibilityLabel("Exporting Excel workbook")
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Exporting workbook…")
+                            .font(contentBodyFont)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Exporting Excel workbook")
+                    .accessibilityIdentifier("genotype-inspector-excel-export-progress")
                 }
-                if let status = state.excelExportStatus {
+                if let status = state.excelExportStatus,
+                   status.localizedCaseInsensitiveContains("fail") {
                     Text(status).font(contentBodyFont)
-                        .foregroundStyle(status.contains("failed") ? .red : .secondary)
+                        .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("genotype-inspector-excel-export-error")
                 }
             }
             .padding(.top, 4)
@@ -494,19 +488,21 @@ public struct GenotypeResultDocumentSection: View {
     private func rowStack(_ rows: [(String, String)]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.0)
-                        .font(contentBodyFont)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: 118, alignment: .trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(row.1)
-                        .font(contentBodyFont)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                valueRow(label: row.0, value: row.1)
             }
         }
+    }
+
+    private func valueRow(label: String, value: String) -> some View {
+        GenotypeInspectorValueRow(label, value: value, font: contentBodyFont)
+    }
+
+    private var excelExportHelp: String {
+        "Creates an editable, one-way workbook snapshot. Changes in Excel are not imported into Lungfish."
+    }
+
+    private var includedLociHelp: String {
+        "Included loci appear in Outline. Excel exports preserve the exact captured locus scope and effective calls."
     }
 
     @ViewBuilder
@@ -536,6 +532,7 @@ public struct GenotypeResultDocumentSection: View {
             .font(contentBodyFont)
             .foregroundStyle(.secondary)
             .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

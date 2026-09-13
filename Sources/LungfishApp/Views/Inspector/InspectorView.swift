@@ -25,6 +25,15 @@ import LungfishKit
 public struct InspectorView: View {
     @Bindable var viewModel: InspectorViewModel
     @State private var settings = AppSettings.shared
+    private let provenanceDetailsInitiallyExpanded: Bool
+
+    init(
+        viewModel: InspectorViewModel,
+        provenanceDetailsInitiallyExpanded: Bool = false
+    ) {
+        self.viewModel = viewModel
+        self.provenanceDetailsInitiallyExpanded = provenanceDetailsInitiallyExpanded
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -55,7 +64,11 @@ public struct InspectorView: View {
     private var tabPicker: some View {
         let tabs = viewModel.availableTabs
         if tabs.count > 1 {
-            InspectorTabGrid(tabs: tabs, selectedTab: $viewModel.selectedTab)
+            InspectorTabGrid(
+                tabs: tabs,
+                selectedTab: $viewModel.selectedTab,
+                minimumLabelScale: viewModel.contentMode == .genotype ? 0.75 : 1
+            )
             .padding(.horizontal)
             .padding(.vertical, 8)
         } else if let single = tabs.first {
@@ -166,7 +179,11 @@ public struct InspectorView: View {
             TwelveSDetailSection(viewModel: viewModel.twelveSDetailSectionViewModel)
 
         case .provenance:
-            ProvenanceSection(viewModel: viewModel.provenanceSectionViewModel)
+            ProvenanceSection(
+                viewModel: viewModel.provenanceSectionViewModel,
+                usesGenotypePresentation: viewModel.contentMode == .genotype,
+                detailsInitiallyExpanded: provenanceDetailsInitiallyExpanded
+            )
 
         case .files:
             if let document = viewModel.primerAnalysisDocument {
@@ -210,13 +227,15 @@ struct GenotypeAnnotationIdentitySection: View {
 private struct InspectorTabGrid: View {
     let tabs: [InspectorTab]
     @Binding var selectedTab: InspectorTab
+    let minimumLabelScale: CGFloat
 
     var body: some View {
         LungfishInspectorSegmentedButtonGrid(
             options: tabs,
             selection: $selectedTab,
             accessibilityLabel: "Inspector",
-            label: \.displayLabel
+            label: \.displayLabel,
+            minimumLabelScale: minimumLabelScale
         )
     }
 }

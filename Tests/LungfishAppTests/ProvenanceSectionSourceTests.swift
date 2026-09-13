@@ -112,7 +112,10 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         // source rather than on ProvenanceSection's runtime behavior. Left as a
         // source assertion; ProvenanceSection's own rendered behavior is covered by
         // the ViewInspector-based tests elsewhere in this file.
-        XCTAssertTrue(source.contains("ProvenanceSection(viewModel: viewModel.provenanceSectionViewModel)"))
+        XCTAssertTrue(source.contains("ProvenanceSection("))
+        XCTAssertTrue(source.contains(
+            "usesGenotypePresentation: viewModel.contentMode == .genotype"
+        ))
         XCTAssertFalse(source.contains("provenanceContextRows"))
     }
 
