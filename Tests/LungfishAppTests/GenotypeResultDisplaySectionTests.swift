@@ -379,6 +379,18 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             viewWithAccessibilityIdentifier: "genotype-inspector-excel-export-error"
         )
         XCTAssertEqual(try failure.text().string(), "Excel export failed — disk full")
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let documentSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift"
+            ),
+            encoding: .utf8
+        )
+        XCTAssertTrue(documentSource.contains(".foregroundStyle(Color(nsColor: .lungfishDanger))"))
+        XCTAssertFalse(documentSource.contains(".foregroundStyle(.red)"))
     }
 
     func testDocumentExcelSectionShowsProgressAndDisablesExportWhileRunning() throws {

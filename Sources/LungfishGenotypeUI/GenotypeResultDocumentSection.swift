@@ -462,7 +462,7 @@ public struct GenotypeResultDocumentSection: View {
                 if let status = state.excelExportStatus,
                    status.localizedCaseInsensitiveContains("fail") {
                     Text(status).font(contentBodyFont)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color(nsColor: .lungfishDanger))
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                         .accessibilityIdentifier("genotype-inspector-excel-export-error")
