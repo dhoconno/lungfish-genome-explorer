@@ -124,16 +124,12 @@ struct ProvenanceSection: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("Provenance")
                         .font(LungfishInspectorStyle.sectionTitleFont)
-                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     headerActions
                 }
             }
 
-            Label(viewModel.summary.statusLabel, systemImage: statusSymbol)
-                .font(LungfishInspectorStyle.controlFont)
-                .foregroundStyle(statusForegroundStyle)
-                .fixedSize(horizontal: false, vertical: true)
+            statusLabel
 
             if viewModel.isLoading {
                 HStack(spacing: 6) {
@@ -145,6 +141,20 @@ struct ProvenanceSection: View {
                 }
                 .accessibilityIdentifier("provenance-loading-indicator")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        let label = Label(viewModel.summary.statusLabel, systemImage: statusSymbol)
+            .font(LungfishInspectorStyle.controlFont)
+            .foregroundStyle(statusForegroundStyle)
+        if usesGenotypePresentation {
+            label.fixedSize(horizontal: false, vertical: true)
+        } else {
+            label
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -231,15 +241,24 @@ struct ProvenanceSection: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(run.title)
                                     .font(LungfishInspectorStyle.controlFont)
-                                Text(run.subtitle)
-                                    .font(LungfishInspectorStyle.controlFont)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                lineageSubtitle(run.subtitle)
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func lineageSubtitle(_ subtitle: String) -> some View {
+        let text = Text(subtitle)
+            .font(LungfishInspectorStyle.controlFont)
+            .foregroundStyle(.secondary)
+        if usesGenotypePresentation {
+            text.fixedSize(horizontal: false, vertical: true)
+        } else {
+            text.lineLimit(2)
         }
     }
 

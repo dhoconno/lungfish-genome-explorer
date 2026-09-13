@@ -99,6 +99,35 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         XCTAssertFalse(source.contains("Color(hex"))
     }
 
+    func testGenotypeWrappingModifiersDoNotLeakIntoLegacyProvenance() throws {
+        let viewModel = makeViewModel()
+        viewModel.summary.statusLabel = "Verified reproducibility record"
+        viewModel.lineageRuns = [
+            .init(
+                id: UUID(),
+                title: "Legacy workflow",
+                subtitle: "A legacy lineage subtitle that remains bounded",
+                steps: []
+            ),
+        ]
+
+        let inspected = try ProvenanceSection(viewModel: viewModel).inspect()
+        XCTAssertThrowsError(try inspected.find(text: "Provenance").fixedSize())
+
+        let status = try inspected.find(ViewType.Label.self, where: {
+            (try? $0.find(text: "Verified reproducibility record")) != nil
+        })
+        XCTAssertEqual(try status.lineLimit(), 2)
+        XCTAssertEqual(try status.fixedSize().horizontal, false)
+        XCTAssertEqual(try status.fixedSize().vertical, true)
+
+        let subtitle = try inspected.find(
+            text: "A legacy lineage subtitle that remains bounded"
+        )
+        XCTAssertEqual(try subtitle.lineLimit(), 2)
+        XCTAssertThrowsError(try subtitle.fixedSize())
+    }
+
     func testInspectorTabRendersProvenanceSection() throws {
         let source = combinedInspectorViewControllerSource()
 

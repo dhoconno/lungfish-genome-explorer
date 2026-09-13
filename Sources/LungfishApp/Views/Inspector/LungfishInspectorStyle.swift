@@ -49,17 +49,27 @@ struct LungfishInspectorSegmentedButtonGrid<Option: Hashable>: View {
             28,
             ContentTypographyModel.shared.resolvedNSFont(for: .body).pointSize * 2
         )
-        return Text(label(option))
-            .font(LungfishInspectorStyle.segmentedControlFont(isSelected: selection == option))
-            .lineLimit(minimumLabelScale < 1 ? 1 : 2)
-            .truncationMode(.tail)
-            .minimumScaleFactor(minimumLabelScale)
-            .allowsTightening(minimumLabelScale < 1)
+        return fittedOptionLabel(option)
             .frame(maxWidth: .infinity, minHeight: minimumHeight)
             .padding(.horizontal, 4)
             .background(background(for: option))
             .foregroundStyle(selection == option ? Color.white : Color.primary)
             .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private func fittedOptionLabel(_ option: Option) -> some View {
+        let text = Text(label(option))
+            .font(LungfishInspectorStyle.segmentedControlFont(isSelected: selection == option))
+            .truncationMode(.tail)
+        if minimumLabelScale < 1 {
+            text
+                .lineLimit(1)
+                .minimumScaleFactor(minimumLabelScale)
+                .allowsTightening(true)
+        } else {
+            text.lineLimit(2)
+        }
     }
 
     @ViewBuilder
