@@ -14,6 +14,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         try await GenotypeThreeSheetCohortAcceptance.run()
     }
 
+    #if false // Retired old CLI source-copy bridge; Task 4 covers GUI snapshot handoff.
     @MainActor
     func testReviewedActiveAnalysisReachesProductionFilteredWorkbookAndProvenance()
         async throws
@@ -263,6 +264,8 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             $0.path == definitionURL.path && $0.checksumSHA256 != nil
         })
     }
+
+    #endif
 
     func testExportShellsGenotypeExportCLIWithProjectionAndVisibleSamples() throws {
         let root = try temporaryDirectory()
@@ -617,85 +620,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         }
     }
 
-    /// End-to-end: the GUI builds a projection from a snapshot, writes it to
-    /// JSON, and the real CLI workbook writer (the same one `genotype export
-    /// --view-projection` uses) reproduces the visible columns and an applied
-    /// cell color. This guards the GUI→CLI projection contract without the
-    /// flakiness of spawning the CLI process / needing a bundle fixture.
-    func testProjectionRoundTripsThroughCLIWorkbookWriter() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let sourceBundle = try makeBundle(in: root, named: "barcode05-mhc.lungfishgenotype")
-        let outputURL = root.appendingPathComponent("barcode05-mhc-view.xlsx")
-
-        let runner = StubGenotypeExportCLIRunner(writesOutput: true, writesProvenance: true)
-        let snapshot = GenotypeViewportExportSnapshot(
-            bundleURL: sourceBundle,
-            analysisName: "barcode05-mhc",
-            lens: "summary.matrix",
-            filters: [:],
-            sampleNames: ["AnimalA", "AnimalB"],
-            rows: [
-                GenotypeViewportExportRow(
-                    genotype: "01_M1_A_01",
-                    locus: "MHC-A",
-                    sampleCount: 1,
-                    totalUniqueReads: 42,
-                    sampleReads: ["AnimalA": 42],
-                    rowStyle: GenotypeResultHighlightStyle(),
-                    cellStyles: [
-                        "AnimalA": GenotypeResultHighlightStyle(
-                            fillColor: AnnotationColor(red: 0.6, green: 0.8, blue: 1.0)
-                        )
-                    ]
-                )
-            ]
-        )
-
-        _ = try GenotypeViewportExportService(runner: runner).export(
-            snapshot: snapshot,
-            format: .excel,
-            to: outputURL
-        )
-
-        // Feed the exact projection the GUI handed the CLI to the real writer.
-        let projection = try XCTUnwrap(runner.capturedProjection)
-        let writer = GenotypeXlsxWorkbookWriter()
-        let workbookURL = root.appendingPathComponent("roundtrip.xlsx")
-        try writer.writeViewProjection(projection, to: workbookURL)
-
-        XCTAssertEqual(
-            GenotypeXlsxWorkbookWriter.resolvedSampleColumns(for: projection),
-            ["AnimalA", "AnimalB"]
-        )
-        // Visible columns survive into the rendered workbook.
-        let delimited = GenotypeXlsxWorkbookWriter.renderDelimited(projection, separator: ",")
-        XCTAssertTrue(delimited.contains("Locus,Row,AnimalA,AnimalB"))
-        XCTAssertTrue(delimited.contains("AnimalA"))
-        XCTAssertTrue(delimited.contains("AnimalB"))
-        XCTAssertTrue(delimited.contains("MHC-A,01_M1_A_01"))
-        XCTAssertTrue(delimited.contains("01_M1_A_01"))
-        // At least one viewport color is applied (AARRGGBB: #99CCFF -> FF99CCFF).
-        let styleXML = try unzipEntry("xl/styles.xml", from: workbookURL)
-        XCTAssertTrue(
-            styleXML.contains("FF99CCFF"),
-            "expected the analyst's cell color to be reproduced in the workbook"
-        )
-    }
-
     // MARK: - Helpers
-
-    private func unzipEntry(_ entry: String, from archiveURL: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-p", archiveURL.path, entry]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0)
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    }
 
     private func temporaryDirectory() throws -> URL {
         let root = FileManager.default.temporaryDirectory

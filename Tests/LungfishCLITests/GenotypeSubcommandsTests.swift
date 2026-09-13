@@ -1520,6 +1520,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         )
     }
 
+    #if false // Retired with the one-way Excel cutover: old pivot-builder layout.
     func testPivotWorkbookBuilderLaysOutSamplesHaplotypesAndAlleleGroups() {
         // Build a small bundle data model directly so the test is hermetic.
         let bundleURL = URL(fileURLWithPath: "/tmp/dummy.lungfishgenotype", isDirectory: true)
@@ -1743,6 +1744,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(rowsByLabel["MHC-DP Haplotype 2"], ["M2"])
     }
 
+    #endif
+
     func testPlainXlsxMatrixUsesSidecarActiveCustomHaplotypeDefinition() throws {
         let projectRoot = try TestTempDirectory.make(prefix: "xlsx-active-definition")
         defer { TestTempDirectory.cleanup(projectRoot) }
@@ -1763,6 +1766,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(matrix.rows.first?.cells.first?.label, "NewB")
     }
 
+    #if false // Retired: the shared renderer owns fixed worksheet names.
     func testPivotWorkbookSheetNameSanitization() {
         let sanitized = GenotypeExportPivotXlsxSubcommand.PivotWorkbookBuilder.sanitizedSheetName(
             "Long/Name:With*Illegal[Chars]/AndMoreCharactersThan31"
@@ -1778,6 +1782,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
             "Genotype"
         )
     }
+
+    #endif
 
     private func activeDefinitionResult(bundleURL: URL) -> ONTGenotypeResultBundleData {
         let calls = [GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "12_M9_B_001_01", reads: 150)]

@@ -409,6 +409,55 @@ print(json.dumps(dict(sheets=w.sheetnames,formulas=sum(c.data_type=='f' for c in
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "competing report")
     }
 
+    func testForcedExportDoesNotClaimReportCreatedAfterTransactionWitness() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lge-export-force-claim-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let output = root.appendingPathComponent("report.xlsx")
+        let competing = Data("new owner".utf8)
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(
+            result: GenotypeTestFixtures.makeResult(calls: []),
+            sidecar: .empty(generatedAt: timestamp),
+            allProjection: nil,
+            filteredProjection: nil,
+            generatedAt: timestamp,
+            authority: .init(analysis: nil)
+        )
+        let service = GenotypeExcelExportService(
+            pythonExecutableURL: python,
+            beforeOutputPublication: {
+                try competing.write(to: output)
+            }
+        )
+
+        do {
+            _ = try await service.export(
+                snapshot: snapshot,
+                outputURL: output,
+                provenance: .init(toolVersion: "test", argv: ["test"]),
+                replacingExisting: true
+            )
+            XCTFail("a competing report was overwritten")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).lowercased().contains("conflict"),
+                "unexpected ownership error: \(error)"
+            )
+            if let recovery = error as? ScientificPublicationRecoveryRequired {
+                for url in recovery.recoveryURLs {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: output), competing)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: output.appendingPathExtension("provenance.json").path
+            )
+        )
+    }
+
     func testProvenanceDestinationFailurePreservesExistingWorkbook() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lge-export-receipt-failure-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

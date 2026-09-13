@@ -50,9 +50,23 @@ public struct GenotypeExcelExportService: Sendable {
 
     private let pythonExecutableURL: URL
     private let replayExecutableURL: URL?
+    private let beforeOutputPublication: (@Sendable () throws -> Void)?
     public init(pythonExecutableURL: URL, replayExecutableURL: URL? = nil) {
         self.pythonExecutableURL = pythonExecutableURL.standardizedFileURL
         self.replayExecutableURL = replayExecutableURL?.standardizedFileURL
+        beforeOutputPublication = nil
+    }
+
+    /// Test seam at the real publication ownership boundary. Production
+    /// callers use the public initializer above.
+    init(
+        pythonExecutableURL: URL,
+        replayExecutableURL: URL? = nil,
+        beforeOutputPublication: @escaping @Sendable () throws -> Void
+    ) {
+        self.pythonExecutableURL = pythonExecutableURL.standardizedFileURL
+        self.replayExecutableURL = replayExecutableURL?.standardizedFileURL
+        self.beforeOutputPublication = beforeOutputPublication
     }
 
     public func export(snapshot: GenotypeWorkbookPresentation.Snapshot, outputURL: URL,
@@ -141,6 +155,7 @@ public struct GenotypeExcelExportService: Sendable {
         do {
             try Task.checkCancellation()
             try verify(provenance.inputs)
+            try beforeOutputPublication?()
             try transaction.publish(stagedURL: stagedOutput, to: output, replacingExisting: replacingExisting)
             try transaction.publish(stagedURL: stagedReceipt, to: receipt)
             transaction.commit()
