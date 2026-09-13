@@ -71,6 +71,17 @@ final class PrimerAnalysisDisplayTests: XCTestCase {
     XCTAssertTrue(visibility.isVisible(first.primers[0], in: first))
   }
 
+  func testMatchLabelsKeepUnknownRowsOutOfTheDenominator() {
+    let summary = PrimerMSACompatibilitySummary(matchingRows: 113, assessableRows: 127, totalRows: 146)
+    XCTAssertEqual(summary.label, "MSA matches: 89.0% (113/127)")
+    XCTAssertTrue(summary.help.contains("19"))
+    XCTAssertTrue(summary.help.contains("146"))
+    XCTAssertTrue(summary.help.contains("amplification"))
+    let unknown = PrimerMSACompatibilitySummary(matchingRows: 0, assessableRows: 0, totalRows: 19)
+    XCTAssertEqual(unknown.label, "MSA matches: unavailable (0/0)")
+    XCTAssertNil(unknown.percent)
+  }
+
   func testCompatibilityComputationIsCancellable() async {
     let contexts = [context()]
     let work = Task.detached {

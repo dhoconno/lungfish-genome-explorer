@@ -28,8 +28,11 @@ struct PrimerMSACompatibilitySummary: Codable, Equatable, Sendable {
   var unknownRows: Int { totalRows - assessableRows }
   var percent: Double? { assessableRows > 0 ? 100 * Double(matchingRows) / Double(assessableRows) : nil }
   var label: String {
-    let fraction = percent.map { String(format: "%.1f%%", $0) } ?? "Unavailable"
-    return "\(fraction) · \(matchingRows)/\(assessableRows) assessable rows compatible · \(unknownRows) unassessed of \(totalRows) total"
+    let fraction = percent.map { String(format: "%.1f%%", $0) } ?? "unavailable"
+    return "MSA matches: \(fraction) (\(matchingRows)/\(assessableRows))"
+  }
+  var help: String {
+    "\(matchingRows) matching sequences out of \(assessableRows) that can be compared at this primer site. The MSA contains \(totalRows) sequences, including the reference row; \(unknownRows) cannot be assessed because the site has gaps, unknown bases, or cannot be mapped. Matching means no incompatible bases across the primer, accounting for its strand and allowed primer bases. This sequence comparison does not measure amplification."
   }
 
   nonisolated static func compute(contexts: [PrimerBindingInspectionContext]) throws -> [String: Self] {
@@ -55,6 +58,7 @@ struct PrimerAnalysisVisibility: Sendable {
   var settings = PrimerAnalysisDisplaySettings()
   var summaries: [String: PrimerMSACompatibilitySummary] = [:]
   var compatibilityReady = false
+  var isComputingCompatibility = false
 
   func isPoolVisible(_ pool: Int?, resultID: String) -> Bool {
     !settings.hiddenPoolIDs.contains(PrimerAnalysisDisplaySettings.poolID(resultID: resultID, pool: pool))
@@ -137,7 +141,8 @@ final class PrimerAnalysisDisplaySession {
   var totalCount: Int { targets.reduce(0) { $0 + $1.primers.count } }
   var visibleCount: Int { targets.reduce(0) { $0 + visibility.visiblePrimers(in: $1).count } }
   var visibility: PrimerAnalysisVisibility {
-    .init(settings: settings, summaries: compatibilitySummaries, compatibilityReady: compatibilityReady)
+    .init(settings: settings, summaries: compatibilitySummaries, compatibilityReady: compatibilityReady,
+      isComputingCompatibility: isComputingCompatibility)
   }
 
   var orderExportUnavailableReason: String? {
@@ -178,7 +183,7 @@ final class PrimerAnalysisDisplaySession {
     let key = snapshot.bundle.url.standardizedFileURL.path + "::" + manifest.analysisID.uuidString + "::" + manifest.runID.uuidString
     preferenceKey = key
     settings = preferences?.values[key] ?? .init()
-    if settings.filterByCompatibility { computeCompatibility() }
+    if hasBindingContexts { computeCompatibility() }
   }
 
   func setPoolShown(_ pool: Int?, resultID: String, shown: Bool) {

@@ -23,8 +23,7 @@ struct PrimerBindingInspectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Alignment & primer sites").font(.title2.weight(.semibold))
-            Text("Inspect stored primer footprints beside the alignment consensus. Footprints are mapped from the design reference; the consensus is a visual summary of the supplied rows.")
-                .font(.caption).foregroundStyle(.secondary)
+                .help("Stored primer footprints are mapped from the design reference. The consensus summarizes the supplied alignment rows.")
             if let context {
                 Picker("Target alignment", selection: Binding(get: { context.id }, set: { selectedContextID = $0; selectedPrimerID = nil })) {
                     ForEach(displayedContexts) { Text($0.title).tag($0.id) }
@@ -50,14 +49,11 @@ struct PrimerBindingInspectionView: View {
                 PrimerBindingAlignmentCanvas(context: context, selectedPrimerID: primer?.id, track: track)
                     .frame(minHeight: 200, idealHeight: 320, maxHeight: 400)
                     .border(Color.secondary.opacity(0.25))
+                    .help(Self.legend(hasTrack: track != nil, showIdentityDots: showIdentityDots))
                     .accessibilityIdentifier("primerAnalysisViewer.bindingAlignment")
-                Text(Self.legend(hasTrack: track != nil, showIdentityDots: showIdentityDots))
-                    .font(.caption2).foregroundStyle(.secondary)
                 if let primer {
                     Text("5′ \(primer.sequence) 3′ · strand \(primer.strand) · alignment columns \(primer.alignedStart + 1)–\(primer.alignedEnd)")
                         .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                    Text("Sequence comparison at the mapped site. Reverse primers are compared in reverse-complement orientation. Zero mismatches means sequence compatibility, not measured amplification. Gaps and ambiguous target bases remain unresolved.")
-                        .font(.caption).foregroundStyle(.secondary)
                     PrimerBindingComparisonTable(context: context, primer: primer)
                         .frame(minHeight: 100, idealHeight: 180, maxHeight: .infinity, alignment: .topLeading)
                 } else if context.unavailableReason == nil {
@@ -170,6 +166,13 @@ private struct PrimerBindingComparisonTable: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
 
+    private var compatibility: PrimerMSACompatibilitySummary {
+        PrimerMSACompatibilitySummary(
+            matchingRows: comparisons.filter { $0.mismatchCount == 0 }.count,
+            assessableRows: comparisons.filter { $0.mismatchCount != nil }.count,
+            totalRows: comparisons.count)
+    }
+
     private func highlightedSite(_ row: PrimerBindingRowComparison) -> Text {
         let mismatches = Set(row.mismatchPositions)
         return row.alignedSite.enumerated().reduce(Text("")) { text, entry in
@@ -180,13 +183,14 @@ private struct PrimerBindingComparisonTable: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(context.rows.count) alignment rows · sites shown in reference orientation")
-                .font(.caption).foregroundStyle(.secondary)
             if isLoading {
                 ProgressView("Comparing selected primer…").controlSize(.small)
             } else if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.secondary)
             } else {
+                Text(compatibility.label)
+                    .font(.subheadline.weight(.medium)).monospacedDigit()
+                    .help(compatibility.help)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 14) {

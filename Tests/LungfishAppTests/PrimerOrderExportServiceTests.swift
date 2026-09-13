@@ -47,6 +47,32 @@ final class PrimerOrderExportServiceTests: XCTestCase {
     }
   }
 
+  func testConfigureCalculatesMatchSummariesWithoutEnablingFilters() async throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let primer = try XCTUnwrap(snapshot.designReview.first?.primers.first)
+    let sequence = primer.sequence
+    let different = String(sequence.first == "A" ? "C" : "A") + sequence.dropFirst()
+    snapshot.bindingContexts = [.init(id: "match-fixture", title: "Synthetic alignment", alignedFASTA: "", annotations: [],
+      primers: [.init(id: "binding", name: primer.name, sequence: sequence, strand: "+", alignedStart: 0,
+        alignedEnd: sequence.count, contiguousReference: true, reviewPrimerID: primer.id)],
+      unavailableReason: nil, rows: [.init(name: "match", sequence: Array(sequence)),
+        .init(name: "difference", sequence: Array(different)),
+        .init(name: "unknown", sequence: Array(String(repeating: "N", count: sequence.count)))])]
+    let session = PrimerAnalysisDisplaySession()
+    session.configure(snapshot)
+    XCTAssertTrue(session.isComputingCompatibility)
+    XCTAssertFalse(session.settings.filterByCompatibility)
+    for _ in 0..<200 where session.isComputingCompatibility { try await Task.sleep(for: .milliseconds(10)) }
+    XCTAssertTrue(session.compatibilityReady, session.compatibilityError ?? "Timed out")
+    XCTAssertEqual(session.compatibilitySummaries[primer.id],
+      .init(matchingRows: 1, assessableRows: 2, totalRows: 3))
+    XCTAssertEqual(session.visibleCount, session.totalCount)
+    session.invalidate()
+    XCTAssertTrue(session.compatibilitySummaries.isEmpty)
+  }
+
   func testCaptureUsesAllDisplayedTargetsAndRemainsFrozenAfterToggles() throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }

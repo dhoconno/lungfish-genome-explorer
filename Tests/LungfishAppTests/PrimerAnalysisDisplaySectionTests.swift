@@ -73,9 +73,33 @@ final class PrimerAnalysisDisplaySectionTests: XCTestCase {
         XCTAssertEqual(session.visibleCount, 4)
     }
 
+    func testIndividualCheckboxIsDisabledWhenAnotherFilterExcludesTheOligo() throws {
+        let session = makeSession()
+        session.setPoolShown(1, resultID: "scheme-a", shown: false)
+
+        let toggle = try PrimerAnalysisDisplaySection(session: session).inspect()
+            .find(ViewType.Toggle.self, where: {
+                try $0.accessibilityIdentifier() == "primerAnalysisDisplay.primer.a-left"
+            })
+
+        XCTAssertTrue(toggle.isDisabled())
+        XCTAssertFalse(try toggle.isOn())
+        XCTAssertEqual(try toggle.help().string(), "Unavailable while Pool 1 is hidden.")
+        XCTAssertTrue(session.settings.hiddenPrimerIDs.isEmpty)
+        XCTAssertFalse(session.isVisible(session.targets[0].primers[0], in: session.targets[0]))
+
+        session.setPoolShown(1, resultID: "scheme-a", shown: true)
+        let restored = try PrimerAnalysisDisplaySection(session: session).inspect()
+            .find(ViewType.Toggle.self, where: {
+                try $0.accessibilityIdentifier() == "primerAnalysisDisplay.primer.a-left"
+            })
+        XCTAssertFalse(restored.isDisabled())
+        XCTAssertTrue(try restored.isOn())
+    }
+
     func testCompatibilityControlsRequireSavedAlignmentAndExplicitCalculation() async throws {
         let unavailable = try PrimerAnalysisDisplaySection(session: makeSession()).inspect()
-        XCTAssertThrowsError(try unavailable.find(button: "Calculate MSA compatibility"))
+        XCTAssertThrowsError(try unavailable.find(button: "Calculate MSA matches"))
         XCTAssertThrowsError(try unavailable.find(ViewType.Toggle.self, where: {
             try $0.accessibilityIdentifier() == "primerAnalysisDisplay.identityDots"
         }))
@@ -84,7 +108,7 @@ final class PrimerAnalysisDisplaySectionTests: XCTestCase {
         let before = try PrimerAnalysisDisplaySection(session: session).inspect()
         XCTAssertFalse(session.settings.filterByCompatibility)
         XCTAssertThrowsError(try before.find(ViewType.Slider.self))
-        try before.find(button: "Calculate MSA compatibility").tap()
+        try before.find(button: "Calculate MSA matches").tap()
         for _ in 0..<100 where !session.compatibilityReady {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -102,6 +126,14 @@ final class PrimerAnalysisDisplaySectionTests: XCTestCase {
             try $0.accessibilityIdentifier() == "primerAnalysisDisplay.unassessed"
         }).tap()
         XCTAssertFalse(session.settings.showUnassessed)
+        let excludedByMSA = try PrimerAnalysisDisplaySection(session: session).inspect()
+            .find(ViewType.Toggle.self, where: {
+                try $0.accessibilityIdentifier() == "primerAnalysisDisplay.primer.a-left"
+            })
+        XCTAssertTrue(excludedByMSA.isDisabled())
+        XCTAssertFalse(try excludedByMSA.isOn())
+        XCTAssertEqual(try excludedByMSA.help().string(),
+                       "Unavailable because the MSA match filter excludes this oligo.")
         try filtering.find(ViewType.Toggle.self, where: {
             try $0.accessibilityIdentifier() == "primerAnalysisDisplay.identityDots"
         }).tap()

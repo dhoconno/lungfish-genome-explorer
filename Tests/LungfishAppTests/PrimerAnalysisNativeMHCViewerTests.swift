@@ -24,11 +24,11 @@ final class PrimerAnalysisNativeMHCViewerTests: XCTestCase {
     session.computeCompatibility()
     // Invalidation must reject a pending calculation even when the same analysis is reopened.
     session.invalidate()
-    session.configure(snapshot)
     try await Task.sleep(for: .milliseconds(50))
     XCTAssertFalse(session.compatibilityReady)
     XCTAssertTrue(session.compatibilitySummaries.isEmpty)
-    session.computeCompatibility()
+    session.configure(snapshot)
+    XCTAssertTrue(session.isComputingCompatibility)
     for _ in 0..<200 where !session.compatibilityReady && session.compatibilityError == nil {
       try await Task.sleep(for: .milliseconds(20))
     }

@@ -30,6 +30,7 @@ struct PrimerTargetReviewCard: View {
           Text(target.coveragePercent.map { String(format: "%.1f%%", $0) } ?? "Unavailable")
             .font(.title2.weight(.semibold)).monospacedDigit()
           Text(target.coverageLabel).font(.caption).foregroundStyle(.secondary)
+            .help(target.notes.joined(separator: "\n"))
         }
       }
       if let covered = target.coveredBases {
@@ -40,8 +41,9 @@ struct PrimerTargetReviewCard: View {
           .font(.caption).foregroundStyle(.secondary)
       }
       if visibility.visiblePrimers(in: target).count != target.primers.count {
-        Text("\(visibility.visiblePrimers(in: target).count) of \(target.primers.count) oligos displayed. Coverage above describes the complete saved scheme.")
+        Text("\(visibility.visiblePrimers(in: target).count)/\(target.primers.count) oligos shown")
           .font(.caption).foregroundStyle(.secondary)
+          .help("Coverage describes the complete saved scheme.")
       }
       PrimerReferenceCoverageTrack(target: target, selection: selection)
       HStack(spacing: 16) {
@@ -52,15 +54,9 @@ struct PrimerTargetReviewCard: View {
           legend("Probe", color: .purple)
         }
       }.font(.caption2)
-      Text("Select an amplicon or primer to inspect its span and pool. Control-click for copy, alignment and extraction actions.")
-        .font(.caption).foregroundStyle(.secondary)
+        .help("Select a saved amplicon or primer to inspect its span, pool and sequence. Control-click for copy, alignment and extraction actions.")
       if selection.wrappedValue?.targetID == target.id {
         PrimerAmpliconDetailView(target: target, selection: selection)
-      }
-      if !target.notes.isEmpty {
-        ForEach(Array(target.notes.enumerated()), id: \.offset) { _, note in
-          Text(note).font(.caption).foregroundStyle(.secondary)
-        }
       }
     }
   }
@@ -158,8 +154,16 @@ struct PrimerReferenceCoverageTrack: View {
     .buttonStyle(.plain)
     .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
     .offset(x: x, y: y)
-    .help("\(primer.name): \(primer.start + 1)–\(primer.end) (\(primer.strand))")
+    .help(primerHelp(primer))
     .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), \(primer.pool.map { "pool \($0)" } ?? "candidate pair")")
     .accessibilityIdentifier("primerReview.primer.\(primer.id)")
+  }
+
+  private func primerHelp(_ primer: PrimerReviewPrimer) -> String {
+    let site = "\(primer.name): \(primer.start + 1)–\(primer.end) (\(primer.strand))"
+    guard let summary = visibility.summaries[primer.id] else {
+      return site + (visibility.isComputingCompatibility ? "\nCalculating MSA matches…" : "\nMSA matches: unavailable")
+    }
+    return site + "\n" + summary.label + "\n" + summary.help
   }
 }

@@ -28,7 +28,6 @@ struct PrimalSchemeResultsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       Text("Selected scheme oligos").font(.title2.weight(.semibold))
-      Text(engineDescription).font(.callout).foregroundStyle(.secondary)
       Picker("Selected scheme", selection: Binding(get: { result?.id }, set: { id in
         selectedResultID = id
         if let chosen = results.first(where: { $0.id == id }), let primer = chosen.primers.first {
@@ -54,22 +53,13 @@ struct PrimalSchemeResultsView: View {
       Text("\(result.primers.count) selected oligos · \(pools.count) pools · \(Set(result.primers.map(\.reference)).count) references")
         .font(.caption).foregroundStyle(.secondary)
       if let orderSheetURL = result.orderSheetURL {
-        HStack(alignment: .top, spacing: 16) {
-          VStack(alignment: .leading, spacing: 5) {
-            Text("Prepare primer pools for ordering").font(.headline)
-            Text("The stored CSV includes the complete selected scheme, including oligos hidden by display filters, grouped by pool with 5′–3′ sequences. Each variant retains its own row. Copy the sheet before filling in your synthesis scale, purification or modifications.")
-              .font(.caption).foregroundStyle(.secondary)
-          }
-          Spacer()
-          Button("Show order sheet…") { NSWorkspace.shared.activateFileViewerSelecting([orderSheetURL]) }
-            .accessibilityIdentifier("primerAnalysisViewer.orderSheet")
-        }.padding(12).background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+        Button("Show saved order sheet…") { NSWorkspace.shared.activateFileViewerSelecting([orderSheetURL]) }
+          .help("Opens the complete saved scheme, including oligos hidden from this viewport. Use the displayed-order action in Inspector for the currently shown set.")
+          .accessibilityIdentifier("primerAnalysisViewer.orderSheet")
       } else {
         Text("This saved analysis has no ordering worksheet. Its native primer records remain available in the Inspector’s Files tab.")
           .font(.caption).foregroundStyle(.secondary)
       }
-      Text("These oligos form the saved selected scheme. An amplicon can include multiple forward and reverse variants. Pool numbers apply within this scheme.")
-        .font(.caption).foregroundStyle(.secondary)
       Group {
         if let selectedTarget, selectedTarget.sourceResultID == result.id {
           PrimerTargetReviewCard(target: selectedTarget, selection: activeSelection)
@@ -78,8 +68,9 @@ struct PrimalSchemeResultsView: View {
           PrimerTargetReviewCard(target: target, selection: activeSelection)
         }
       }.id(PrimerReviewSelection.selectedDesignAnchor)
-      Text("\(visible.count) of \(result.primers.count) selected oligos displayed. Use Inspector → View to show or hide pools and variants. Select a primer to inspect its saved amplicon, reference span and pool.")
+      Text("\(visible.count) of \(result.primers.count) selected oligos displayed")
         .font(.caption).foregroundStyle(.secondary)
+        .help("Inspector → View controls visible pools and variants. Select a primer to inspect its saved amplicon, reference span, pool and sequence.")
       if visible.isEmpty { Text(result.primers.isEmpty ? "No primer records were returned." : "All oligos are hidden by display filters. Use Show all in Inspector → View to restore them.").foregroundStyle(.secondary) }
       ForEach(pools.filter { pool in visible.contains { $0.pool == pool } }, id: \.self) { pool in
         let members = visible.filter { $0.pool == pool }
@@ -100,6 +91,7 @@ struct PrimalSchemeResultsView: View {
                 Text(primer.sequence.uppercased()).font(.system(.caption, design: .monospaced))
                 Text("\(primer.referenceLabel) · \(primer.start + 1)–\(primer.end) (\(primer.strand))")
                   .font(.caption).foregroundStyle(.secondary)
+                compatibility(for: "\(result.id)-primer-\(primer.id)")
                 if primer.ambiguousBaseCount > 0 {
                   Text("\(primer.ambiguousBaseCount) ambiguous bases — review synthesis representation")
                     .font(.caption).foregroundStyle(.orange)
@@ -118,6 +110,18 @@ struct PrimalSchemeResultsView: View {
           }
         }
       }
+    }
+  }
+
+  @ViewBuilder private func compatibility(for primerID: String) -> some View {
+    if let summary = visibility.summaries[primerID] {
+      Text(summary.label).help(summary.help)
+        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+    } else if visibility.isComputingCompatibility {
+      Text("Calculating MSA matches…").font(.caption).foregroundStyle(.secondary)
+    } else {
+      Text("MSA matches: unavailable").font(.caption).foregroundStyle(.secondary)
+        .help("No MSA match result is available for this primer.")
     }
   }
 
