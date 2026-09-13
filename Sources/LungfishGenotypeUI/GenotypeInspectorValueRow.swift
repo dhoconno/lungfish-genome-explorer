@@ -22,7 +22,7 @@ public struct GenotypeInspectorValueRow: View {
 
     public var body: some View {
         GenotypeInspectorAdaptiveRowLayout {
-            labelText.fixedSize(horizontal: true, vertical: false)
+            labelText.fixedSize(horizontal: false, vertical: true)
             valueText
         }
         .font(font)
@@ -123,24 +123,27 @@ private struct GenotypeInspectorAdaptiveRowLayout: Layout {
         for width: CGFloat,
         subviews: Subviews
     ) -> (label: CGSize, value: CGSize, height: CGFloat, isHorizontal: Bool) {
-        let label = subviews[0].sizeThatFits(.unspecified)
+        let intrinsicLabel = subviews[0].sizeThatFits(.unspecified)
         let intrinsicValue = subviews[1].sizeThatFits(.unspecified)
-        if label.width + horizontalSpacing + intrinsicValue.width <= width {
+        if intrinsicLabel.width + horizontalSpacing + intrinsicValue.width <= width {
             return (
-                label,
+                intrinsicLabel,
                 intrinsicValue,
-                max(label.height, intrinsicValue.height),
+                max(intrinsicLabel.height, intrinsicValue.height),
                 true
             )
         }
 
+        let wrappedLabel = subviews[0].sizeThatFits(
+            ProposedViewSize(width: width, height: nil)
+        )
         let wrappedValue = subviews[1].sizeThatFits(
             ProposedViewSize(width: width, height: nil)
         )
         return (
-            label,
+            wrappedLabel,
             wrappedValue,
-            label.height + verticalSpacing + wrappedValue.height,
+            wrappedLabel.height + verticalSpacing + wrappedValue.height,
             false
         )
     }

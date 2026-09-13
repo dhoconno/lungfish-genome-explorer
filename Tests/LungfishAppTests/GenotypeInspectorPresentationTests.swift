@@ -55,6 +55,26 @@ final class GenotypeInspectorPresentationTests: XCTestCase {
         })
     }
 
+    func testMountedLongProductionProvenanceOptionLabelWrapsAtNarrowEnlargedTextWidth() async throws {
+        let label = "haplotypeDropoutLocusFractionOverrides (Resolved Default)"
+        let row = GenotypeInspectorValueRow(
+            label,
+            value: "{}",
+            font: .system(size: 26)
+        )
+        .frame(width: 260, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        let host = NSHostingView(rootView: row)
+        host.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(host.fittingSize.width, 260, accuracy: 0.5)
+        XCTAssertGreaterThan(
+            host.fittingSize.height,
+            90,
+            "The real long option label must contribute its wrapped height before the value is placed"
+        )
+    }
+
     func testRenderPopulatedFiveTabInspectorAtNativeWidthsAndEnlargedText() async throws {
         guard let path = ProcessInfo.processInfo.environment[
             "LUNGFISH_GENOTYPE_INSPECTOR_QA_DIR"
@@ -250,6 +270,11 @@ final class GenotypeInspectorPresentationTests: XCTestCase {
         ]
         provenance.optionRows = [
             .init(kind: "resolved", name: "assay", value: "MHC-exon2-miSeq"),
+            .init(
+                kind: "Resolved Default",
+                name: "haplotypeDropoutLocusFractionOverrides",
+                value: "{}"
+            ),
         ]
         provenance.runtimeRows = [
             .init(label: "Runtime", value: "macOS arm64 · Swift 6 · conda env genotype-2026.09"),
