@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 /// One-way Excel publication. Scientific inputs are supplied in memory; the
@@ -48,11 +49,16 @@ public struct GenotypeExcelExportService: Sendable {
     }
 
     private let pythonExecutableURL: URL
-    public init(pythonExecutableURL: URL) { self.pythonExecutableURL = pythonExecutableURL.standardizedFileURL }
+    private let replayExecutableURL: URL?
+    public init(pythonExecutableURL: URL, replayExecutableURL: URL? = nil) {
+        self.pythonExecutableURL = pythonExecutableURL.standardizedFileURL
+        self.replayExecutableURL = replayExecutableURL?.standardizedFileURL
+    }
 
     public func export(snapshot: GenotypeWorkbookPresentation.Snapshot, outputURL: URL,
                        provenance: ProvenanceRequest, replacingExisting: Bool = true) async throws -> ExportResult {
         try Task.checkCancellation()
+        try GenotypeExcelSnapshotBuilder.validate(snapshot)
         let fm = FileManager.default
         let output = outputURL.standardizedFileURL
         let receipt = output.appendingPathExtension("provenance.json")
@@ -78,7 +84,9 @@ public struct GenotypeExcelExportService: Sendable {
         var retainArtifacts = false
         defer { if !retainArtifacts { try? fm.removeItem(at: durable) } }
         let snapshotURL = durable.appendingPathComponent("snapshot.json")
-        let scriptURL = durable.appendingPathComponent("replay.py")
+        let scriptURL = durable.appendingPathComponent("renderer.py")
+        let replayScriptURL = durable.appendingPathComponent("replay.sh")
+        let requestURL = durable.appendingPathComponent("request.json")
         let stagedOutput = durable.appendingPathComponent("rendered.xlsx")
         let stagedReceipt = durable.appendingPathComponent("receipt.json")
         let stdoutURL = durable.appendingPathComponent("stdout.json")
@@ -86,8 +94,16 @@ public struct GenotypeExcelExportService: Sendable {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let snapshotBytes = try encoder.encode(snapshot)
         try snapshotBytes.write(to: snapshotURL, options: .atomic)
-        try Data(Self.replayScript.utf8).write(to: scriptURL, options: .atomic)
-        try encoder.encode(provenance).write(to: durable.appendingPathComponent("request.json"), options: .atomic)
+        try Data(Self.rendererScript.utf8).write(to: scriptURL, options: .atomic)
+        try encoder.encode(provenance).write(to: requestURL, options: .atomic)
+        let executable = replayExecutableURL?.path ?? Self.resolvedCLIExecutable()
+        let replayPrefix = [executable, "genotype", "export-xlsx", "--snapshot", snapshotURL.path,
+            "--provenance-request", requestURL.path, "--python", pythonExecutableURL.path]
+        let replayArgv = replayPrefix + ["--output", output.path] + (replacingExisting ? ["--force"] : [])
+        let replayScript = "#!/bin/sh\nreplay_default_output=" + Self.shellQuote(output.path)
+            + "\nexec " + replayPrefix.map(Self.shellQuote).joined(separator: " ")
+            + " --output \"${1:-$replay_default_output}\"" + (replacingExisting ? " --force" : "") + "\n"
+        try Data(replayScript.utf8).write(to: replayScriptURL, options: .atomic)
         var witnessedInputs: [[String: Any]] = []
         for (index, input) in provenance.inputs.enumerated() {
             let capturedURL = durable.appendingPathComponent("input-\(index).bin")
@@ -104,7 +120,6 @@ public struct GenotypeExcelExportService: Sendable {
         let bytes = try Data(contentsOf: stagedOutput)
         guard !bytes.isEmpty else { throw ExportError.invalidInput("renderer produced no workbook") }
         let runtime = try JSONSerialization.jsonObject(with: Data(contentsOf: stdoutURL))
-        let replayArgv = [pythonExecutableURL.path, scriptURL.path, snapshotURL.path, output.path]
         let record: [String: Any] = [
             "schemaVersion": 1, "workflowName": provenance.workflowName, "toolName": "lungfish genotype Excel export",
             "toolVersion": provenance.toolVersion, "argv": provenance.argv, "executedArgv": executedArgv,
@@ -116,7 +131,8 @@ public struct GenotypeExcelExportService: Sendable {
             "exitStatus": execution.status, "stderr": execution.stderr,
             "inputs": witnessedInputs, "scientificInputWitnesses": snapshot.sourceRevision,
             "snapshot": descriptor(snapshotURL, bytes: snapshotBytes),
-            "script": descriptor(scriptURL, bytes: Data(Self.replayScript.utf8)),
+            "script": descriptor(scriptURL, bytes: Data(Self.rendererScript.utf8)),
+            "replayScript": descriptor(replayScriptURL, bytes: Data(replayScript.utf8)),
             "output": descriptor(output, bytes: bytes), "receiptPath": receipt.path, "replacingExisting": replacingExisting,
         ]
         try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
@@ -133,7 +149,7 @@ public struct GenotypeExcelExportService: Sendable {
             catch let recovery as ScientificPublicationRecoveryRequired { retainArtifacts = true; throw recovery }
         }
         retainArtifacts = true
-        return .init(outputURL: output, receiptURL: receipt, snapshotURL: snapshotURL, replayScriptURL: scriptURL)
+        return .init(outputURL: output, receiptURL: receipt, snapshotURL: snapshotURL, replayScriptURL: replayScriptURL)
     }
 
     private func verify(_ inputs: [InputWitness]) throws {
@@ -168,7 +184,16 @@ public struct GenotypeExcelExportService: Sendable {
     }
 
     private static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-    private static var replayScript: String {
+    private static func resolvedCLIExecutable() -> String {
+        if let path = Bundle.main.executableURL, path.lastPathComponent == CLICommandIdentity.executableName { return path.path }
+        for directory in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") {
+            let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(CLICommandIdentity.executableName)
+            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate.standardizedFileURL.path }
+        }
+        return CLICommandIdentity.executableName
+    }
+
+    private static var rendererScript: String {
         GenotypeWorkbookPresentation.snapshotPythonScript + #"""
 
 if __name__ == '__main__':

@@ -126,7 +126,9 @@ def _validate_filtered_consistency(all_matrix, filtered_matrix, all_index, filte
         source = all_index['rows'].get(row_id)
         if source is None:
             _invalid('unknown filtered row')
-        for key in ('target', 'displayName', 'comment'):
+        # Each view can abbreviate its label; stable target identity and
+        # scientific annotations still have to agree.
+        for key in ('target', 'comment'):
             if row.get(key) != source.get(key):
                 _invalid('inconsistent filtered row identity')
         source_cells = {cell['sampleID']: cell for cell in source['cells']}

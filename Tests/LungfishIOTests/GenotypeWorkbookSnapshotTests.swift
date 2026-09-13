@@ -68,6 +68,12 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertTrue(result.matrixSpecificPresentation)
     }
 
+    func testFilteredDisplayLabelMayBeAbbreviatedWithoutChangingStableIdentity() throws {
+        let result = try render(snapshot: fixture(), mutation: "abbreviated-label")
+        XCTAssertEqual(result.matrixDisplayLabels, ["M4A", "M4"])
+        XCTAssertEqual(result.filteredEvidence, [nil, 5])
+    }
+
     func testMatrixBandNotesPreserveOrdinaryUnresolvedAndManualSlotState() throws {
         let ordinary = try render(snapshot: fixture())
         XCTAssertTrue(ordinary.bandSlotParity)
@@ -164,6 +170,7 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         let bandNotes: [String]
         let bandEffectiveValues: [String?]
         let bandSlotParity: Bool
+        let matrixDisplayLabels: [String]
     }
 
     private struct ValidationFailure: Decodable {
@@ -280,6 +287,7 @@ result={
     'bandNotes':band_notes,
     'bandEffectiveValues':band_effective,
     'bandSlotParity':band_slot_parity,
+    'matrixDisplayLabels':[str(all_ws['C5'].value),str(filtered_ws['C5'].value)],
 }
 json.dump(result,open(sys.argv[3],'w'))
 """#
@@ -335,7 +343,9 @@ json.dump({'error':error,'outputExists':os.path.exists(sys.argv[2])},open(sys.ar
     private var mutationPython: String {
         #"""
 def mutate(p,name):
-    if name=='absent-content':
+    if name=='abbreviated-label':
+        p['filteredMatrix']['rows'][0]['displayName']='M4'
+    elif name=='absent-content':
         p['hasHaplotypeContent']=False
     elif name=='analyzed-unresolved':
         p['calls'][0]['h1'].update(effective='',status='unresolved')

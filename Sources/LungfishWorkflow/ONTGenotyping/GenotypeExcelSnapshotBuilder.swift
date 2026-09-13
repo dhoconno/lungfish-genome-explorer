@@ -5,6 +5,40 @@ import LungfishIO
 
 /// Captures scientific authority once. No workbook participates in this operation.
 public enum GenotypeExcelSnapshotBuilder {
+    public static let filteredEvidenceRowPolicy = "positive-displayed-count-in-visible-samples"
+
+    private struct CaptureContext: Codable {
+        let authority: CapturedAuthority
+        let filter: GenotypeMatrixBaseProjection.Filter
+        let filteredEvidenceRowPolicy: String
+    }
+
+    /// Rebuild from retained scientific inputs, never from the matrices being
+    /// validated or from source files that may have changed since capture.
+    public static func validate(_ snapshot: GenotypeWorkbookPresentation.Snapshot) throws {
+        guard let inputs = snapshot.capturedScientificInputs,
+              let resultData = inputs["result.json"], let sidecarData = inputs["annotations.json"],
+              let contextData = inputs["capture-context.json"] else {
+            throw CaptureError.incoherent("retained scientific inputs are required")
+        }
+        for (name, data) in inputs where snapshot.sourceRevision[name] != digest(data) {
+            throw CaptureError.incoherent("retained input witness changed: \(name)")
+        }
+        let decoder = JSONDecoder()
+        let context = try decoder.decode(CaptureContext.self, from: contextData)
+        guard context.filteredEvidenceRowPolicy == filteredEvidenceRowPolicy else {
+            throw CaptureError.incoherent("unsupported filtered evidence row policy")
+        }
+        let expected = try capture(result: decoder.decode(ONTGenotypeResultBundleData.self, from: resultData),
+            sidecar: decoder.decode(GenotypeAnnotationSidecar.self, from: sidecarData),
+            allProjection: inputs["all-projection.json"].map { try decoder.decode(GenotypeViewProjection.self, from: $0) },
+            filteredProjection: inputs["filtered-projection.json"].map { try decoder.decode(GenotypeViewProjection.self, from: $0) },
+            generatedAt: snapshot.generatedAt, authority: context.authority, filter: context.filter)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard try encoder.encode(snapshot) == encoder.encode(expected) else {
+            throw CaptureError.incoherent("rendered snapshot does not match its retained scientific capture")
+        }
+    }
     public enum CaptureError: Error, LocalizedError {
         case incoherent(String)
         public var errorDescription: String? {
@@ -44,8 +78,7 @@ public enum GenotypeExcelSnapshotBuilder {
     public static func capture(result: ONTGenotypeResultBundleData, sidecar: GenotypeAnnotationSidecar,
                                allProjection: GenotypeViewProjection?, filteredProjection: GenotypeViewProjection?,
                                generatedAt: String, authority: CapturedAuthority,
-                               filter: GenotypeMatrixBaseProjection.Filter = .unfiltered,
-                               keepEmptyRows: Bool = false) throws -> GenotypeWorkbookPresentation.Snapshot {
+                               filter: GenotypeMatrixBaseProjection.Filter = .unfiltered) throws -> GenotypeWorkbookPresentation.Snapshot {
         typealias P = GenotypeWorkbookPresentation
         typealias T = GenotypeAnnotationSidecar.MatrixTarget
         if let analysis = authority.analysis, let definition = authority.definitionSet,
@@ -53,14 +86,9 @@ public enum GenotypeExcelSnapshotBuilder {
             throw CaptureError.incoherent("analysis and frozen definition identity disagree")
         }
         _ = try result.reviewableRowCatalog?.validated()
-        struct CaptureContext: Encodable {
-            let authority: CapturedAuthority
-            let filter: GenotypeMatrixBaseProjection.Filter
-            let keepEmptyRows: Bool
-        }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         var captured = ["result.json": try encoder.encode(result), "annotations.json": try encoder.encode(sidecar)]
-        captured["capture-context.json"] = try encoder.encode(CaptureContext(authority: authority, filter: filter, keepEmptyRows: keepEmptyRows))
+        captured["capture-context.json"] = try encoder.encode(CaptureContext(authority: authority, filter: filter, filteredEvidenceRowPolicy: filteredEvidenceRowPolicy))
         if let analysis = authority.analysis { captured["analysis.json"] = try encoder.encode(analysis) }
         if let definition = authority.definitionSet { captured["definition.json"] = try encoder.encode(definition) }
         if let allProjection { captured["all-projection.json"] = try encoder.encode(allProjection) }
@@ -145,7 +173,7 @@ public enum GenotypeExcelSnapshotBuilder {
                     let key = rowKey(row.locus, row.genotype, row.stable)
                     let native = nativeValues[key]
                     let hasCatalogOnlyEvidence = allNativeValues[key] == nil
-                    if !full && !keepEmptyRows && native == nil && !hasCatalogOnlyEvidence { return nil }
+                    if !full && native == nil && !hasCatalogOnlyEvidence { return nil }
                     var passesSupplementalPercent = true
                     if !full && hasCatalogOnlyEvidence && (filter.globalMinimumPercent > 0 || filter.matrixMinimumPercent > 0) {
                         let positiveSamples = Set(sampleNames.filter { sample in
@@ -168,7 +196,6 @@ public enum GenotypeExcelSnapshotBuilder {
                             return native?.support(for: sample).map { String($0.passedUniqueReads) }
                                 ?? (filter == .unfiltered ? raw[target].map(String.init) : nil) ?? ""
                     }
-                    if !full && !keepEmptyRows && filter != .unfiltered && cells.allSatisfy(\.isEmpty) { return nil }
                     return .init(label: row.label, rawGenotype: row.genotype, locus: row.locus, stableClusterID: row.stable, cells: cells)
                 }
             }
@@ -207,7 +234,8 @@ public enum GenotypeExcelSnapshotBuilder {
                     comment: comments[target]?.body, fillHex: row.rowColorHex ?? rowStyle.fillHex, cells: cells, style: rowStyle)
             }
             if full && seen != Set(evidence.keys) { throw CaptureError.incoherent("All projection omits authoritative rows") }
-            return .init(samples: names.map { .init(id: $0, name: $0, comment: comments[.column(sample: $0)]?.body) }, loci: loci, rows: rows)
+            let retainedRows = full ? rows : rows.filter { row in row.cells.contains { ($0.displayValue ?? 0) > 0 } }
+            return .init(samples: names.map { .init(id: $0, name: $0, comment: comments[.column(sample: $0)]?.body) }, loci: loci, rows: retainedRows)
         }
         let all = try matrix(allProjection, full: true)
         let filtered = try matrix(filteredProjection, full: false)
@@ -220,7 +248,7 @@ public enum GenotypeExcelSnapshotBuilder {
             ["Editing", "Point-in-time report; make edits in LGE"],
             ["Minimum reads", String(filter.matrixMinimumReads)], ["Minimum percent", String(filter.matrixMinimumPercent)],
             ["Percent denominator", filter.matrixDenominator.rawValue], ["Global minimum percent", String(filter.globalMinimumPercent)],
-            ["Global percent denominator", filter.globalDenominator.rawValue], ["Keep empty rows", String(keepEmptyRows)],
+            ["Global percent denominator", filter.globalDenominator.rawValue], ["Filtered evidence row policy", filteredEvidenceRowPolicy],
             ["Candidate percent basis", "Positive supporting samples / full logical sample roster"]]
             + (filteredProjection?.filterContext ?? [:]).sorted(by: { $0.key < $1.key }).map { [$0.key, $0.value] }
         return .init(generatedAt: generatedAt, sourceRevision: revision, allMatrix: all, filteredMatrix: filtered,

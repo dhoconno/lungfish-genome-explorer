@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Exports the genotype bundle's matrix + annotation sidecar as a
 /// standalone auditor-grade XLSX.
@@ -30,12 +31,38 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
     )
 
     @Option(name: [.long, .customShort("b")], help: "Path to the .lungfishgenotype bundle.")
-    var bundle: String
+    var bundle: String?
+
+    @Option(name: .long, help: "Durable scientific Excel snapshot JSON to replay through the shared export service.")
+    var snapshot: String?
+
+    @Option(name: .long, help: "Original captured provenance request JSON (required with --snapshot).")
+    var provenanceRequest: String?
+
+    @Option(name: .long, help: "Managed openpyxl Python executable (required with --snapshot).")
+    var python: String?
+
+    @Flag(name: .long, help: "Replace an existing snapshot export report and its receipt.")
+    var force = false
 
     @Option(name: [.long, .customShort("o")], help: "Output XLSX path.")
     var output: String
 
+    func validate() throws {
+        guard (bundle != nil) != (snapshot != nil) else { throw ValidationError("Choose exactly one of --bundle or --snapshot.") }
+        if snapshot != nil {
+            guard provenanceRequest != nil, python != nil else { throw ValidationError("--snapshot requires --provenance-request and --python.") }
+        } else if provenanceRequest != nil || python != nil || force {
+            throw ValidationError("--provenance-request, --python and --force require --snapshot.")
+        }
+    }
+
     func run() async throws {
+        if let snapshot {
+            try await replaySnapshot(at: snapshot)
+            return
+        }
+        guard let bundle else { throw ValidationError("--bundle is required.") }
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle)
         let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
@@ -125,6 +152,29 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
             options: [.prettyPrinted, .sortedKeys]
         )
         FileHandle.standardOutput.write(summaryData)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private func replaySnapshot(at path: String) async throws {
+        guard let provenanceRequest, let python else { throw ValidationError("Snapshot replay requires its provenance request and Python executable.") }
+        let snapshotURL = URL(fileURLWithPath: path).standardizedFileURL
+        let requestURL = URL(fileURLWithPath: provenanceRequest).standardizedFileURL
+        let outputURL = URL(fileURLWithPath: output).standardizedFileURL
+        let pythonURL = URL(fileURLWithPath: python).standardizedFileURL
+        let snapshotData = try Data(contentsOf: snapshotURL), requestData = try Data(contentsOf: requestURL)
+        let decoded = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: snapshotData)
+        let original = try JSONDecoder().decode(GenotypeExcelExportService.ProvenanceRequest.self, from: requestData)
+        let argv = CommandLine.arguments
+        let request = GenotypeExcelExportService.ProvenanceRequest(workflowName: "genotype.export.excel.replay",
+            toolVersion: LungfishAppVersion.short, argv: argv,
+            options: ["snapshot": snapshotURL.path, "provenanceRequest": requestURL.path, "output": outputURL.path,
+                "python": pythonURL.path, "force": String(force)], defaults: ["force": "false"],
+            runtimeContext: ["originalWorkflowName": original.workflowName, "captureMode": "durable-scientific-snapshot"],
+            inputs: [.init(path: snapshotURL.path, data: snapshotData), .init(path: requestURL.path, data: requestData)])
+        let service = GenotypeExcelExportService(pythonExecutableURL: pythonURL, replayExecutableURL: Bundle.main.executableURL)
+        let result = try await service.export(snapshot: decoded, outputURL: outputURL, provenance: request, replacingExisting: force)
+        let summary = ["output": result.outputURL.path, "receipt": result.receiptURL.path, "snapshot": result.snapshotURL.path]
+        FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]))
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 }
