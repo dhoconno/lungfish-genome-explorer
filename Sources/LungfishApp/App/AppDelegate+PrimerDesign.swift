@@ -26,6 +26,7 @@ extension AppDelegate {
       ["fa", "fasta", "fna", "ffn", "lungfishmsa"].contains($0.pathExtension.lowercased())
     }
     PrimerDesignDialogPresenter.present(from: window, projectURL: projectURL, inputURLs: supported,
+      engine: (sender as? NSMenuItem)?.representedObject as? PrimerDesignEngine ?? .primer3,
       canRun: canRun,
       routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: controller.projectSession.windowStateScope),
       onShowOperations: { [weak self] in self?.showOperationsPanel(nil) },

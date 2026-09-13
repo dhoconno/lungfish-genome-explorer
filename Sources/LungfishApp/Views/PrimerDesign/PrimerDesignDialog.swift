@@ -193,9 +193,15 @@ struct PrimerDesignDialog: View {
             Toggle("Ignore unknown bases (N)", isOn: $state.ignoreN)
           } else {
             Picker("Panel selection", selection: $state.panelMode) {
-              Text("Equal representation").tag(PrimalScheme3PanelMode.equal)
-              Text("Entropy").tag(PrimalScheme3PanelMode.entropy)
+              Text("Uniform position weighting").tag(PrimalScheme3PanelMode.equal)
+              Text("Prioritize variable regions (entropy)").tag(PrimalScheme3PanelMode.entropy)
             }
+            Text(state.panelMode == .equal
+              ? "Every target position has equal weight, supporting broad coverage of conserved and variable regions."
+              : "Amplicons containing more sequence variation receive greater weight. Entropy measures variation between the primers, not at their binding sites.")
+              .font(.caption).foregroundStyle(.secondary)
+            Text("Both modes take turns across the selected MSAs. These weights do not guarantee equal amplification or allele representation and do not filter primer variants.")
+              .font(.caption).foregroundStyle(.secondary)
             HStack {
               numberField("Maximum panel amplicons (optional)", $state.maxAmplicons)
               numberField("Maximum per MSA (optional)", $state.maxAmpliconsPerMSA)

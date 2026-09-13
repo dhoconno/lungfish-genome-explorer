@@ -18,9 +18,11 @@ final class PrimerDesignDialogPresenter {
   private init(projectURL: URL) { state = PrimerDesignDialogState(projectURL: projectURL) }
 
   static func present(from window: NSWindow, projectURL: URL, inputURLs: [URL],
+                      engine: PrimerDesignEngine = .primer3,
                       canRun: @escaping () -> Bool, routeContext: OperationRouteContext,
                       onShowOperations: @escaping () -> Void, onResultSaved: @escaping (URL) -> Void) {
     let presenter = PrimerDesignDialogPresenter(projectURL: projectURL)
+    presenter.state.engine = engine
     presenter.canRun = canRun
     presenter.routeContext = routeContext
     presenter.showOperations = onShowOperations

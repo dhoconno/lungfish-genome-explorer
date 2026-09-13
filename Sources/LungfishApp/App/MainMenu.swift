@@ -701,11 +701,19 @@ public final class MainMenu {
         let toolsMenu = NSMenu(title: "Tools")
 
         let model = ToolsMenuModel.build(isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) })
-        toolsMenu.addItem(
-            withTitle: "PCR Primer Design…",
-            action: #selector(ToolsMenuActions.showPCRPrimerDesign(_:)),
-            keyEquivalent: ""
-        ).identifier = NSUserInterfaceItemIdentifier("tools-pcr-primer-design")
+        let primerDesignItem = NSMenuItem(title: "PCR primer design", action: nil, keyEquivalent: "")
+        primerDesignItem.identifier = NSUserInterfaceItemIdentifier("tools-pcr-primer-design")
+        let primerDesignMenu = NSMenu(title: primerDesignItem.title)
+        for engine in PrimerDesignEngine.allCases {
+            let item = primerDesignMenu.addItem(
+                withTitle: "\(engine.rawValue)…",
+                action: #selector(ToolsMenuActions.showPCRPrimerDesign(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = engine
+        }
+        primerDesignItem.submenu = primerDesignMenu
+        toolsMenu.addItem(primerDesignItem)
         for category in model.categories {
             toolsMenu.addItem(categoryToolsMenuItem(for: category))
         }
