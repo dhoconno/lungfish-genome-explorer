@@ -27,10 +27,22 @@ public enum GenotypeHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeHaplotypeAnalysis? {
+        if isPersistedRevisionAnalysis(result.haplotypeAnalysis) { return result.haplotypeAnalysis }
+        return activeAnalysis(for: result, sidecar: sidecar,
+            definitionSet: activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar))
+    }
+
+    /// Pure resolution against one captured definition; avoids a second mutable
+    /// registry read when preparing an immutable scientific export.
+    public static func activeAnalysis(
+        for result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar?,
+        definitionSet: GenotypeHaplotypeDefinitionSet?
+    ) -> GenotypeHaplotypeAnalysis? {
         if isPersistedRevisionAnalysis(result.haplotypeAnalysis) {
             return result.haplotypeAnalysis
         }
-        guard let definitionSet = activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar) else {
+        guard let definitionSet else {
             return result.haplotypeAnalysis
         }
         let evaluator = hasRunHaplotypeDropoutMetrics(result)

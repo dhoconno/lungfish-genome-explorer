@@ -23,6 +23,9 @@ extension GenotypeWorkbookPresentation {
         public let colors: [Color]
         public let hasHaplotypeContent: Bool
         public let metadata: [[String]]
+        /// Exact semantic capture, including original annotation records. Kept
+        /// in the durable JSON, never expanded into worksheet cells.
+        public let capturedScientificInputs: [String: Data]?
 
         public init(
             schemaVersion: Int = 3,
@@ -33,7 +36,8 @@ extension GenotypeWorkbookPresentation {
             calls: [Call],
             colors: [Color],
             hasHaplotypeContent: Bool,
-            metadata: [[String]]
+            metadata: [[String]],
+            capturedScientificInputs: [String: Data]? = nil
         ) {
             self.schemaVersion = schemaVersion
             self.generatedAt = generatedAt
@@ -44,6 +48,7 @@ extension GenotypeWorkbookPresentation {
             self.colors = colors
             self.hasHaplotypeContent = hasHaplotypeContent
             self.metadata = metadata
+            self.capturedScientificInputs = capturedScientificInputs
         }
     }
 }

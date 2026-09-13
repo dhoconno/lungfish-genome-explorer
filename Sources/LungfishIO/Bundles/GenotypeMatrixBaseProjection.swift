@@ -1,16 +1,15 @@
 import Foundation
-import LungfishIO
 
 /// Immutable scientific inputs for the comparison matrix. Expensive support
 /// denominators are computed once; threshold drafts only derive visible rows.
-struct GenotypeMatrixBaseProjection: Sendable {
-    struct KnownOccurrence: Sendable {
-        let call: ONTGenotypeCall
-        let support: ONTGenotypeSampleSupport
-        let viewedLocusDenominator: Int
-        let sampleRetainedDenominator: Int?
+public struct GenotypeMatrixBaseProjection: Sendable {
+    public struct KnownOccurrence: Sendable {
+        public let call: ONTGenotypeCall
+        public let support: ONTGenotypeSampleSupport
+        public let viewedLocusDenominator: Int
+        public let sampleRetainedDenominator: Int?
 
-        func supportFraction(for denominator: ONTGenotypeSupportDenominator) -> Double? {
+        public func supportFraction(for denominator: ONTGenotypeSupportDenominator) -> Double? {
             let denominatorValue: Int?
             switch denominator {
             case .viewedLocus:
@@ -23,16 +22,16 @@ struct GenotypeMatrixBaseProjection: Sendable {
         }
     }
 
-    struct Filter: Equatable, Sendable {
-        var globalMinimumPercent: Double
-        var globalDenominator: ONTGenotypeSupportDenominator
-        var matrixMinimumReads: Int
-        var matrixMinimumPercent: Double
-        var matrixDenominator: ONTGenotypeSupportDenominator
+    public struct Filter: Codable, Equatable, Sendable {
+        public var globalMinimumPercent: Double
+        public var globalDenominator: ONTGenotypeSupportDenominator
+        public var matrixMinimumReads: Int
+        public var matrixMinimumPercent: Double
+        public var matrixDenominator: ONTGenotypeSupportDenominator
 
-        static let unfiltered = Self()
+        public static let unfiltered = Self()
 
-        init(
+        public init(
             globalMinimumPercent: Double = 0,
             globalDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
             matrixMinimumReads: Int = 0,
@@ -47,35 +46,38 @@ struct GenotypeMatrixBaseProjection: Sendable {
         }
     }
 
-    struct Derived: Sendable {
-        let rows: [GenotypeCandidateMatrixRow]
-        let totalRowCount: Int
-        let hiddenCellCount: Int
+    public struct Derived: Sendable {
+        public let rows: [GenotypeCandidateMatrixRow]
+        public let totalRowCount: Int
+        public let hiddenCellCount: Int
     }
 
-    struct CellIdentity: Hashable, Sendable {
-        let locus: String
-        let genotype: String
-        let sample: String
-        let stableClusterID: String?
+    public struct CellIdentity: Hashable, Sendable {
+        public let locus: String
+        public let genotype: String
+        public let sample: String
+        public let stableClusterID: String?
+        public init(locus: String, genotype: String, sample: String, stableClusterID: String?) {
+            self.locus = locus; self.genotype = genotype; self.sample = sample; self.stableClusterID = stableClusterID
+        }
     }
 
-    struct ScientificIdentity: Equatable, Sendable {
-        let calls: [ONTGenotypeCall]
-        let samples: [ONTGenotypeSampleResult]
-        let candidateDocument: ONTMHCCandidateAllelesDocument?
-        let unnameableDocument: ONTMHCUnnameableClustersDocument?
-        let logicalSampleNames: [String]
-        let showKnown: Bool
-        let showSharedCandidates: Bool
-        let showSingletonCandidates: Bool
-        let usesBiologicalAlleleOrder: Bool
-        let locusDisplayOrder: [String]?
-        let usesNumericReferenceOrder: Bool
+    public struct ScientificIdentity: Equatable, Sendable {
+        public let calls: [ONTGenotypeCall]
+        public let samples: [ONTGenotypeSampleResult]
+        public let candidateDocument: ONTMHCCandidateAllelesDocument?
+        public let unnameableDocument: ONTMHCUnnameableClustersDocument?
+        public let logicalSampleNames: [String]
+        public let showKnown: Bool
+        public let showSharedCandidates: Bool
+        public let showSingletonCandidates: Bool
+        public let usesBiologicalAlleleOrder: Bool
+        public let locusDisplayOrder: [String]?
+        public let usesNumericReferenceOrder: Bool
     }
 
-    let knownOccurrences: [KnownOccurrence]
-    let scientificIdentity: ScientificIdentity
+    public let knownOccurrences: [KnownOccurrence]
+    public let scientificIdentity: ScientificIdentity
 
     private let candidateRows: [GenotypeCandidateMatrixRow]
     private let supportFractionsByDenominator:
@@ -88,7 +90,7 @@ struct GenotypeMatrixBaseProjection: Sendable {
     private let locusDisplayOrder: [String]?
     private let usesNumericReferenceOrder: Bool
 
-    init(
+    public init(
         calls: [ONTGenotypeCall],
         samples: [ONTGenotypeSampleResult],
         candidateDocument: ONTMHCCandidateAllelesDocument?,
@@ -250,7 +252,7 @@ struct GenotypeMatrixBaseProjection: Sendable {
         )
     }
 
-    func derive(_ filter: Filter) -> Derived {
+    public func derive(_ filter: Filter) -> Derived {
         let globalThreshold = filter.globalMinimumPercent / 100
         let matrixThreshold = filter.matrixMinimumPercent / 100
         let filteredOccurrences = knownOccurrences.filter { occurrence in
@@ -343,13 +345,17 @@ struct GenotypeMatrixBaseProjection: Sendable {
     }
 
     private func candidatePopulationFraction(for row: GenotypeCandidateMatrixRow) -> Double? {
-        guard !logicalSampleNames.isEmpty else { return nil }
-        let supportingSamples = Set(row.sampleSupport.map(\.sample))
-            .intersection(logicalSampleNames)
-        return Double(supportingSamples.count) / Double(logicalSampleNames.count)
+        Self.candidatePopulationFraction(supportingSamples: Set(row.sampleSupport.map(\.sample)), logicalSamples: logicalSampleNames)
     }
 
-    func supportFractions(
+    /// The candidate percent basis is supporting-sample population, regardless
+    /// of the known-call read-denominator selection.
+    public static func candidatePopulationFraction(supportingSamples: Set<String>, logicalSamples: Set<String>) -> Double? {
+        guard !logicalSamples.isEmpty else { return nil }
+        return Double(supportingSamples.intersection(logicalSamples).count) / Double(logicalSamples.count)
+    }
+
+    public func supportFractions(
         for denominator: ONTGenotypeSupportDenominator
     ) -> [CellIdentity: Double] {
         supportFractionsByDenominator[denominator] ?? [:]

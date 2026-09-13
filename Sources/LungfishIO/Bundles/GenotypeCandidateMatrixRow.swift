@@ -1,11 +1,10 @@
 import Foundation
-import LungfishIO
 
-enum GenotypeCandidateMatrixRowID: Hashable, Equatable, Sendable {
+public enum GenotypeCandidateMatrixRowID: Hashable, Equatable, Sendable {
     case known(locus: String, genotype: String)
     case candidate(stableClusterID: String)
 
-    var deterministicSortKey: String {
+    public var deterministicSortKey: String {
         switch self {
         case let .known(locus, genotype):
             return "known\u{0}\(locus)\u{0}\(genotype)"
@@ -15,46 +14,56 @@ enum GenotypeCandidateMatrixRowID: Hashable, Equatable, Sendable {
     }
 }
 
-struct GenotypeCandidateMatrixRow: Equatable, Sendable {
-    enum Population: Equatable, Sendable {
+public struct GenotypeCandidateMatrixRow: Equatable, Sendable {
+    public enum Population: Equatable, Sendable {
         case known
         case sharedCandidate
         case singletonCandidate
     }
 
-    let id: GenotypeCandidateMatrixRowID
-    let alleleName: String
-    let locus: String
-    let stableClusterID: String?
-    let population: Population
-    let tintCategory: ONTMHCCandidateTintCategory?
-    let sampleSupport: [ONTGenotypeSampleSupport]
-    let evidenceBySample: [String: [ONTMHCEvidenceLocator]]
-    let candidate: ONTMHCCandidateRecord?
-    let incompleteCandidateInterpretation: ONTMHCIncompleteCandidateInterpretation?
+    public let id: GenotypeCandidateMatrixRowID
+    public let alleleName: String
+    public let locus: String
+    public let stableClusterID: String?
+    public let population: Population
+    public let tintCategory: ONTMHCCandidateTintCategory?
+    public let sampleSupport: [ONTGenotypeSampleSupport]
+    public let evidenceBySample: [String: [ONTMHCEvidenceLocator]]
+    public let candidate: ONTMHCCandidateRecord?
+    public let incompleteCandidateInterpretation: ONTMHCIncompleteCandidateInterpretation?
 
-    var candidateClassification: ONTMHCCandidateClassification? {
+    public init(id: GenotypeCandidateMatrixRowID, alleleName: String, locus: String,
+                stableClusterID: String?, population: Population, tintCategory: ONTMHCCandidateTintCategory?,
+                sampleSupport: [ONTGenotypeSampleSupport], evidenceBySample: [String: [ONTMHCEvidenceLocator]],
+                candidate: ONTMHCCandidateRecord?, incompleteCandidateInterpretation: ONTMHCIncompleteCandidateInterpretation?) {
+        self.id = id; self.alleleName = alleleName; self.locus = locus
+        self.stableClusterID = stableClusterID; self.population = population; self.tintCategory = tintCategory
+        self.sampleSupport = sampleSupport; self.evidenceBySample = evidenceBySample
+        self.candidate = candidate; self.incompleteCandidateInterpretation = incompleteCandidateInterpretation
+    }
+
+    public var candidateClassification: ONTMHCCandidateClassification? {
         candidate?.classification ?? incompleteCandidateInterpretation?.classification
     }
 
-    var isIncompleteReferenceSpanCandidate: Bool {
+    public var isIncompleteReferenceSpanCandidate: Bool {
         incompleteCandidateInterpretation != nil
     }
 
-    var genotype: String { alleleName }
-    var sampleCount: Int { sampleSupport.count }
-    var totalUniqueReads: Int { sampleSupport.reduce(0) { $0 + $1.passedUniqueReads } }
-    var biologicalSortTieID: String { stableClusterID ?? id.deterministicSortKey }
+    public var genotype: String { alleleName }
+    public var sampleCount: Int { sampleSupport.count }
+    public var totalUniqueReads: Int { sampleSupport.reduce(0) { $0 + $1.passedUniqueReads } }
+    public var biologicalSortTieID: String { stableClusterID ?? id.deterministicSortKey }
 
-    func support(for sample: String) -> ONTGenotypeSampleSupport? {
+    public func support(for sample: String) -> ONTGenotypeSampleSupport? {
         sampleSupport.first { $0.sample == sample }
     }
 
-    var sharedCall: ONTGenotypeSharedCall {
+    public var sharedCall: ONTGenotypeSharedCall {
         ONTGenotypeSharedCall(locus: locus, genotype: alleleName, sampleSupport: sampleSupport)
     }
 
-    static func known(_ call: ONTGenotypeSharedCall) -> Self {
+    public static func known(_ call: ONTGenotypeSharedCall) -> Self {
         Self(
             id: .known(locus: call.locus, genotype: call.genotype),
             alleleName: call.genotype,
@@ -70,8 +79,8 @@ struct GenotypeCandidateMatrixRow: Equatable, Sendable {
     }
 }
 
-enum GenotypeCandidateMatrixProjection {
-    static func rows(
+public enum GenotypeCandidateMatrixProjection {
+    public static func rows(
         knownRows: [ONTGenotypeSharedCall],
         candidateDocument: ONTMHCCandidateAllelesDocument?,
         unnameableDocument: ONTMHCUnnameableClustersDocument? = nil,

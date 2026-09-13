@@ -6215,25 +6215,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         into rendered: inout GenotypeMatrixRenderedStyle
     ) {
         guard let style else { return }
-        if let fillColor = style.fillColor.flatMap(AnnotationColor.init(hex:)) {
-            rendered.fillColor = fillColor
-        }
-        if let textColor = style.textColor.flatMap(AnnotationColor.init(hex:)) {
-            rendered.textColor = textColor
-        }
-        if let borderColor = style.borderColor.flatMap(AnnotationColor.init(hex:)) {
-            rendered.borderColor = borderColor
-        }
-        if let boldOverride = style.boldOverride {
-            rendered.isBold = boldOverride
-        } else if style.isBold {
-            rendered.isBold = true
-        }
-        if let italicOverride = style.italicOverride {
-            rendered.isItalic = italicOverride
-        } else if style.isItalic {
-            rendered.isItalic = true
-        }
+        let resolved = GenotypeMatrixStyleResolver.resolve([style], initial: .init(
+            isBold: rendered.isBold, isItalic: rendered.isItalic))
+        if let color = resolved.fillHex { rendered.fillColor = AnnotationColor(hex: color) }
+        if let color = resolved.textHex { rendered.textColor = AnnotationColor(hex: color) }
+        if let color = resolved.borderHex { rendered.borderColor = AnnotationColor(hex: color) }
+        rendered.isBold = resolved.isBold
+        rendered.isItalic = resolved.isItalic
     }
 
     private func applyAutomaticTextContrast(
