@@ -1,0 +1,5 @@
+# artic-bed-version v3.0
+# pc=PrimerCountInMSA
+fixture_uncertain_reference	1	24	coverage-candidate-8e1fa4bd923a3fc35cc41ba3ff35becf952a9110492111e24c35c4285bece644_1_LEFT_1	1	+	AGGCATGCTCTTAAGGCAGATGT	pc=0.5
+fixture_uncertain_reference	0	24	coverage-candidate-8e1fa4bd923a3fc35cc41ba3ff35becf952a9110492111e24c35c4285bece644_1_LEFT_2	1	+	GAGGCATGCTCTTAAGGCAGATGT	pc=0.5
+fixture_uncertain_reference	176	200	coverage-candidate-8e1fa4bd923a3fc35cc41ba3ff35becf952a9110492111e24c35c4285bece644_1_RIGHT_1	1	-	CTCAGCTGTCCCATCGCACATTAT	pc=1

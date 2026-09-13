@@ -495,11 +495,22 @@ enum PrimalScheme3CoverageContract {
             guard Set(diagnostic.keys) == supportKeys else {
                 throw invalid("Validation support diagnostic keys are incomplete or unexpected.")
             }
-            try validateCandidateSupport(candidate, target: try object(targetByID[try string(candidate, "target_id")], "support target"))
-            guard supportKeys.allSatisfy({ key in
-                guard let expected = candidate[key], let actual = diagnostic[key] else { return false }
-                return equalJSON(actual, expected)
-            }) else {
+            let candidateSupport = try validateCandidateSupport(candidate,
+                target: try object(targetByID[try string(candidate, "target_id")], "support target"))
+            let freshJoint = try stringArray(diagnostic["joint_rows"], "validation joint rows")
+            let freshUnknown = try stringArray(diagnostic["unknown_rows"], "validation unknown rows")
+            let freshSpans = try rowProductSpans(diagnostic["row_product_spans"],
+                knownRows: candidateSupport.knownRows, label: "validation support row-product spans")
+            guard let freshJointValue = diagnostic["joint_rows"], let candidateJointValue = candidate["joint_rows"],
+                  let freshSpanValue = diagnostic["row_product_spans"], let candidateSpanValue = candidate["row_product_spans"],
+                  Set(freshJoint).count == freshJoint.count,
+                  Set(freshUnknown).count == freshUnknown.count,
+                  Set(freshJoint).isSubset(of: candidateSupport.knownRows),
+                  Set(freshUnknown).isSubset(of: candidateSupport.knownRows),
+                  Set(freshSpans).count == freshSpans.count,
+                  equalJSON(freshJointValue, candidateJointValue),
+                  equalJSON(freshSpanValue, candidateSpanValue),
+                  Set(freshUnknown).subtracting(Set(freshJoint)) == candidateSupport.unknownRows else {
                 throw invalid("Validation support diagnostic differs from the selected catalogue candidate.")
             }
         }
@@ -551,20 +562,44 @@ enum PrimalScheme3CoverageContract {
         }
     }
 
-    private static func validateCandidateSupport(_ candidate: [String: Any], target: [String: Any]) throws {
-        let knownRows = Set(try stringArray(target["row_ids"], "catalogue target row identifiers"))
+    private struct CandidateSupportIdentity {
+        let knownRows: Set<String>
+        let unknownRows: Set<String>
+    }
+
+    private struct RowProductSpan: Hashable {
+        let row: String
+        let start: Int
+        let end: Int
+    }
+
+    private static func validateCandidateSupport(_ candidate: [String: Any],
+                                                 target: [String: Any]) throws -> CandidateSupportIdentity {
+        let rowIDs = try stringArray(target["row_ids"], "catalogue target row identifiers")
+        let knownRows = Set(rowIDs)
         let jointRows = try stringArray(candidate["joint_rows"], "candidate joint rows")
         let unknownRows = try stringArray(candidate["unknown_rows"], "candidate unknown rows")
-        guard Set(jointRows).count == jointRows.count, Set(unknownRows).count == unknownRows.count,
+        let spans = try rowProductSpans(candidate["row_product_spans"], knownRows: knownRows,
+                                        label: "catalogue candidate row-product spans")
+        guard knownRows.count == rowIDs.count,
+              Set(jointRows).count == jointRows.count, Set(unknownRows).count == unknownRows.count,
               Set(jointRows).isSubset(of: knownRows), Set(unknownRows).isSubset(of: knownRows),
-              let spans = candidate["row_product_spans"] as? [[Any]] else {
+              Set(jointRows).isDisjoint(with: Set(unknownRows)),
+              Set(spans).count == spans.count, Set(spans.map(\.row)) == Set(jointRows) else {
             throw invalid("Catalogue candidate support metadata is malformed.")
         }
-        for span in spans {
+        return .init(knownRows: knownRows, unknownRows: Set(unknownRows))
+    }
+
+    private static func rowProductSpans(_ value: Any?, knownRows: Set<String>,
+                                        label: String) throws -> [RowProductSpan] {
+        guard let values = value as? [[Any]] else { throw invalid("\(label) is missing or malformed.") }
+        return try values.map { span in
             guard span.count == 3, let row = span[0] as? String, knownRows.contains(row),
                   let start = strictInteger(span[1]), let end = strictInteger(span[2]), start >= 0, end > start else {
-                throw invalid("Catalogue candidate row-product span is malformed.")
+                throw invalid("\(label) contains a malformed entry.")
             }
+            return .init(row: row, start: start, end: end)
         }
     }
 

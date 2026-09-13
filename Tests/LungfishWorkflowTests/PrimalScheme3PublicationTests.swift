@@ -94,6 +94,51 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
   }
 
+  func testCoverageNativeContractPreservesFreshUncertaintyOnJointRow() async throws {
+    let fixture = try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeUncertain",
+      storedInputs: ["work/0000-fixture-uncertain.fasta"])
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      try Self.coverageNativeFixture(command, fixtureName: "PrimalScheme3CoverageNativeUncertain")
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let request = try coverageRequest(fixture, executableURL: URL(fileURLWithPath: "/fixture/lge3"),
+      misprimingProductSize: 199)
+    let output = try await pipeline.run(request: request)
+    let bundle = try PrimerAnalysisBundle.load(from: output)
+    let artifact = try XCTUnwrap(bundle.manifest.artifacts.first {
+      $0.relativePath.hasSuffix("panel-validation.json")
+    })
+    let validation = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: Data(contentsOf: bundle.artifactURL(forRelativePath: artifact.relativePath))) as? [String: Any])
+    let support = try XCTUnwrap(validation["support_diagnostics"] as? [String: [String: Any]])
+    let diagnostic = try XCTUnwrap(support.values.first)
+    let joint = Set(try XCTUnwrap(diagnostic["joint_rows"] as? [String]))
+    let unknown = Set(try XCTUnwrap(diagnostic["unknown_rows"] as? [String]))
+    XCTAssertFalse(joint.intersection(unknown).isEmpty)
+  }
+
+  func testCoverageFreshSupportMutationsFailAtomically() async throws {
+    for mutation in ["support-unknown-row", "support-duplicate-unknown", "support-malformed-span",
+                     "support-mismatched-joint", "support-mismatched-product"] {
+      let fixture = try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeUncertain",
+        storedInputs: ["work/0000-fixture-uncertain.fasta"])
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+        try Self.coverageNativeFixture(command, mutation: mutation,
+          fixtureName: "PrimalScheme3CoverageNativeUncertain")
+      })
+      do {
+        _ = try await pipeline.run(request: coverageRequest(fixture,
+          executableURL: URL(fileURLWithPath: "/fixture/lge3"), misprimingProductSize: 199))
+        XCTFail("Coverage mutation \(mutation) must not publish")
+      } catch {
+        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme3-LGE"), error.localizedDescription)
+        XCTAssertTrue(error.localizedDescription.lowercased().contains("support"), error.localizedDescription)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    }
+  }
+
   func testCoverageNativeContractMutationsFailAtomically() async throws {
     let mutations = ["config-version", "config-seed", "config-coverage", "config-budget",
       "config-profile", "optimizer-algorithm", "validation-invalid", "validation-missing",
@@ -359,12 +404,14 @@ final class PrimalScheme3PublicationTests: XCTestCase {
   }
 
   private func coverageRequest(_ fixture: Fixture, executableURL: URL?,
-                               maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil) throws -> PrimalScheme3DesignRequest {
+                               maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil,
+                               misprimingProductSize: Int? = nil) throws -> PrimalScheme3DesignRequest {
     .init(inputURLs: fixture.inputs, destinationURL: fixture.destination,
       options: .init(ampliconSize: 200, poolCount: 2, coreCount: 1,
         maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA,
         ampliconSizeMinimum: 150, ampliconSizeMaximum: 280, selectionAlgorithm: .coverage,
-        optimizerStarts: 1, optimizerRepairRounds: 0, optimizerTimeLimit: 5), grouping: .combined,
+        optimizerStarts: 1, optimizerRepairRounds: 0, optimizerTimeLimit: 5,
+        misprimingProductSize: misprimingProductSize), grouping: .combined,
       invocation: .init(argv: CommandLine.arguments, callerVersion: "test", explicitOptions: [:], runtimeIdentity: .init()),
       executableURL: executableURL,
       expectedInputChecksums: Dictionary(uniqueKeysWithValues: try fixture.inputs.map { ($0, try Primer3InputLoader.fingerprint($0)) }))
@@ -471,6 +518,8 @@ final class PrimalScheme3PublicationTests: XCTestCase {
       try mutateNestedTypes(output, profile: mutation == "nested-profile-type")
     } else if mutation?.hasPrefix("validation-") == true || mutation == "optimizer-target-summary" {
       try mutateTargetMetadata(output, mutation: try XCTUnwrap(mutation))
+    } else if mutation?.hasPrefix("support-") == true {
+      try mutateSupportDiagnostics(output, mutation: try XCTUnwrap(mutation))
     }
     let capabilities = try Data(contentsOf: nativeCoverageFixtureURL.deletingLastPathComponent()
       .appendingPathComponent("PrimalScheme3CoverageCapabilities.json"))
@@ -638,6 +687,36 @@ final class PrimalScheme3PublicationTests: XCTestCase {
         $0["validation"] = validation
       }
     }
+    try refreshProvenanceDescriptors(output, paths: ["panel-validation.json", "panel-optimizer.json"])
+  }
+
+  private static func mutateSupportDiagnostics(_ output: URL, mutation: String) throws {
+    let validationURL = output.appendingPathComponent("panel-validation.json")
+    var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: validationURL)) as? [String: Any])
+    var support = try XCTUnwrap(validation["support_diagnostics"] as? [String: [String: Any]])
+    let candidateID = try XCTUnwrap(support.keys.first)
+    var diagnostic = try XCTUnwrap(support[candidateID])
+    if mutation == "support-unknown-row" {
+      var unknown = try XCTUnwrap(diagnostic["unknown_rows"] as? [String])
+      unknown.append("row-not-in-target"); diagnostic["unknown_rows"] = unknown
+    } else if mutation == "support-duplicate-unknown" {
+      var unknown = try XCTUnwrap(diagnostic["unknown_rows"] as? [String])
+      unknown.append(try XCTUnwrap(unknown.first)); diagnostic["unknown_rows"] = unknown
+    } else if mutation == "support-malformed-span" {
+      var spans = try XCTUnwrap(diagnostic["row_product_spans"] as? [[Any]])
+      spans[0][1] = false; diagnostic["row_product_spans"] = spans
+    } else if mutation == "support-mismatched-joint" {
+      var joint = try XCTUnwrap(diagnostic["joint_rows"] as? [String])
+      joint.removeLast(); diagnostic["joint_rows"] = joint
+    } else if mutation == "support-mismatched-product" {
+      var spans = try XCTUnwrap(diagnostic["row_product_spans"] as? [[Any]])
+      spans[0][1] = (try XCTUnwrap(spans[0][1] as? Int)) + 1
+      diagnostic["row_product_spans"] = spans
+    }
+    support[candidateID] = diagnostic
+    validation["support_diagnostics"] = support
+    try writeJSON(validation, to: validationURL)
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) { $0["validation"] = validation }
     try refreshProvenanceDescriptors(output, paths: ["panel-validation.json", "panel-optimizer.json"])
   }
 
