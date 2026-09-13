@@ -2145,6 +2145,22 @@ public enum ONTGenotypeResultBundle {
         )
     }
 
+    /// Loads a published result only while its durable manifest still matches
+    /// the caller's already-captured manifest. This lets provenance-sensitive
+    /// readers bind path discovery, artifact loading, and the manifest witness
+    /// to one scientific generation without weakening the stable-read checks.
+    public static func loadResult(
+        from bundleURL: URL,
+        requiring manifest: ONTGenotypeResultBundleManifest
+    ) throws -> ONTGenotypeResultBundleData {
+        try loadStableResult(
+            from: bundleURL,
+            candidateArtifactByteBudget: maximumCollectedCandidateArtifactBytes,
+            requiredManifest: manifest,
+            stableReadObserver: nil
+        )
+    }
+
     public static func loadResultAsync(from bundleURL: URL) async throws -> ONTGenotypeResultBundleData {
         try Task.checkCancellation()
         let worker = Task.detached(priority: Task.currentPriority) {
@@ -2317,12 +2333,31 @@ public enum ONTGenotypeResultBundle {
         )
     }
 
-    public static func referenceGenotypeLocusDisplayOrder(
+    public struct ReferenceGenotypeLocusDisplayOrderCapture: Sendable {
+        public let order: [String]
+        public let manifestURL: URL
+        public let manifestData: Data
+
+        public init(order: [String], manifestURL: URL, manifestData: Data) {
+            self.order = order
+            self.manifestURL = manifestURL.standardizedFileURL
+            self.manifestData = manifestData
+        }
+    }
+
+    /// Resolves the optional legacy reference-order fallback while retaining
+    /// the exact reference-manifest bytes that supplied the order. Supplying
+    /// provenance data binds resolution to an already-captured provenance
+    /// witness instead of reopening that mutable file.
+    public static func referenceGenotypeLocusDisplayOrderCapture(
         manifest: ONTGenotypeResultBundleManifest,
-        in bundleURL: URL
-    ) -> [String]? {
-        guard let data = try? Data(contentsOf: resolvedURL(for: manifest.provenancePath, in: bundleURL)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        in bundleURL: URL,
+        provenanceData: Data? = nil
+    ) throws -> ReferenceGenotypeLocusDisplayOrderCapture? {
+        let data = try provenanceData
+            ?? Data(contentsOf: resolvedURL(for: manifest.provenancePath, in: bundleURL))
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
         let options = object["options"] as? [String: Any]
         let explicit = options?["explicit"] as? [String: Any] ?? options
         var referencePath: String?
@@ -2339,10 +2374,31 @@ public enum ONTGenotypeResultBundle {
         guard let referencePath else { return nil }
         let referenceURL = referencePath.hasPrefix("/")
             ? URL(fileURLWithPath: referencePath) : bundleURL.appendingPathComponent(referencePath)
-        guard MHCAmpliconReferenceBundle.isBundleURL(referenceURL),
-              let reference = try? MHCAmpliconReferenceBundle.loadManifest(from: referenceURL),
-              let order = reference.genotypeLocusDisplayOrder else { return nil }
-        return try? MHCAlleleDisplayOrder.validatedLocusDisplayOrder(order)
+        guard MHCAmpliconReferenceBundle.isBundleURL(referenceURL) else { return nil }
+        let referenceManifestURL = MHCAmpliconReferenceBundle.manifestURL(
+            in: referenceURL
+        ).standardizedFileURL
+        let referenceManifestData = try Data(contentsOf: referenceManifestURL)
+        let reference = try JSONDecoder().decode(
+            MHCAmpliconReferenceBundleManifest.self,
+            from: referenceManifestData
+        )
+        guard let order = reference.genotypeLocusDisplayOrder else { return nil }
+        return .init(
+            order: try MHCAlleleDisplayOrder.validatedLocusDisplayOrder(order),
+            manifestURL: referenceManifestURL,
+            manifestData: referenceManifestData
+        )
+    }
+
+    public static func referenceGenotypeLocusDisplayOrder(
+        manifest: ONTGenotypeResultBundleManifest,
+        in bundleURL: URL
+    ) -> [String]? {
+        try? referenceGenotypeLocusDisplayOrderCapture(
+            manifest: manifest,
+            in: bundleURL
+        )?.order
     }
 
     private static func loadResult(

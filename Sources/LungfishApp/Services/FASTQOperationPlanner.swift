@@ -720,9 +720,6 @@ extension FASTQOperationLaunchRequest {
             if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
                 urls.append(barcodeDefinitionsURL)
             }
-            if let comparisonWorkbookURL = request.comparisonWorkbookURL {
-                urls.append(comparisonWorkbookURL)
-            }
         default:
             break
         }
@@ -800,8 +797,6 @@ extension FASTQOperationLaunchRequest {
                 outputName: request.outputName,
                 demuxManifestURL: request.demuxManifestURL,
                 analysisName: request.analysisName,
-                comparisonWorkbookURL: request.comparisonWorkbookURL,
-                comparisonName: request.comparisonName,
                 projectURL: request.projectURL,
                 threads: request.threads,
                 sortThreads: request.sortThreads,

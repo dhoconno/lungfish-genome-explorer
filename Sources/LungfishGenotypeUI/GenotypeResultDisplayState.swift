@@ -117,8 +117,7 @@ public struct GenotypeResultDisplayState: Equatable {
     /// focused on the calls actually being haplotyped. For MCM that means
     /// the canonical 7 loci instead of every locus the demux observed.
     public var showsAncillaryLoci: Bool = false
-    /// Loci selected for the deterministic haplotype Outline. Workbook updates
-    /// write the subset supported by current.xlsx. `nil` means use the
+    /// Loci selected for the deterministic haplotype Outline. `nil` means use the
     /// result-specific default selection.
     public var includedLoci: Set<String>? = nil
 

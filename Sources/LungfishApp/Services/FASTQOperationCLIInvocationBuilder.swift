@@ -185,12 +185,6 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if let demuxManifestURL = request.demuxManifestURL {
                 arguments += ["--demux-manifest", demuxManifestURL.path]
             }
-            if let comparisonWorkbookURL = request.comparisonWorkbookURL {
-                arguments += ["--comparison-workbook", comparisonWorkbookURL.path]
-            }
-            if let comparisonName = request.comparisonName {
-                arguments += ["--comparison-name", comparisonName]
-            }
             if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
                 if let haplotypeAssayID = request.haplotypeAssayID {
                     arguments += ["--haplotype-assay", haplotypeAssayID]

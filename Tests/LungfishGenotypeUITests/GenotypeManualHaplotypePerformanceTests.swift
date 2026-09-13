@@ -74,7 +74,6 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         XCTAssertEqual(performance.baseProjectionBuildCount, 0)
         XCTAssertEqual(performance.columnRebuildCount, 0)
         XCTAssertEqual(performance.haplotypeAnalysisRunCount, 0)
-        XCTAssertEqual(performance.workbookReloadCount, 0)
         XCTAssertEqual(performance.haplotypeModelRebuildCount, 0)
         XCTAssertEqual(performance.unrelatedRowReloadCount, 0)
     }
@@ -118,7 +117,6 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         XCTAssertEqual(performance.columnRebuildCount, 0)
         XCTAssertEqual(performance.bandInvalidationCount, 1)
         XCTAssertEqual(performance.haplotypeAnalysisRunCount, 0)
-        XCTAssertEqual(performance.workbookReloadCount, 0)
         XCTAssertEqual(performance.haplotypeModelRebuildCount, 0)
         XCTAssertEqual(performance.unrelatedRowReloadCount, 0)
         XCTAssertEqual(

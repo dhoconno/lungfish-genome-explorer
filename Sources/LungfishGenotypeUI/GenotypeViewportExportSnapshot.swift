@@ -8,10 +8,9 @@ import LungfishWorkflow
 /// reads and viewport fill/border colors), the active filter context, and an
 /// optional annotation sidecar.
 ///
-/// ``GenotypeViewportExportService`` serializes this into the
-/// ``GenotypeViewProjection`` contract and hands it to `lungfish-cli genotype
-/// export --view-projection`, so the headless CLI reproduces the analyst's
-/// colored view with canonical provenance.
+/// Delimiter export serializes the viewport projection for the CLI. Excel export
+/// uses the separately frozen scientific snapshot with simultaneous All and
+/// Filtered projections, retained replay inputs, and canonical provenance.
 struct GenotypeViewportExportSnapshot: Equatable {
     let bundleURL: URL
     let analysisName: String
@@ -24,10 +23,8 @@ struct GenotypeViewportExportSnapshot: Equatable {
     /// Immutable bytes captured with the viewport. When present, export uses
     /// these rather than rereading the live bundle sidecar path.
     let annotationSidecarData: Data?
-    /// Optional annotation sidecar to surface in additional worksheets.
-    /// When non-nil, the export adds an Overrides sheet and an Audit Log
-    /// sheet so consumers reading the workbook see what the analyst has
-    /// changed without needing the bundle's annotations.json.
+    /// Captured annotation context. Workbook presentation uses direct call
+    /// values and matrix Notes; the full audit stays in the LGE bundle.
     let sidecar: GenotypeAnnotationSidecarSnapshot?
     let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
     let sourceRevision: GenotypeViewProjectionSourceRevision?
@@ -35,6 +32,9 @@ struct GenotypeViewportExportSnapshot: Equatable {
     /// definition matrix uses allele columns rather than sample columns).
     let haplotypeSampleScope: [String]?
     let haplotypeLocusScope: [String]?
+    let presentationColors: [GenotypeWorkbookPresentation.Color]
+    /// Canonical immutable scientific capture for the one-way Excel report.
+    let excelSnapshotData: Data?
 
     init(
         bundleURL: URL,
@@ -50,7 +50,9 @@ struct GenotypeViewportExportSnapshot: Equatable {
         haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
         sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
         haplotypeSampleScope: [String]? = nil,
-        haplotypeLocusScope: [String]? = nil
+        haplotypeLocusScope: [String]? = nil,
+        presentationColors: [GenotypeWorkbookPresentation.Color] = [],
+        excelSnapshotData: Data? = nil
     ) {
         self.bundleURL = bundleURL
         self.analysisName = analysisName
@@ -66,61 +68,8 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.sourceRevision = sourceRevision
         self.haplotypeSampleScope = haplotypeSampleScope
         self.haplotypeLocusScope = haplotypeLocusScope
-    }
-}
-
-/// User-visible description of the immutable snapshot captured before the
-/// Excel role dialog is presented.
-struct GenotypeExcelCapturedScope: Equatable {
-    let summary: String
-    let capability: String
-
-    init(snapshot: GenotypeViewportExportSnapshot, callEditingSupported: Bool) {
-        let filters = snapshot.filters
-        let samples = snapshot.haplotypeSampleScope ?? snapshot.sampleNames
-        let loci = snapshot.haplotypeLocusScope
-            ?? Array(Set(snapshot.rows.map(\.locus))).sorted()
-        func boundedList(_ values: [String]) -> String {
-            let shown = values.prefix(8).joined(separator: ", ")
-            let remainder = values.count - min(values.count, 8)
-            return remainder == 0 ? shown : "\(shown), +\(remainder) more"
-        }
-        func searchDescription(_ key: String) -> String {
-            let text = filters[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return text.isEmpty ? "None" : text
-        }
-        let hidesLowSupport = filters["hideLowSupport"] == "true"
-        let visibility = hidesLowSupport ? "hidden" : "shown"
-        let rowSupportPercent = filters["minimumSupportPercent"] ?? "0"
-        let rowSupportState: String
-        if (Double(rowSupportPercent) ?? 0) <= 0 {
-            rowSupportState = "off"
-        } else if hidesLowSupport {
-            rowSupportState = "active"
-        } else {
-            rowSupportState = "configured, inactive while low-support rows are shown"
-        }
-        summary = [
-            "Captured scope (will not change while this dialog is open):",
-            "Samples (\(samples.count)): \(boundedList(samples))",
-            "Loci (\(loci.count)): \(boundedList(loci))",
-            "Min reads: \(filters["matrixMinimumReads"] ?? "0")",
-            "Matrix min percent: \(filters["matrixMinimumPercent"] ?? "0")",
-            "Matrix percent basis: \(filters["matrixPercentDenominator"] ?? "Not applicable")",
-            "Row-support min percent: \(rowSupportPercent) (\(rowSupportState))",
-            "Row-support percent basis: \(filters["supportDenominator"] ?? "Not applicable")",
-            "General search: \(searchDescription("searchText"))",
-            "Matrix row search: \(searchDescription("matrixRowFilterText"))",
-            "Matrix sample search: \(searchDescription("matrixSampleFilterText"))",
-            "Alleles: \(filters["diagnosticAllelesOnly"] == "true" ? "diagnostic only" : "all observed")",
-            "Highlights in filtered cells: \(filters["hideFilteredHighlights"] == "true" ? "hidden" : "shown")",
-            "Low-support rows: \(visibility)",
-            "Locus filter: \(filters["locus"] ?? "All Loci")",
-        ].joined(separator: "\n")
-
-        capability = !callEditingSupported
-            ? "H1/H2 calls are read-only for this legacy workbook; matrix reviews and comments remain supported."
-            : "H1/H2 call edits are supported where a raw baseline is available; matrix reviews and comments remain supported."
+        self.presentationColors = presentationColors
+        self.excelSnapshotData = excelSnapshotData
     }
 }
 
@@ -162,6 +111,8 @@ struct GenotypeViewportExportRow: Equatable {
     let sampleReads: [String: Int]
     let rowStyle: GenotypeResultHighlightStyle
     let cellStyles: [String: GenotypeResultHighlightStyle]
+    let renderedRowStyle: GenotypeMatrixRenderedStyle?
+    let renderedCellStyles: [String: GenotypeMatrixRenderedStyle]?
 
     init(
         genotype: String,
@@ -172,7 +123,9 @@ struct GenotypeViewportExportRow: Equatable {
         totalUniqueReads: Int,
         sampleReads: [String: Int],
         rowStyle: GenotypeResultHighlightStyle,
-        cellStyles: [String: GenotypeResultHighlightStyle]
+        cellStyles: [String: GenotypeResultHighlightStyle],
+        renderedRowStyle: GenotypeMatrixRenderedStyle? = nil,
+        renderedCellStyles: [String: GenotypeMatrixRenderedStyle]? = nil
     ) {
         self.genotype = genotype
         self.displayName = displayName ?? genotype
@@ -183,5 +136,7 @@ struct GenotypeViewportExportRow: Equatable {
         self.sampleReads = sampleReads
         self.rowStyle = rowStyle
         self.cellStyles = cellStyles
+        self.renderedRowStyle = renderedRowStyle
+        self.renderedCellStyles = renderedCellStyles
     }
 }

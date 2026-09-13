@@ -17,111 +17,6 @@ public struct GenotypeResultDesiredConfigurationAuthority:
     }
 }
 
-@MainActor
-final class GenotypeExcelExportAccessoryController: NSViewController {
-    private(set) var role: GenotypeExcelExportRole = .filteredView
-    private let onRoleChange: (GenotypeExcelExportRole) -> Void
-    private let allowsEditableWorkbook: Bool
-
-    init(
-        allowsEditableWorkbook: Bool,
-        onRoleChange: @escaping (GenotypeExcelExportRole) -> Void
-    ) {
-        self.allowsEditableWorkbook = allowsEditableWorkbook
-        self.onRoleChange = onRoleChange
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func loadView() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        for (index, role) in GenotypeExcelExportRole.allCases.enumerated() {
-            let button = NSButton(radioButtonWithTitle: role.title, target: self, action: #selector(selectRole(_:)))
-            button.tag = index
-            button.state = role == self.role ? .on : .off
-            button.isEnabled = role != .editableWorkbook || allowsEditableWorkbook
-            button.setAccessibilityIdentifier("genotype-excel-role-\(role.rawValue)")
-            let explanation = NSTextField(wrappingLabelWithString: role.explanation)
-            explanation.textColor = .secondaryLabelColor
-            explanation.maximumNumberOfLines = 3
-            stack.addArrangedSubview(button)
-            stack.addArrangedSubview(explanation)
-            if !button.isEnabled {
-                let reason = GenotypeExcelExportRole.unavailableEditingExplanation
-                button.toolTip = reason
-                button.setAccessibilityHelp(reason)
-                let unavailable = NSTextField(wrappingLabelWithString: reason)
-                unavailable.textColor = .secondaryLabelColor
-                unavailable.maximumNumberOfLines = 0
-                unavailable.preferredMaxLayoutWidth = 430
-                stack.addArrangedSubview(unavailable)
-            }
-        }
-        stack.frame = NSRect(x: 0, y: 0, width: 430, height: max(130, stack.fittingSize.height))
-        view = stack
-    }
-
-    @objc private func selectRole(_ sender: NSButton) {
-        role = GenotypeExcelExportRole.allCases[sender.tag]
-        for case let button as NSButton in (view as? NSStackView)?.arrangedSubviews ?? [] {
-            button.state = button === sender ? .on : .off
-        }
-        onRoleChange(role)
-    }
-}
-
-@MainActor
-enum GenotypeExcelExportDialogPresenter {
-    struct Presentation {
-        let alert: NSAlert
-        let accessory: GenotypeExcelExportAccessoryController
-    }
-
-    static func makeAlert(
-        scope: String,
-        capability: String,
-        allowsEditableWorkbook: Bool,
-        onRoleChange: @escaping (GenotypeExcelExportRole) -> Void
-    ) -> Presentation {
-        let alert = NSAlert()
-        alert.messageText = "Export to Excel"
-        alert.informativeText = "Choose the workbook role.\n\n\(scope)\n\n\(capability)"
-        alert.addButton(withTitle: "Export…")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-        let accessory = GenotypeExcelExportAccessoryController(
-            allowsEditableWorkbook: allowsEditableWorkbook
-        ) { role in
-            alert.buttons[0].title = role == .filteredView ? "Export…" : "Open in Excel"
-            onRoleChange(role)
-        }
-        alert.accessoryView = accessory.view
-        return Presentation(alert: alert, accessory: accessory)
-    }
-}
-
-@MainActor
-enum GenotypeExcelExportDialogRoute {
-    static func complete(
-        response: NSApplication.ModalResponse,
-        role: GenotypeExcelExportRole?,
-        snapshot: GenotypeViewportExportSnapshot,
-        exportFiltered: (GenotypeViewportExportSnapshot) -> Void,
-        openEditable: () -> Void
-    ) {
-        guard response == .alertFirstButtonReturn, let role else { return }
-        switch role {
-        case .filteredView: exportFiltered(snapshot)
-        case .editableWorkbook: openEditable()
-        }
-    }
-}
-
 struct GenotypeManualHaplotypeMultiSamplePresentation: Equatable {
     static let maximumVisibleSamples = 12
 
@@ -146,22 +41,22 @@ struct GenotypeManualHaplotypeMultiSamplePresentation: Equatable {
 }
 
 @MainActor
-protocol GenotypeMatrixWorkbookUpdateCancellation: AnyObject {
+protocol GenotypeMatrixAnnotationRetryCancellation: AnyObject {
     func cancel()
 }
 
 @MainActor
-protocol GenotypeMatrixWorkbookUpdateScheduling: AnyObject {
+protocol GenotypeMatrixAnnotationRetryScheduling: AnyObject {
     func schedule(
         _ action: @escaping @MainActor () -> Void
-    ) -> GenotypeMatrixWorkbookUpdateCancellation
+    ) -> GenotypeMatrixAnnotationRetryCancellation
 }
 
 @MainActor
-private final class DelayedGenotypeMatrixWorkbookUpdateScheduler:
-    GenotypeMatrixWorkbookUpdateScheduling
+private final class DelayedGenotypeMatrixAnnotationRetryScheduler:
+    GenotypeMatrixAnnotationRetryScheduling
 {
-    private final class Cancellation: GenotypeMatrixWorkbookUpdateCancellation {
+    private final class Cancellation: GenotypeMatrixAnnotationRetryCancellation {
         private var task: Task<Void, Never>?
 
         init(delayNanoseconds: UInt64, action: @escaping @MainActor () -> Void) {
@@ -190,7 +85,7 @@ private final class DelayedGenotypeMatrixWorkbookUpdateScheduler:
 
     func schedule(
         _ action: @escaping @MainActor () -> Void
-    ) -> GenotypeMatrixWorkbookUpdateCancellation {
+    ) -> GenotypeMatrixAnnotationRetryCancellation {
         Cancellation(delayNanoseconds: delayNanoseconds, action: action)
     }
 }
@@ -352,10 +247,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onMatrixAnnotationCommandError: ((Error) -> Void)?
     public var onCandidatePersistenceWarningChanged: ((String?) -> Void)?
     public var onLocusDisplayOrderPersistenceWarningChanged: ((String?) -> Void)?
-    public var onCurrentWorkbookSyncRequested: ((GenotypeCurrentWorkbookUIRequest) -> Void)?
     public var onExcelExportRequested: (() -> Void)?
-    public var onExcelReviewRequested: (() -> Void)?
-    public var onFilteredWorkbookExportEvent: ((GenotypeFilteredExportEvent) -> Void)?
+    public var onExcelExportEvent: ((GenotypeExcelExportEvent) -> Void)?
     public var onDeferredMatrixAnnotationMutationsDrained: (() -> Void)?
 
     public var currentResultBundleURL: URL? {
@@ -403,9 +296,6 @@ public final class GenotypeResultViewController: NSViewController {
     /// Supplied by the host application so annotations capture the active identity at edit time.
     public var annotationAuthorProvider: () -> String = { NSUserName() }
     public var windowStateScope: WindowStateScope?
-    var genotypeResultLoader: GenotypeResultLoader = { bundleURL in
-        try await ONTGenotypeResultBundle.loadResultAsync(from: bundleURL)
-    }
 
     private let lensControl = NSSegmentedControl(
         labels: Lens.allCases.map(\.displayName),
@@ -446,7 +336,6 @@ public final class GenotypeResultViewController: NSViewController {
     private var testingCohortSummaryRebuildCount = 0
     private var testingSynchronizedMiSeqMatrixConfigureCount = 0
     private var testingSynchronizedMiSeqHaplotypeAnalysisRunCount = 0
-    private var testingSynchronizedMiSeqWorkbookReloadCount = 0
     private var testingSynchronizedMiSeqHaplotypeModelRebuildCount = 0
     private var testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount = 0
     private var testingSynchronizedMiSeqTargetSamples: Set<String>?
@@ -585,7 +474,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var observedLociIndex: GenotypeObservedLociIndex?
     private var matrixEvidenceIndex = GenotypeMatrixEvidenceIndex()
     private var matrixReviewsByTarget: [
-        GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewAnnotation
+        GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
     ] = [:]
     private var matrixCommentsByTarget: [
         GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixComment
@@ -674,31 +563,21 @@ public final class GenotypeResultViewController: NSViewController {
     private var activeContentConstraints: [NSLayoutConstraint] = []
     private var haplotypeSampleActionTags: [Int: String] = [:]
     private var nextHaplotypeSampleActionTag = 1
-    private var currentWorkbookNeedsRefresh = false
-    private var currentWorkbookRequiresFullUpdate = false
-    private var currentWorkbookUpdateStatus: String?
-    private var currentWorkbookSyncPhase: GenotypeCurrentWorkbookUIPhase?
-    private var currentWorkbookIsReadOnly = false
-    private var testingCurrentWorkbookDirtyMarkCount = 0
     private var showsDeferredMatrixAnnotationStatus = false
-    private var currentWorkbookAnnotationAutoUpdateTask: GenotypeMatrixWorkbookUpdateCancellation?
-    var matrixWorkbookUpdateScheduler: GenotypeMatrixWorkbookUpdateScheduling =
-        DelayedGenotypeMatrixWorkbookUpdateScheduler()
-    var matrixAnnotationRetryScheduler: GenotypeMatrixWorkbookUpdateScheduling =
-        DelayedGenotypeMatrixWorkbookUpdateScheduler(delayNanoseconds: 500_000_000)
+    var matrixAnnotationRetryScheduler: GenotypeMatrixAnnotationRetryScheduling =
+        DelayedGenotypeMatrixAnnotationRetryScheduler(delayNanoseconds: 500_000_000)
     private var deferredMatrixAnnotationMutations: [DeferredMatrixAnnotationMutation] = []
     private var deferredMatrixAnnotationMutationHead = 0
-    private var deferredMatrixAnnotationRetryTask: GenotypeMatrixWorkbookUpdateCancellation?
+    private var deferredMatrixAnnotationRetryTask: GenotypeMatrixAnnotationRetryCancellation?
     private var pendingConfigurationResult: ONTGenotypeResultBundleData?
-    private var currentWorkbookResultReloadTask: Task<Void, Never>?
-    private var excelExportAccessoryController: GenotypeExcelExportAccessoryController?
-    var excelChoicePresenter: (NSAlert, NSWindow, @escaping (NSApplication.ModalResponse) -> Void) -> Void = { alert, window, completion in
-        alert.beginSheetModal(for: window, completionHandler: completion)
-    }
     var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void = { panel, window, completion in
         panel.beginSheetModal(for: window) { response in completion(response == .OK ? panel.url : nil) }
     }
     var viewportExportRunner: (GenotypeViewportExportSnapshot, GenotypeViewportExportFormat, URL) async throws -> Void = { snapshot, format, url in
+        if format == .excel {
+            _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: url)
+            return
+        }
         _ = try await Task.detached {
             try GenotypeViewportExportService().export(snapshot: snapshot, format: format, to: url)
         }.value
@@ -799,14 +678,8 @@ public final class GenotypeResultViewController: NSViewController {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleCurrentWorkbookUpdateRequest(_:)),
-            name: .genotypeResultCurrentWorkbookUpdateRequested,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleCurrentWorkbookReviewRequest(_:)),
-            name: .genotypeResultCurrentWorkbookReviewRequested,
+            selector: #selector(handleExcelExportRequest(_:)),
+            name: .genotypeResultExcelExportRequested,
             object: nil
         )
     }
@@ -827,15 +700,11 @@ public final class GenotypeResultViewController: NSViewController {
         onDisplayStateChanged?(displayState)
     }
 
-    @objc private func handleCurrentWorkbookUpdateRequest(_ notification: Notification) {
+    @objc private func handleExcelExportRequest(_ notification: Notification) {
         guard shouldAcceptScopedNotification(notification) else { return }
         onExcelExportRequested?()
     }
 
-    @objc private func handleCurrentWorkbookReviewRequest(_ notification: Notification) {
-        guard shouldAcceptScopedNotification(notification) else { return }
-        onExcelReviewRequested?()
-    }
 
     private func applyQuickFilterState(_ state: GenotypeQuickFilterBarView.FilterState) {
         if requiresManualHaplotypeTransitionCoordination {
@@ -1320,7 +1189,7 @@ public final class GenotypeResultViewController: NSViewController {
     public func configure(result: ONTGenotypeResultBundleData) {
         desiredResultConfigurationBundleURL =
             result.bundleURL.standardizedFileURL
-        invalidateCurrentWorkbookResultReload()
+        resultConfigurationGeneration &+= 1
         let requestedAuthority = desiredResultConfigurationAuthority
         if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(
@@ -1352,14 +1221,12 @@ public final class GenotypeResultViewController: NSViewController {
         }
         desiredResultConfigurationBundleURL =
             result?.bundleURL.standardizedFileURL
-        invalidateCurrentWorkbookResultReload()
+        resultConfigurationGeneration &+= 1
     }
 
     private func configureImmediately(result: ONTGenotypeResultBundleData) {
-        invalidateCurrentWorkbookResultReload()
+        resultConfigurationGeneration &+= 1
         teardownSampleCurationWorkbench()
-        currentWorkbookAnnotationAutoUpdateTask?.cancel()
-        currentWorkbookAnnotationAutoUpdateTask = nil
         candidateSettingsPersistenceTask?.cancel()
         candidateSettingsPersistenceTask = nil
         pendingCandidateSettingsRequest = nil
@@ -1394,10 +1261,6 @@ public final class GenotypeResultViewController: NSViewController {
             visibility: .init()
         )
         onMatrixVisibilityCapabilityChanged?(matrixVisibilityCapability)
-        currentWorkbookNeedsRefresh = false
-        currentWorkbookRequiresFullUpdate = false
-        currentWorkbookUpdateStatus = nil
-        currentWorkbookSyncPhase = nil
         showsDeferredMatrixAnnotationStatus = false
         currentCandidateRow = nil
         candidatePersistenceWarning = nil
@@ -1487,7 +1350,6 @@ public final class GenotypeResultViewController: NSViewController {
         )
         displayState.genotypeLocusDisplayOrder = annotationStore?.sidecar.settings.genotypeLocusDisplayOrder
         onLocusDisplayOrderPersistenceWarningChanged?(nil)
-        currentWorkbookIsReadOnly = annotationStore?.isReadOnly ?? false
         refreshPresentationPolicy()
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: [])
@@ -1654,58 +1516,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildMatrixEvidenceIndex(for result: ONTGenotypeResultBundleData) {
-        var readsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: Int] = [:]
-        readsByTarget.reserveCapacity(
-            result.calls.count + (result.mhcCandidates?.observations.count ?? 0)
-        )
-        for call in result.calls {
-            let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
-                locus: call.locusGroup,
-                genotype: call.genotype,
-                sample: call.sample
-            )
-            readsByTarget[target] = max(readsByTarget[target] ?? 0, call.passedUniqueReads)
-        }
-        if let candidateDocument = result.mhcCandidates {
-            let candidatesByStableID = Dictionary(
-                candidateDocument.candidates.map { ($0.stableClusterID, $0) },
-                uniquingKeysWith: { _, latest in latest }
-            )
-            for observation in candidateDocument.observations {
-                guard let candidate = candidatesByStableID[observation.stableClusterID] else {
-                    continue
-                }
-                let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
-                    locus: candidate.locus,
-                    genotype: candidate.provisionalName,
-                    sample: observation.sampleID,
-                    stableClusterID: candidate.stableClusterID
-                )
-                readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
-            }
-        }
-        if let unnameableDocument = result.mhcUnnameableClusters {
-            let interpretationsByStableID = Dictionary(
-                unnameableDocument.clusters.compactMap { record in
-                    record.candidateInterpretation.map {
-                        (record.stableClusterID, $0)
-                    }
-                },
-                uniquingKeysWith: { _, latest in latest }
-            )
-            for observation in unnameableDocument.observations {
-                guard let interpretation = interpretationsByStableID[observation.stableClusterID]
-                else { continue }
-                let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
-                    locus: interpretation.locus,
-                    genotype: interpretation.provisionalName,
-                    sample: observation.sampleID,
-                    stableClusterID: observation.stableClusterID
-                )
-                readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
-            }
-        }
-        matrixEvidenceIndex = GenotypeMatrixEvidenceIndex(readsByTarget)
+        matrixEvidenceIndex = GenotypeMatrixEvidenceIndex(GenotypeMatrixReviewEligibility.rawSupport(in: result))
         matrixEvidenceIndexBuildCount += 1
     }
 
@@ -1725,10 +1536,7 @@ public final class GenotypeResultViewController: NSViewController {
             indexedMatrixMutationRevision = nil
             return searchDependenciesChanged
         }
-        matrixReviewsByTarget = Dictionary(
-            sidecar.matrixReviews.map { ($0.target, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
+        matrixReviewsByTarget = Dictionary(grouping: sidecar.matrixReviews, by: \.target)
         matrixCommentsByTarget = sidecar.resolvedMatrixComments
         matrixAnnotationIndexBuildCount += 1
         indexedMatrixMutationRevision = annotationStore?.matrixMutationRevision
@@ -1741,7 +1549,7 @@ public final class GenotypeResultViewController: NSViewController {
         matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
             selection: targets,
             evidence: matrixEvidenceIndex,
-            reviews: targets.compactMap { matrixReviewsByTarget[$0] },
+            reviews: Set(targets).flatMap { matrixReviewsByTarget[$0] ?? [] },
             comments: applicableCommentTargets(for: targets).compactMap {
                 matrixCommentsByTarget[$0]
             },
@@ -1984,12 +1792,6 @@ public final class GenotypeResultViewController: NSViewController {
                 self.comparisonMatrix.applyAnnotationSidecar(published, reload: false)
                 self.onAnnotationSidecarChanged?(published)
                 self.onDisplayStateChanged?(persistedState)
-                if expectedSettings.tints != published.settings.mhcCandidateDisplay.tints {
-                    self.markCurrentWorkbookDirty(
-                        requiresFullUpdate: true,
-                        legacyStatus: "current.xlsx does not include candidate tint changes."
-                    )
-                }
                 self.finishCandidateSettingsPersistence(processPending: true)
             } catch {
                 guard !Task.isCancelled,
@@ -2107,7 +1909,6 @@ public final class GenotypeResultViewController: NSViewController {
             comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
             refreshCurrentSelectionDetails()
             onAnnotationSidecarChanged?(store.sidecar)
-            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
             return
         }
         let broadTargets = request.minimumReads == nil
@@ -2149,7 +1950,6 @@ public final class GenotypeResultViewController: NSViewController {
             refreshCurrentSelectionDetails()
         }
         onAnnotationSidecarChanged?(store.sidecar)
-        scheduleCurrentWorkbookUpdateForMatrixAnnotation()
     }
 
     public func applyMatrixReview(_ request: GenotypeMatrixReviewRequest) {
@@ -2412,21 +2212,13 @@ public final class GenotypeResultViewController: NSViewController {
     ) {
         let searchDependenciesChanged = rebuildMatrixAnnotationIndexes()
         comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: targets)
-        let recalculated = reviewChanged && refreshReviewedHaplotypeAnalysis()
+        _ = reviewChanged && refreshReviewedHaplotypeAnalysis()
         if searchDependenciesChanged {
             refreshActiveSharedSearchAfterDependencyChange()
         }
         refreshCurrentSelectionDetails()
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         onAnnotationSidecarChanged?(store.sidecar)
-        if recalculated {
-            markCurrentWorkbookDirty(
-                requiresFullUpdate: true,
-                legacyStatus: "Haplotype calls changed after evidence review. Update current.xlsx to include them."
-            )
-        } else {
-            scheduleCurrentWorkbookUpdateForMatrixAnnotation()
-        }
     }
 
     /// Review exclusions change inference; visual filtering and comments do not.
@@ -2482,12 +2274,8 @@ public final class GenotypeResultViewController: NSViewController {
                     reloading: changedTargets
                 )
             }
-            if sidecarBeforeAttempt.matrixReviews != store.sidecar.matrixReviews,
-               refreshReviewedHaplotypeAnalysis() {
-                markCurrentWorkbookDirty(
-                    requiresFullUpdate: true,
-                    legacyStatus: "Haplotype calls changed after evidence review. Update current.xlsx to include them."
-                )
+            if sidecarBeforeAttempt.matrixReviews != store.sidecar.matrixReviews {
+                _ = refreshReviewedHaplotypeAnalysis()
             }
             if searchDependenciesChanged {
                 refreshActiveSharedSearchAfterDependencyChange()
@@ -2515,14 +2303,8 @@ public final class GenotypeResultViewController: NSViewController {
             latest.matrixStyles.map { ($0.target, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        let previousReviews = Dictionary(
-            previous.matrixReviews.map { ($0.target, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        let latestReviews = Dictionary(
-            latest.matrixReviews.map { ($0.target, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
+        let previousReviews = Dictionary(grouping: previous.matrixReviews, by: \.target)
+        let latestReviews = Dictionary(grouping: latest.matrixReviews, by: \.target)
         var changedTargets = changedMatrixAnnotationTargets(
             previous: previousStyles,
             latest: latestStyles
@@ -3972,39 +3754,6 @@ public final class GenotypeResultViewController: NSViewController {
                 return $0.observed.count > $1.observed.count
             }
             return $0.name < $1.name
-        }
-    }
-
-    private func displayedCallName(sample: String, locus: String, slot: HaplotypeSlot, fallback: String) -> String {
-        if let effectiveHaplotypeProjection {
-            return effectiveHaplotypeProjection.value(
-                sample: sample,
-                locus: locus,
-                slot: slot
-            )?.effective ?? fallback
-        }
-        if let override = annotationStore?.sidecar.callOverrides.first(where: {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }) {
-            return override.overrideCall
-        }
-        if let assignment = manualHaplotypeAssignment(sample: sample, locus: locus, slot: slot) {
-            return assignment.label
-        }
-        return fallback
-    }
-
-    private func hasCallOverride(sample: String, locus: String, slot: HaplotypeSlot) -> Bool {
-        if let effectiveHaplotypeProjection {
-            return effectiveHaplotypeProjection.hasOverride(
-                sample: sample,
-                locus: locus,
-                slot: slot
-            )
-        }
-        guard let overrides = annotationStore?.sidecar.callOverrides else { return false }
-        return overrides.contains {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
         }
     }
 
@@ -5672,9 +5421,7 @@ public final class GenotypeResultViewController: NSViewController {
         if let entries = annotationStore?.sidecar.auditLog, !entries.isEmpty {
             addAuditSection(title: "Audit Timeline", contents: [makeAuditTimelineHost(entries: entries)])
         }
-        addAuditSection(title: "Share View", contents: [exportViewButton(), exportPivotButton()])
         addAuditSection(title: "AI Haplotyping", contents: [makeAIHaplotypingHost()])
-        addAuditSection(title: "Current Workbook", contents: [makeCurrentWorkbookUpdateHost()])
         var artifactRows: [NSView] = [
             artifactRow(label: "Workbook", url: result.artifacts.workbookURL),
         ]
@@ -5918,451 +5665,18 @@ public final class GenotypeResultViewController: NSViewController {
         rebuildArtifactLens()
     }
 
-    private func makeCurrentWorkbookUpdateHost() -> NSView {
-        let stack = NSStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-
-        let statusText = displayedCurrentWorkbookStatus
-            ?? "Checking whether current.xlsx represents the latest LGE review state."
-
-        stack.addArrangedSubview(caption(statusText))
-        stack.addArrangedSubview(caption("Regenerates the bundle workbook from displayed haplotype calls and matrix annotations, then records a workbook revision."))
-
-        let button = NSButton(
-            title: Self.currentWorkbookActionTitle,
-            target: self,
-            action: #selector(updateCurrentWorkbookFromOverrides)
-        )
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.isEnabled = currentWorkbookActionIsEnabled
-        button.toolTip = "Open current.xlsx immediately when current; otherwise update it once and open the successful revision."
-        stack.addArrangedSubview(button)
-        return stack
-    }
-
-    private static let currentWorkbookActionTitle =
-        "Update and View Current Excel Version"
-
-    private var displayedCurrentWorkbookStatus: String? {
-        if showsDeferredMatrixAnnotationStatus {
-            return Self.deferredMatrixAnnotationStatus
-        }
-        if let currentWorkbookSyncPhase {
-            return currentWorkbookSyncPhase.presentation(
-                isReadOnly: currentWorkbookIsReadOnly,
-                manualChangeCount: currentWorkbookRelevantChangeCount
-            ).statusText
-        }
-        return currentWorkbookUpdateStatus
-    }
-
-    private var currentWorkbookActionIsEnabled: Bool {
-        if let currentWorkbookSyncPhase {
-            return currentWorkbookSyncPhase.presentation(
-                isReadOnly: currentWorkbookIsReadOnly,
-                manualChangeCount: currentWorkbookRelevantChangeCount
-            ).isEnabled
-        }
-        return (currentWorkbookRelevantChangeCount > 0 || currentWorkbookNeedsRefresh)
-            && !currentWorkbookIsReadOnly
-    }
-
-    private var currentWorkbookRelevantChangeCount: Int {
-        let candidateProjection = result?.manifest.mhcCandidateArtifacts == nil ? 0 : 1
-        guard let sidecar = annotationStore?.sidecar else { return candidateProjection }
-        return sidecar.callOverrides.count
-            + sidecar.manualHaplotypeAssignments.count
-            + sidecar.matrixStyles.count
-            + sidecar.matrixReviews.count
-            + sidecar.matrixComments.count
-            + candidateProjection
-    }
-
-    private var currentWorkbookHasMatrixAnnotations: Bool {
-        guard let sidecar = annotationStore?.sidecar else { return false }
-        return !sidecar.matrixStyles.isEmpty
-            || !sidecar.matrixReviews.isEmpty
-            || !sidecar.matrixComments.isEmpty
-    }
-
-    private var currentWorkbookRelevantChangeLabel: String {
-        let count = currentWorkbookRelevantChangeCount
-        if currentWorkbookHasMatrixAnnotations {
-            return count == 1 ? "workbook annotation change" : "workbook annotation changes"
-        }
-        return count == 1 ? "manual haplotype change" : "manual haplotype changes"
-    }
-
-    private func scheduleCurrentWorkbookUpdateForMatrixAnnotation() {
-        markCurrentWorkbookDirty(
-            requiresFullUpdate: false,
-            legacyStatus: "current.xlsx does not include workbook annotation changes."
-        )
-    }
-
-    @objc private func updateCurrentWorkbookFromOverrides() {
-        requestCurrentWorkbookSync(intent: .updateAndView)
-    }
-
-    public func requestCurrentWorkbookRegistration() {
-        emitCurrentWorkbookRequest(action: .register)
-    }
-
-    public func requestCurrentWorkbookSyncForBundleSwitch() {
-        emitCurrentWorkbookRequest(action: .synchronize(.bundleSwitch))
-    }
-
-    public func applyCurrentWorkbookSyncPhase(
-        _ phase: GenotypeCurrentWorkbookUIPhase,
-        isReadOnly: Bool
-    ) {
-        currentWorkbookSyncPhase = phase
-        currentWorkbookIsReadOnly = isReadOnly
-        switch phase {
-        case .current:
-            currentWorkbookNeedsRefresh = false
-        case .dirty, .dirtyWhileUpdating, .failed, .reviewRequired:
-            currentWorkbookNeedsRefresh = true
-        case .updating:
-            break
-        }
-        rebuildArtifactLens()
-    }
-
-    private func requestCurrentWorkbookSync(intent: GenotypeCurrentWorkbookSyncIntent) {
-        emitCurrentWorkbookRequest(action: .synchronize(intent))
-    }
-
-    private func markCurrentWorkbookDirty(
-        requiresFullUpdate: Bool,
-        legacyStatus: String
-    ) {
-        guard result != nil, !(annotationStore?.isReadOnly ?? true) else { return }
-        testingCurrentWorkbookDirtyMarkCount += 1
-        currentWorkbookNeedsRefresh = true
-        currentWorkbookRequiresFullUpdate =
-            currentWorkbookRequiresFullUpdate || requiresFullUpdate
-        currentWorkbookUpdateStatus = legacyStatus
-        currentWorkbookSyncPhase = .dirty
-        rebuildArtifactLens()
-        emitCurrentWorkbookRequest(action: .markDirty)
-    }
-
-    private func emitCurrentWorkbookRequest(
-        action: GenotypeCurrentWorkbookUIRequest.Action
-    ) {
-        guard let snapshot = currentWorkbookUISnapshot() else { return }
-        onCurrentWorkbookSyncRequested?(.init(snapshot: snapshot, action: action))
-    }
-
-    private func currentWorkbookUISnapshot() -> GenotypeCurrentWorkbookUISnapshot? {
-        guard let result, let store = annotationStore else { return nil }
-        let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(
-            forBundleAt: result.bundleURL
-        )
-        do {
-            return try GenotypeCurrentWorkbookUISnapshot.encodingAnnotationSidecar(
-                bundleURL: result.bundleURL,
-                calls: currentWorkbookEffectiveHaplotypeCalls(),
-                includedLoci: currentWorkbookIncludedLoci(),
-                annotationSidecar: store.sidecar,
-                annotationSidecarURL: annotationURL,
-                candidateArtifacts: result.manifest.mhcCandidateArtifacts,
-                reviewableRowCatalog: result.manifest.reviewableRowCatalog,
-                reviewableRowCatalogSchemaVersion:
-                    result.reviewableRowCatalog?.schemaVersion,
-                annotationOnly: !currentWorkbookRequiresFullUpdate,
-                isReadOnly: store.isReadOnly,
-                haplotypeProjectionMode:
-                    currentWorkbookHaplotypeProjectionMode()
-            )
-        } catch {
-            currentWorkbookNeedsRefresh = true
-            currentWorkbookSyncPhase = .failed(
-                "Could not encode annotations for current.xlsx: \(error.localizedDescription)"
-            )
-            rebuildArtifactLens()
-            return nil
-        }
-    }
-
-    public func applyCurrentWorkbookUpdateCompleted(
-        result updatedResult: ONTGenotypeResultBundleData,
-        annotationOnly: Bool = false
-    ) {
-        if requiresManualHaplotypeTransitionCoordination {
-            deferManualHaplotypeTransition(.reload) { [weak self] in
-                self?.applyCurrentWorkbookUpdateCompleted(
-                    result: updatedResult,
-                    annotationOnly: annotationOnly
-                )
-            }
-            return
-        }
-        invalidateCurrentWorkbookResultReload()
-        applyCurrentWorkbookUpdatedResult(updatedResult)
-        if !annotationOnly {
-            currentWorkbookRequiresFullUpdate = false
-        }
-        currentWorkbookNeedsRefresh = currentWorkbookRequiresFullUpdate
-        currentWorkbookSyncPhase = currentWorkbookRequiresFullUpdate ? .dirty : .current
-        currentWorkbookUpdateStatus = currentWorkbookRequiresFullUpdate
-            ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
-            : "Updated current.xlsx. Previous workbook saved in revisions."
-        rebuildArtifactLens()
-        if let sidecar = annotationStore?.sidecar {
-            onAnnotationSidecarChanged?(sidecar)
-        }
-    }
-
-    public func applyCurrentWorkbookUpdateFailed(_ error: Error) {
-        invalidateCurrentWorkbookResultReload()
-        currentWorkbookNeedsRefresh = true
-        currentWorkbookSyncPhase = .failed(error.localizedDescription)
-        currentWorkbookUpdateStatus =
-            "Annotations were saved, but current.xlsx update failed. Use Update current.xlsx to retry."
-        rebuildArtifactLens()
-    }
-
-    private func invalidateCurrentWorkbookResultReload() {
-        currentWorkbookResultReloadTask?.cancel()
-        currentWorkbookResultReloadTask = nil
-        resultConfigurationGeneration &+= 1
-    }
-
-    private func reloadCurrentWorkbookResult(
-        from bundleURL: URL,
-        annotationOnly: Bool = false
-    ) {
-        if requiresManualHaplotypeTransitionCoordination {
-            deferManualHaplotypeTransition(.reload) { [weak self] in
-                self?.reloadCurrentWorkbookResult(
-                    from: bundleURL,
-                    annotationOnly: annotationOnly
-                )
-            }
-            return
-        }
-#if DEBUG
-        testingSynchronizedMiSeqWorkbookReloadCount += 1
-#endif
-        currentWorkbookResultReloadTask?.cancel()
-        resultConfigurationGeneration &+= 1
-        let expectedBundleURL = bundleURL.standardizedFileURL
-        let expectedGeneration = resultConfigurationGeneration
-        let loader = genotypeResultLoader
-        currentWorkbookResultReloadTask = Task { @MainActor [weak self] in
-            do {
-                let updatedResult = try await loader(expectedBundleURL)
-                try Task.checkCancellation()
-                guard let self,
-                      self.resultConfigurationGeneration == expectedGeneration,
-                      self.result?.bundleURL.standardizedFileURL == expectedBundleURL,
-                      updatedResult.bundleURL.standardizedFileURL == expectedBundleURL else {
-                    return
+    private func resolvedWorkbookPresentationColors() -> [GenotypeWorkbookPresentation.Color] {
+        guard let result, let definition = definitionSetForResult(result) else { return [] }
+        return definition.locusDefinitions.flatMap { locus in
+            locus.haplotypes.map { haplotype in
+                let color = haplotype.effectiveFillColor
+                func channel(_ value: Double) -> Double {
+                    value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
                 }
-                self.currentWorkbookResultReloadTask = nil
-                self.applyReloadedCurrentWorkbookResult(
-                    updatedResult,
-                    annotationOnly: annotationOnly,
-                    expectedBundleURL: expectedBundleURL,
-                    expectedGeneration: expectedGeneration
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-                guard let self,
-                      self.resultConfigurationGeneration == expectedGeneration,
-                      self.result?.bundleURL.standardizedFileURL == expectedBundleURL else {
-                    return
-                }
-                self.currentWorkbookResultReloadTask = nil
-                self.currentWorkbookUpdateStatus = error.localizedDescription
-                self.rebuildArtifactLens()
-                self.presentSheetAlert(error: error)
+                let luminance = 0.2126 * channel(color.red) + 0.7152 * channel(color.green) + 0.0722 * channel(color.blue)
+                return .init(locus: locus.locus, call: haplotype.name, fillHex: color.hexString, fontHex: luminance > 0.45 ? "#000000" : "#FFFFFF")
             }
         }
-    }
-
-    private func applyReloadedCurrentWorkbookResult(
-        _ updatedResult: ONTGenotypeResultBundleData,
-        annotationOnly: Bool,
-        expectedBundleURL: URL,
-        expectedGeneration: UInt64
-    ) {
-        guard resultConfigurationGeneration == expectedGeneration,
-              result?.bundleURL.standardizedFileURL == expectedBundleURL,
-              updatedResult.bundleURL.standardizedFileURL
-                == expectedBundleURL else {
-            return
-        }
-        if requiresManualHaplotypeTransitionCoordination {
-            deferManualHaplotypeTransition(.reload) { [weak self] in
-                self?.applyReloadedCurrentWorkbookResult(
-                    updatedResult,
-                    annotationOnly: annotationOnly,
-                    expectedBundleURL: expectedBundleURL,
-                    expectedGeneration: expectedGeneration
-                )
-            }
-            return
-        }
-        applyCurrentWorkbookUpdatedResult(updatedResult)
-        if !annotationOnly {
-            currentWorkbookRequiresFullUpdate = false
-        }
-        currentWorkbookNeedsRefresh = currentWorkbookRequiresFullUpdate
-        currentWorkbookUpdateStatus = currentWorkbookRequiresFullUpdate
-            ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
-            : "Updated current.xlsx. Previous workbook saved in revisions."
-        rebuildArtifactLens()
-        if let sidecar = annotationStore?.sidecar {
-            onAnnotationSidecarChanged?(sidecar)
-        }
-    }
-
-    private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
-        let matrixWasConfigured = comparisonMatrixConfigured
-        result = updatedResult
-        manualHaplotypeEligibility =
-            GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
-        refreshPresentationPolicy()
-        displayState = normalizedDisplayState(displayState)
-        configureAvailableLensSegments()
-        applyViewportHeaderVisibility()
-        rebuildResultIndexes(for: updatedResult)
-        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
-        rebuildActiveHaplotypeAnalysisIndexes()
-        guard matrixWasConfigured else { return }
-        comparisonMatrix.replaceResultPreservingPresentation(
-            comparisonMatrixPresentationResult(from: updatedResult),
-            metadataStore: sampleMetadataStore,
-            sidecar: annotationStore?.sidecar
-        )
-        comparisonMatrix.applyDisplayState(displayState)
-        applyComparisonMatrixCohortFilter()
-    }
-
-    private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
-        if case .eligible = manualHaplotypeEligibility, let result {
-            let index = GenotypeManualHaplotypeAssignmentIndex(
-                assignments:
-                    annotationStore?.sidecar.manualHaplotypeAssignments ?? []
-            )
-            return result.sampleNames.flatMap { sample in
-                GenotypeManualHaplotypeLocus.allCases.map { locus in
-                    let assignments = index.assignments(
-                        sample: sample,
-                        locus: locus
-                    )
-                    let notes = [assignments.h1?.notes, assignments.h2?.notes]
-                        .compactMap {
-                            $0?.trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            )
-                        }
-                        .filter { !$0.isEmpty }
-                        .reduce(into: [String]()) { values, note in
-                            if !values.contains(note) {
-                                values.append(note)
-                            }
-                        }
-                        .joined(separator: "; ")
-                    return GenotypeWorkbookHaplotypeCall(
-                        sample: sample,
-                        locus: locus.rawValue,
-                        haplotype1: assignments.h1?.label ?? "",
-                        haplotype2: assignments.h2?.label ?? "",
-                        status: GenotypeHaplotypeCallStatus.called.rawValue,
-                        notes: notes
-                    )
-                }
-            }
-        }
-        guard let analysis = activeHaplotypeAnalysis() else { return [] }
-        return analysis.samples.flatMap { sample in
-            sample.calls.filter {
-                GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0.locus)
-            }.map { call in
-                let effective = effectiveHaplotypeCall(sample: sample.sample, call: call)
-                return GenotypeWorkbookHaplotypeCall(
-                    sample: sample.sample,
-                    locus: call.locus,
-                    haplotype1: effective.h1,
-                    haplotype2: effective.h2,
-                    status: effective.status.rawValue,
-                    notes: currentWorkbookNotes(sample: sample.sample, locus: call.locus, base: call.notes),
-                    baselineHaplotype1: call.haplotype1,
-                    baselineHaplotype2: call.haplotype2
-                )
-            }
-        }
-    }
-
-    private func currentWorkbookHaplotypeProjectionMode()
-        -> GenotypeWorkbookHaplotypeProjectionMode
-    {
-        if case .eligible = manualHaplotypeEligibility {
-            return .manualGenotypeOnly
-        }
-        return .haplotyped
-    }
-
-    private func currentWorkbookNotes(sample: String, locus: String, base: String) -> String {
-        let assignmentNotes = [HaplotypeSlot.h1, .h2].compactMap { slot in
-            manualHaplotypeAssignment(sample: sample, locus: locus, slot: slot)?.notes
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return ([base.trimmingCharacters(in: .whitespacesAndNewlines)] + assignmentNotes)
-            .filter { !$0.isEmpty }
-            .reduce(into: [String]()) { values, note in
-                if !values.contains(note) {
-                    values.append(note)
-                }
-            }
-            .joined(separator: "; ")
-    }
-
-    private func currentWorkbookIncludedLoci() -> [String] {
-        if case .eligible = manualHaplotypeEligibility {
-            return GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
-        }
-        guard let analysis = activeHaplotypeAnalysis() else { return [] }
-        var seen = Set<String>()
-        return analysis.samples.flatMap { sample in
-            sample.calls.compactMap { call in
-                guard GenotypeWorkbookHaplotypeCall
-                    .isWritableCurrentWorkbookLocus(call.locus),
-                      seen.insert(call.locus).inserted else {
-                    return nil
-                }
-                return call.locus
-            }
-        }
-    }
-
-    private func currentWorkbookRevisionProvenanceContext(
-        bundleURL: URL,
-        includedLoci: [String]
-    ) -> GenotypeWorkbookRevisionProvenanceContext {
-        var argv = [
-            "lungfish-app",
-            "genotype-result",
-            "update-current-workbook",
-            bundleURL.path,
-        ]
-        for locus in includedLoci {
-            argv += ["--included-locus", locus]
-        }
-        return GenotypeWorkbookRevisionProvenanceContext(
-            toolName: "Lungfish app genotype-result update-current-workbook",
-            toolKind: "app",
-            argv: argv
-        )
     }
 
     private func makeAuditTimelineHost(entries: [GenotypeAnnotationSidecar.AuditEntry]) -> NSView {
@@ -6748,11 +6062,6 @@ public final class GenotypeResultViewController: NSViewController {
                     self.comparisonMatrix.applyManualHaplotypeAssignments(
                         currentStore.sidecar.manualHaplotypeAssignments
                     )
-                    self.markCurrentWorkbookDirty(
-                        requiresFullUpdate: true,
-                        legacyStatus:
-                            "current.xlsx does not include manual haplotype changes."
-                    )
                     self.onAnnotationSidecarChanged?(currentStore.sidecar)
                 }
                 let currentIndex = GenotypeManualHaplotypeAssignmentIndex(
@@ -6775,7 +6084,6 @@ public final class GenotypeResultViewController: NSViewController {
                     seedBuiltInSmartCohorts: false
                 )
                 self.annotationStore = reloadedStore
-                self.currentWorkbookIsReadOnly = reloadedStore.isReadOnly
                 self.rebuildMatrixAnnotationIndexes()
                 self.comparisonMatrix.applyAnnotationSidecar(
                     reloadedStore.sidecar,
@@ -6981,7 +6289,6 @@ public final class GenotypeResultViewController: NSViewController {
                     seedBuiltInSmartCohorts: false
                 )
                 self.annotationStore = reloadedStore
-                self.currentWorkbookIsReadOnly = reloadedStore.isReadOnly
                 self.rebuildMatrixAnnotationIndexes()
                 self.comparisonMatrix.applyAnnotationSidecar(
                     reloadedStore.sidecar,
@@ -7475,10 +6782,6 @@ public final class GenotypeResultViewController: NSViewController {
             }
             guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk, author: author)
-            markCurrentWorkbookDirty(
-                requiresFullUpdate: true,
-                legacyStatus: "current.xlsx does not include workbook changes."
-            )
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -7499,10 +6802,6 @@ public final class GenotypeResultViewController: NSViewController {
             try store.removeManualHaplotypeAssignments(
                 matching: { other in other.label == assignment.label },
                 author: author
-            )
-            markCurrentWorkbookDirty(
-                requiresFullUpdate: true,
-                legacyStatus: "current.xlsx does not include workbook changes."
             )
             onAnnotationSidecarChanged?(store.sidecar)
         } catch {
@@ -8394,46 +7693,14 @@ public final class GenotypeResultViewController: NSViewController {
                 status: snapshot.status
             )
         }
-        let h1 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h1, fallback: call.haplotype1)
-        let h2 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h2, fallback: call.haplotype2)
-        let h1HasOverride = hasCallOverride(
-            sample: sampleId,
-            locus: call.locus,
-            slot: .h1
-        ) || hasManualHaplotypeAssignment(
-            sample: sampleId,
-            locus: call.locus,
-            slot: .h1
-        )
-        let h2HasOverride = hasCallOverride(
-            sample: sampleId,
-            locus: call.locus,
-            slot: .h2
-        ) || hasManualHaplotypeAssignment(
-            sample: sampleId,
-            locus: call.locus,
-            slot: .h2
-        )
-        let hasOverride = h1HasOverride || h2HasOverride
-        let h1Status = h1HasOverride ? GenotypeEffectiveCallAuthority.overrideStatus(effective: h1, baseline: call.status) : call.status
-        let h2Status = h2HasOverride ? GenotypeEffectiveCallAuthority.overrideStatus(effective: h2, baseline: call.status) : call.status
-        let hasUnresolvedOverride = h1 == GenotypeHaplotypeOverrideTargets.unresolved
-            || h2 == GenotypeHaplotypeOverrideTargets.unresolved
-        let status: GenotypeHaplotypeCallStatus
-        if hasOverride && !hasUnresolvedOverride && !h1.hasPrefix("ERR") && !h2.hasPrefix("ERR") {
-            status = .called
-        } else {
-            status = call.status
-        }
-        return EffectiveHaplotypeCall(
-            h1: h1,
-            h2: GenotypeEffectiveCallAuthority.normalizedSecondHaplotype(first: h1, second: h2, status: h2Status),
-            h1Status: h1Status,
-            h2Status: h2Status,
-            h1Source: h1HasOverride ? .analystOverride : .pipeline,
-            h2Source: h2HasOverride ? .analystOverride : .pipeline,
-            status: status
-        )
+        let value = GenotypeEffectiveCallAuthority.resolveLegacy(sample: sampleId, call: call,
+            sidecar: (effectiveHaplotypeProjection == nil ? annotationStore?.sidecar : nil)
+                ?? .empty(generatedAt: "1970-01-01T00:00:00Z"))
+        return EffectiveHaplotypeCall(h1: value.h1.effective, h2: value.h2.effective,
+            h1Status: value.h1.status, h2Status: value.h2.status,
+            h1Source: value.h1.source == .analystOverride ? .analystOverride : .pipeline,
+            h2Source: value.h2.source == .analystOverride ? .analystOverride : .pipeline,
+            status: value.status)
     }
 
     private func outlineCell(
@@ -9062,11 +8329,6 @@ public final class GenotypeResultViewController: NSViewController {
             refreshAfterEffectiveHaplotypeMutation(
                 changedKeys: result.changedKeys
             )
-            markCurrentWorkbookDirty(
-                requiresFullUpdate: true,
-                legacyStatus:
-                    "current.xlsx does not include workbook changes."
-            )
             onAnnotationSidecarChanged?(store.sidecar)
             announceEffectiveHaplotypeMutation(mutations)
             return .changed
@@ -9622,7 +8884,8 @@ public final class GenotypeResultViewController: NSViewController {
             haplotypeCalls: base.haplotypeCalls,
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            haplotypeLocusScope: base.haplotypeLocusScope,
+            presentationColors: base.presentationColors
         )
     }
 
@@ -9645,7 +8908,8 @@ public final class GenotypeResultViewController: NSViewController {
             haplotypeCalls: base.haplotypeCalls,
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            haplotypeLocusScope: base.haplotypeLocusScope,
+            presentationColors: base.presentationColors
         )
     }
 
@@ -9693,7 +8957,8 @@ public final class GenotypeResultViewController: NSViewController {
             haplotypeCalls: base.haplotypeCalls,
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
-            haplotypeLocusScope: base.haplotypeLocusScope
+            haplotypeLocusScope: base.haplotypeLocusScope,
+            presentationColors: resolvedWorkbookPresentationColors()
         )
     }
 
@@ -9720,7 +8985,8 @@ public final class GenotypeResultViewController: NSViewController {
                 haplotypeCalls: calls,
                 sourceRevision: sourceRevision,
                 haplotypeSampleScope: base.haplotypeSampleScope,
-                haplotypeLocusScope: base.haplotypeLocusScope
+                haplotypeLocusScope: base.haplotypeLocusScope,
+                presentationColors: base.presentationColors
             )
         }
         guard let analysis else {
@@ -9745,7 +9011,9 @@ public final class GenotypeResultViewController: NSViewController {
                             haplotype1Source: slots.h1 == nil ? "unassigned" : "manualAssignment",
                             haplotype2Source: slots.h2 == nil ? "unassigned" : "manualAssignment",
                             baselineHaplotype1: "", baselineHaplotype2: "",
-                            comment: notes.joined(separator: "; ")
+                            comment: notes.joined(separator: "; "),
+                            baselineHaplotype1Available: false,
+                            baselineHaplotype2Available: false
                         )
                     }
                 })
@@ -9784,7 +9052,7 @@ public final class GenotypeResultViewController: NSViewController {
         var calls: [GenotypeViewProjectionHaplotypeCall] = []
         for sample in visibleSamples {
             for locus in visibleLoci {
-                guard let value = resolution.locusValue(sample: sample, locus: locus) else { continue }
+                guard resolution.locusValue(sample: sample, locus: locus) != nil else { continue }
                 guard let rawCall = analysis.samples.first(where: { $0.sample == sample })?.calls.first(where: { $0.locus == locus }) else { continue }
                 let effective = effectiveHaplotypeCall(sample: sample, call: rawCall)
                 calls.append(.init(
@@ -9796,9 +9064,11 @@ public final class GenotypeResultViewController: NSViewController {
                     haplotype2Status: effective.h2Status.rawValue,
                     haplotype1Source: sourceName(effective.h1Source),
                     haplotype2Source: sourceName(effective.h2Source),
-                    baselineHaplotype1: value.h1.baseline,
-                    baselineHaplotype2: value.h2.baseline,
-                    comment: commentsBySampleLocus[sample + "\u{1f}" + locus]
+                    baselineHaplotype1: rawCall.haplotype1,
+                    baselineHaplotype2: rawCall.haplotype2,
+                    comment: commentsBySampleLocus[sample + "\u{1f}" + locus],
+                    baselineHaplotype1Available: true,
+                    baselineHaplotype2Available: true
                 ))
             }
         }
@@ -9916,187 +9186,167 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    private func exportViewButton() -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 8
-        let button = NSButton(title: "Export Excel View...", target: self, action: #selector(exportExcelView(_:)))
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.toolTip = "Export the current genotype matrix view, including viewport colors, into a provenance-tracked Excel package."
-        stack.addArrangedSubview(button)
-        stack.addArrangedSubview(caption("Exports visible matrix rows, support filters, and viewport fill/border colors."))
-        return stack
-    }
-
-    private func exportPivotButton() -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 8
-        let button = NSButton(title: "Export Filtered Pivot...", target: self, action: #selector(exportPivotView(_:)))
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.toolTip = "Export the samples-across pivot workbook with the current Min Reads and Min Percent thresholds already applied."
-        stack.addArrangedSubview(button)
-        stack.addArrangedSubview(
-            caption("Applies Min Reads and Min Percent while writing, so background rows are dropped instead of hidden by hand.")
-        )
-        return stack
-    }
-
-    @objc private func exportExcelView(_ sender: Any?) {
-        presentViewExportPanel(format: .excel, filenameSuffix: "genotype-view")
-    }
-
-    @objc private func exportPivotView(_ sender: Any?) {
-        presentViewExportPanel(format: .pivotExcel, filenameSuffix: "genotype-pivot")
-    }
-
-    /// Runs the Filtered Pivot export started from the Inspector's Genotype
-    /// Display section.
-    ///
-    /// The Audit lens that hosted the export buttons is hidden for MiSeq
-    /// results, so the Inspector, where the Min Reads and Min Percent filters
-    /// are set, is the reachable home for the export that applies them.
-    public func exportFilteredPivotFromInspector() {
-        presentViewExportPanel(
-            format: .pivotExcel,
-            filenameSuffix: "filtered-pivot",
-            filteredWorkflow: true
-        )
-    }
-
-    /// Captures once before presenting either Excel role so later dialog delay
-    /// cannot change the filtered workbook's reported or written scope.
-    public func presentExcelExportDialog(
+    /// Settles native drafts and filters, then freezes both worksheets before
+    /// the ordinary save panel can delay publication.
+    public func presentExcelExportPanel(
         expectedDisplayState: GenotypeResultDisplayState,
-        allowsEditableWorkbook: Bool? = nil
+        settleDisplayState: (() throws -> GenotypeResultDisplayState)? = nil,
+        originStillCurrent: @escaping () -> Bool = { true }
     ) {
-        guard displayState == expectedDisplayState,
-              let snapshot = currentExportSnapshot()
-        else { return }
-        let capturedScope = GenotypeExcelCapturedScope(
-            snapshot: snapshot,
-            callEditingSupported: currentWorkbookHaplotypeProjectionMode() == .haplotyped
-        )
-        let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
-            scope: capturedScope.summary,
-            capability: capturedScope.capability,
-            allowsEditableWorkbook: allowsEditableWorkbook ?? !currentWorkbookIsReadOnly,
-            onRoleChange: { _ in }
-        )
-        let alert = presentation.alert
-        let accessory = presentation.accessory
-        excelExportAccessoryController = accessory
-        alert.accessoryView = accessory.view
-        let window = view.window ?? NSApp.keyWindow ?? NSWindow()
-        excelChoicePresenter(alert, window) { [weak self, weak accessory] response in
-            guard let self else { return }
-            defer { self.excelExportAccessoryController = nil }
-            GenotypeExcelExportDialogRoute.complete(
-                response: response,
-                role: accessory?.role,
-                snapshot: snapshot,
-                exportFiltered: { captured in self.presentViewExportPanel(
-                    format: .pivotExcel,
-                    filenameSuffix: "filtered-pivot",
-                    capturedSnapshot: captured,
-                    filteredWorkflow: true
-                ) },
-                openEditable: { self.emitCurrentWorkbookRequest(action: .openEditable) }
-            )
+        guard originStillCurrent(), result != nil else { return }
+        let authority = desiredResultConfigurationAuthority
+        let origin = representedBundleURL
+        // End native editing before consulting the draft coordinator so its
+        // Save/Discard/Cancel decision includes the final field-editor value.
+        guard view.window?.makeFirstResponder(nil) != false else { return }
+        let capture: @MainActor () -> Void = { [weak self] in
+            guard let self, originStillCurrent(), self.representedBundleURL == origin,
+                  self.ownsDesiredResultConfiguration(authority) else { return }
+            do {
+                let settled = try settleDisplayState?() ?? expectedDisplayState
+                guard self.displayState == settled, originStillCurrent(), self.ownsDesiredResultConfiguration(authority) else { return }
+                let snapshot = try self.captureExcelExportSnapshot()
+                self.presentViewExportPanel(format: .excel, filenameSuffix: "genotype", capturedSnapshot: snapshot,
+                    excelWorkflow: true, originStillCurrent: originStillCurrent)
+            } catch {
+                self.publishExcelExportEvent(.failed(error.localizedDescription), excelWorkflow: true)
+            }
         }
+        if !deferManualHaplotypeTransition(.export, mutation: capture) { capture() }
+    }
+
+    /// The retained scientific model and native annotations are authoritative.
+    /// Source paths are historical context, never later substitutes for these bytes.
+    func captureExcelExportSnapshot() throws -> GenotypeViewportExportSnapshot {
+        guard let result else { throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("no selected result") }
+        guard deferredMatrixAnnotationMutationCount == 0 else {
+            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent(
+                "Native annotations are still saving. Wait for the save to finish, then export again.")
+        }
+        quickFilterBar.settleSearchForExport(committedState: quickFilterState)
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.settlePendingFilterForExport()
+        let sidecar = annotationStore?.sidecar ?? .empty(generatedAt: "1970-01-01T00:00:00Z")
+        let analysis = activeHaplotypeAnalysis()
+        let definition = definitionSetForResult(result)
+        let colors = resolvedWorkbookPresentationColors()
+        let filtered = attachFilterContext(to: comparisonMatrix.exportSnapshot(
+            bundleURL: result.bundleURL, analysisName: result.manifest.analysisName, lens: selectedLens.identifier))
+        let all = comparisonMatrix.exportSnapshot(bundleURL: result.bundleURL,
+            analysisName: result.manifest.analysisName, lens: selectedLens.identifier, unfiltered: true)
+        let authority = GenotypeExcelSnapshotBuilder.CapturedAuthority(analysis: analysis,
+            definitionSet: definition,
+            locusDisplayOrder: sidecar.settings.genotypeLocusDisplayOrder ?? result.genotypeLocusDisplayOrder,
+            colors: colors)
+        let generatedAt = ISO8601DateFormatter().string(from: Date())
+        let allProjection = GenotypeViewProjectionSerializer.makeProjection(from: all)
+        // The native matrix may omit catalog-only evidence. The shared builder
+        // owns its identity, attested zeros and annotations, so supplement from
+        // that same frozen authority before the final capture.
+        let complete = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar,
+            allProjection: nil, filteredProjection: nil, generatedAt: generatedAt, authority: authority)
+        let completeRowsByIdentity = Dictionary(uniqueKeysWithValues: complete.allMatrix.rows.map {
+            ([$0.target.locus, $0.target.genotype, $0.target.stableClusterID ?? ""], $0)
+        })
+        let known = Set(allProjection.rows.map { [$0.locus ?? "", $0.rawGenotype ?? $0.label, $0.stableClusterID ?? ""] })
+        let supplemental = complete.allMatrix.rows.filter { !known.contains([$0.target.locus, $0.target.genotype, $0.target.stableClusterID ?? ""]) }
+        let completeSamples = complete.allMatrix.samples.map(\.name)
+        let allSamples = allProjection.sampleColumns + completeSamples.filter { !allProjection.sampleColumns.contains($0) }
+        let nativeRows = allProjection.rows.map { row in
+            let indices = allSamples.map { allProjection.sampleColumns.firstIndex(of: $0) }
+            let identity = [row.locus ?? "", row.rawGenotype ?? row.label, row.stableClusterID ?? ""]
+            let authoritativeCells = Dictionary(uniqueKeysWithValues:
+                (completeRowsByIdentity[identity]?.cells ?? []).map { ($0.sampleID, $0) })
+            return GenotypeViewProjectionRow(label: row.label, rawGenotype: row.rawGenotype, locus: row.locus,
+                stableClusterID: row.stableClusterID,
+                cells: allSamples.enumerated().map { index, sample in
+                    let nativeValue = indices[index].map { row.cells[$0] } ?? ""
+                    // Preserve native occurrence values; fill only absent cells
+                    // from attested evidence, never by converting unknown to zero.
+                    return nativeValue.isEmpty
+                        ? (authoritativeCells[sample]?.displayValue.map(String.init) ?? "")
+                        : nativeValue
+                },
+                cellColorsHex: row.cellColorsHex.map { colors in indices.map { $0.flatMap { colors[$0] } } },
+                rowColorHex: row.rowColorHex, rowStyle: row.rowStyle,
+                cellStyles: row.cellStyles.map { styles in indices.map { $0.flatMap { styles[$0] } } })
+        }
+        let projection = GenotypeViewProjection(lens: allProjection.lens,
+            sampleColumns: allSamples,
+            rows: nativeRows + supplemental.map { row in
+                let cells = allSamples.compactMap { sample in row.cells.first { $0.sampleID == sample } }
+                return .init(label: row.displayName, rawGenotype: row.target.genotype, locus: row.target.locus,
+                    stableClusterID: row.target.stableClusterID,
+                    cells: cells.map { $0.displayValue.map(String.init) ?? "" },
+                    rowStyle: row.style, cellStyles: cells.map(\.style))
+            }, filterContext: allProjection.filterContext, presentationColors: colors)
+        let capture = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar,
+            allProjection: projection,
+            filteredProjection: GenotypeViewProjectionSerializer.makeProjection(from: filtered),
+            generatedAt: generatedAt, authority: authority,
+            filter: .init(globalMinimumPercent: displayState.activeMinimumSupportPercent,
+                globalDenominator: displayState.supportDenominator,
+                matrixMinimumReads: displayState.matrixMinimumReads,
+                matrixMinimumPercent: displayState.matrixMinimumPercent,
+                matrixDenominator: displayState.matrixPercentDenominator))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return GenotypeViewportExportSnapshot(bundleURL: filtered.bundleURL, analysisName: filtered.analysisName,
+            lens: filtered.lens, filters: filtered.filters, sampleNames: filtered.sampleNames, rows: filtered.rows,
+            annotationSidecarData: try sidecar.encoded(), presentationColors: colors,
+            excelSnapshotData: try encoder.encode(capture))
     }
 
     public var representedBundleURL: URL? {
         result?.bundleURL.standardizedFileURL
     }
 
-    public func acceptEditableWorkbook(
-        _ inspection: GenotypeEditableWorkbookService.Inspection,
-        using service: GenotypeEditableWorkbookService
-    ) throws {
-        guard let store = annotationStore,
-              result?.bundleURL.standardizedFileURL == inspection.bundleURL
-        else {
-            throw GenotypeEditableWorkbookService.EditError.rejected(
-                "The reviewed result is no longer selected."
-            )
-        }
-        let identity = activeCallOverrideAnalysisIdentity().map {
-            GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity(
-                assayID: $0.assayID,
-                analysisRevisionID: $0.analysisRevisionID,
-                definitionSetID: $0.definitionSetID
-            )
-        }
-        _ = try store.applyEditableWorkbook(
-            inspection,
-            using: service,
-            analysisIdentity: identity,
-            author: annotationAuthorProvider()
-        )
-        let containsCalls = inspection.changes.contains { $0.kind == .call }
-        comparisonMatrix.applyAnnotationSidecar(store.sidecar, reload: false)
-        let searchDependenciesChanged = rebuildMatrixAnnotationIndexes()
-        let containsReviews = inspection.changes.contains { $0.kind == .review }
-        let recalculated = containsReviews && refreshReviewedHaplotypeAnalysis()
-        currentWorkbookRequiresFullUpdate = currentWorkbookRequiresFullUpdate || containsCalls || containsReviews
-        if !recalculated {
-            rebuildActiveHaplotypeAnalysisIndexes()
-            applyComparisonMatrixHaplotypeBandProjection()
-            rebuildHaplotypeLens()
-            rebuildOutline()
-            rebuildHaplotypeMatrix()
-            rebuildCohortSummary()
-            applyComparisonMatrixCohortFilter()
-            updateCallEvidence()
-        }
-        if searchDependenciesChanged {
-            refreshActiveSharedSearchAfterDependencyChange()
-        }
-        refreshCurrentSelectionDetails()
-        publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
-        onAnnotationSidecarChanged?(store.sidecar)
-        emitCurrentWorkbookRequest(action: .acceptedEditable)
-    }
-
     private func presentViewExportPanel(
         format: GenotypeViewportExportFormat,
         filenameSuffix: String,
         capturedSnapshot: GenotypeViewportExportSnapshot? = nil,
-        filteredWorkflow: Bool = false
+        excelWorkflow: Bool = false,
+        originStillCurrent: @escaping () -> Bool = { true }
     ) {
         guard let result else { return }
+        let authority = desiredResultConfigurationAuthority
+        let origin = representedBundleURL
         let panel = NSSavePanel()
         panel.title = "Export Genotype View"
-        panel.nameFieldStringValue = "\(result.manifest.outputName)-\(filenameSuffix).\(format.fileExtension)"
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        panel.nameFieldStringValue = "\(result.manifest.outputName)-\(filenameSuffix)-\(timestamp).\(format.fileExtension)"
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
+        if format == .excel {
+            let disclosure = NSTextField(wrappingLabelWithString: GenotypeExcelExportSessionState.disclosure)
+            disclosure.preferredMaxLayoutWidth = 430
+            disclosure.frame = NSRect(x: 0, y: 0, width: 430, height: 62)
+            panel.accessoryView = disclosure
+        }
         excelSavePanelPresenter(panel, view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] url in
             guard let url else { return }
-            guard let self else { return }
-            // Capture the snapshot while still on the main actor: currentExportSnapshot()
-            // reads main-actor UI state. Only the export (which shells out to the CLI and
-            // blocks on process.waitUntilExit) is moved off the main thread.
+            guard let self, originStillCurrent(), self.representedBundleURL == origin,
+                  self.ownsDesiredResultConfiguration(authority) else { return }
+            // Excel always carries its pre-panel immutable scientific capture.
+            // Delimiter formats retain their existing viewport snapshot boundary.
             guard let snapshot = capturedSnapshot ?? self.currentExportSnapshot() else { return }
             let outputURL = url
-            self.publishFilteredWorkbookExportEvent(.started, filteredWorkflow: filteredWorkflow)
+            self.publishExcelExportEvent(.started, excelWorkflow: excelWorkflow)
             let export = self.viewportExportRunner
             Task { [weak self] in
                 do {
                     try await export(snapshot, format, outputURL)
                     await MainActor.run {
-                        guard let self else { return }
-                        self.publishFilteredWorkbookExportEvent(.succeeded(outputURL), filteredWorkflow: filteredWorkflow)
+                        guard let self, originStillCurrent(), self.representedBundleURL == origin,
+                              self.ownsDesiredResultConfiguration(authority) else { return }
+                        self.publishExcelExportEvent(.succeeded(outputURL), excelWorkflow: excelWorkflow)
                     }
                 } catch {
                     await MainActor.run {
-                        guard let self else { return }
-                        self.publishFilteredWorkbookExportEvent(.failed(error.localizedDescription), filteredWorkflow: filteredWorkflow)
+                        guard let self, originStillCurrent(), self.representedBundleURL == origin,
+                              self.ownsDesiredResultConfiguration(authority) else { return }
+                        self.publishExcelExportEvent(.failed(error.localizedDescription), excelWorkflow: excelWorkflow)
                         if let window = self.view.window ?? NSApp.keyWindow {
                             NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
                         } else {
@@ -10108,12 +9358,12 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    func publishFilteredWorkbookExportEvent(
-        _ event: GenotypeFilteredExportEvent,
-        filteredWorkflow: Bool
+    func publishExcelExportEvent(
+        _ event: GenotypeExcelExportEvent,
+        excelWorkflow: Bool
     ) {
-        guard filteredWorkflow else { return }
-        onFilteredWorkbookExportEvent?(event)
+        guard excelWorkflow else { return }
+        onExcelExportEvent?(event)
     }
 
     private func locusSummaryRow(_ summary: ONTGenotypeLocusSummary) -> NSView {
@@ -10766,12 +10016,19 @@ struct GenotypeSynchronizedMiSeqPerformanceSnapshot: Equatable {
     let columnRebuildCount: Int
     let bandInvalidationCount: Int
     let haplotypeAnalysisRunCount: Int
-    let workbookReloadCount: Int
     let haplotypeModelRebuildCount: Int
     let unrelatedRowReloadCount: Int
 }
 
 extension GenotypeResultViewController {
+    /// Read-only access to the immutable definition already selected during
+    /// configure. Tests use this native semantic palette without invoking an
+    /// exporter, resolver, or a fresh analysis/file read.
+    var testingActiveHaplotypeDefinitionSet:
+        GenotypeHaplotypeDefinitionSet? {
+        cachedHaplotypeDefinitionContext?.definition
+    }
+
     var testingLastEffectiveHaplotypeMutationChangedKeys:
         Set<GenotypeEffectiveHaplotypeKey> {
         lastEffectiveHaplotypeMutationChangedKeys
@@ -10791,7 +10048,6 @@ extension GenotypeResultViewController {
     func testingResetSynchronizedMiSeqPerformanceCounters() {
         testingSynchronizedMiSeqMatrixConfigureCount = 0
         testingSynchronizedMiSeqHaplotypeAnalysisRunCount = 0
-        testingSynchronizedMiSeqWorkbookReloadCount = 0
         testingSynchronizedMiSeqHaplotypeModelRebuildCount = 0
         testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount = 0
         testingSynchronizedMiSeqTargetSamples = nil
@@ -10814,8 +10070,6 @@ extension GenotypeResultViewController {
                     .testingSynchronizedMiSeqBandInvalidationCount,
             haplotypeAnalysisRunCount:
                 testingSynchronizedMiSeqHaplotypeAnalysisRunCount,
-            workbookReloadCount:
-                testingSynchronizedMiSeqWorkbookReloadCount,
             haplotypeModelRebuildCount:
                 testingSynchronizedMiSeqHaplotypeModelRebuildCount,
             unrelatedRowReloadCount:
@@ -12213,7 +11467,6 @@ extension GenotypeResultViewController {
         _ store: GenotypeAnnotationStore
     ) {
         annotationStore = store
-        currentWorkbookIsReadOnly = store.isReadOnly
         refreshPresentationPolicy()
         effectiveHaplotypeProjectionInput = nil
         rebuildEffectiveHaplotypeProjectionIfNeeded()
@@ -12227,16 +11480,6 @@ extension GenotypeResultViewController {
 
     func testingUnresolvedReviewLoci(sample: String) -> [String] {
         unresolvedReviewLoci(for: sample)
-    }
-
-    func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
-        currentWorkbookEffectiveHaplotypeCalls()
-    }
-
-    func testingCurrentWorkbookHaplotypeProjectionMode()
-        -> GenotypeWorkbookHaplotypeProjectionMode
-    {
-        currentWorkbookHaplotypeProjectionMode()
     }
 
     var testingManualHaplotypingCreatorIsAvailable: Bool {
@@ -12365,10 +11608,6 @@ extension GenotypeResultViewController {
         manualHaplotypeEditorModel?.persistenceErrorMessage
     }
 
-    var testingManualHaplotypeWorkbookDirtyMarkCount: Int {
-        testingCurrentWorkbookDirtyMarkCount
-    }
-
     func testingUpdateManualHaplotypeLabel(
         _ label: String,
         locus: GenotypeManualHaplotypeLocus = .a,
@@ -12440,54 +11679,6 @@ extension GenotypeResultViewController {
         manualHaplotypingSelection = selectedGenotypeIDs
         manualHaplotypingDraftLabel = label
         commitManualHaplotype()
-    }
-
-    func testingReloadCurrentWorkbookResult() {
-        guard let bundleURL = result?.bundleURL else { return }
-        reloadCurrentWorkbookResult(from: bundleURL)
-    }
-
-    var testingCurrentWorkbookNeedsRefresh: Bool {
-        currentWorkbookNeedsRefresh
-    }
-
-    var testingCurrentWorkbookRequiresFullUpdate: Bool {
-        currentWorkbookRequiresFullUpdate
-    }
-
-    func testingRequireFullCurrentWorkbookUpdate() {
-        currentWorkbookRequiresFullUpdate = true
-        currentWorkbookNeedsRefresh = true
-    }
-
-    var testingCurrentWorkbookUpdateStatus: String? {
-        displayedCurrentWorkbookStatus
-    }
-
-    var testingCurrentWorkbookUpdateButtonEnabled: Bool {
-        makeCurrentWorkbookUpdateHost().subviews
-            .compactMap { $0 as? NSButton }
-            .first { $0.title == Self.currentWorkbookActionTitle }?
-            .isEnabled ?? false
-    }
-
-    var testingCurrentWorkbookActionTitle: String {
-        Self.currentWorkbookActionTitle
-    }
-
-    func testingRequestCurrentWorkbookUpdate() {
-        updateCurrentWorkbookFromOverrides()
-    }
-
-    func testingRequestCurrentWorkbookUpdateAndView() {
-        updateCurrentWorkbookFromOverrides()
-    }
-
-    func testingApplyCurrentWorkbookSyncPhase(
-        _ phase: GenotypeCurrentWorkbookUIPhase,
-        isReadOnly: Bool
-    ) {
-        applyCurrentWorkbookSyncPhase(phase, isReadOnly: isReadOnly)
     }
 
     var testingPendingConfigurationBundleURL: URL? {

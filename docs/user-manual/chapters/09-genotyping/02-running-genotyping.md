@@ -181,9 +181,7 @@ Everything below is for readers who script their runs, so skip to Reading the re
 
 **`--analysis-name`.** Labels this analysis inside the Excel workbook separately from the output file name, on the miSeq operation. It defaults to the value of `--output-name`, which is also what the dialog does, since the dialog's Report Name fills both. Set it when the workbook needs a human label that differs from the file name.
 
-**`--comparison-workbook`.** Lays an existing workbook's expected calls beside the new result for side-by-side checking, on the miSeq operation. There is no default, so no comparison sheet is written unless you ask for one. Use it when you are validating a new run against calls you already trust.
 
-**`--comparison-name`.** Names the comparison sheet built from `--comparison-workbook`, on the miSeq operation. It defaults to `Illumina-31262`, which names the author's own trusted dataset rather than anything of yours. Change it to name your own dataset whenever you use a comparison workbook.
 
 **`--sort-threads`.** Sets how many threads samtools uses to sort the alignments before filtering, on the miSeq operation. It defaults to 4, which the Williams run used. Raise it only on a machine with cores to spare and a very large plate.
 

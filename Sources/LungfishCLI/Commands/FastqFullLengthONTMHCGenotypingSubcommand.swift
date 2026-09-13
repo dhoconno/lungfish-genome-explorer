@@ -163,7 +163,6 @@ struct FastqFullLengthONTMHCGenotypingSubcommand: AsyncParsableCommand {
             sampleSummaryCSVPath: result.sampleSummaryCSVURL.path,
             statsJSONPath: result.statsJSONURL.path,
             workbookPath: result.workbookURL.path,
-            primaryWorkbookPath: result.primaryWorkbookURL.path,
             haplotypeAnalysisPath: result.haplotypeAnalysisURL?.path,
             unmatchedClustersFASTAPath: result.unmatchedClustersFASTAURL.path,
             deduplicatedUnmatchedClustersFASTAPath: result.deduplicatedUnmatchedClustersFASTAURL.path,
@@ -216,7 +215,6 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
     let sampleSummaryCSVPath: String
     let statsJSONPath: String
     let workbookPath: String
-    let primaryWorkbookPath: String
     let haplotypeAnalysisPath: String?
     let unmatchedClustersFASTAPath: String
     let deduplicatedUnmatchedClustersFASTAPath: String
@@ -240,7 +238,7 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
 
     private static let tsvHeader = [
         "outputDirectory", "reportCSVPath", "sampleSummaryCSVPath", "statsJSONPath",
-        "workbookPath", "primaryWorkbookPath", "haplotypeAnalysisPath",
+        "workbookPath", "haplotypeAnalysisPath",
         "unmatchedClustersFASTAPath", "deduplicatedUnmatchedClustersFASTAPath",
         "cdnaClustersFASTAPath", "provenancePath", "manifestPath", "referenceFASTAPath",
         "genotypingEvidenceBAMPath", "genotypingEvidenceBAIPath", "reciprocalEvidenceBAMPath",
@@ -256,8 +254,7 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
             ("Genotype report", reportCSVPath),
             ("Sample summary", sampleSummaryCSVPath),
             ("Statistics", statsJSONPath),
-            ("Current workbook", workbookPath),
-            ("Initial workbook", primaryWorkbookPath),
+            ("Excel report", workbookPath),
             ("Haplotype analysis", haplotypeAnalysisPath),
             ("Unmatched clusters", unmatchedClustersFASTAPath),
             ("Canonical deduplicated unmatched clusters", deduplicatedUnmatchedClustersFASTAPath),
@@ -293,7 +290,7 @@ struct FastqFullLengthONTMHCGenotypingPayload: Encodable {
         let cleanupWarningsJSON = String(decoding: try encoder.encode(cleanupWarnings), as: UTF8.self)
         let values: [String] = [
             outputDirectory, reportCSVPath, sampleSummaryCSVPath, statsJSONPath,
-            workbookPath, primaryWorkbookPath, haplotypeAnalysisPath ?? "",
+            workbookPath, haplotypeAnalysisPath ?? "",
             unmatchedClustersFASTAPath, deduplicatedUnmatchedClustersFASTAPath,
             cdnaClustersFASTAPath, provenancePath, manifestPath, referenceFASTAPath,
             genotypingEvidenceBAMPath ?? "", genotypingEvidenceBAIPath ?? "",

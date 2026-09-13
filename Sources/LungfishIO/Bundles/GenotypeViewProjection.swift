@@ -44,8 +44,12 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
     /// Nil identifies a legacy projection whose workbook companions retain
     /// their historical behavior.
     public let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
+    /// Explicit semantic band axis; nil means full authority, [] means no loci.
+    /// Independent of evidence-row retention and band expansion state.
+    public let haplotypeLocusScope: [String]?
     public let sourceRevision: GenotypeViewProjectionSourceRevision?
     public let filterContext: [String: String]?
+    public let presentationColors: [GenotypeWorkbookPresentation.Color]?
 
     public init(
         lens: String,
@@ -57,8 +61,10 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         diagnosticAllelesOnly: Bool? = nil,
         includeTotalReads: Bool? = nil,
         haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
+        haplotypeLocusScope: [String]? = nil,
         sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
-        filterContext: [String: String]? = nil
+        filterContext: [String: String]? = nil,
+        presentationColors: [GenotypeWorkbookPresentation.Color]? = nil
     ) {
         self.lens = lens
         self.sampleColumns = sampleColumns
@@ -69,8 +75,10 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         self.diagnosticAllelesOnly = diagnosticAllelesOnly
         self.includeTotalReads = includeTotalReads
         self.haplotypeCalls = haplotypeCalls
+        self.haplotypeLocusScope = haplotypeLocusScope
         self.sourceRevision = sourceRevision
         self.filterContext = filterContext
+        self.presentationColors = presentationColors
     }
 }
 
@@ -97,6 +105,8 @@ public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable 
     public let haplotype2Source: String
     public let baselineHaplotype1: String
     public let baselineHaplotype2: String
+    public let baselineHaplotype1Available: Bool?
+    public let baselineHaplotype2Available: Bool?
     public let comment: String?
 
     public init(
@@ -104,7 +114,9 @@ public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable 
         haplotype1Status: String, haplotype2Status: String,
         haplotype1Source: String, haplotype2Source: String,
         baselineHaplotype1: String, baselineHaplotype2: String,
-        comment: String? = nil
+        comment: String? = nil,
+        baselineHaplotype1Available: Bool? = nil,
+        baselineHaplotype2Available: Bool? = nil
     ) {
         self.sample = sample; self.locus = locus
         self.haplotype1 = haplotype1; self.haplotype2 = haplotype2
@@ -112,6 +124,8 @@ public struct GenotypeViewProjectionHaplotypeCall: Codable, Sendable, Equatable 
         self.haplotype1Source = haplotype1Source; self.haplotype2Source = haplotype2Source
         self.baselineHaplotype1 = baselineHaplotype1; self.baselineHaplotype2 = baselineHaplotype2
         self.comment = comment
+        self.baselineHaplotype1Available = baselineHaplotype1Available
+        self.baselineHaplotype2Available = baselineHaplotype2Available
     }
 }
 
@@ -146,6 +160,8 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
     /// Row-wide highlight color hex (`#RRGGBB`), or `nil` for none. Applied
     /// to the row header / all cells lacking an explicit cell color.
     public let rowColorHex: String?
+    public let rowStyle: GenotypeWorkbookPresentation.Style?
+    public let cellStyles: [GenotypeWorkbookPresentation.Style?]?
 
     public init(
         label: String,
@@ -154,7 +170,9 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
         stableClusterID: String? = nil,
         cells: [String],
         cellColorsHex: [String?]? = nil,
-        rowColorHex: String? = nil
+        rowColorHex: String? = nil,
+        rowStyle: GenotypeWorkbookPresentation.Style? = nil,
+        cellStyles: [GenotypeWorkbookPresentation.Style?]? = nil
     ) {
         self.label = label
         self.rawGenotype = rawGenotype
@@ -163,5 +181,7 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
         self.cells = cells
         self.cellColorsHex = cellColorsHex
         self.rowColorHex = rowColorHex
+        self.rowStyle = rowStyle
+        self.cellStyles = cellStyles
     }
 }

@@ -13,7 +13,7 @@ import LungfishTestSupport
 @MainActor
 final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewportTestCase {
     func testMatrixKeepsIdentityColumnsSeparateFromScrollableSamples() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
@@ -44,7 +44,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixUpperLeftChicletSelectsAllVisibleRowsAndColumns() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_B_SHARED"
@@ -125,7 +125,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
         let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
         let secondCall = makeCall(sample: "AnimalB", genotype: second, reads: 9)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -171,7 +171,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let exact = makeCall(sample: "AnimalA", genotype: genotype, reads: 5)
         let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 4)
         let strong = makeCall(sample: "AnimalC", genotype: genotype, reads: 8)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -228,7 +228,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let firstB = makeCall(sample: "AnimalB", genotype: first, reads: 1)
         let secondA = makeCall(sample: "AnimalA", genotype: second, reads: 2)
         let secondB = makeCall(sample: "AnimalB", genotype: second, reads: 10)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -271,7 +271,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let genotype = "01_Mafa_A1_SHARED"
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
         let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 2)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -318,7 +318,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let strong = makeCall(sample: "AnimalA", genotype: first, reads: 6)
         let weak = makeCall(sample: "AnimalA", genotype: second, reads: 2)
         let other = makeCall(sample: "AnimalB", genotype: first, reads: 8)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -360,7 +360,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let genotype = "01_Mafa_A1_SHARED"
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
         let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 2)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [
             ONTGenotypeSampleResult(
@@ -408,7 +408,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let second = "02_Mafa_A1_SECOND"
         let firstA = makeCall(sample: "AnimalA", genotype: first, reads: 12)
         let secondB = makeCall(sample: "AnimalB", genotype: second, reads: 9)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -440,7 +440,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixAnnotationWorkbookRefreshPreservesViewportState() throws {
+    func testNativeMatrixAnnotationPreservesViewportState() throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixWorkbookRefreshState")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -466,7 +466,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 calls: [callB]
             ),
         ], calls: [callA, callB])
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSetQuickFilterSearchText("AnimalA")
@@ -476,7 +476,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             field: .fillColor(AnnotationColor(hex: "#00AAFF"))
         ))
 
-        controller.applyCurrentWorkbookUpdateCompleted(result: result)
         controller.testingSetMatrixSupportSelectionPreviewMinimumReads(5)
 
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
@@ -486,296 +485,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testCurrentWorkbookFallbackReloadAppliesAsyncResult() async {
-        let bundleURL = URL(fileURLWithPath: "/tmp/current-workbook-async.lungfishgenotype")
-        let original = makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [],
-            stats: ONTGenotypeRunStats(totalInputReads: 10, retainedUniqueReads: 5)
-        )
-        let updated = makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [],
-            stats: ONTGenotypeRunStats(totalInputReads: 20, retainedUniqueReads: 9)
-        )
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        controller.configure(result: original)
-        controller.genotypeResultLoader = { _ in updated }
-
-        controller.testingReloadCurrentWorkbookResult()
-        for _ in 0..<20 where controller.testingResultTotalInputReads != 20 {
-            await Task.yield()
-        }
-
-        XCTAssertEqual(controller.testingResultTotalInputReads, 20)
-    }
-
-
-    func testCurrentWorkbookFallbackReloadCancelPreservesDraftOpenedWhileLoadIsInFlight()
-        async throws
-    {
-        let bundleURL = try TestTempDirectory.make(prefix: "CurrentWorkbookReloadDraftCancel")
-        defer { TestTempDirectory.cleanup(bundleURL) }
-        try FileManager.default.createDirectory(
-            at: bundleURL,
-            withIntermediateDirectories: true
-        )
-        let call = makeCall(
-            sample: "AnimalA",
-            genotype: "01_Mafa_A1_001_01",
-            reads: 42
-        )
-        let original = makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [call],
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 10,
-                retainedUniqueReads: 5
-            )
-        )
-        let updated = makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [call],
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 20,
-                retainedUniqueReads: 9
-            )
-        )
-        let loader = DeferredGenotypeResultLoader()
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        controller.configure(result: original)
-        controller.genotypeResultLoader = { url in
-            await loader.load(url)
-        }
-
-        controller.testingReloadCurrentWorkbookResult()
-        await loader.waitUntilStarted()
-        controller.testingSelectMatrixColumn(sample: "AnimalA")
-        controller.testingUpdateManualHaplotypeLabel("Unsaved")
-        var promptCount = 0
-        controller.testingSetManualHaplotypeDraftDecisionProvider {
-            transition in
-            XCTAssertEqual(transition, .reload)
-            promptCount += 1
-            return .cancel
-        }
-        await loader.resume(returning: updated)
-        for _ in 0..<100 where promptCount == 0 {
-            await Task.yield()
-        }
-        await controller.testingWaitForManualHaplotypeTransitions()
-
-        XCTAssertEqual(promptCount, 1)
-        XCTAssertEqual(controller.testingResultTotalInputReads, 10)
-        XCTAssertEqual(
-            controller.testingManualHaplotypeEditorSample,
-            "AnimalA"
-        )
-        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
-    }
-
-
-    func testCurrentWorkbookFallbackReloadDiscardAppliesLoadedEligibilityChangeWithoutReloading()
-        async throws
-    {
-        let bundleURL = try TestTempDirectory.make(prefix: "CurrentWorkbookReloadEligibility")
-        defer { TestTempDirectory.cleanup(bundleURL) }
-        try FileManager.default.createDirectory(
-            at: bundleURL,
-            withIntermediateDirectories: true
-        )
-        let call = makeCall(
-            sample: "AnimalA",
-            genotype: "01_Mafa_A1_001_01",
-            reads: 42
-        )
-        let original = makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [call],
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 10,
-                retainedUniqueReads: 5
-            )
-        )
-        let updated = makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [call],
-            haplotypeAnalysis: makeEmptyHaplotypeAnalysis(),
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 20,
-                retainedUniqueReads: 9
-            )
-        )
-        let loader = DeferredGenotypeResultLoader()
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        controller.configure(result: original)
-        controller.genotypeResultLoader = { url in
-            await loader.load(url)
-        }
-
-        controller.testingReloadCurrentWorkbookResult()
-        await loader.waitUntilStarted()
-        controller.testingSelectMatrixColumn(sample: "AnimalA")
-        controller.testingUpdateManualHaplotypeLabel("Unsaved")
-        var promptCount = 0
-        controller.testingSetManualHaplotypeDraftDecisionProvider {
-            transition in
-            XCTAssertEqual(transition, .reload)
-            promptCount += 1
-            return .discard
-        }
-        await loader.resume(returning: updated)
-        for _ in 0..<100
-        where controller.testingResultTotalInputReads != 20 {
-            await Task.yield()
-        }
-        await controller.testingWaitForManualHaplotypeTransitions()
-
-        XCTAssertEqual(controller.testingResultTotalInputReads, 20)
-        XCTAssertEqual(promptCount, 1)
-        XCTAssertFalse(controller.testingManualHaplotypeEditorIsDirty)
-        if case .eligible = controller.manualHaplotypeEligibility {
-            XCTFail("The loaded haplotyped result must become ineligible.")
-        }
-        let invocationCount = await loader.currentInvocationCount()
-        XCTAssertEqual(invocationCount, 1)
-    }
-
-
-    func testCurrentWorkbookFallbackReloadIgnoresCancelledStaleResult() async {
-        let firstBundleURL = URL(fileURLWithPath: "/tmp/current-workbook-first.lungfishgenotype")
-        let secondBundleURL = URL(fileURLWithPath: "/tmp/current-workbook-second.lungfishgenotype")
-        let first = makeResult(bundleURL: firstBundleURL, samples: [], calls: [])
-        let staleUpdate = makeResult(
-            bundleURL: firstBundleURL,
-            samples: [],
-            calls: [],
-            stats: ONTGenotypeRunStats(totalInputReads: 99, retainedUniqueReads: 50)
-        )
-        let replacement = makeResult(
-            bundleURL: secondBundleURL,
-            samples: [],
-            calls: [],
-            stats: ONTGenotypeRunStats(totalInputReads: 2, retainedUniqueReads: 1)
-        )
-        let loader = DeferredGenotypeResultLoader()
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        controller.configure(result: first)
-        controller.genotypeResultLoader = { url in
-            await loader.load(url)
-        }
-
-        controller.testingReloadCurrentWorkbookResult()
-        await loader.waitUntilStarted()
-        controller.configure(result: replacement)
-        await loader.resume(returning: staleUpdate)
-        for _ in 0..<20 {
-            await Task.yield()
-        }
-
-        XCTAssertEqual(controller.testingResultBundleURL, secondBundleURL.standardizedFileURL)
-        XCTAssertEqual(controller.testingResultTotalInputReads, 2)
-    }
-
-
-    func testQueuedConfigurationImmediatelyInvalidatesInFlightWorkbookReload()
-        async throws
-    {
-        let root = try TestTempDirectory.make(prefix: "QueuedConfigureInvalidatesReload")
-        defer { TestTempDirectory.cleanup(root) }
-        let firstBundleURL = root.appendingPathComponent(
-            "first.lungfishgenotype",
-            isDirectory: true
-        )
-        let secondBundleURL = root.appendingPathComponent(
-            "second.lungfishgenotype",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: firstBundleURL,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: secondBundleURL,
-            withIntermediateDirectories: true
-        )
-        let call = makeCall(
-            sample: "AnimalA",
-            genotype: "01_Mafa_A1_001_01",
-            reads: 42
-        )
-        let first = makeResult(
-            bundleURL: firstBundleURL,
-            samples: [],
-            calls: [call],
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 1,
-                retainedUniqueReads: 1
-            )
-        )
-        let staleUpdate = makeResult(
-            bundleURL: firstBundleURL,
-            samples: [],
-            calls: [call],
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 99,
-                retainedUniqueReads: 99
-            )
-        )
-        let replacement = makeResult(
-            bundleURL: secondBundleURL,
-            samples: [],
-            calls: [],
-            stats: ONTGenotypeRunStats(
-                totalInputReads: 2,
-                retainedUniqueReads: 2
-            )
-        )
-        let loader = DeferredGenotypeResultLoader()
-        let decisionGate = ManualHaplotypeViewportDecisionGate()
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        controller.configure(result: first)
-        controller.genotypeResultLoader = { url in
-            await loader.load(url)
-        }
-
-        controller.testingReloadCurrentWorkbookResult()
-        await loader.waitUntilStarted()
-        controller.testingSelectMatrixColumn(sample: "AnimalA")
-        controller.testingUpdateManualHaplotypeLabel("Unsaved")
-        controller.testingSetManualHaplotypeDraftDecisionProvider {
-            transition in
-            XCTAssertEqual(transition, .eligibilityChange)
-            return await decisionGate.wait()
-        }
-
-        controller.configure(result: replacement)
-        await decisionGate.waitUntilPending()
-        await loader.resume(returning: staleUpdate)
-        await decisionGate.resume(with: .discard)
-        await controller.testingWaitForManualHaplotypeTransitions()
-
-        XCTAssertEqual(
-            controller.testingResultBundleURL,
-            secondBundleURL.standardizedFileURL
-        )
-        XCTAssertEqual(controller.testingResultTotalInputReads, 2)
-    }
-
-
     func testMatrixColumnSelectionPublishesColumnTarget() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -815,7 +526,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -874,7 +585,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixColumnSelectionDoesNotSurviveCellOrRowSelection() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -913,7 +624,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixColumnSelectionClearsWhenSampleFilterHidesSelectedColumn() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -951,7 +662,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_001_01"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
         controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
@@ -983,7 +694,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_001_01"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
         controller.testingSelectMatrixCell(genotype: genotype, sample: "AnimalA")
@@ -1016,7 +727,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             makeCall(sample: "AnimalA", genotype: first, reads: 42),
             makeCall(sample: "AnimalA", genotype: second, reads: 21),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls))
         controller.testingSelectMatrixRows(genotypes: [first, second], sample: "AnimalA")
@@ -1070,7 +781,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
         let callB = makeCall(sample: "AnimalB", genotype: genotype, reads: 8)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -1109,7 +820,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_001_01"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -1146,7 +857,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testSharedGenotypeDetailContentIsAnchoredAtTopOfDetailPane() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1100, height: 720)
         let call = ONTGenotypeCall(
             sample: "AnimalA",
@@ -1169,7 +880,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testConfigureRetainedDemuxSizedBundleDoesNotBlockViewportLoad() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
 
         var calls: [ONTGenotypeCall] = []
@@ -1203,7 +914,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testRapidTwentyDraftThresholdEditsUseOneCachedDerivedPassAndPreserveMatrixState() async throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeRetainedDemuxSizedResult())
         let matrix = controller.testingComparisonMatrix
@@ -1290,7 +1001,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testOneHundredFiftyColumnThresholdStressDoesNotRebuildColumnsOrLoseWidths() async throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeManySampleResult(sampleCount: 150))
         let matrix = controller.testingComparisonMatrix
@@ -1413,7 +1124,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             referenceMetadata: base.referenceMetadata
         )
         let before = try recursiveBytes()
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         let matrix = controller.testingComparisonMatrix
@@ -1483,8 +1194,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(matrix.testingVisibleRows.count, 112)
         XCTAssertEqual(matrix.testingVisibleSampleNames.count, 51)
         XCTAssertEqual(try recursiveBytes(), before)
-        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertFalse(controller.testingCurrentWorkbookRequiresFullUpdate)
         print(
             "Complete pipeline \(enforcesReleaseBudget ? "Release" : "Debug") metrics: "
                 + "derived_total=\(performance.derivedProjectionTotalSeconds), "
@@ -1544,7 +1253,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 calls: base.calls,
                 referenceMetadata: base.referenceMetadata
             )
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: result)
             let matrix = controller.testingComparisonMatrix
@@ -2033,7 +1742,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMatrixOnlyThresholdChangeSkipsAnchorConsumerAndLayoutRebuilds() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2058,7 +1767,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testCohortFlagThresholdRebuildsOnlyCohortSummary() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2084,7 +1793,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testLensTransitionAppliesLayoutExactlyOnce() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2152,7 +1861,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -2208,7 +1917,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 sample: "AnimalA"
             )
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         let selector = try XCTUnwrap(
@@ -2321,7 +2030,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             ),
             manifest: manifest
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         XCTAssertEqual(
@@ -2333,7 +2042,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
     func testHaplotypedMiSeqHeaderDoesNotExposeActionsButton() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2360,7 +2069,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             support: .singleton,
             samples: ["AnimalA"]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeCandidateResult(
             calls: [],
@@ -2415,7 +2124,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             calls: [],
             haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         let selector = try XCTUnwrap(
@@ -2509,7 +2218,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             calls: [],
             haplotypeAnalysis: analysis
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
 
         controller.configure(result: first)
@@ -2538,7 +2247,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqNormalizesStaleLensAndDefinitionsIngressToCalls()
         throws
     {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2584,7 +2293,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -2629,7 +2338,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             at: bundleURL,
             withIntermediateDirectories: true
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -2695,7 +2404,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             at: secondURL,
             withIntermediateDirectories: true
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: firstURL,
@@ -2752,7 +2461,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqRemovedLensCapabilitiesRemainReachable()
         throws
     {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2770,7 +2479,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             contentsOf: documentSourceURL,
             encoding: .utf8
         )
-        for title in ["Audit Timeline", "Current Workbook", "Artifacts"] {
+        for title in ["Audit Timeline", "Excel", "Artifacts"] {
             XCTAssertTrue(documentSource.contains(title), title)
         }
         let smartCohortSource = try String(
@@ -2879,7 +2588,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 ]),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -2978,7 +2687,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 ]),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3028,7 +2737,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
@@ -3084,7 +2793,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
@@ -3136,20 +2845,14 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
         var annotationNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             annotationNotifications += 1
         }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
-        }
-        let dirtyMarksBefore =
-            controller.testingManualHaplotypeWorkbookDirtyMarkCount
 
         controller.testingApplyOverridesFromInspector([
             .init(slot: .h1, haplotypeName: "M3DP"),
@@ -3195,11 +2898,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             [expectedIdentity, expectedIdentity]
         )
         XCTAssertEqual(annotationNotifications, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
-        XCTAssertEqual(
-            controller.testingManualHaplotypeWorkbookDirtyMarkCount,
-            dirtyMarksBefore + 1
-        )
 
         let annotationURL = bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
@@ -3257,7 +2955,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 ]),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3277,15 +2975,9 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
         let annotationBefore = try Data(contentsOf: annotationURL)
         let provenanceBefore = try Data(contentsOf: provenanceURL)
-        let dirtyMarksBefore =
-            controller.testingManualHaplotypeWorkbookDirtyMarkCount
         var annotationNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             annotationNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
 
         let error = controller
@@ -3298,11 +2990,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(try Data(contentsOf: annotationURL), annotationBefore)
         XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBefore)
         XCTAssertEqual(annotationNotifications, 0)
-        XCTAssertTrue(workbookActions.isEmpty)
-        XCTAssertEqual(
-            controller.testingManualHaplotypeWorkbookDirtyMarkCount,
-            dirtyMarksBefore
-        )
         let evidence = try XCTUnwrap(
             controller.callEvidence(sample: "DW472", locus: "MHC-DP")
         )
@@ -3415,7 +3102,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
@@ -3500,7 +3187,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                     reads: 31
                 ),
             ]
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             controller.view.frame = NSRect(
                 x: 0,
                 y: 0,
@@ -3513,11 +3200,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 calls: calls,
                 manifest: manifest
             ))
-            var workbookActions:
-                [GenotypeCurrentWorkbookUIRequest.Action] = []
-            controller.onCurrentWorkbookSyncRequested = {
-                workbookActions.append($0.action)
-            }
             let matrix = controller.testingComparisonMatrix
             XCTAssertFalse(
                 matrix.testingManualHaplotypeBandIsExpanded,
@@ -3577,11 +3259,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                     .isEmpty,
                 kind.rawValue
             )
-            XCTAssertFalse(
-                controller.testingCurrentWorkbookNeedsRefresh,
-                kind.rawValue
-            )
-            XCTAssertTrue(workbookActions.isEmpty, kind.rawValue)
             controller.testingSaveManualHaplotypeDraft()
 
             XCTAssertFalse(
@@ -3595,11 +3272,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 "Source haplotype with a deliberately wide label · —",
                 kind.rawValue
             )
-            XCTAssertTrue(
-                controller.testingCurrentWorkbookNeedsRefresh,
-                kind.rawValue
-            )
-            XCTAssertEqual(workbookActions, [.markDirty], kind.rawValue)
             let persisted = try ONTGenotypeResultBundleData
                 .loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
             XCTAssertEqual(
@@ -3681,7 +3353,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             result.manifest,
             to: bundleURL
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectMatrixColumn(sample: "Target")
@@ -3790,7 +3462,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 statsJSONPath: "stats.json",
                 provenancePath: "provenance.json"
             )
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: makeResult(
                 bundleURL: bundleURL,
@@ -3837,7 +3509,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var state = GenotypeResultDisplayState()
@@ -3875,16 +3547,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var inspectorNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
 
         controller.testingShowMatrixTargetSelection([
@@ -3928,7 +3596,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertFalse(controller.testingEffectiveHaplotypeEditorIsDirty)
         XCTAssertNil(controller.testingEffectiveHaplotypeEditorPersistenceError)
         XCTAssertEqual(inspectorNotifications, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
         XCTAssertEqual(
             controller.testingComparisonMatrix.testingHaplotypeBandRenderedValue(
                 sample: "Sample-A",
@@ -3969,16 +3636,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var inspectorNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
         controller.testingShowMatrixTargetSelection([
             .column(sample: "Sample-A"),
@@ -4012,7 +3675,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.testingSaveEffectiveHaplotypeDraft()
 
         XCTAssertEqual(inspectorNotifications, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
         XCTAssertEqual(
             controller.testingComparisonMatrix.testingHaplotypeBandRenderedValue(
                 sample: "Sample-A",
@@ -4061,7 +3723,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             "A1 • A2"
         )
         XCTAssertEqual(inspectorNotifications, 2)
-        XCTAssertEqual(workbookActions, [.markDirty, .markDirty])
         sidecar = try GenotypeAnnotationSidecar.decode(
             Data(contentsOf: fixture.bundleURL.appendingPathComponent(
                 GenotypeAnnotationSidecar.filename
@@ -4082,7 +3743,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         controller.testingShowMatrixTargetSelection([
@@ -4118,19 +3779,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         defer { TestTempDirectory.cleanup(fixture.root) }
         let bundleURL = fixture.bundleURL
         let result = fixture.result
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         var inspectorNotifications = 0
-        var workbookRequests: [GenotypeCurrentWorkbookUIRequest] = []
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookRequests.append($0)
-        }
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] {
-            workbookRequests.map(\.action)
         }
         let matrix = try XCTUnwrap(
             controller.view.firstDescendant(
@@ -4151,7 +3805,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             .init(slot: .h2, haplotypeName: "A2-review"),
         ])
         XCTAssertEqual(inspectorNotifications, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
         XCTAssertEqual(
             controller.testingLastEffectiveHaplotypeMutationChangedKeys,
             [
@@ -4261,7 +3914,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             inspectorNotifications,
             inspectorBeforeMatrixSave + 1
         )
-        XCTAssertEqual(workbookActions, [.markDirty, .markDirty])
         XCTAssertEqual(
             controller.testingLastEffectiveHaplotypeMutationChangedKeys,
             [.init(sample: "Sample-B", locus: "MHC-B", slot: .h1)]
@@ -4323,7 +3975,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             inspectorNotifications,
             inspectorBeforeCallsRestore + 1
         )
-        XCTAssertEqual(workbookActions, [.markDirty, .markDirty, .markDirty])
         XCTAssertEqual(
             controller.testingLastEffectiveHaplotypeMutationChangedKeys,
             [.init(sample: "Sample-A", locus: "MHC-A", slot: .h1)]
@@ -4347,12 +3998,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             inspectorNotifications,
             inspectorBeforeMatrixRestore + 1
         )
-        XCTAssertEqual(
-            workbookActions,
-            [.markDirty, .markDirty, .markDirty, .markDirty]
-        )
 
-        let recreated = GenotypeResultViewController()
+        let recreated = makeMatrixAnnotationGuardedController()
         _ = recreated.view
         recreated.configure(result: result)
         let finalRows = recreated.testingSampleDetailRows(sample: "Sample-A")
@@ -4376,123 +4023,22 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
         XCTAssertTrue(persisted.manualHaplotypeAssignments.isEmpty)
         XCTAssertEqual(persisted.callOverrides.count, 1)
-        let nextPublication = try XCTUnwrap(workbookRequests.last?.snapshot)
-        XCTAssertEqual(nextPublication.haplotypeProjectionMode, .haplotyped)
-        XCTAssertEqual(nextPublication.includedLoci, ["MHC-A", "MHC-B"])
-        XCTAssertEqual(
-            nextPublication.annotationSidecarURL,
-            bundleURL.appendingPathComponent(
-                GenotypeAnnotationSidecar.filename
-            ).standardizedFileURL
-        )
-        XCTAssertEqual(
-            try GenotypeAnnotationSidecar.decode(
-                nextPublication.annotationSidecarData
-            ),
-            persisted
-        )
-        XCTAssertEqual(nextPublication.calls, [
-            .init(
-                sample: "Sample-A", locus: "MHC-A",
-                haplotype1: "A1", haplotype2: "A2-review",
-                status: "called", notes: ""
-            ),
-            .init(
-                sample: "Sample-A", locus: "MHC-B",
-                haplotype1: "B1", haplotype2: "B2",
-                status: "called", notes: ""
-            ),
-            .init(
-                sample: "Sample-B", locus: "MHC-A",
-                haplotype1: "C1", haplotype2: "C2",
-                status: "called", notes: ""
-            ),
-            .init(
-                sample: "Sample-B", locus: "MHC-B",
-                haplotype1: "D1", haplotype2: "D2",
-                status: "called", notes: ""
-            ),
+        let captured = recreated.testingCapturedScientificCalls()
+        XCTAssertEqual(captured.map { [$0.sample, $0.locus, $0.haplotype1, $0.haplotype2] }, [
+            ["Sample-A", "MHC-A", "A1", "A2-review"],
+            ["Sample-A", "MHC-B", "B1", "B2"],
+            ["Sample-B", "MHC-A", "C1", "C2"],
+            ["Sample-B", "MHC-B", "D1", "D2"],
         ])
 
-        let tape = GenotypeHaplotypeTapeView(
-            frame: NSRect(x: 0, y: 0, width: 160, height: 40)
-        )
-        tape.sampleAccessibilityLabel = "Sample-A"
-        tape.configure(loci: ["MHC-A"], slots: [
-            .init(
-                locus: "MHC-A",
-                h1: .reference(tokenIndex: 1, label: "A1"),
-                h2: .manual(tokenIndex: 2, label: "A2-review")
-            ),
-        ])
-        var tapeActivations: [(String, HaplotypeSlot)] = []
-        tape.onTargetActivated = { locus, slot in
-            tapeActivations.append((locus, slot))
-        }
-        let tapeH2 = try XCTUnwrap(
-            tape.testingTargetButton(locus: "MHC-A", slot: .h2)
-        )
-        let tapeWindow = NSWindow(
-            contentRect: tape.frame,
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        tapeWindow.contentView = tape
-        XCTAssertTrue(tapeWindow.makeFirstResponder(tapeH2))
-        XCTAssertTrue(tapeH2.accessibilityPerformPress())
-        XCTAssertEqual(tapeActivations.count, 1)
-        XCTAssertEqual(tapeActivations.first?.0, "MHC-A")
-        XCTAssertEqual(tapeActivations.first?.1, .h2)
-        let space = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: " ",
-            charactersIgnoringModifiers: " ",
-            isARepeat: false,
-            keyCode: 49
-        ))
-        tapeH2.keyDown(with: space)
-        XCTAssertEqual(tapeActivations.count, 2)
-        let returnKey = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "\r",
-            charactersIgnoringModifiers: "\r",
-            isARepeat: false,
-            keyCode: 36
-        ))
-        tapeH2.keyDown(with: returnKey)
-        XCTAssertEqual(tapeActivations.count, 3)
-        tape.configure(loci: ["MHC-A"], slots: [
-            .init(
-                locus: "MHC-A",
-                h1: .reference(tokenIndex: 1, label: "A1"),
-                h2: .manual(tokenIndex: 2, label: "A2-review")
-            ),
-        ])
-        XCTAssertTrue(tapeWindow.firstResponder === tapeH2)
-        XCTAssertTrue(
-            (tapeH2.accessibilityLabel() ?? "").contains(
-                "Sample-A MHC-A H2 A2-review status called source analyst override"
-            )
-        )
     }
 
 
-    func testHaplotypedMiSeqIncludedLociStaySynchronizedAcrossCallsBandAndWorkbook()
+    func testNativeIncludedLociStayScopedWhileFrozenCallsRetainFullAuthority()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
 
@@ -4511,13 +4057,25 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             ["MHC-B"]
         )
         XCTAssertEqual(matrix.testingHaplotypeBandLoci, ["MHC-B"])
+        let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(frozen.allMatrix.loci, ["MHC-A", "MHC-B"])
+        XCTAssertEqual(frozen.filteredMatrix.loci, ["MHC-B"])
+        state.manualHaplotypeBandExpanded = false
+        controller.testingApplyDisplayState(state)
+        controller.testingSelectLens(.audit)
+        let fromAudit = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(fromAudit.allMatrix.loci, ["MHC-A", "MHC-B"])
+        XCTAssertEqual(fromAudit.filteredMatrix.loci, ["MHC-B"])
+        controller.testingSelectLens(.summary)
         XCTAssertEqual(
-            controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus),
-            ["MHC-B", "MHC-B"]
+            controller.testingCapturedScientificCalls().map(\.locus),
+            ["MHC-A", "MHC-B", "MHC-A", "MHC-B"]
         )
         XCTAssertEqual(
-            Set(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus)),
-            ["MHC-B"]
+            controller.testingCurrentExportSnapshot()?.haplotypeCalls?.map(\.locus),
+            ["MHC-B", "MHC-B"]
         )
     }
 
@@ -4526,7 +4084,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         controller.testingApplySmartCohort(.init(
@@ -4593,7 +4151,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqBandSelectionCarriesH2IntoCallEvidence() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var state = GenotypeResultDisplayState(summaryViewMode: .matrix)
@@ -4621,16 +4179,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqNoOpPublishesNothing() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var inspectorNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
         let row = try XCTUnwrap(
             controller.testingSampleDetailRows(sample: "Sample-B").first {
@@ -4661,7 +4215,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
 
         XCTAssertEqual(inspectorNotifications, 0)
-        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertEqual(
             controller.testingSampleDetailSheetPresentationCount,
             detailPresentationsBefore,
@@ -4682,7 +4235,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var state = GenotypeResultDisplayState()
@@ -4735,7 +4288,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     func testHaplotypedMiSeqMissingStorePresentsOneError() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         controller.testingSelectCellEvidence(
@@ -4766,7 +4319,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: fixture.result)
             controller.testingSelectCellEvidence(
@@ -4799,7 +4352,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: fixture.result)
             controller.testingSelectCellEvidence(
@@ -4834,7 +4387,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: fixture.result)
             controller.testingSelectCellEvidence(
@@ -4857,7 +4410,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: fixture.result)
             controller.testingSelectCellEvidence(
@@ -4921,7 +4474,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
             try installKnownAssignments(in: fixture.bundleURL)
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: fixture.result)
             let row = try XCTUnwrap(
@@ -4959,7 +4512,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
             try installKnownAssignments(in: fixture.bundleURL)
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: fixture.result)
             let row = try XCTUnwrap(
@@ -5015,7 +4568,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         controller.testingSelectCellEvidence(
@@ -5060,12 +4613,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             faultingStore
         )
         var inspectorNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
         let row = try XCTUnwrap(
             controller.testingSampleDetailRows(sample: "Sample-A").first {
@@ -5101,7 +4650,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(controller.testingOutlineSelectedLocus, "MHC-B")
         XCTAssertTrue(window.firstResponder === focusedTarget)
         XCTAssertEqual(inspectorNotifications, 0)
-        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertTrue(
             controller.testingLastEffectiveHaplotypeMutationChangedKeys.isEmpty
         )
@@ -5117,7 +4665,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         var state = GenotypeResultDisplayState()
@@ -5144,12 +4692,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             readOnlyStore
         )
         var inspectorNotifications = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
         let matrix = try XCTUnwrap(
             controller.view.firstDescendant(
@@ -5194,7 +4738,6 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
         XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
         XCTAssertEqual(inspectorNotifications, 0)
-        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertTrue(
             controller.testingLastEffectiveHaplotypeMutationChangedKeys.isEmpty
         )

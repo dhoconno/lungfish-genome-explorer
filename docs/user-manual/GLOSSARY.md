@@ -608,7 +608,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Pipeline**{#pipeline}. One analysis run as a chain of steps that hand their output to each other, so that starting a mapping run in Lungfish Genome Explorer produces a single Operations Panel row covering the index, the alignment, the sort, and the index of the result. See also Operations Panel, workflow, provenance.
 
-**Pivot workbook**{#pivot-workbook}. An Excel workbook whose main sheet lays samples across the columns and allele targets down the rows, the transpose of the sample-by-locus matrix, which is the orientation most downstream genotyping spreadsheets expect and the shape the Filtered Pivot export writes. See also XLSX, genotype matrix, long format.
+**Pivot workbook**{#pivot-workbook}. A workbook with samples across columns and allele targets down rows. All genotype Excel entry points now write one layout with All and Filtered matrices, optional real Haplotype Calls, and Export Metadata. These are literal report cells, not Excel pivot tables. See also XLSX, genotype matrix, long format.
 
 **Plate map**{#plate-map}. The grid of sample positions that came off one sequencing run, named for the physical multi-well plate the samples were prepared in, and the layout a genotype result window uses so that a row of the screen matches a row of the bench plate. Referred to as a plate throughout the genotyping chapters. See also genotype, sample metadata.
 
@@ -926,7 +926,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 ## X
 
-**XLSX**{#xlsx}. The Excel workbook format, a zipped folder of XML sheets that every spreadsheet application reads, and the format of both workbooks a genotype export writes, the sample-by-locus matrix workbook and the samples-across pivot workbook. See also pivot workbook, CSV, genotype result bundle.
+**XLSX**{#xlsx}. The Excel workbook format, a ZIP package of worksheet XML. Genotype exports are immutable one-way reports containing All and Filtered matrices, optional real Haplotype Calls, and Export Metadata. Filtering does not remove data from All. See also pivot workbook, CSV, genotype result bundle.
 
 ## Y
 

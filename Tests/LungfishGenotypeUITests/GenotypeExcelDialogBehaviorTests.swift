@@ -2,339 +2,451 @@ import AppKit
 import XCTest
 import LungfishIO
 import LungfishTestSupport
+import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
-    func testControllerDisclosesCapturedMatrixRestrictionsThroughBothDialogDelays() async throws {
-        let root = try TestTempDirectory.make(prefix: "ExcelRestrictionCapture")
+    private var openpyxlPython: URL {
+        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_OPENPYXL_PYTHON"]
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
+    }
+
+    func testExportFreezesAllAndPositiveDisplayedVisibleEvidenceBeforeSavePanel() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelUnifiedCapture")
         defer { TestTempDirectory.cleanup(root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
-            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SUPPORTED", reads: 9),
-            makeCall(sample: "AnimalB", genotype: "01_Mafa_A2_BACKGROUND", reads: 5),
+            makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 9),
+            makeCall(sample: "AnimalA", genotype: "Mafa-A1*002:01", reads: 1),
+            makeCall(sample: "AnimalB", genotype: "Mafa-A1*003:01", reads: 8),
         ]))
         var state = controller.testingDisplayState
-        state.matrixRowFilterText = "Mafa_A1"
+        state.matrixMinimumReads = 5
         state.matrixSampleFilterText = "AnimalA"
-        state.diagnosticAllelesOnly = true
-        state.hideFilteredHighlights = true
-        state.hideLowSupport = true
-        state.minimumSupportPercent = 1
         controller.testingApplyDisplayStateImmediately(state)
-        let captured = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-        XCTAssertEqual(captured.filters["searchText"], "")
-        XCTAssertEqual(captured.filters["matrixRowFilterText"], "Mafa_A1")
-        XCTAssertEqual(captured.filters["matrixSampleFilterText"], "AnimalA")
-        XCTAssertEqual(captured.filters["diagnosticAllelesOnly"], "true")
-        XCTAssertEqual(captured.filters["hideFilteredHighlights"], "true")
-
-        var alert: NSAlert?
-        var choose: ((NSApplication.ModalResponse) -> Void)?
         var save: ((URL?) -> Void)?
-        controller.excelChoicePresenter = { presented, _, completion in alert = presented; choose = completion }
         controller.excelSavePanelPresenter = { _, _, completion in save = completion }
-        let exported = expectation(description: "captured restrictions exported")
-        controller.viewportExportRunner = { snapshot, _, _ in
-            XCTAssertEqual(snapshot.filters["matrixRowFilterText"], "Mafa_A1")
-            XCTAssertEqual(snapshot.filters["matrixSampleFilterText"], "AnimalA")
-            XCTAssertEqual(snapshot.filters["diagnosticAllelesOnly"], "true")
-            XCTAssertEqual(snapshot.filters["hideFilteredHighlights"], "true")
+        let exported = expectation(description: "frozen scientific capture delivered")
+        controller.viewportExportRunner = { snapshot, format, _ in
+            defer { exported.fulfill() }
+            XCTAssertEqual(format, .excel)
+            let bytes = try XCTUnwrap(snapshot.excelSnapshotData)
+            let capture = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: bytes)
+            XCTAssertEqual(capture.allMatrix.samples.map(\.name), ["AnimalA", "AnimalB"])
+            XCTAssertEqual(capture.allMatrix.rows.count, 3)
+            XCTAssertEqual(capture.filteredMatrix.samples.map(\.name), ["AnimalA"])
+            XCTAssertEqual(capture.filteredMatrix.rows.count, 1)
+            XCTAssertEqual(capture.filteredMatrix.rows.first?.cells.first?.displayValue, 9)
         }
-        controller.onFilteredWorkbookExportEvent = { event in
-            if case .succeeded = event { exported.fulfill() }
-            if case .failed(let message) = event { XCTFail(message) }
-        }
-        controller.presentExcelExportDialog(expectedDisplayState: state)
-        let description = try XCTUnwrap(alert).informativeText
-        XCTAssertTrue(description.contains("General search: None"))
-        XCTAssertTrue(description.contains("Matrix row search: Mafa_A1"))
-        XCTAssertTrue(description.contains("Matrix sample search: AnimalA"))
-        XCTAssertTrue(description.contains("Alleles: diagnostic only"))
-        XCTAssertTrue(description.contains("Highlights in filtered cells: hidden"))
-
-        state.matrixRowFilterText = "other rows"
-        state.matrixSampleFilterText = "other samples"
-        state.diagnosticAllelesOnly = false
-        state.hideFilteredHighlights = false
-        controller.testingApplyDisplayStateImmediately(state)
-        let changed = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-        XCTAssertEqual(changed.filters["matrixRowFilterText"], "other rows")
-        XCTAssertEqual(changed.filters["matrixSampleFilterText"], "other samples")
-        XCTAssertEqual(changed.filters["diagnosticAllelesOnly"], "false")
-        XCTAssertEqual(changed.filters["hideFilteredHighlights"], "false")
-        XCTAssertEqual(alert?.informativeText, description)
-        try XCTUnwrap(choose)(.alertFirstButtonReturn)
-        state.matrixRowFilterText = ""
-        state.matrixSampleFilterText = ""
-        controller.testingApplyDisplayStateImmediately(state)
-        XCTAssertEqual(alert?.informativeText, description)
-        try XCTUnwrap(save)(root.appendingPathComponent("filtered.xlsx"))
-        await fulfillment(of: [exported], timeout: 2)
-        XCTAssertEqual(alert?.informativeText, description)
-    }
-
-    func testControllerUsesCanonicalCallCapabilityWhenManualCallsAreFilteredOut() throws {
-        let root = try TestTempDirectory.make(prefix: "ExcelManualCapability")
-        defer { TestTempDirectory.cleanup(root) }
-        let manifest = ONTGenotypeResultBundleManifest(
-            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
-            workflowKind: .miSeqAmpliconMHCGenotype, workflowMode: .genotypeOnly,
-            outputName: "manual", analysisName: "Manual", primaryWorkbookPath: "manual.xlsx",
-            longSummaryCSVPath: "calls.csv", sampleSummaryCSVPath: "samples.csv",
-            statsJSONPath: "stats.json", provenancePath: "provenance.json"
-        )
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)], manifest: manifest))
-        var state = controller.testingDisplayState
+        controller.presentExcelExportPanel(expectedDisplayState: state)
         state.matrixMinimumReads = 100
         controller.testingApplyDisplayStateImmediately(state)
-        XCTAssertEqual(controller.testingCurrentExportSnapshot()?.rows.count, 0)
-        var description = ""
-        controller.excelChoicePresenter = { alert, _, completion in
-            description = alert.informativeText
-            completion(.alertSecondButtonReturn)
-        }
-        controller.presentExcelExportDialog(expectedDisplayState: state)
-        XCTAssertTrue(description.contains("H1/H2 calls are read-only"))
-        XCTAssertTrue(description.contains("matrix reviews and comments remain supported"))
+        try XCTUnwrap(save)(root.appendingPathComponent("captured.xlsx"))
+        await fulfillment(of: [exported], timeout: 2)
     }
 
-    func testControllerKeepsCapturedSnapshotThroughChoiceAndSavePanelDelays() async throws {
-        let root = try TestTempDirectory.make(prefix: "ExcelPanelCapture")
+    func testExportCapturesLocusSearchSampleAndManualVisibilityWithoutTruncatingAll() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelVisibilityCapture")
         defer { TestTempDirectory.cleanup(root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
-            makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9),
-            makeCall(sample: "AnimalB", genotype: "SECOND", reads: 5),
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_KEEP", reads: 9),
+            makeCall(sample: "AnimalA", genotype: "02_Mafa_A1_HIDE", reads: 8),
+            makeCall(sample: "AnimalB", genotype: "03_Mafa_A1_OTHER", reads: 7),
+            makeCall(sample: "AnimalA", genotype: "04_Mafa_B1_OTHER", reads: 6),
         ]))
+        controller.testingShowMatrixTargetSelection([.row(locus: "MHC-A", genotype: "02_Mafa_A1_HIDE")])
+        controller.testingHideSelectedMatrixRows()
         var state = controller.testingDisplayState
-        state.matrixMinimumReads = 7
+        state.matrixMinimumReads = 5
+        state.matrixSampleFilterText = "AnimalA"
+        state.matrixRowFilterText = "Mafa_A1"
         controller.testingApplyDisplayStateImmediately(state)
-        var choose: ((NSApplication.ModalResponse) -> Void)?
-        var save: ((URL?) -> Void)?
-        var presentedScope = ""
-        controller.excelChoicePresenter = { alert, _, completion in
-            presentedScope = alert.informativeText
-            choose = completion
-        }
+        controller.testingComparisonMatrix.testingSetLocusFilter("MHC-A")
+        controller.testingSetComparisonFilter("KEEP")
+        let captured = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(captured.allMatrix.rows.count, 4)
+        XCTAssertEqual(captured.allMatrix.samples.map(\.name), ["AnimalA", "AnimalB"])
+        XCTAssertEqual(captured.filteredMatrix.rows.map(\.target.genotype), ["01_Mafa_A1_KEEP"])
+        XCTAssertEqual(captured.filteredMatrix.samples.map(\.name), ["AnimalA"])
+        XCTAssertEqual(captured.filteredMatrix.rows[0].cells[0].displayValue, 9)
+    }
+
+    func testDuplicateOccurrencesCaptureNativeSelectionAndRenderLiteralWorkbooks() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelDuplicateOccurrences")
+        defer { TestTempDirectory.cleanup(root) }
+        let genotype = "Mafa-A*001"
+        let result = makeResult(bundleURL: root, samples: [], calls: [
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 4, retainedReads: 40),
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 16, retainedReads: 1000),
+        ])
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        var state = controller.testingDisplayState
+        state.matrixMinimumPercent = 5
+        state.matrixPercentDenominator = .sampleRetained
+        controller.testingApplyDisplayStateImmediately(state)
+        let thresholdNative = try XCTUnwrap(
+            controller.testingComparisonMatrix.testingSemanticCellState(genotype: genotype, sample: "S1")
+        )
+        XCTAssertEqual(thresholdNative.text.value, "4")
+        XCTAssertEqual(thresholdNative.evidenceReads, 4)
+        let thresholdCapture = try controller.captureExcelExportSnapshot()
+        let thresholdSnapshot = try JSONDecoder().decode(
+            GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(thresholdCapture.excelSnapshotData)
+        )
+        let thresholdAll = try XCTUnwrap(thresholdSnapshot.allMatrix.rows.first?.cells.first)
+        let thresholdFiltered = try XCTUnwrap(thresholdSnapshot.filteredMatrix.rows.first?.cells.first)
+        XCTAssertEqual(thresholdAll.displayValue, 16)
+        XCTAssertEqual(thresholdAll.rawSupport, 16)
+        XCTAssertEqual(thresholdFiltered.displayValue, 4)
+        XCTAssertEqual(thresholdFiltered.rawSupport, 16)
+        let capturedResult = try JSONDecoder().decode(
+            ONTGenotypeResultBundleData.self,
+            from: XCTUnwrap(thresholdSnapshot.capturedScientificInputs?["result.json"])
+        )
+        XCTAssertEqual(capturedResult.calls.map(\.passedUniqueReads), [4, 16])
+        XCTAssertEqual(capturedResult.calls.map(\.sampleUniqueRetainedReads), [40, 1000])
+
+        let thresholdOutput = root.appendingPathComponent("threshold.xlsx")
+        _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
+            snapshot: thresholdSnapshot,
+            outputURL: thresholdOutput,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        XCTAssertEqual(try workbookLiteral(thresholdOutput, sheet: "Genotype Matrix - All", genotype: genotype), 16)
+        XCTAssertEqual(try workbookLiteral(thresholdOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), 4)
+
+        state.matrixMinimumPercent = 0
+        controller.testingApplyDisplayStateImmediately(state)
+        let unfilteredNative = try XCTUnwrap(
+            controller.testingComparisonMatrix.testingSemanticCellState(genotype: genotype, sample: "S1")
+        )
+        XCTAssertEqual(unfilteredNative.text.value, "16")
+        XCTAssertEqual(unfilteredNative.evidenceReads, 16)
+        let unfilteredCapture = try controller.captureExcelExportSnapshot()
+        let unfilteredSnapshot = try JSONDecoder().decode(
+            GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(unfilteredCapture.excelSnapshotData)
+        )
+        XCTAssertEqual(unfilteredSnapshot.allMatrix.rows.first?.cells.first?.displayValue, 16)
+        XCTAssertEqual(unfilteredSnapshot.filteredMatrix.rows.first?.cells.first?.displayValue, 16)
+        let unfilteredOutput = root.appendingPathComponent("unfiltered.xlsx")
+        _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
+            snapshot: unfilteredSnapshot,
+            outputURL: unfilteredOutput,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        XCTAssertEqual(try workbookLiteral(unfilteredOutput, sheet: "Genotype Matrix - All", genotype: genotype), 16)
+        XCTAssertEqual(try workbookLiteral(unfilteredOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), 16)
+    }
+
+    func testExportActionPresentsOneSavePanelWithoutRoleChoice() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelOneAction")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)
+        ]))
+        var panels = 0
         controller.excelSavePanelPresenter = { panel, _, completion in
-            XCTAssertEqual(panel.prompt, "Export")
-            XCTAssertTrue(panel.nameFieldStringValue.hasSuffix("-filtered-pivot.xlsx"))
-            save = completion
+            panels += 1
+            XCTAssertEqual(panel.allowedContentTypes.first?.preferredFilenameExtension, "xlsx")
+            completion(nil)
         }
-        let exported = expectation(description: "production controller finished export")
-        let output = root.appendingPathComponent("filtered.xlsx")
-        var events: [String] = []
-        controller.onFilteredWorkbookExportEvent = { event in
-            switch event {
-            case .started: events.append("started")
-            case .succeeded(let url):
-                XCTAssertEqual(url, output)
-                events.append("succeeded")
-                exported.fulfill()
-            case .failed(let error): XCTFail(error)
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        XCTAssertEqual(panels, 1)
+    }
+
+    func testSavePanelFromPreviousBundleCannotLaunchExport() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelPanelOrigin")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)
+        ]))
+        var save: ((URL?) -> Void)?
+        var exports = 0
+        var events = 0
+        controller.excelSavePanelPresenter = { _, _, completion in save = completion }
+        controller.viewportExportRunner = { _, _, _ in exports += 1 }
+        controller.onExcelExportEvent = { _ in events += 1 }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        let next = root.appendingPathComponent("next", isDirectory: true)
+        try FileManager.default.createDirectory(at: next, withIntermediateDirectories: true)
+        controller.configure(result: makeResult(bundleURL: next, samples: [], calls: [
+            makeCall(sample: "AnimalB", genotype: "SECOND", reads: 5)
+        ]))
+        try XCTUnwrap(save)(root.appendingPathComponent("obsolete.xlsx"))
+        await Task.yield()
+        XCTAssertEqual(exports, 0)
+        XCTAssertEqual(events, 0)
+    }
+
+    func testCancelledSavePanelDoesNotExportOrChangeSuccessStatus() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelCancel")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)
+        ]))
+        var panels = 0
+        controller.excelSavePanelPresenter = { _, _, completion in panels += 1; completion(nil) }
+        controller.viewportExportRunner = { _, _, _ in XCTFail("Cancellation launched export") }
+        controller.onExcelExportEvent = { _ in XCTFail("Cancellation changed export state") }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        XCTAssertEqual(panels, 1)
+    }
+
+    func testNativeAnnotationDoesNotRequestBackgroundWorkbookRegeneration() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelNoSync")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)
+        ]))
+        var requests = 0
+        controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "Native review")))
+        let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root)
+        XCTAssertEqual(saved.resolvedMatrixComments[.column(sample: "AnimalA")]?.body, "Native review")
+    }
+    func testExportResolvesManualDraftSaveDiscardCancelAndFailedSave() async throws {
+        for decision in [GenotypeManualHaplotypeDraftDecision.save, .discard, .cancel] {
+            for invalid in (decision == .save ? [false, true] : [false]) {
+                let root = try TestTempDirectory.make(prefix: "ExcelManualDraft")
+                defer { TestTempDirectory.cleanup(root) }
+                let controller = GenotypeResultViewController()
+                _ = controller.view
+                let result = makeResult(bundleURL: root, samples: [], calls: [
+                    makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)
+                ])
+                try ONTGenotypeResultBundle.writeManifest(result.manifest, to: root)
+                try GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z").encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+                controller.configure(result: result)
+                controller.testingSelectMatrixColumn(sample: "AnimalA")
+                controller.testingUpdateManualHaplotypeLabel(invalid ? String(repeating: "x", count: 129) : "Analyst-H1")
+                XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+                var transitions: [String] = []
+                controller.testingSetManualHaplotypeDraftDecisionProvider { transition in transitions.append(transition.rawValue); return decision }
+                var panels = 0
+                controller.excelSavePanelPresenter = { _, _, completion in panels += 1; completion(nil) }
+                controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+                await controller.testingWaitForManualHaplotypeTransitions()
+                XCTAssertEqual(transitions, ["export"])
+                if decision == .save && !invalid { XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError) }
+                XCTAssertEqual(panels, decision == .cancel || invalid ? 0 : 1)
+                let assignments = controller.testingManualHaplotypeAssignments
+                XCTAssertEqual(assignments.map(\.label), decision == .save && !invalid ? ["Analyst-H1"] : [])
+                XCTAssertEqual(controller.testingManualHaplotypeEditorIsDirty, decision == .cancel || invalid)
             }
         }
-        controller.viewportExportRunner = { snapshot, format, url in
-            XCTAssertEqual(format, .pivotExcel)
-            XCTAssertEqual(url, output)
-            XCTAssertEqual(snapshot.filters["matrixMinimumReads"], "7")
-            XCTAssertEqual(snapshot.rows.map(\.genotype), ["FIRST"])
-            let frozen = try GenotypeAnnotationSidecar.decode(XCTUnwrap(snapshot.annotationSidecarData))
-            XCTAssertTrue(frozen.matrixComments.isEmpty)
-            try Data("captured reads=7".utf8).write(to: url)
-        }
-        controller.presentExcelExportDialog(expectedDisplayState: state)
-        XCTAssertTrue(presentedScope.contains("7"))
-        controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "First delayed annotation")))
-        state.matrixMinimumReads = 0
-        controller.testingApplyDisplayStateImmediately(state)
-        try XCTUnwrap(choose)(.alertFirstButtonReturn)
-        state.matrixMinimumReads = 100
-        controller.testingApplyDisplayStateImmediately(state)
-        XCTAssertTrue(events.isEmpty)
-        try XCTUnwrap(save)(output)
-        await fulfillment(of: [exported], timeout: 2)
-        XCTAssertEqual(events, ["started", "succeeded"])
-        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "captured reads=7")
     }
 
-    func testControllerCancelsBothDialogsWithoutExportAndEditableChoiceEmitsOpenRequest() throws {
-        let root = try TestTempDirectory.make(prefix: "ExcelPanelCancel")
+    func testExportResolvesEffectiveDraftSaveDiscardCancelAndFailedSave() async throws {
+        for decision in [GenotypeManualHaplotypeDraftDecision.save, .discard, .cancel] {
+            for invalid in (decision == .save ? [false, true] : [false]) {
+                let root = try TestTempDirectory.make(prefix: "ExcelEffectiveDraft")
+                defer { TestTempDirectory.cleanup(root) }
+                let controller = GenotypeResultViewController()
+                _ = controller.view
+                let result = makeResult(bundleURL: root, samples: [], calls: [
+                    makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)
+                ], haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis())
+                try ONTGenotypeResultBundle.writeManifest(result.manifest, to: root)
+                try GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z").encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+                controller.configure(result: result)
+                controller.testingShowMatrixTargetSelection([.column(sample: "AnimalA")])
+                controller.testingUpdateEffectiveHaplotypeLabel(invalid ? "bad\nlabel" : "Analyst-H1", locus: "MHC-A", slot: .h1)
+                XCTAssertTrue(controller.testingEffectiveHaplotypeEditorIsDirty)
+                var transitions: [String] = []
+                controller.testingSetManualHaplotypeDraftDecisionProvider { transition in transitions.append(transition.rawValue); return decision }
+                var panels = 0
+                controller.excelSavePanelPresenter = { _, _, completion in panels += 1; completion(nil) }
+                controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+                await controller.testingWaitForManualHaplotypeTransitions()
+                XCTAssertEqual(transitions, ["export"])
+                XCTAssertEqual(panels, decision == .cancel || invalid ? 0 : 1)
+                let captured = try controller.captureExcelExportSnapshot()
+                let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(captured.excelSnapshotData))
+                XCTAssertEqual(scientific.calls.first?.h1.effective, decision == .save && !invalid ? "Analyst-H1" : "M1A")
+                XCTAssertEqual(controller.testingEffectiveHaplotypeEditorIsDirty, decision == .cancel || invalid)
+            }
+        }
+    }
+
+    func testExportCannotStartAfterOriginControllerIsSuperseded() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelStaleController")
         defer { TestTempDirectory.cleanup(root) }
         let controller = GenotypeResultViewController()
         _ = controller.view
-        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)]))
-        var choose: ((NSApplication.ModalResponse) -> Void)?
-        var alert: NSAlert?
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)
+        ]))
         var save: ((URL?) -> Void)?
-        var saveCount = 0
-        var exportCount = 0
-        var requests: [GenotypeCurrentWorkbookUIRequest] = []
-        controller.onCurrentWorkbookSyncRequested = { requests.append($0) }
-        controller.viewportExportRunner = { _, _, _ in exportCount += 1 }
-        controller.excelChoicePresenter = { shown, _, completion in alert = shown; choose = completion }
-        controller.excelSavePanelPresenter = { _, _, completion in saveCount += 1; save = completion }
-        controller.presentExcelExportDialog(expectedDisplayState: controller.testingDisplayState)
-        try XCTUnwrap(choose)(.alertSecondButtonReturn)
-        XCTAssertEqual(saveCount, 0)
-        controller.presentExcelExportDialog(expectedDisplayState: controller.testingDisplayState)
-        try XCTUnwrap(choose)(.alertFirstButtonReturn)
-        try XCTUnwrap(save)(nil)
-        XCTAssertEqual(saveCount, 1)
-        XCTAssertEqual(exportCount, 0)
-        XCTAssertTrue(requests.isEmpty)
-        controller.presentExcelExportDialog(expectedDisplayState: controller.testingDisplayState)
-        let buttons = try XCTUnwrap(alert?.accessoryView as? NSStackView).arrangedSubviews.compactMap { $0 as? NSButton }
-        buttons[1].performClick(nil)
-        try XCTUnwrap(choose)(.alertFirstButtonReturn)
-        XCTAssertEqual(requests.map(\.action), [.openEditable])
-        XCTAssertEqual(saveCount, 1)
-        XCTAssertEqual(exportCount, 0)
+        var active = true
+        controller.excelSavePanelPresenter = { _, _, completion in save = completion }
+        controller.viewportExportRunner = { _, _, _ in XCTFail("Obsolete controller launched export") }
+        controller.onExcelExportEvent = { _ in XCTFail("Obsolete controller changed Inspector state") }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState, originStillCurrent: { active })
+        active = false
+        try XCTUnwrap(save)(root.appendingPathComponent("obsolete.xlsx"))
+        save = nil
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState, originStillCurrent: { active })
+        XCTAssertNil(save)
     }
 
-    private func snapshot(reads: String) -> GenotypeViewportExportSnapshot {
-        GenotypeViewportExportSnapshot(
-            bundleURL: URL(fileURLWithPath: "/tmp/a.lungfish"), analysisName: "A", lens: "matrix",
-            filters: ["matrixMinimumReads": reads], sampleNames: [], rows: []
-        )
-    }
-
-    func testActualAccessoryDefaultsFilteredAndRoutesBothEnabledRoles() throws {
-        var roles: [GenotypeExcelExportRole] = []
-        let accessory = GenotypeExcelExportAccessoryController(
-            allowsEditableWorkbook: true,
-            onRoleChange: { roles.append($0) }
-        )
-        accessory.loadView()
-        let buttons = try XCTUnwrap((accessory.view as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton })
-        XCTAssertEqual(accessory.role, .filteredView)
-        XCTAssertEqual(buttons.map(\.keyEquivalent), ["", ""])
-        XCTAssertTrue(buttons.allSatisfy(\.isEnabled))
-        buttons[1].performClick(nil)
-        buttons[0].performClick(nil)
-        XCTAssertEqual(roles, [.editableWorkbook, .filteredView])
-    }
-
-    func testDisabledEditableRoleExplainsWriteRequirementVisiblyAndAccessibly() throws {
-        let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
-            scope: "Captured scope", capability: "Supported", allowsEditableWorkbook: false,
-            onRoleChange: { _ in XCTFail("Disabled editable role must not change the selected role") }
-        )
-        let stack = try XCTUnwrap(presentation.alert.accessoryView as? NSStackView)
-        let buttons = stack.arrangedSubviews.compactMap { $0 as? NSButton }
-        let reason = "Editing and review are unavailable: a writable result and project write ownership are required. Filtered export is still available."
-        XCTAssertTrue(buttons[0].isEnabled)
-        XCTAssertFalse(buttons[1].isEnabled)
-        XCTAssertEqual(presentation.accessory.role, .filteredView)
-        XCTAssertEqual(presentation.alert.buttons[0].title, "Export…")
-        XCTAssertEqual(buttons[1].accessibilityHelp(), reason)
-        XCTAssertEqual(buttons[1].toolTip, reason)
-        XCTAssertTrue(stack.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }.contains(reason))
-    }
-
-    func testProductionAlertAssignsReturnAndEscapeAndDefaultsToFilteredRole() throws {
-        let presentation = GenotypeExcelExportDialogPresenter.makeAlert(
-            scope: "Captured scope", capability: "Supported", allowsEditableWorkbook: true,
-            onRoleChange: { _ in }
-        )
-        XCTAssertEqual(presentation.alert.buttons[0].keyEquivalent, "\r")
-        XCTAssertEqual(presentation.alert.buttons[1].keyEquivalent, "\u{1b}")
-        XCTAssertEqual(presentation.accessory.role, .filteredView)
-        XCTAssertEqual(presentation.alert.buttons[0].title, "Export…")
-    }
-
-    func testCapturedScopeIsBoundedHumanReadableAndUsesCanonicalWorkbookCapability() {
-        let call = GenotypeViewProjectionHaplotypeCall(
-            sample: "S1", locus: "A", haplotype1: "new", haplotype2: "old",
-            haplotype1Status: "manual", haplotype2Status: "called",
-            haplotype1Source: "pipeline", haplotype2Source: "pipeline",
-            baselineHaplotype1: "", baselineHaplotype2: "old"
-        )
-        let snapshot = GenotypeViewportExportSnapshot(
-            bundleURL: URL(fileURLWithPath: "/tmp/a.lungfish"), analysisName: "A", lens: "matrix",
-            filters: [
-                "matrixMinimumReads": "9", "matrixMinimumPercent": "12.5",
-                "matrixPercentDenominator": "Viewed Locus", "searchText": "needle",
-                "minimumSupportPercent": "7.5",
-                "supportDenominator": "Sample Retained",
-                "hideLowSupport": "true",
-                "internalEncodedPredicate": String(repeating: "x", count: 2_000),
-            ], sampleNames: ["matrix-axis"], rows: [], haplotypeCalls: [call],
-            haplotypeSampleScope: (1...100).map { "S\($0)" }, haplotypeLocusScope: ["A"]
-        )
-        let presentation = GenotypeExcelCapturedScope(snapshot: snapshot, callEditingSupported: true)
-        XCTAssertTrue(presentation.summary.contains("Samples (100): S1"))
-        XCTAssertTrue(presentation.summary.contains("Loci (1): A"))
-        XCTAssertTrue(presentation.summary.contains("Matrix min percent: 12.5"))
-        XCTAssertTrue(presentation.summary.contains("Matrix percent basis: Viewed Locus"))
-        XCTAssertTrue(presentation.summary.contains("Row-support min percent: 7.5 (active)"))
-        XCTAssertTrue(presentation.summary.contains("Row-support percent basis: Sample Retained"))
-        XCTAssertTrue(presentation.summary.contains("General search: needle"))
-        XCTAssertTrue(presentation.summary.contains("Low-support rows: hidden"))
-        XCTAssertFalse(presentation.summary.contains("internalEncodedPredicate"))
-        XCTAssertLessThan(presentation.summary.count, 1_000)
-        XCTAssertTrue(presentation.capability.contains("H1/H2 call edits"))
-    }
-
-    func testCapturedScopeLabelsConfiguredRowSupportPercentInactiveWhileRowsAreShown() {
-        let snapshot = GenotypeViewportExportSnapshot(
-            bundleURL: URL(fileURLWithPath: "/tmp/a.lungfish"),
-            analysisName: "A",
-            lens: "matrix",
-            filters: [
-                "hideLowSupport": "false",
-                "minimumSupportPercent": "7.5",
-                "supportDenominator": "Sample Retained",
-                "matrixMinimumPercent": "0.0",
-                "matrixPercentDenominator": "Viewed Locus",
-            ],
-            sampleNames: ["S1"],
-            rows: []
-        )
-
-        let presentation = GenotypeExcelCapturedScope(
-            snapshot: snapshot,
-            callEditingSupported: true
-        )
-
-        XCTAssertTrue(presentation.summary.contains(
-            "Row-support min percent: 7.5 (configured, inactive while low-support rows are shown)"
-        ))
-        XCTAssertTrue(presentation.summary.contains("Row-support percent basis: Sample Retained"))
-        XCTAssertTrue(presentation.summary.contains("Low-support rows: shown"))
-    }
-
-    func testOnlyFilteredWorkflowPublishesLatestFilteredEvents() {
+    func testAllCaptureIncludesCatalogOnlyEvidenceAndSamples() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelCatalogComplete")
+        defer { TestTempDirectory.cleanup(root) }
+        let catalog = GenotypeReviewableRowCatalog(samples: ["AnimalA", "AnimalB"], rows: [
+            .init(kind: .reference, callID: "Mafa-A1*002:01", displayName: "Mafa-A1*002:01", locus: "MHC-A",
+                  stableID: nil, section: "reference", sortKey: "2", supportBySample: ["AnimalA": 0, "AnimalB": 0])
+        ])
         let controller = GenotypeResultViewController()
-        var events = 0
-        controller.onFilteredWorkbookExportEvent = { _ in events += 1 }
-        controller.publishFilteredWorkbookExportEvent(.started, filteredWorkflow: false)
-        XCTAssertEqual(events, 0)
-        controller.publishFilteredWorkbookExportEvent(.started, filteredWorkflow: true)
-        XCTAssertEqual(events, 1)
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 9)
+        ], reviewableRowCatalog: catalog))
+        let snapshot = try controller.captureExcelExportSnapshot()
+        let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
+        XCTAssertEqual(scientific.allMatrix.samples.map(\.name), ["AnimalA", "AnimalB"])
+        XCTAssertEqual(scientific.allMatrix.rows.map(\.target.genotype), ["Mafa-A1*001:01", "Mafa-A1*002:01"])
+        XCTAssertEqual(scientific.allMatrix.rows.last?.cells.last?.rawSupport, 0)
+        XCTAssertEqual(scientific.filteredMatrix.rows.count, 1)
     }
 
-    func testProductionDialogRouteCancelsWithoutEffectsAndReusesCapturedSnapshotForBothRoles() {
-        let captured = snapshot(reads: "7")
-        var filtered: [GenotypeViewportExportSnapshot] = []
-        var opens = 0
-        let route: (NSApplication.ModalResponse, GenotypeExcelExportRole?) -> Void = { response, role in
-            GenotypeExcelExportDialogRoute.complete(
-                response: response, role: role, snapshot: captured,
-                exportFiltered: { filtered.append($0) }, openEditable: { opens += 1 }
-            )
-        }
-        route(.alertSecondButtonReturn, .filteredView)
-        XCTAssertTrue(filtered.isEmpty)
-        XCTAssertEqual(opens, 0)
-        route(.alertFirstButtonReturn, .filteredView)
-        route(.alertFirstButtonReturn, .editableWorkbook)
-        XCTAssertEqual(filtered, [captured])
-        XCTAssertEqual(opens, 1)
+    func testAllCaptureMergesOverlappingCatalogCellsWithoutInventingUnknownEvidence() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelCatalogOverlap")
+        defer { TestTempDirectory.cleanup(root) }
+        let first = "Mafa-A1*001:01"
+        let second = "Mafa-A1*002:01"
+        let catalog = GenotypeReviewableRowCatalog(samples: ["AnimalC", "AnimalB", "AnimalA"], rows: [
+            .init(kind: .reference, callID: first, displayName: first, locus: "MHC-A",
+                  stableID: nil, section: "reference", sortKey: "1",
+                  supportBySample: ["AnimalA": 9, "AnimalB": 0, "AnimalC": 0])
+        ])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(target: .row(locus: "MHC-A", genotype: first),
+                  style: .init(isBold: true), author: "Analyst", timestamp: "2026-09-12T00:00:00Z"),
+            .init(target: .cell(locus: "MHC-A", genotype: first, sample: "AnimalB"),
+                  style: .init(isItalic: true), author: "Analyst", timestamp: "2026-09-12T00:00:00Z")
+        ]
+        try sidecar.encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: first, reads: 9),
+            makeCall(sample: "AnimalB", genotype: second, reads: 7)
+        ], reviewableRowCatalog: catalog))
+        var state = controller.testingDisplayState
+        state.matrixSampleFilterText = "AnimalB"
+        state.matrixMinimumReads = 5
+        controller.testingApplyDisplayStateImmediately(state)
+        let snapshot: GenotypeViewportExportSnapshot
+        do { snapshot = try controller.captureExcelExportSnapshot() }
+        catch { XCTFail("Valid overlapping catalog evidence must be exportable: \(error)"); return }
+        let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(snapshot.excelSnapshotData))
+        XCTAssertEqual(scientific.allMatrix.samples.map(\.name), ["AnimalA", "AnimalB", "AnimalC"])
+        XCTAssertEqual(scientific.allMatrix.rows.map(\.target.genotype), [first, second])
+        let overlap = scientific.allMatrix.rows[0]
+        XCTAssertEqual(overlap.cells.map(\.displayValue), [9, 0, 0])
+        XCTAssertEqual(overlap.cells.map(\.rawSupport), [9, 0, 0])
+        XCTAssertTrue(overlap.cells.allSatisfy(\.reviewEligible))
+        XCTAssertEqual(overlap.style?.isBold, true)
+        XCTAssertEqual(overlap.cells[1].style?.isItalic, true)
+        let sparse = scientific.allMatrix.rows[1]
+        XCTAssertEqual(sparse.cells.map(\.displayValue), [nil, 7, nil])
+        XCTAssertEqual(sparse.cells.map(\.rawSupport), [nil, 7, nil])
+        XCTAssertEqual(sparse.cells.map(\.reviewEligible), [false, true, false])
+        XCTAssertEqual(scientific.filteredMatrix.samples.map(\.name), ["AnimalB"])
+        XCTAssertEqual(scientific.filteredMatrix.rows.map(\.target.genotype), [second])
+        XCTAssertEqual(scientific.filteredMatrix.rows[0].cells[0].displayValue, 7)
     }
+
+    func testImmediateExportSettlesPendingSharedSearch() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelSharedSearch")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 9),
+            makeCall(sample: "AnimalA", genotype: "Mafa-B1*001:01", reads: 7)
+        ]))
+        controller.testingTypeQuickSearchDebounced("Mafa-A1")
+        let snapshot = try controller.captureExcelExportSnapshot()
+        let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
+        XCTAssertEqual(scientific.filteredMatrix.rows.map(\.target.genotype), ["Mafa-A1*001:01"])
+        XCTAssertEqual(scientific.allMatrix.rows.count, 2)
+        XCTAssertEqual(snapshot.filters["quickFilterSearchText"], "Mafa-A1")
+    }
+
+    func testMountedManualFieldLastKeystrokeIsSavedBeforeCapture() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelNativeManual")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)
+        ])
+        try ONTGenotypeResultBundle.writeManifest(result.manifest, to: root)
+        try GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z").encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let controller = GenotypeResultViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        let window = NSWindow(contentRect: controller.view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentViewController = controller
+        defer { window.orderOut(nil) }
+        controller.configure(result: result)
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        window.makeKeyAndOrderFront(nil)
+        controller.view.layoutSubtreeIfNeeded()
+        let combo = try XCTUnwrap(controller.testingFirstManualHaplotypeComboBox)
+        XCTAssertTrue(window.makeFirstResponder(combo))
+        let editor = try XCTUnwrap(combo.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("Native H1", replacementRange: editor.selectedRange())
+        controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .save }
+        controller.excelSavePanelPresenter = { _, _, completion in completion(root.appendingPathComponent("snapshot.xlsx")) }
+        let exported = expectation(description: "native final keystroke exported")
+        controller.viewportExportRunner = { snapshot, _, _ in
+            defer { exported.fulfill() }
+            let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
+            XCTAssertEqual(scientific.calls.first?.h1.effective, "Native H1")
+        }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        await fulfillment(of: [exported], timeout: 3)
+        XCTAssertEqual(controller.testingManualHaplotypeAssignments.map(\.label), ["Native H1"])
+    }
+
+    private func workbookLiteral(_ workbook: URL, sheet: String, genotype: String) throws -> Int {
+        let process = Process()
+        process.executableURL = openpyxlPython
+        process.arguments = ["-c", #"""
+import json, openpyxl, sys
+workbook = openpyxl.load_workbook(sys.argv[1], data_only=False)
+sheet = workbook[sys.argv[2]]
+matches = [row[3].value for row in sheet.iter_rows() if row[2].value == sys.argv[3]]
+print(json.dumps(matches))
+"""#, workbook.path, sheet, genotype]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Int])
+        return try XCTUnwrap(values.count == 1 ? values.first : nil)
+    }
+
 }

@@ -30,7 +30,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             candidateEMBL: candidateEMBLURL,
             unnameableEMBL: unnameableEMBLURL
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -52,7 +52,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testArtifactsLensOmitsCandidateGenBankArtifactsWhenAbsent() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: []))
 
@@ -86,7 +86,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             reciprocalBAM: reciprocalBAMURL,
             reciprocalBAI: reciprocalBAIURL
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -119,7 +119,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             reciprocalBAM: bundleURL.appendingPathComponent("reciprocal.bam"),
             reciprocalBAI: bundleURL.appendingPathComponent("reciprocal.bam.bai")
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -186,7 +186,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let fastaURL = bundleURL.appendingPathComponent(
             "artifacts/sequences/observed-provisional-exon2.fasta"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -289,7 +289,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 .init(sample: "AnimalA", passedAlignments: 12, passedUniqueReads: 11),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -406,7 +406,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             reciprocalBAM: bundleURL.appendingPathComponent("reciprocal.bam"),
             reciprocalBAI: bundleURL.appendingPathComponent("reciprocal.bam.bai")
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -435,7 +435,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testResultViewportOmitsSummaryStatisticsStripForEveryLens() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: []))
 
@@ -447,7 +447,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testAnchorLensShowsDerivedAnchorSummaryAndCaveat() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             ONTGenotypeCall(
@@ -487,7 +487,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testHaplotypeLensShowsExplicitDefinitionAndReviewStatuses() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -534,7 +534,9 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
         XCTAssertTrue(controller.testingHaplotypeLensText.contains("Mauritian cynomolgus macaques"))
         XCTAssertTrue(controller.testingHaplotypeLensText.contains("DW472"))
-        XCTAssertTrue(controller.testingHaplotypeLensText.contains("M1A/-"))
+        XCTAssertEqual(analysis.samples.first?.calls.first?.haplotype2, "-")
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("M1A/M1A"),
+            controller.testingHaplotypeLensText)
         XCTAssertTrue(controller.testingHaplotypeLensText.contains("Review"))
         XCTAssertTrue(controller.testingHaplotypeLensText.contains("ERR: TMH"))
         XCTAssertTrue(controller.testingHaplotypeLensText.contains("Review in Analyst"))
@@ -542,7 +544,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testHaplotypeLensTreatsWholeMHCHomozygoteAsSimpleDespiteMultipleDiagnosticFamilies() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -599,7 +601,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testHaplotypeLensKeepsMixedFamilyHomozygoteInReview() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -639,7 +641,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testOutlineRendersSingleHaplotypeHomozygoteInBothSlots() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -674,7 +676,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testSelectingReviewCellMarksOutlineSampleAndLocus() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -742,7 +744,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 ),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [], calls: [], haplotypeAnalysis: analysis
@@ -768,7 +770,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testDisplayStateCanSwitchViewportToHaplotypes() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -808,7 +810,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testHaplotypeLensCanFocusSampleInAnalystMatrix() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
@@ -870,7 +872,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 reviewSample("DW002"),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -913,7 +915,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 reviewSample("DW002", loci: ["MHC-B"]),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -968,7 +970,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 calledReviewSample("OKSample"),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1025,7 +1027,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             isStarred: true,
             predicate: .animalIdIn(["AnimalA"])
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1111,7 +1113,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
 
         controller.configure(result: makeResult(
@@ -1137,7 +1139,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             isStarred: true,
             predicate: .animalIdIn(["AnimalA"])
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -1185,7 +1187,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 calledReviewSample("OKSample"),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [
@@ -1247,7 +1249,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [
             ONTGenotypeSampleResult(
@@ -1321,7 +1323,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 calls: calls.filter { $0.sample == sample }
             )
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: samples, calls: calls, haplotypeAnalysis: analysis))
 
@@ -1405,7 +1407,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 calls: calls.filter { $0.sample == sample }
             )
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: samples, calls: calls, haplotypeAnalysis: analysis))
         controller.testingSelectLens(.review)
@@ -1452,7 +1454,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 )
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [
@@ -1478,7 +1480,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testLocusFilterKeepsAGSeparateFromClassicalA() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             ONTGenotypeCall(
@@ -1514,7 +1516,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testMatrixDefaultsToAlleleNameSort() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             ONTGenotypeCall(
@@ -1553,7 +1555,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testSelectingRowDoesNotBecomeLocusFilter() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             ONTGenotypeCall(
@@ -1661,7 +1663,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let result = makeResult(bundleURL: root, samples: [], calls: names.map {
             makeCall(sample: "AnimalA", genotype: $0, reads: 10)
         }, manifest: manifest)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [names[2], names[3], names[1], names[0]])
@@ -1672,7 +1674,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         viewModel.locusDisplayOrderDraft = "B, A2/A3/A4/A5, A1, F"
         viewModel.applyLocusDisplayOrderDraft()
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [names[0], names[1], names[3], names[2]])
-        let reloaded = GenotypeResultViewController()
+        let reloaded = makeMatrixAnnotationGuardedController()
         _ = reloaded.view
         reloaded.configure(result: result)
         XCTAssertEqual(reloaded.testingVisibleMatrixGenotypes, [names[0], names[1], names[3], names[2]])
@@ -1836,7 +1838,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             rawReferenceID: rawReferenceID,
             alleleName: "Mafa-A1*001:01"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         var selection: GenotypeResultSelectionState?
         controller.onSelectionStateChanged = { selection = $0 }
@@ -1866,7 +1868,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testReciprocalKnownRowUsingDisplayAlleleNameResolvesGraphicalRecordByAlias() throws {
         let rawReferenceID = "NHP01222"
         let displayAlleleName = "Mafa-A1*001:01"
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -1892,7 +1894,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSupportedKnownCellReusesGraphicalDetailAndRowClearsObservedSample() throws {
         let rawReferenceID = "NHP01222"
         let call = makeCall(sample: "AnimalA", genotype: rawReferenceID, reads: 73)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [ONTGenotypeSampleResult(
@@ -1948,7 +1950,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             makeMHCReferenceVisualizationRecord(rawReferenceID: firstID, alleleName: "Mafa-A1*001:01"),
             makeMHCReferenceVisualizationRecord(rawReferenceID: secondID, alleleName: "Mafa-B*002:01"),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: samples,
@@ -1995,7 +1997,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testKnownDetailIsMountedOnlyOnceAcrossKnownRowChanges() throws {
         let firstID = "NHP01222"
         let secondID = "NHP99999"
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2051,12 +2053,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 )]
             )
         )
-        let loaderSpy = KnownSelectionResultLoaderSpy(result: result)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
-        controller.genotypeResultLoader = { url in
-            await loaderSpy.load(url)
-        }
         controller.configure(result: result)
         let baseline = controller.testingKnownSelectionDiagnostics
 
@@ -2077,8 +2075,6 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             diagnostics.aggregateEvidenceHelperEntryCount,
             baseline.aggregateEvidenceHelperEntryCount
         )
-        let loaderInvocationCount = await loaderSpy.currentInvocationCount()
-        XCTAssertEqual(loaderInvocationCount, 0)
 
         let detail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
         let storedCallbacks = Mirror(reflecting: detail).children.compactMap { child -> String? in
@@ -2101,7 +2097,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testLegacyKnownRowUsesFallbackMetadataAndFreshAnalysisNote() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2153,7 +2149,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     /// matrix stands alone. It returns as soon as a selection has content.
     func testSelectedFASTARowWithNothingToDetailHidesThePane() {
         let genotype = "01_Mafa_A1_001_01_FULL_FASTA_LABEL"
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -2186,7 +2182,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             sampleTotalReads: nil, sampleUniqueRetainedReads: 40, sampleUniqueRetainedPercent: nil,
             overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [ONTGenotypeSampleResult(
@@ -2224,7 +2220,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_002_01",
             reads: 20
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [
@@ -2265,7 +2261,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "NHP99999",
             reads: 20
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [
@@ -2367,7 +2363,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             support: .singleton,
             samples: ["AnimalA"]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeCandidateResult(
             bundleURL: bundleURL,
@@ -2515,7 +2511,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             .listTrailing,
         ] {
             for width in [280, 420, 779, 841, 1_200, 1_720, 2_300] {
-                let controller = GenotypeResultViewController()
+                let controller = makeMatrixAnnotationGuardedController()
                 controller.view.frame = NSRect(
                     x: 0,
                     y: 0,
@@ -2597,7 +2593,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 reads: index * 50
             )
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -2693,7 +2689,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 21
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -2860,7 +2856,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.view.frame = NSRect(
             x: 0,
             y: 0,
@@ -2958,7 +2954,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.view.frame = NSRect(
             x: 0,
             y: 0,
@@ -3052,7 +3048,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3090,7 +3086,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3142,7 +3138,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "01_Mafa_A1_001_01",
             reads: 42
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3179,7 +3175,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedColumnDetailsRefreshWhenRowFilterChanges() {
         let first = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
         let second = makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [], calls: [first, second], referenceMetadata: makeGenBankReferenceMetadata()
@@ -3217,7 +3213,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "NHP99999",
             reads: 41
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3289,7 +3285,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "04_Mafa_B_001_01",
             reads: 41
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3344,7 +3340,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "04_Mafa_B_001_01",
             reads: 9
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3404,7 +3400,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: "06_Mafa_I_001_01",
             reads: 29
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3565,8 +3561,11 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             makeCall(sample: "AnimalA", genotype: shared, reads: 21),
             makeCall(sample: "AnimalB", genotype: shared, reads: 13),
             makeCall(sample: "AnimalA", genotype: targetOnly, reads: 7),
+            // FN requires literal zero evidence, not an absent/unknown pair.
+            makeCall(sample: "AnimalB", genotype: targetOnly, reads: 0),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
+        controller.onMatrixAnnotationCommandError = { XCTFail("Unexpected native review error: \($0)") }
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -3671,7 +3670,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             result.manifest,
             to: bundleURL
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -3695,12 +3694,8 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let sidecarBefore = try Data(contentsOf: sidecarURL)
         let assignmentsBefore = controller.testingManualHaplotypeAssignments
         var sidecarPublicationCount = 0
-        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
         controller.onAnnotationSidecarChanged = { _ in
             sidecarPublicationCount += 1
-        }
-        controller.onCurrentWorkbookSyncRequested = {
-            workbookActions.append($0.action)
         }
         controller.testingResetProjectionPerformanceCounters()
         let performanceBefore = controller.testingProjectionPerformanceSnapshot
@@ -3730,11 +3725,9 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             ),
             "Source H1"
         )
-        XCTAssertEqual(controller.testingManualHaplotypeWorkbookDirtyMarkCount, 0)
         XCTAssertEqual(controller.testingManualHaplotypeAssignments, assignmentsBefore)
         XCTAssertEqual(try Data(contentsOf: sidecarURL), sidecarBefore)
         XCTAssertEqual(sidecarPublicationCount, 0)
-        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertEqual(
             controller.testingProjectionPerformanceSnapshot,
             performanceBefore
@@ -3748,7 +3741,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let third = "03_Mafa_A1_DROP"
         let calls = [first, second, third].map { makeCall(sample: "AnimalA", genotype: $0, reads: 10) }
 
-        let nonAnchorController = GenotypeResultViewController()
+        let nonAnchorController = makeMatrixAnnotationGuardedController()
         _ = nonAnchorController.view
         nonAnchorController.configure(result: makeResult(samples: [], calls: calls))
         nonAnchorController.testingSelectMatrixRows(genotypes: [first, third, second], sample: nil)
@@ -3758,7 +3751,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         ]))
         XCTAssertFalse(nonAnchorController.testingDetailText.contains(third))
 
-        let anchorController = GenotypeResultViewController()
+        let anchorController = makeMatrixAnnotationGuardedController()
         _ = anchorController.view
         anchorController.configure(result: makeResult(samples: [], calls: calls))
         anchorController.testingSelectMatrixRows(genotypes: [first, second, third], sample: nil)
@@ -3780,7 +3773,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             ONTGenotypeSampleResult(sample: "AnimalA", passedAlignments: 10, passedUniqueReads: 10, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [callA]),
             ONTGenotypeSampleResult(sample: "AnimalB", passedAlignments: 20, passedUniqueReads: 20, sampleTotalReads: nil, sampleUniqueRetainedPercent: nil, calls: [callB]),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: samples, calls: [callA, callB]))
         controller.testingClickMatrixCell(genotype: first, sample: "AnimalA")
@@ -3814,7 +3807,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             makeCall(sample: "AnimalA", genotype: drop, reads: 30),
             makeCall(sample: "AnimalB", genotype: drop, reads: 40),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
         controller.testingClickMatrixSelectAllChiclet()
@@ -3842,7 +3835,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     func testSelectedColumnReadSupportDoesNotBecomeFractionWhenDenominatorChanges() {
         let selected = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SELECTED", reads: 25)
         let other = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1_OTHER", reads: 75)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [ONTGenotypeSampleResult(
@@ -3876,7 +3869,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
                 reads: 1
             )
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
 
@@ -3897,7 +3890,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let calls = (0..<count).map { index in
             makeCall(sample: "AnimalA", genotype: String(format: "%04d_Mafa_A1_%04d", index, index), reads: index + 1)
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
         let rowTargets = calls.reversed().map {
@@ -3924,7 +3917,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
     func testSelectedColumnOmitsUnavailableSummaryMetricsWhenSampleSummaryMissing() {
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_ONLY", reads: 42)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [call]))
         controller.testingSelectMatrixColumn(sample: "AnimalA")
@@ -3940,7 +3933,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         let genotype = "01_Mafa_A1_DUPLICATE"
         let first = makeCall(sample: "AnimalA", genotype: genotype, reads: 17)
         let duplicate = makeCall(sample: "AnimalA", genotype: genotype, reads: 91)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
 
         controller.configure(result: makeResult(samples: [], calls: [first, duplicate]))
@@ -3975,7 +3968,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             ],
             alleleFieldKey: "feature.allele"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],

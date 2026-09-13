@@ -2,6 +2,11 @@ import XCTest
 @testable import LungfishCLI
 
 final class FastqONTBarcodeGenotypingCommandTests: XCTestCase {
+    func testObsoleteComparisonWorkbookOptionsAreRejected() throws {
+        let args = ["/tmp/reads.fastq", "--reference", "/tmp/ref.fasta", "--barcodes", "/tmp/barcodes.csv", "--output-dir", "/tmp/out"]
+        XCTAssertThrowsError(try FastqONTBarcodeGenotypingSubcommand.parse(args + ["--comparison-workbook", "/tmp/old.xlsx"]))
+        XCTAssertThrowsError(try FastqONTBarcodeGenotypingSubcommand.parse(args + ["--comparison-name", "old"]))
+    }
     func testFastqCommandRegistersONTBarcodeGenotype() {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("ont-barcode-genotype"))
@@ -21,8 +26,6 @@ final class FastqONTBarcodeGenotypingCommandTests: XCTestCase {
             "--output-name", "barcode08-mhc",
             "--project", "/tmp/project.lungfish",
             "--analysis-name", "ONT08",
-            "--comparison-workbook", "/tmp/pbaa.xlsx",
-            "--comparison-name", "Illumina-31262",
             "--haplotype-assay", "MHC-exon2-miSeq",
             "--haplotype-definition-scope", "project",
             "--haplotype-definition", "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
@@ -40,8 +43,6 @@ final class FastqONTBarcodeGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.outputName, "barcode08-mhc")
         XCTAssertEqual(command.project, "/tmp/project.lungfish")
         XCTAssertEqual(command.analysisName, "ONT08")
-        XCTAssertEqual(command.comparisonWorkbook, "/tmp/pbaa.xlsx")
-        XCTAssertEqual(command.comparisonName, "Illumina-31262")
         XCTAssertEqual(command.haplotypeAssay, "MHC-exon2-miSeq")
         XCTAssertEqual(command.haplotypeDefinitionScope, "project")
         XCTAssertEqual(command.haplotypeDefinition, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")

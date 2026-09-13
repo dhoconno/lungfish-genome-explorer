@@ -15,172 +15,6 @@ public struct GenotypeResultArtifactRow: Equatable {
     }
 }
 
-public struct GenotypeResultCurrentWorkbookUpdateState: Equatable {
-    public var manualChangeCount: Int
-    public var statusText: String
-    public var isEnabled: Bool
-    public var requiresReview: Bool
-
-    public init(
-        manualChangeCount: Int,
-        statusText: String,
-        isEnabled: Bool,
-        requiresReview: Bool = false
-    ) {
-        self.manualChangeCount = manualChangeCount
-        self.statusText = statusText
-        self.isEnabled = isEnabled
-        self.requiresReview = requiresReview
-    }
-}
-
-public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
-    case current
-    case dirty
-    case updating
-    case dirtyWhileUpdating
-    case failed(String)
-    case reviewRequired
-
-    public func presentation(
-        isReadOnly: Bool,
-        manualChangeCount: Int = 0
-    ) -> GenotypeResultCurrentWorkbookUpdateState {
-        let statusText: String
-        let isEnabled: Bool
-        switch self {
-        case .current:
-            statusText = "Current — current.xlsx represents the latest LGE review state."
-            isEnabled = true
-        case .dirty:
-            statusText = "Pending edits — current.xlsx does not include the latest LGE review state."
-            isEnabled = !isReadOnly
-        case .updating:
-            statusText = "Updating — publishing the latest LGE review state to current.xlsx."
-            isEnabled = true
-        case .dirtyWhileUpdating:
-            statusText = "Pending edits while updating — one newer workbook update will follow."
-            isEnabled = !isReadOnly
-        case .failed(let message):
-            statusText = "Failed — \(message)"
-            isEnabled = !isReadOnly
-        case .reviewRequired:
-            statusText = "Review required — current.xlsx contains external edits."
-            isEnabled = !isReadOnly
-        }
-        return GenotypeResultCurrentWorkbookUpdateState(
-            manualChangeCount: manualChangeCount,
-            statusText: statusText,
-            isEnabled: isEnabled,
-            requiresReview: self == .reviewRequired
-        )
-    }
-}
-
-public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
-    public let bundleURL: URL
-    public let calls: [GenotypeWorkbookHaplotypeCall]
-    public let includedLoci: [String]
-    public let annotationSidecar: GenotypeAnnotationSidecar
-    public let annotationSidecarData: Data
-    public let annotationSidecarURL: URL
-    public let candidateArtifacts: ONTMHCCandidateArtifactManifest?
-    public let reviewableRowCatalog: ONTMHCArtifactReference?
-    public let reviewableRowCatalogSchemaVersion: Int?
-    public let annotationOnly: Bool
-    public let isReadOnly: Bool
-    public let haplotypeProjectionMode:
-        GenotypeWorkbookHaplotypeProjectionMode
-
-    public init(
-        bundleURL: URL,
-        calls: [GenotypeWorkbookHaplotypeCall],
-        includedLoci: [String],
-        annotationSidecar: GenotypeAnnotationSidecar,
-        annotationSidecarData: Data,
-        annotationSidecarURL: URL,
-        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
-        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
-        reviewableRowCatalogSchemaVersion: Int? = nil,
-        annotationOnly: Bool,
-        isReadOnly: Bool,
-        haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
-    ) {
-        self.bundleURL = bundleURL.standardizedFileURL
-        self.calls = calls
-        self.includedLoci = includedLoci
-        self.annotationSidecar = annotationSidecar
-        self.annotationSidecarData = annotationSidecarData
-        self.annotationSidecarURL = annotationSidecarURL.standardizedFileURL
-        self.candidateArtifacts = candidateArtifacts
-        self.reviewableRowCatalog = reviewableRowCatalog
-        self.reviewableRowCatalogSchemaVersion =
-            reviewableRowCatalogSchemaVersion
-        self.annotationOnly = annotationOnly
-        self.isReadOnly = isReadOnly
-        self.haplotypeProjectionMode = haplotypeProjectionMode
-    }
-
-    public static func encodingAnnotationSidecar(
-        bundleURL: URL,
-        calls: [GenotypeWorkbookHaplotypeCall],
-        includedLoci: [String],
-        annotationSidecar: GenotypeAnnotationSidecar,
-        annotationSidecarURL: URL,
-        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
-        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
-        reviewableRowCatalogSchemaVersion: Int? = nil,
-        annotationOnly: Bool,
-        isReadOnly: Bool,
-        haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
-        encoder: @Sendable (GenotypeAnnotationSidecar) throws -> Data = {
-            try $0.encoded()
-        }
-    ) throws -> Self {
-        Self(
-            bundleURL: bundleURL,
-            calls: calls,
-            includedLoci: includedLoci,
-            annotationSidecar: annotationSidecar,
-            annotationSidecarData: try encoder(annotationSidecar),
-            annotationSidecarURL: annotationSidecarURL,
-            candidateArtifacts: candidateArtifacts,
-            reviewableRowCatalog: reviewableRowCatalog,
-            reviewableRowCatalogSchemaVersion:
-                reviewableRowCatalogSchemaVersion,
-            annotationOnly: annotationOnly,
-            isReadOnly: isReadOnly,
-            haplotypeProjectionMode: haplotypeProjectionMode
-        )
-    }
-}
-
-public struct GenotypeCurrentWorkbookUIRequest: Sendable {
-    public enum Action: Equatable, Sendable {
-        case register
-        case markDirty
-        case synchronize(GenotypeCurrentWorkbookSyncIntent)
-        case openEditable
-        case acceptedEditable
-    }
-
-    public let snapshot: GenotypeCurrentWorkbookUISnapshot
-    public let action: Action
-    public let openAfterSuccess: Bool
-
-    public init(snapshot: GenotypeCurrentWorkbookUISnapshot, action: Action) {
-        self.snapshot = snapshot
-        self.action = action
-        if case .synchronize(.updateAndView) = action {
-            self.openAfterSuccess = true
-        } else {
-            self.openAfterSuccess = false
-        }
-    }
-}
-
 public struct GenotypeResultDocumentState: Equatable {
     public var title: String
     public var subtitle: String?
@@ -201,10 +35,9 @@ public struct GenotypeResultDocumentState: Equatable {
     public var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
     public var haplotypeDefinitionRows: [(String, String)] = []
     public var haplotypeDefinitionsFolderURL: URL?
-    public var currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
-    public var latestFilteredExport: GenotypeFilteredExportPresentation?
-    public var filteredExportStatus: String?
-    public var isFilteredExporting: Bool
+    public var lastExcelExport: GenotypeExcelExportPresentation?
+    public var excelExportStatus: String?
+    public var isExcelExporting: Bool
 
     public init(
         title: String,
@@ -226,10 +59,9 @@ public struct GenotypeResultDocumentState: Equatable {
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
         haplotypeDefinitionsFolderURL: URL? = nil,
-        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil,
-        latestFilteredExport: GenotypeFilteredExportPresentation? = nil,
-        filteredExportStatus: String? = nil,
-        isFilteredExporting: Bool = false
+        lastExcelExport: GenotypeExcelExportPresentation? = nil,
+        excelExportStatus: String? = nil,
+        isExcelExporting: Bool = false
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -250,10 +82,9 @@ public struct GenotypeResultDocumentState: Equatable {
         self.auditEntries = auditEntries
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
         self.haplotypeDefinitionsFolderURL = haplotypeDefinitionsFolderURL
-        self.currentWorkbookUpdate = currentWorkbookUpdate
-        self.latestFilteredExport = latestFilteredExport
-        self.filteredExportStatus = filteredExportStatus
-        self.isFilteredExporting = isFilteredExporting
+        self.lastExcelExport = lastExcelExport
+        self.excelExportStatus = excelExportStatus
+        self.isExcelExporting = isExcelExporting
     }
 
     public func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
@@ -287,22 +118,14 @@ public struct GenotypeResultDocumentState: Equatable {
     }
 
     public func replacing(
-        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
+        lastExcelExport: GenotypeExcelExportPresentation?,
+        excelExportStatus: String?,
+        isExcelExporting: Bool
     ) -> GenotypeResultDocumentState {
         var copy = self
-        copy.currentWorkbookUpdate = currentWorkbookUpdate
-        return copy
-    }
-
-    public func replacing(
-        latestFilteredExport: GenotypeFilteredExportPresentation?,
-        filteredExportStatus: String?,
-        isFilteredExporting: Bool
-    ) -> GenotypeResultDocumentState {
-        var copy = self
-        copy.latestFilteredExport = latestFilteredExport
-        copy.filteredExportStatus = filteredExportStatus
-        copy.isFilteredExporting = isFilteredExporting
+        copy.lastExcelExport = lastExcelExport
+        copy.excelExportStatus = excelExportStatus
+        copy.isExcelExporting = isExcelExporting
         return copy
     }
 
@@ -330,10 +153,9 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL &&
-            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate &&
-            lhs.latestFilteredExport == rhs.latestFilteredExport &&
-            lhs.filteredExportStatus == rhs.filteredExportStatus &&
-            lhs.isFilteredExporting == rhs.isFilteredExporting
+            lhs.lastExcelExport == rhs.lastExcelExport &&
+            lhs.excelExportStatus == rhs.excelExportStatus &&
+            lhs.isExcelExporting == rhs.isExcelExporting
     }
 }
 
@@ -344,7 +166,7 @@ enum GenotypeResultDocumentComponent: Equatable {
     case smartCohorts
     case summary
     case samples
-    case currentWorkbook
+    case excel
     case haplotypeDefinitions
     case qc
     case artifacts
@@ -363,15 +185,14 @@ public struct GenotypeResultDocumentSection: View {
     var onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortAddRequested: (() -> Void)? = nil
-    var onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
-    var onCurrentWorkbookReviewRequested: (() -> Void)? = nil
+    var onExcelExportRequested: (() -> Void)? = nil
 
     @State private var isSummaryExpanded = true
     @State private var isQCExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isSamplesExpanded = true
     @State private var isIncludedLociExpanded = true
-    @State private var isCurrentWorkbookExpanded = true
+    @State private var isExcelExpanded = true
     @State private var isAuditTimelineExpanded = false
     @State private var isHaplotypeDefinitionsExpanded = true
 
@@ -383,8 +204,7 @@ public struct GenotypeResultDocumentSection: View {
         onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortAddRequested: (() -> Void)? = nil,
-        onCurrentWorkbookUpdateRequested: (() -> Void)? = nil,
-        onCurrentWorkbookReviewRequested: (() -> Void)? = nil
+        onExcelExportRequested: (() -> Void)? = nil
     ) {
         self.state = state
         self.onViewModeChange = onViewModeChange
@@ -393,8 +213,7 @@ public struct GenotypeResultDocumentSection: View {
         self.onSmartCohortSelected = onSmartCohortSelected
         self.onSmartCohortDeleted = onSmartCohortDeleted
         self.onSmartCohortAddRequested = onSmartCohortAddRequested
-        self.onCurrentWorkbookUpdateRequested = onCurrentWorkbookUpdateRequested
-        self.onCurrentWorkbookReviewRequested = onCurrentWorkbookReviewRequested
+        self.onExcelExportRequested = onExcelExportRequested
     }
 
     public var body: some View {
@@ -420,8 +239,8 @@ public struct GenotypeResultDocumentSection: View {
             summarySection
         case .samples:
             samplesSection
-        case .currentWorkbook:
-            currentWorkbookSection
+        case .excel:
+            excelSection
         case .haplotypeDefinitions:
             haplotypeDefinitionsSection
         case .qc:
@@ -443,9 +262,7 @@ public struct GenotypeResultDocumentSection: View {
             components += [.divider, .smartCohorts]
         }
         components += [.divider, .summary, .divider, .samples]
-        if state.currentWorkbookUpdate != nil {
-            components += [.divider, .currentWorkbook]
-        }
+        if state.bundleURL != nil { components += [.divider, .excel] }
         if !state.haplotypeDefinitionRows.isEmpty {
             components += [.divider, .haplotypeDefinitions]
         }
@@ -621,76 +438,40 @@ public struct GenotypeResultDocumentSection: View {
         .font(contentHeadingFont)
     }
 
-    private var currentWorkbookSection: some View {
-        DisclosureGroup("Excel", isExpanded: $isCurrentWorkbookExpanded) {
+    private var excelSection: some View {
+        DisclosureGroup("Excel", isExpanded: $isExcelExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                if let update = state.currentWorkbookUpdate {
-                    Text(update.statusText)
-                        .font(contentBodyFont)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Export to Excel…") {
-                        onCurrentWorkbookUpdateRequested?()
-                    }
+                Button("Export to Excel…") { onExcelExportRequested?() }
                     .controlSize(.regular)
-                    .help("Choose a filtered copy or the editable current.xlsx workbook.")
+                    .disabled(state.isExcelExporting)
+                    .help(GenotypeExcelExportSessionState.disclosure)
                     .accessibilityIdentifier("genotype-inspector-export-to-excel")
-                    if update.requiresReview {
-                        Button("Review Excel Changes…") {
-                            onCurrentWorkbookReviewRequested?()
-                        }
-                        .controlSize(.regular)
-                        .disabled(!update.isEnabled)
-                        .help(update.isEnabled
-                            ? "Review supported Excel changes before importing them."
-                            : GenotypeExcelExportRole.unavailableEditingExplanation)
-                        .accessibilityHint(Text(update.isEnabled
-                            ? "Review supported Excel changes before importing them."
-                            : GenotypeExcelExportRole.unavailableEditingExplanation))
-                        .accessibilityIdentifier("genotype-inspector-review-excel-changes")
-                        if !update.isEnabled {
-                            Text(GenotypeExcelExportRole.unavailableEditingExplanation)
-                                .font(contentBodyFont)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                Text(GenotypeExcelExportSessionState.disclosure)
+                    .font(contentBodyFont)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let latest = state.lastExcelExport {
+                    let available = latest.isAvailable && FileManager.default.fileExists(atPath: latest.url.path)
+                    Button("Last Excel export: \(latest.url.lastPathComponent)") {
+                        NSWorkspace.shared.activateFileViewerSelecting([latest.url])
                     }
-                    Text("Choose a filtered view for sharing, or current.xlsx for supported review and import workflows.")
-                        .font(contentBodyFont)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let latest = state.latestFilteredExport {
-                        let isAvailable = latest.isAvailable
-                            && FileManager.default.fileExists(atPath: latest.url.path)
-                        let unavailableReason = isAvailable ? nil
-                            : "The last filtered export is no longer available at its saved location."
-                        Button("Last filtered export: \(latest.url.lastPathComponent)") {
-                            NSWorkspace.shared.activateFileViewerSelecting([latest.url])
-                        }
-                        .buttonStyle(.link)
-                        .disabled(!isAvailable)
-                        .help(isAvailable
-                            ? "Reveal the last successful filtered export in Finder."
-                            : (unavailableReason ?? "The last filtered export is unavailable."))
-                        .accessibilityIdentifier("genotype-inspector-last-filtered-export")
-                        if let reason = unavailableReason {
-                            Text(reason)
-                                .font(contentBodyFont)
-                                .foregroundStyle(.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    if state.isFilteredExporting {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("Exporting filtered workbook")
-                    }
-                    if let status = state.filteredExportStatus {
-                        Text(status)
-                            .font(contentBodyFont)
-                            .foregroundStyle(status.contains("failed") ? .red : .secondary)
+                    .buttonStyle(.link)
+                    .disabled(!available)
+                    .help(available ? "Reveal the last successful Excel export in Finder." : "The last Excel export is no longer available at its saved location.")
+                    .accessibilityIdentifier("genotype-inspector-last-excel-export")
+                    if !available {
+                        Text("The last Excel export is no longer available at its saved location.")
+                            .font(contentBodyFont).foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+                if state.isExcelExporting {
+                    ProgressView().controlSize(.small).accessibilityLabel("Exporting Excel workbook")
+                }
+                if let status = state.excelExportStatus {
+                    Text(status).font(contentBodyFont)
+                        .foregroundStyle(status.contains("failed") ? .red : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.top, 4)

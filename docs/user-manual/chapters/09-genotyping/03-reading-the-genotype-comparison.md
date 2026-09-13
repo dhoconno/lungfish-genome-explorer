@@ -155,7 +155,7 @@ Every control below sits in the **Genotype Display** section of the Inspector's 
 
 **Content Text Size.** Steps the text in the matrix and detail pane up or down with **A−** and **A+**, and **Default** returns it to the system size. The default is the system size. Change it when a wide cohort has squeezed the columns too small to read.
 
-**Filtered Pivot….** Writes a copy of the result workbook whose pivot sheet has the Min reads and Min percent filters above already applied, leaving every other sheet unchanged. A pivot sheet here is an ordinary Excel pivot table, samples against alleles. There is no default, since it is a button rather than a value. Edits made to the copy in Excel do not flow back into the result, which the Inspector warns about, so treat it as a snapshot to hand to someone rather than a working file. On the command line this is `lungfish-cli genotype export-pivot-xlsx`.
+**Export to Excel….** Captures one report containing Genotype Matrix - All, Genotype Matrix - Filtered, Export Metadata, and Haplotype Calls when real call content exists. Filtered captures the current view and omits evidence rows without a positive displayed count. All still contains the complete captured scope: filtering is not redaction. Excel edits do not flow back into LGE. See [Exporting Genotypes](04-haplotype-definitions-and-export.md).
 
 ## Reading the results
 

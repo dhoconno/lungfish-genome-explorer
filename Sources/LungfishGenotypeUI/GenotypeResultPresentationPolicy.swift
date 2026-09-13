@@ -5,9 +5,6 @@ import LungfishIO
 /// genotype-result bundles. It deliberately preserves the persisted
 /// `outline` and `matrix` raw values used by existing bundles.
 public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
-    private static let legacyMiSeqBundleKind = "ont-barcode-genotype"
-    private static let miSeqAssayID = "MHC-exon2-miSeq"
-
     public enum Choice: Equatable, Sendable {
         case haplotypeCalls
         case genotypeMatrix
@@ -53,15 +50,9 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
         hasNativeGenotypeMatrixContent: Bool,
         isReadOnly: Bool
     ) {
-        let explicitlyTypedMiSeq = workflowKind == .miSeqAmpliconMHCGenotype
-            && workflowMode == .haplotyped
-        let legacyMiSeq = legacyWorkflowDeclarationsAbsent
-            && workflowKind == nil
-            && workflowMode == nil
-            && legacyBundleKind == Self.legacyMiSeqBundleKind
-            && Self.normalizedIdentifier(haplotypeAnalysis?.assayID ?? "")
-                == Self.normalizedIdentifier(Self.miSeqAssayID)
-        isTypedHaplotypedMiSeq = explicitlyTypedMiSeq || legacyMiSeq
+        isTypedHaplotypedMiSeq = GenotypeEffectiveCallAuthority.isIdentityBoundMiSeqShape(
+            legacyBundleKind: legacyBundleKind, legacyWorkflowDeclarationsAbsent: legacyWorkflowDeclarationsAbsent,
+            workflowKind: workflowKind, workflowMode: workflowMode, analysis: haplotypeAnalysis)
         if case .eligible = manualHaplotypeEligibility {
             isGenotypeOnlyResult = true
         } else {
@@ -80,12 +71,7 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
     public static func workflowDeclarationsAreAbsent(
         in manifest: ONTGenotypeResultBundleManifest
     ) -> Bool {
-        let kind = manifest.workflowKindDeclaration
-        let mode = manifest.workflowModeDeclaration
-        return kind.originalValue == nil
-            && kind.issue == nil
-            && mode.originalValue == nil
-            && mode.issue == nil
+        GenotypeEffectiveCallAuthority.workflowDeclarationsAreAbsent(in: manifest)
     }
 
     /// True only for the typed, haplotyped miSeq result shape with an analysis
@@ -166,28 +152,7 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
     }
 
     public static func isUsable(_ analysis: GenotypeHaplotypeAnalysis?) -> Bool {
-        guard let analysis else { return false }
-        var seenSampleIDs = Set<String>()
-        var seenKeys = Set<AnalysisCallKey>()
-        var callCount = 0
-        for sample in analysis.samples {
-            let sampleID = normalizedIdentifier(sample.sample)
-            guard !sampleID.isEmpty else { return false }
-            guard seenSampleIDs.insert(sampleID).inserted else { return false }
-            for call in sample.calls {
-                let locus = normalizedIdentifier(call.locus)
-                guard !locus.isEmpty,
-                      !normalizedIdentifier(call.haplotype1).isEmpty,
-                      !normalizedIdentifier(call.haplotype2).isEmpty else {
-                    return false
-                }
-                guard seenKeys.insert(.init(sample: sampleID, locus: locus)).inserted else {
-                    return false
-                }
-                callCount += 1
-            }
-        }
-        return callCount > 0
+        GenotypeEffectiveCallAuthority.hasUsableAnalysis(analysis)
     }
 
     private var usesMalformedHaplotypedMiSeqFallback: Bool {
@@ -207,12 +172,4 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
         return "\(prefix)."
     }
 
-    private struct AnalysisCallKey: Hashable {
-        let sample: String
-        let locus: String
-    }
-
-    private static func normalizedIdentifier(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }

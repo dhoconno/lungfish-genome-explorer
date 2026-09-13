@@ -1146,10 +1146,10 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let annotationURL = dir.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
-        try sidecar.encoded().write(to: annotationURL)
+        let initial = try GenotypeAnnotationStore(bundleURL: dir, author: "seed", seedBuiltInSmartCohorts: false)
+        try initial.saveSmartCohort(sidecar.smartCohorts[0])
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
-        let provenanceBytes = Data("existing provenance".utf8)
-        try provenanceBytes.write(to: provenanceURL)
+        let provenanceBytes = try Data(contentsOf: provenanceURL)
         let sidecarBytes = try Data(contentsOf: annotationURL)
 
         let store = try GenotypeAnnotationStore(
@@ -1259,7 +1259,8 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["unsupportedCount"], .integer(0))
         XCTAssertEqual(envelope.options.explicit["targetCount"], .integer(2))
         XCTAssertEqual(envelope.options.resolvedDefaults["author"], .string("reviewer"))
-        XCTAssertEqual(envelope.options.resolvedDefaults["absentEvidence"], .string("unsupported"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["absentEvidence"], .string("unknown"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["reviewEligibilityPolicyVersion"], .integer(1))
         let provenanceInput = try XCTUnwrap(envelope.files.first { $0.role == .input })
         XCTAssertNotEqual(provenanceInput.path, annotationURL.path)
         XCTAssertEqual(provenanceInput.originPath, annotationURL.path)
@@ -1365,7 +1366,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         )
     }
 
-    func testSetFalseNegativeTreatsAbsentEvidenceAsUnsupported() async throws {
+    func testSetFalseNegativeRejectsUnknownThenAcceptsAttestedZeroWithHonestProvenance() async throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
@@ -1380,10 +1381,17 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             sample: "Animal-2"
         )
 
+        do {
+            try await store.setMatrixReview(.falseNegative, targets: [zero, absent], evidence: .init([zero: 0]), author: "reviewer")
+            XCTFail("Unknown evidence must reject the entire mutation")
+        } catch {
+            XCTAssertEqual(error as? GenotypeMatrixReviewMutationError, .ineligibleEvidence)
+        }
+        XCTAssertTrue(store.sidecar.matrixReviews.isEmpty)
         try await store.setMatrixReview(
             .falseNegative,
             targets: [zero, absent],
-            evidence: .init([zero: 0]),
+            evidence: .init([zero: 0, absent: 0]),
             author: "reviewer"
         )
 
@@ -1392,7 +1400,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
             fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         ))
-        XCTAssertEqual(envelope.options.explicit["eligibilityRule"], .string("passedUniqueReads <= 0 or absent"))
+        XCTAssertEqual(envelope.options.explicit["eligibilityRule"], .string("passedUniqueReads == 0 (attested)"))
         XCTAssertEqual(envelope.options.explicit["supportedCount"], .integer(0))
         XCTAssertEqual(envelope.options.explicit["unsupportedCount"], .integer(2))
     }

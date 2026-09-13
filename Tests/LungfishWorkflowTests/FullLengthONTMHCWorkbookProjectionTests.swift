@@ -831,24 +831,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(cells[3][12].value, .integer(20))
         XCTAssertEqual(cells[4][12].value, .decimal(15))
 
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("typed-unified-summary-\(UUID().uuidString).xlsx")
-        defer { try? FileManager.default.removeItem(at: url) }
-        try FullLengthONTMHCXLSXPackageWriter.write(
-            sheets: [.init(name: "Unified Genotype Pivot", cells: cells)],
-            to: url
-        )
 
-        let sheet = try unzip("xl/worksheets/sheet1.xml", from: url)
-        XCTAssertTrue(sheet.contains("<c r=\"M1\" s=\"1\" t=\"inlineStr\"><is><t xml:space=\"preserve\">00123</t></is></c>"), sheet)
-        XCTAssertTrue(sheet.contains("<c r=\"B3\"><v>17</v></c>"), sheet)
-        XCTAssertTrue(sheet.contains("<c r=\"C3\"><v>17</v></c>"), sheet)
-        XCTAssertTrue(sheet.contains("<c r=\"M3\"><v>17</v></c>"), sheet)
-        XCTAssertTrue(sheet.contains("<c r=\"M4\"><v>20</v></c>"), sheet)
-        XCTAssertTrue(sheet.contains("<c r=\"M5\"><v>15</v></c>"), sheet)
-        XCTAssertFalse(sheet.contains("<c r=\"M3\" t=\"inlineStr\">"), sheet)
-        XCTAssertFalse(sheet.contains("<c r=\"M4\" t=\"inlineStr\">"), sheet)
-        XCTAssertFalse(sheet.contains("<c r=\"M5\" t=\"inlineStr\">"), sheet)
     }
 
     func testNormalizedUnmatchedRowsRejectDocumentSequenceChecksumMismatch() throws {
@@ -1133,72 +1116,6 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertFalse(headers.contains(.text("Evidence Ordinal")))
     }
 
-    func testWorkbookWritesFourTintStylesOnlyOnCandidateNameCellsAndUsesTypedNumbers() throws {
-        let documents = makeDocuments()
-        let projection = try FullLengthONTMHCWorkbookProjection(
-            candidateDocument: documents.candidates,
-            unnameableDocument: documents.unnameable,
-            sampleOrder: ["sample-a", "sample-b"]
-        )
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("candidate-workbook-\(UUID().uuidString).xlsx")
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        try FullLengthONTMHCXLSXPackageWriter.write(
-            sheets: [
-                .init(name: "Candidate Alleles", cells: projection.candidateWorksheetRows),
-                .init(name: "Un-nameable Clusters", cells: projection.unnameableWorksheetRows),
-                .init(
-                    name: "Unified Genotype Pivot",
-                    cells: FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildCells(
-                        reportRows: [],
-                        projection: projection,
-                        sampleOrder: projection.sampleOrder
-                    )
-                ),
-            ],
-            to: url
-        )
-        let styles = try unzip("xl/styles.xml", from: url)
-        for rgb in ["FFF5D78E", "FFF5B97A", "FFA8D8D0", "FFAFCBF2"] {
-            XCTAssertTrue(styles.contains("rgb=\"\(rgb)\""), "Missing fill \(rgb)")
-        }
-        let sheet = try unzip("xl/worksheets/sheet1.xml", from: url)
-        XCTAssertTrue(sheet.contains("<pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/>"))
-        XCTAssertTrue(sheet.contains("<autoFilter ref="))
-        XCTAssertTrue(sheet.contains("<cols>"))
-        XCTAssertTrue(sheet.contains("<c r=\"B2\" s=\"2\" t=\"inlineStr\">"))
-        XCTAssertTrue(sheet.contains("<c r=\"B3\" s=\"3\" t=\"inlineStr\">"))
-        XCTAssertTrue(sheet.contains("<c r=\"B4\" s=\"4\" t=\"inlineStr\">"))
-        XCTAssertTrue(sheet.contains("<c r=\"B5\" s=\"5\" t=\"inlineStr\">"))
-        for styleID in 2...5 {
-            XCTAssertEqual(sheet.components(separatedBy: " s=\"\(styleID)\"").count - 1, 1)
-        }
-        XCTAssertEqual(sheet.components(separatedBy: "Mafa-A1*018:01:01:01_5nt_nov").count - 1, 2)
-        for clusterID in ["cluster-1", "cluster-2", "cluster-3", "cluster-4"] {
-            XCTAssertTrue(sheet.contains(clusterID))
-        }
-        XCTAssertTrue(sheet.contains("<c r=\"G2\"><v>2</v></c>"), "Counts must be numeric OOXML cells")
-        XCTAssertFalse(sheet.contains("_extension"))
-        XCTAssertFalse(sheet.contains(" SNP"))
-        XCTAssertFalse(sheet.contains("_0nt_nov"))
-        let unnameableSheet = try unzip("xl/worksheets/sheet2.xml", from: url)
-        XCTAssertTrue(unnameableSheet.contains("cluster-u"))
-        XCTAssertTrue(unnameableSheet.contains("unresolved-locus"))
-        XCTAssertTrue(unnameableSheet.contains("cluster-u-a"))
-        XCTAssertTrue(unnameableSheet.contains("cluster-u-z"))
-        XCTAssertFalse(unnameableSheet.contains(" s=\"2\""))
-        XCTAssertFalse(unnameableSheet.contains(" s=\"3\""))
-        XCTAssertFalse(unnameableSheet.contains(" s=\"4\""))
-        XCTAssertFalse(unnameableSheet.contains(" s=\"5\""))
-        let unifiedSheet = try unzip("xl/worksheets/sheet3.xml", from: url)
-        XCTAssertTrue(unifiedSheet.contains("<c r=\"J2\"><v>2</v></c>"))
-        XCTAssertTrue(unifiedSheet.contains("<c r=\"K2\"><v>2</v></c>"))
-        XCTAssertTrue(unifiedSheet.contains("<c r=\"L2\"><v>10</v></c>"))
-        XCTAssertFalse(unifiedSheet.contains("<c r=\"J2\" t=\"inlineStr\">"))
-        XCTAssertTrue(unifiedSheet.contains("<c r=\"C2\" s=\"2\" t=\"inlineStr\">"))
-    }
-
     func testUnifiedPivotPreservesKnownCallsAndSeparateCandidateRowsWhenLabelsCollide() throws {
         let documents = makeDocuments()
         let projection = try FullLengthONTMHCWorkbookProjection(
@@ -1365,29 +1282,6 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                 XCTAssertFalse(output[1][referenceIndex].contains("_extension"))
             }
         }
-    }
-
-    func testOOXMLTextEncoderHandlesControlsLiteralEscapeTokensEntitiesAndUnicode() throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ooxml-text-encoding-\(UUID().uuidString).xlsx")
-        defer { try? FileManager.default.removeItem(at: url) }
-        let payload = "control:\u{000B} literal:_x000B_ entities:&< unicode:β🧬"
-
-        try FullLengthONTMHCXLSXPackageWriter.write(
-            sheets: [.init(name: "Name &_x000B_ β🧬", rows: [["Value"], [payload]])],
-            to: url
-        )
-
-        let workbook = try unzip("xl/workbook.xml", from: url)
-        let sheet = try unzip("xl/worksheets/sheet1.xml", from: url)
-        XCTAssertTrue(workbook.contains("Name &amp;_x005F_x000B_ β🧬"), workbook)
-        XCTAssertTrue(sheet.contains("control:_x000B_"), sheet)
-        XCTAssertTrue(sheet.contains("literal:_x005F_x000B_"), sheet)
-        XCTAssertTrue(sheet.contains("entities:&amp;&lt;"), sheet)
-        XCTAssertTrue(sheet.contains("unicode:β🧬"), sheet)
-        XCTAssertFalse(sheet.contains("\u{000B}"))
-        try assertXMLWellFormed(workbook)
-        try assertXMLWellFormed(sheet)
     }
 
     private func makeDocuments(

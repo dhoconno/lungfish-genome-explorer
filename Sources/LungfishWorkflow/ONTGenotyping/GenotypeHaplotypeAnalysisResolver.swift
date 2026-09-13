@@ -27,10 +27,22 @@ public enum GenotypeHaplotypeAnalysisResolver {
         bundleURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar?
     ) -> GenotypeHaplotypeAnalysis? {
+        if isPersistedRevisionAnalysis(result.haplotypeAnalysis) { return result.haplotypeAnalysis }
+        return activeAnalysis(for: result, sidecar: sidecar,
+            definitionSet: activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar))
+    }
+
+    /// Pure resolution against one captured definition; avoids a second mutable
+    /// registry read when preparing an immutable scientific export.
+    public static func activeAnalysis(
+        for result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar?,
+        definitionSet: GenotypeHaplotypeDefinitionSet?
+    ) -> GenotypeHaplotypeAnalysis? {
         if isPersistedRevisionAnalysis(result.haplotypeAnalysis) {
             return result.haplotypeAnalysis
         }
-        guard let definitionSet = activeDefinitionSet(for: result, bundleURL: bundleURL, sidecar: sidecar) else {
+        guard let definitionSet else {
             return result.haplotypeAnalysis
         }
         let evaluator = hasRunHaplotypeDropoutMetrics(result)
@@ -109,8 +121,14 @@ public enum GenotypeHaplotypeAnalysisResolver {
         return try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
     }
 
+    /// New scientific producers retain one frozen definition outside disposable work directories.
+    public static func retainedDefinitionSnapshotURL(for bundleURL: URL) -> URL {
+        bundleURL.appendingPathComponent("artifacts/haplotyping/haplotype-definition.json")
+    }
+
     public static func bundleDefinitionSnapshotURL(for bundleURL: URL) -> URL? {
         let candidates = [
+            retainedDefinitionSnapshotURL(for: bundleURL),
             bundleURL
                 .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
                 .appendingPathComponent("inputs", isDirectory: true)

@@ -136,6 +136,38 @@ final class GenotypeMatrixHaplotypeSupportTests: GenotypeResultViewportTestCase 
         XCTAssertEqual(style.fillColor, AnnotationColor(red: 0, green: 0, blue: 0))
     }
 
+    func testAllAndFilteredExportShareNativeExplicitCellStyleColorSpace() throws {
+        let (matrix, _, _) = fixture()
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixStyles = [.init(target: .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
+            style: .init(fillColor: "#123456", textColor: "#ABCDEF", borderColor: "#654321", isBold: true, isItalic: true),
+            author: "Analyst", timestamp: "2026-09-12T00:00:00Z")]
+        matrix.applyAnnotationSidecar(sidecar)
+        var state = GenotypeResultDisplayState()
+        state.cellColorMode = .highlights
+        matrix.applyDisplayState(state)
+        let filtered = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style"), analysisName: "test", lens: "matrix")
+        let all = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style"), analysisName: "test", lens: "matrix", unfiltered: true)
+        let expected = try exportedStyle(filtered, genotype: first, sample: "AnimalA") as NSDictionary
+        XCTAssertEqual(try exportedStyle(all, genotype: first, sample: "AnimalA") as NSDictionary, expected)
+    }
+
+    func testAllExportHaplotypeStyleUsesRawSupportWithoutChangingFilteredViewport() throws {
+        let (matrix, _, _) = fixture()
+        var state = GenotypeResultDisplayState()
+        state.cellColorMode = .haplotype
+        matrix.applyDisplayState(state)
+        let before = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style"), analysisName: "test", lens: "matrix")
+        XCTAssertEqual(matrix.testingRenderedStyle(genotype: second, sample: "AnimalA")?.fillColor, AnnotationColor(red: 0, green: 0, blue: 1))
+        let nativeBlue = try XCTUnwrap(exportedStyle(before, genotype: second, sample: "AnimalA")["fillHex"] as? String)
+        state.matrixMinimumReads = 10
+        matrix.applyDisplayState(state)
+        let visibleBefore = matrix.testingVisibleRows.map(\.genotype)
+        let all = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/style"), analysisName: "test", lens: "matrix", unfiltered: true)
+        XCTAssertEqual(try exportedStyle(all, genotype: second, sample: "AnimalA")["fillHex"] as? String, nativeBlue)
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.genotype), visibleBefore)
+    }
+
     func testReplacingEffectiveCallsRefreshesExistingColoredCells() {
         let (matrix, calls, definitions) = fixture()
         var state = GenotypeResultDisplayState()

@@ -180,9 +180,9 @@ private final class GenotypeExportRollbackWitnessTracker:
 /// filter flags the 12S exporter exposes plus an optional
 /// `--view-projection <path>` describing exactly what the GUI viewport
 /// rendered (visible sample columns, rows, cell/row colors). When a
-/// projection is supplied the produced workbook reproduces that colored
-/// view; otherwise the full-bundle matrix is exported (the `export-xlsx`
-/// shape, via the shared ``GenotypeXlsxWorkbookWriter``).
+/// projection is supplied the produced report reproduces that captured view.
+/// XLSX routes use the immutable scientific snapshot service; CSV and TSV
+/// retain their existing delimiter renderer and publication path.
 ///
 /// This lets the GUI export shell out to a headless `lungfish-cli` run and
 /// reproduce the analyst's on-screen view with canonical provenance. It is
@@ -223,6 +223,12 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("min-reads"), help: "Drop calls below this unique-read count.")
     var minReads: Int?
 
+    @Option(name: .customLong("min-percent"), help: "Drop calls below this support percent in the Filtered XLSX matrix.")
+    var minPercent: Double?
+
+    @Option(name: .customLong("percent-basis"), help: "Known-call denominator for --min-percent: viewed-locus or sample-retained.")
+    var percentBasis: GenotypeExportPivotXlsxSubcommand.PercentBasis = .viewedLocus
+
     @Option(name: .long, help: "Named filter applied to the view (recorded in provenance).")
     var filter: String?
 
@@ -257,6 +263,12 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ValidationError("--output must not be empty.")
         }
+        if let minReads, minReads < 0 {
+            throw ValidationError("--min-reads must not be negative.")
+        }
+        if let minPercent, minPercent < 0 || minPercent > 100 {
+            throw ValidationError("--min-percent must be between 0 and 100.")
+        }
     }
 
     func run() async throws {
@@ -276,8 +288,23 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             ((ProvenanceWriterMutation) throws -> Void)? = nil,
         afterProvenanceArtifactPublication:
             ((ProvenanceWriterMutation) throws -> Void)? = nil,
-        afterRollbackArtifactDetached: ((URL) throws -> Void)? = nil
+        afterRollbackArtifactDetached: ((URL) throws -> Void)? = nil,
+        afterExcelManifestDecode: (@Sendable () throws -> Void)? = nil,
+        afterExcelAuthorityCapture: (@Sendable () throws -> Void)? = nil,
+        managedPythonResolver: @escaping @Sendable () async throws -> URL = {
+            try await CondaManager.shared.toolPath(
+                name: "python",
+                environment: "openpyxl"
+            )
+        }
     ) async throws -> [String] {
+        if format == .xlsx {
+            return try await runExcel(
+                afterManifestDecode: afterExcelManifestDecode,
+                afterAuthorityCapture: afterExcelAuthorityCapture,
+                managedPythonResolver: managedPythonResolver
+            )
+        }
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let outputURL = URL(fileURLWithPath: output)
@@ -300,26 +327,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             bundleURL: bundleURL
         )
         let sidecar = loadedAnnotation.sidecar
-        let requiresFalseNegativeAuthority = format == .xlsx
-            && viewProjection != nil
-            && sidecar.matrixReviews.contains {
-                $0.disposition == .falseNegative
-            }
-        let loadedResult: ONTGenotypeResultBundleData?
-        if requiresFalseNegativeAuthority {
-            loadedResult = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
-            guard loadedResult?.reviewableRowCatalog != nil else {
-                throw ValidationError(
-                    "False-negative workbook export requires the bundle's attested reviewable-row catalog."
-                )
-            }
-        } else {
-            loadedResult = try? ONTGenotypeResultBundle.loadResult(from: bundleURL)
-        }
+        let loadedResult = try? ONTGenotypeResultBundle.loadResult(from: bundleURL)
 
-        let writer = GenotypeXlsxWorkbookWriter()
         let resolvedColumns: [String]
-        var nativeWriteReport: GenotypeXlsxWorkbookWriter.ViewProjectionWriteReport?
         var loadedProjection: LoadedViewProjection?
 
         if let projectionPath = viewProjection {
@@ -332,13 +342,6 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             let filtered = filterProjection(projectionSnapshot.projection)
             resolvedColumns = filtered.sampleColumns
             switch format {
-            case .xlsx:
-                nativeWriteReport = try writer.writeViewProjection(
-                    filtered,
-                    to: stagedOutputURL,
-                    annotations: sidecar,
-                    reviewableRowCatalog: loadedResult?.reviewableRowCatalog
-                )
             case .csv:
                 try GenotypeXlsxWorkbookWriter
                     .renderDelimited(filtered, separator: ",")
@@ -347,36 +350,14 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 try GenotypeXlsxWorkbookWriter
                     .renderDelimited(filtered, separator: "\t")
                     .write(to: stagedOutputURL, atomically: true, encoding: .utf8)
+            case .xlsx:
+                preconditionFailure("XLSX is routed before delimiter export")
             }
         } else {
             // No projection: export the full-bundle matrix.
             let matrix = makeMatrix(result: loadedResult, sidecar: sidecar)
             resolvedColumns = matrix.rows.map(\.sample)
             switch format {
-            case .xlsx:
-                let overrides = sidecar.callOverrides.map { o in
-                    GenotypeXlsxWorkbookWriter.OverrideRow(
-                        sample: o.sample, locus: o.locus, slot: o.slot.rawValue,
-                        originalCall: o.originalCall, overrideCall: o.overrideCall,
-                        reason: o.reasonTag.rawValue, rationale: o.rationale,
-                        author: o.author, timestamp: o.timestamp
-                    )
-                }
-                let audit = sidecar.auditLog.map { e in
-                    GenotypeXlsxWorkbookWriter.AuditRow(
-                        action: e.action, sample: e.sample,
-                        locus: e.locus ?? "", slot: e.slot?.rawValue ?? "",
-                        before: e.before ?? "", after: e.after ?? "",
-                        author: e.author, timestamp: e.timestamp
-                    )
-                }
-                try writer.writeMatrix(
-                    to: stagedOutputURL,
-                    matrix: matrix,
-                    overrides: overrides,
-                    audit: audit,
-                    annotations: sidecar
-                )
             case .csv:
                 try GenotypeXlsxWorkbookWriter
                     .renderDelimited(matrix, separator: ",")
@@ -385,6 +366,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 try GenotypeXlsxWorkbookWriter
                     .renderDelimited(matrix, separator: "\t")
                     .write(to: stagedOutputURL, atomically: true, encoding: .utf8)
+            case .xlsx:
+                preconditionFailure("XLSX is routed before delimiter export")
             }
         }
 
@@ -408,7 +391,6 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 sidecar: sidecar,
                 loadedAnnotation: loadedAnnotation,
                 loadedProjection: loadedProjection,
-                nativeWriteReport: nativeWriteReport,
                 startedAt: startedAt,
                 publicationArtifactDidWrite: publicationArtifactDidWrite
             )
@@ -416,6 +398,105 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
 
         emitSummary(bundleURL: bundleURL, outputURL: outputURL, resolvedColumns: resolvedColumns)
         return resolvedColumns
+    }
+
+    private func runExcel(
+        afterManifestDecode: (@Sendable () throws -> Void)?,
+        afterAuthorityCapture: (@Sendable () throws -> Void)?,
+        managedPythonResolver: @escaping @Sendable () async throws -> URL
+    ) async throws -> [String] {
+        let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
+            .standardizedFileURL
+        let outputURL = URL(fileURLWithPath: output).standardizedFileURL
+        let projectionURL = viewProjection.map {
+            URL(fileURLWithPath: $0).standardizedFileURL
+        }
+        let annotationURL = annotations.map {
+            URL(fileURLWithPath: $0).standardizedFileURL
+        }
+        let reads = minReads ?? 0
+        let percent = minPercent ?? 0
+        let scientificFilter = GenotypeMatrixBaseProjection.Filter(
+            matrixMinimumReads: reads,
+            matrixMinimumPercent: percent,
+            matrixDenominator: percentBasis.denominator
+        )
+        var argv = [
+            CLICommandIdentity.executableName, "genotype", "export",
+            "--bundle", bundleURL.path,
+            "--export-format", ExportFormat.xlsx.rawValue,
+            "--output", outputURL.path,
+        ]
+        if let lens { argv += ["--lens", lens] }
+        if let minReads { argv += ["--min-reads", String(minReads)] }
+        if let minPercent {
+            argv += [
+                "--min-percent", String(minPercent),
+                "--percent-basis", percentBasis.rawValue,
+            ]
+        }
+        if let filter { argv += ["--filter", filter] }
+        for sample in samples { argv += ["--sample", sample] }
+        if let activeHaplotypeDefinition {
+            argv += ["--active-haplotype-definition", activeHaplotypeDefinition]
+        }
+        if let projectionURL { argv += ["--view-projection", projectionURL.path] }
+        if let annotationURL { argv += ["--annotations", annotationURL.path] }
+        if force { argv.append("--force") }
+
+        let outcome = try await GenotypeExcelCLIExportSupport.export(
+            .init(
+                bundleURL: bundleURL,
+                outputURL: outputURL,
+                annotationURL: annotationURL,
+                projectionURL: projectionURL,
+                samples: samples,
+                activeHaplotypeDefinitionID: activeHaplotypeDefinition,
+                filter: scientificFilter,
+                workflowName: "lungfish genotype export",
+                argv: GenotypeExcelCLIExportSupport.invocation(fallback: argv),
+                options: [
+                    "bundle": bundleURL.path,
+                    "output": outputURL.path,
+                    "exportFormat": ExportFormat.xlsx.rawValue,
+                    "lens": lens ?? "none",
+                    "minReads": String(reads),
+                    "minPercent": String(percent),
+                    "percentBasis": percentBasis.rawValue,
+                    "namedFilter": filter ?? "none",
+                    "sampleScope": samples.isEmpty ? "all" : samples.joined(separator: ","),
+                    "activeHaplotypeDefinition": activeHaplotypeDefinition ?? "captured bundle authority",
+                    "viewProjection": projectionURL?.path ?? "none",
+                    "annotations": annotationURL?.path ?? "bundle annotations.json when present",
+                    "force": String(force),
+                    "filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy,
+                ],
+                defaults: [
+                    "exportFormat": ExportFormat.xlsx.rawValue,
+                    "lens": "none",
+                    "minReads": "0",
+                    "minPercent": "0",
+                    "percentBasis": GenotypeExportPivotXlsxSubcommand.PercentBasis.viewedLocus.rawValue,
+                    "namedFilter": "none",
+                    "sampleScope": "all",
+                    "activeHaplotypeDefinition": "captured bundle authority",
+                    "viewProjection": "none",
+                    "annotations": "bundle annotations.json when present",
+                    "force": "false",
+                ],
+                runtimeContext: [
+                    "candidatePercentBasis": "positive supporting samples / full logical sample roster",
+                    "knownPercentBasis": percentBasis.denominator.rawValue,
+                    "namedFilterSemantics": "descriptive captured viewport label; numeric filters are authoritative",
+                ],
+                replacingExisting: force
+            ),
+            afterManifestDecode: afterManifestDecode,
+            afterAuthorityCapture: afterAuthorityCapture,
+            managedPythonResolver: managedPythonResolver
+        )
+        emitExcelSummary(bundleURL: bundleURL, outcome: outcome)
+        return outcome.visibleSamples
     }
 
     private func publishStagedOutputAndProvenance(
@@ -652,7 +733,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 stableClusterID: row.stableClusterID,
                 cells: cells,
                 cellColorsHex: colors,
-                rowColorHex: row.rowColorHex
+                rowColorHex: row.rowColorHex,
+                rowStyle: row.rowStyle,
+                cellStyles: row.cellStyles.map { source in keptIndices.map { $0 < source.count ? source[$0] : nil } }
             )
         }
         return GenotypeViewProjection(
@@ -663,7 +746,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             genotypeLocusDisplayOrder: projection.genotypeLocusDisplayOrder,
             genotypeNumericPrefixOrder: projection.genotypeNumericPrefixOrder,
             diagnosticAllelesOnly: projection.diagnosticAllelesOnly,
-            includeTotalReads: projection.includeTotalReads
+            includeTotalReads: projection.includeTotalReads,
+            haplotypeLocusScope: projection.haplotypeLocusScope
         )
     }
 
@@ -676,7 +760,6 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         sidecar: GenotypeAnnotationSidecar,
         loadedAnnotation: LoadedAnnotationSidecar,
         loadedProjection: LoadedViewProjection?,
-        nativeWriteReport: GenotypeXlsxWorkbookWriter.ViewProjectionWriteReport?,
         startedAt: Date,
         publicationArtifactDidWrite:
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
@@ -789,20 +872,6 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             }
         }
         var resolvedOptions = explicitOptions
-        if let nativeWriteReport {
-            resolvedOptions["nativeWorkbookAdapterVersion"] = .string(
-                nativeWriteReport.adapterVersion
-            )
-            resolvedOptions["nativeFalseNegativeSynthesisDecisions"] = .array(
-                nativeWriteReport.synthesizedRows.map(Self.parameterValue)
-            )
-            resolvedOptions["nativeFalseNegativeTargetCellDecisions"] = .array(
-                nativeWriteReport.targetCells.map(Self.parameterValue)
-            )
-            resolvedOptions["nativeFalseNegativeRestorationDecision"] = .string(
-                nativeWriteReport.restorationDecision
-            )
-        }
         if loadedAnnotation.url != nil,
            let annotationSHA256 = loadedAnnotation.sha256 {
             resolvedOptions["annotationSidecarRevisionSHA256"] = .string(
@@ -865,66 +934,6 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         }.joined()
     }
 
-    private static func parameterValue(
-        _ decision: GenotypeXlsxWorkbookWriter.NativeSynthesizedRowDecision
-    ) -> ParameterValue {
-        .dictionary([
-            "identity": .dictionary([
-                "kind": .string(decision.identity.kind),
-                "callID": .string(decision.identity.callID),
-                "displayName": .string(decision.identity.displayName),
-                "locus": .string(decision.identity.locus),
-                "stableID": decision.identity.stableID.map(ParameterValue.string)
-                    ?? .null,
-            ]),
-            "cells": .array(decision.cells.map(ParameterValue.string)),
-        ])
-    }
-
-    private static func parameterValue(
-        _ decision: GenotypeXlsxWorkbookWriter.NativeTargetCellDecision
-    ) -> ParameterValue {
-        .dictionary([
-            "target": .dictionary(targetFields(decision.target)),
-            "cell": decision.cell.map(ParameterValue.string) ?? .null,
-            "status": .string(decision.status),
-            "reason": .string(decision.reason),
-            "synthetic": .boolean(decision.synthetic),
-            "presentationPrecedence": .string(
-                decision.presentationPrecedence
-            ),
-        ])
-    }
-
-    private static func targetFields(
-        _ target: GenotypeAnnotationSidecar.MatrixTarget
-    ) -> [String: ParameterValue] {
-        switch target {
-        case let .row(locus, genotype, stableClusterID):
-            return [
-                "kind": .string("row"),
-                "locus": .string(locus),
-                "genotype": .string(genotype),
-                "stableClusterID":
-                    stableClusterID.map(ParameterValue.string) ?? .null,
-            ]
-        case let .column(sample):
-            return [
-                "kind": .string("column"),
-                "sample": .string(sample),
-            ]
-        case let .cell(locus, genotype, sample, stableClusterID):
-            return [
-                "kind": .string("cell"),
-                "sample": .string(sample),
-                "locus": .string(locus),
-                "genotype": .string(genotype),
-                "stableClusterID":
-                    stableClusterID.map(ParameterValue.string) ?? .null,
-            ]
-        }
-    }
-
     private func emitSummary(bundleURL: URL, outputURL: URL, resolvedColumns: [String]) {
         let summary: [String: Any] = [
             "bundle": bundleURL.path,
@@ -936,6 +945,29 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         guard let data = try? JSONSerialization.data(
             withJSONObject: summary,
             options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private func emitExcelSummary(
+        bundleURL: URL,
+        outcome: GenotypeExcelCLIExportSupport.Outcome
+    ) {
+        let summary: [String: Any] = [
+            "bundle": bundleURL.path,
+            "output": outcome.result.outputURL.path,
+            "receipt": outcome.result.receiptURL.path,
+            "snapshot": outcome.result.snapshotURL.path,
+            "replay": outcome.result.replayScriptURL.path,
+            "format": ExportFormat.xlsx.rawValue,
+            "sampleColumns": outcome.visibleSamples,
+            "usedProjection": viewProjection != nil,
+            "hasHaplotypeContent": outcome.hasHaplotypeContent,
+        ]
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: summary,
+            options: [.sortedKeys]
         ) else { return }
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))

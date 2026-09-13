@@ -2,6 +2,22 @@ import XCTest
 @testable import LungfishIO
 
 final class GenotypeReviewedHaplotypeEvidenceTests: XCTestCase {
+    func testDuplicateExactReviewsNeverExcludeCallsRegardlessOfDispositionOrderOrTimestamp() {
+        let raw = [call(sample: "AnimalA", genotype: "01_M1_A_marker", reads: 9)]
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "Mafa-A", genotype: raw[0].genotype, sample: "AnimalA")
+        let fp = GenotypeAnnotationSidecar.MatrixReviewAnnotation(target: target, disposition: .falsePositive, author: "A", timestamp: "2026-09-11T00:00:00Z")
+        let fn = GenotypeAnnotationSidecar.MatrixReviewAnnotation(target: target, disposition: .falseNegative, author: "B", timestamp: "2026-09-12T00:00:00Z")
+        for reviews in [[fp, fp], [fp, fn], [fn, fp]] {
+            XCTAssertEqual(GenotypeReviewedHaplotypeEvidence.callsForInference(raw, reviews: reviews), raw)
+        }
+    }
+
+    func testFalsePositiveWithExplicitZeroDoesNotExcludeRawCall() {
+        let raw = [call(sample: "AnimalA", genotype: "01_M1_A_marker", reads: 0)]
+        let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(target: .cell(locus: "MHC-A", genotype: raw[0].genotype, sample: "AnimalA"), disposition: .falsePositive, author: "A", timestamp: "now")
+        XCTAssertEqual(GenotypeReviewedHaplotypeEvidence.callsForInference(raw, reviews: [review]), raw)
+    }
+
     func testFalsePositiveExcludesOnlyTheExactCellAndKeepsRawCallsUntouched() {
         let retained = call(
             sample: "AnimalA",

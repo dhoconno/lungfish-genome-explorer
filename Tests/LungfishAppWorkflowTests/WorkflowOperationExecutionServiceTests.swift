@@ -187,7 +187,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertFalse(item.outputURLs.contains(request.retainedBAMURL.standardizedFileURL))
     }
 
-    func testONTGenotypingAISpecialistUsesWorkflowOperationAndUpdatesCurrentWorkbookFromAIRevision() async throws {
+    func testONTGenotypingAISpecialistPublishesScientificRevisionWithoutWorkbookRegeneration() async throws {
         let temp = try temporaryDirectory()
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
         let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
@@ -212,9 +212,6 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let operationCenter = OperationCenter()
         let runner = StubWorkflowOperationCLIProcessRunner()
         let aiHaplotyper = StubWorkflowOperationAIHaplotyper()
-        let workbookUpdater = StubWorkflowOperationWorkbookUpdater(
-            currentWorkbookURL: request.currentWorkbookURL
-        )
         let resultRefresher = StubWorkflowOperationResultRefresher()
         let service = WorkflowOperationExecutionService(
             operationCenter: operationCenter,
@@ -222,8 +219,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
             bamImporter: StubWorkflowOperationBAMImporter(),
             resultRefresher: resultRefresher,
-            aiHaplotyper: aiHaplotyper,
-            workbookUpdater: workbookUpdater
+            aiHaplotyper: aiHaplotyper
         )
 
         let outputs = try await service.run(.ontGenotyping(request))
@@ -234,89 +230,14 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(aiHaplotyper.invocations.first?.parentOperationID, item.id)
         XCTAssertEqual(aiHaplotyper.invocations.first?.bundleURL, request.outputDirectory.standardizedFileURL)
-        XCTAssertEqual(
-            workbookUpdater.invocations.first?.calls,
-            [
-                GenotypeWorkbookHaplotypeCall(
-                    sample: "LF2823",
-                    locus: "MHC-A",
-                    haplotype1: "M2A",
-                    haplotype2: "M4A",
-                    status: "called",
-                    notes: "AI specialist call"
-                ),
-                GenotypeWorkbookHaplotypeCall(
-                    sample: "LF2823",
-                    locus: "MHC-DP",
-                    haplotype1: "M2DP",
-                    haplotype2: "M4DP",
-                    status: "called",
-                    notes: "AI specialist call"
-                ),
-            ]
-        )
-        XCTAssertEqual(
-            workbookUpdater.invocations.first?.annotationSidecarURL,
-            ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: request.outputDirectory).standardizedFileURL
-        )
-        XCTAssertTrue(outputs.contains(request.currentWorkbookURL.standardizedFileURL))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.appendingPathComponent("artifacts/workbooks/current.xlsx").path))
+        XCTAssertFalse(outputs.contains(request.outputDirectory.appendingPathComponent("artifacts/workbooks/current.xlsx").standardizedFileURL))
         XCTAssertTrue(outputs.contains(aiHaplotyper.analysisURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(aiHaplotyper.provenanceURL.standardizedFileURL))
         XCTAssertEqual(
             resultRefresher.invocations,
             [request.outputDirectory.standardizedFileURL]
         )
-    }
-
-    func testDefaultWorkflowWorkbookUpdaterUsesManagedOpenPyXLPythonRuntime() async throws {
-        let temp = try temporaryDirectory()
-        let bundleURL = temp.appendingPathComponent("amplicon-genotyping.lungfishgenotype", isDirectory: true)
-        let annotationURL = bundleURL.appendingPathComponent("annotations.json")
-        let expectedPythonURL = temp.appendingPathComponent("openpyxl/bin/python")
-        let expectedWorkbookURL = bundleURL
-            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
-            .appendingPathComponent("current.xlsx")
-        let calls = [
-            GenotypeWorkbookHaplotypeCall(
-                sample: "LF2823",
-                locus: "MHC-A",
-                haplotype1: "M2A",
-                haplotype2: "M4A",
-                status: "called",
-                notes: "AI specialist call"
-            ),
-        ]
-        let provenance = GenotypeWorkbookRevisionProvenanceContext(
-            toolName: "test",
-            toolKind: "unit",
-            argv: ["test"]
-        )
-        let capture = DefaultWorkflowWorkbookUpdaterCapture()
-        let updater = DefaultWorkflowOperationWorkbookUpdater(
-            pythonExecutableResolver: { expectedPythonURL },
-            haplotypeOverrideApplier: { calls, annotationSidecarURL, bundleURL, provenanceContext, pythonExecutableURL in
-                capture.calls = calls
-                capture.annotationSidecarURL = annotationSidecarURL
-                capture.bundleURL = bundleURL
-                capture.provenanceContext = provenanceContext
-                capture.pythonExecutableURL = pythonExecutableURL
-                return expectedWorkbookURL
-            }
-        )
-
-        let workbookURL = try await updater.applyHaplotypeCalls(
-            calls,
-            annotationSidecarURL: annotationURL,
-            into: bundleURL,
-            provenanceContext: provenance
-        )
-
-        XCTAssertEqual(workbookURL, expectedWorkbookURL)
-        XCTAssertEqual(capture.calls, calls)
-        XCTAssertEqual(capture.annotationSidecarURL, annotationURL)
-        XCTAssertEqual(capture.bundleURL, bundleURL)
-        XCTAssertEqual(capture.provenanceContext, provenance)
-        XCTAssertEqual(capture.pythonExecutableURL, expectedPythonURL)
     }
 
     func testFullLengthONTMHCGenotypingRunsCLIWithSavontAndPrimerArguments() async throws {
@@ -378,7 +299,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             outputURL.deletingLastPathComponent().standardizedFileURL
         )
         XCTAssertTrue(outputs.contains(request.workbookURL.standardizedFileURL))
-        XCTAssertTrue(outputs.contains(request.currentWorkbookURL.standardizedFileURL))
+        XCTAssertFalse(outputs.contains(request.outputDirectory.appendingPathComponent("artifacts/workbooks/current.xlsx").standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.reportCSVURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.sampleSummaryCSVURL.standardizedFileURL))
         XCTAssertTrue(outputs.contains(request.statsJSONURL.standardizedFileURL))
@@ -1233,9 +1154,6 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
             )
             let outputName = try value(after: "--output-name", in: arguments)
             let workbookURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.xlsx")
-            let currentWorkbookURL = outputDirectory
-                .appendingPathComponent("artifacts/workbooks", isDirectory: true)
-                .appendingPathComponent("current.xlsx")
             let haplotypeAnalysisURL = outputDirectory.appendingPathComponent("\(outputName).haplotype-analysis.json")
             let reportCSVURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.csv")
             let sampleSummaryCSVURL = outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-samples.csv")
@@ -1244,10 +1162,6 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
             let cdnaURL = outputDirectory.appendingPathComponent("cdna_clusters.fasta")
             let provenanceURL = outputDirectory.appendingPathComponent("full-length-ont-mhc-genotyping-provenance.json")
             try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(
-                at: currentWorkbookURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
             try "sample,genotype,passed_alignments,passed_unique_reads\n".write(
                 to: reportCSVURL,
                 atomically: true,
@@ -1264,7 +1178,6 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
                 encoding: .utf8
             )
             try Data("workbook".utf8).write(to: workbookURL)
-            try Data("current workbook".utf8).write(to: currentWorkbookURL)
             let haplotypePayloadLine: String
             if arguments.contains("--haplotype-definition") {
                 try #"{"assayID":"MHC-full-length-ONT","samples":[]}"#.write(
@@ -1290,7 +1203,7 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
               "reportCSVPath": "\(reportCSVURL.path)",
               "sampleSummaryCSVPath": "\(sampleSummaryCSVURL.path)",
               "statsJSONPath": "\(statsJSONURL.path)",
-              "workbookPath": "\(currentWorkbookURL.path)",
+              "workbookPath": "\(workbookURL.path)",
               "primaryWorkbookPath": "\(workbookURL.path)",
             """
             + haplotypePayloadLine
@@ -1626,48 +1539,6 @@ private final class StubWorkflowOperationAIHaplotyper: WorkflowOperationAIHaplot
             provenanceURL: provenanceURL
         )
     }
-}
-
-private final class StubWorkflowOperationWorkbookUpdater: WorkflowOperationWorkbookUpdating, @unchecked Sendable {
-    struct Invocation: Equatable {
-        let calls: [GenotypeWorkbookHaplotypeCall]
-        let annotationSidecarURL: URL?
-        let bundleURL: URL
-    }
-
-    private(set) var invocations: [Invocation] = []
-    private let currentWorkbookURL: URL
-
-    init(currentWorkbookURL: URL) {
-        self.currentWorkbookURL = currentWorkbookURL.standardizedFileURL
-    }
-
-    func applyHaplotypeCalls(
-        _ calls: [GenotypeWorkbookHaplotypeCall],
-        annotationSidecarURL: URL?,
-        into bundleURL: URL,
-        provenanceContext: GenotypeWorkbookRevisionProvenanceContext?
-    ) async throws -> URL {
-        invocations.append(Invocation(
-            calls: calls,
-            annotationSidecarURL: annotationSidecarURL?.standardizedFileURL,
-            bundleURL: bundleURL.standardizedFileURL
-        ))
-        try FileManager.default.createDirectory(
-            at: currentWorkbookURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data("current workbook".utf8).write(to: currentWorkbookURL)
-        return currentWorkbookURL
-    }
-}
-
-private final class DefaultWorkflowWorkbookUpdaterCapture: @unchecked Sendable {
-    var calls: [GenotypeWorkbookHaplotypeCall]?
-    var annotationSidecarURL: URL?
-    var bundleURL: URL?
-    var provenanceContext: GenotypeWorkbookRevisionProvenanceContext?
-    var pythonExecutableURL: URL?
 }
 
 private struct ViewerBundleInvocation: Equatable {

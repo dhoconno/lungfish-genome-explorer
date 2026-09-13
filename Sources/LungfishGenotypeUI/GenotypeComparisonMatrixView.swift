@@ -286,6 +286,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #endif
     private var pinnedWidthConstraint: NSLayoutConstraint?
     private var result: ONTGenotypeResultBundleData?
+    private var reviewRawSupport: [GenotypeAnnotationSidecar.MatrixTarget: Int] = [:]
     private var referenceFields: [GenBankRecordDatabase.FieldDefinition] = []
     private var referenceRecords: [String: [String: String]] = [:]
     private var hasEmbeddedMHCAlleles = false
@@ -502,6 +503,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sidecar: GenotypeAnnotationSidecar? = nil
     ) {
         self.result = result
+        reviewRawSupport = GenotypeMatrixReviewEligibility.rawSupport(in: result)
         bundleLocusDisplayOrder = result.genotypeLocusDisplayOrder
         if case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) {
             manualHaplotypeEditingEligible = true
@@ -630,7 +632,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     /// Replaces workbook-backed scientific rows while preserving analyst view
     /// state (stable sample order/widths, sort, filters, and surviving
-    /// selection). This is used after current.xlsx is reloaded.
+    /// selection) when retained scientific state is refreshed.
     func replaceResultPreservingPresentation(
         _ result: ONTGenotypeResultBundleData,
         metadataStore: SampleMetadataStore?,
@@ -638,6 +640,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ) {
         captureStableSampleColumnState()
         self.result = result
+        reviewRawSupport = GenotypeMatrixReviewEligibility.rawSupport(in: result)
         bundleLocusDisplayOrder = result.genotypeLocusDisplayOrder
         if case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) {
             manualHaplotypeEditingEligible = true
@@ -794,7 +797,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 sidecarCellCommentTooltips[key] = "Cell: \(comment.body)"
             }
         }
-        for review in sidecar?.matrixReviews ?? [] {
+        let eligibleReviews = GenotypeMatrixReviewEligibility.eligibleReviews(sidecar?.matrixReviews ?? []) { reviewRawSupport[$0] }
+        for review in eligibleReviews.values {
             guard case let .cell(locus, genotype, sample, stableClusterID) = review.target else {
                 continue
             }
@@ -1042,8 +1046,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return rowStyles[RowKey(locus: target.locus, genotype: target.genotype, stableClusterID: target.stableClusterID)] ?? .default
     }
 
-    func exportSnapshot(bundleURL: URL, analysisName: String, lens: String) -> GenotypeViewportExportSnapshot {
-        let exportSampleNames = activeSampleNames()
+    func exportSnapshot(bundleURL: URL, analysisName: String, lens: String, unfiltered: Bool = false) -> GenotypeViewportExportSnapshot {
+        settlePendingFilterForExport()
+        let exportSampleNames = unfiltered ? sampleNames : activeSampleNames()
         let exportSampleSet = Set(exportSampleNames)
         let filters: [String: String] = [
             "searchText": filterText,
@@ -1063,10 +1068,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             "genotypeNumericPrefixOrder": String(usesNumericReferenceOrder),
             "hideFilteredHighlights": String(displayState.hideFilteredHighlights),
         ]
-        let rows = visibleRows.map { row in
-            let reads = Dictionary(uniqueKeysWithValues: row.sampleSupport.compactMap { support -> (String, Int)? in
-                guard exportSampleSet.contains(support.sample) else { return nil }
-                return (support.sample, support.passedUniqueReads)
+        let exportRows = unfiltered ? unfilteredExportRows() : visibleRows
+        let rows = exportRows.map { row in
+            // Native display selects the first retained occurrence for a sample.
+            // Known occurrences are already ordered highest-first; preserving
+            // this lookup contract avoids collapsing or summing valid duplicates.
+            let reads = Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample -> (String, Int)? in
+                guard exportSampleSet.contains(sample), let support = row.support(for: sample) else { return nil }
+                return (sample, support.passedUniqueReads)
             })
             let styles = Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample -> (String, GenotypeResultHighlightStyle)? in
                 let rendered = renderedStyle(for: sample, row: row)
@@ -1085,7 +1094,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 totalUniqueReads: reads.values.reduce(0, +),
                 sampleReads: reads,
                 rowStyle: rowStyles[RowKey(locus: row.locus, genotype: row.genotype, stableClusterID: row.stableClusterID)] ?? .default,
-                cellStyles: styles
+                cellStyles: styles,
+                renderedRowStyle: exportRenderedStyle(for: ColumnID.genotype, row: row),
+                renderedCellStyles: Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample in
+                    if unfiltered { return (sample, unfilteredExportStyle(for: sample, row: row)) }
+                    return sampleColumnIdentifierByName[sample].map { (sample, exportRenderedStyle(for: $0, row: row)) }
+                })
             )
         }
         return GenotypeViewportExportSnapshot(
@@ -1094,8 +1108,65 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             lens: lens,
             filters: filters,
             sampleNames: exportSampleNames,
-            rows: rows
+            rows: rows,
+            // Manual bands include blank editor slots, not scientific calls.
+            // Effective-call scope is independent of collapse and evidence rows.
+            haplotypeLocusScope: !unfiltered && haplotypeBandMode == .effectiveMiSeqCalls
+                ? activeHaplotypeBandLoci : nil
         )
+    }
+
+    /// Visibility is a projection concern; keep the captured presentation settings
+    /// while deriving a complete inventory without changing the live matrix.
+    private func unfilteredExportRows() -> [GenotypeCandidateMatrixRow] {
+        guard let result else { return [] }
+        var settings = effectiveCandidateDisplaySettings
+        settings.showKnown = true
+        settings.showSharedCandidates = true
+        settings.showSingletonCandidates = true
+        return GenotypeMatrixBaseProjection(
+            calls: result.calls, samples: result.samples,
+            candidateDocument: validatedMHCCandidateDocument(from: result),
+            unnameableDocument: result.mhcUnnameableClusters,
+            logicalSampleNames: sampleNames, candidateSettings: settings,
+            usesBiologicalAlleleOrder: usesBiologicalAlleleOrder,
+            locusDisplayOrder: effectiveLocusDisplayOrder,
+            usesNumericReferenceOrder: usesNumericReferenceOrder
+        ).derive(.unfiltered).rows
+    }
+
+    func settlePendingFilterForExport() {
+        guard pendingFilterTask != nil else { return }
+        pendingFilterTask?.cancel()
+        pendingFilterTask = nil
+        applyFilterAndSort()
+    }
+
+    /// Full evidence uses the same native annotation/haplotype style authority
+    /// with raw support, independently of the live sample mask and thresholds.
+    private func unfilteredExportStyle(for sample: String, row: GenotypeCandidateMatrixRow) -> GenotypeMatrixRenderedStyle {
+        var style = mergedRenderedStyle(for: sample, row: row)
+        if displayState.cellColorMode == .haplotype {
+            applyHaplotypeColor(to: &style, sample: sample, row: row, isFiltered: false, usingRawSupport: true)
+        }
+        applyAutomaticTextContrast(to: &style, against: style.fillColor)
+        var background: NSColor?
+        if displayState.cellColorMode != .none, let fill = style.fillColor {
+            background = Self.color(from: fill)
+        } else if displayState.cellColorMode == .support {
+            let fraction = supportFractionByCell[CellKey(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: row.stableClusterID)]
+            let alpha: Double? = manualHaplotypeEditingEligible
+                ? ((row.support(for: sample)?.passedUniqueReads ?? 0) > 0 ? 0.20 : nil)
+                : (row.population == .known ? fraction.map { min(0.20, max(0.06, 0.05 + $0 * 0.22)) } : nil)
+            if let alpha { background = NSColor.systemBlue.withAlphaComponent(alpha) }
+        }
+        let border = displayState.cellColorMode == .none ? nil
+            : style.borderColor.map { Self.color(from: $0).withAlphaComponent(0.95) }
+        // Match the native export resolver's device-to-sRGB conversion for
+        // explicit decoration and support fills, not only semantic colors.
+        style.fillColor = exportAnnotationColor(background)
+        style.borderColor = exportAnnotationColor(border)
+        return style
     }
 
     func selectFirstSharedCall() {
@@ -1115,6 +1186,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } else {
             onCandidateRowSelected?(visibleRows[0], nil, selectedMatrixTargets)
         }
+    }
+
+    private func exportAnnotationColor(_ color: NSColor?) -> AnnotationColor? {
+        guard let color = color?.usingColorSpace(.sRGB) else { return nil }
+        return AnnotationColor(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent, alpha: color.alphaComponent)
+    }
+
+    private func exportRenderedStyle(for identifier: NSUserInterfaceItemIdentifier, row: GenotypeCandidateMatrixRow) -> GenotypeMatrixRenderedStyle {
+        var style = renderedStyle(for: identifier, row: row)
+        style.fillColor = exportAnnotationColor(backgroundColor(for: identifier, row: row, renderedStyle: style))
+        style.borderColor = exportAnnotationColor(borderColor(for: identifier, row: row, renderedStyle: style))
+        return style
     }
 
     private func buildView() {
@@ -6120,10 +6203,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func haplotypeSupport(
         sample: String,
-        row: GenotypeCandidateMatrixRow
+        row: GenotypeCandidateMatrixRow,
+        usingRawSupport: Bool = false
     ) -> [GenotypeAlleleHaplotypeEvidenceIndex.Support] {
         guard row.population == .known,
-              (support(for: sample, row: row)?.passedUniqueReads ?? 0) > 0,
+              ((usingRawSupport ? row.support(for: sample) : support(for: sample, row: row))?.passedUniqueReads ?? 0) > 0,
               reviewDisposition(for: sample, row: row) != .falsePositive else { return [] }
         return haplotypeEvidence.support(locus: row.locus, genotype: row.genotype, sample: sample)
     }
@@ -6132,14 +6216,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         to rendered: inout GenotypeMatrixRenderedStyle,
         sample: String,
         row: GenotypeCandidateMatrixRow,
-        isFiltered: Bool
+        isFiltered: Bool,
+        usingRawSupport: Bool = false
     ) {
         // Semantic mode owns the fill. Stored analyst highlights are still
         // available in Highlights mode, but cannot imply haplotype support here.
         rendered.fillColor = nil
         rendered.textColor = nil
         guard !isFiltered else { return }
-        let matches = haplotypeSupport(sample: sample, row: row)
+        let matches = haplotypeSupport(sample: sample, row: row, usingRawSupport: usingRawSupport)
         let assignments = Set(matches.map { "\($0.name):\($0.fillColor.hexString)" })
         if assignments.count == 1 {
             rendered.fillColor = matches.first?.fillColor
@@ -6196,25 +6281,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         into rendered: inout GenotypeMatrixRenderedStyle
     ) {
         guard let style else { return }
-        if let fillColor = style.fillColor.flatMap(AnnotationColor.init(hex:)) {
-            rendered.fillColor = fillColor
-        }
-        if let textColor = style.textColor.flatMap(AnnotationColor.init(hex:)) {
-            rendered.textColor = textColor
-        }
-        if let borderColor = style.borderColor.flatMap(AnnotationColor.init(hex:)) {
-            rendered.borderColor = borderColor
-        }
-        if let boldOverride = style.boldOverride {
-            rendered.isBold = boldOverride
-        } else if style.isBold {
-            rendered.isBold = true
-        }
-        if let italicOverride = style.italicOverride {
-            rendered.isItalic = italicOverride
-        } else if style.isItalic {
-            rendered.isItalic = true
-        }
+        let resolved = GenotypeMatrixStyleResolver.resolve([style], initial: .init(
+            isBold: rendered.isBold, isItalic: rendered.isItalic))
+        if let color = resolved.fillHex { rendered.fillColor = AnnotationColor(hex: color) }
+        if let color = resolved.textHex { rendered.textColor = AnnotationColor(hex: color) }
+        if let color = resolved.borderHex { rendered.borderColor = AnnotationColor(hex: color) }
+        rendered.isBold = resolved.isBold
+        rendered.isItalic = resolved.isItalic
     }
 
     private func applyAutomaticTextContrast(
@@ -7266,7 +7339,13 @@ extension GenotypeComparisonMatrixView {
         let identifier: NSUserInterfaceItemIdentifier
         switch column {
         case .alleleName:
-            identifier = ColumnID.genotype
+            if pinnedTableView.tableColumns.contains(where: { $0.identifier == ColumnID.genotype }) {
+                identifier = ColumnID.genotype
+            } else if let alleleFieldKey {
+                identifier = ColumnID.reference(alleleFieldKey)
+            } else {
+                return nil
+            }
         case .stableClusterID:
             identifier = ColumnID.stableClusterID
         case .locus:

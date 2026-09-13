@@ -1,0 +1,156 @@
+# Unified One-Way Excel Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. User approved expert-supervised implementation; proceed without another execution-choice prompt.
+
+**Goal:** Replace editable/synchronized Excel with one immutable report containing all and filtered genotype matrices and optional actual haplotype results.
+
+**Architecture:** A versioned IO snapshot owns both matrix projections and one common call/palette authority. Workflow constructs and writes the snapshot with durable provenance; CLI, GUI and scientific producers use that same service. Switch consumers before retiring current-workbook/import code so each task remains buildable.
+
+**Tech Stack:** Swift/AppKit/SwiftUI, XCTest, managed Python/openpyxl, existing provenance services.
+
+**Spec:** `docs/superpowers/specs/2026-09-12-unified-one-way-excel-design.md`
+
+## Global Constraints
+
+- One workbook contains, in order: `Haplotype Calls` when actual content exists, `Genotype Matrix - All`, `Genotype Matrix - Filtered`, `Export Metadata`. Without haplotype content there are three sheets and no haplotype bands.
+- One immutable scientific snapshot and one matrix renderer; static literal calls/colors, no import actions, editable Notes grammar, formulas or cache repair in the new export.
+- All means all authoritative genotype-matrix evidence in the selected analysis. Filtered means exactly the viewport's captured sample/row order, stable identities and displayed cell values after all active filters.
+- User clarification: omit a Filtered genotype evidence row unless a visible sample retains a positive displayed read count. Hidden raw support, excluded samples, zero-only reviews and comments do not retain empty rows. Preserve All and annotations on retained rows; do not remove haplotype bands. No Excel keep-empty-rows override.
+- Both matrix bands and the calls sheet use the same effective H1/H2 values, statuses, sources and palette, including homozygotes, swaps, manual changes, explicit absence, and errors.
+- Actual manual assignments and analyzed unresolved/error results establish content; empty manually eligible placeholders do not.
+- Retain FP/FN, comments, explicit styles, candidate stable IDs, ONT support semantics, and true denominator/filter metadata. Unknown is not zero; FP requires positive support, FN requires attested zero.
+- Every scientific export must retain reproducible final-path provenance: workflow/version, argv/replay command, options/defaults, runtime, input/output checksums/sizes, exit status, elapsed time and useful stderr. Reject incoherent or changed scientific snapshots; do not publish partial reports.
+- No Excel import/backward-edit compatibility or ongoing current.xlsx lifecycle. Preserve native curation, accepted annotations/audit, scientific artifacts, shared publication locks, interrupted project recovery and cheap historical manifest fields.
+- UI has one export action and clearly discloses both all and filtered data and one-way snapshot semantics. CSV/TSV remain separate supported formats.
+- Work only in `/Users/dho/Documents/lungfish-genome-explorer/.worktrees/excel-three-sheet-layout`, branch `codex/excel-three-sheet-layout`. Use apply_patch. Do not merge/push/release or touch unrelated worktrees/original private projects. No nested subagents.
+- Run one Swift build/test process at a time with `--jobs 6`. Record RED/GREEN commands, summaries and log paths. Read TDD/writing-good-tests before tests. Use literal independently derived expectations. Commit each reviewed task.
+
+## File and dependency boundaries
+
+IO owns public serializable values and the static Python renderer. Workflow owns result/sidecar interpretation, witness capture, runtime execution and publication. UI owns settled viewport state and the save dialog; CLI owns argument parsing. No Workflow → UI/CLI dependency. Existing editable APIs can coexist only until Task 5 retires consumers; no final compatibility bridge.
+
+### Task 1: Versioned snapshot and static shared workbook renderer
+
+**Files:**
+- Modify `Sources/LungfishIO/Bundles/GenotypeWorkbookPresentation.swift` (reuse Style/Sample/Target/Cell/Row/Slot/Call/Color values).
+- Create `Sources/LungfishIO/Bundles/GenotypeWorkbookSnapshot.swift` and `GenotypeWorkbookSnapshot+Script.swift` for neutral snapshot contract/static renderer.
+- Create `Tests/LungfishIOTests/GenotypeWorkbookSnapshotTests.swift`.
+
+**Interfaces:** `GenotypeWorkbookPresentation.Matrix` is Codable/Sendable with samples, loci, rows. `GenotypeWorkbookPresentation.Snapshot` is Codable/Sendable with schemaVersion=3, generatedAt, sourceRevision, allMatrix, filteredMatrix, calls, colors, hasHaplotypeContent, metadata. Store scientific witnesses in sourceRevision/metadata and the durable capture receipt; do not create a second editable manifest. Public initializers and immutable properties. `GenotypeWorkbookPresentation.snapshotPythonScript` defines `render_genotype_snapshot(payload, output_path)` and a single `_render_matrix(...)` used twice. The renderer returns a compact sheet/row/cell summary, not an edit-import manifest.
+
+- [ ] Write a real openpyxl fixture test first using the existing presentation-test process harness pattern. Hand-derived example: sample S1/S2, locus A, homozygous S1 M4A/M4A; S2 M1A/M3A; All counts [1,5], Filtered [nil,5]. Assert literal values and identical call fills in all three locations, no formula XML, no validation/import columns, and sheet order.
+
+```python
+assert wb.sheetnames == ['Haplotype Calls', 'Genotype Matrix - All', 'Genotype Matrix - Filtered', 'Export Metadata']
+assert not any(c.data_type == 'f' for ws in wb for row in ws for c in row)
+assert all(not ws.data_validations.count for ws in wb)
+```
+
+- [ ] Run focused RED. Implement the schema and script using `_literal`, resolved style/review rendering and generated read-only comments from the prior renderer, without its edit grammar/formula logic. Reuse existing value types rather than duplicate science. Validate duplicate/unknown sample, row and call identities; cell roster and nonnegative integer raw/display values; filtered identity subset and consistency; baseline/status types; metadata strings. Fail before saving invalid output.
+- [ ] Add behavioral fixtures for absent content (3 sheets/no bands), analyzed unresolved and manual-only content (4 sheets), sparse loci/samples, masked support, FP/FN/unknown and invalid reviews, explicit style clearing, duplicate candidate labels with different stable IDs, literal formula-like sample/comment/call text, empty filtered axes, and color parity. Supply hasHaplotypeContent explicitly; producers in Task 2 decide capability from actual authority rather than count of placeholders.
+- [ ] GREEN: `swift test --jobs 6 --filter 'GenotypeWorkbookSnapshotTests|GenotypeWorkbookPresentationTests'`. Existing three-sheet tests remain until retirement. Self-review and commit. Report exact new initializer/function signatures for Task 2.
+
+### Task 2: Shared scientific snapshot builder and export service
+
+**Files:**
+- Create `Sources/LungfishWorkflow/ONTGenotyping/GenotypeExcelSnapshotBuilder.swift` (scientific projection and capture validation).
+- Create `Sources/LungfishWorkflow/ONTGenotyping/GenotypeExcelExportService.swift` (runtime and atomic report/provenance publication).
+- Move the UI-independent `Sources/LungfishGenotypeUI/GenotypeMatrixBaseProjection.swift` and `GenotypeCandidateMatrixRow.swift` to `Sources/LungfishIO/Bundles/` with public APIs needed by existing UI and new Workflow consumers, preserving their behavior and existing projection tests. This shares the actual filter/support formulas instead of introducing an alternative science implementation. Extract pure style resolution to a focused neutral helper if needed; keep AppKit-only color conversion in UI.
+- Reuse/extract scientific DTOs/input validation from `GenotypeWorkbookRevisionService.swift` and its `+PresentationScript.swift`; do not call the revision updater from the new service.
+- Create `Tests/LungfishWorkflowTests/GenotypeExcelExportServiceTests.swift`; preserve/adapt existing native projection tests for moved public types.
+- In the reviewed fix, add only a frozen-snapshot/replay branch to existing `Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift`, with focused subprocess boundary tests. Ordinary bundle routing and other CLI routes remain Task 3. Reuse the registered command, not a fourth export command.
+
+**Interfaces:** Consume Task 1 Snapshot/Matrix and existing `ONTGenotypeResultBundleData`, `GenotypeAnnotationSidecar`, `GenotypeViewProjection`. Provide public `GenotypeExcelSnapshotBuilder.capture(result:sidecar:allProjection:filteredProjection:generatedAt:) throws -> GenotypeWorkbookPresentation.Snapshot` where the two projections are optional; a supplied allProjection must be complete, and a supplied filteredProjection must be identity/evidence coherent. Full call authority always comes from full analysis/native assignments, not filtered projection scope or genotype-derived fake haplotypes. Provide `GenotypeExcelExportService(pythonExecutableURL:)` and an async `export(snapshot:outputURL:provenance:)` returning final output/receipt URLs; define a typed nested provenance request with witnessed input bytes/files, invocation/options/defaults, runtime context. Publish these exact public signatures and any additional typed initializer in the task report for later tasks.
+
+**Scientific handoff:** Read `/tmp/lge-one-way-assessment.QWWvSz/scientific-implementation-handoff.md`. Raw support is already memory-only. Freeze active analysis/definition/palette/order at capture; do not use `resultByResolvingActiveAnalysis`, whose short initializer drops candidate/catalog evidence. Additional typed capture inputs may carry that frozen authority. Explicitly map catalog callID versus annotation displayName/stableID. The native pure projector is the support/denominator authority and must be reused by UI and exporter.
+
+- [ ] Write RED fixtures exercising the production builder and service, not only the Python renderer: genotype-only empty assignments yields 3 sheets; manual assignment yields 4; unresolved analysis yields 4; M4 homozygote repeats faithfully; one-read cell hidden at threshold 5 remains only in All; distinct duplicate-label candidates and exact zero stay correct. Inspect real emitted workbook values, not source strings.
+- [ ] Derive all evidence from authoritative raw-support/catalog inputs and preserve user ordering/styles without active visibility restrictions. A provided complete allProjection is a capture aid, not authority to invent raw support. Resolve reviews with `GenotypeMatrixReviewEligibility`, comments/styles via the existing authority helpers, and calls with native effective/manual authority. Validate full input coherence; do not infer actual calls from the old manual-placeholder adapter.
+- [ ] Build both projections from one input snapshot. When no GUI projection is supplied, resolve explicit/default CLI filters; both matrices may legitimately match. Preserve known-call vs candidate support and denominator semantics. No source-workbook copy or current.xlsx lookup in new XLSX export.
+- [ ] Apply the clarified empty-row rule centrally for both headless and supplied viewport captures: Filtered retains only evidence rows with at least one positive displayed read count in its own visible sample roster. A fully masked one-read row, zero/unknown-only row, and row supported only in hidden samples must disappear; a mixed row with one surviving positive count remains with its masked/FN/comment cells intact. Preserve All, bands and metadata. Remove the newly introduced keepEmptyRows export parameter/override and record the fixed omission policy.
+- [ ] Write a durable snapshot plus replay script/receipt at final output-adjacent paths using existing provenance/publication patterns. Capture checksums of exact bytes used; verify mutable scientific inputs across capture; preserve previous successful output on renderer/provenance failure. Workbook generation must work from explicit in-memory captured inputs so pipelines can use it before their final manifest exists.
+- [ ] Recorded durable replay invokes the shared service via the existing `genotype export-xlsx --snapshot ... --provenance-request ... --output ... --python ... [--force]` branch. Replay at original/new destinations writes a matching receipt and preserves old output/receipt on failure. Record actual replay argv/tool/runtime/output, retaining the original request as context/input. An optional resolved replay executable may be supplied without creating a Workflow-to-CLI module dependency.
+
+```swift
+let snapshot = try GenotypeExcelSnapshotBuilder.capture(
+    result: result, sidecar: sidecar, allProjection: nil,
+    filteredProjection: capturedView, generatedAt: capturedAt)
+// Serialize this snapshot once; the writer must not reload the source bundle.
+```
+
+- [ ] GREEN focused Workflow/native projection tests; add changed-input rejection, nonmutation, literal-text, output-path/provenance hash, rerunnable durable receipt tests. Self-review and commit, reporting covering test commands and interfaces. Except for the bounded snapshot replay branch above, CLI routing is a separate next task.
+
+### Task 3: Route every genotype CLI XLSX entry point through the common service
+
+**Files:**
+- Modify `Sources/LungfishCLI/Commands/GenotypeExportPivotXlsxSubcommand.swift`, `GenotypeExportPivotXlsxSubcommand+Presentation.swift`, `GenotypeExportSubcommand.swift`, `GenotypeExportXlsxSubcommand.swift`, `Sources/LungfishCLI/Support/GenotypeXlsxWorkbookWriter.swift`, and `GenotypeExportProvenanceSupport.swift` where it owns shared CLI publication.
+- Modify `Tests/LungfishCLITests/GenotypePivotFilteredCopyTests.swift`, `GenotypePivotThresholdTests.swift`, `GenotypeExportSubcommandTests.swift`; add focused XLSX command tests within those existing fixtures.
+
+**Interfaces:** Consume `GenotypeExcelSnapshotBuilder.capture` and its captured-authority/filter overload, plus `GenotypeExcelExportService(pythonExecutableURL:)` and `export(snapshot:outputURL:provenance:) async throws -> ExportResult` with the exact public `ProvenanceRequest`/`InputWitness`/`ExportResult` definitions recorded by Task 2. CLI owns argument parsing and runtime resolution, not a second matrix builder. Add a `--snapshot` input path for already captured IO Snapshot when a GUI subprocess uses it; this path renders the immutable supplied capture without requiring a later bundle load. Ordinary `--bundle` paths capture native authority/evidence once via Task 2. Mutually exclusive input validation must report missing or conflicting sources clearly.
+
+Task 2's reviewed fix moves the minimal snapshot/replay branch of existing `export-xlsx` forward to make durable replay safe and testable. Reuse that branch and its exact final service/replay interfaces; do not reimplement it. This task still owns ordinary bundle routing, all other XLSX branches, cleanup and consolidated CLI options/tests.
+
+- [ ] Write RED command-boundary fixtures: each XLSX command produces the same 4-/3-sheet contract, applies explicit read/percent filters only to Filtered, uses actual calls rather than genotype token inference, and honors literal supplied snapshot values after source files change. Verify actual emitted workbooks/provenance, not source text or only parsed arguments.
+
+```swift
+// All CLI routes build or decode one snapshot, then use this one writer.
+let service = GenotypeExcelExportService(pythonExecutableURL: managedPython)
+let result = try await service.export(snapshot: snapshot, outputURL: outputURL, provenance: request)
+// Report result.outputURL and result.receiptURL only after successful publication.
+```
+
+- [ ] Switch every genotype XLSX branch, including `genotype export --export-format xlsx`, `export-xlsx`, and `export-pivot-xlsx`, to the common builder/service. Preserve CSV/TSV behavior and native scientific apply/replay commands. Remove live source-workbook copying/current.xlsx lookup and obsolete source-workbook options/help; do not retain an editable Excel compatibility bridge. Remove unused alternative genotype XLSX writing branches once consumers switch.
+- [ ] Resolve options/defaults honestly for each route, including no-filter defaults, sample/search/locus scope and known versus candidate percent semantics. `--snapshot` uses its captured filtering metadata rather than silently overwriting it with CLI defaults. Retain exact durable input witnesses and final-path replay/provenance. Validate negative/out-of-range filters and malformed/incoherent snapshots before overwriting an existing report.
+- [ ] Remove obsolete Excel `--keep-empty-rows` behavior/help; every XLSX route omits rows without positive displayed support in visible samples. CSV/TSV behavior remains unchanged.
+- [ ] GREEN focused CLI export tests plus shared service regression tests. Keep scientific identity/review/annotation tests from retired source-copy tests, but rewrite obsolete workbook-copy expectations to the new one-way contract. Confirm unrelated CSV/TSV tests remain green. Self-review, commit and report exact GUI-facing invocation and output/receipt format.
+
+### Task 4: One Inspector action and simultaneous GUI capture
+
+**Files:**
+- Modify `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift`, `GenotypeComparisonMatrixView.swift`, `GenotypeViewportExportSnapshot.swift`, `GenotypeViewportExportService.swift`, `GenotypeResultDocumentSection.swift`, `GenotypeResultDisplaySection.swift` and existing projection serializer where defined.
+- Modify `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift` Excel action routing.
+- Remove `Sources/LungfishGenotypeUI/GenotypeExcelExportChoice.swift` when callers/tests have switched.
+- Modify `Tests/LungfishGenotypeUITests/GenotypeExcelDialogBehaviorTests.swift`, `GenotypeViewportPivotExportTests.swift`, `GenotypeResultViewportWorkbookPublicationTests.swift`, `Tests/LungfishAppTests/GenotypeViewportExcelExportTests.swift`.
+
+**Interfaces:** Consume Task 2 builder/service. `GenotypeViewportExportSnapshot` carries a frozen unified Snapshot for XLSX alongside unchanged delimiter-export data. Capture full and filtered projections without changing live UI filters or displaying a second viewport. Event/state becomes last successful Excel export, not filtered/current role.
+
+**UI handoff:** Read `/tmp/lge-one-way-assessment.QWWvSz/ui-implementation-handoff.md` and this plan's `task-3-handoff.md` scratch note (named before task renumbering). They describe this GUI task, now Task 4. Reuse the existing numeric/draft coordination, add export transition and synchronous pending matrix-filter settlement, and preserve native Confirm/Skip scientific review and ONT editing. Task 3's report supplies the final snapshot-input CLI invocation if using the subprocess seam.
+
+- [ ] RED mounted Inspector/dialog and production capture tests: one action; no role choice/review-sync controls; five-read threshold + search/sample/locus/manual row visibility captured exactly; All remains complete; filtering does not truncate the common call authority; pending native edits settle before capture.
+- [ ] Replace the dialog with the ordinary save panel and concise accessory: `Includes all results and the current filtered view. This is a snapshot; make edits in LGE and export again. Filtering does not remove data from the All worksheet.` Timestamp the default filename. Keep cancellation, progress/errors, and last-success status; do not require source-project write ownership for standalone export.
+- [ ] Add pure unfiltered projection/capture using the same matrix model and style resolver while retaining exact current viewport mask/order for Filtered. Capture sidecar/calls/palette/raw-evidence witnesses together, then serialize the unified snapshot. Do not defer raw-evidence loading until the CLI subprocess. Use the shared service or its snapshot-input CLI path; keep durable GUI provenance and rollback.
+- [ ] Verify the common export removes evidence rows that become empty across the captured visible samples, including sample-only filtering; do not remove bands or retain rows merely because they have hidden raw reads/annotations.
+- [ ] Disconnect GUI Excel review/update/open-current callbacks and six sync-state UI. Leave definitions only while Task 5 retires backend consumers. Preserve native save/curation/dropout/call-order updates. Do not broaden ONT curation UX beyond preserving existing functionality.
+- [ ] GREEN focused UI/App export tests including readable source to external destination, cancelled export, no background regeneration after native edit, and unchanged captured output after later edit. Self-review and commit.
+
+### Task 5: Switch scientific producers and remove the entire active Excel lifecycle
+
+**Files:**
+- Modify `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline+Reports.swift`, `FullLengthONTMHCGenotypingPipeline+Publication.swift`, `ONTBarcodeDemuxGenotypingPipeline.swift`, corresponding CLI output consumers and pipeline tests.
+- Modify `Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift`, native annotation store workbook-only methods, remaining current-workbook callback/registration consumers and their tests.
+- Remove importer modules `GenotypeEditableWorkbookService.swift`, `+Script.swift`, `+ThreeSheet.swift`, `Sources/LungfishApp/Views/Inspector/GenotypeExcelReviewPresenter.swift`.
+- Remove `GenotypeCurrentWorkbookSyncCoordinator.swift`, `GenotypeCurrentWorkbookUpdateExecutionService.swift`, `GenotypeCurrentWorkbookOpenHandoff.swift`, `FastqUpdateCurrentWorkbookSubcommand.swift`, `GenotypeCurrentWorkbookInputFingerprint.swift`, `GenotypeWorkbookUpdateAttemptRecorder.swift` after consumers switch.
+- Retire `GenotypeWorkbookRevisionService.swift`, `+PresentationScript.swift`, unused `+OverrideScript.swift`, old `GenotypeWorkbookPresentation+Script.swift` and its obsolete Payload once scientific reusable DTO/helpers are extracted to neutral files. Keep shared simple presentation value types used by new Snapshot.
+- Retain shared `ONTGenotypeBundlePublicationLock`, `ONTGenotypeWorkbookUpdateTransaction.swift`/cleanup machinery needed for interrupted historical scientific publication, bundle loading and project storage. Historical optional manifest fields need not be removed.
+
+**Interfaces:** New initial scientific report output is the Task 2 service output; producer manifests/provenance point at final relocated report payloads, not temporary paths. No active currentWorkbook update/dirty/fingerprint lifecycle remains. Native scientific editing/replay/publication APIs retain behavior.
+
+- [ ] RED production pipeline/AI completion fixtures demonstrating no current.xlsx copy/automatic updater and a unified report for both full-length ONT and MiSeq/barcode genotype-only. Verify accepted native annotation/audit records and active analysis/definition artifacts survive cutover.
+- [ ] Replace initial-copy/decorated-current helpers with shared report capture/write before manifest finalization using explicit pipeline state. Preserve scientific analysis/definition artifacts previously created inside those helpers. Update descriptors, returned CLI URLs and relocated provenance together. AI completion publishes its scientific result without automatic current.xlsx regeneration; report remains explicit export unless that producer already promises an initial report.
+- [ ] Delete active importer/synchronizer modules and references; extract only demonstrably shared scientific helpers. Remove old importer/state-machine tests whose contract was retired; port their raw evidence/review/provenance and native authority assertions to new service/capture tests. Remove stale public help/docs about editing Excel, source-workbook copies and review sync.
+- [ ] GREEN pipeline, AI completion, native curation/replay and shared recovery/cleanup selections; compile App and CLI. Source inventory classifies remaining workbook references as historical scientific inputs/recovery or unrelated non-genotyping export; no active alternate genotype XLSX renderer or update registration remains. Self-review and commit, reporting deletion footprint and retained dependencies.
+
+### Task 6: Independent cross-workflow acceptance and visual QA
+
+**Files:**
+- Add/modify `Tests/LungfishAppTests/GenotypeUnifiedExcelAcceptanceTests.swift`, Workflow and CLI export tests as necessary to exercise production captures.
+- Create `docs/reviews/2026-09-12-unified-one-way-excel-qa.md` with sanitized evidence, commands, retained limitations and source witness; no private project data.
+
+**Interfaces:** Production UI/CLI/pipeline service only; use Task 1 reader assertions with an independently built evidence oracle, not production adapter-generated expected values. Tests exercising removed Excel import behavior are out of scope.
+
+- [ ] RED independent fixtures for real failure classes: drop a sample/row, mutate support consistently across both outputs, convert unknown to zero, retarget stable candidate identity, diverge H2/palette between matrices/calls. Oracle must reject each corruption.
+- [ ] Run synthetic end-to-end exports for haplotyped MiSeq, full-length ONT, genotype-only no calls, manual calls and analyzed unresolved status. Assert sheet count/order, literal cell types, palette/status/source parity, complete All evidence and exact Filtered masks/annotations with min reads 5 plus combined visibility controls.
+- [ ] Assert fully filtered, hidden-sample-only, zero-only and unknown-only evidence rows are absent from Filtered; a partially masked row survives with its eligible FN/comments intact. All still includes those authoritative rows and call bands remain when actual haplotype content exists.
+- [ ] Run supplied Biomere2 cohort only on a new disposable clone of `/tmp/lge-three-sheet-qa.XyCN2M/cohort.lungfish`. Never load the original. Compare all evidence against raw inputs and filtered against captured LGE, including homozygotes and all five loci. Verify original read-only witness remains SHA-256 `bd99dc7a0c29acefae4ac2bd6adb40a95f6e34d6f60de09070e44db33ce9c86c` using the existing witness walker; do not commit identifying data.
+- [ ] Follow spreadsheets skill for artifact inspection; render the new four-sheet and genotype-only three-sheet outputs and inspect actual images. Verify metadata readability and full-data disclosure, both matrix bands, same call colors, FP/FN/comments, no overflowing headers. Check durable replay after temporary staging removal, final checksums/sizes/runtime/options/defaults and no source mutations. Native Excel inspection is read-only on disposable files; do not touch the user's open workbook.
+- [ ] Run one consolidated covering suite for the new surface plus preserved native authority/recovery. If a failure appears, diagnose before fixes and retain concrete evidence. Self-review and commit QA/regression tests. Final whole-branch review follows this task; packaging/publication requires later user authorization.
