@@ -147,7 +147,7 @@ public enum GenotypeExcelSnapshotBuilder {
         let comments = sidecar.resolvedMatrixComments
         let styles = Dictionary(sidecar.matrixStyles.map { ($0.target, $0.style) }, uniquingKeysWith: { _, last in last })
         let callCapture = try calls(result: result, sidecar: sidecar, authority: authority, samples: sampleNames)
-        let loci = unique((authority.locusDisplayOrder ?? []) + callCapture.calls.map(\.locus))
+        let loci = unique(callCapture.calls.map(\.locus))
         let rowKey: (String, String, String?) -> String = { locus, genotype, stable in
             // JSON tuple encoding prevents delimiter collisions.
             String(data: try! encoder.encode([locus, genotype, stable ?? ""]), encoding: .utf8)!

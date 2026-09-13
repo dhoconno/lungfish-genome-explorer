@@ -588,6 +588,341 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: forcedReceipt), priorReceipt)
     }
 
+    // These delimiter-path tests preserve the publication transaction's
+    // compare-and-swap and rollback guarantees independently of XLSX. They
+    // intentionally never resolve or invoke the spreadsheet renderer.
+    func testDelimitedExportRestoresPriorOutputWhenProvenancePublicationFails() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-provenance-rollback")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let output = root.appendingPathComponent("existing.csv")
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let rootProvenance = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let priorOutput = Data("prior delimited output".utf8)
+        let priorSidecar = Data("prior output provenance".utf8)
+        let priorRoot = Data("prior root provenance".utf8)
+        try priorOutput.write(to: output)
+        try priorSidecar.write(to: sidecar)
+        try priorRoot.write(to: rootProvenance)
+
+        do {
+            _ = try await delimitedCommand(bundle: bundle, output: output, format: "csv", force: true)
+                .runReturningResolvedColumns(beforeProvenancePublication: {
+                    throw NSError(domain: "GenotypeExportSubcommandTests", code: 91,
+                        userInfo: [NSLocalizedDescriptionKey: "Injected provenance publication failure"])
+                })
+            XCTFail("expected injected provenance failure")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("Injected provenance publication failure"))
+        }
+        XCTAssertEqual(try Data(contentsOf: output), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: sidecar), priorSidecar)
+        XCTAssertEqual(try Data(contentsOf: rootProvenance), priorRoot)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.contains("export-staging") })
+    }
+
+    func testDelimitedRollbackPreservesNoncooperatingWriterChanges() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-cas-rollback")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let output = root.appendingPathComponent("shared.tsv")
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let rootProvenance = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceDirectory = root.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+        let generation = provenanceDirectory.appendingPathComponent("bundle-provenance.json")
+        try FileManager.default.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+        try Data("prior delimited output".utf8).write(to: output)
+        try Data("prior output provenance".utf8).write(to: sidecar)
+        try Data("prior root provenance".utf8).write(to: rootProvenance)
+        try Data("prior provenance generation".utf8).write(to: generation)
+        let priorGenerationInode = try inode(of: generation)
+        let externalOutput = Data("noncooperating delimited output".utf8)
+        let externalRoot = Data("noncooperating root provenance".utf8)
+        let externalGeneration = Data("noncooperating provenance generation".utf8)
+        var writerFired = false
+        var externalRootInode: UInt64?
+        var failureDescription = ""
+
+        do {
+            _ = try await delimitedCommand(bundle: bundle, output: output, format: "tsv", force: true)
+                .runReturningResolvedColumns(
+                    beforeProvenanceArtifactObservation: { mutation in
+                        guard mutation.kind == .provenanceDocumentWritten,
+                              mutation.url.standardizedFileURL == rootProvenance.standardizedFileURL,
+                              !writerFired else { return }
+                        writerFired = true
+                        try externalOutput.write(to: output, options: .atomic)
+                        try self.overwriteInPlace(rootProvenance, with: externalRoot)
+                        externalRootInode = try self.inode(of: rootProvenance)
+                        try self.overwriteInPlace(generation, with: externalGeneration)
+                    },
+                    afterProvenanceArtifactPublication: { mutation in
+                        guard mutation.kind == .provenanceDocumentWritten,
+                              mutation.url.standardizedFileURL == sidecar.standardizedFileURL else { return }
+                        throw NSError(domain: "GenotypeExportSubcommandTests", code: 96,
+                            userInfo: [NSLocalizedDescriptionKey: "Injected failure after later provenance mutation"])
+                    })
+            XCTFail("expected injected publication failure")
+        } catch {
+            failureDescription = String(describing: error)
+            XCTAssertTrue(failureDescription.contains("Injected failure after later provenance mutation"))
+            XCTAssertTrue(failureDescription.contains(output.path))
+        }
+        XCTAssertTrue(writerFired)
+        XCTAssertEqual(try Data(contentsOf: output), externalOutput)
+        XCTAssertEqual(try Data(contentsOf: rootProvenance), externalRoot)
+        XCTAssertEqual(try Data(contentsOf: sidecar), Data("prior output provenance".utf8))
+        XCTAssertEqual(try Data(contentsOf: generation), externalGeneration)
+        XCTAssertEqual(try inode(of: rootProvenance), externalRootInode)
+        XCTAssertEqual(try inode(of: generation), priorGenerationInode)
+        let quarantines = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".shared.tsv.provenance-forward-") }
+        XCTAssertEqual(quarantines.count, 1)
+        let quarantine = try XCTUnwrap(quarantines.first)
+        XCTAssertEqual(try Data(contentsOf: quarantine), Data("prior delimited output".utf8))
+        XCTAssertTrue(failureDescription.contains(quarantine.lastPathComponent))
+    }
+
+    func testDelimitedRollbackSnapshotRejectsChangeBetweenBackupAndBoundWitness() throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-snapshot-race")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let output = root.appendingPathComponent("shared.csv")
+        let external = Data("external generation".utf8)
+        try Data("original generation".utf8).write(to: output)
+        XCTAssertThrowsError(try ProvenancePublicationSnapshot(urls: [output], afterBackupCopy: { copied in
+            XCTAssertEqual(copied.standardizedFileURL, output.standardizedFileURL)
+            try external.write(to: output, options: .atomic)
+        })) { error in
+            XCTAssertTrue(error.localizedDescription.contains("changed while its rollback snapshot"))
+        }
+        XCTAssertEqual(try Data(contentsOf: output), external)
+    }
+
+    func testForcedDelimitedExportDoesNotDeleteReplacementArrivingBeforeClaim() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-forward-claim")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let output = root.appendingPathComponent("shared.tsv")
+        let external = Data("external generation".utf8)
+        try Data("prior generation".utf8).write(to: output)
+        do {
+            _ = try await delimitedCommand(bundle: bundle, output: output, format: "tsv", force: true)
+                .runReturningResolvedColumns(beforeOutputReplacementClaim: {
+                    try external.write(to: output, options: .atomic)
+                })
+            XCTFail("expected generation conflict")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains(output.path))
+        }
+        XCTAssertEqual(try Data(contentsOf: output), external)
+    }
+
+    func testDelimitedRollbackRestoresAfterEachPublishedProvenanceArtifact() async throws {
+        enum FailureTarget: String, CaseIterable { case root, bundleRollup, focusedBundleSidecar, outputSidecar }
+        for target in FailureTarget.allCases {
+            let root = try temporaryDirectory(prefix: "genotype-delimited-artifact-rollback-\(target.rawValue)")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let bundle = try makeBundle(in: root)
+            let publicationRoot = root.appendingPathComponent("publication.lungfishresults", isDirectory: true)
+            try FileManager.default.createDirectory(at: publicationRoot, withIntermediateDirectories: true)
+            let output = publicationRoot.appendingPathComponent("existing.csv")
+            let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+            let rootProvenance = publicationRoot.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            let provenanceDirectory = publicationRoot.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            let rollup = provenanceDirectory.appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+            let focused = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(for: output, inBundle: publicationRoot))
+            let failureURL: URL
+            switch target { case .root: failureURL = rootProvenance; case .bundleRollup: failureURL = rollup; case .focusedBundleSidecar: failureURL = focused; case .outputSidecar: failureURL = sidecar }
+            let priorOutput = Data("prior delimited output".utf8)
+            let priorSidecar = Data("prior output provenance".utf8)
+            let priorRoot = Data("prior root provenance".utf8)
+            try priorOutput.write(to: output); try priorSidecar.write(to: sidecar); try priorRoot.write(to: rootProvenance)
+            do {
+                _ = try await delimitedCommand(bundle: bundle, output: output, format: "csv", force: true)
+                    .runReturningResolvedColumns(afterProvenanceArtifactPublication: { mutation in
+                        guard mutation.kind == .provenanceDocumentWritten,
+                              mutation.url.standardizedFileURL == failureURL.standardizedFileURL else { return }
+                        throw NSError(domain: "GenotypeExportSubcommandTests", code: 97,
+                            userInfo: [NSLocalizedDescriptionKey: "Injected failure after \(target.rawValue) provenance mutation"])
+                    })
+                XCTFail("expected provenance artifact failure")
+            } catch {
+                XCTAssertTrue(String(describing: error).contains("Injected failure after \(target.rawValue) provenance mutation"))
+            }
+            XCTAssertEqual(try Data(contentsOf: output), priorOutput)
+            XCTAssertEqual(try Data(contentsOf: sidecar), priorSidecar)
+            XCTAssertEqual(try Data(contentsOf: rootProvenance), priorRoot)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: provenanceDirectory.path))
+        }
+    }
+
+    func testDelimitedRollbackRestoresRemovedStaleSigningArtifacts() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-signing-removal")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let output = root.appendingPathComponent("existing.tsv")
+        let rootProvenance = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let signature = ProvenanceSigningConfiguration.signatureURL(for: rootProvenance)
+        let publicKey = ProvenanceSigningConfiguration.publicKeyURL(for: rootProvenance)
+        let priorOutput = Data("prior delimited output".utf8), priorRoot = Data("prior root provenance".utf8)
+        let priorSignature = Data("prior signature".utf8), priorPublicKey = Data("prior public key".utf8)
+        try priorOutput.write(to: output); try priorRoot.write(to: rootProvenance)
+        try priorSignature.write(to: signature); try priorPublicKey.write(to: publicKey)
+        do {
+            _ = try await delimitedCommand(bundle: bundle, output: output, format: "tsv", force: true)
+                .runReturningResolvedColumns(afterProvenanceArtifactPublication: { mutation in
+                    guard mutation.kind == .artifactRemoved, mutation.affectedURLs.contains(signature) else { return }
+                    throw NSError(domain: "GenotypeExportSubcommandTests", code: 101,
+                        userInfo: [NSLocalizedDescriptionKey: "Injected failure after signing artifact removal"])
+                })
+            XCTFail("expected signing artifact removal failure")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("Injected failure after signing artifact removal"))
+        }
+        XCTAssertEqual(try Data(contentsOf: output), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: rootProvenance), priorRoot)
+        XCTAssertEqual(try Data(contentsOf: signature), priorSignature)
+        XCTAssertEqual(try Data(contentsOf: publicKey), priorPublicKey)
+    }
+
+    func testDelimitedRollbackDoesNotDeleteWriterArrivingAfterAtomicDetachment() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-detach-race")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let output = root.appendingPathComponent("shared.csv")
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let rootProvenance = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let priorSidecar = Data("prior sidecar".utf8), priorRoot = Data("prior root".utf8)
+        let late = Data("late external delimited output".utf8)
+        try Data("prior delimited output".utf8).write(to: output); try priorSidecar.write(to: sidecar); try priorRoot.write(to: rootProvenance)
+        var writerFired = false
+        do {
+            _ = try await delimitedCommand(bundle: bundle, output: output, format: "csv", force: true)
+                .runReturningResolvedColumns(
+                    beforeProvenancePublication: {
+                        throw NSError(domain: "GenotypeExportSubcommandTests", code: 100,
+                            userInfo: [NSLocalizedDescriptionKey: "Injected pre-provenance failure"])
+                    },
+                    afterRollbackArtifactDetached: { detached in
+                        guard detached.standardizedFileURL == output.standardizedFileURL, !writerFired else { return }
+                        writerFired = true
+                        try late.write(to: output, options: .atomic)
+                    })
+            XCTFail("expected injected pre-provenance failure")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("Injected pre-provenance failure"))
+        }
+        XCTAssertTrue(writerFired)
+        XCTAssertEqual(try Data(contentsOf: output), late)
+        XCTAssertEqual(try Data(contentsOf: sidecar), priorSidecar)
+        XCTAssertEqual(try Data(contentsOf: rootProvenance), priorRoot)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+            $0.contains(".provenance-rollback-") || $0.contains(".provenance-restore-")
+        })
+    }
+
+    func testDelimitedExportWithoutForcePreservesOutputCreatedDuringRendering() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-late-output")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let output = root.appendingPathComponent("late.tsv")
+        let late = Data("created by another actor".utf8)
+        do {
+            _ = try await delimitedCommand(bundle: bundle, output: output, format: "tsv", force: false)
+                .runReturningResolvedColumns(beforeOutputPublication: {
+                    try late.write(to: output, options: .atomic)
+                })
+            XCTFail("expected exclusive publication to reject late output")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("Output file already exists"), "unexpected error: \(error)")
+        }
+        XCTAssertEqual(try Data(contentsOf: output), late)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathExtension("lungfish-provenance.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path))
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.contains("export-staging") })
+    }
+
+    func testConcurrentDelimitedExportsSerializeSharedRootProvenanceRollback() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-delimited-concurrent-provenance")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let outputA = root.appendingPathComponent("export-a.csv")
+        let outputB = root.appendingPathComponent("export-b.tsv")
+        let rootProvenance = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let commandA = try delimitedCommand(bundle: bundle, output: outputA, format: "csv", force: false)
+        let commandB = try delimitedCommand(bundle: bundle, output: outputB, format: "tsv", force: false)
+        let aReached = DispatchSemaphore(value: 0), releaseA = DispatchSemaphore(value: 0)
+        let bReady = DispatchSemaphore(value: 0), allowB = DispatchSemaphore(value: 0)
+        let bReached = DispatchSemaphore(value: 0), releaseB = DispatchSemaphore(value: 0)
+        defer { releaseA.signal(); allowB.signal(); releaseB.signal() }
+        let taskA = Task.detached {
+            try await commandA.runReturningResolvedColumns(beforeProvenancePublication: {
+                aReached.signal()
+                guard releaseA.wait(timeout: .now() + 10) == .success else {
+                    throw NSError(domain: "GenotypeExportSubcommandTests", code: 92,
+                        userInfo: [NSLocalizedDescriptionKey: "Timed out releasing export A"])
+                }
+            })
+        }
+        XCTAssertEqual(aReached.wait(timeout: .now() + 10), .success)
+        let taskB = Task.detached {
+            try await commandB.runReturningResolvedColumns(
+                beforeOutputPublication: {
+                    bReady.signal()
+                    guard allowB.wait(timeout: .now() + 10) == .success else {
+                        throw NSError(domain: "GenotypeExportSubcommandTests", code: 93,
+                            userInfo: [NSLocalizedDescriptionKey: "Timed out starting export B publication"])
+                    }
+                },
+                beforeProvenancePublication: {
+                    bReached.signal()
+                    guard releaseB.wait(timeout: .now() + 10) == .success else {
+                        throw NSError(domain: "GenotypeExportSubcommandTests", code: 94,
+                            userInfo: [NSLocalizedDescriptionKey: "Timed out releasing export B"])
+                    }
+                    throw NSError(domain: "GenotypeExportSubcommandTests", code: 95,
+                        userInfo: [NSLocalizedDescriptionKey: "Injected concurrent provenance failure"])
+                })
+        }
+        XCTAssertEqual(bReady.wait(timeout: .now() + 10), .success)
+        allowB.signal()
+        XCTAssertEqual(bReached.wait(timeout: .now() + 0.25), .timedOut)
+        releaseA.signal(); _ = try await taskA.value
+        XCTAssertEqual(bReached.wait(timeout: .now() + 10), .success)
+        let provenanceAfterA = try Data(contentsOf: rootProvenance)
+        let sidecarA = outputA.appendingPathExtension("lungfish-provenance.json")
+        let sidecarAfterA = try Data(contentsOf: sidecarA)
+        releaseB.signal()
+        do { _ = try await taskB.value; XCTFail("expected injected export B provenance failure") }
+        catch { XCTAssertTrue(String(describing: error).contains("Injected concurrent provenance failure")) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputA.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputB.path))
+        XCTAssertEqual(try Data(contentsOf: rootProvenance), provenanceAfterA)
+        XCTAssertEqual(try Data(contentsOf: sidecarA), sidecarAfterA)
+    }
+
+    private func delimitedCommand(bundle: URL, output: URL, format: String, force: Bool) throws -> GenotypeExportSubcommand {
+        var arguments = ["--bundle", bundle.path, "--export-format", format, "--output", output.path]
+        if force { arguments.append("--force") }
+        return try GenotypeExportSubcommand.parse(arguments)
+    }
+
+    private func overwriteInPlace(_ url: URL, with data: Data) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
+    }
+
+    private func inode(of url: URL) throws -> UInt64 {
+        var information = stat()
+        guard url.path.withCString({ Darwin.lstat($0, &information) }) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return UInt64(information.st_ino)
+    }
+
     private func makeBundle(in root: URL) throws -> URL {
         let bundle = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)

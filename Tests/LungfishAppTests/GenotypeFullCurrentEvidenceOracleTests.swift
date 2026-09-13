@@ -99,6 +99,47 @@ def verify_full_current_evidence(oracle, snapshot, workbook):
             cell=sheet.cell(ri,ci)
             assert cell.value==want and (want is None or type(cell.value) is int), ('XLSX evidence',key,sample['id'],want,cell.value)
             assert cell.data_type!='f'
+    if 'calls' in oracle:
+        def call_key(call): return (call['sampleID'],call['locus'])
+        actual_calls={call_key(call):call for call in snapshot['calls']}
+        expected_calls={call_key(call):call for call in oracle['calls']}
+        assert len(actual_calls)==len(snapshot['calls']), 'payload call duplicates'
+        assert set(actual_calls)==set(expected_calls), 'payload call targets'
+        for key,want in expected_calls.items():
+            got=actual_calls[key]
+            for slot in ['h1','h2']:
+                assert got[slot]==want[slot], ('payload call slot',key,slot,want[slot],got[slot])
+        def color_key(color): return (color['locus'],color['call'])
+        actual_colors={color_key(color):color for color in snapshot['colors']}
+        expected_colors={color_key(color):color for color in oracle['colors']}
+        assert actual_colors==expected_colors, ('payload palette',expected_colors,actual_colors)
+        names={sample['id']:sample['name'] for sample in payload['samples']}
+        call_rows={(row[1].value,row[2].value):row for row in workbook['Haplotype Calls'].iter_rows(min_row=2)}
+        assert set(call_rows)=={(names[sample],locus) for sample,locus in expected_calls}, 'XLSX call targets'
+        def fill(cell):
+            value=cell.fill.fgColor.rgb
+            return value[-6:].upper() if isinstance(value,str) else None
+        expected_fill={(color['locus'],color['call']):color['fillHex'].lstrip('#').upper() for color in oracle['colors']}
+        for (sample,locus),want in expected_calls.items():
+            row=call_rows[(names[sample],locus)]
+            for column,slot in [(3,'h1'),(4,'h2')]:
+                value=want[slot]['effective']
+                assert row[column].value==value, ('XLSX call value',sample,locus,slot,value,row[column].value)
+                if (locus,value) in expected_fill:
+                    assert fill(row[column])==expected_fill[(locus,value)], ('XLSX call color',sample,locus,slot)
+        for matrix_name,matrix in [('Genotype Matrix - All',snapshot['allMatrix']),('Genotype Matrix - Filtered',snapshot['filteredMatrix'])]:
+            if not matrix['loci']: continue
+            sheet=workbook[matrix_name]
+            for locus_index,locus in enumerate(matrix['loci']):
+                for slot_offset,slot in enumerate(['h1','h2']):
+                    row_number=2+locus_index*2+slot_offset
+                    for column,sample in enumerate(matrix['samples'],4):
+                        want=expected_calls.get((sample['id'],locus))
+                        if want is None: continue
+                        value=want[slot]['effective']; cell=sheet.cell(row_number,column)
+                        assert cell.value==value, ('XLSX band value',matrix_name,sample['id'],locus,slot,value,cell.value)
+                        if (locus,value) in expected_fill:
+                            assert fill(cell)==expected_fill[(locus,value)], ('XLSX band color',matrix_name,sample['id'],locus,slot)
     return dict(rows=len(rows),samples=len(samples),evidenceCells=len(expected),knownCells=sum(v is not None for v in expected.values()),unknownCells=sum(v is None for v in expected.values()))
 """#
 }
@@ -129,7 +170,11 @@ from openpyxl import load_workbook
 oracle={'samples':['S1','S2','CallOnly'], 'rows':[
     {'locus':'MHC-A','genotype':'Reference','support':{'S1':0}},
     {'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-a','support':{'S1':7}},
-    {'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-b','support':{'S2':9}}]}
+    {'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-b','support':{'S2':9}}],
+    'calls':[{'sampleID':'S1','locus':'MHC-A','h1':{'effective':'H1','pipeline':'H1','status':'called','source':'pipeline','baselineAvailable':True},
+              'h2':{'effective':'H2','pipeline':'H2','status':'called','source':'pipeline','baselineAvailable':True}}],
+    'colors':[{'locus':'MHC-A','call':'H1','fillHex':'#008000','fontHex':'#FFFFFF'},
+              {'locus':'MHC-A','call':'H2','fillHex':'#0000FF','fontHex':'#FFFFFF'}]}
 baseline={'schemaVersion':2,'role':'editable-current','sourceRevision':{},
     'samples':[{'id':s,'name':s} for s in ['S1','S2','CallOnly']],
     'loci':[],'calls':[],'colors':[],'metadata':[],'callEditingSupported':False,'rows':[
@@ -143,7 +188,7 @@ baseline={'schemaVersion':2,'role':'editable-current','sourceRevision':{},
      'cells':[{'sampleID':'S1','reviewEligible':False},
               {'sampleID':'S2','rawSupport':9,'displayValue':9,'reviewEligible':True},{'sampleID':'CallOnly','reviewEligible':False}]}]}
 accepted=[]
-for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-to-zero','retarget-stable-id']:
+for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-to-zero','retarget-stable-id','diverge-h2','diverge-palette']:
     p=copy.deepcopy(baseline)
     if mutation=='drop-row': p['rows'].pop()
     if mutation=='drop-sample':
@@ -153,15 +198,19 @@ for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-t
     if mutation=='unknown-to-zero': p['rows'][0]['cells'][2].update(rawSupport=0,displayValue=0,reviewEligible=True)
     if mutation=='retarget-stable-id': p['rows'][1]['target']['stableClusterID']='wrong-cluster'
     path=os.path.join(sys.argv[1],mutation+'.xlsx')
-    snapshot={'schemaVersion':3,'generatedAt':'test','sourceRevision':{'result':'literal'},'hasHaplotypeContent':False,
-        'calls':[],'colors':[],'metadata':[], 'allMatrix':{'samples':p['samples'],'rows':p['rows'],'loci':[]},
-        'filteredMatrix':{'samples':p['samples'],'rows':[r for r in p['rows'] if any((c.get('displayValue') or 0)>0 for c in r['cells'])],'loci':[]}}
+    snapshot={'schemaVersion':3,'generatedAt':'test','sourceRevision':{'result':'literal'},'hasHaplotypeContent':True,
+        'calls':copy.deepcopy(oracle['calls']),'colors':copy.deepcopy(oracle['colors']),'metadata':[],
+        'allMatrix':{'samples':p['samples'],'rows':p['rows'],'loci':['MHC-A']},
+        'filteredMatrix':{'samples':p['samples'],'rows':[r for r in p['rows'] if any((c.get('displayValue') or 0)>0 for c in r['cells'])],'loci':['MHC-A']}}
+    for index,call in enumerate(snapshot['calls']): call['id']='call-'+str(index)
+    if mutation=='diverge-h2': snapshot['calls'][0]['h2']['effective']='WRONG-H2'
+    if mutation=='diverge-palette': snapshot['colors'][1]['fillHex']='#FF0000'
     m=render_genotype_snapshot(snapshot,path)
     json.dump(p,open(path+'.payload.json','w')); json.dump(m,open(path+'.manifest.json','w'))
     w=load_workbook(path,data_only=False)
     # Confirm the malformed artifact really agrees with its own payload before
     # applying the independent oracle. All XLSX authoring is shipping renderer.
-    for ri,row in enumerate(p['rows'],2):
+    for ri,row in enumerate(p['rows'],5):
         for ci,cell in enumerate(row['cells'],4):
             assert w['Genotype Matrix - All'].cell(ri,ci).value==cell.get('displayValue')
     try:
@@ -172,6 +221,6 @@ for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-t
     else:
         accepted.append(mutation)
 assert accepted==['baseline'], ('independent oracle accepted coherent corruption',accepted)
-print('Accepted exact zero/sparse/call-only baseline; rejected all five coherent mutations')
+print('Accepted exact zero/sparse/call-only baseline; rejected all seven coherent mutations')
 """#
 }

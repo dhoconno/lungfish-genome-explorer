@@ -10021,6 +10021,14 @@ struct GenotypeSynchronizedMiSeqPerformanceSnapshot: Equatable {
 }
 
 extension GenotypeResultViewController {
+    /// Read-only access to the immutable definition already selected during
+    /// configure. Tests use this native semantic palette without invoking an
+    /// exporter, resolver, or a fresh analysis/file read.
+    var testingActiveHaplotypeDefinitionSet:
+        GenotypeHaplotypeDefinitionSet? {
+        cachedHaplotypeDefinitionContext?.definition
+    }
+
     var testingLastEffectiveHaplotypeMutationChangedKeys:
         Set<GenotypeEffectiveHaplotypeKey> {
         lastEffectiveHaplotypeMutationChangedKeys
