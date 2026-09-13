@@ -250,6 +250,56 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(scientific.filteredMatrix.rows.count, 1)
     }
 
+    func testAllCaptureMergesOverlappingCatalogCellsWithoutInventingUnknownEvidence() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelCatalogOverlap")
+        defer { TestTempDirectory.cleanup(root) }
+        let first = "Mafa-A1*001:01"
+        let second = "Mafa-A1*002:01"
+        let catalog = GenotypeReviewableRowCatalog(samples: ["AnimalC", "AnimalB", "AnimalA"], rows: [
+            .init(kind: .reference, callID: first, displayName: first, locus: "MHC-A",
+                  stableID: nil, section: "reference", sortKey: "1",
+                  supportBySample: ["AnimalA": 9, "AnimalB": 0, "AnimalC": 0])
+        ])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-12T00:00:00Z")
+        sidecar.matrixStyles = [
+            .init(target: .row(locus: "MHC-A", genotype: first),
+                  style: .init(isBold: true), author: "Analyst", timestamp: "2026-09-12T00:00:00Z"),
+            .init(target: .cell(locus: "MHC-A", genotype: first, sample: "AnimalB"),
+                  style: .init(isItalic: true), author: "Analyst", timestamp: "2026-09-12T00:00:00Z")
+        ]
+        try sidecar.encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: first, reads: 9),
+            makeCall(sample: "AnimalB", genotype: second, reads: 7)
+        ], reviewableRowCatalog: catalog))
+        var state = controller.testingDisplayState
+        state.matrixSampleFilterText = "AnimalB"
+        state.matrixMinimumReads = 5
+        controller.testingApplyDisplayStateImmediately(state)
+        let snapshot: GenotypeViewportExportSnapshot
+        do { snapshot = try controller.captureExcelExportSnapshot() }
+        catch { XCTFail("Valid overlapping catalog evidence must be exportable: \(error)"); return }
+        let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(snapshot.excelSnapshotData))
+        XCTAssertEqual(scientific.allMatrix.samples.map(\.name), ["AnimalA", "AnimalB", "AnimalC"])
+        XCTAssertEqual(scientific.allMatrix.rows.map(\.target.genotype), [first, second])
+        let overlap = scientific.allMatrix.rows[0]
+        XCTAssertEqual(overlap.cells.map(\.displayValue), [9, 0, 0])
+        XCTAssertEqual(overlap.cells.map(\.rawSupport), [9, 0, 0])
+        XCTAssertTrue(overlap.cells.allSatisfy(\.reviewEligible))
+        XCTAssertEqual(overlap.style?.isBold, true)
+        XCTAssertEqual(overlap.cells[1].style?.isItalic, true)
+        let sparse = scientific.allMatrix.rows[1]
+        XCTAssertEqual(sparse.cells.map(\.displayValue), [nil, 7, nil])
+        XCTAssertEqual(sparse.cells.map(\.rawSupport), [nil, 7, nil])
+        XCTAssertEqual(sparse.cells.map(\.reviewEligible), [false, true, false])
+        XCTAssertEqual(scientific.filteredMatrix.samples.map(\.name), ["AnimalB"])
+        XCTAssertEqual(scientific.filteredMatrix.rows.map(\.target.genotype), [second])
+        XCTAssertEqual(scientific.filteredMatrix.rows[0].cells[0].displayValue, 7)
+    }
+
     func testImmediateExportSettlesPendingSharedSearch() throws {
         let root = try TestTempDirectory.make(prefix: "ExcelSharedSearch")
         defer { TestTempDirectory.cleanup(root) }

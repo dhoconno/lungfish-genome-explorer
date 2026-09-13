@@ -9792,15 +9792,28 @@ public final class GenotypeResultViewController: NSViewController {
         // that same frozen authority before the final capture.
         let complete = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar,
             allProjection: nil, filteredProjection: nil, generatedAt: generatedAt, authority: authority)
+        let completeRowsByIdentity = Dictionary(uniqueKeysWithValues: complete.allMatrix.rows.map {
+            ([$0.target.locus, $0.target.genotype, $0.target.stableClusterID ?? ""], $0)
+        })
         let known = Set(allProjection.rows.map { [$0.locus ?? "", $0.rawGenotype ?? $0.label, $0.stableClusterID ?? ""] })
         let supplemental = complete.allMatrix.rows.filter { !known.contains([$0.target.locus, $0.target.genotype, $0.target.stableClusterID ?? ""]) }
         let completeSamples = complete.allMatrix.samples.map(\.name)
         let allSamples = allProjection.sampleColumns + completeSamples.filter { !allProjection.sampleColumns.contains($0) }
         let nativeRows = allProjection.rows.map { row in
             let indices = allSamples.map { allProjection.sampleColumns.firstIndex(of: $0) }
+            let identity = [row.locus ?? "", row.rawGenotype ?? row.label, row.stableClusterID ?? ""]
+            let authoritativeCells = Dictionary(uniqueKeysWithValues:
+                (completeRowsByIdentity[identity]?.cells ?? []).map { ($0.sampleID, $0) })
             return GenotypeViewProjectionRow(label: row.label, rawGenotype: row.rawGenotype, locus: row.locus,
                 stableClusterID: row.stableClusterID,
-                cells: indices.map { $0.map { row.cells[$0] } ?? "" },
+                cells: allSamples.enumerated().map { index, sample in
+                    let nativeValue = indices[index].map { row.cells[$0] } ?? ""
+                    // Preserve native occurrence values; fill only absent cells
+                    // from attested evidence, never by converting unknown to zero.
+                    return nativeValue.isEmpty
+                        ? (authoritativeCells[sample]?.displayValue.map(String.init) ?? "")
+                        : nativeValue
+                },
                 cellColorsHex: row.cellColorsHex.map { colors in indices.map { $0.flatMap { colors[$0] } } },
                 rowColorHex: row.rowColorHex, rowStyle: row.rowStyle,
                 cellStyles: row.cellStyles.map { styles in indices.map { $0.flatMap { styles[$0] } } })
