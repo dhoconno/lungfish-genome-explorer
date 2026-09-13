@@ -82,6 +82,36 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         print("Retained one-way workbook QA: \(output.path)")
     }
 
+    func testPublicationFailureDoesNotRemoveReplacementArtifactDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lge-export-directory-replacement-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let output = root.appendingPathComponent("report.xlsx")
+        let original = root.appendingPathComponent("original-export-artifacts")
+        let replacementRecord = root.appendingPathComponent("replacement-path.txt")
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: []),
+            sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil, generatedAt: timestamp)
+        let service = GenotypeExcelExportService(pythonExecutableURL: python, beforeOutputPublication: {
+            let directories = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix("report.xlsx.export-") }
+            let directory = try XCTUnwrap(directories.count == 1 ? directories.first : nil)
+            try FileManager.default.moveItem(at: directory, to: original)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            let replacement = directory.appendingPathComponent("unowned-sentinel.txt")
+            try Data("unowned directory contents".utf8).write(to: replacement)
+            try Data(replacement.path.utf8).write(to: replacementRecord)
+        })
+        do {
+            _ = try await service.export(snapshot: snapshot, outputURL: output,
+                provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "genotype", "export-xlsx"]))
+            XCTFail("The replaced directory contains no staged workbook to publish")
+        } catch { }
+        let replacement = URL(fileURLWithPath: try String(contentsOf: replacementRecord, encoding: .utf8))
+        XCTAssertEqual(try? Data(contentsOf: replacement), Data("unowned directory contents".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: original.appendingPathComponent("snapshot.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
     func testChangedInputAndRendererFailurePreservePreviousOutput() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lge-excel-failure-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

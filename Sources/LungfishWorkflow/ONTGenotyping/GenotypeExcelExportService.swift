@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -38,6 +39,8 @@ public struct GenotypeExcelExportService: Sendable {
         /// Exact durable files created by this export, excluding published report/receipt.
         public let artifactDirectoryURL: URL
         public let artifactURLs: [URL]
+        public let artifactDirectoryIdentity: FileSystemObjectIdentity
+        public let artifactIdentities: [String: FileSystemObjectIdentity]
     }
 
     public enum ExportError: Error, LocalizedError {
@@ -98,8 +101,44 @@ public struct GenotypeExcelExportService: Sendable {
         try fm.createDirectory(at: parent, withIntermediateDirectories: true)
         let durable = parent.appendingPathComponent(output.lastPathComponent + ".export-" + UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: durable, withIntermediateDirectories: false)
+        let directory = try NoFollowFileSystem.openDirectoryHierarchy(durable)
+        var directoryInfo = stat()
+        guard Darwin.fstat(directory, &directoryInfo) == 0 else {
+            Darwin.close(directory)
+            throw OwnedWorkDirectoryMarkerError.unsafePath(durable.path)
+        }
+        let directoryIdentity = FileSystemObjectIdentity(from: directoryInfo)
+        var createdFiles: [DurableAtomicFileStore.OpenPublishedFile] = []
+        var artifactIdentities: [String: FileSystemObjectIdentity] = [:]
         var retainArtifacts = false
-        defer { if !retainArtifacts { try? fm.removeItem(at: durable) } }
+        defer {
+            if !retainArtifacts {
+                let entry = GenotypingCleanupPlanEntry(path: durable.path,
+                    intendedAction: .removeRetiredPublicationDirectory, identity: directoryIdentity)
+                _ = GenotypingIdentityBoundCleanup.remove(entry) { detached in
+                    let members = try fm.contentsOfDirectory(at: detached, includingPropertiesForKeys: nil)
+                    for member in members {
+                        if let expected = artifactIdentities[member.lastPathComponent] {
+                            guard try FileSystemObjectIdentity.noFollow(member) == expected else {
+                                throw OwnedWorkDirectoryMarkerError.identityMismatch(member.path)
+                            }
+                        } else if !["rendered.xlsx", "receipt.json"].contains(member.lastPathComponent) {
+                            throw ExportError.invalidInput("unowned export-directory member retained")
+                        }
+                    }
+                    try fm.removeItem(at: detached)
+                }
+            }
+            createdFiles.forEach { $0.close() }
+            Darwin.close(directory)
+        }
+        func writeArtifact(_ data: Data, to url: URL) throws -> DurableAtomicFileStore.OpenPublishedFile {
+            let created = try DurableAtomicFileStore().createWitnessed(data,
+                named: url.lastPathComponent, inOpenDirectory: directory, displayedAt: durable)
+            createdFiles.append(created)
+            artifactIdentities[url.lastPathComponent] = created.identity
+            return created
+        }
         let snapshotURL = durable.appendingPathComponent("snapshot.json")
         let scriptURL = durable.appendingPathComponent("renderer.py")
         let replayScriptURL = durable.appendingPathComponent("replay.sh")
@@ -110,9 +149,10 @@ public struct GenotypeExcelExportService: Sendable {
         let stderrURL = durable.appendingPathComponent("stderr.txt")
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let snapshotBytes = try encoder.encode(snapshot)
-        try snapshotBytes.write(to: snapshotURL, options: .atomic)
-        try Data(Self.rendererScript.utf8).write(to: scriptURL, options: .atomic)
-        try encoder.encode(provenance).write(to: requestURL, options: .atomic)
+        _ = try writeArtifact(snapshotBytes, to: snapshotURL)
+        _ = try writeArtifact(Data(Self.rendererScript.utf8), to: scriptURL)
+        let requestBytes = try encoder.encode(provenance)
+        _ = try writeArtifact(requestBytes, to: requestURL)
         let executable = replayExecutableURL?.path ?? Self.resolvedCLIExecutable()
         let replayPrefix = [executable, "genotype", "export-xlsx", "--snapshot", snapshotURL.path,
             "--provenance-request", requestURL.path, "--python", pythonExecutableURL.path]
@@ -120,25 +160,27 @@ public struct GenotypeExcelExportService: Sendable {
         let replayScript = "#!/bin/sh\nreplay_default_output=" + Self.shellQuote(output.path)
             + "\nexec " + replayPrefix.map(Self.shellQuote).joined(separator: " ")
             + " --output \"${1:-$replay_default_output}\"" + (replacingExisting ? " --force" : "") + "\n"
-        try Data(replayScript.utf8).write(to: replayScriptURL, options: .atomic)
+        _ = try writeArtifact(Data(replayScript.utf8), to: replayScriptURL)
         var artifactURLs = [snapshotURL, scriptURL, replayScriptURL, requestURL, stdoutURL, stderrURL]
         var witnessedInputs: [[String: Any]] = []
         for (index, input) in provenance.inputs.enumerated() {
             let capturedURL = durable.appendingPathComponent("input-\(index).bin")
-            try input.data.write(to: capturedURL, options: .atomic)
+            _ = try writeArtifact(input.data, to: capturedURL)
             artifactURLs.append(capturedURL)
             witnessedInputs.append(["path": input.path, "capturedPath": capturedURL.path,
                 "sha256": GenotypeExcelSnapshotBuilder.digest(input.data), "sizeBytes": input.data.count,
                 "verifyCurrentFile": input.verifyCurrentFile])
         }
+        let stdoutFile = try writeArtifact(Data(), to: stdoutURL)
+        let stderrFile = try writeArtifact(Data(), to: stderrURL)
         let started = Date()
         let executedArgv = [pythonExecutableURL.path, scriptURL.path, snapshotURL.path, stagedOutput.path]
-        let execution = try runPython(argv: Array(executedArgv.dropFirst()), stdoutURL: stdoutURL, stderrURL: stderrURL)
+        let execution = try runPython(argv: Array(executedArgv.dropFirst()), stdoutFile: stdoutFile, stderrFile: stderrFile, directory: directory)
         try Task.checkCancellation()
         try verify(provenance.inputs)
         let bytes = try Data(contentsOf: stagedOutput)
         guard !bytes.isEmpty else { throw ExportError.invalidInput("renderer produced no workbook") }
-        let runtime = try JSONSerialization.jsonObject(with: Data(contentsOf: stdoutURL))
+        let runtime = try JSONSerialization.jsonObject(with: readCreatedFile(stdoutFile, directory: directory))
         let record: [String: Any] = [
             "schemaVersion": 1, "workflowName": provenance.workflowName, "toolName": "lungfish genotype Excel export",
             "toolVersion": provenance.toolVersion, "argv": provenance.argv, "executedArgv": executedArgv,
@@ -151,7 +193,7 @@ public struct GenotypeExcelExportService: Sendable {
             "inputs": witnessedInputs, "scientificInputWitnesses": snapshot.sourceRevision,
             "snapshot": descriptor(snapshotURL, bytes: snapshotBytes),
             "script": descriptor(scriptURL, bytes: Data(Self.rendererScript.utf8)),
-            "request": descriptor(requestURL, bytes: try Data(contentsOf: requestURL)),
+            "request": descriptor(requestURL, bytes: requestBytes),
             "replayScript": descriptor(replayScriptURL, bytes: Data(replayScript.utf8)),
             "output": descriptor(output, bytes: bytes), "receiptPath": receipt.path, "replacingExisting": replacingExisting,
         ]
@@ -171,7 +213,8 @@ public struct GenotypeExcelExportService: Sendable {
         }
         retainArtifacts = true
         return .init(outputURL: output, receiptURL: receipt, snapshotURL: snapshotURL, replayScriptURL: replayScriptURL,
-            artifactDirectoryURL: durable, artifactURLs: artifactURLs)
+            artifactDirectoryURL: durable, artifactURLs: artifactURLs,
+            artifactDirectoryIdentity: directoryIdentity, artifactIdentities: artifactIdentities)
     }
 
     private func verify(_ inputs: [InputWitness]) throws {
@@ -186,12 +229,14 @@ public struct GenotypeExcelExportService: Sendable {
         ["path": url.path, "sha256": GenotypeExcelSnapshotBuilder.digest(bytes), "sizeBytes": bytes.count]
     }
 
-    private func runPython(argv: [String], stdoutURL: URL, stderrURL: URL) throws -> (status: Int32, stderr: String) {
-        // Files avoid pipe-capacity deadlocks and retain exact useful diagnostics.
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: Data())
-        FileManager.default.createFile(atPath: stderrURL.path, contents: Data())
-        let stdout = try FileHandle(forWritingTo: stdoutURL), stderr = try FileHandle(forWritingTo: stderrURL)
-        defer { try? stdout.close(); try? stderr.close() }
+    private func runPython(
+        argv: [String], stdoutFile: DurableAtomicFileStore.OpenPublishedFile,
+        stderrFile: DurableAtomicFileStore.OpenPublishedFile, directory: Int32
+    ) throws -> (status: Int32, stderr: String) {
+        // Keep the writer-created handles through Process; reopening by path
+        // would adopt a replacement even before the caller receives ownership.
+        let stdout = FileHandle(fileDescriptor: stdoutFile.fileDescriptor, closeOnDealloc: false)
+        let stderr = FileHandle(fileDescriptor: stderrFile.fileDescriptor, closeOnDealloc: false)
         let process = Process(); process.executableURL = pythonExecutableURL; process.arguments = argv
         process.standardOutput = stdout; process.standardError = stderr
         try process.run()
@@ -200,9 +245,27 @@ public struct GenotypeExcelExportService: Sendable {
             Thread.sleep(forTimeInterval: 0.02)
         }
         process.waitUntilExit()
-        let message = String(data: try Data(contentsOf: stderrURL), encoding: .utf8) ?? ""
+        guard Darwin.fsync(stdoutFile.fileDescriptor) == 0, Darwin.fsync(stderrFile.fileDescriptor) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let message = String(data: try readCreatedFile(stderrFile, directory: directory), encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else { throw ExportError.rendererFailed(process.terminationStatus, message) }
         return (process.terminationStatus, message)
+    }
+
+    private func readCreatedFile(_ file: DurableAtomicFileStore.OpenPublishedFile, directory: Int32) throws -> Data {
+        let descriptor = file.url.lastPathComponent.withCString {
+            Darwin.openat(directory, $0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else { throw OwnedWorkDirectoryMarkerError.unsafePath(file.url.path) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var info = stat()
+        guard Darwin.fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              FileSystemObjectIdentity(from: info) == file.identity else {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch(file.url.path)
+        }
+        return try handle.readToEnd() ?? Data()
     }
 
     private static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }

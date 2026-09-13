@@ -14,20 +14,39 @@ struct GenotypePipelineReportArtifactOwnership {
     }
     private var roots: [Root] = []
 
-    mutating func captureDefinition(_ url: URL) throws {
-        roots.append(.init(url: url, identity: try FileSystemObjectIdentity.noFollow(url), members: nil))
+    mutating func captureDefinition(_ created: DurableAtomicFileStore.OpenPublishedFile) throws {
+        // Registration cannot depend on reopening a pathname that may already
+        // be missing or replaced. Identity comes from the writer's open inode.
+        roots.append(.init(url: created.url, identity: created.identity, members: nil))
+        guard try FileSystemObjectIdentity.noFollow(created.url) == created.identity else {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch(created.url.path)
+        }
     }
 
     mutating func captureExport(_ export: GenotypeExcelExportService.ExportResult) throws {
         let directory = export.artifactDirectoryURL.standardizedFileURL
-        var members: [String: FileSystemObjectIdentity] = [:]
-        for file in export.artifactURLs {
-            guard file.deletingLastPathComponent().standardizedFileURL == directory else {
-                throw GenotypeExcelExportService.ExportError.invalidInput("report member outside owned export directory")
-            }
-            members[file.lastPathComponent] = try FileSystemObjectIdentity.noFollow(file)
+        // Keep the complete writer-supplied inventory before any current-path
+        // validation can throw. Missing members still need failure diagnostics.
+        roots.append(.init(url: directory, identity: export.artifactDirectoryIdentity,
+            members: export.artifactIdentities))
+        guard Set(export.artifactURLs.map(\.lastPathComponent)) == Set(export.artifactIdentities.keys),
+              export.artifactURLs.allSatisfy({ $0.deletingLastPathComponent().standardizedFileURL == directory }),
+              export.artifactIdentities.keys.allSatisfy(Self.isMemberName) else {
+            throw GenotypeExcelExportService.ExportError.invalidInput("invalid declared report artifact inventory")
         }
-        roots.append(.init(url: directory, identity: try FileSystemObjectIdentity.noFollow(directory), members: members))
+        guard try FileSystemObjectIdentity.noFollow(directory) == export.artifactDirectoryIdentity else {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch(directory.path)
+        }
+        for (name, identity) in export.artifactIdentities {
+            let file = directory.appendingPathComponent(name)
+            guard try FileSystemObjectIdentity.noFollow(file) == identity else {
+                throw OwnedWorkDirectoryMarkerError.identityMismatch(file.path)
+            }
+        }
+    }
+
+    private static func isMemberName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.utf8.contains(0)
     }
 
     /// Failure history must not follow a replacement while attesting survivors.
@@ -40,6 +59,9 @@ struct GenotypePipelineReportArtifactOwnership {
             for (name, identity) in members.sorted(by: { $0.key < $1.key }) {
                 let file = root.members == nil ? root.url : root.url.appendingPathComponent(name)
                 do {
+                    guard Self.isMemberName(name) else {
+                        throw GenotypeExcelExportService.ExportError.invalidInput("unsafe report member name")
+                    }
                     outputs.append(try descriptor(file, identity: identity,
                         directoryIdentity: root.members == nil ? nil : root.identity))
                 } catch {

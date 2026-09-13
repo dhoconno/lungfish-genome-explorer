@@ -3462,8 +3462,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
         }
         let assayID = definitionSet.assayID
-        let definitionURL = try writeHaplotypeDefinitionSnapshot(definitionSet, to: haplotypeDefinitionSnapshotURL(for: request))
-        try reportArtifacts.captureDefinition(definitionURL)
+        let definition = try writeHaplotypeDefinitionSnapshot(definitionSet, to: haplotypeDefinitionSnapshotURL(for: request))
+        defer { definition.close() }
+        try reportArtifacts.captureDefinition(definition)
 
         let manifest = ONTGenotypeResultBundleManifest(
             kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
@@ -4051,13 +4052,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func writeHaplotypeDefinitionSnapshot(
         _ definitionSet: GenotypeHaplotypeDefinitionSet,
         to url: URL
-    ) throws -> URL {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    ) throws -> DurableAtomicFileStore.OpenPublishedFile {
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let directory = try NoFollowFileSystem.openDirectoryHierarchy(parent)
+        defer { Darwin.close(directory) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(definitionSet)
-        try data.write(to: url, options: .withoutOverwriting)
-        return url
+        return try DurableAtomicFileStore().createWitnessed(encoder.encode(definitionSet),
+            named: url.lastPathComponent, inOpenDirectory: directory, displayedAt: parent)
     }
 
     private func writeProvenance(
