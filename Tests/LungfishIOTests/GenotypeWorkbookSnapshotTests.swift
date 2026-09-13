@@ -62,6 +62,44 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertEqual(empty.filteredHeaderValues, ["Stable ID", "Locus", "Allele"])
     }
 
+    func testAllAndFilteredMatricesKeepTheirOwnCapturedPresentation() throws {
+        let result = try render(snapshot: fixture(), mutation: "matrix-specific-presentation")
+
+        XCTAssertTrue(result.matrixSpecificPresentation)
+    }
+
+    func testMatrixBandNotesPreserveOrdinaryUnresolvedAndManualSlotState() throws {
+        let ordinary = try render(snapshot: fixture())
+        XCTAssertTrue(ordinary.bandSlotParity)
+        XCTAssertEqual(ordinary.bandNotes, [
+            "Haplotype slot: H1\nStatus: ok\nSource: pipeline",
+            "Haplotype slot: H2\nStatus: ok\nSource: pipeline",
+            "Haplotype slot: H1\nStatus: ok\nSource: pipeline",
+            "Haplotype slot: H2\nStatus: ok\nSource: pipeline",
+        ])
+        XCTAssertEqual(ordinary.bandEffectiveValues, ["M4A", "M4A", "M4A", "M4A"])
+
+        let unresolved = try render(snapshot: fixture(), mutation: "analyzed-unresolved")
+        XCTAssertTrue(unresolved.bandSlotParity)
+        XCTAssertEqual(unresolved.bandNotes, [
+            "Haplotype slot: H1\nStatus: unresolved\nSource: pipeline",
+            "Haplotype slot: H2\nStatus: error\nSource: pipeline",
+            "Haplotype slot: H1\nStatus: unresolved\nSource: pipeline",
+            "Haplotype slot: H2\nStatus: error\nSource: pipeline",
+        ])
+        XCTAssertEqual(unresolved.bandEffectiveValues, [nil, nil, nil, nil])
+
+        let manual = try render(snapshot: fixture(), mutation: "manual-explicit-absence")
+        XCTAssertTrue(manual.bandSlotParity)
+        XCTAssertEqual(manual.bandNotes, [
+            "Haplotype slot: H1\nStatus: ok\nSource: manual",
+            "Haplotype slot: H2\nStatus: explicit-absence\nSource: manual",
+            "Haplotype slot: H1\nStatus: ok\nSource: manual",
+            "Haplotype slot: H2\nStatus: explicit-absence\nSource: manual",
+        ])
+        XCTAssertEqual(manual.bandEffectiveValues, ["Manual-A1", nil, "Manual-A1", nil])
+    }
+
     func testRendererPreservesAnnotationsStableIdentitiesStylesAndLiteralText() throws {
         let result = try render(snapshot: fixture(), mutation: "annotations-and-literals")
 
@@ -122,6 +160,10 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         let readOnlyComments: Bool
         let stableRowIDs: [String]
         let duplicateLabels: [String]
+        let matrixSpecificPresentation: Bool
+        let bandNotes: [String]
+        let bandEffectiveValues: [String?]
+        let bandSlotParity: Bool
     }
 
     private struct ValidationFailure: Decodable {
@@ -159,6 +201,8 @@ def font_rgb(cell):
 def border_rgb(cell):
     color=cell.border.left.color
     return color.rgb[-6:] if color and color.type=='rgb' and color.rgb else None
+def border_style(cell):
+    return cell.border.left.style if cell.border.left else None
 def note(cell):
     return cell.comment.text if cell.comment else ''
 with zipfile.ZipFile(out) as archive:
@@ -183,13 +227,28 @@ if annotation_case:
         'Current review: "false-positive"' in note(fp) and '[LGE Edit' not in note(fp))
 else:
     review_styles=invalid_reviews_withheld=explicit_style_clearing=literal_text=generated_comments=False
+matrix_specific=sys.argv[4]=='matrix-specific-presentation'
+if matrix_specific:
+    matrix_specific=(fill_rgb(all_ws['C5'])=='AA0000' and font_rgb(all_ws['C5'])=='FFFFFF' and border_rgb(all_ws['C5'])=='770000' and all_ws['C5'].font.bold and
+        fill_rgb(filtered_ws['C5'])=='00AA00' and font_rgb(filtered_ws['C5'])=='000000' and border_rgb(filtered_ws['C5'])=='007700' and filtered_ws['C5'].font.italic and
+        fill_rgb(all_ws['D5'])=='CC0000' and font_rgb(all_ws['D5'])=='FFFFFF' and border_rgb(all_ws['D5'])=='880000' and all_ws['D5'].font.bold and
+        filtered_ws['D5'].fill.patternType is None and font_rgb(filtered_ws['D5'])=='112233' and border_style(filtered_ws['D5']) is None and not filtered_ws['D5'].font.bold)
+has_slot_bands=calls is not None and bool(p['allMatrix']['loci']) and bool(p['filteredMatrix']['loci'])
+if has_slot_bands:
+    band_notes=[note(all_ws['D2']),note(all_ws['D3']),note(filtered_ws['D2']),note(filtered_ws['D3'])]
+    band_effective=[all_ws['D2'].value,all_ws['D3'].value,filtered_ws['D2'].value,filtered_ws['D3'].value]
+    expected_h1='Haplotype slot: H1\nStatus: '+str(calls['F2'].value)+'\nSource: '+str(calls['H2'].value)
+    expected_h2='Haplotype slot: H2\nStatus: '+str(calls['G2'].value)+'\nSource: '+str(calls['I2'].value)
+    band_slot_parity=band_notes==[expected_h1,expected_h2,expected_h1,expected_h2]
+else:
+    band_notes=[]; band_effective=[]; band_slot_parity=False
 result={
     'sheetNames':wb.sheetnames,
     'allEvidence':[all_ws['D5'].value,all_ws['E5'].value],
     'filteredEvidence':[filtered_ws['D5'].value,filtered_ws['E5'].value],
-    'allCalls':[all_ws['D2'].value,all_ws['D3'].value,all_ws['E2'].value,all_ws['E3'].value] if p['hasHaplotypeContent'] and p['allMatrix']['loci'] and sys.argv[4]!='analyzed-unresolved' else [],
-    'filteredCalls':[filtered_ws['D2'].value,filtered_ws['D3'].value,filtered_ws['E2'].value,filtered_ws['E3'].value] if p['hasHaplotypeContent'] and p['filteredMatrix']['loci'] and sys.argv[4]!='analyzed-unresolved' else [],
-    'callValues':[calls['D2'].value,calls['E2'].value,calls['D3'].value,calls['E3'].value] if calls and sys.argv[4]!='analyzed-unresolved' else [],
+    'allCalls':[all_ws['D2'].value,all_ws['D3'].value,all_ws['E2'].value,all_ws['E3'].value] if p['hasHaplotypeContent'] and p['allMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
+    'filteredCalls':[filtered_ws['D2'].value,filtered_ws['D3'].value,filtered_ws['E2'].value,filtered_ws['E3'].value] if p['hasHaplotypeContent'] and p['filteredMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
+    'callValues':[calls['D2'].value,calls['E2'].value,calls['D3'].value,calls['E3'].value] if calls and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
     'm4aFills':[fill_rgb(calls['D2']),fill_rgb(all_ws['D2']),fill_rgb(filtered_ws['D2'])] if calls else [],
     'hasFormulaCells':any(c.data_type=='f' for ws in wb for row in ws for c in row),
     'hasFormulaXML':formula_xml,
@@ -217,6 +276,10 @@ result={
     'readOnlyComments':annotation_case and all_ws.protection.sheet and all_ws.protection.objects,
     'stableRowIDs':[all_ws.cell(r,1).value for r in range(5,8)] if annotation_case else [],
     'duplicateLabels':[all_ws['C5'].value,all_ws['C7'].value] if annotation_case else [],
+    'matrixSpecificPresentation':matrix_specific,
+    'bandNotes':band_notes,
+    'bandEffectiveValues':band_effective,
+    'bandSlotParity':band_slot_parity,
 }
 json.dump(result,open(sys.argv[3],'w'))
 """#
@@ -280,6 +343,14 @@ def mutate(p,name):
     elif name=='manual-only':
         for index,slot in enumerate(('h1','h2'),1):
             p['calls'][0][slot].update(effective='Manual-A'+str(index),pipeline=None,baselineAvailable=False,status='ok',source='manual')
+    elif name=='manual-explicit-absence':
+        p['calls'][0]['h1'].update(effective='Manual-A1',pipeline=None,baselineAvailable=False,status='ok',source='manual')
+        p['calls'][0]['h2'].update(effective='',pipeline=None,baselineAvailable=False,status='explicit-absence',source='manual')
+    elif name=='matrix-specific-presentation':
+        p['allMatrix']['rows'][0].update(fillHex='#101010',style={'fillHex':'#AA0000','textHex':'#FFFFFF','borderHex':'#770000','isBold':True,'isItalic':False})
+        p['filteredMatrix']['rows'][0].update(fillHex='#202020',style={'fillHex':'#00AA00','textHex':'#000000','borderHex':'#007700','isBold':False,'isItalic':True})
+        p['allMatrix']['rows'][0]['cells'][0].update(fillHex='#303030',style={'fillHex':'#CC0000','textHex':'#FFFFFF','borderHex':'#880000','isBold':True,'isItalic':False})
+        p['filteredMatrix']['rows'][0]['cells'][0].update(fillHex='#40FF40',style={'fillHex':None,'textHex':'#112233','borderHex':None,'isBold':False,'isItalic':False})
     elif name=='sparse-filtered':
         p['filteredMatrix']={'samples':[p['allMatrix']['samples'][1]],'loci':[], 'rows':[dict(p['allMatrix']['rows'][0],cells=[p['allMatrix']['rows'][0]['cells'][1]])]}
     elif name=='empty-filtered':

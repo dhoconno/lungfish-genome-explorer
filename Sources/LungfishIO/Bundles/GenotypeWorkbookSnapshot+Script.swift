@@ -126,13 +126,13 @@ def _validate_filtered_consistency(all_matrix, filtered_matrix, all_index, filte
         source = all_index['rows'].get(row_id)
         if source is None:
             _invalid('unknown filtered row')
-        for key in ('target', 'displayName', 'comment', 'fillHex', 'style'):
+        for key in ('target', 'displayName', 'comment'):
             if row.get(key) != source.get(key):
                 _invalid('inconsistent filtered row identity')
         source_cells = {cell['sampleID']: cell for cell in source['cells']}
         for cell in row['cells']:
             source_cell = source_cells[cell['sampleID']]
-            for key in ('rawSupport', 'reviewEligible', 'fillHex', 'comment', 'review', 'style'):
+            for key in ('rawSupport', 'reviewEligible', 'comment', 'review'):
                 if cell.get(key) != source_cell.get(key):
                     _invalid('inconsistent filtered cell evidence')
 
@@ -292,6 +292,9 @@ def _cell_comment(cell, review):
         generated += '\nCurrent review: ' + json.dumps(review, ensure_ascii=False)
     return generated
 
+def _slot_comment(slot_name, slot):
+    return 'Haplotype slot: ' + slot_name.upper() + '\nStatus: ' + slot['status'] + '\nSource: ' + slot['source']
+
 def _finish_sheet(sheet, header_rows):
     for row_number in header_rows:
         for cell in sheet[row_number]:
@@ -362,8 +365,10 @@ def _render_matrix(workbook, title, matrix, payload, colors):
                     if call is None:
                         continue
                     value = call[slot]['effective']
-                    _literal(sheet.cell(row_number, column), value)
-                    _apply_call_color(sheet.cell(row_number, column), locus, value, colors)
+                    cell = sheet.cell(row_number, column)
+                    _literal(cell, value)
+                    _apply_call_color(cell, locus, value, colors)
+                    cell.comment = Comment(_slot_comment(slot, call[slot]), 'LGE')
         header_row = 2 + 2 * len(matrix['loci'])
     else:
         header_row = 1
