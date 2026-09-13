@@ -16,6 +16,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         case updating
         case dirtyWhileUpdating
         case failed(String)
+        case reviewRequired
     }
 
     struct Request: Sendable {
@@ -149,6 +150,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
     private let postWorkbookResolutionObserver:
         (@MainActor @Sendable (URL) throws -> Void)?
     private let idleScheduler: IdleScheduler
+    private let externalEditDetector: @MainActor (URL) throws -> Bool
     private var states: [String: BundleState] = [:]
     private var observers: [UUID: Observer] = [:]
 
@@ -159,7 +161,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         workbookOpener: WorkbookOpener? = nil,
         postWorkbookResolutionObserver:
             (@MainActor @Sendable (URL) throws -> Void)? = nil,
-        idleScheduler: IdleScheduler? = nil
+        idleScheduler: IdleScheduler? = nil,
+        externalEditDetector: (@MainActor (URL) throws -> Bool)? = nil
     ) {
         GenotypeCurrentWorkbookOpenHandoffRegistry
             .cleanupStaleViewsIfNeeded()
@@ -205,6 +208,46 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         self.idleScheduler = idleScheduler ?? { delayNanoseconds, action in
             TaskIdleCancellation(delayNanoseconds: delayNanoseconds, action: action)
         }
+        self.externalEditDetector = externalEditDetector ?? { bundleURL in
+            try GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundleURL)
+        }
+    }
+
+    private func requireReviewedWorkbook(_ bundleURL: URL) throws {
+        do {
+            if try externalEditDetector(bundleURL) {
+                throw GenotypeEditableWorkbookService.EditError.rejected("Review external edits before updating current.xlsx.")
+            }
+        } catch {
+            let key = Self.bundleKey(for: bundleURL)
+            cancelIdle(for: key)
+            setPhase(.reviewRequired, for: key, bundleURL: bundleURL)
+            throw error
+        }
+    }
+
+    /// Editable role: regenerate a legacy workbook once to establish its
+    /// baseline, then return the canonical writable file. Never opens a snapshot.
+    func preparedEditableWorkbookURL(_ request: Request) async throws -> URL {
+        try requireReviewedWorkbook(request.bundleURL)
+        if (try? GenotypeEditableWorkbookService.canonicalEditableWorkbookURL(in: request.bundleURL)) == nil {
+            markEditableWorkbookAccepted(request)
+        }
+        _ = try await synchronize(request, intent: .automaticIdle)
+        return try GenotypeEditableWorkbookService.canonicalEditableWorkbookURL(in: request.bundleURL)
+    }
+
+    /// An acknowledged Excel save needs a new workbook attestation even when
+    /// no supported semantic edits were requested and the fingerprint is equal.
+    func markEditableWorkbookAccepted(_ request: Request) {
+        let key = Self.bundleKey(for: request.bundleURL)
+        var state = states[key] ?? BundleState()
+        state.recordedFingerprintWasLoaded = true
+        state.recordedFingerprint = nil
+        state.publishedFingerprint = nil
+        state.generation &+= 1
+        states[key] = state
+        markDirty(request)
     }
 
     func phase(for bundleURL: URL) -> Phase {
@@ -229,6 +272,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     /// Records a semantic edit and resets the bundle's idle-update countdown.
     func markDirty(_ request: Request) {
+        do { try requireReviewedWorkbook(request.bundleURL) } catch { return }
         let key = Self.bundleKey(for: request.bundleURL)
         var state = states[key] ?? BundleState()
         let oldPhase = state.phase
@@ -275,6 +319,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
     /// Registers the controller's latest semantic snapshot without immediately
     /// running an update. A stale registration is ignored after actor reentrancy.
     func register(_ request: Request) async {
+        do { try requireReviewedWorkbook(request.bundleURL) } catch { return }
         let key = Self.bundleKey(for: request.bundleURL)
         var state = states[key] ?? BundleState()
         let oldPhase = state.phase
@@ -337,6 +382,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         _ request: Request,
         intent: GenotypeCurrentWorkbookSyncIntent
     ) async throws -> URL {
+        try requireReviewedWorkbook(request.bundleURL)
         let key = Self.bundleKey(for: request.bundleURL)
         cancelIdle(for: key)
 
@@ -410,7 +456,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                         continue
                     case .failed(let message):
                         throw SyncStateError.supersedingUpdateFailed(message)
-                    case .dirty, .dirtyWhileUpdating, .updating:
+                    case .dirty, .dirtyWhileUpdating, .updating, .reviewRequired:
                         throw SyncStateError.supersedingWorkbookUnavailable
                     }
                 }
@@ -507,6 +553,11 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         }
         let fingerprint = await task.value
         state = states[key] ?? BundleState()
+        // Acceptance or a completed update can supersede the disk lookup
+        // during suspension. Never revive the old generation's fingerprint.
+        if state.recordedFingerprintWasLoaded {
+            return state.recordedFingerprint
+        }
         state.recordedFingerprintWasLoaded = true
         state.recordedFingerprint = fingerprint
         state.fingerprintLoadTask = nil
@@ -632,6 +683,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 } else {
                     clearTerminalTransients(in: &failedState)
                     failedState.phase = .failed(Self.userFacingMessage(for: error))
+                }
+                if (try? externalEditDetector(request.bundleURL)) == true {
+                    failedState.phase = .reviewRequired
                 }
                 states[key] = failedState
                 notifyPhaseIfChanged(

@@ -139,6 +139,14 @@ final class GenotypePivotThresholdTests: XCTestCase {
         XCTAssertEqual(workbook.removedRowCount, 1)
     }
 
+    func testMinReadsFiveHasInclusiveHandCheckedBoundaries() {
+        let thresholds = Thresholds(minimumReads: 5)
+        XCTAssertFalse(thresholds.admits(count: 1, sampleTotal: 100))
+        XCTAssertFalse(thresholds.admits(count: 4, sampleTotal: 100))
+        XCTAssertTrue(thresholds.admits(count: 5, sampleTotal: 100))
+        XCTAssertTrue(thresholds.admits(count: 6, sampleTotal: 100))
+    }
+
     // MARK: - Min Percent
 
     func testMinPercentUsesTheSamplesRetainedReadsAsDenominator() {
@@ -214,7 +222,12 @@ final class GenotypePivotThresholdTests: XCTestCase {
         )
         XCTAssertEqual(
             Thresholds(minimumReads: 25, minimumPercent: 2.5, keepEmptyRows: true).provenanceArguments,
-            ["--min-reads", "25", "--min-percent", "2.5", "--keep-empty-rows"]
+            [
+                "--min-reads", "25",
+                "--min-percent", "2.5",
+                "--percent-basis", "sample-retained",
+                "--keep-empty-rows",
+            ]
         )
     }
 

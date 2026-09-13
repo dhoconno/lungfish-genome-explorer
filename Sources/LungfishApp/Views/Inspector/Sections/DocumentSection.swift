@@ -675,6 +675,17 @@ public struct DocumentSection: View {
                         object: nil,
                         userInfo: userInfo
                     )
+                },
+                onCurrentWorkbookReviewRequested: {
+                    var userInfo: [AnyHashable: Any] = [:]
+                    if let scope = genotypeResultDocument.windowStateScope {
+                        userInfo[NotificationUserInfoKey.windowStateScope] = scope
+                    }
+                    NotificationCenter.default.post(
+                        name: .genotypeResultCurrentWorkbookReviewRequested,
+                        object: nil,
+                        userInfo: userInfo
+                    )
                 }
             )
         } else if let phylogeneticTreeDocument = viewModel.phylogeneticTreeDocument {

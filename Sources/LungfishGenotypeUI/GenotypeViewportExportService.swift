@@ -133,25 +133,29 @@ struct GenotypeViewportExportService {
         let projection = GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
         let projectionURL = standardizedOutputURL.appendingPathExtension("view-projection.json")
         let projectionData = try JSONEncoder().encode(projection)
+        let capturedAnnotationURL = standardizedOutputURL
+            .appendingPathExtension("annotations.json")
+        let effectiveAnnotationURL = snapshot.annotationSidecarData == nil
+            ? snapshot.annotationSidecarURL
+            : capturedAnnotationURL
 
         var arguments: [String]
         if format.usesPivotSubcommand {
-            // The pivot builder reads the bundle directly rather than the
-            // rendered projection, so the viewport's thresholds are passed
-            // explicitly and applied while the workbook is built.
             arguments = [
                 "genotype", "export-pivot-xlsx",
                 "--bundle", snapshot.bundleURL.path,
                 "--output", standardizedOutputURL.path,
+                "--view-projection", projectionURL.path,
             ]
+            if let annotationSidecarURL = effectiveAnnotationURL {
+                arguments += ["--annotations", annotationSidecarURL.path]
+            }
             if let minReads = minimumReads(from: snapshot.filters) {
                 arguments += ["--min-reads", String(minReads)]
             }
-            if let minPercent = minimumPercent(from: snapshot.filters) {
-                arguments += ["--min-percent", String(minPercent)]
-                // The matrix's Percent Basis decides what Min Percent is a
-                // percent of; the export must apply the same denominator.
-                if let basis = percentBasis(from: snapshot.filters) {
+            if let percentFilter = activePercentFilter(from: snapshot.filters) {
+                arguments += ["--min-percent", String(percentFilter.minimum)]
+                if let basis = percentFilter.basis {
                     arguments += ["--percent-basis", basis]
                 }
             }
@@ -177,18 +181,25 @@ struct GenotypeViewportExportService {
                !definitionID.isEmpty {
                 arguments += ["--active-haplotype-definition", definitionID]
             }
-            if let annotationSidecarURL = snapshot.annotationSidecarURL {
+            if let annotationSidecarURL = effectiveAnnotationURL {
                 arguments += ["--annotations", annotationSidecarURL.path]
             }
             arguments.append("--force")
         }
 
         let rollbackSnapshot = try GenotypeViewportExportRollbackSnapshot(
-            urls: [standardizedOutputURL, provenanceURL, projectionURL],
+            urls: [standardizedOutputURL, provenanceURL, projectionURL]
+                + (snapshot.annotationSidecarData == nil ? [] : [capturedAnnotationURL]),
             fileManager: fileManager
         )
         do {
             try projectionData.write(to: projectionURL, options: .atomic)
+            if let annotationSidecarData = snapshot.annotationSidecarData {
+                try annotationSidecarData.write(
+                    to: capturedAnnotationURL,
+                    options: .atomic
+                )
+            }
             _ = try runner.run(arguments: arguments)
             guard fileManager.fileExists(atPath: standardizedOutputURL.path) else {
                 throw GenotypeViewportExportError.missingOutput(standardizedOutputURL.path)
@@ -196,11 +207,8 @@ struct GenotypeViewportExportService {
             guard fileManager.fileExists(atPath: provenanceURL.path) else {
                 throw GenotypeViewportExportError.missingProvenance(provenanceURL.path)
             }
-            // The pivot subcommand builds from the bundle, not the rendered
-            // projection, so only the projection-driven export attests it.
-            let expectedInputURLs = format.usesPivotSubcommand
-                ? []
-                : [projectionURL] + (snapshot.annotationSidecarURL.map { [$0] } ?? [])
+            let expectedInputURLs = [projectionURL]
+                + (effectiveAnnotationURL.map { [$0] } ?? [])
             try verifyProvenance(
                 provenanceURL: provenanceURL,
                 outputURL: standardizedOutputURL,
@@ -275,11 +283,7 @@ struct GenotypeViewportExportService {
         return nil
     }
 
-    /// The viewport's Min Percent control, when the analyst set one.
-    /// The CLI's `--percent-basis` value for the matrix's Percent Basis, which
-    /// the snapshot carries as the control's display name.
-    private func percentBasis(from filters: [String: String]) -> String? {
-        guard let name = filters["matrixPercentDenominator"] else { return nil }
+    private func percentBasis(displayName name: String?) -> String? {
         switch name {
         case ONTGenotypeSupportDenominator.viewedLocus.displayName: return "viewed-locus"
         case ONTGenotypeSupportDenominator.sampleRetained.displayName: return "sample-retained"
@@ -287,13 +291,35 @@ struct GenotypeViewportExportService {
         }
     }
 
-    private func minimumPercent(from filters: [String: String]) -> Double? {
-        // `matrixMinimumPercent` is the comparison matrix's own Min Percent
-        // control and takes precedence over the row-level support percent.
-        for key in ["matrixMinimumPercent", "minimumSupportPercent", "minimumPercent", "minPercent"] {
-            if let raw = filters[key], let value = Double(raw), value > 0 {
-                return value
-            }
+    /// Resolves the active threshold and denominator as one inseparable value.
+    /// Matrix filtering takes precedence because it is independently active.
+    /// The row-support threshold only filters the projection while low-support
+    /// rows are hidden; a positive configured value alone is not active.
+    private func activePercentFilter(
+        from filters: [String: String]
+    ) -> (minimum: Double, basis: String?)? {
+        if let raw = filters["matrixMinimumPercent"],
+           let value = Double(raw),
+           value > 0 {
+            return (
+                value,
+                percentBasis(displayName: filters["matrixPercentDenominator"])
+            )
+        }
+        if filters["hideLowSupport"] == "true",
+           let raw = filters["minimumSupportPercent"],
+           let value = Double(raw),
+           value > 0 {
+            return (
+                value,
+                percentBasis(displayName: filters["supportDenominator"])
+            )
+        }
+        for key in ["minimumPercent", "minPercent"] {
+            guard let raw = filters[key],
+                  let value = Double(raw),
+                  value > 0 else { continue }
+            return (value, nil)
         }
         return nil
     }
@@ -363,7 +389,10 @@ enum GenotypeViewProjectionSerializer {
             },
             genotypeNumericPrefixOrder: snapshot.filters["genotypeNumericPrefixOrder"].flatMap { Bool($0) },
             diagnosticAllelesOnly: snapshot.filters["diagnosticAllelesOnly"].flatMap { Bool($0) },
-            includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) }
+            includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) },
+            haplotypeCalls: snapshot.haplotypeCalls,
+            sourceRevision: snapshot.sourceRevision,
+            filterContext: snapshot.filters
         )
     }
 

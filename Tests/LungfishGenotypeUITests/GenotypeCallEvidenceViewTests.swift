@@ -72,6 +72,29 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertTrue(source.contains("typographyModel.font(for:"))
     }
 
+    func testReviewActionsAreHiddenFromOrdinaryPaneButMountedForReviewWorkflow() {
+        let ordinary = mountEvidenceView(
+            onOverridesRequested: { _ in .unchanged }
+        )
+        defer { ordinary.window.close() }
+        XCTAssertNil(button("genotype-call-evidence-confirm-review", in: ordinary.host))
+        XCTAssertNil(button("genotype-call-evidence-skip-review", in: ordinary.host))
+
+        let review = mountEvidenceView(
+            showsReviewActions: true,
+            onOverridesRequested: { _ in .unchanged }
+        )
+        defer { review.window.close() }
+        let confirm = try? XCTUnwrap(
+            button("genotype-call-evidence-confirm-review", in: review.host)
+        )
+        let skip = try? XCTUnwrap(
+            button("genotype-call-evidence-skip-review", in: review.host)
+        )
+        XCTAssertEqual(confirm?.title, "Confirm")
+        XCTAssertEqual(skip?.title, "Skip")
+    }
+
     func testRendersEmptyState() {
         let view = GenotypeCallEvidenceView(evidence: nil)
         let host = NSHostingView(rootView: view)
@@ -536,6 +559,53 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(pending.isEmpty)
     }
 
+    func testSwapRequestsExchangeDistinctCallableHaplotypes() {
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW472", locus: "MHC-DP", slot: .h1,
+            callName: "M4DP / M7DP", status: .called,
+            observedGenotypeCount: 2, observedGenotypes: [], diagnosticAlleles: [],
+            locusReadTotal: 500, neighborsBefore: [], neighborsAfter: [],
+            h1Name: "M4DP", h2Name: "M7DP"
+        )
+        XCTAssertEqual(
+            GenotypeCallEvidenceView.swapRequests(for: evidence),
+            [
+                .init(slot: .h1, haplotypeName: "M7DP"),
+                .init(slot: .h2, haplotypeName: "M4DP"),
+            ]
+        )
+
+        var identical = evidence
+        identical.h2Name = "M4DP"
+        XCTAssertNil(GenotypeCallEvidenceView.swapRequests(for: identical))
+
+        var unavailable = evidence
+        unavailable.h2Name = "-"
+        XCTAssertNil(GenotypeCallEvidenceView.swapRequests(for: unavailable))
+        unavailable.h2Name = "?"
+        XCTAssertNil(GenotypeCallEvidenceView.swapRequests(for: unavailable))
+    }
+
+    func testSwapButtonImmediatelySendsPairedOverride() throws {
+        var callbackRequests: [[GenotypeCallEvidenceView.HaplotypeOverrideRequest]] = []
+        let mounted = mountEvidenceView(onOverridesRequested: {
+            callbackRequests.append($0)
+            return .changed
+        })
+        defer { mounted.window.close() }
+        let swap = try XCTUnwrap(
+            button("genotype-call-evidence-swap-haplotypes", in: mounted.host)
+        )
+
+        swap.performClick(nil)
+        flush(mounted.host)
+
+        XCTAssertEqual(callbackRequests, [[
+            .init(slot: .h1, haplotypeName: "M7DP"),
+            .init(slot: .h2, haplotypeName: "M4DP"),
+        ]])
+    }
+
     func testRenderedPendingOverrideClearsOnlyAfterChangedCallback() throws {
         for outcome in [
             GenotypeHaplotypeMutationOutcome.unchanged,
@@ -618,6 +688,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
     )
 
     private func mountEvidenceView(
+        showsReviewActions: Bool = false,
         onOverridesRequested: @escaping (
             [GenotypeCallEvidenceView.HaplotypeOverrideRequest]
         ) -> GenotypeHaplotypeMutationOutcome
@@ -645,7 +716,10 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
             h2Name: "M7DP",
             availableHaplotypeNames: ["M3DP", "M4DP", "M7DP"]
         )
-        var view = GenotypeCallEvidenceView(evidence: evidence)
+        var view = GenotypeCallEvidenceView(
+            evidence: evidence,
+            showsReviewActions: showsReviewActions
+        )
         view.onOverridesRequested = onOverridesRequested
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_600)

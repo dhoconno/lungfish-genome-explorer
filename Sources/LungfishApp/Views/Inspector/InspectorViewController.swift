@@ -38,6 +38,7 @@ public class InspectorViewController: NSViewController {
     /// `.lungfishgenotype` bundle from disk on every sidecar change makes large
     /// cohorts progressively sluggish.
     var loadedGenotypeResult: ONTGenotypeResultBundleData?
+    let genotypeFilteredExportSession = GenotypeFilteredExportSessionState()
 
     /// Injectable seam for proving genotype-only inspector updates do not build
     /// haplotype-aware Smart Cohort subjects.

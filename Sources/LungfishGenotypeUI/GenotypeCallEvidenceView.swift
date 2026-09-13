@@ -380,6 +380,13 @@ struct GenotypeCallEvidenceView: View {
         GenotypeHaplotypeMutationOutcome)?
     var onOverridesRequested: (([HaplotypeOverrideRequest]) ->
         GenotypeHaplotypeMutationOutcome)?
+    /// Whether this pane is being used as the explicit Review-lens queue.
+    ///
+    /// Haplotype Calls uses the same evidence view for read-only inspection
+    /// and override editing, so its header should not advertise queue actions
+    /// that either mutate review status or only navigate to another sample.
+    /// The legacy Review lens opts into these controls explicitly.
+    var showsReviewActions: Bool
     var onConfirmRequested: (() -> Void)?
     var onSkipRequested: (() -> Void)?
     var typographyModel: ContentTypographyModel = .shared
@@ -396,6 +403,7 @@ struct GenotypeCallEvidenceView: View {
             GenotypeHaplotypeMutationOutcome)? = nil,
         onOverridesRequested: (([HaplotypeOverrideRequest]) ->
             GenotypeHaplotypeMutationOutcome)? = nil,
+        showsReviewActions: Bool = false,
         onConfirmRequested: (() -> Void)? = nil,
         onSkipRequested: (() -> Void)? = nil,
         typographyModel: ContentTypographyModel = .shared,
@@ -404,6 +412,7 @@ struct GenotypeCallEvidenceView: View {
         self.evidence = evidence
         self.onOverrideRequested = onOverrideRequested
         self.onOverridesRequested = onOverridesRequested
+        self.showsReviewActions = showsReviewActions
         self.onConfirmRequested = onConfirmRequested
         self.onSkipRequested = onSkipRequested
         self.typographyModel = typographyModel
@@ -596,6 +605,23 @@ struct GenotypeCallEvidenceView: View {
         )
     }
 
+    /// Builds the paired, immediately persisted override represented by the
+    /// locus-level swap control. Uncalled, error, and homozygous pairs cannot
+    /// be meaningfully exchanged.
+    static func swapRequests(for evidence: Evidence) -> [HaplotypeOverrideRequest]? {
+        let h1 = evidence.h1Name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let h2 = evidence.h2Name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unavailable: (String) -> Bool = { value in
+            value.isEmpty || value == "-" || value == "?" || value == "Not assayed"
+                || value.hasPrefix("ERR")
+        }
+        guard !unavailable(h1), !unavailable(h2), h1 != h2 else { return nil }
+        return [
+            HaplotypeOverrideRequest(slot: .h1, haplotypeName: h2),
+            HaplotypeOverrideRequest(slot: .h2, haplotypeName: h1),
+        ]
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -610,6 +636,16 @@ struct GenotypeCallEvidenceView: View {
                         errorExplanationBlock(evidence)
                     }
                     Divider()
+                    GenotypeMutationActionButton(
+                        title: "Swap H1 ↔ H2",
+                        accessibilityIdentifier: "genotype-call-evidence-swap-haplotypes",
+                        isEnabled: Self.swapRequests(for: evidence) != nil
+                            && onOverridesRequested != nil
+                    ) {
+                        guard let requests = Self.swapRequests(for: evidence) else { return }
+                        _ = onOverridesRequested?(requests)
+                    }
+                    .help("Swap H1 and H2 for this locus and save immediately")
                     haplotypeSlotCards(evidence)
                     if !evidence.omittedHaplotypeGenotypes.isEmpty {
                         Divider()
@@ -1341,18 +1377,22 @@ struct GenotypeCallEvidenceView: View {
                     .lineLimit(1)
                 Spacer()
                 statusChip(evidence.status)
-                Button("Confirm") {
-                    onConfirmRequested?()
+                if showsReviewActions {
+                    GenotypeMutationActionButton(
+                        title: "Confirm",
+                        accessibilityIdentifier: "genotype-call-evidence-confirm-review",
+                        controlSize: .small,
+                        help: "Confirm analyzer call",
+                        action: { onConfirmRequested?() }
+                    )
+                    GenotypeMutationActionButton(
+                        title: "Skip",
+                        accessibilityIdentifier: "genotype-call-evidence-skip-review",
+                        controlSize: .small,
+                        help: "Skip to next review sample",
+                        action: { onSkipRequested?() }
+                    )
                 }
-                .controlSize(.small)
-                .help("Confirm analyzer call")
-                .accessibilityLabel("Confirm analyzer call")
-                Button("Skip") {
-                    onSkipRequested?()
-                }
-                .controlSize(.small)
-                .help("Skip to next review sample")
-                .accessibilityLabel("Skip to next review sample")
             }
             HStack(spacing: 6) {
                 Text("Call:")
@@ -1470,7 +1510,7 @@ struct GenotypeCallEvidenceView: View {
             Text("Omitted from haplotyping")
                 .font(contentCaptionFont.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Text("These retained genotype calls stayed in the run evidence but were below the haplotype thresholds recorded for this analysis.")
+            Text("These retained genotype calls stayed in the run evidence but were excluded from haplotype inference by the recorded thresholds or analyst review.")
                 .font(contentCaptionFont)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

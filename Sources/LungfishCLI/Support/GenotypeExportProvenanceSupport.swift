@@ -16,6 +16,7 @@ enum GenotypeExportProvenanceSupport {
         additionalInputURLs: [URL] = [],
         additionalInputRecords: [FileRecord] = [],
         excludedInputURLs: [URL] = [],
+        extraSteps: [ProvenanceStep] = [],
         startedAt: Date,
         publicationArtifactDidWrite:
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
@@ -45,6 +46,7 @@ enum GenotypeExportProvenanceSupport {
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,
+            extraSteps: extraSteps,
             inputs: inputRecords(
                 bundleURL: bundleURL,
                 excluding: excludedInputPaths

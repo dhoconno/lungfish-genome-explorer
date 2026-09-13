@@ -31,6 +31,12 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     public let haplotype2: String
     public let status: String
     public let notes: String
+    public let baselineHaplotype1: String?
+    public let baselineHaplotype2: String?
+
+    public init(sample: String, locus: String, haplotype1: String, haplotype2: String, status: String, notes: String) {
+        self.init(sample: sample, locus: locus, haplotype1: haplotype1, haplotype2: haplotype2, status: status, notes: notes, baselineHaplotype1: nil, baselineHaplotype2: nil)
+    }
 
     public init(
         sample: String,
@@ -38,7 +44,9 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         haplotype1: String,
         haplotype2: String,
         status: String,
-        notes: String
+        notes: String,
+        baselineHaplotype1: String?,
+        baselineHaplotype2: String?
     ) {
         self.sample = sample
         self.locus = locus
@@ -46,25 +54,16 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
         self.haplotype2 = haplotype2
         self.status = status
         self.notes = notes
+        self.baselineHaplotype1 = baselineHaplotype1
+        self.baselineHaplotype2 = baselineHaplotype2
     }
 
     public static func isWritableCurrentWorkbookLocus(_ locus: String) -> Bool {
-        switch canonicalCurrentWorkbookLocus(locus) {
-        case "MHC-A", "MHC-B", "MHC-DQ", "MHC-DP":
-            return true
-        default:
-            return false
-        }
+        !canonicalCurrentWorkbookLocus(locus).isEmpty
     }
 
     public static func canonicalCurrentWorkbookLocus(_ locus: String) -> String {
         let trimmed = locus.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "MHC-DQA" || trimmed == "MHC-DQB" {
-            return "MHC-DQ"
-        }
-        if trimmed == "MHC-DPA" || trimmed == "MHC-DPB" {
-            return "MHC-DP"
-        }
         return trimmed
     }
 }
@@ -223,10 +222,14 @@ public struct GenotypeWorkbookRevisionService {
         struct KnownCall: Codable {
             let callID: String
             let readsBySample: [String: Int]
+            let locus: String
+            let workbookLabels: [String]
 
             private enum CodingKeys: String, CodingKey {
                 case callID = "call_id"
                 case readsBySample = "reads_by_sample"
+                case locus
+                case workbookLabels = "workbook_labels"
             }
         }
 
@@ -502,7 +505,9 @@ public struct GenotypeWorkbookRevisionService {
         let workbookCSVProjectionInput:
             ValidatedWorkbookCSVProjectionInput?
         if projectionMode == .manualGenotypeOnly
-            || manifest.mhcCandidateArtifacts != nil {
+            || manifest.mhcCandidateArtifacts != nil
+            || fileManager.fileExists(atPath: ONTGenotypeResultBundle.resolvedURL(for: manifest.longSummaryCSVPath, in: bundle).path)
+            || fileManager.fileExists(atPath: ONTGenotypeResultBundle.resolvedURL(for: manifest.sampleSummaryCSVPath, in: bundle).path) {
             workbookCSVProjectionInput = try loadWorkbookCSVProjection(
                 manifest: manifest,
                 bundleURL: bundle
@@ -529,8 +534,11 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle)
         }
         try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
+        let admittedSourceWorkbookWitness = try readRegularFileNoFollow(sourceWorkbookURL, role: "workbook update source").witness
+        guard try !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle, capturedWorkbookSHA256: admittedSourceWorkbookWitness.sha256) else {
+            throw GenotypeEditableWorkbookService.EditError.rejected("Review external current.xlsx edits before regeneration.")
+        }
         try attempt?.recordInputFile(at: sourceWorkbookURL)
-        let annotationOnlyWorkbookRevision: ONTGenotypeWorkbookRevision?
         if annotationOnly {
             guard calls.isEmpty else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
@@ -543,14 +551,21 @@ public struct GenotypeWorkbookRevisionService {
                     "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
                 )
             }
-            annotationOnlyWorkbookRevision = revision
-        } else {
-            annotationOnlyWorkbookRevision = nil
         }
         var workbookScientificInputs = try candidateArtifactInputURLs(
             from: manifest,
             in: bundle
         )
+        let haplotypeAnalysisInput: (url: URL, witness: SourceWorkbookWitness)?
+        if let path = manifest.haplotypeAnalysisPath {
+            let url = ONTGenotypeResultBundle.resolvedURL(for: path, in: bundle)
+            try validateRegularBundleFile(url, in: bundle, role: "active haplotype analysis")
+            let snapshot = try readRegularFileNoFollow(url, role: "active haplotype analysis")
+            haplotypeAnalysisInput = (url, snapshot.witness)
+            workbookScientificInputs.append(url)
+        } else {
+            haplotypeAnalysisInput = nil
+        }
         if let workbookCSVProjectionInput {
             workbookScientificInputs += [
                 workbookCSVProjectionInput.longSummaryURL,
@@ -604,9 +619,17 @@ public struct GenotypeWorkbookRevisionService {
             reviewableRowCatalogInput = nil
         }
         if requestsFalseNegative, reviewableRowCatalogInput == nil {
-            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "False-negative workbook updates require an attested reviewable-row catalog."
-            )
+            let roster = Set(workbookCSVProjectionInput?.samples.map(\.sample) ?? [])
+            for review in sidecar?.matrixReviews ?? [] where review.disposition == .falseNegative {
+                guard case let .cell(locus, genotype, sample, stableID) = review.target,
+                      stableID == nil, roster.contains(sample),
+                      let row = workbookCSVProjectionInput?.knownCalls.first(where: { $0.callID == genotype && $0.locus == locus }),
+                      row.readsBySample[sample, default: 0] == 0 else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "False-negative workbook updates require an attested reviewable-row catalog or an exact zero-support row in the witnessed CSV evidence."
+                    )
+                }
+            }
         }
         if let reviewableRowCatalogInput {
             try attempt?.recordInput(
@@ -718,6 +741,9 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         func requireWorkbookCSVProjectionUnchanged() throws {
+            if let input = haplotypeAnalysisInput {
+                try requireUnchangedRegularFileNoFollow(input.url, witness: input.witness)
+            }
             guard let input = workbookCSVProjectionInput else { return }
             try requireUnchangedRegularFileNoFollow(
                 input.longSummaryURL,
@@ -753,13 +779,12 @@ public struct GenotypeWorkbookRevisionService {
             from: sourceWorkbookURL,
             to: stagedSourceWorkbookURL
         )
-        if let annotationOnlyWorkbookRevision {
-            guard annotationOnlyWorkbookRevision.sizeBytes == sourceWorkbookWitness.sizeBytes,
-                  annotationOnlyWorkbookRevision.sha256 == sourceWorkbookWitness.sha256 else {
-                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                    "Annotation-only workbook updates require current.xlsx to match its manifest attestation."
-                )
-            }
+        guard sourceWorkbookWitness.sha256 == admittedSourceWorkbookWitness.sha256,
+              sourceWorkbookWitness.sizeBytes == admittedSourceWorkbookWitness.sizeBytes,
+              try !GenotypeEditableWorkbookService.hasUnreviewedExternalEdits(in: bundle, capturedWorkbookSHA256: sourceWorkbookWitness.sha256) else {
+            throw GenotypeEditableWorkbookService.EditError.rejected(
+                "Workbook changed after source admission. Review external current.xlsx edits before regeneration."
+            )
         }
         let scriptArguments = [
             stagedSourceWorkbookURL.path,
@@ -770,6 +795,8 @@ public struct GenotypeWorkbookRevisionService {
             reviewableRowCatalogInput == nil
                 ? ""
                 : stagedReviewableRowCatalogURL.path,
+            retainFingerprintCalls ? stagedFingerprintCallsURL.path : stagedCallsURL.path,
+            latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
         ]
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
@@ -852,6 +879,9 @@ public struct GenotypeWorkbookRevisionService {
             additionalInputs.append(cloneFingerprintCallsURL)
         }
         var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneScientificInputs
+        if retainFingerprintCalls {
+            pythonInputURLs.append(cloneFingerprintCallsURL)
+        }
         var durableReviewableRowCatalogPath = ""
         if reviewableRowCatalogInput != nil {
             try fileManager.copyItem(
@@ -891,6 +921,8 @@ public struct GenotypeWorkbookRevisionService {
             durableAnnotationPath,
             cloneConfigurationURL.path,
             durableReviewableRowCatalogPath,
+            retainFingerprintCalls ? cloneFingerprintCallsURL.path : cloneCallsURL.path,
+            latestCurrentWorkbookRevision(in: manifest).map { $0.sha256 != sourceWorkbookWitness.sha256 } == true ? String(sourceWorkbookWitness.sha256.prefix(24)) : "",
         ]
         let pythonStep = try makePythonProvenanceStep(
             executionRecord: executionRecord,
@@ -918,10 +950,35 @@ public struct GenotypeWorkbookRevisionService {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Workbook update provenance path is missing.")
         }
         let cloneManifestURL = ONTGenotypeResultBundle.manifestURL(in: cloneBundleURL)
+        let parserExecutable: URL
+        if let runtimeObject = try? JSONSerialization.jsonObject(with: Data(executionRecord.stdout.utf8)) as? [String: Any],
+           let executable = runtimeObject["python_executable"] as? String {
+            parserExecutable = URL(fileURLWithPath: executable)
+        } else if let pythonExecutableURL {
+            parserExecutable = pythonExecutableURL
+        } else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed("Editable baseline requires the exact managed Python runtime identity.")
+        }
+        try GenotypeEditableWorkbookService(pythonExecutableURL: parserExecutable).attestGeneratedWorkbook(
+            workbookURL: cloneFinalWorkbookURL,
+            bundleURL: cloneBundleURL,
+            scientificInputURLs: cloneScientificInputs + (reviewableRowCatalogInput.map { [cloneBundleURL.appendingPathComponent($0.reference.path)] } ?? []),
+            callEditingSupported: projectionMode == .haplotyped
+        )
         let revisedManifestData = try Data(contentsOf: cloneManifestURL)
         let retainedManifestURL = cloneUpdatesURL.appendingPathComponent("revision-manifest.json")
         try revisedManifestData.write(to: retainedManifestURL, options: .atomic)
         let cloneProvenanceURL = ONTGenotypeResultBundle.resolvedURL(for: provenancePath, in: cloneBundleURL)
+        // Baseline is a scientific output of this same retained generation
+        // script. Bind its final bytes into the workbook's provenance envelope.
+        let baselineURL = cloneBundleURL.appendingPathComponent(GenotypeEditableWorkbookService.baselinePath)
+        let baselineData = try Data(contentsOf: baselineURL)
+        let baselineDescriptor = ProvenanceFileDescriptor(path: baselineURL.path, checksumSHA256: GenotypeEditableWorkbookService.hash(baselineData), fileSize: UInt64(baselineData.count), format: .json, role: .output)
+        var provenanceObject = try JSONSerialization.jsonObject(with: Data(contentsOf: cloneProvenanceURL)) as! [String: Any]
+        let descriptorObject = try JSONSerialization.jsonObject(with: ProvenanceJSON.encoder.encode(baselineDescriptor))
+        provenanceObject["files"] = (provenanceObject["files"] as? [Any] ?? []) + [descriptorObject]
+        provenanceObject["outputs"] = (provenanceObject["outputs"] as? [Any] ?? []) + [descriptorObject]
+        try JSONSerialization.data(withJSONObject: provenanceObject, options: [.sortedKeys]).write(to: cloneProvenanceURL, options: .atomic)
         try relocateProvenancePaths(in: cloneProvenanceURL, from: cloneBundleURL, to: bundle)
         try originalManifestData.write(to: cloneManifestURL, options: .atomic)
         try syncDirectoryTree(cloneBundleURL)
@@ -1861,9 +1918,20 @@ public struct GenotypeWorkbookRevisionService {
             ))
         }
         let knownCalls = knownReads.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }).map {
-            WorkbookCandidateUpdateConfiguration.KnownCall(
+            let raw = $0
+            let call = ONTGenotypeCall(sample: "", genotype: raw, passedAlignments: 0, passedUniqueReads: 0,
+                sampleTotalReads: nil, sampleUniqueRetainedReads: nil, sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil, overallUniqueRetainedReads: nil, overallUniqueRetainedPercent: nil)
+            let alleles = MHCReferenceGenotypeDisplay.alleleNames(for: raw)
+            let compact = alleles.map { allele in
+                guard allele.hasPrefix("Mafa-"), let index = allele.firstIndex(of: "_") else { return allele }
+                return String(allele[..<index]) + "*" + String(allele[allele.index(after: index)...])
+            }.joined(separator: "/")
+            return WorkbookCandidateUpdateConfiguration.KnownCall(
                 callID: $0,
-                readsBySample: knownReads[$0] ?? [:]
+                readsBySample: knownReads[$0] ?? [:],
+                locus: call.locusGroup,
+                workbookLabels: Array(Set([raw, compact].filter { !$0.isEmpty })).sorted()
             )
         }
         return ValidatedWorkbookCSVProjectionInput(

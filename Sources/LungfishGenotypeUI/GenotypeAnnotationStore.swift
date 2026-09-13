@@ -191,6 +191,171 @@ struct GenotypeMatrixBulkMutationDiagnostics: Equatable {
 @Observable
 @MainActor
 public final class GenotypeAnnotationStore {
+    /// Applies an inspected proposal using the same validators and replay
+    /// operations as GUI edits, with one durable annotation publication.
+    /// The caller marks current.xlsx dirty and requests normal sync on success.
+    @discardableResult
+    public func applyEditableWorkbook(
+        _ inspection: GenotypeEditableWorkbookService.Inspection,
+        using service: GenotypeEditableWorkbookService,
+        analysisIdentity: GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity?,
+        author editAuthor: String
+    ) throws -> URL {
+        let acceptanceStartedAt = Date()
+        guard inspection.bundleURL == bundleURL.standardizedFileURL else {
+            throw GenotypeEditableWorkbookService.EditError.rejected("Inspection belongs to another bundle.")
+        }
+        guard !editAuthor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CallOverrideMutationError.emptyAuthor }
+        var evidenceDirectory: URL?
+        try bufferedWorkbookTransaction({ draft in
+            try service.revalidate(inspection)
+            evidenceDirectory = try service.preserveEvidence(inspection)
+            let identity = analysisIdentity.map { GenotypeEffectiveHaplotypeIdentity(assayID: $0.assayID, analysisRevisionID: $0.analysisRevisionID, definitionSetID: $0.definitionSetID) }
+            let calls = inspection.changes.filter { $0.kind == .call }
+            for sample in Set(calls.map(\.sample)).sorted() {
+                let mutations = try calls.filter { $0.sample == sample }.map { change -> CallOverrideMutation in
+                    guard let slot = change.slot, let baseline = change.baseline else { throw GenotypeEditableWorkbookService.EditError.rejected("Missing exact call identity.") }
+                    return .init(target: .init(sample: sample, locus: change.locus, slot: slot), baseline: baseline, after: change.value ?? baseline, reason: .analystJudgment, rationale: "Accepted editable workbook \(inspection.workbookSHA256)")
+                }
+                _ = try draft.mutateCallOverrides(mutations, author: editAuthor, analysisIdentity: identity)
+            }
+            for change in inspection.changes where change.kind != .call {
+                guard let target = change.target else { throw GenotypeMatrixReviewMutationError.emptyTargets }
+                switch change.kind {
+                case .call: break
+                case .review:
+                    if let value = change.value {
+                        let disposition: GenotypeAnnotationSidecar.MatrixReviewDisposition = value == "false-positive" ? .falsePositive : .falseNegative
+                        try draft.setMatrixReviewSynchronously(disposition, targets: [target], evidence: .init([target: change.passedUniqueReads ?? 0]), author: editAuthor)
+                    } else { try draft.clearMatrixReviewSynchronously(targets: [target], author: editAuthor) }
+                case .comment:
+                    if let value = change.value { try draft.upsertMatrixCommentSynchronously(body: value, targets: [target], author: editAuthor) }
+                    else { try draft.removeMatrixCommentsSynchronously(targets: [target], author: editAuthor) }
+                }
+            }
+            // Formatting-only Excel saves still need an accepted hash before
+            // regeneration. Retain the existing sidecar and its replay evidence.
+            if draft.bufferedPublications.isEmpty, let snapshot = draft.bufferedSnapshot {
+                let payload: GenotypeAnnotationPublicationPayload
+                if let annotations = snapshot.annotationData, let provenance = snapshot.provenanceData {
+                    payload = .init(annotationData: annotations, provenanceData: provenance)
+                } else {
+                    payload = try draft.annotationPublicationPayload(sidecar: draft.sidecar, action: "save", editContext: nil, snapshot: snapshot, startedAt: Date(), endedAt: Date())
+                }
+                draft.bufferedPublications.append(payload)
+            }
+        }, prepareFinal: { payloads in
+            guard let directory = evidenceDirectory, let last = payloads.last else { return nil }
+            var retained: [[String: Any]] = []
+            let originalProvenance = ProvenanceRecorder.fileSidecarURL(for: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)).path
+            let operationPayloads = inspection.changes.isEmpty ? [] : payloads
+            for (index, payload) in operationPayloads.enumerated() {
+                let annotationURL = directory.appendingPathComponent("operation-\(index + 1)-annotations.json")
+                let provenanceURL = directory.appendingPathComponent("operation-\(index + 1)-provenance.json")
+                try payload.annotationData.write(to: annotationURL, options: .withoutOverwriting)
+                // Retained operation envelopes point at the actual stored
+                // intermediate payload, while their replay targets stay bound
+                // to the real bundle and original source manifest.
+                var object = try JSONSerialization.jsonObject(with: payload.provenanceData) as! [String: Any]
+                func relocated(_ value: Any) -> Any {
+                    if var dictionary = value as? [String: Any] {
+                        if dictionary["path"] as? String == bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename).path,
+                           dictionary["role"] as? String == "output" { dictionary["path"] = annotationURL.path }
+                        for (key, child) in dictionary { dictionary[key] = relocated(child) }
+                        return dictionary
+                    }
+                    if let array = value as? [Any] { return array.map(relocated) }
+                    if let string = value as? String {
+                        if string == originalProvenance { return provenanceURL.path }
+                        if string.hasPrefix(originalProvenance + "#") { return provenanceURL.path + String(string.dropFirst(originalProvenance.count)) }
+                    }
+                    return value
+                }
+                object = relocated(object) as! [String: Any]
+                if let argv = object["durableReplayArgv"] as? [String] { object["reproducibleCommand"] = argv.map(shellEscape).joined(separator: " ") }
+                let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+                try data.write(to: provenanceURL, options: .withoutOverwriting)
+                retained.append(["path": provenanceURL.path, "sha256": GenotypeEditableWorkbookService.hash(data), "sizeBytes": data.count])
+            }
+            var final = try JSONSerialization.jsonObject(with: last.provenanceData) as! [String: Any]
+            var options = final["options"] as? [String: Any] ?? [:]
+            var explicit = options["explicit"] as? [String: Any] ?? [:]
+            explicit["acceptedEditableWorkbook"] = ["workbookSHA256": inspection.workbookSHA256, "baselineSHA256": inspection.baselineSHA256, "evidenceDirectory": directory.path, "operationProvenance": retained]
+            options["explicit"] = explicit; final["options"] = options
+            var receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("provenance.json"))) as! [String: Any]
+            receipt["workflowName"] = "Accept supported genotype workbook edits"
+            receipt["argv"] = CommandLine.arguments
+            receipt["options"] = ["supportedChangeCount": inspection.changes.count, "author": editAuthor, "atomicPublication": true, "annotationReplayRequired": !inspection.changes.isEmpty]
+            receipt["operationProvenance"] = retained
+            receipt["outputs"] = [["path": bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename).path, "sha256": GenotypeEditableWorkbookService.hash(last.annotationData), "sizeBytes": last.annotationData.count]]
+            receipt["wallTimeSeconds"] = Date().timeIntervalSince(acceptanceStartedAt)
+            receipt["completedAt"] = ISO8601DateFormatter().string(from: Date())
+            try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]).write(to: directory.appendingPathComponent("acceptance-provenance.json"), options: .withoutOverwriting)
+            try GenotypeEditableWorkbookService.synchronizeEvidence(at: directory)
+            try service.revalidate(inspection)
+            return .init(annotationData: last.annotationData, provenanceData: try JSONSerialization.data(withJSONObject: final, options: [.sortedKeys]))
+        })
+        return evidenceDirectory!
+    }
+
+    func bufferedWorkbookTransaction(_ edits: (GenotypeAnnotationStore) throws -> Void) throws {
+        try bufferedWorkbookTransaction(edits, prepareFinal: { $0.last })
+    }
+
+    /// An unobserved draft reuses existing mutation validators and replay
+    /// payloads. Only this outer transaction can publish; the live store never
+    /// observes an intermediate call override, review, or comment.
+    private func bufferedWorkbookTransaction(
+        _ edits: (GenotypeAnnotationStore) throws -> Void,
+        prepareFinal: ([GenotypeAnnotationPublicationPayload]) throws -> GenotypeAnnotationPublicationPayload?
+    ) throws {
+        guard !isReadOnly else { throw GenotypeMatrixReviewMutationError.readOnly }
+        var committed: GenotypeAnnotationSidecar?
+        _ = try annotationPublicationCoordinator().transact { snapshot in
+            let latest = try decodedLatestSidecar(from: snapshot.annotationData)
+            guard latest == lastPersistedSidecar else { throw GenotypeAnnotationStorePersistenceError.staleRevision }
+            let draft = GenotypeAnnotationStore(buffering: snapshot, sidecar: latest, bundleURL: bundleURL, author: author)
+            try edits(draft)
+            guard let final = try prepareFinal(draft.bufferedPublications) else { return nil }
+            committed = draft.sidecar
+            return final
+        }
+        if let committed {
+            let callsChanged = committed.callOverrides != sidecar.callOverrides
+            let matrixChanged = committed.matrixComments != sidecar.matrixComments || committed.matrixReviews != sidecar.matrixReviews
+            sidecar = committed
+            lastPersistedSidecar = committed
+            if callsChanged { callOverrideMutationRevision &+= 1 }
+            if matrixChanged { matrixMutationRevision &+= 1 }
+        }
+    }
+
+    @ObservationIgnored private var bufferedSnapshot: GenotypeAnnotationPublicationSnapshot?
+    @ObservationIgnored private var bufferedPublications: [GenotypeAnnotationPublicationPayload] = []
+
+    private init(buffering snapshot: GenotypeAnnotationPublicationSnapshot, sidecar: GenotypeAnnotationSidecar, bundleURL: URL, author: String) {
+        self.bundleURL = bundleURL
+        self.author = author
+        self.sidecar = sidecar
+        self.lastPersistedSidecar = sidecar
+        self.publicationFaultInjector = nil
+        self.isReadOnly = false
+        self.bufferedSnapshot = snapshot
+    }
+
+    private func transactAnnotationPublication(
+        _ prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
+    ) throws -> GenotypeAnnotationPublicationPayload? {
+        if let bufferedSnapshot {
+            let payload = try prepare(bufferedSnapshot)
+            if let payload {
+                self.bufferedSnapshot = .init(annotationData: payload.annotationData, provenanceData: payload.provenanceData)
+                bufferedPublications.append(payload)
+            }
+            return payload
+        }
+        return try annotationPublicationCoordinator().transact(prepare: prepare)
+    }
     public private(set) var sidecar: GenotypeAnnotationSidecar
     public let bundleURL: URL
     public let author: String
@@ -1045,9 +1210,8 @@ public final class GenotypeAnnotationStore {
         let timestamp = now()
         var latestForRollback = sidecar
         var publishedSidecar: GenotypeAnnotationSidecar?
-        let coordinator = annotationPublicationCoordinator()
         do {
-            _ = try coordinator.transact { snapshot in
+            _ = try transactAnnotationPublication { snapshot in
                 var latest = try decodedLatestSidecar(from: snapshot.annotationData)
                 latestForRollback = latest
                 let before = latest.settings.mhcCandidateDisplay
@@ -1223,9 +1387,8 @@ public final class GenotypeAnnotationStore {
         let startedAt = Date()
         var publishedSidecar: GenotypeAnnotationSidecar?
         var replacementResult = unchangedResult
-        let coordinator = annotationPublicationCoordinator()
         do {
-            _ = try coordinator.transact { snapshot in
+            _ = try transactAnnotationPublication { snapshot in
                 guard let priorData = snapshot.annotationData else {
                     throw ManualHaplotypeReplacementError.missingPriorSidecar
                 }
@@ -1554,8 +1717,7 @@ public final class GenotypeAnnotationStore {
         let startedAt = Date()
         var publishedSidecar: GenotypeAnnotationSidecar?
         var mutationResult = unchanged
-        let coordinator = annotationPublicationCoordinator()
-        _ = try coordinator.transact { snapshot in
+        _ = try transactAnnotationPublication { snapshot in
             guard let priorData = snapshot.annotationData else {
                 throw CallOverrideMutationError.missingPriorSidecar
             }
@@ -2134,9 +2296,8 @@ public final class GenotypeAnnotationStore {
         let startedAt = Date()
         var latestForRollback = lastPersistedSidecar
         var publishedSidecar: GenotypeAnnotationSidecar?
-        let coordinator = annotationPublicationCoordinator()
         do {
-            _ = try coordinator.transact { snapshot in
+            _ = try transactAnnotationPublication { snapshot in
                 var latest = try decodedLatestSidecar(from: snapshot.annotationData)
                 latestForRollback = latest
                 guard latest == lastPersistedSidecar else {
@@ -2298,9 +2459,8 @@ public final class GenotypeAnnotationStore {
             throw error
         }
         var latestForRollback = lastPersistedSidecar
-        let coordinator = annotationPublicationCoordinator()
         do {
-            _ = try coordinator.transact { snapshot in
+            _ = try transactAnnotationPublication { snapshot in
                 var latest = try decodedLatestSidecar(from: snapshot.annotationData)
                 latestForRollback = latest
                 guard latest == lastPersistedSidecar else {
@@ -2363,10 +2523,19 @@ public final class GenotypeAnnotationStore {
             startedAt: startedAt,
             endedAt: endedAt
         )
-        return try GenotypeAnnotationPublicationPayload(
-            annotationData: annotationData,
-            provenanceData: ProvenanceJSON.encoder.encode(envelope)
-        )
+        var encoded = try JSONSerialization.jsonObject(with: ProvenanceJSON.encoder.encode(envelope)) as! [String: Any]
+        if let previousData = snapshot.provenanceData,
+           let previous = try JSONSerialization.jsonObject(with: previousData) as? [String: Any],
+           let previousOptions = previous["options"] as? [String: Any],
+           let previousExplicit = previousOptions["explicit"] as? [String: Any],
+           let accepted = previousExplicit["acceptedEditableWorkbook"] {
+            var options = encoded["options"] as? [String: Any] ?? [:]
+            var explicit = options["explicit"] as? [String: Any] ?? [:]
+            explicit["acceptedEditableWorkbook"] = accepted
+            options["explicit"] = explicit
+            encoded["options"] = options
+        }
+        return try GenotypeAnnotationPublicationPayload(annotationData: annotationData, provenanceData: JSONSerialization.data(withJSONObject: encoded, options: [.sortedKeys]))
     }
 
     private func provenanceDescriptor(

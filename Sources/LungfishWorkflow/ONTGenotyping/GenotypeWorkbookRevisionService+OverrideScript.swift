@@ -69,6 +69,25 @@ if reviewable_row_catalog_path:
     with open(reviewable_row_catalog_path) as handle:
         reviewable_row_catalog = json.load(handle)
 
+# Legacy reports predate catalog publication. Their immutable, witnessed CSV
+# snapshot supplies exact raw row identities and a complete sample roster.
+# Never infer a reference row or zero support from a workbook display label.
+if not reviewable_row_catalog and workbook_known_calls:
+    roster = [sample['sample'] for sample in workbook_samples]
+    reviewable_row_catalog = {
+        'schema_id': 'org.lungfish.genotype.reviewable-row-catalog', 'schema_version': 1,
+        'samples': roster,
+        'rows': [dict(kind='reference', call_id=call['call_id'], display_name=call['call_id'],
+            locus=call['locus'], section='reference', sort_key=call['call_id'],
+            support_by_sample=[dict(sample=sample, support=call['reads_by_sample'].get(sample, 0)) for sample in roster])
+            for call in workbook_known_calls],
+    }
+
+legacy_rows_by_label = {}
+for call in workbook_known_calls:
+    for label in call.get('workbook_labels', [call['call_id']]):
+        legacy_rows_by_label.setdefault(label, []).append(call)
+
 
 def load_json_path(key, collection):
     path = candidate_configuration.get(key)
@@ -109,17 +128,21 @@ MCM_STYLES = {
 SUMMARY_LOCI = [
     ("MHC-A", "MHC-A"),
     ("MHC-B", "MHC-B"),
+    ("MHC-DRB", "MHC-DRB"),
     ("MHC-DQ", "MHC-DQA/B"),
     ("MHC-DP", "MHC-DPA/B"),
 ]
-FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
-WRITABLE_LOCI = {"MHC-A", "MHC-B", "MHC-DQ", "MHC-DP"}
+FULL_LOCI = ["MHC-A", "MHC-B", "MHC-DR", "MHC-DRB", "MHC-DQ", "MHC-DQA", "MHC-DQB", "MHC-DP", "MHC-DPA", "MHC-DPB"]
 
 
 def clean(value):
     if value is None:
         return ""
     return str(value).strip()
+
+
+def literal_text(value):
+    return "" if value is None else str(value)
 
 
 def natural_sort_key(value):
@@ -302,18 +325,16 @@ for call in call_rows:
         "status": clean(call.get("status")),
         "notes": clean(call.get("notes")),
     }
+    exact_sample_calls = exact_calls_by_sample_locus.setdefault(sample, {})
+    if haplotype_projection_mode == "manual-genotype-only" and exact_locus in exact_sample_calls:
+        raise ValueError(f"Duplicate exact haplotype call for {sample}/{exact_locus}")
+    exact_sample_calls[exact_locus] = call_payload
     if haplotype_projection_mode == "manual-genotype-only":
         if exact_locus not in manual_haplotype_locus_set:
             raise ValueError(
                 f"Noncanonical or unsupported exact haplotype locus for {sample}: {exact_locus}"
             )
-        exact_sample_calls = exact_calls_by_sample_locus.setdefault(sample, {})
-        if exact_locus in exact_sample_calls:
-            raise ValueError(f"Duplicate exact haplotype call for {sample}/{exact_locus}")
-        exact_sample_calls[exact_locus] = call_payload
     locus = canonical_locus(exact_locus)
-    if locus not in WRITABLE_LOCI:
-        continue
     calls_by_sample_locus.setdefault(sample, {})[locus] = call_payload
 
 manual_snapshot_samples = (
@@ -335,7 +356,13 @@ matrix_reviews = sidecar.get("matrixReviews") or []
 
 
 def call_for(sample, locus):
-    return calls_by_sample_locus.get(sample, {}).get(canonical_locus(locus), {})
+    sample_calls = calls_by_sample_locus.get(sample, {})
+    canonical = canonical_locus(locus)
+    if canonical in sample_calls:
+        return sample_calls[canonical]
+    if canonical == "MHC-DRB":
+        return sample_calls.get("MHC-DR", {})
+    return {}
 
 
 def exact_call_for(sample, locus):
@@ -370,35 +397,7 @@ def call_value(sample, locus, index):
     call = call_for(sample, locus)
     key = "haplotype1" if index == 1 else "haplotype2"
     value = call.get(key, "")
-    if index == 2 and (not value or value == "-"):
-        inferred = inferred_homozygous_family(sample)
-        first = call.get("haplotype1", "")
-        if inferred and family(first) == inferred:
-            return first
     return value or "-"
-
-
-def inferred_homozygous_family(sample):
-    families = []
-    for locus in [item[0] for item in SUMMARY_LOCI]:
-        call = call_for(sample, locus)
-        if not call:
-            continue
-        first = call.get("haplotype1", "")
-        second = call.get("haplotype2", "")
-        first_family = family(first)
-        second_family = family(second)
-        if first_family:
-            families.append(first_family)
-            if not second_family:
-                continue
-        if second_family:
-            families.append(second_family)
-    unique = []
-    for item in families:
-        if item not in unique:
-            unique.append(item)
-    return unique[0] if len(unique) == 1 else None
 
 
 def whole_animal(sample, index):
@@ -648,6 +647,26 @@ def write_table_sheet(name, headers, rows):
     style_table_body(ws)
     autosize_columns(ws)
     ws.freeze_panes = "A2"
+
+
+def write_exact_haplotype_calls_sheet():
+    headers = ["Sample", "Locus", "Haplotype 1", "Haplotype 2", "Status", "Notes"]
+    rows = []
+    for sample in sorted(exact_calls_by_sample_locus, key=natural_sort_key):
+        for locus in sorted(exact_calls_by_sample_locus[sample], key=natural_sort_key):
+            call = exact_calls_by_sample_locus[sample][locus]
+            rows.append([
+                literal_text(sample), literal_text(locus),
+                literal_text(call.get("haplotype1")),
+                literal_text(call.get("haplotype2")),
+                literal_text(call.get("status")),
+                literal_text(call.get("notes")),
+            ])
+    write_table_sheet("Haplotype Calls", headers, rows)
+    ws = wb["Haplotype Calls"]
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.data_type = "s"
 
 
 def write_override_sheets(matrix_review_results):
@@ -1676,7 +1695,7 @@ def compute_matrix_row_descriptors(ws):
                 "locus": clean(ws.cell(row, locus_col).value) if locus_col else "",
                 "stable_id": clean(ws.cell(row, stable_col).value) if stable_col else "",
             })
-        return descriptors
+        return resolve_legacy_matrix_identities(descriptors)
 
     for row in range(1, ws.max_row + 1):
         genotype = clean(ws.cell(row, 1).value)
@@ -1688,6 +1707,20 @@ def compute_matrix_row_descriptors(ws):
                 "locus": "",
                 "stable_id": "",
             })
+    return resolve_legacy_matrix_identities(descriptors)
+
+
+def resolve_legacy_matrix_identities(descriptors):
+    for item in descriptors:
+        matches = legacy_rows_by_label.get(item['genotype'], [])
+        if not matches or item['stable_id']:
+            continue
+        if item['locus']:
+            matches = [call for call in matches if call['locus'] == item['locus']]
+        if len(matches) != 1:
+            raise ValueError('Ambiguous CSV identity for workbook row; workbook was not modified')
+        item['genotype'] = matches[0]['call_id']
+        item['locus'] = matches[0]['locus']
     return descriptors
 
 
@@ -3824,6 +3857,9 @@ if uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection:
         write_matrix_annotation_sheet(matrix_review_results)
         apply_matrix_annotations_to_workbook(matrix_review_results)
 
+if not preserve_existing_workbook_projection:
+    write_exact_haplotype_calls_sheet()
+
 
 def normalized_package_members(path):
     members = {}
@@ -3841,6 +3877,14 @@ def normalized_package_members(path):
     return members
 
 
+\#(GenotypeEditableWorkbookService.seedScript)
+editable_calls = call_rows
+if len(sys.argv) > 7 and sys.argv[7]:
+    with open(sys.argv[7]) as editable_calls_handle:
+        editable_calls = json.load(editable_calls_handle)
+seed_editable_tables(wb, editable_calls, sidecar, reviewable_row_catalog, haplotype_projection_mode != 'manual-genotype-only')
+if len(sys.argv) > 8 and sys.argv[8]:
+    wb['Edit Calls'].sheet_properties.codeName = 'LGE' + sys.argv[8]
 wb.save(output_path)
 if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
     canonical_wb = load_workbook(output_path)

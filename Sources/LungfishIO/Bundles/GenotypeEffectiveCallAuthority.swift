@@ -181,7 +181,7 @@ public enum GenotypeEffectiveCallAuthority {
                     authoritativeOverride: entry
                 )
             } else {
-                let effective = normalizedOverrideCall(entry.overrideCall)
+                let effective = entry.overrideCall
                 values[target] = .init(
                     baseline: baseline.baseline,
                     effective: effective,
@@ -191,6 +191,37 @@ public enum GenotypeEffectiveCallAuthority {
                     ),
                     source: .analystOverride,
                     authoritativeOverride: entry
+                )
+            }
+        }
+
+        // A called single-haplotype locus is displayed as homozygous. Make
+        // that effective value authoritative for every consumer while keeping
+        // the pipeline baseline untouched. An analyst's explicit absent H2
+        // has `.noHaplotype` status and therefore deliberately wins.
+        for sample in analysis.samples {
+            for call in sample.calls {
+                let h1Target = Target(
+                    sample: sample.sample,
+                    locus: call.locus,
+                    slot: .h1
+                )
+                let h2Target = Target(
+                    sample: sample.sample,
+                    locus: call.locus,
+                    slot: .h2
+                )
+                guard let h1 = values[h1Target],
+                      let h2 = values[h2Target],
+                      normalizedSecondHaplotype(first: h1.effective, second: h2.effective, status: h2.status) != h2.effective else {
+                    continue
+                }
+                values[h2Target] = .init(
+                    baseline: h2.baseline,
+                    effective: h1.effective,
+                    status: h2.status,
+                    source: h2.source,
+                    authoritativeOverride: h2.authoritativeOverride
                 )
             }
         }
@@ -244,7 +275,7 @@ public enum GenotypeEffectiveCallAuthority {
         return lhs.sidecarIndex < rhs.sidecarIndex
     }
 
-    private static func overrideStatus(
+    public static func overrideStatus(
         effective: String,
         baseline: GenotypeHaplotypeCallStatus
     ) -> GenotypeHaplotypeCallStatus {
@@ -266,10 +297,31 @@ public enum GenotypeEffectiveCallAuthority {
         return .called
     }
 
-    private static func normalizedOverrideCall(_ call: String) -> String {
-        call.trimmingCharacters(in: .whitespacesAndNewlines) == "-"
-            ? ""
-            : call
+    private static func permitsHomozygousDisplay(
+        _ status: GenotypeHaplotypeCallStatus
+    ) -> Bool {
+        status == .called || status == .notAssayed || status == .specialCase
+    }
+
+    /// Shared display normalization after each workflow has resolved its own
+    /// applicable assignment precedence. Explicit absence has noHaplotype status.
+    public static func normalizedSecondHaplotype(
+        first: String, second: String, status: GenotypeHaplotypeCallStatus
+    ) -> String {
+        permitsHomozygousDisplay(status) && isAbsent(second) && isValidHaplotype(first)
+            ? first : second
+    }
+
+    private static func isAbsent(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "-"
+    }
+
+    private static func isValidHaplotype(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
+            && trimmed != "-"
+            && !trimmed.hasPrefix("ERR")
     }
 
     private static func reduceLocusStatus(

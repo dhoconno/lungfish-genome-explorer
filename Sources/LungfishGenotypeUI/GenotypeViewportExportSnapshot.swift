@@ -21,11 +21,20 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let rows: [GenotypeViewportExportRow]
     let provenanceInputURLs: [URL]
     let annotationSidecarURL: URL?
+    /// Immutable bytes captured with the viewport. When present, export uses
+    /// these rather than rereading the live bundle sidecar path.
+    let annotationSidecarData: Data?
     /// Optional annotation sidecar to surface in additional worksheets.
     /// When non-nil, the export adds an Overrides sheet and an Audit Log
     /// sheet so consumers reading the workbook see what the analyst has
     /// changed without needing the bundle's annotations.json.
     let sidecar: GenotypeAnnotationSidecarSnapshot?
+    let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
+    let sourceRevision: GenotypeViewProjectionSourceRevision?
+    /// Semantic call scope, distinct from matrix axes (the haplotype
+    /// definition matrix uses allele columns rather than sample columns).
+    let haplotypeSampleScope: [String]?
+    let haplotypeLocusScope: [String]?
 
     init(
         bundleURL: URL,
@@ -36,7 +45,12 @@ struct GenotypeViewportExportSnapshot: Equatable {
         rows: [GenotypeViewportExportRow],
         provenanceInputURLs: [URL] = [],
         annotationSidecarURL: URL? = nil,
-        sidecar: GenotypeAnnotationSidecarSnapshot? = nil
+        annotationSidecarData: Data? = nil,
+        sidecar: GenotypeAnnotationSidecarSnapshot? = nil,
+        haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
+        sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
+        haplotypeSampleScope: [String]? = nil,
+        haplotypeLocusScope: [String]? = nil
     ) {
         self.bundleURL = bundleURL
         self.analysisName = analysisName
@@ -46,7 +60,67 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.rows = rows
         self.provenanceInputURLs = provenanceInputURLs
         self.annotationSidecarURL = annotationSidecarURL
+        self.annotationSidecarData = annotationSidecarData
         self.sidecar = sidecar
+        self.haplotypeCalls = haplotypeCalls
+        self.sourceRevision = sourceRevision
+        self.haplotypeSampleScope = haplotypeSampleScope
+        self.haplotypeLocusScope = haplotypeLocusScope
+    }
+}
+
+/// User-visible description of the immutable snapshot captured before the
+/// Excel role dialog is presented.
+struct GenotypeExcelCapturedScope: Equatable {
+    let summary: String
+    let capability: String
+
+    init(snapshot: GenotypeViewportExportSnapshot, callEditingSupported: Bool) {
+        let filters = snapshot.filters
+        let samples = snapshot.haplotypeSampleScope ?? snapshot.sampleNames
+        let loci = snapshot.haplotypeLocusScope
+            ?? Array(Set(snapshot.rows.map(\.locus))).sorted()
+        func boundedList(_ values: [String]) -> String {
+            let shown = values.prefix(8).joined(separator: ", ")
+            let remainder = values.count - min(values.count, 8)
+            return remainder == 0 ? shown : "\(shown), +\(remainder) more"
+        }
+        func searchDescription(_ key: String) -> String {
+            let text = filters[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? "None" : text
+        }
+        let hidesLowSupport = filters["hideLowSupport"] == "true"
+        let visibility = hidesLowSupport ? "hidden" : "shown"
+        let rowSupportPercent = filters["minimumSupportPercent"] ?? "0"
+        let rowSupportState: String
+        if (Double(rowSupportPercent) ?? 0) <= 0 {
+            rowSupportState = "off"
+        } else if hidesLowSupport {
+            rowSupportState = "active"
+        } else {
+            rowSupportState = "configured, inactive while low-support rows are shown"
+        }
+        summary = [
+            "Captured scope (will not change while this dialog is open):",
+            "Samples (\(samples.count)): \(boundedList(samples))",
+            "Loci (\(loci.count)): \(boundedList(loci))",
+            "Min reads: \(filters["matrixMinimumReads"] ?? "0")",
+            "Matrix min percent: \(filters["matrixMinimumPercent"] ?? "0")",
+            "Matrix percent basis: \(filters["matrixPercentDenominator"] ?? "Not applicable")",
+            "Row-support min percent: \(rowSupportPercent) (\(rowSupportState))",
+            "Row-support percent basis: \(filters["supportDenominator"] ?? "Not applicable")",
+            "General search: \(searchDescription("searchText"))",
+            "Matrix row search: \(searchDescription("matrixRowFilterText"))",
+            "Matrix sample search: \(searchDescription("matrixSampleFilterText"))",
+            "Alleles: \(filters["diagnosticAllelesOnly"] == "true" ? "diagnostic only" : "all observed")",
+            "Highlights in filtered cells: \(filters["hideFilteredHighlights"] == "true" ? "hidden" : "shown")",
+            "Low-support rows: \(visibility)",
+            "Locus filter: \(filters["locus"] ?? "All Loci")",
+        ].joined(separator: "\n")
+
+        capability = !callEditingSupported
+            ? "H1/H2 calls are read-only for this legacy workbook; matrix reviews and comments remain supported."
+            : "H1/H2 call edits are supported where a raw baseline is available; matrix reviews and comments remain supported."
     }
 }
 

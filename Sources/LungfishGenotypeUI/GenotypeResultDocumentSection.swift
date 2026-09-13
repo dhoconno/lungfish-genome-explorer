@@ -19,11 +19,18 @@ public struct GenotypeResultCurrentWorkbookUpdateState: Equatable {
     public var manualChangeCount: Int
     public var statusText: String
     public var isEnabled: Bool
+    public var requiresReview: Bool
 
-    public init(manualChangeCount: Int, statusText: String, isEnabled: Bool) {
+    public init(
+        manualChangeCount: Int,
+        statusText: String,
+        isEnabled: Bool,
+        requiresReview: Bool = false
+    ) {
         self.manualChangeCount = manualChangeCount
         self.statusText = statusText
         self.isEnabled = isEnabled
+        self.requiresReview = requiresReview
     }
 }
 
@@ -33,6 +40,7 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
     case updating
     case dirtyWhileUpdating
     case failed(String)
+    case reviewRequired
 
     public func presentation(
         isReadOnly: Bool,
@@ -56,11 +64,15 @@ public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
         case .failed(let message):
             statusText = "Failed — \(message)"
             isEnabled = !isReadOnly
+        case .reviewRequired:
+            statusText = "Review required — current.xlsx contains external edits."
+            isEnabled = !isReadOnly
         }
         return GenotypeResultCurrentWorkbookUpdateState(
             manualChangeCount: manualChangeCount,
             statusText: statusText,
-            isEnabled: isEnabled
+            isEnabled: isEnabled,
+            requiresReview: self == .reviewRequired
         )
     }
 }
@@ -150,6 +162,8 @@ public struct GenotypeCurrentWorkbookUIRequest: Sendable {
         case register
         case markDirty
         case synchronize(GenotypeCurrentWorkbookSyncIntent)
+        case openEditable
+        case acceptedEditable
     }
 
     public let snapshot: GenotypeCurrentWorkbookUISnapshot
@@ -188,6 +202,9 @@ public struct GenotypeResultDocumentState: Equatable {
     public var haplotypeDefinitionRows: [(String, String)] = []
     public var haplotypeDefinitionsFolderURL: URL?
     public var currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
+    public var latestFilteredExport: GenotypeFilteredExportPresentation?
+    public var filteredExportStatus: String?
+    public var isFilteredExporting: Bool
 
     public init(
         title: String,
@@ -209,7 +226,10 @@ public struct GenotypeResultDocumentState: Equatable {
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
         haplotypeDefinitionsFolderURL: URL? = nil,
-        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil
+        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil,
+        latestFilteredExport: GenotypeFilteredExportPresentation? = nil,
+        filteredExportStatus: String? = nil,
+        isFilteredExporting: Bool = false
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -231,6 +251,9 @@ public struct GenotypeResultDocumentState: Equatable {
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
         self.haplotypeDefinitionsFolderURL = haplotypeDefinitionsFolderURL
         self.currentWorkbookUpdate = currentWorkbookUpdate
+        self.latestFilteredExport = latestFilteredExport
+        self.filteredExportStatus = filteredExportStatus
+        self.isFilteredExporting = isFilteredExporting
     }
 
     public func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
@@ -271,6 +294,18 @@ public struct GenotypeResultDocumentState: Equatable {
         return copy
     }
 
+    public func replacing(
+        latestFilteredExport: GenotypeFilteredExportPresentation?,
+        filteredExportStatus: String?,
+        isFilteredExporting: Bool
+    ) -> GenotypeResultDocumentState {
+        var copy = self
+        copy.latestFilteredExport = latestFilteredExport
+        copy.filteredExportStatus = filteredExportStatus
+        copy.isFilteredExporting = isFilteredExporting
+        return copy
+    }
+
     public static func == (
         lhs: GenotypeResultDocumentState,
         rhs: GenotypeResultDocumentState
@@ -295,7 +330,10 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL &&
-            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate
+            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate &&
+            lhs.latestFilteredExport == rhs.latestFilteredExport &&
+            lhs.filteredExportStatus == rhs.filteredExportStatus &&
+            lhs.isFilteredExporting == rhs.isFilteredExporting
     }
 }
 
@@ -326,6 +364,7 @@ public struct GenotypeResultDocumentSection: View {
     var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortAddRequested: (() -> Void)? = nil
     var onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
+    var onCurrentWorkbookReviewRequested: (() -> Void)? = nil
 
     @State private var isSummaryExpanded = true
     @State private var isQCExpanded = true
@@ -344,7 +383,8 @@ public struct GenotypeResultDocumentSection: View {
         onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil,
         onSmartCohortAddRequested: (() -> Void)? = nil,
-        onCurrentWorkbookUpdateRequested: (() -> Void)? = nil
+        onCurrentWorkbookUpdateRequested: (() -> Void)? = nil,
+        onCurrentWorkbookReviewRequested: (() -> Void)? = nil
     ) {
         self.state = state
         self.onViewModeChange = onViewModeChange
@@ -354,6 +394,7 @@ public struct GenotypeResultDocumentSection: View {
         self.onSmartCohortDeleted = onSmartCohortDeleted
         self.onSmartCohortAddRequested = onSmartCohortAddRequested
         self.onCurrentWorkbookUpdateRequested = onCurrentWorkbookUpdateRequested
+        self.onCurrentWorkbookReviewRequested = onCurrentWorkbookReviewRequested
     }
 
     public var body: some View {
@@ -426,7 +467,7 @@ public struct GenotypeResultDocumentSection: View {
     private var includedLociSection: some View {
         DisclosureGroup("Included Loci", isExpanded: $isIncludedLociExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Included loci appear in Outline. Workbook-supported loci are written to current.xlsx when you update the workbook.")
+                Text("Included loci appear in Outline. Excel exports preserve the exact captured locus scope and effective calls.")
                     .font(contentBodyFont)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -581,23 +622,75 @@ public struct GenotypeResultDocumentSection: View {
     }
 
     private var currentWorkbookSection: some View {
-        DisclosureGroup("Current Workbook", isExpanded: $isCurrentWorkbookExpanded) {
+        DisclosureGroup("Excel", isExpanded: $isCurrentWorkbookExpanded) {
             VStack(alignment: .leading, spacing: 8) {
                 if let update = state.currentWorkbookUpdate {
                     Text(update.statusText)
                         .font(contentBodyFont)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Update and View Current Excel Version") {
+                    Button("Export to Excel…") {
                         onCurrentWorkbookUpdateRequested?()
                     }
                     .controlSize(.regular)
-                    .disabled(!update.isEnabled)
-                    .help("Open current.xlsx immediately when current; otherwise update it once and open the successful revision.")
-                    Text("Writes displayed haplotype calls, matrix annotations, Overrides, and Audit Log worksheets.")
+                    .help("Choose a filtered copy or the editable current.xlsx workbook.")
+                    .accessibilityIdentifier("genotype-inspector-export-to-excel")
+                    if update.requiresReview {
+                        Button("Review Excel Changes…") {
+                            onCurrentWorkbookReviewRequested?()
+                        }
+                        .controlSize(.regular)
+                        .disabled(!update.isEnabled)
+                        .help(update.isEnabled
+                            ? "Review supported Excel changes before importing them."
+                            : GenotypeExcelExportRole.unavailableEditingExplanation)
+                        .accessibilityHint(Text(update.isEnabled
+                            ? "Review supported Excel changes before importing them."
+                            : GenotypeExcelExportRole.unavailableEditingExplanation))
+                        .accessibilityIdentifier("genotype-inspector-review-excel-changes")
+                        if !update.isEnabled {
+                            Text(GenotypeExcelExportRole.unavailableEditingExplanation)
+                                .font(contentBodyFont)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Text("Choose a filtered view for sharing, or current.xlsx for supported review and import workflows.")
                         .font(contentBodyFont)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let latest = state.latestFilteredExport {
+                        let isAvailable = latest.isAvailable
+                            && FileManager.default.fileExists(atPath: latest.url.path)
+                        let unavailableReason = isAvailable ? nil
+                            : "The last filtered export is no longer available at its saved location."
+                        Button("Last filtered export: \(latest.url.lastPathComponent)") {
+                            NSWorkspace.shared.activateFileViewerSelecting([latest.url])
+                        }
+                        .buttonStyle(.link)
+                        .disabled(!isAvailable)
+                        .help(isAvailable
+                            ? "Reveal the last successful filtered export in Finder."
+                            : (unavailableReason ?? "The last filtered export is unavailable."))
+                        .accessibilityIdentifier("genotype-inspector-last-filtered-export")
+                        if let reason = unavailableReason {
+                            Text(reason)
+                                .font(contentBodyFont)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if state.isFilteredExporting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Exporting filtered workbook")
+                    }
+                    if let status = state.filteredExportStatus {
+                        Text(status)
+                            .font(contentBodyFont)
+                            .foregroundStyle(status.contains("failed") ? .red : .secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .padding(.top, 4)

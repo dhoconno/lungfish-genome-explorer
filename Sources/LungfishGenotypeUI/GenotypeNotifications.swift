@@ -30,6 +30,7 @@ public extension Notification.Name {
     /// Posted when the analyst requests applying Review viewport haplotype edits
     /// and the audit timeline to the bundle's `artifacts/workbooks/current.xlsx`.
     static let genotypeResultCurrentWorkbookUpdateRequested = Notification.Name("com.lungfish.genotypeResultCurrentWorkbookUpdateRequested")
+    static let genotypeResultCurrentWorkbookReviewRequested = Notification.Name("com.lungfish.genotypeResultCurrentWorkbookReviewRequested")
 
     /// Posted when the analyst clicks "Edit calls…" in the Selected Item
     /// Inspector tab for a `.lungfishgenotype` bundle. The viewport reopens
