@@ -21,8 +21,6 @@ struct Primer3TemplateReviewCard: View {
         templateAxis
         productRow(interval)
         ForEach(target.primers) { primer in primerRow(primer) }
-        Text("Select a product or binding site for details. Control-click for copy and extraction actions.")
-          .font(.caption).foregroundStyle(.secondary)
         if selection.wrappedValue?.targetID == target.id {
           PrimerAmpliconDetailView(target: target, selection: selection)
         }

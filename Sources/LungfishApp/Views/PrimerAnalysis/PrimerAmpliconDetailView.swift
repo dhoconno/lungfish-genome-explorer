@@ -125,6 +125,7 @@ struct PrimerAmpliconDetailView: View {
       }.buttonStyle(.plain)
       Text("Binding site \(primer.start + 1)–\(primer.end) (\(primer.strand)) · \(primer.sequence.count) nt oligo")
         .font(.caption).foregroundStyle(.secondary)
+      compatibility(primer)
       if !primer.sequence.isEmpty {
         Text("5′ \(primer.sequence) 3′").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
       }
@@ -133,5 +134,19 @@ struct PrimerAmpliconDetailView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(selected ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
     .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
+  }
+
+  @ViewBuilder private func compatibility(_ primer: PrimerReviewPrimer) -> some View {
+    if let summary = visibility.summaries[primer.id] {
+      Text(summary.label).help(summary.help)
+        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+    } else if visibility.isComputingCompatibility {
+      Text("Calculating MSA matches…")
+        .font(.caption).foregroundStyle(.secondary)
+    } else {
+      Text("MSA matches: unavailable")
+        .font(.caption).foregroundStyle(.secondary)
+        .help("This saved primer has no assessable MSA comparison.")
+    }
   }
 }
