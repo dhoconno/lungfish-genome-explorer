@@ -15,6 +15,79 @@ import LungfishTestSupport
 final class GenotypeUnifiedExcelAcceptanceTests: XCTestCase {
     private let timestamp = "2026-09-12T00:00:00Z"
 
+    func testNativeFilteredViewportMatchesWorkbookUnderCombinedVisibilityControls() async throws {
+        let root = retainedDirectory("native-filtered")
+        let output = root.appendingPathComponent("native-filtered-three-sheet.xlsx")
+        let samples = ["Visible-A", "Visible-B", "Hidden-C", "Visible-ManualHidden"]
+        let calls = [
+            GenotypeTestFixtures.makeCall(sample: samples[0], genotype: "Mafa-A*001", reads: 9),
+            GenotypeTestFixtures.makeCall(sample: samples[0], genotype: "Mafa-A*002", reads: 4),
+            GenotypeTestFixtures.makeCall(sample: samples[0], genotype: "Mafa-A*003", reads: 8),
+            GenotypeTestFixtures.makeCall(sample: samples[1], genotype: "Mafa-A*003", reads: 0),
+            GenotypeTestFixtures.makeCall(sample: samples[2], genotype: "Mafa-A*004", reads: 12),
+            GenotypeTestFixtures.makeCall(sample: samples[3], genotype: "Mafa-A*007", reads: 10),
+            GenotypeTestFixtures.makeCall(sample: samples[0], genotype: "Mafa-A*005", reads: 0),
+        ]
+        let catalog = try GenotypeReviewableRowCatalog(samples: [], rows: [
+            .init(kind: .reference, callID: "Mafa-A*006", displayName: "Mafa-A*006", locus: "MHC-A",
+                  stableID: nil, section: "reference", sortKey: "006", supportBySample: [:]),
+        ]).validated()
+        let result = GenotypeTestFixtures.makeResult(
+            bundleURL: root,
+            calls: calls,
+            reviewableRowCatalog: catalog
+        )
+        let positive = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: "Mafa-A*001", sample: samples[0])
+        let zero = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: "MHC-A", genotype: "Mafa-A*003", sample: samples[1])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: timestamp)
+        sidecar.matrixReviews = [
+            .init(target: positive, disposition: .falsePositive, author: "QA", timestamp: timestamp),
+            .init(target: zero, disposition: .falseNegative, author: "QA", timestamp: timestamp),
+        ]
+        sidecar.matrixComments = [
+            .init(target: positive, body: "native FP note", author: "QA", timestamp: timestamp),
+            .init(target: zero, body: "native FN note", author: "QA", timestamp: timestamp),
+        ]
+        sidecar.matrixStyles = [
+            .init(target: positive,
+                  style: .init(fillColor: "#1A2B3C", isBold: true),
+                  author: "QA", timestamp: timestamp),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: root)
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        controller.testingApplyDisplayState(.init(
+            summaryViewMode: .matrix,
+            matrixMinimumReads: 5,
+            matrixSampleFilterText: "Visible"
+        ))
+        controller.testingComparisonMatrix.testingHideSamples(Set([samples[3]]))
+        let witness = try GenotypeFilteredViewportAcceptanceOracle.capture(
+            matrix: controller.testingComparisonMatrix,
+            sidecar: sidecar,
+            minimumReads: 5
+        )
+        XCTAssertEqual(witness.samples.map(\.id), Array(samples.prefix(2)))
+        XCTAssertEqual(witness.rows.map(\.genotype), ["Mafa-A*001", "Mafa-A*003"])
+        let witnessURL = root.appendingPathComponent("native-filtered-witness.json")
+        try GenotypeFilteredViewportAcceptanceOracle.write(witness, to: witnessURL)
+
+        let snapshot = try JSONDecoder().decode(
+            GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData)
+        )
+        let exported = try await export(snapshot, to: output, replay: cliURL())
+        try verifyNativeFilteredArtifact(
+            exported.outputURL,
+            snapshotURL: exported.snapshotURL,
+            witnessURL: witnessURL
+        )
+    }
+
     func testMiSeqAllAndCombinedFilteredViewMatchIndependentEvidenceAndCalls() async throws {
         let root = retainedDirectory("miseq")
         let output = root.appendingPathComponent("miseq-four-sheet.xlsx")
@@ -254,11 +327,50 @@ assert mixed['cells'][1]['displayValue']==0 and mixed['cells'][1]['rawSupport']=
 assert mixed['cells'][1]['review']=='false-negative' and mixed['cells'][1]['comment']=='attested zero FN note'
 positive=next(r for r in snapshot['filteredMatrix']['rows'] if r['target']['genotype']=='Mafa-A*001')['cells'][0]
 assert positive['review']=='false-positive' and positive['comment']=='positive FP note'
+filtered=w['Genotype Matrix - Filtered']
+assert (filtered.max_row,filtered.max_column)==(6,5)
+assert [filtered.cell(4,column).value for column in range(4,6)]==['Visible-A','Visible-B']
+assert [[filtered.cell(row,column).value for column in range(1,4)] for row in [5,6]]==[
+ [_filtered_stable_id({'locus':'MHC-A','genotype':'Mafa-A*001'}),'MHC-A','Mafa-A*001'],
+ [_filtered_stable_id({'locus':'MHC-A','genotype':'Mafa-A*003'}),'MHC-A','Mafa-A*003']]
+fp=filtered.cell(5,4); fn=filtered.cell(6,5)
+assert fp.value==9 and type(fp.value) is int and fp.number_format=='"["0"]"'
+assert fp.font.italic and fp.font.color.rgb[-6:]=='767676'
+assert fp.comment.text=='Evidence: display=9, raw support=9\nCurrent comment: "positive FP note"\nCurrent review: "false-positive"'
+assert fn.value==0 and type(fn.value) is int and fn.number_format=='0;-0;"FN"'
+assert fn.font.bold and fn.fill.fgColor.rgb[-6:]=='FFF2CC'
+assert all(side.style=='mediumDashed' and side.color.rgb[-6:]=='C65911'
+           for side in [fn.border.left,fn.border.right,fn.border.top,fn.border.bottom])
+assert fn.comment.text=='Evidence: display=0, raw support=0\nCurrent comment: "attested zero FN note"\nCurrent review: "false-negative"'
 assert not any(c.data_type=='f' for s in w for row in s for c in row)
 for matrix in ['Genotype Matrix - All','Genotype Matrix - Filtered']:
     sheet=w[matrix]
     assert sheet.cell(2,4).value=='M1A' and sheet.cell(3,4).value=='M1A'
 """#, [workbook.path, snapshotURL.path])
+    }
+
+    private func verifyNativeFilteredArtifact(
+        _ workbook: URL,
+        snapshotURL: URL,
+        witnessURL: URL
+    ) throws {
+        try runPython(GenotypeFullCurrentEvidenceOracle.pythonScript + "\n" + #"""
+import json,sys
+from openpyxl import load_workbook
+snapshot=json.load(open(sys.argv[2])); native=json.load(open(sys.argv[3]))
+oracle={'samples':['Visible-A','Visible-B','Hidden-C','Visible-ManualHidden'],'rows':[
+ {'locus':'MHC-A','genotype':'Mafa-A*001','support':{'Visible-A':9}},
+ {'locus':'MHC-A','genotype':'Mafa-A*002','support':{'Visible-A':4}},
+ {'locus':'MHC-A','genotype':'Mafa-A*003','support':{'Visible-A':8,'Visible-B':0}},
+ {'locus':'MHC-A','genotype':'Mafa-A*004','support':{'Hidden-C':12}},
+ {'locus':'MHC-A','genotype':'Mafa-A*005','support':{'Visible-A':0}},
+ {'locus':'MHC-A','genotype':'Mafa-A*006','support':{}},
+ {'locus':'MHC-A','genotype':'Mafa-A*007','support':{'Visible-ManualHidden':10}}]}
+summary=verify_filtered_current_view(oracle,native,snapshot,load_workbook(sys.argv[1],data_only=False))
+assert summary=={'rows':2,'samples':2,'cells':4},summary
+assert native['rows'][0]['cells'][0]['displayText']=='[9]'
+assert native['rows'][1]['cells'][1]['displayText']=='—'
+"""#, [workbook.path, snapshotURL.path, witnessURL.path])
     }
 
     private func verifyReceipt(_ receipt: URL, output: URL, expectedMinimumReads: String?) throws {

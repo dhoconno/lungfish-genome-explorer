@@ -89,10 +89,17 @@ enum GenotypeThreeSheetCohortAcceptance {
             let nativeWitness = try captureNativeWitness(controller, samples: rawSamples, loci: callLoci)
             let nativeWitnessURL = root.appendingPathComponent("\(phase)-native-witness.json")
             try canonicalJSON(nativeWitness).write(to: nativeWitnessURL)
-            let snapshot = try capture(controller)
             let phaseSidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
                 forBundleAt: bundle
             )
+            let filteredWitness = try GenotypeFilteredViewportAcceptanceOracle.capture(
+                matrix: controller.testingComparisonMatrix,
+                sidecar: phaseSidecar,
+                minimumReads: 5
+            )
+            let filteredWitnessURL = root.appendingPathComponent("\(phase)-filtered-native-witness.json")
+            try GenotypeFilteredViewportAcceptanceOracle.write(filteredWitness, to: filteredWitnessURL)
+            let snapshot = try capture(controller)
             let phaseReviews = phaseSidecar.matrixReviews.filter { $0.target == target }
             let phaseComments = phaseSidecar.matrixComments.filter { $0.target == target }
             let targetRow = try XCTUnwrap(snapshot.allMatrix.rows.first {
@@ -128,6 +135,8 @@ oracle=json.load(open(sys.argv[1])); snapshot=json.load(open(sys.argv[2]))
 w=load_workbook(sys.argv[3],data_only=False)
 summary=verify_full_current_evidence(oracle,snapshot,w)
 assert summary=={'rows':169,'samples':26,'evidenceCells':4394,'knownCells':1909,'unknownCells':2485},summary
+filtered_summary=verify_filtered_current_view(oracle,json.load(open(sys.argv[5])),snapshot,w)
+assert filtered_summary=={'rows':160,'samples':26,'cells':4160},filtered_summary
 assert w.sheetnames==(['Haplotype Calls'] if snapshot['hasHaplotypeContent'] else [])+['Genotype Matrix - All','Genotype Matrix - Filtered','Export Metadata']
 def identity(row): return (row['locus'],row['genotype'],row.get('stableClusterID'))
 source={identity(row):row for row in oracle['rows']}
@@ -208,7 +217,7 @@ assert {k:v.lower() for k,v in raw_reviews.items()}.items() <= snapshot_reviews.
 
 # Confirm the native set/clear edit is visible in the actual workbook cell,
 # not merely present in an in-memory snapshot or final sidecar.
-phase,target_locus,target_genotype,target_sample=sys.argv[5:9]
+phase,target_locus,target_genotype,target_sample=sys.argv[6:10]
 all_matrix=snapshot['allMatrix']; sheet=w['Genotype Matrix - All']
 header=2+2*len(all_matrix['loci'])
 row_index=next(index for index,row in enumerate(all_matrix['rows'],header+1)
@@ -229,9 +238,9 @@ for name in ['output','snapshot','script','request','replayScript']:
     d=receipt[name]; data=open(d['path'],'rb').read()
     assert len(data)==d['sizeBytes'] and hashlib.sha256(data).hexdigest()==d['sha256']
 assert receipt['executedArgv'] and receipt['durableReplayArgv'] and receipt['exitStatus']==0
-print({'rawEvidence':summary,'filteredRows':len(actual_filtered),'calls':len(actual_calls),'sourceReviews':len(raw_reviews)})
+print({'rawEvidence':summary,'nativeFiltered':filtered_summary,'filteredRows':len(actual_filtered),'calls':len(actual_calls),'sourceReviews':len(raw_reviews)})
 """#, arguments: [oracleURL.path, exported.snapshotURL.path, exported.outputURL.path,
-                    nativeWitnessURL.path, phase, targetCall.locusGroup,
+                    nativeWitnessURL.path, filteredWitnessURL.path, phase, targetCall.locusGroup,
                     targetCall.genotype, targetCall.sample]))
             } catch {
                 let nsError = error as NSError
@@ -242,9 +251,16 @@ print({'rawEvidence':summary,'filteredRows':len(actual_filtered),'calls':len(act
             let reopened = GenotypeResultViewController(); _ = reopened.view
             reopened.configure(result: try ONTGenotypeResultBundle.loadResult(from: bundle))
             reopened.testingApplyDisplayState(.init(summaryViewMode: .matrix, matrixMinimumReads: 5))
+            let reopenedFilteredWitness = try GenotypeFilteredViewportAcceptanceOracle.capture(
+                matrix: reopened.testingComparisonMatrix,
+                sidecar: try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundle),
+                minimumReads: 5
+            )
             let recaptured = try capture(reopened)
+            XCTAssertEqual(try canonicalJSON(reopenedFilteredWitness), try canonicalJSON(filteredWitness))
             XCTAssertEqual(try canonicalJSON(recaptured.calls), try canonicalJSON(snapshot.calls))
             XCTAssertEqual(try canonicalJSON(recaptured.allMatrix), try canonicalJSON(snapshot.allMatrix))
+            XCTAssertEqual(try canonicalJSON(recaptured.filteredMatrix), try canonicalJSON(snapshot.filteredMatrix))
             XCTAssertEqual(try ONTGenotypeResultBundle.loadResult(from: bundle).calls, rawCalls)
             print("Task6 cohort completed phase \(phase)")
         }

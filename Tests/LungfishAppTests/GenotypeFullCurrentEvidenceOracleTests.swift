@@ -65,6 +65,7 @@ enum GenotypeFullCurrentEvidenceOracle {
     }
 
     static let pythonScript = #"""
+import hashlib,json
 def verify_full_current_evidence(oracle, snapshot, workbook):
     payload=snapshot['allMatrix']
     def identity(row): return (row['locus'],row['genotype'],row.get('stableClusterID'))
@@ -141,6 +142,132 @@ def verify_full_current_evidence(oracle, snapshot, workbook):
                         if (locus,value) in expected_fill:
                             assert fill(cell)==expected_fill[(locus,value)], ('XLSX band color',matrix_name,sample['id'],locus,slot)
     return dict(rows=len(rows),samples=len(samples),evidenceCells=len(expected),knownCells=sum(v is not None for v in expected.values()),unknownCells=sum(v is None for v in expected.values()))
+
+def _filtered_identity(row):
+    return (row['locus'],row['genotype'],row.get('stableClusterID'))
+
+def _filtered_stable_id(row):
+    raw=json.dumps([row['locus'],row['genotype'],row.get('stableClusterID') or ''],
+                   ensure_ascii=False,separators=(',',':')).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
+
+def verify_filtered_current_view(oracle, native, snapshot, workbook):
+    """Compare Filtered XLSX to pre-export native viewport and raw evidence."""
+    raw_rows={_filtered_identity(row):row for row in oracle['rows']}
+    assert len(raw_rows)==len(oracle['rows']), 'raw Filtered row identities are not unique'
+    native_samples=native['samples']
+    sample_ids=[sample['id'] for sample in native_samples]
+    assert len(set(sample_ids))==len(sample_ids), 'native Filtered sample identities are not unique'
+    assert all(sample['id']==sample['name'] for sample in native_samples), 'native sample display/identity mismatch'
+    assert set(sample_ids)<=set(oracle['samples']), 'native Filtered samples outside raw authority'
+    minimum=native['minimumReads']
+    independently_eligible={
+        key for key,row in raw_rows.items()
+        if any((row['support'].get(sample) is not None
+                and row['support'][sample]>=minimum
+                and row['support'][sample]>0) for sample in sample_ids)
+    }
+    native_rows=native['rows']
+    native_keys=[_filtered_identity(row) for row in native_rows]
+    assert len(set(native_keys))==len(native_keys), 'native Filtered row identities are not unique'
+    assert set(native_keys)==independently_eligible, (
+        'native Filtered eligibility differs from raw evidence', independently_eligible, set(native_keys))
+
+    native_by_key=dict(zip(native_keys,native_rows))
+    def same_native_color(actual,want):
+        if actual is None or want is None: return actual is want
+        a=actual.lstrip('#'); w=want.lstrip('#')
+        return len(a)==len(w)==6 and all(abs(int(a[i:i+2],16)-int(w[i:i+2],16))<=1 for i in [0,2,4])
+    for key,row in native_by_key.items():
+        cells=row['cells']
+        assert [cell['sampleID'] for cell in cells]==sample_ids, ('native Filtered cell order',key)
+        for cell in cells:
+            raw=raw_rows[key]['support'].get(cell['sampleID'])
+            expected=raw if raw is not None and raw>=minimum else None
+            assert cell.get('displayValue')==expected, (
+                'native Filtered mask differs from raw evidence',key,cell['sampleID'],raw,expected,cell.get('displayValue'))
+            review=cell.get('review')
+            assert review in [None,'false-positive','false-negative'], ('native Filtered review',key,cell)
+            if review=='false-positive': assert raw is not None and raw>0
+            if review=='false-negative': assert raw==0
+
+    matrix=snapshot['filteredMatrix']
+    assert [(sample['id'],sample['name']) for sample in matrix['samples']]==[
+        (sample['id'],sample['name']) for sample in native_samples], 'snapshot Filtered sample order'
+    assert [_filtered_identity(row['target']) for row in matrix['rows']]==native_keys, 'snapshot Filtered row order'
+    for captured,native_row in zip(matrix['rows'],native_rows):
+        key=_filtered_identity(native_row)
+        assert captured['id']==_filtered_stable_id(native_row), ('snapshot Filtered stable ID',key,captured['id'])
+        assert captured['displayName']==native_row['displayName'], ('snapshot Filtered display value',key)
+        assert [cell['sampleID'] for cell in captured['cells']]==sample_ids, ('snapshot Filtered cell order',key)
+        for cell,native_cell in zip(captured['cells'],native_row['cells']):
+            raw=raw_rows[key]['support'].get(cell['sampleID'])
+            for field,want in [('rawSupport',raw),('displayValue',native_cell.get('displayValue')),
+                               ('review',native_cell.get('review')),('comment',native_cell.get('comment'))]:
+                assert cell.get(field)==want, ('snapshot Filtered '+field,key,cell['sampleID'],want,cell.get(field))
+            style=cell.get('style') or {}
+            native_style=native_cell['style']
+            for field in ['fillHex']:
+                assert same_native_color(style.get(field),native_style.get(field)), (
+                    'snapshot Filtered style '+field,key,cell['sampleID'],native_style.get(field),style.get(field))
+            for field in ['isBold','isItalic']:
+                assert bool(style.get(field))==bool(native_style.get(field)), ('snapshot Filtered style '+field,key,cell['sampleID'])
+
+    sheet=workbook['Genotype Matrix - Filtered']
+    header=2+2*len(matrix['loci']) if snapshot['hasHaplotypeContent'] and matrix['loci'] else 1
+    assert (sheet.max_row,sheet.max_column)==(header+len(native_rows),3+len(native_samples)), (
+        'XLSX Filtered dimensions',(sheet.max_row,sheet.max_column),(header+len(native_rows),3+len(native_samples)))
+    assert [sheet.cell(header,column).value for column in range(4,4+len(native_samples))]==[
+        sample['name'] for sample in native_samples], 'XLSX Filtered sample order'
+
+    def rgb(value):
+        return value[-6:].upper() if isinstance(value,str) else None
+    def fill(cell):
+        return rgb(cell.fill.fgColor.rgb) if cell.fill.patternType=='solid' else None
+    def border(cell):
+        return [(side.style if side else None,rgb(side.color.rgb) if side and side.color and side.color.type=='rgb' else None)
+                for side in [cell.border.left,cell.border.right,cell.border.top,cell.border.bottom]]
+    def expected_comment(display,raw,comment,review):
+        value='Evidence: display='+json.dumps(display)+', raw support='+json.dumps(raw)
+        if comment is not None: value+='\nCurrent comment: '+json.dumps(comment,ensure_ascii=False)
+        if review is not None: value+='\nCurrent review: '+json.dumps(review,ensure_ascii=False)
+        return value
+
+    for row_number,native_row in enumerate(native_rows,header+1):
+        key=_filtered_identity(native_row)
+        assert [sheet.cell(row_number,column).value for column in [1,2,3]]==[
+            _filtered_stable_id(native_row),native_row['locus'],native_row['displayName']], (
+                'XLSX Filtered row identity/order',row_number,key)
+        for column,native_cell in enumerate(native_row['cells'],4):
+            raw=raw_rows[key]['support'].get(native_cell['sampleID'])
+            display=native_cell.get('displayValue')
+            review=native_cell.get('review')
+            cell=sheet.cell(row_number,column)
+            assert cell.value==display and (display is None or type(cell.value) is int), (
+                'XLSX Filtered literal evidence',key,native_cell['sampleID'],display,cell.value,type(cell.value).__name__)
+            assert cell.data_type!='f', ('XLSX Filtered formula',key,native_cell['sampleID'])
+            annotation=cell.comment.text if cell.comment else None
+            assert annotation==expected_comment(display,raw,native_cell.get('comment'),review), (
+                'XLSX Filtered annotation',key,native_cell['sampleID'],annotation)
+            style=native_cell['style']
+            wanted_fill=rgb(style.get('fillHex'))
+            if review=='false-negative' and wanted_fill is None: wanted_fill='FFF2CC'
+            assert same_native_color(fill(cell),wanted_fill), (
+                'XLSX Filtered fill',key,native_cell['sampleID'],wanted_fill,fill(cell))
+            if review=='false-negative':
+                assert border(cell)==[('mediumDashed','C65911')]*4, ('XLSX Filtered FN border',key,native_cell['sampleID'])
+            assert bool(cell.font.bold)==(bool(style.get('isBold')) or review=='false-negative'), (
+                'XLSX Filtered bold',key,native_cell['sampleID'])
+            assert bool(cell.font.italic)==(bool(style.get('isItalic')) or review=='false-positive'), (
+                'XLSX Filtered italic',key,native_cell['sampleID'])
+            if review=='false-positive':
+                assert cell.number_format=='"["0"]"' and rgb(cell.font.color.rgb)=='767676', (
+                    'XLSX Filtered FP style',key,native_cell['sampleID'])
+            elif review=='false-negative':
+                assert cell.number_format=='0;-0;"FN"', ('XLSX Filtered FN format',key,native_cell['sampleID'])
+            else:
+                assert cell.number_format=='General', ('XLSX Filtered unexpected number format',key,native_cell['sampleID'])
+    return dict(rows=len(native_rows),samples=len(native_samples),cells=len(native_rows)*len(native_samples))
 """#
 }
 
@@ -163,13 +290,13 @@ final class GenotypeFullCurrentEvidenceOracleTests: XCTestCase {
     }
 
     private static let mutations = #"""
-import copy, json, os, sys
+import copy as copy_module, json, os, sys
 from openpyxl import load_workbook
 # Literal raw authority: explicit zero, sparse unknowns, colliding candidate
 # display names with distinct stable IDs, and an extra call-only sample.
 oracle={'samples':['S1','S2','CallOnly'], 'rows':[
     {'locus':'MHC-A','genotype':'Reference','support':{'S1':0}},
-    {'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-a','support':{'S1':7}},
+    {'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-a','support':{'S1':7,'S2':0}},
     {'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-b','support':{'S2':9}}],
     'calls':[{'sampleID':'S1','locus':'MHC-A','h1':{'effective':'H1','pipeline':'H1','status':'called','source':'pipeline','baselineAvailable':True},
               'h2':{'effective':'H2','pipeline':'H2','status':'called','source':'pipeline','baselineAvailable':True}}],
@@ -178,18 +305,22 @@ oracle={'samples':['S1','S2','CallOnly'], 'rows':[
 baseline={'schemaVersion':2,'role':'editable-current','sourceRevision':{},
     'samples':[{'id':s,'name':s} for s in ['S1','S2','CallOnly']],
     'loci':[],'calls':[],'colors':[],'metadata':[],'callEditingSupported':False,'rows':[
-    {'id':'reference','target':{'kind':'row','locus':'MHC-A','genotype':'Reference'},'displayName':'Reference',
+    {'id':_filtered_stable_id({'locus':'MHC-A','genotype':'Reference'}),'target':{'kind':'row','locus':'MHC-A','genotype':'Reference'},'displayName':'Reference',
      'cells':[{'sampleID':'S1','rawSupport':0,'displayValue':0,'reviewEligible':True},
               {'sampleID':'S2','reviewEligible':False},{'sampleID':'CallOnly','reviewEligible':False}]},
-    {'id':'a','target':{'kind':'row','locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-a'},'displayName':'Candidate',
-     'cells':[{'sampleID':'S1','rawSupport':7,'displayValue':7,'reviewEligible':True},
-              {'sampleID':'S2','reviewEligible':False},{'sampleID':'CallOnly','reviewEligible':False}]},
-    {'id':'b','target':{'kind':'row','locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-b'},'displayName':'Candidate',
+    {'id':_filtered_stable_id({'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-a'}),'target':{'kind':'row','locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-a'},'displayName':'Candidate',
+     'cells':[{'sampleID':'S1','rawSupport':7,'displayValue':7,'reviewEligible':True,
+               'review':'false-positive','comment':'literal FP note'},
+              {'sampleID':'S2','rawSupport':0,'displayValue':0,'reviewEligible':True,
+               'review':'false-negative','comment':'literal FN note'},
+              {'sampleID':'CallOnly','reviewEligible':False}]},
+    {'id':_filtered_stable_id({'locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-b'}),'target':{'kind':'row','locus':'MHC-A','genotype':'Candidate','stableClusterID':'cluster-b'},'displayName':'Candidate',
      'cells':[{'sampleID':'S1','reviewEligible':False},
               {'sampleID':'S2','rawSupport':9,'displayValue':9,'reviewEligible':True},{'sampleID':'CallOnly','reviewEligible':False}]}]}
 accepted=[]
-for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-to-zero','retarget-stable-id','diverge-h2','diverge-palette']:
-    p=copy.deepcopy(baseline)
+for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-to-zero','retarget-stable-id','diverge-h2','diverge-palette',
+                 'filtered-value','filtered-order','filtered-annotation']:
+    p=copy_module.deepcopy(baseline)
     if mutation=='drop-row': p['rows'].pop()
     if mutation=='drop-sample':
         p['samples'].pop()
@@ -198,29 +329,51 @@ for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-t
     if mutation=='unknown-to-zero': p['rows'][0]['cells'][2].update(rawSupport=0,displayValue=0,reviewEligible=True)
     if mutation=='retarget-stable-id': p['rows'][1]['target']['stableClusterID']='wrong-cluster'
     path=os.path.join(sys.argv[1],mutation+'.xlsx')
+    filtered_rows=copy_module.deepcopy([r for r in p['rows'] if any(
+        (c.get('rawSupport') is not None and c['rawSupport']>=5 and c['rawSupport']>0) for c in r['cells'])])
+    for row in filtered_rows:
+        for cell in row['cells']:
+            if cell.get('rawSupport') is None or cell['rawSupport']<5:
+                cell['displayValue']=None
     snapshot={'schemaVersion':3,'generatedAt':'test','sourceRevision':{'result':'literal'},'hasHaplotypeContent':True,
-        'calls':copy.deepcopy(oracle['calls']),'colors':copy.deepcopy(oracle['colors']),'metadata':[],
+        'calls':copy_module.deepcopy(oracle['calls']),'colors':copy_module.deepcopy(oracle['colors']),'metadata':[],
         'allMatrix':{'samples':p['samples'],'rows':p['rows'],'loci':['MHC-A']},
-        'filteredMatrix':{'samples':p['samples'],'rows':[r for r in p['rows'] if any((c.get('displayValue') or 0)>0 for c in r['cells'])],'loci':['MHC-A']}}
+        'filteredMatrix':{'samples':p['samples'],'rows':filtered_rows,'loci':['MHC-A']}}
     for index,call in enumerate(snapshot['calls']): call['id']='call-'+str(index)
     if mutation=='diverge-h2': snapshot['calls'][0]['h2']['effective']='WRONG-H2'
     if mutation=='diverge-palette': snapshot['colors'][1]['fillHex']='#FF0000'
     m=render_genotype_snapshot(snapshot,path)
     json.dump(p,open(path+'.payload.json','w')); json.dump(m,open(path+'.manifest.json','w'))
     w=load_workbook(path,data_only=False)
+    filtered=w['Genotype Matrix - Filtered']
+    if mutation=='filtered-value': filtered.cell(5,4).value=700
+    if mutation=='filtered-order':
+        for column in range(1,filtered.max_column+1):
+            filtered.cell(5,column).value,filtered.cell(6,column).value=filtered.cell(6,column).value,filtered.cell(5,column).value
+    if mutation=='filtered-annotation': filtered.cell(5,4).comment=None
     # Confirm the malformed artifact really agrees with its own payload before
     # applying the independent oracle. All XLSX authoring is shipping renderer.
     for ri,row in enumerate(p['rows'],5):
         for ci,cell in enumerate(row['cells'],4):
             assert w['Genotype Matrix - All'].cell(ri,ci).value==cell.get('displayValue')
+    native={'minimumReads':5,'samples':copy_module.deepcopy(p['samples']),'rows':[]}
+    for row in filtered_rows:
+        native_row={'locus':row['target']['locus'],'genotype':row['target']['genotype'],
+                    'stableClusterID':row['target'].get('stableClusterID'),'displayName':row['displayName'],'cells':[]}
+        for cell in row['cells']:
+            native_row['cells'].append({'sampleID':cell['sampleID'],'displayValue':cell.get('displayValue'),
+                'review':cell.get('review'),'comment':cell.get('comment'),
+                'style':{'fillHex':None,'isBold':False,'isItalic':False}})
+        native['rows'].append(native_row)
     try:
         verify_full_current_evidence(oracle,snapshot,w)
+        verify_filtered_current_view(oracle,native,snapshot,w)
     except AssertionError as error:
         assert mutation!='baseline', str(error)
         print('REJECTED '+mutation+': '+str(error))
     else:
         accepted.append(mutation)
 assert accepted==['baseline'], ('independent oracle accepted coherent corruption',accepted)
-print('Accepted exact zero/sparse/call-only baseline; rejected all seven coherent mutations')
+print('Accepted exact zero/sparse/call-only baseline; rejected all ten coherent mutations')
 """#
 }

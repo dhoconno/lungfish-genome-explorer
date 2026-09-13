@@ -7336,7 +7336,13 @@ extension GenotypeComparisonMatrixView {
         let identifier: NSUserInterfaceItemIdentifier
         switch column {
         case .alleleName:
-            identifier = ColumnID.genotype
+            if pinnedTableView.tableColumns.contains(where: { $0.identifier == ColumnID.genotype }) {
+                identifier = ColumnID.genotype
+            } else if let alleleFieldKey {
+                identifier = ColumnID.reference(alleleFieldKey)
+            } else {
+                return nil
+            }
         case .stableClusterID:
             identifier = ColumnID.stableClusterID
         case .locus:
