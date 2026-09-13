@@ -1333,15 +1333,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             candidates: candidateDocument, unnameable: unnameableDocument, catalog: reviewableRowCatalogPublication?.document,
             python: try await condaManager.toolPath(name: "python", environment: "openpyxl"),
             argv: request.argv, condaRoot: condaManager.rootPrefix)
-        let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: report.receiptURL)) as! [String: Any]
         pipelineSteps.append(FullLengthONTMHCProvenanceStep(
             toolName: "lungfish genotype Excel export", toolVersion: WorkflowRun.currentAppVersion,
-            argv: receipt["executedArgv"] as! [String],
+            argv: report.execution.executedArgv,
             resolvedOptions: ["filter": .string("unfiltered")],
             inputs: [request.reportCSVURL, request.sampleSummaryCSVURL, request.statsJSONURL],
             outputs: [report.outputURL, report.receiptURL] + (try FileManager.default.contentsOfDirectory(
                 at: report.snapshotURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)),
-            exitStatus: 0, stderr: receipt["stderr"] as? String,
+            exitStatus: 0, stderr: report.execution.stderr,
             startedAt: workbookProjectionStartedAt, completedAt: Date()
         ))
         try rewriteCheckpointPaths(

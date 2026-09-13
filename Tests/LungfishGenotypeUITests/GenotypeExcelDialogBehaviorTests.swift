@@ -2,10 +2,17 @@ import AppKit
 import XCTest
 import LungfishIO
 import LungfishTestSupport
+import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
+    private var openpyxlPython: URL {
+        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_OPENPYXL_PYTHON"]
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
+    }
+
     func testExportFreezesAllAndPositiveDisplayedVisibleEvidenceBeforeSavePanel() async throws {
         let root = try TestTempDirectory.make(prefix: "ExcelUnifiedCapture")
         defer { TestTempDirectory.cleanup(root) }
@@ -68,6 +75,78 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(captured.filteredMatrix.rows.map(\.target.genotype), ["01_Mafa_A1_KEEP"])
         XCTAssertEqual(captured.filteredMatrix.samples.map(\.name), ["AnimalA"])
         XCTAssertEqual(captured.filteredMatrix.rows[0].cells[0].displayValue, 9)
+    }
+
+    func testDuplicateOccurrencesCaptureNativeSelectionAndRenderLiteralWorkbooks() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelDuplicateOccurrences")
+        defer { TestTempDirectory.cleanup(root) }
+        let genotype = "Mafa-A*001"
+        let result = makeResult(bundleURL: root, samples: [], calls: [
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 4, retainedReads: 40),
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 16, retainedReads: 1000),
+        ])
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        var state = controller.testingDisplayState
+        state.matrixMinimumPercent = 5
+        state.matrixPercentDenominator = .sampleRetained
+        controller.testingApplyDisplayStateImmediately(state)
+        let thresholdNative = try XCTUnwrap(
+            controller.testingComparisonMatrix.testingSemanticCellState(genotype: genotype, sample: "S1")
+        )
+        XCTAssertEqual(thresholdNative.text.value, "4")
+        XCTAssertEqual(thresholdNative.evidenceReads, 4)
+        let thresholdCapture = try controller.captureExcelExportSnapshot()
+        let thresholdSnapshot = try JSONDecoder().decode(
+            GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(thresholdCapture.excelSnapshotData)
+        )
+        let thresholdAll = try XCTUnwrap(thresholdSnapshot.allMatrix.rows.first?.cells.first)
+        let thresholdFiltered = try XCTUnwrap(thresholdSnapshot.filteredMatrix.rows.first?.cells.first)
+        XCTAssertEqual(thresholdAll.displayValue, 16)
+        XCTAssertEqual(thresholdAll.rawSupport, 16)
+        XCTAssertEqual(thresholdFiltered.displayValue, 4)
+        XCTAssertEqual(thresholdFiltered.rawSupport, 16)
+        let capturedResult = try JSONDecoder().decode(
+            ONTGenotypeResultBundleData.self,
+            from: XCTUnwrap(thresholdSnapshot.capturedScientificInputs?["result.json"])
+        )
+        XCTAssertEqual(capturedResult.calls.map(\.passedUniqueReads), [4, 16])
+        XCTAssertEqual(capturedResult.calls.map(\.sampleUniqueRetainedReads), [40, 1000])
+
+        let thresholdOutput = root.appendingPathComponent("threshold.xlsx")
+        _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
+            snapshot: thresholdSnapshot,
+            outputURL: thresholdOutput,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        XCTAssertEqual(try workbookLiteral(thresholdOutput, sheet: "Genotype Matrix - All", genotype: genotype), 16)
+        XCTAssertEqual(try workbookLiteral(thresholdOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), 4)
+
+        state.matrixMinimumPercent = 0
+        controller.testingApplyDisplayStateImmediately(state)
+        let unfilteredNative = try XCTUnwrap(
+            controller.testingComparisonMatrix.testingSemanticCellState(genotype: genotype, sample: "S1")
+        )
+        XCTAssertEqual(unfilteredNative.text.value, "16")
+        XCTAssertEqual(unfilteredNative.evidenceReads, 16)
+        let unfilteredCapture = try controller.captureExcelExportSnapshot()
+        let unfilteredSnapshot = try JSONDecoder().decode(
+            GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(unfilteredCapture.excelSnapshotData)
+        )
+        XCTAssertEqual(unfilteredSnapshot.allMatrix.rows.first?.cells.first?.displayValue, 16)
+        XCTAssertEqual(unfilteredSnapshot.filteredMatrix.rows.first?.cells.first?.displayValue, 16)
+        let unfilteredOutput = root.appendingPathComponent("unfiltered.xlsx")
+        _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
+            snapshot: unfilteredSnapshot,
+            outputURL: unfilteredOutput,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        XCTAssertEqual(try workbookLiteral(unfilteredOutput, sheet: "Genotype Matrix - All", genotype: genotype), 16)
+        XCTAssertEqual(try workbookLiteral(unfilteredOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), 16)
     }
 
     func testExportActionPresentsOneSavePanelWithoutRoleChoice() throws {
@@ -348,6 +427,26 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
         await fulfillment(of: [exported], timeout: 3)
         XCTAssertEqual(controller.testingManualHaplotypeAssignments.map(\.label), ["Native H1"])
+    }
+
+    private func workbookLiteral(_ workbook: URL, sheet: String, genotype: String) throws -> Int {
+        let process = Process()
+        process.executableURL = openpyxlPython
+        process.arguments = ["-c", #"""
+import json, openpyxl, sys
+workbook = openpyxl.load_workbook(sys.argv[1], data_only=False)
+sheet = workbook[sys.argv[2]]
+matches = [row[3].value for row in sheet.iter_rows() if row[2].value == sys.argv[3]]
+print(json.dumps(matches))
+"""#, workbook.path, sheet, genotype]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        let values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Int])
+        return try XCTUnwrap(values.count == 1 ? values.first : nil)
     }
 
 }

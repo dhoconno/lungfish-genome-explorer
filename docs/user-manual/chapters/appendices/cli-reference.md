@@ -498,7 +498,6 @@ Here is the rest of the group. ONT is Oxford Nanopore Technologies, and 12S is a
 | `genotype-cohort` | Genotypes a whole plate of samples at once. |
 | `ont-genotype` | Genotypes ONT reads. |
 | `full-length-ont-mhc-genotype` | Genotypes full-length ONT MHC amplicons. |
-| `update-current-workbook` | Refreshes the workbook inside a genotype result. |
 | `mhc-reference-bundle` | Builds an MHC reference bundle. |
 | `pbaa-cluster` | Clusters reads with pbaa. |
 | `savont-cluster` | Clusters reads with savONT. |

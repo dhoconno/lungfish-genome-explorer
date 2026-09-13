@@ -32,15 +32,42 @@ public struct GenotypeExcelExportService: Sendable {
     }
 
     public struct ExportResult: Sendable {
+        public struct ExecutionMetadata: Sendable {
+            public let executedArgv: [String]
+            public let stderr: String
+            public let openpyxlVersion: String
+            public let sheetNames: [String]
+        }
+
         public let outputURL: URL
         public let receiptURL: URL
         public let snapshotURL: URL
         public let replayScriptURL: URL
+        public let execution: ExecutionMetadata
         /// Exact durable files created by this export, excluding published report/receipt.
         public let artifactDirectoryURL: URL
         public let artifactURLs: [URL]
         public let artifactDirectoryIdentity: FileSystemObjectIdentity
         public let artifactIdentities: [String: FileSystemObjectIdentity]
+    }
+
+    private struct RendererRuntime: Decodable {
+        struct RendererSummary: Decodable {
+            struct Sheet: Decodable {
+                let name: String
+                let rowCount: Int
+                let cellCount: Int
+            }
+
+            let schemaVersion: Int
+            let sheets: [Sheet]
+        }
+
+        let pythonExecutable: String
+        let pythonVersion: String
+        let openpyxlVersion: String
+        let platform: String
+        let renderer: RendererSummary
     }
 
     public enum ExportError: Error, LocalizedError {
@@ -180,7 +207,16 @@ public struct GenotypeExcelExportService: Sendable {
         try verify(provenance.inputs)
         let bytes = try Data(contentsOf: stagedOutput)
         guard !bytes.isEmpty else { throw ExportError.invalidInput("renderer produced no workbook") }
-        let runtime = try JSONSerialization.jsonObject(with: readCreatedFile(stdoutFile, directory: directory))
+        let runtimeData = try readCreatedFile(stdoutFile, directory: directory)
+        let checkedRuntime: RendererRuntime
+        do {
+            checkedRuntime = try JSONDecoder().decode(RendererRuntime.self, from: runtimeData)
+        } catch {
+            throw ExportError.invalidInput(
+                "renderer execution metadata is malformed or incomplete: \(error.localizedDescription)"
+            )
+        }
+        let runtime = try JSONSerialization.jsonObject(with: runtimeData)
         let record: [String: Any] = [
             "schemaVersion": 1, "workflowName": provenance.workflowName, "toolName": "lungfish genotype Excel export",
             "toolVersion": provenance.toolVersion, "argv": provenance.argv, "executedArgv": executedArgv,
@@ -213,6 +249,9 @@ public struct GenotypeExcelExportService: Sendable {
         }
         retainArtifacts = true
         return .init(outputURL: output, receiptURL: receipt, snapshotURL: snapshotURL, replayScriptURL: replayScriptURL,
+            execution: .init(executedArgv: executedArgv, stderr: execution.stderr,
+                openpyxlVersion: checkedRuntime.openpyxlVersion,
+                sheetNames: checkedRuntime.renderer.sheets.map(\.name)),
             artifactDirectoryURL: durable, artifactURLs: artifactURLs,
             artifactDirectoryIdentity: directoryIdentity, artifactIdentities: artifactIdentities)
     }

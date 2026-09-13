@@ -3438,14 +3438,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 from: Data(contentsOf: haplotypeDefinitionSnapshotURL(for: request))) }, catalog: catalog,
             python: pythonURL, argv: request.argv, condaRoot: condaManager.rootPrefix)
         try reportArtifacts.captureExport(exported)
-        let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: exported.receiptURL)) as! [String: Any]
-        let runtime = receipt["runtime"] as! [String: Any]
-        let renderer = runtime["renderer"] as! [String: Any]
-        return ReportStepResult(arguments: Array((receipt["executedArgv"] as! [String]).dropFirst()),
-            stdout: "", stderr: receipt["stderr"] as? String ?? "", wallClockSeconds: Date().timeIntervalSince(startedAt),
+        return ReportStepResult(arguments: Array(exported.execution.executedArgv.dropFirst()),
+            stdout: "", stderr: exported.execution.stderr, wallClockSeconds: Date().timeIntervalSince(startedAt),
             summary: ReportSummary(outputXLSX: exported.outputURL.path, provenanceJSON: exported.receiptURL.path,
-                openpyxlVersion: runtime["openpyxlVersion"] as! String,
-                sheetNames: (renderer["sheets"] as! [[String: Any]]).map { $0["name"] as! String }),
+                openpyxlVersion: exported.execution.openpyxlVersion,
+                sheetNames: exported.execution.sheetNames),
             export: exported)
     }
 

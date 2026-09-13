@@ -40,6 +40,11 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         XCTAssertEqual(artifact["sha256"] as? String, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined())
         XCTAssertEqual(artifact["sizeBytes"] as? Int, bytes.count)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
+        XCTAssertEqual(exported.execution.executedArgv, receipt["executedArgv"] as? [String])
+        XCTAssertEqual(exported.execution.stderr, receipt["stderr"] as? String)
+        XCTAssertEqual(exported.execution.openpyxlVersion, "3.1.5")
+        XCTAssertEqual(exported.execution.sheetNames,
+            ["Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
         XCTAssertEqual(exported.artifactDirectoryURL.standardizedFileURL,
             exported.snapshotURL.deletingLastPathComponent().standardizedFileURL)
         XCTAssertEqual(Set(exported.artifactURLs.map(\.lastPathComponent)),
@@ -135,6 +140,50 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
             XCTFail("failed renderer was accepted")
         } catch {}
         XCTAssertEqual(try Data(contentsOf: output), old)
+    }
+
+    func testIncompleteRendererMetadataThrowsAndPreservesPreviousPublication() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lge-excel-incomplete-metadata-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapper = root.appendingPathComponent("incomplete-metadata-python")
+        try Data(#"""
+#!/bin/sh
+"\#(python.path)" "$@" >/dev/null || exit $?
+printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
+"""#.utf8).write(to: wrapper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
+        let output = root.appendingPathComponent("report.xlsx")
+        let receipt = output.appendingPathExtension("provenance.json")
+        let oldOutput = Data("previous successful report".utf8)
+        let oldReceipt = Data("previous successful receipt".utf8)
+        try oldOutput.write(to: output)
+        try oldReceipt.write(to: receipt)
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(
+            result: GenotypeTestFixtures.makeResult(calls: []),
+            sidecar: .empty(generatedAt: timestamp),
+            allProjection: nil,
+            filteredProjection: nil,
+            generatedAt: timestamp
+        )
+
+        do {
+            _ = try await GenotypeExcelExportService(pythonExecutableURL: wrapper).export(
+                snapshot: snapshot,
+                outputURL: output,
+                provenance: .init(toolVersion: "test", argv: ["test"])
+            )
+            XCTFail("Incomplete renderer execution metadata was accepted")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("renderer execution metadata"))
+        }
+        XCTAssertEqual(try Data(contentsOf: output), oldOutput)
+        XCTAssertEqual(try Data(contentsOf: receipt), oldReceipt)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+                .contains { $0.lastPathComponent.hasPrefix("report.xlsx.export-") }
+        )
     }
 
     func testImportedReportRelocatesReceiptAndReplayWithoutChangingScientificCapture() async throws {

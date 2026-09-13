@@ -1070,9 +1070,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         ]
         let exportRows = unfiltered ? unfilteredExportRows() : visibleRows
         let rows = exportRows.map { row in
-            let reads = Dictionary(uniqueKeysWithValues: row.sampleSupport.compactMap { support -> (String, Int)? in
-                guard exportSampleSet.contains(support.sample) else { return nil }
-                return (support.sample, support.passedUniqueReads)
+            // Native display selects the first retained occurrence for a sample.
+            // Known occurrences are already ordered highest-first; preserving
+            // this lookup contract avoids collapsing or summing valid duplicates.
+            let reads = Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample -> (String, Int)? in
+                guard exportSampleSet.contains(sample), let support = row.support(for: sample) else { return nil }
+                return (sample, support.passedUniqueReads)
             })
             let styles = Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample -> (String, GenotypeResultHighlightStyle)? in
                 let rendered = renderedStyle(for: sample, row: row)
