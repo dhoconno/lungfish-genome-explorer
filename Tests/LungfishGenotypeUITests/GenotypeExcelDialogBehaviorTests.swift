@@ -139,9 +139,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             makeCall(sample: "AnimalA", genotype: "FIRST", reads: 9)
         ]))
         var requests = 0
-        controller.onCurrentWorkbookSyncRequested = { _ in requests += 1 }
         controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "Native review")))
-        XCTAssertEqual(requests, 0)
         let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root)
         XCTAssertEqual(saved.resolvedMatrixComments[.column(sample: "AnimalA")]?.body, "Native review")
     }

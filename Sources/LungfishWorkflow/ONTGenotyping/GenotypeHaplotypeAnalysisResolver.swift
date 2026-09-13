@@ -121,8 +121,14 @@ public enum GenotypeHaplotypeAnalysisResolver {
         return try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
     }
 
+    /// New scientific producers retain one frozen definition outside disposable work directories.
+    public static func retainedDefinitionSnapshotURL(for bundleURL: URL) -> URL {
+        bundleURL.appendingPathComponent("artifacts/haplotyping/haplotype-definition.json")
+    }
+
     public static func bundleDefinitionSnapshotURL(for bundleURL: URL) -> URL? {
         let candidates = [
+            retainedDefinitionSnapshotURL(for: bundleURL),
             bundleURL
                 .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
                 .appendingPathComponent("inputs", isDirectory: true)

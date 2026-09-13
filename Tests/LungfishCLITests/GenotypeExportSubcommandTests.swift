@@ -215,6 +215,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
                         cells: [String(lowCall.passedUniqueReads)]
                     ),
                 ],
+                haplotypeLocusScope: [],
                 filterContext: ["Search": "A1"]
             )
         ).write(to: projectionURL)
@@ -243,6 +244,8 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         )
         let row = try XCTUnwrap(snapshot.filteredMatrix.rows.first)
         XCTAssertEqual(snapshot.filteredMatrix.rows.count, 1)
+        XCTAssertTrue(snapshot.filteredMatrix.loci.isEmpty, "Explicit empty band scope survives CLI --sample projection")
+        XCTAssertFalse(snapshot.allMatrix.loci.isEmpty)
         XCTAssertEqual(row.displayName, "Concise A1")
         XCTAssertEqual(row.target.genotype, call.genotype)
         XCTAssertEqual(row.cells.first?.review, "false-positive")

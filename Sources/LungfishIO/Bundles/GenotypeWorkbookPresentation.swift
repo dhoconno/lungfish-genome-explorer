@@ -14,32 +14,6 @@ public enum GenotypeWorkbookPresentation {
             self.isBold = isBold; self.isItalic = isItalic
         }
     }
-    public struct Payload: Codable, Sendable {
-        public let schemaVersion: Int
-        public let role: String
-        public let sourceRevision: [String: String]
-        public let samples: [Sample]
-        public let loci: [String]
-        public let rows: [Row]
-        public let calls: [Call]
-        public let colors: [Color]
-        public let metadata: [[String]]
-        public let callEditingSupported: Bool
-
-        public init(schemaVersion: Int, role: String, sourceRevision: [String: String], samples: [Sample], loci: [String], rows: [Row], calls: [Call], colors: [Color], metadata: [[String]], callEditingSupported: Bool) {
-            self.schemaVersion = schemaVersion
-            self.role = role
-            self.sourceRevision = sourceRevision
-            self.samples = samples
-            self.loci = loci
-            self.rows = rows
-            self.calls = calls
-            self.colors = colors
-            self.metadata = metadata
-            self.callEditingSupported = callEditingSupported
-        }
-    }
-
     public struct Sample: Codable, Sendable {
         public let id: String
         public let name: String

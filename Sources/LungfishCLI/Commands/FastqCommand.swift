@@ -59,7 +59,6 @@ struct FastqCommand: AsyncParsableCommand {
             FastqFullLengthONTMHCGenotypingSubcommand.self,
             FastqGenotypingSubcommand.self,
             FastqGenotypingCohortSubcommand.self,
-            FastqUpdateCurrentWorkbookSubcommand.self,
             FastqONTGenotypingSubcommand.self,
             FastqONTBarcodeGenotypingSubcommand.self,
             FastqMHCReferenceBundleSubcommand.self,

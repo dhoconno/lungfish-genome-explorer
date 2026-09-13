@@ -14,8 +14,8 @@ enum WorkbookSnapshotEncodingTestError: Error {
 }
 
 @MainActor
-final class MatrixWorkbookUpdateSchedulerSpy: GenotypeMatrixWorkbookUpdateScheduling {
-    private final class Token: GenotypeMatrixWorkbookUpdateCancellation {
+final class MatrixAnnotationRetrySchedulerSpy: GenotypeMatrixAnnotationRetryScheduling {
+    private final class Token: GenotypeMatrixAnnotationRetryCancellation {
         var isCancelled = false
 
         func cancel() {
@@ -29,7 +29,7 @@ final class MatrixWorkbookUpdateSchedulerSpy: GenotypeMatrixWorkbookUpdateSchedu
         entries.count
     }
 
-    func schedule(_ action: @escaping @MainActor () -> Void) -> GenotypeMatrixWorkbookUpdateCancellation {
+    func schedule(_ action: @escaping @MainActor () -> Void) -> GenotypeMatrixAnnotationRetryCancellation {
         let token = Token()
         entries.append((token, action))
         return token
@@ -41,6 +41,37 @@ final class MatrixWorkbookUpdateSchedulerSpy: GenotypeMatrixWorkbookUpdateSchedu
         for entry in pending where !entry.token.isCancelled {
             entry.action()
         }
+    }
+}
+
+
+/// Assertion-only projection of the production immutable capture; never an updater fixture.
+struct CapturedScientificCall: Equatable {
+    let sample: String
+    let locus: String
+    let haplotype1: String
+    let haplotype2: String
+    let baselineHaplotype1: String?
+    let baselineHaplotype2: String?
+    let notes: String
+    let haplotype1Status: String
+    let haplotype2Status: String
+    let haplotype1Source: String
+    let haplotype2Source: String
+}
+extension GenotypeResultViewController {
+    func testingCapturedScientificCalls(file: StaticString = #filePath, line: UInt = #line) -> [CapturedScientificCall] {
+        do {
+            let data = try XCTUnwrap(captureExcelExportSnapshot().excelSnapshotData, file: file, line: line)
+            let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+            return snapshot.calls.map {
+                CapturedScientificCall(sample: $0.sampleID, locus: $0.locus,
+                    haplotype1: $0.h1.effective, haplotype2: $0.h2.effective,
+                    baselineHaplotype1: $0.h1.pipeline, baselineHaplotype2: $0.h2.pipeline,
+                    notes: $0.comment ?? "", haplotype1Status: $0.h1.status, haplotype2Status: $0.h2.status,
+                    haplotype1Source: $0.h1.source, haplotype2Source: $0.h2.source)
+            }
+        } catch { XCTFail("Scientific capture failed: \(error)", file: file, line: line); return [] }
     }
 }
 
@@ -210,7 +241,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
             call("AnimalB", "03_Mafa_B_TARGET", 5),
             call("AnimalC", "04_Mafa_B_OTHER", 30),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -507,7 +538,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
                 ]),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -541,7 +572,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
             statsJSONPath: "stats.json",
             provenancePath: "provenance.json"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -1527,6 +1558,16 @@ class GenotypeResultViewportTestCase: XCTestCase {
         )
     }
 
+    /// Unexpected annotation validation errors are test failures, never modal UI.
+    /// Tests may override the callback afterward to assert an intentional error.
+    func makeMatrixAnnotationGuardedController(file: StaticString = #filePath, line: UInt = #line) -> GenotypeResultViewController {
+        let controller = GenotypeResultViewController()
+        controller.onMatrixAnnotationCommandError = { error in
+            XCTFail("Unexpected native annotation error: \(error)", file: file, line: line)
+        }
+        return controller
+    }
+
     // MARK: - Modal-hazard hardening
 
     /// `GenotypeResultViewController.presentManualHaplotypeDraftDecision` shows a
@@ -1547,7 +1588,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
     /// `testingSetManualHaplotypeDraftDecisionProvider` afterward as usual — that
     /// call always wins because it runs strictly after this default is installed.
     func makeManualHaplotypeGuardedController() -> GenotypeResultViewController {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.testingSetManualHaplotypeDraftDecisionProvider { _ in
             .cancel
         }

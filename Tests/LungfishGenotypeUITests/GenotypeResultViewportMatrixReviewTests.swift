@@ -22,7 +22,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         sidecar.matrixReviews = [missing, zero].map { .init(target: $0, disposition: .falseNegative, author: "A", timestamp: "now") }
         let annotationURL = root.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         try sidecar.encoded().write(to: annotationURL)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: root, samples: [], calls: calls))
         controller.testingShowMatrixTargetSelection([missing])
@@ -48,7 +48,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let annotationURL = root.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         sidecar.matrixReviews = [fp]
         try sidecar.encoded().write(to: annotationURL)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [call]))
         controller.testingShowMatrixTargetSelection([target])
@@ -487,7 +487,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let second = "02_Mafa_A1_SECOND"
         let firstCall = makeCall(sample: "AnimalA", genotype: first, reads: 12)
         let secondCall = makeCall(sample: "AnimalA", genotype: second, reads: 8)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -542,7 +542,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixActualContextMenuKeepsCachedDisabledStateAfterAppKitUpdate() throws {
         let genotype = "01_Mafa_A1_ACTUAL_MENU"
         let supported = makeCall(sample: "AnimalB", genotype: genotype, reads: 9)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [
@@ -834,7 +834,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixContextMenusRejectTargetsHiddenByManualVisibility() {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 7)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [first, second]))
 
@@ -856,7 +856,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixVisibilityActualContextMenuPreservesReviewGroupAndStableIdentifiers() throws {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 6)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [first, second]))
 
@@ -915,7 +915,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixVisibilityContextCommandRevalidatesCurrentCapability() throws {
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [call, second]))
         let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
@@ -977,7 +977,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixVisibilityActualContextMenuCapturesImmutableSnapshotTargets() throws {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [first, second]))
         controller.testingSetMatrixContextMenuSnapshotSourceFactory { snapshot in
@@ -1004,7 +1004,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixShowAllContextCommandRemainsGlobalWhenSelectionChanges() throws {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [first, second]))
         controller.testingSelectMatrixRows(genotypes: [first.genotype], sample: nil)
@@ -1033,7 +1033,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1067,7 +1067,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     func testMatrixVisibilityCommandsPostOneExactAnnouncementAndNoOpIsSilent() {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 6)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [first, second]))
         let announcements = RecordingGenotypeSearchAnnouncements()
@@ -1106,7 +1106,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
     func testMatrixVisibilityCanRecoverThroughCapabilityAfterEveryRowIsHidden() {
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [call]))
         controller.testingSelectMatrixRows(genotypes: [call.genotype], sample: nil)
@@ -1122,7 +1122,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
 
     func testDetachingHostPresentationCallbacksClearsMatrixVisibilityPublication() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         var received = 0
         controller.onMatrixVisibilityCapabilityChanged = { _ in received += 1 }
 
@@ -1257,7 +1257,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_MISSING"
         let visible = makeCall(sample: "AnimalA", genotype: genotype, reads: 9)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1315,7 +1315,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let genotype = "01_Mafa_A1_SCOPED"
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 11)
         let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 0)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1450,7 +1450,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             genotype: genotype,
             sample: "AnimalA"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
         let evidenceBuildCount = controller.testingMatrixEvidenceIndexBuildCount
@@ -1472,7 +1472,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_ROW_TARGETED"
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1548,7 +1548,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             genotype: genotype,
             sample: "AnimalA"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1585,7 +1585,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             genotype: genotype,
             sample: "AnimalB"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1637,7 +1637,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
                 makeCandidateObservation(cluster: "cluster-supported", sample: "AnimalA", reads: 5),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
 
@@ -1662,7 +1662,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             sample: "AnimalA"
         )
         let viewModel = GenotypeResultDisplaySectionViewModel()
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.onMatrixReviewCapabilityChanged = { viewModel.updateMatrixReviewCapability($0) }
         _ = controller.view
         controller.configure(result: makeResult(
@@ -1701,7 +1701,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         )
         let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
         let viewModel = GenotypeResultDisplaySectionViewModel()
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.onSelectionStateChanged = { viewModel.updateSelection($0) }
         controller.onMatrixReviewCapabilityChanged = { viewModel.updateMatrixReviewCapability($0) }
         _ = controller.view
@@ -1742,7 +1742,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             targets: [target],
             intent: .set(.falsePositive)
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1786,7 +1786,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             genotype: "01_Mafa_A1_VISIBLE",
             reads: 5
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -1837,11 +1837,8 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             genotype: genotype,
             sample: "AnimalA"
         )
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
-        controller.matrixWorkbookUpdateScheduler = scheduler
-        var requests: [GenotypeCurrentWorkbookUIRequest] = []
-        controller.onCurrentWorkbookSyncRequested = { requests.append($0) }
+        let scheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1853,13 +1850,11 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "reviewed")))
 
         XCTAssertEqual(scheduler.scheduledCount, 0)
-        XCTAssertTrue(requests.isEmpty)
         let persisted = try GenotypeAnnotationSidecar.decode(Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)))
         XCTAssertEqual(persisted.matrixReviews.first?.target, target)
         XCTAssertEqual(persisted.matrixReviews.first?.disposition, .falsePositive)
         XCTAssertEqual(persisted.resolvedMatrixComments[target]?.body, "reviewed")
         scheduler.fireScheduledActions()
-        XCTAssertTrue(requests.isEmpty)
     }
 
 }

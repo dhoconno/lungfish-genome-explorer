@@ -266,11 +266,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
 
     func testDocumentExcelSectionHasOneExportButtonWithoutReviewOrSyncControls() throws {
-        var update = GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: false)
-        update.statusText = "Localized workbook status"
         let state = GenotypeResultDocumentState(
-            title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [],
-            artifactRows: [], currentWorkbookUpdate: update
+            title: "Synthetic", bundleURL: URL(fileURLWithPath: "/tmp/readable.lungfishgenotype"), sampleIds: [], summaryRows: [], qcRows: [], artifactRows: []
         )
         var exportCalls = 0
         let view = GenotypeResultDocumentSection(
@@ -329,8 +326,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testReadOnlySourceKeepsOneExcelExportEnabled() throws {
         let state = GenotypeResultDocumentState(
-            title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
-            currentWorkbookUpdate: GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: true)
+            title: "Synthetic", bundleURL: URL(fileURLWithPath: "/tmp/readable.lungfishgenotype"), sampleIds: [], summaryRows: [], qcRows: [], artifactRows: []
         )
         var exports = 0
         let inspected = try GenotypeResultDocumentSection(
@@ -351,8 +347,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             unavailableReason: "The last Excel export is no longer available at its saved location."
         )
         let state = GenotypeResultDocumentState(
-            title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
-            currentWorkbookUpdate: GenotypeCurrentWorkbookUIPhase.current.presentation(isReadOnly: false),
+            title: "Synthetic", bundleURL: URL(fileURLWithPath: "/tmp/readable.lungfishgenotype"), sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
             lastExcelExport: latest,
             excelExportStatus: "Excel export failed — disk full"
         )

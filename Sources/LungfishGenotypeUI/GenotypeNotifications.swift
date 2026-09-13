@@ -27,10 +27,9 @@ public extension Notification.Name {
     /// `userInfo["cohort"]` is the `GenotypeCohortSmartFilter` JSON.
     static let genotypeResultSmartCohortDeleteRequested = Notification.Name("com.lungfish.genotypeResultSmartCohortDeleteRequested")
 
-    /// Posted when the analyst requests applying Review viewport haplotype edits
-    /// and the audit timeline to the bundle's `artifacts/workbooks/current.xlsx`.
+    /// Posted when the analyst requests a frozen, one-way Excel report containing
+    /// all evidence and the current filtered view.
     static let genotypeResultExcelExportRequested = Notification.Name("com.lungfish.genotypeResultExcelExportRequested")
-    static let genotypeResultCurrentWorkbookReviewRequested = Notification.Name("com.lungfish.genotypeResultCurrentWorkbookReviewRequested")
 
     /// Posted when the analyst clicks "Edit calls…" in the Selected Item
     /// Inspector tab for a `.lungfishgenotype` bundle. The viewport reopens
@@ -46,7 +45,7 @@ public extension Notification.Name {
     static let genotypeResultShowsAncillaryLociChanged = Notification.Name("com.lungfish.genotypeResultShowsAncillaryLociChanged")
 
     /// Posted when the analyst changes which deterministic haplotype loci are
-    /// included in the Outline. current.xlsx updates use the supported subset.
+    /// included in the Outline and its captured filtered report view.
     /// `userInfo["includedLoci"]` is a [String].
     static let genotypeResultIncludedLociChanged = Notification.Name("com.lungfish.genotypeResultIncludedLociChanged")
 }

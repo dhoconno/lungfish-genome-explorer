@@ -746,7 +746,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
             genotypeLocusDisplayOrder: projection.genotypeLocusDisplayOrder,
             genotypeNumericPrefixOrder: projection.genotypeNumericPrefixOrder,
             diagnosticAllelesOnly: projection.diagnosticAllelesOnly,
-            includeTotalReads: projection.includeTotalReads
+            includeTotalReads: projection.includeTotalReads,
+            haplotypeLocusScope: projection.haplotypeLocusScope
         )
     }
 

@@ -65,7 +65,8 @@ enum GenotypeFullCurrentEvidenceOracle {
     }
 
     static let pythonScript = #"""
-def verify_full_current_evidence(oracle, payload, manifest, workbook):
+def verify_full_current_evidence(oracle, snapshot, workbook):
+    payload=snapshot['allMatrix']
     def identity(row): return (row['locus'],row['genotype'],row.get('stableClusterID'))
     def unique(items, label):
         result=set(items)
@@ -85,18 +86,19 @@ def verify_full_current_evidence(oracle, payload, manifest, workbook):
             for field in ['rawSupport','displayValue']:
                 value=cell.get(field)
                 assert value==want and (value is None or type(value) is int), (field,target,want,value)
-    notes=list(manifest['noteTargets'].values())
-    assert unique([n['target']['sampleID'] for n in notes if n['target']['kind']=='sample'],'manifest samples')==samples, 'manifest sample roster'
-    assert unique([identity(n['target']) for n in notes if n['target']['kind']=='row'],'manifest rows')==set(rows), 'manifest row roster'
-    cells=[n for n in notes if n['target']['kind']=='cell']
-    assert unique([identity(n['target'])+(n['target']['sampleID'],) for n in cells],'manifest cells')==set(expected), 'manifest evidence roster'
-    assert len({(n['sheet'],n['cell']) for n in cells})==len(expected), 'manifest addresses alias'
-    for note in cells:
-        target=identity(note['target'])+(note['target']['sampleID'],); want=expected[target]
-        assert note.get('rawSupport')==want, ('manifest rawSupport',target,want,note.get('rawSupport'))
-        cell=workbook[note['sheet']][note['cell']]
-        assert cell.value==want and (want is None or type(cell.value) is int), ('XLSX evidence',target,note['cell'],want,cell.value)
-        assert cell.data_type!='f', ('XLSX evidence formula',target,note['cell'])
+    sheet=workbook['Genotype Matrix - All']
+    header=2+2*len(payload['loci']) if snapshot['hasHaplotypeContent'] and payload['loci'] else 1
+    actual_samples=[sheet.cell(header,c).value for c in range(4,4+len(payload['samples']))]
+    assert actual_samples==[s['name'] for s in payload['samples']], 'XLSX sample roster'
+    for ri,row in enumerate(payload['rows'],header+1):
+        assert sheet.cell(ri,1).value==row['id'], 'XLSX row identity'
+        key=identity(row['target'])
+        by_sample={c['sampleID']:c for c in row['cells']}
+        for ci,sample in enumerate(payload['samples'],4):
+            want=expected[key+(sample['id'],)]
+            cell=sheet.cell(ri,ci)
+            assert cell.value==want and (want is None or type(cell.value) is int), ('XLSX evidence',key,sample['id'],want,cell.value)
+            assert cell.data_type!='f'
     return dict(rows=len(rows),samples=len(samples),evidenceCells=len(expected),knownCells=sum(v is not None for v in expected.values()),unknownCells=sum(v is None for v in expected.values()))
 """#
 }
@@ -109,7 +111,7 @@ final class GenotypeFullCurrentEvidenceOracleTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let python = URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
         let process = Process(); process.executableURL = python
-        process.arguments = ["-c", GenotypeWorkbookPresentation.pythonScript + "\n" + GenotypeFullCurrentEvidenceOracle.pythonScript + "\n" + Self.mutations, root.path]
+        process.arguments = ["-c", GenotypeWorkbookPresentation.snapshotPythonScript + "\n" + GenotypeFullCurrentEvidenceOracle.pythonScript + "\n" + Self.mutations, root.path]
         let stdout = Pipe(); let stderr = Pipe(); process.standardOutput = stdout; process.standardError = stderr
         try process.run()
         let output = stdout.fileHandleForReading.readDataToEndOfFile()
@@ -151,17 +153,19 @@ for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-t
     if mutation=='unknown-to-zero': p['rows'][0]['cells'][2].update(rawSupport=0,displayValue=0,reviewEligible=True)
     if mutation=='retarget-stable-id': p['rows'][1]['target']['stableClusterID']='wrong-cluster'
     path=os.path.join(sys.argv[1],mutation+'.xlsx')
-    m=render_three_sheet_workbook(p,path)
+    snapshot={'schemaVersion':3,'generatedAt':'test','sourceRevision':{'result':'literal'},'hasHaplotypeContent':False,
+        'calls':[],'colors':[],'metadata':[], 'allMatrix':{'samples':p['samples'],'rows':p['rows'],'loci':[]},
+        'filteredMatrix':{'samples':p['samples'],'rows':[r for r in p['rows'] if any((c.get('displayValue') or 0)>0 for c in r['cells'])],'loci':[]}}
+    m=render_genotype_snapshot(snapshot,path)
     json.dump(p,open(path+'.payload.json','w')); json.dump(m,open(path+'.manifest.json','w'))
     w=load_workbook(path,data_only=False)
     # Confirm the malformed artifact really agrees with its own payload before
     # applying the independent oracle. All XLSX authoring is shipping renderer.
-    for row in p['rows']:
-        for cell in row['cells']:
-            n=m['noteTargets']['cell:'+row['id']+':'+cell['sampleID']]
-            assert w[n['sheet']][n['cell']].value==cell.get('displayValue')
+    for ri,row in enumerate(p['rows'],2):
+        for ci,cell in enumerate(row['cells'],4):
+            assert w['Genotype Matrix - All'].cell(ri,ci).value==cell.get('displayValue')
     try:
-        verify_full_current_evidence(oracle,p,m,w)
+        verify_full_current_evidence(oracle,snapshot,w)
     except AssertionError as error:
         assert mutation!='baseline', str(error)
         print('REJECTED '+mutation+': '+str(error))

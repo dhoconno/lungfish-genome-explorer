@@ -693,7 +693,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAI" })
     }
 
-    func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {
+    func testInspectorDocumentKeepsExportContextAfterNativeOverrides() throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeWorkbookUpdateState")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("barcode05-mhc.lungfishgenotype", isDirectory: true)
@@ -749,15 +749,10 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
 
         inspector.updateGenotypeResultDocument(result)
 
-        let workbookUpdate = try XCTUnwrap(
-            inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.currentWorkbookUpdate
-        )
-        XCTAssertEqual(workbookUpdate.manualChangeCount, 1)
-        XCTAssertTrue(workbookUpdate.isEnabled)
-        XCTAssertEqual(
-            workbookUpdate.statusText,
-            "Current — current.xlsx represents the latest LGE review state."
-        )
+        let document = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument)
+        XCTAssertEqual(document.bundleURL, bundleURL)
+        XCTAssertEqual(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL).callOverrides, sidecar.callOverrides)
+
     }
 
     func testAnnotationSidecarUpdateUsesLoadedResultWithoutReloadingBundle() throws {
@@ -830,8 +825,6 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         let document = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument)
         XCTAssertEqual(document.smartCohorts.first?.count, 1)
         XCTAssertEqual(document.qcRows.first(where: { $0.0 == "Low Support" })?.1, "1")
-        let workbookUpdate = try XCTUnwrap(document.currentWorkbookUpdate)
-        XCTAssertEqual(workbookUpdate.manualChangeCount, 1)
     }
 
     private func makeResult(

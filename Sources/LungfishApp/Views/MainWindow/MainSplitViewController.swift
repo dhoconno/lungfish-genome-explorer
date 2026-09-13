@@ -333,25 +333,6 @@ enum DuplicateResolution {
     case skip       // Skip importing, use existing file
 }
 
-struct PendingGenotypeCurrentWorkbookRoute {
-    let generation: UInt64
-    let snapshot: GenotypeCurrentWorkbookUISnapshot
-    let action: GenotypeCurrentWorkbookUIRequest.Action
-    let routeContext: OperationRouteContext
-    let originatingController: GenotypeResultViewController?
-    let originatingWindowID: ObjectIdentifier?
-}
-
-struct GenotypeCurrentWorkbookCompletionContext {
-    let generation: UInt64
-    let annotationOnly: Bool
-}
-
-struct GenotypeCurrentWorkbookReloadTask {
-    let id: UUID
-    let task: Task<Void, Never>
-}
-
 /// The main split view controller managing sidebar, viewer, and inspector panels.
 ///
 /// Layout:
@@ -503,45 +484,6 @@ public class MainSplitViewController: NSSplitViewController {
     var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
         try await ONTGenotypeResultBundle.loadResultAsync(from: url)
     }
-    var genotypeCurrentWorkbookSyncCoordinator =
-        GenotypeCurrentWorkbookSyncCoordinator.shared
-    var genotypeCurrentWorkbookProjectWriteAuthorizationProvider: (() -> Bool)?
-    var genotypeCurrentWorkbookExternalOpener: (URL) -> Void = {
-        NSWorkspace.shared.open($0)
-    }
-    var genotypeExcelErrorPresenter: (Error) -> Void = { NSApp.presentError($0) }
-    var genotypeCurrentWorkbookFingerprintLoader: @MainActor (GenotypeCurrentWorkbookUISnapshot) async throws -> GenotypeCurrentWorkbookInputFingerprint = { snapshot in
-        try await Task.detached {
-            try GenotypeCurrentWorkbookInputFingerprint.make(
-                calls: snapshot.calls, includedLoci: snapshot.includedLoci,
-                annotationSidecar: snapshot.annotationSidecar,
-                candidateArtifacts: snapshot.candidateArtifacts,
-                reviewableRowCatalog: snapshot.reviewableRowCatalog,
-                reviewableRowCatalogSchemaVersion: snapshot.reviewableRowCatalogSchemaVersion,
-                haplotypeProjectionMode: snapshot.haplotypeProjectionMode,
-                presentationColors: snapshot.presentationColors
-            )
-        }.value
-    }
-    var genotypeExcelReviewServiceProvider: @MainActor () async throws -> GenotypeEditableWorkbookService = {
-        let python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
-        return GenotypeEditableWorkbookService(pythonExecutableURL: python)
-    }
-    var genotypeExcelInspector: @MainActor (GenotypeEditableWorkbookService, URL) async throws -> GenotypeEditableWorkbookService.Inspection = { service, url in
-        try await Task.detached { try service.inspect(bundleURL: url) }.value
-    }
-    var genotypeExcelReviewPresenter: @MainActor (NSAlert, NSWindow) async -> NSApplication.ModalResponse = { alert, window in
-        await alert.beginSheetModal(for: window)
-    }
-    var genotypeCurrentWorkbookSyncObservation:
-        GenotypeCurrentWorkbookSyncCoordinator.Observation?
-    var pendingGenotypeCurrentWorkbookRoutes:
-        [String: PendingGenotypeCurrentWorkbookRoute] = [:]
-    var nextGenotypeCurrentWorkbookRouteGeneration: UInt64 = 0
-    var genotypeCurrentWorkbookCompletionContexts:
-        [String: GenotypeCurrentWorkbookCompletionContext] = [:]
-    var genotypeCurrentWorkbookResultReloadTasks:
-        [String: GenotypeCurrentWorkbookReloadTask] = [:]
     var retainedDeferredGenotypeResultControllers:
         [ObjectIdentifier: GenotypeResultViewController] = [:]
     var windowStateScope: WindowStateScope {
@@ -751,17 +693,6 @@ public class MainSplitViewController: NSSplitViewController {
         sidebarController.selectionDelegate = self
         sidebarController.windowStateScope = windowStateScope
         inspectorController.windowStateScope = windowStateScope
-        genotypeCurrentWorkbookSyncObservation =
-            genotypeCurrentWorkbookSyncCoordinator.observe(self) {
-                owner,
-                bundleURL,
-                phase in
-                owner.applyGenotypeCurrentWorkbookSyncPhase(
-                    phase,
-                    bundleURL: bundleURL
-                )
-            }
-
         // Create split view items with appropriate behaviors
 
         // Sidebar: collapsible, sidebar behavior for vibrancy

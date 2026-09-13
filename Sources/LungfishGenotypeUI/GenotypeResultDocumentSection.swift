@@ -15,177 +15,6 @@ public struct GenotypeResultArtifactRow: Equatable {
     }
 }
 
-public struct GenotypeResultCurrentWorkbookUpdateState: Equatable {
-    public var manualChangeCount: Int
-    public var statusText: String
-    public var isEnabled: Bool
-    public var requiresReview: Bool
-
-    public init(
-        manualChangeCount: Int,
-        statusText: String,
-        isEnabled: Bool,
-        requiresReview: Bool = false
-    ) {
-        self.manualChangeCount = manualChangeCount
-        self.statusText = statusText
-        self.isEnabled = isEnabled
-        self.requiresReview = requiresReview
-    }
-}
-
-public enum GenotypeCurrentWorkbookUIPhase: Equatable, Sendable {
-    case current
-    case dirty
-    case updating
-    case dirtyWhileUpdating
-    case failed(String)
-    case reviewRequired
-
-    public func presentation(
-        isReadOnly: Bool,
-        manualChangeCount: Int = 0
-    ) -> GenotypeResultCurrentWorkbookUpdateState {
-        let statusText: String
-        let isEnabled: Bool
-        switch self {
-        case .current:
-            statusText = "Current — current.xlsx represents the latest LGE review state."
-            isEnabled = true
-        case .dirty:
-            statusText = "Pending edits — current.xlsx does not include the latest LGE review state."
-            isEnabled = !isReadOnly
-        case .updating:
-            statusText = "Updating — publishing the latest LGE review state to current.xlsx."
-            isEnabled = true
-        case .dirtyWhileUpdating:
-            statusText = "Pending edits while updating — one newer workbook update will follow."
-            isEnabled = !isReadOnly
-        case .failed(let message):
-            statusText = "Failed — \(message)"
-            isEnabled = !isReadOnly
-        case .reviewRequired:
-            statusText = "Review required — current.xlsx contains external edits."
-            isEnabled = !isReadOnly
-        }
-        return GenotypeResultCurrentWorkbookUpdateState(
-            manualChangeCount: manualChangeCount,
-            statusText: statusText,
-            isEnabled: isEnabled,
-            requiresReview: self == .reviewRequired
-        )
-    }
-}
-
-public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
-    public let presentationColors: [GenotypeWorkbookPresentation.Color]
-    public let bundleURL: URL
-    public let calls: [GenotypeWorkbookHaplotypeCall]
-    public let includedLoci: [String]
-    public let annotationSidecar: GenotypeAnnotationSidecar
-    public let annotationSidecarData: Data
-    public let annotationSidecarURL: URL
-    public let candidateArtifacts: ONTMHCCandidateArtifactManifest?
-    public let reviewableRowCatalog: ONTMHCArtifactReference?
-    public let reviewableRowCatalogSchemaVersion: Int?
-    public let annotationOnly: Bool
-    public let isReadOnly: Bool
-    public let haplotypeProjectionMode:
-        GenotypeWorkbookHaplotypeProjectionMode
-
-    public init(
-        bundleURL: URL,
-        calls: [GenotypeWorkbookHaplotypeCall],
-        includedLoci: [String],
-        annotationSidecar: GenotypeAnnotationSidecar,
-        annotationSidecarData: Data,
-        annotationSidecarURL: URL,
-        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
-        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
-        reviewableRowCatalogSchemaVersion: Int? = nil,
-        annotationOnly: Bool,
-        isReadOnly: Bool,
-        haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
-        presentationColors: [GenotypeWorkbookPresentation.Color] = []
-    ) {
-        self.bundleURL = bundleURL.standardizedFileURL
-        self.presentationColors = presentationColors
-        self.calls = calls
-        self.includedLoci = includedLoci
-        self.annotationSidecar = annotationSidecar
-        self.annotationSidecarData = annotationSidecarData
-        self.annotationSidecarURL = annotationSidecarURL.standardizedFileURL
-        self.candidateArtifacts = candidateArtifacts
-        self.reviewableRowCatalog = reviewableRowCatalog
-        self.reviewableRowCatalogSchemaVersion =
-            reviewableRowCatalogSchemaVersion
-        self.annotationOnly = annotationOnly
-        self.isReadOnly = isReadOnly
-        self.haplotypeProjectionMode = haplotypeProjectionMode
-    }
-
-    public static func encodingAnnotationSidecar(
-        bundleURL: URL,
-        calls: [GenotypeWorkbookHaplotypeCall],
-        includedLoci: [String],
-        annotationSidecar: GenotypeAnnotationSidecar,
-        annotationSidecarURL: URL,
-        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
-        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
-        reviewableRowCatalogSchemaVersion: Int? = nil,
-        annotationOnly: Bool,
-        isReadOnly: Bool,
-        haplotypeProjectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
-        presentationColors: [GenotypeWorkbookPresentation.Color] = [],
-        encoder: @Sendable (GenotypeAnnotationSidecar) throws -> Data = {
-            try $0.encoded()
-        }
-    ) throws -> Self {
-        Self(
-            bundleURL: bundleURL,
-            calls: calls,
-            includedLoci: includedLoci,
-            annotationSidecar: annotationSidecar,
-            annotationSidecarData: try encoder(annotationSidecar),
-            annotationSidecarURL: annotationSidecarURL,
-            candidateArtifacts: candidateArtifacts,
-            reviewableRowCatalog: reviewableRowCatalog,
-            reviewableRowCatalogSchemaVersion:
-                reviewableRowCatalogSchemaVersion,
-            annotationOnly: annotationOnly,
-            isReadOnly: isReadOnly,
-            haplotypeProjectionMode: haplotypeProjectionMode,
-            presentationColors: presentationColors
-        )
-    }
-}
-
-public struct GenotypeCurrentWorkbookUIRequest: Sendable {
-    public enum Action: Equatable, Sendable {
-        case register
-        case markDirty
-        case synchronize(GenotypeCurrentWorkbookSyncIntent)
-        case openEditable
-        case acceptedEditable
-    }
-
-    public let snapshot: GenotypeCurrentWorkbookUISnapshot
-    public let action: Action
-    public let openAfterSuccess: Bool
-
-    public init(snapshot: GenotypeCurrentWorkbookUISnapshot, action: Action) {
-        self.snapshot = snapshot
-        self.action = action
-        if case .synchronize(.updateAndView) = action {
-            self.openAfterSuccess = true
-        } else {
-            self.openAfterSuccess = false
-        }
-    }
-}
-
 public struct GenotypeResultDocumentState: Equatable {
     public var title: String
     public var subtitle: String?
@@ -206,7 +35,6 @@ public struct GenotypeResultDocumentState: Equatable {
     public var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
     public var haplotypeDefinitionRows: [(String, String)] = []
     public var haplotypeDefinitionsFolderURL: URL?
-    public var currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
     public var lastExcelExport: GenotypeExcelExportPresentation?
     public var excelExportStatus: String?
     public var isExcelExporting: Bool
@@ -231,7 +59,6 @@ public struct GenotypeResultDocumentState: Equatable {
         auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = [],
         haplotypeDefinitionRows: [(String, String)] = [],
         haplotypeDefinitionsFolderURL: URL? = nil,
-        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState? = nil,
         lastExcelExport: GenotypeExcelExportPresentation? = nil,
         excelExportStatus: String? = nil,
         isExcelExporting: Bool = false
@@ -255,7 +82,6 @@ public struct GenotypeResultDocumentState: Equatable {
         self.auditEntries = auditEntries
         self.haplotypeDefinitionRows = haplotypeDefinitionRows
         self.haplotypeDefinitionsFolderURL = haplotypeDefinitionsFolderURL
-        self.currentWorkbookUpdate = currentWorkbookUpdate
         self.lastExcelExport = lastExcelExport
         self.excelExportStatus = excelExportStatus
         self.isExcelExporting = isExcelExporting
@@ -288,14 +114,6 @@ public struct GenotypeResultDocumentState: Equatable {
     public func replacing(auditEntries: [GenotypeAnnotationSidecar.AuditEntry]) -> GenotypeResultDocumentState {
         var copy = self
         copy.auditEntries = auditEntries
-        return copy
-    }
-
-    public func replacing(
-        currentWorkbookUpdate: GenotypeResultCurrentWorkbookUpdateState?
-    ) -> GenotypeResultDocumentState {
-        var copy = self
-        copy.currentWorkbookUpdate = currentWorkbookUpdate
         return copy
     }
 
@@ -335,7 +153,6 @@ public struct GenotypeResultDocumentState: Equatable {
             lhs.auditEntries == rhs.auditEntries &&
             lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL &&
-            lhs.currentWorkbookUpdate == rhs.currentWorkbookUpdate &&
             lhs.lastExcelExport == rhs.lastExcelExport &&
             lhs.excelExportStatus == rhs.excelExportStatus &&
             lhs.isExcelExporting == rhs.isExcelExporting
@@ -349,7 +166,7 @@ enum GenotypeResultDocumentComponent: Equatable {
     case smartCohorts
     case summary
     case samples
-    case currentWorkbook
+    case excel
     case haplotypeDefinitions
     case qc
     case artifacts
@@ -422,7 +239,7 @@ public struct GenotypeResultDocumentSection: View {
             summarySection
         case .samples:
             samplesSection
-        case .currentWorkbook:
+        case .excel:
             excelSection
         case .haplotypeDefinitions:
             haplotypeDefinitionsSection
@@ -445,9 +262,7 @@ public struct GenotypeResultDocumentSection: View {
             components += [.divider, .smartCohorts]
         }
         components += [.divider, .summary, .divider, .samples]
-        if state.currentWorkbookUpdate != nil {
-            components += [.divider, .currentWorkbook]
-        }
+        if state.bundleURL != nil { components += [.divider, .excel] }
         if !state.haplotypeDefinitionRows.isEmpty {
             components += [.divider, .haplotypeDefinitions]
         }

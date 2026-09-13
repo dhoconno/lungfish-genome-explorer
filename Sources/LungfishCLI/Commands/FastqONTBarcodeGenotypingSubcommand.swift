@@ -38,12 +38,6 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("analysis-name"), help: "Label for this ONT analysis in the workbook; defaults to --output-name")
     var analysisName: String?
 
-    @Option(name: .customLong("comparison-workbook"), help: "Optional Excel workbook whose first sheet provides comparison layout and expected calls")
-    var comparisonWorkbook: String?
-
-    @Option(name: .customLong("comparison-name"), help: "Label for the comparison workbook sheet")
-    var comparisonName: String = "Illumina-31262"
-
     @Option(name: .customLong("project"), help: "Project directory; external FASTA references are imported here before mapping")
     var project: String?
 
@@ -145,8 +139,6 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             outputName: outputName,
             demuxManifestURL: demuxManifest.map { URL(fileURLWithPath: $0) },
             analysisName: analysisName,
-            comparisonWorkbookURL: comparisonWorkbook.map { URL(fileURLWithPath: $0) },
-            comparisonName: comparisonName,
             projectURL: project.map { URL(fileURLWithPath: $0, isDirectory: true) },
             threads: threads,
             sortThreads: sortThreads,

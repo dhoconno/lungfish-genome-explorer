@@ -632,7 +632,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     /// Replaces workbook-backed scientific rows while preserving analyst view
     /// state (stable sample order/widths, sort, filters, and surviving
-    /// selection). This is used after current.xlsx is reloaded.
+    /// selection) when retained scientific state is refreshed.
     func replaceResultPreservingPresentation(
         _ result: ONTGenotypeResultBundleData,
         metadataStore: SampleMetadataStore?,
@@ -1105,7 +1105,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             lens: lens,
             filters: filters,
             sampleNames: exportSampleNames,
-            rows: rows
+            rows: rows,
+            // Manual bands include blank editor slots, not scientific calls.
+            // Effective-call scope is independent of collapse and evidence rows.
+            haplotypeLocusScope: !unfiltered && haplotypeBandMode == .effectiveMiSeqCalls
+                ? activeHaplotypeBandLoci : nil
         )
     }
 

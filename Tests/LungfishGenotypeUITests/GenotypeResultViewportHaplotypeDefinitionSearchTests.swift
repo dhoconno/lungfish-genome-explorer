@@ -13,7 +13,7 @@ import LungfishTestSupport
 @MainActor
 final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResultViewportTestCase {
     func testMatrixModeRendersHaplotypeDefinitionMatrixFromRecordedAnalysis() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             makeCall(sample: "DW472", genotype: "13_M2_DRB_W4_02", reads: 1117),
@@ -80,7 +80,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testRhesusHaplotypeMatrixCountsOnlyClassicalReadsForClassicalAAlleles() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 100),
@@ -134,7 +134,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testNotAssayedCallsDoNotMakeClearWholeMHCHomozygote() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
 
         XCTAssertFalse(controller.testingIsClearWholeMHCHomozygote(calls: [
             (
@@ -150,7 +150,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testNotAssayedCallsAreIgnoredWhenCalledLociAreClearHomozygous() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
 
         XCTAssertTrue(controller.testingIsClearWholeMHCHomozygote(calls: [
             (
@@ -174,7 +174,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testSelectedSampleCellCanBeHighlightedFromInspectorRequest() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let call = ONTGenotypeCall(
             sample: "AnimalA",
@@ -204,7 +204,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testSelectedSampleCellCanCarrySeparateFillAndBorderHighlights() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let call = ONTGenotypeCall(
             sample: "AnimalA",
@@ -254,7 +254,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testRawMatrixCanSelectEmptyCellTarget() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_001_01"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
@@ -318,7 +318,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         ]
         try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
 
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
@@ -369,7 +369,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         ]
         try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
 
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [call]))
@@ -385,7 +385,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testPerCellReadThresholdHidesCellsAndKeepsRowsWithVisibleCells() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 10)
@@ -426,7 +426,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             overallUniqueRetainedReads: nil,
             overallUniqueRetainedPercent: nil
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [
             ONTGenotypeSampleResult(
@@ -456,7 +456,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testSupportedCellSelectionHelperSkipsEmptyCells() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -508,7 +508,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testSupportedCellSelectionHelperStaysScopedToSelectedRow() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_A1_SECOND"
@@ -554,7 +554,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
         let weak = makeCall(sample: "AnimalB", genotype: genotype, reads: 2)
         let unrelated = makeCall(sample: "AnimalB", genotype: "02_Mafa_A1_SECOND", reads: 9)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -604,7 +604,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let genotype = "01_Mafa_A1_SHARED"
         let weak = makeCall(sample: "AnimalA", genotype: genotype, reads: 1)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
             ONTGenotypeSampleResult(
@@ -631,7 +631,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixReadThresholdPersistsAcrossLensSwitchAndReconfigure() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let strong = makeCall(sample: "AnimalA", genotype: genotype, reads: 10)
@@ -669,7 +669,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixSelectionDetailsDifferentiateRowsColumnsAndCells() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -711,7 +711,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixExplicitSelectionChicletsAndCellClickPublishDistinctTargets() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 6)
@@ -775,7 +775,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixDirectSelectionSupportsShiftRanges() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_001_01"
         let second = "02_Mafa_A1_002_01"
@@ -829,7 +829,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixFreeTextSearchFiltersAllelesAndSamples() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_B1_SHARED"
@@ -870,7 +870,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixFreeTextSearchFiltersSampleColumnsWhenSampleNameAlsoAppearsInGenotype() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mamu_A1_AR3628_marker"
         let callA = makeCall(sample: "AR3628", genotype: genotype, reads: 6)
@@ -903,7 +903,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testUnifiedQuickFilterPrioritizesSampleColumnMatchOverGenotypeTextMatch() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mamu_A1_AR3628_marker"
         let callA = makeCall(sample: "AR3628", genotype: genotype, reads: 6)
@@ -971,7 +971,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             ],
             alleleFieldKey: "feature.allele"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: samples,
@@ -1028,7 +1028,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
                 calls: sampleCalls
             )
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: samples, calls: calls))
         let matrix = controller.testingComparisonMatrix
@@ -1119,7 +1119,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             ],
             alleleFieldKey: alleleKey
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [sample],
@@ -1193,7 +1193,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
                 at: bundleURL,
                 withIntermediateDirectories: true
             )
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: makeResult(
                 bundleURL: bundleURL,
@@ -1243,7 +1243,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9),
             makeCall(sample: "AnimalB", genotype: "04_Mafa_B_001", reads: 8),
         ]
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1280,7 +1280,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testQuickSearchCapabilityCopyAccessibilityAndGenotypeOnlyHaplotypeGate() throws {
-        let genotypeController = GenotypeResultViewController()
+        let genotypeController = makeMatrixAnnotationGuardedController()
         _ = genotypeController.view
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
         genotypeController.configure(result: makeResult(
@@ -1314,7 +1314,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         XCTAssertEqual(genotypeController.testingSearchIndexBuildCount, 1)
         XCTAssertEqual(genotypeController.testingSearchHaplotypeRecordBuildCount, 0)
 
-        let haplotypedController = GenotypeResultViewController()
+        let haplotypedController = makeMatrixAnnotationGuardedController()
         _ = haplotypedController.view
         haplotypedController.configure(result: makeResult(
             samples: [],
@@ -1334,7 +1334,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
     func testQuickSearchEmptyStateAnnouncesOnceRecoversAndDoesNotStealFocus() {
         let announcements = RecordingGenotypeSearchAnnouncements()
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.testingSetSearchAnnouncementPoster(announcements)
         _ = controller.view
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
@@ -1399,7 +1399,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testQuickSearchIndexIsReusedAndMetadataReplacementInvalidatesIt() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
         controller.configure(result: makeResult(
@@ -1435,7 +1435,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testCommandFFocusesQuickSearchAndEscapeClearsIt() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001", reads: 9)
         controller.configure(result: makeResult(
@@ -1521,7 +1521,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
                 alleleFieldKey: "feature.allele"
             )
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [sample],
@@ -1588,7 +1588,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             ],
             alleleFieldKey: alleleField.key
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [sample(oldCall)],
@@ -1599,16 +1599,14 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         controller.testingSetQuickFilterSearchText("A1*099")
         XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
 
-        controller.applyCurrentWorkbookUpdateCompleted(result: makeResult(
+        controller.configure(result: makeResult(
             samples: [sample(newCall)],
             calls: [newCall],
             referenceMetadata: newMetadata
         ))
 
-        XCTAssertEqual(
-            controller.testingVisibleGenotypes,
-            [newCall.genotype]
-        )
+        controller.testingSetQuickFilterSearchText("A1*099")
+        XCTAssertEqual(controller.testingVisibleGenotypes, [newCall.genotype])
     }
 
 
@@ -1622,7 +1620,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         )
         let genotype = "01_Mafa_A1_INTERNAL"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 9)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -1689,7 +1687,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             withIntermediateDirectories: true
         )
         let provisionalName = "Mafa-A1*900:01_search_nov"
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeCandidateResult(
             bundleURL: bundleURL,
@@ -1756,7 +1754,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         AnimalA\tMHC-B review
         AnimalB\tcontrol
         """.write(to: metadataDir.appendingPathComponent("sample_metadata.tsv"), atomically: true, encoding: .utf8)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let callA = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SHARED", reads: 6)
         let callB = makeCall(sample: "AnimalB", genotype: "04_Mafa_B_001_01", reads: 8)
@@ -1787,7 +1785,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixSelectionFiltersRowsUntilCleared() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_B_SHARED"
@@ -1826,7 +1824,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixSelectionFiltersColumnsUntilCleared() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
         let callA = makeCall(sample: "AnimalA", genotype: genotype, reads: 12)
@@ -1865,7 +1863,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixRowSelectorReflectsOnlyWholeRowSelection() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_B_SHARED"
@@ -1894,7 +1892,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixSelectorsExposeCheckboxSemanticsAndVoiceOverPress() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_B_SHARED"
@@ -1981,7 +1979,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixSelectorAccessibilityProxiesAreStableAndPostStateNotifications() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9)
@@ -2034,7 +2032,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixVisibilityPublishesImmutableCapabilitiesAndSupportsAllSetActions() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_SHARED"
         let second = "02_Mafa_B_SHARED"
@@ -2076,7 +2074,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixManualVisibilityComposesWithSearchInspectorThresholdAndSort() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let low = "01_Mafa_A1_LOW"
         let excluded = "02_Mafa_B_EXCLUDED"
@@ -2110,7 +2108,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixInspectorAlleleFilterDoesNotMatchSampleNamesOrMetadata() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_FILTER_SCOPE"
         controller.configure(result: makeResult(
@@ -2132,7 +2130,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixInspectorAlleleFilterMatchesDisplayedReferenceAlias() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let rawGenotype = "raw-reference-sequence-42"
         let alleleField = GenBankRecordDatabase.FieldDefinition(
@@ -2163,7 +2161,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixMinimumReadsIgnoresSupportFromManuallyHiddenSamples() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_HIDDEN_SUPPORT"
         let hiddenHigh = makeCall(sample: "AnimalA", genotype: genotype, reads: 100)
@@ -2185,7 +2183,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixSortByHiddenSampleRetainsStableSemantics() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = "01_Mafa_A1_LOW_IN_A"
         let second = "02_Mafa_A1_HIGH_IN_A"
@@ -2211,7 +2209,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixVisibilityNoOpCommandsDoNotTriggerProjectionMutation() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         let second = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9)
@@ -2242,7 +2240,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testMatrixVisibilityActionsStayOnTheLightweightProjectionPath() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let calls = [
             makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12),
@@ -2303,8 +2301,8 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let callA = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         let callB = makeCall(sample: "AnimalB", genotype: "02_Mafa_B", reads: 9)
         let result = makeResult(samples: [], calls: [callA, callB])
-        let first = GenotypeResultViewController()
-        let second = GenotypeResultViewController()
+        let first = makeMatrixAnnotationGuardedController()
+        let second = makeMatrixAnnotationGuardedController()
         _ = first.view
         _ = second.view
         first.configure(result: result)
@@ -2411,7 +2409,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
                 )
             }
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
         let matrix = controller.testingComparisonMatrix
@@ -2456,7 +2454,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let calls = samples.map {
             makeCall(sample: $0, genotype: "01_Mafa_A1", reads: 10)
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
         let matrix = controller.testingComparisonMatrix
@@ -2493,7 +2491,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let calls = samples.map {
             makeCall(sample: $0, genotype: "01_Mafa_A1", reads: 10)
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
         let matrix = controller.testingComparisonMatrix
@@ -2519,7 +2517,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         let calls = samples.map {
             makeCall(sample: $0, genotype: "01_Mafa_A1", reads: 10)
         }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: calls))
 
@@ -2540,7 +2538,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testHidingFocusedSelectionPrunesItAndMovesFocusToNearestRowSelector() throws {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1", reads: 9)
@@ -2571,7 +2569,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testHidingAccessibilityFocusedRowRecoversNearestWithoutStealingKeyboardFocus() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1", reads: 9)
@@ -2613,7 +2611,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testVisibilityActionDoesNotStealUnrelatedKeyboardOrAccessibilityFocus() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1", reads: 9)
@@ -2644,7 +2642,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
 
 
     func testHidingOnlyAccessibilityFocusedRowMovesAXFocusToMatrixWithoutKeyboardTheft() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let only = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
         controller.configure(result: makeResult(samples: [], calls: [only]))
@@ -2757,7 +2755,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             return bytes
         }
 
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [call]))
         let before = try recursiveBytes()
@@ -2774,8 +2772,6 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         controller.testingResetMatrixVisibility()
 
         XCTAssertEqual(try recursiveBytes(), before)
-        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertFalse(controller.testingCurrentWorkbookRequiresFullUpdate)
         XCTAssertGreaterThan(
             controller.testingComparisonMatrix.testingVisibilityMutationCount,
             0

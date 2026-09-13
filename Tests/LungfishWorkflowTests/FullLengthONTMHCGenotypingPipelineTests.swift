@@ -7,6 +7,58 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
+    private static func exportSnapshot(for workbook: URL) throws -> GenotypeWorkbookPresentation.Snapshot {
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with:
+            Data(contentsOf: workbook.appendingPathExtension("provenance.json"))) as? [String: Any])
+        let path = try XCTUnwrap((receipt["snapshot"] as? [String: Any])?["path"] as? String)
+        return try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: Data(contentsOf: URL(fileURLWithPath: path)))
+    }
+
+    func testFullLengthFrozenDefinitionSurvivesCleanupAndFinalReportRelocation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("full-definition-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = root.appendingPathComponent("test.lungfishmhcref")
+        try FileManager.default.createDirectory(at: reference, withIntermediateDirectories: true)
+        let definition = GenotypeHaplotypeDefinitionSet(id: "task5.full-length", assayID: "task5.assay",
+            displayName: "Frozen test definition", speciesName: "Test macaque", speciesCode: "MCM", prefix: "Mafa",
+            locusDefinitions: [.init(locus: "MHC-A", sourceLocus: "Mafa-A",
+                haplotypes: [.init(name: "Test-A", diagnosticAlleles: ["allele1"])])])
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(definition).write(to: reference.appendingPathComponent("definition.json"))
+        try Data(">allele1\nACGTACGT\n".utf8).write(to: reference.appendingPathComponent("reference.fa"))
+        try MHCAmpliconReferenceBundle.writeManifest(.init(name: "Frozen test", referenceFastaPath: "reference.fa",
+            haplotypeDefinitionPaths: ["definition.json"], defaultHaplotypeDefinitionID: definition.id,
+            metrics: .init(referenceCount: 1, haplotypeDefinitionCount: 1), createdAt: "2026-09-12T00:00:00Z"), to: reference)
+        let (request, pipeline) = try makeFakeFullLengthRun(root: root, referenceSourceURL: reference,
+            haplotypeDefinitionSetID: definition.id)
+        let result = try await pipeline.run(request)
+        let definitionURL = GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: result.outputDirectory)
+        let bytes = try Data(contentsOf: definitionURL)
+        XCTAssertEqual(try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: bytes), definition)
+        let snapshot = try Self.exportSnapshot(for: result.workbookURL)
+        XCTAssertEqual(try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self,
+            from: XCTUnwrap(snapshot.capturedScientificInputs?["definition.json"])), definition)
+        let analysis = try JSONDecoder().decode(GenotypeHaplotypeAnalysis.self, from: Data(contentsOf: request.haplotypeAnalysisURL))
+        XCTAssertEqual(analysis.definitionSetID, definition.id)
+        XCTAssertEqual(snapshot.calls.count, analysis.samples.flatMap(\.calls).count)
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+            result.workbookURL.appendingPathExtension("provenance.json"))) as? [String: Any])
+        let witness = try XCTUnwrap((receipt["inputs"] as? [[String: Any]])?.first {
+            ($0["path"] as? String) == definitionURL.path
+        })
+        let captured = try XCTUnwrap(witness["capturedPath"] as? String)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: captured)), bytes)
+        XCTAssertEqual(witness["sha256"] as? String, GenotypeExcelSnapshotBuilder.digest(bytes))
+        let provenanceDecoder = JSONDecoder(); provenanceDecoder.dateDecodingStrategy = .iso8601
+        let envelope = try provenanceDecoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: result.provenanceURL))
+        let descriptor = try XCTUnwrap(envelope.outputs.first { $0.path == definitionURL.path })
+        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: definitionURL))
+        XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: definitionURL))
+        XCTAssertFalse(descriptor.path.contains(".run-staging-"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: result.outputDirectory.appendingPathComponent(".full-length-ont-mhc/inputs/haplotype-definition.json").path))
+    }
+
     func testPublishedReferenceVisualizationsIncludeUncalledCandidateNeighbors() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-reference-visualization-candidates-\(UUID().uuidString)", isDirectory: true)
@@ -440,12 +492,12 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
         let result = try await pipeline.run(request)
 
-        let unifiedSheet = try Self.unzippedText(
-            path: "xl/worksheets/sheet1.xml",
-            from: result.primaryWorkbookURL
-        )
-        XCTAssertTrue(unifiedSheet.contains("NHP00344"), "Raw reference ID must remain available as call_id")
-        XCTAssertTrue(unifiedSheet.contains("Mafa-E*02:01:01"), "Display name must use feature.allele metadata")
+        let snapshot = try Self.exportSnapshot(for: result.workbookURL)
+        let referenceRow = try XCTUnwrap(snapshot.allMatrix.rows.first { $0.target.genotype == "NHP00344" })
+        XCTAssertEqual(referenceRow.displayName, "Mafa-E*02:01:01",
+            "Unified reports must use the same selected reference allele metadata as the native view.")
+        XCTAssertEqual(snapshot.filteredMatrix.rows.first { $0.target.genotype == "NHP00344" }?.displayName,
+            "Mafa-E*02:01:01")
 
         let embeddedDatabaseURL = request.outputDirectory
             .appendingPathComponent("metadata", isDirectory: true)
@@ -1935,30 +1987,24 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(durablePerSampleBAMs, [])
 
         let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: result.workbookURL)
-        XCTAssertEqual(
-            Self.sheetNames(in: workbookXML),
-            ["Unified Genotype Pivot", "Unmatched Alleles"]
-        )
-        XCTAssertFalse(workbookXML.contains("Cluster Alignments"))
-        XCTAssertFalse(workbookXML.contains("Unmatched Closest Matches"))
-        XCTAssertFalse(workbookXML.contains("Full Sequencing Results 1"))
-
-        let unifiedSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet1.xml", from: result.workbookURL)
-        XCTAssertTrue(unifiedSheetXML.contains("Client ID"))
-        XCTAssertTrue(unifiedSheetXML.contains("Mapped Read Count"))
-        XCTAssertTrue(unifiedSheetXML.contains("MHC-A Haplotype 1"))
-        XCTAssertTrue(unifiedSheetXML.contains("Comments"))
-        XCTAssertTrue(unifiedSheetXML.contains("call_type"))
-        XCTAssertTrue(unifiedSheetXML.contains("display_name"))
-
-        let unmatchedSheetXML = try Self.unzippedText(path: "xl/worksheets/sheet2.xml", from: result.workbookURL)
-        XCTAssertTrue(unmatchedSheetXML.contains("Stable Cluster ID"))
-        XCTAssertTrue(unmatchedSheetXML.contains("Nucleotide Sequence"))
-        XCTAssertFalse(unmatchedSheetXML.contains("Full-Length FASTA Sequence"))
-        XCTAssertFalse(unmatchedSheetXML.contains("UTR-Trimmed FASTA Sequence"))
-        XCTAssertTrue(unmatchedSheetXML.contains("Putative Amino Acid Translation"))
-        XCTAssertTrue(unmatchedSheetXML.contains("Translation Status"))
-        XCTAssertTrue(try Self.unzippedText(path: "xl/styles.xml", from: result.workbookURL).contains("FFF5D78E"))
+        XCTAssertEqual(Self.sheetNames(in: workbookXML),
+            ["Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
+        let snapshot = try Self.exportSnapshot(for: result.workbookURL)
+        XCTAssertFalse(snapshot.hasHaplotypeContent)
+        XCTAssertFalse(snapshot.allMatrix.rows.isEmpty)
+        // Detailed unmatched sequence/translation science stays in the durable
+        // typed projection artifact, not a second Excel layout.
+        let projection = try JSONDecoder().decode(FullLengthONTMHCWorkbookProjectionInputDocument.self,
+            from: Data(contentsOf: result.outputDirectory.appendingPathComponent("artifacts/projections/mhc-workbook-projection-input.json")))
+        let unmatched = try XCTUnwrap(projection.sheets.first { $0.name == "Unmatched Alleles" })
+        let strings = unmatched.cells.flatMap { $0 }.compactMap { cell -> String? in
+            if case .text(let value) = cell.value { return value }
+            return nil
+        }
+        XCTAssertTrue(strings.contains("Stable Cluster ID"))
+        XCTAssertTrue(strings.contains("Nucleotide Sequence"))
+        XCTAssertTrue(strings.contains("Putative Amino Acid Translation"))
+        XCTAssertTrue(strings.contains("Translation Status"))
     }
 
     func testRunRetriesStrictNoClusterSampleWithHiddenQV90MinClusterOneFallback() async throws {
@@ -3193,6 +3239,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let result = try await pipeline.run(request)
 
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.appendingPathComponent("artifacts/workbooks/current.xlsx").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.workbookURL.appendingPathExtension("provenance.json").path))
         XCTAssertTrue(observation.observedProvenanceBoundary)
         XCTAssertTrue(observation.manifestWasAbsentAtProvenanceBoundary)
         XCTAssertTrue(observation.observedFinalProvenanceBoundary)
@@ -3265,7 +3313,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
             "lungfish-in-process:materialize-mhc-candidate-staging-generation",
             "lungfish-in-process:assemble-mhc-workbook-projection-input",
-            "lungfish-internal mhc-candidate-workbook-project",
+            "lungfish genotype Excel export",
         ]))
         let rawDecisionStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-in-process:serialize-raw-unmatched-consensus-decisions"
@@ -3396,58 +3444,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(envelope.outputs.allSatisfy {
             !$0.path.contains(".run-staging-") && !$0.path.contains(".candidate-artifact-work")
         }, envelope.outputs.map(\.path).joined(separator: "\n"))
-        let workbookProjectionStep = try XCTUnwrap(envelope.steps.first {
-            $0.toolName == "lungfish-internal mhc-candidate-workbook-project"
-        })
-        XCTAssertEqual(Array(workbookProjectionStep.argv.prefix(2)), [
-            "lungfish-internal", "mhc-candidate-workbook-project",
-        ])
-        XCTAssertEqual(workbookProjectionStep.toolVersion, WorkflowRun.currentAppVersion)
-        XCTAssertEqual(workbookProjectionStep.exitStatus, 0)
-        XCTAssertNotNil(workbookProjectionStep.startedAt)
-        XCTAssertNotNil(workbookProjectionStep.completedAt)
-        XCTAssertGreaterThanOrEqual(workbookProjectionStep.wallTimeSeconds ?? -1, 0)
-        XCTAssertEqual(workbookProjectionStep.inputs.count, 1)
-        let workbookProjectionInputURL = URL(
-            fileURLWithPath: try XCTUnwrap(workbookProjectionStep.inputs.first).path
-        )
-        XCTAssertEqual(
-            value(after: "--projection-input", in: workbookProjectionStep.argv),
-            workbookProjectionInputURL.path
-        )
-        let workbookProjectionInput = try JSONDecoder().decode(
-            FullLengthONTMHCWorkbookProjectionInputDocument.self,
-            from: Data(contentsOf: workbookProjectionInputURL)
-        )
-        let expectedCanonicalTints = [
-            FullLengthONTMHCWorkbookTintCategory.sharedNovel.rawValue: "F5D78E",
-            FullLengthONTMHCWorkbookTintCategory.singletonNovel.rawValue: "F5B97A",
-            FullLengthONTMHCWorkbookTintCategory.sharedExtension.rawValue: "A8D8D0",
-            FullLengthONTMHCWorkbookTintCategory.singletonExtension.rawValue: "AFCBF2",
-        ]
-        XCTAssertEqual(workbookProjectionInput.tintARGB, expectedCanonicalTints)
-        XCTAssertEqual(value(after: "--shared-novel-tint", in: workbookProjectionStep.argv), "F5D78E")
-        XCTAssertEqual(value(after: "--singleton-novel-tint", in: workbookProjectionStep.argv), "F5B97A")
-        XCTAssertEqual(value(after: "--shared-extension-tint", in: workbookProjectionStep.argv), "A8D8D0")
-        XCTAssertEqual(value(after: "--singleton-extension-tint", in: workbookProjectionStep.argv), "AFCBF2")
-        XCTAssertEqual(workbookProjectionStep.resolvedOptions["sharedNovelTint"]?.stringValue, "F5D78E")
-        XCTAssertEqual(workbookProjectionStep.resolvedOptions["singletonNovelTint"]?.stringValue, "F5B97A")
-        XCTAssertEqual(workbookProjectionStep.resolvedOptions["sharedExtensionTint"]?.stringValue, "A8D8D0")
-        XCTAssertEqual(workbookProjectionStep.resolvedOptions["singletonExtensionTint"]?.stringValue, "AFCBF2")
-        XCTAssertGreaterThan(workbookProjectionInput.sourceSummary.reportRowCount, 0)
-        XCTAssertEqual(workbookProjectionInput.sourceSummary.sampleSummaryCount, 1)
-        XCTAssertEqual(workbookProjectionInput.schemaVersion, 2)
-        XCTAssertEqual(workbookProjectionInput.sheets.map(\.name), ["Unified Genotype Pivot", "Unmatched Alleles"])
-        XCTAssertEqual(workbookProjectionStep.outputs.map(\.path), [result.primaryWorkbookURL.path])
-        for descriptor in workbookProjectionStep.inputs + workbookProjectionStep.outputs {
-            XCTAssertNotNil(descriptor.checksumSHA256)
-            XCTAssertNotNil(descriptor.fileSize)
-            XCTAssertFalse(descriptor.path.contains(".run-staging-"), descriptor.path)
-            XCTAssertFalse(descriptor.path.contains(".candidate-artifact-work"), descriptor.path)
+        let reportStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish genotype Excel export" })
+        XCTAssertEqual(reportStep.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(reportStep.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(reportStep.wallTimeSeconds ?? -1, 0)
+        XCTAssertEqual(reportStep.resolvedOptions["filter"]?.stringValue, "unfiltered")
+        for descriptor in reportStep.inputs + reportStep.outputs {
+            XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path)))
+            XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: URL(fileURLWithPath: descriptor.path)))
         }
+        let receiptURL = result.workbookURL.appendingPathExtension("provenance.json")
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: receiptURL)) as? [String: Any])
+        XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, result.workbookURL.path)
+        let snapshotPath = try XCTUnwrap((receipt["snapshot"] as? [String: Any])?["path"] as? String)
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: Data(contentsOf: URL(fileURLWithPath: snapshotPath)))
+        try GenotypeExcelSnapshotBuilder.validate(snapshot)
+        let capturedResult = try JSONDecoder().decode(ONTGenotypeResultBundleData.self,
+            from: XCTUnwrap(snapshot.capturedScientificInputs?["result.json"]))
+        XCTAssertEqual(capturedResult.bundleURL, result.outputDirectory)
+        let runtime = try XCTUnwrap(receipt["runtime"] as? [String: Any])
+        let renderer = try XCTUnwrap(runtime["renderer"] as? [String: Any])
+        XCTAssertEqual((renderer["sheets"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
+            ["Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
         let workbookAssemblyStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-in-process:assemble-mhc-workbook-projection-input"
         })
+        let workbookProjectionInputURL = result.outputDirectory.appendingPathComponent("artifacts/projections/mhc-workbook-projection-input.json")
         XCTAssertTrue(Set(workbookAssemblyStep.inputs.map(\.path)).isSuperset(of: [
             try XCTUnwrap(result.candidateAllelesJSONURL).path,
             try XCTUnwrap(result.candidateAllelesFASTAURL).path,
@@ -5323,15 +5345,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(report.contains("DL46,ref-a,7,7,"), report)
         XCTAssertTrue(report.contains("DL46,ref-b,7,7,"), report)
 
-        let genotypeSheet = try Self.unzippedText(
-            path: "xl/worksheets/sheet1.xml",
-            from: result.primaryWorkbookURL
-        )
-        XCTAssertTrue(genotypeSheet.contains("call_id"), genotypeSheet)
-        XCTAssertTrue(genotypeSheet.contains("display_name"), genotypeSheet)
-        XCTAssertTrue(genotypeSheet.contains("ref-a"), genotypeSheet)
-        XCTAssertTrue(genotypeSheet.contains("ref-b"), genotypeSheet)
-        XCTAssertTrue(genotypeSheet.contains("known-allele"), genotypeSheet)
+        let native = try ONTGenotypeResultBundle.loadResult(from: result.outputDirectory)
+        XCTAssertEqual(native.calls.map(\.genotype).sorted(), ["ref-a", "ref-b"])
+        XCTAssertEqual(native.calls.map(\.passedUniqueReads), [7, 7])
+        let snapshot = try Self.exportSnapshot(for: result.workbookURL)
+        XCTAssertEqual(snapshot.allMatrix.rows.map { $0.target.genotype }.sorted(), ["ref-a", "ref-b"])
+        XCTAssertEqual(snapshot.allMatrix.rows.flatMap(\.cells).map(\.rawSupport), [7, 7])
+        XCTAssertEqual(snapshot.allMatrix.rows.flatMap(\.cells).map(\.displayValue), [7, 7])
     }
 
     func testFullLengthPivotWorkbookRowsMatchMiSeqFullSequencingFormatAndSorting() {
@@ -5857,47 +5877,6 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(matches.first?.closestMatchID, "Mamu-A*001_blast-rescue")
     }
 
-    func testXLSXPackageWriterDoesNotIncludeTempMetadataAndWritesUnmatchedSheet() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("full-length-ont-mhc-xlsx-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let workbookURL = root.appendingPathComponent("genotypes.xlsx")
-
-        try FullLengthONTMHCXLSXPackageWriter.write(
-            sheets: [
-                .init(name: "Interpretation Guide", rows: [["Field", "Interpretation"], ["Score formula", "score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"]]),
-                .init(name: "Samples", rows: [["sample", "total_input_reads"], ["DL47", "1966"]]),
-                .init(name: "Genotypes", rows: [["sample", "genotype", "cluster"], ["DL47", "Mamu-A1*004:01:01:01", "Cluster0"]]),
-                .init(name: "Genotyping pivot", rows: [["Client ID", "", "", "DL47"]]),
-                .init(name: "Unmatched Clusters", rows: [["sample", "cluster", "sequence"], ["DL47", "Cluster9", "ACGT"]]),
-                .init(name: "Unmatched Shared Pivot", rows: [["unmatched_sequence_id", "DL47"], ["1dff3e84-fe78-57e0-a73b-69bbddcf4012", "8"]]),
-            ],
-            to: workbookURL
-        )
-
-        let entries = try Self.zipEntries(workbookURL)
-        XCTAssertFalse(entries.contains(".lungfish-temp-origin.json"))
-        XCTAssertTrue(entries.contains("[Content_Types].xml"))
-        XCTAssertTrue(entries.contains("xl/worksheets/sheet6.xml"))
-        XCTAssertFalse(entries.contains("xl/worksheets/sheet7.xml"))
-
-        let workbookXML = try Self.unzippedText(path: "xl/workbook.xml", from: workbookURL)
-        XCTAssertEqual(
-            Self.sheetNames(in: workbookXML),
-            [
-                "Interpretation Guide",
-                "Samples",
-                "Genotypes",
-                "Genotyping pivot",
-                "Unmatched Clusters",
-                "Unmatched Shared Pivot",
-            ]
-        )
-        XCTAssertFalse(workbookXML.contains("Unmatched Closest Matches"))
-        XCTAssertFalse(workbookXML.contains("Cluster Alignments"))
-        XCTAssertFalse(workbookXML.contains("Full Sequencing Results 1"))
-    }
 
     func testClusterGenotyperReadsGzippedFASTARecords() throws {
         let root = FileManager.default.temporaryDirectory
@@ -5971,6 +5950,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         minimap2Script: String? = nil,
         blastnScript: String? = nil,
         referenceSourceURL: URL? = nil,
+        haplotypeDefinitionSetID: String? = nil,
         failFinalBAMView: Bool = false,
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in },
@@ -6010,7 +5990,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             outputName: "full-length",
             threads: 2,
             minimumLength: 4,
-            maximumLength: 12
+            maximumLength: 12,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID
         )
         let pipeline = FullLengthONTMHCGenotypingPipeline(
             nativeToolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory),
@@ -6130,6 +6111,14 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
     ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let reportBin = root.appendingPathComponent("envs/openpyxl/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportBin, withIntermediateDirectories: true)
+        let reportPython = ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path
+        let reportLink = reportBin.appendingPathComponent("python")
+        if !FileManager.default.fileExists(atPath: reportLink.path) {
+            try FileManager.default.createSymbolicLink(atPath: reportLink.path, withDestinationPath: reportPython)
+        }
         let micromambaScript = #"""
         #!/bin/sh
         set -eu

@@ -1291,44 +1291,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             startedAt: workbookAssemblyStartedAt,
             completedAt: workbookAssemblyCompletedAt
         ))
-
-        let workbookProjectionStartedAt = Date()
-        let durableWorkbookInput = try JSONDecoder().decode(
-            FullLengthONTMHCWorkbookProjectionInputDocument.self,
-            from: Data(contentsOf: workbookProjectionInputURL)
-        )
-        try FullLengthONTMHCXLSXPackageWriter.write(
-            sheets: durableWorkbookInput.sheets,
-            to: request.workbookURL
-        )
-        let workbookProjectionCompletedAt = Date()
-        pipelineSteps.append(FullLengthONTMHCProvenanceStep(
-            toolName: "lungfish-internal mhc-candidate-workbook-project",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: [
-                "lungfish-internal", "mhc-candidate-workbook-project",
-                "--projection-input", workbookProjectionInputURL.path,
-                "--workbook", request.workbookURL.path,
-                "--shared-novel-tint", FullLengthONTMHCWorkbookTintDefaults.sharedNovel,
-                "--singleton-novel-tint", FullLengthONTMHCWorkbookTintDefaults.singletonNovel,
-                "--shared-extension-tint", FullLengthONTMHCWorkbookTintDefaults.sharedExtension,
-                "--singleton-extension-tint", FullLengthONTMHCWorkbookTintDefaults.singletonExtension,
-            ],
-            resolvedOptions: [
-                "sharedNovelTint": .string(FullLengthONTMHCWorkbookTintDefaults.sharedNovel),
-                "singletonNovelTint": .string(FullLengthONTMHCWorkbookTintDefaults.singletonNovel),
-                "sharedExtensionTint": .string(FullLengthONTMHCWorkbookTintDefaults.sharedExtension),
-                "singletonExtensionTint": .string(FullLengthONTMHCWorkbookTintDefaults.singletonExtension),
-            ],
-            inputs: [workbookProjectionInputURL],
-            outputs: [request.workbookURL],
-            exitStatus: 0,
-            stderr: nil,
-            startedAt: workbookProjectionStartedAt,
-            completedAt: workbookProjectionCompletedAt
-        ))
-        let workbookCopy = try createInitialCurrentWorkbookCopy(for: request)
-        pipelineSteps.append(workbookCopy.step)
         let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
             fromReferenceBundle: request.referenceSourceURL,
             toResultBundle: request.outputDirectory
@@ -1346,6 +1308,42 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 completedAt: snapshot.completedAt
             ))
         }
+        let workbookProjectionStartedAt = Date()
+        let reportManifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: haplotypeAnalysis == nil ? .genotypeOnly : .haplotyped,
+            outputName: request.outputName, analysisName: request.outputName,
+            primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            longSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.reportCSVURL),
+            sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
+            statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
+            provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
+            haplotypeAnalysisPath: haplotypeAnalysis == nil ? nil : relativePath(from: request.outputDirectory, to: request.haplotypeAnalysisURL),
+            haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
+            haplotypeAssayID: haplotypeAnalysis?.assayID,
+            mhcCandidateArtifacts: candidateArtifactResult.manifest,
+            referenceRecordStore: referenceRecordStoreSnapshot?.info,
+            reviewableRowCatalog: reviewableRowCatalogPublication?.artifact)
+        let report = try await GenotypePipelineExcelReport.write(
+            physicalDirectory: request.outputDirectory, finalDirectory: logicalFinalOutputURL, manifest: reportManifest,
+            analysis: haplotypeAnalysis, definition: try haplotypeAnalysis.map { _ in
+                try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: Data(contentsOf: GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: request.outputDirectory)))
+            },
+            candidates: candidateDocument, unnameable: unnameableDocument, catalog: reviewableRowCatalogPublication?.document,
+            python: try await condaManager.toolPath(name: "python", environment: "openpyxl"),
+            argv: request.argv, condaRoot: condaManager.rootPrefix)
+        let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: report.receiptURL)) as! [String: Any]
+        pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+            toolName: "lungfish genotype Excel export", toolVersion: WorkflowRun.currentAppVersion,
+            argv: receipt["executedArgv"] as! [String],
+            resolvedOptions: ["filter": .string("unfiltered")],
+            inputs: [request.reportCSVURL, request.sampleSummaryCSVURL, request.statsJSONURL],
+            outputs: [report.outputURL, report.receiptURL] + (try FileManager.default.contentsOfDirectory(
+                at: report.snapshotURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)),
+            exitStatus: 0, stderr: receipt["stderr"] as? String,
+            startedAt: workbookProjectionStartedAt, completedAt: Date()
+        ))
         try rewriteCheckpointPaths(
             in: request.outputDirectory,
             replacing: request.outputDirectory.standardizedFileURL.path,
@@ -1356,7 +1354,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         do {
             let plan = try stageManifest(
                 request: request,
-                workbookRevision: workbookCopy.revision,
                 evidenceArtifactPair: evidenceArtifactPair,
                 candidateArtifacts: candidateArtifactResult.manifest,
                 referenceVisualizations: referenceVisualizationPublication?.descriptor,
@@ -1410,8 +1407,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             reportCSVURL: request.reportCSVURL,
             sampleSummaryCSVURL: request.sampleSummaryCSVURL,
             statsJSONURL: request.statsJSONURL,
-            workbookURL: request.currentWorkbookURL,
-            primaryWorkbookURL: request.workbookURL,
+            workbookURL: request.workbookURL,
             haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
             unmatchedClustersFASTAURL: request.unmatchedClustersFASTAURL,
             deduplicatedUnmatchedClustersFASTAURL: request.deduplicatedUnmatchedClustersFASTAURL,

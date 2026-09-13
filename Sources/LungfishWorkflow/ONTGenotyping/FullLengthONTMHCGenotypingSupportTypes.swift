@@ -82,9 +82,9 @@ struct FullLengthONTMHCWorkbookProjectionInputDocument: Codable, Equatable, Send
     let schemaVersion: Int
     let tintARGB: [String: String]
     let sourceSummary: SourceSummary
-    let sheets: [FullLengthONTMHCXLSXPackageWriter.Sheet]
+    let sheets: [FullLengthONTMHCProjectionSheet]
 
-    init(sourceSummary: SourceSummary, sheets: [FullLengthONTMHCXLSXPackageWriter.Sheet]) {
+    init(sourceSummary: SourceSummary, sheets: [FullLengthONTMHCProjectionSheet]) {
         schemaVersion = Self.schemaVersion
         tintARGB = [
             FullLengthONTMHCWorkbookTintCategory.sharedNovel.rawValue: FullLengthONTMHCWorkbookTintDefaults.sharedNovel,
@@ -197,7 +197,16 @@ struct FullLengthONTMHCReviewCatalogAuthority: Sendable {
     }
 }
 
-internal struct FullLengthONTMHCWorkbookCopyResult: Sendable {
-    let revision: ONTGenotypeWorkbookRevision
-    let step: FullLengthONTMHCProvenanceStep
+/// Typed scientific projection retained independently of Excel rendering.
+struct FullLengthONTMHCProjectionSheet: Codable, Sendable, Equatable {
+    let name: String
+    let cells: [[FullLengthONTMHCWorkbookCell]]
+    init(name: String, rows: [[String]]) {
+        self.name = name
+        cells = rows.map { $0.map { FullLengthONTMHCWorkbookCell($0) } }
+    }
+    init(name: String, cells: [[FullLengthONTMHCWorkbookCell]]) {
+        self.name = name
+        self.cells = cells
+    }
 }

@@ -44,6 +44,9 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
     /// Nil identifies a legacy projection whose workbook companions retain
     /// their historical behavior.
     public let haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]?
+    /// Explicit semantic band axis; nil means full authority, [] means no loci.
+    /// Independent of evidence-row retention and band expansion state.
+    public let haplotypeLocusScope: [String]?
     public let sourceRevision: GenotypeViewProjectionSourceRevision?
     public let filterContext: [String: String]?
     public let presentationColors: [GenotypeWorkbookPresentation.Color]?
@@ -58,6 +61,7 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         diagnosticAllelesOnly: Bool? = nil,
         includeTotalReads: Bool? = nil,
         haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
+        haplotypeLocusScope: [String]? = nil,
         sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
         filterContext: [String: String]? = nil,
         presentationColors: [GenotypeWorkbookPresentation.Color]? = nil
@@ -71,6 +75,7 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         self.diagnosticAllelesOnly = diagnosticAllelesOnly
         self.includeTotalReads = includeTotalReads
         self.haplotypeCalls = haplotypeCalls
+        self.haplotypeLocusScope = haplotypeLocusScope
         self.sourceRevision = sourceRevision
         self.filterContext = filterContext
         self.presentationColors = presentationColors

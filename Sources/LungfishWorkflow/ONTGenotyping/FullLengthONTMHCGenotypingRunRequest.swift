@@ -132,12 +132,6 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         outputDirectory.appendingPathComponent("\(outputName).full-length-ont-mhc-genotypes.xlsx")
     }
 
-    public var currentWorkbookURL: URL {
-        outputDirectory
-            .appendingPathComponent("artifacts/workbooks", isDirectory: true)
-            .appendingPathComponent("current.xlsx")
-    }
-
     public var haplotypeAnalysisURL: URL {
         outputDirectory.appendingPathComponent("\(outputName).haplotype-analysis.json")
     }

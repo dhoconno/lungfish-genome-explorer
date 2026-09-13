@@ -158,7 +158,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         projection: FullLengthONTMHCWorkbookProjection,
         normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow],
         knownAlleleDisplayNames: [String: String]
-    ) -> [FullLengthONTMHCXLSXPackageWriter.Sheet] {
+    ) -> [FullLengthONTMHCProjectionSheet] {
         [
             .init(
                 name: "Unified Genotype Pivot",
@@ -190,43 +190,6 @@ extension FullLengthONTMHCGenotypingPipeline {
         ]
     }
 
-    internal func interpretationWorkbookRows(
-        request: FullLengthONTMHCGenotypingRunRequest,
-        sampleSummaries: [FullLengthONTMHCSampleSummary],
-        haplotypeAnalysis: GenotypeHaplotypeAnalysis?
-    ) -> [[String]] {
-        [
-            ["Field", "Interpretation"],
-            ["Workflow", "Full-length ONT MHC genotyping"],
-            ["Read preparation", "Input reads are materialized as plain FASTQ, optionally oriented and primer-trimmed, length-filtered, then clustered into Savont ASVs."],
-            ["Savont settings", "quality_value_cutoff=\(request.savontQualityValueCutoff); min_cluster_size=\(request.savontMinimumClusterSize); min_length=\(request.minimumLength); max_length=\(request.maximumLength)"],
-            ["Sample presets", sampleSummaries.map { "\($0.sample): \($0.savontPreset) (\($0.savontStatus.rawValue))" }.joined(separator: "; ")],
-            ["Genotype call rule", "Known genotype calls require zero SNP differences. Indel-only genomic-reference alignments remain calls to the existing allele; true genomic extensions of cDNA references are classified separately with the _ext suffix."],
-            ["Score formula", "score = aligned_bases - (100 * snp_differences) - (10 * indel_bases)"],
-            ["Score interpretation", "Higher scores are better. Alignments without SNPs or indels have score equal to aligned_bases; each SNP subtracts 100 and each indel base subtracts 10."],
-            ["Unmatched closest match", "For unmatched clusters, closest-match fields describe the best non-exact mapped reference hit when one exists."],
-            ["Unmatched normalization", "Unmatched cluster sequences are trimmed to their best minimap2 target interval and reverse-complemented when the best hit maps to the reverse strand before unmatched_sequence_id assignment."],
-            ["Blank closest-match fields", "Blank closest-match fields mean the unmatched cluster had no mapped SAM hit."],
-            ["MHC-like unmatched rescue", "Blank unmatched clusters are compared to the resolved MHC reference FASTA with local blastn; accepted rescue hits use match_source=local-blast-rescue."],
-            ["MHC-like rescue thresholds", "query_coverage>=\(oneDecimalString(FullLengthONTMHCBlastRescueMatch.minimumQueryCoverage))%; aligned_bases>=\(FullLengthONTMHCBlastRescueMatch.minimumAlignedBases); percent_identity>=\(oneDecimalString(FullLengthONTMHCBlastRescueMatch.minimumPercentIdentity))%; evalue<=\(FullLengthONTMHCBlastRescueMatch.maximumEValue)"],
-            ["Unmatched sequence ID", "A deterministic UUID derived from the normalized unmatched sequence links detail rows to the shared pivot."],
-            ["Haplotype assay", haplotypeAnalysis?.assayID ?? request.haplotypeAssayID ?? ""],
-            ["Haplotype definition", haplotypeAnalysis?.definitionSetID ?? request.haplotypeDefinitionSetID ?? ""],
-            ["Haplotype filtering scope", "Haplotype thresholds affect haplotype assignment only; genotype and unmatched worksheets retain observed cluster evidence."],
-            ["", ""],
-            ["Samples worksheet", "One row per sample with input reads, retained/assigned read summaries, unmatched counts, cDNA counts, and Savont status."],
-            ["Genotypes worksheet", "Cluster-level known genotype evidence. Each row is one sample cluster assigned to one existing reference allele."],
-            ["Genotyping pivot worksheet", "Sample-by-genotype pivot formatted for review of full-length genotyping calls and haplotype summaries."],
-            ["Unmatched Clusters worksheet", "One row per unmatched cluster with sequence, read support, deterministic unmatched_sequence_id, and closest-match metadata when available."],
-            ["Unmatched Shared Pivot worksheet", "One row per unique unmatched sequence with occurrence count, total supporting reads, closest-match summary, and per-sample read counts."],
-            ["MHC-like Unmatched Clusters worksheet", "One row per unmatched cluster with either genotyping SAM closest-match evidence or accepted local BLAST rescue evidence."],
-            ["MHC-like Unmatched Pivot worksheet", "One row per unique MHC-like unmatched sequence with occurrence count, total supporting reads, best evidence summary, and per-sample read counts."],
-            ["Unified Genotype Pivot worksheet", "One sample-by-call pivot combining known reference genotype calls with every classified _nov and _ext candidate. Stable cluster IDs keep distinct sequences on separate rows even when provisional names collide."],
-            ["Candidate Alleles worksheet", "One machine-readable row per classified candidate. Every singleton/shared _nov and _ext candidate is retained; color is limited to the provisional-name cell and classification/support columns remain authoritative."],
-            ["Un-nameable Clusters worksheet", "One machine-readable row per unmatched cluster that cannot receive a provisional allele name, including the reason, support, FASTA identity, evidence locator, and per-sample reads."],
-        ]
-    }
-
     internal func writeHaplotypeAnalysisIfRequested(
         request: FullLengthONTMHCGenotypingRunRequest,
         supportDirectory: URL,
@@ -238,7 +201,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         guard let definitionSet = try resolveHaplotypeDefinitionSet(for: request) else {
             throw FullLengthONTMHCGenotypingError.invalidHaplotypeDefinition(definitionSetID)
         }
-        try writeHaplotypeDefinitionSnapshot(definitionSet, supportDirectory: supportDirectory)
+        try writeHaplotypeDefinitionSnapshot(definitionSet, to: GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: request.outputDirectory))
 
         let manifest = ONTGenotypeResultBundleManifest(
             kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
@@ -355,58 +318,13 @@ extension FullLengthONTMHCGenotypingPipeline {
     @discardableResult
     internal func writeHaplotypeDefinitionSnapshot(
         _ definitionSet: GenotypeHaplotypeDefinitionSet,
-        supportDirectory: URL
+        to url: URL
     ) throws -> URL {
-        let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
-        try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
-        let url = inputsDirectory.appendingPathComponent("haplotype-definition.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(definitionSet).write(to: url, options: .atomic)
         return url
-    }
-
-    internal func createInitialCurrentWorkbookCopy(
-        for request: FullLengthONTMHCGenotypingRunRequest
-    ) throws -> FullLengthONTMHCWorkbookCopyResult {
-        let startedAt = Date()
-        let destinationURL = request.currentWorkbookURL
-        try FileManager.default.createDirectory(
-            at: destinationURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
-        try FileManager.default.copyItem(at: request.workbookURL, to: destinationURL)
-        let completedAt = Date()
-        let revision = ONTGenotypeWorkbookRevision(
-            id: "initial-current-copy",
-            role: .initialCurrentCopy,
-            path: relativePath(from: request.outputDirectory, to: destinationURL),
-            label: "Initial editable workbook",
-            sourceFilename: request.workbookURL.lastPathComponent,
-            createdAt: ISO8601DateFormatter().string(from: completedAt),
-            user: NSUserName(),
-            predecessorPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
-            sha256: try ProvenanceFileHasher.sha256(of: destinationURL) {
-                try Task.checkCancellation()
-            },
-            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: destinationURL)),
-            provenancePath: nil
-        )
-        let step = FullLengthONTMHCProvenanceStep(
-            toolName: "lungfish genotype workbook initial-current-copy",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: request.argv + ["--create-current-workbook", destinationURL.path],
-            inputs: [request.workbookURL],
-            outputs: [destinationURL],
-            exitStatus: 0,
-            stderr: nil,
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-        return FullLengthONTMHCWorkbookCopyResult(revision: revision, step: step)
     }
 
     internal func publishReviewableRowCatalogIfNeeded(

@@ -17,7 +17,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             rawReferenceID: "known-a",
             alleleName: "Mafa-A1*001:01"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -47,7 +47,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             rawReferenceID: "known-a",
             alleleName: "Mafa-A1*001:01"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -72,7 +72,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             rawReferenceID: "known-a",
             alleleName: "Mafa-A1*001:01"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -97,7 +97,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
     func testFullLengthMHCCellsAvoidDetailHierarchyWhileColumnsUseSharedSampleRenderer() {
         let call = makeCall(sample: "AnimalA", genotype: "known-a", reads: 10)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [.init(
@@ -143,7 +143,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             rawReferenceID: "known-a",
             alleleName: "Mafa-A1*001:01"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -167,7 +167,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     func testFullLengthMHCCandidateRowUsesExactCandidateArtifactNotClosestReference() throws {
         let fixture = try makeSequenceDetailCandidateResult()
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
 
@@ -189,7 +189,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     func testFullLengthMHCCandidateCatalogKeepsValidRecordWhenAnotherChecksumIsInvalid() throws {
         let fixture = try makeSequenceDetailCandidateResult(includeInvalidCandidate: true)
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
 
@@ -219,7 +219,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             rawReferenceID: "known-a",
             alleleName: "Mafa-A1*001:01"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -247,7 +247,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         )
         let candidateFixture = try makeSequenceDetailCandidateResult()
         defer { TestTempDirectory.cleanup(candidateFixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             samples: [],
@@ -303,7 +303,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     func testFullLengthMHCMixedRowsUseViewportOrderPersistFormatAndKeepOneSequenceHierarchy() throws {
         let fixture = try makeSequenceDetailCandidateResult(includeKnown: true)
         defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         try FileManager.default.removeItem(
@@ -378,7 +378,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             "raw-f": "Mamu-F*001:01",
         ]
         let candidateNames = [
-            "cluster-other": "Mamu-E*001:01_nov",
+            "cluster-other": "Mamu-Z*001:01_nov",
             "cluster-g-z": "Mamu-G*009:01_nov",
             "cluster-b16": "Mamu-B16*001:01_nov",
             "cluster-a1": "Mamu-A1*001:01_nov",
@@ -476,7 +476,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
     func testFullLengthMHCFASTAProjectionUsesBiologicalAlleleOrderAndStableCandidateTies() throws {
         let candidates = [
-            makeCandidate(id: "cluster-other", name: "Mamu-E*001:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
+            makeCandidate(id: "cluster-other", name: "Mamu-Z*001:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
             makeCandidate(id: "cluster-g-z", name: "Mamu-G*009:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
             makeCandidate(id: "cluster-a1", name: "Mamu-A1*001:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
             makeCandidate(id: "cluster-g-a", name: "Mamu-G*009:01_nov", classification: .novel, support: .singleton, samples: ["AnimalA"]),
@@ -499,7 +499,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             "Mamu-G*009:01_nov|cluster-g-a",
             "Mamu-G*009:01_nov|cluster-g-z",
             "Mamu-K*001:01|known",
-            "Mamu-E*001:01_nov|cluster-other",
+            "Mamu-Z*001:01_nov|cluster-other",
         ]
         let projectedRows = GenotypeCandidateMatrixProjection.rows(
             knownRows: result.locusSummaries.flatMap(\.sharedCalls),
@@ -665,7 +665,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         matrix.configure(result: result)
         XCTAssertTrue(matrix.testingVisibleRows.contains { $0.stableClusterID == stableClusterID })
 
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: stableClusterID)
@@ -764,7 +764,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertEqual(viewModel.mhcCandidateIntegrityWarnings.count, 1)
         XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings[0].contains("checksum"))
 
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: invalid)
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, ["Known"])
@@ -804,7 +804,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertTrue(viewModel.mhcCandidateIntegrityWarnings.isEmpty)
         XCTAssertNil(viewModel.mhcCandidatePersistenceWarning)
 
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: nonFullLength)
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, ["Known"])
@@ -917,7 +917,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 makeCandidateObservation(cluster: "cluster-b", sample: "AnimalA", reads: 11),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
 
@@ -974,7 +974,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 ),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
 
@@ -1052,7 +1052,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             ),
         ]
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         var selection: GenotypeResultSelectionState?
         controller.onSelectionStateChanged = { selection = $0 }
@@ -1105,7 +1105,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             backing: .buffered,
             defer: false
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.view.frame = try XCTUnwrap(window.contentView).bounds
         window.contentViewController = controller
         controller.configure(result: makeCandidateResult(
@@ -1227,7 +1227,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 ]
             )
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: "cluster-heavy")
@@ -1318,7 +1318,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         for percent in [100, 200] {
             settings.contentTextSizePreference = .custom(percent)
             settings.save()
-            let controller = GenotypeResultViewController()
+            let controller = makeMatrixAnnotationGuardedController()
             _ = controller.view
             controller.configure(result: result)
             controller.testingSelectCandidateRow(stableClusterID: "cluster-heavy")
@@ -1352,12 +1352,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 makeCandidateObservation(cluster: "legacy-candidate", sample: "AnimalA", reads: 9),
             ]
         )
-        let loaderSpy = KnownSelectionResultLoaderSpy(result: result)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
-        controller.genotypeResultLoader = { url in
-            await loaderSpy.load(url)
-        }
         controller.configure(result: result)
 
         controller.testingSelectCandidateRow(stableClusterID: "legacy-candidate")
@@ -1367,8 +1363,6 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 1)
         XCTAssertLessThan(descendants(of: detail).count, 300)
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
-        let loaderInvocationCount = await loaderSpy.currentInvocationCount()
-        XCTAssertEqual(loaderInvocationCount, 0)
     }
 
 
@@ -1397,7 +1391,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 records: [knownRecord, candidateReference]
             )
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: "candidate-a")
@@ -1446,7 +1440,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 )]
             )
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateRow(stableClusterID: "candidate-a")
@@ -1523,7 +1517,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
             observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         _ = controller.testingVisibleMatrixGenotypes
@@ -1568,11 +1562,8 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
             observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
         )
-        let controller = GenotypeResultViewController()
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
-        controller.matrixWorkbookUpdateScheduler = scheduler
-        var requests: [GenotypeCurrentWorkbookUIRequest] = []
-        controller.onCurrentWorkbookSyncRequested = { requests.append($0) }
+        let controller = makeMatrixAnnotationGuardedController()
+        let scheduler = MatrixAnnotationRetrySchedulerSpy()
         _ = controller.view
         controller.configure(result: result)
 
@@ -1583,30 +1574,15 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         controller.applyDisplayState(tintState)
         await controller.testingWaitForCandidateSettingsPersistence()
 
-        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Pending edits") == true)
         XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBytes)
 
         controller.editMatrixComment(.init(
             targets: [.column(sample: "AnimalA")],
             intent: .upsert(body: "retain pending tint")
         ))
-        controller.testingRequestCurrentWorkbookUpdateAndView()
-        XCTAssertEqual(requests.last?.snapshot.annotationOnly, false)
-        XCTAssertEqual(requests.last?.action, .synchronize(.updateAndView))
         XCTAssertEqual(scheduler.scheduledCount, 0)
 
-        controller.applyCurrentWorkbookUpdateCompleted(
-            result: result,
-            annotationOnly: true
-        )
-        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertTrue(
-            controller.testingCurrentWorkbookUpdateStatus?.contains("Pending edits") == true
-        )
 
-        controller.applyCurrentWorkbookUpdateCompleted(result: result)
-        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
 
         var visibilityState = controller.testingDisplayState
         var visibilitySettings = try XCTUnwrap(visibilityState.mhcCandidateDisplaySettings)
@@ -1615,7 +1591,6 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         controller.applyDisplayState(visibilityState)
         await controller.testingWaitForCandidateSettingsPersistence()
 
-        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
         XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBytes)
     }
 
@@ -1631,7 +1606,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
             observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
@@ -1664,7 +1639,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             candidates: [makeCandidate(id: "candidate", name: "Candidate_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
             observations: [makeCandidateObservation(cluster: "candidate", sample: "AnimalA", reads: 5)]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         var firstState = controller.testingDisplayState
@@ -1699,7 +1674,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             candidates: [makeCandidate(id: "stable-a", name: "Collision_nov", classification: .novel, support: .singleton, samples: ["AnimalA"])],
             observations: [makeCandidateObservation(cluster: "stable-a", sample: "AnimalA", reads: 5)]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
         controller.testingSelectCandidateCell(stableClusterID: "stable-a", sample: "AnimalA")
@@ -1732,26 +1707,18 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
                 makeCandidateObservation(cluster: "candidate", sample: "AnimalB", reads: 700),
             ]
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
 
         XCTAssertEqual(result.callCount, 0)
         XCTAssertTrue(result.locusSummaries.isEmpty)
-        let workbookCalls = controller.testingCurrentWorkbookHaplotypeCalls()
-        XCTAssertEqual(workbookCalls.count, 14)
-        XCTAssertTrue(workbookCalls.allSatisfy {
-            $0.baselineHaplotype1 == nil && $0.baselineHaplotype2 == nil
-                && $0.haplotype1Source == "unassigned" && $0.haplotype2Source == "unassigned"
-                && $0.haplotype1Status == "called" && $0.haplotype2Status == "called"
+        XCTAssertEqual(controller.testingCapturedScientificCalls(), [])
+        let editorCalls = controller.testingCurrentExportSnapshot()?.haplotypeCalls ?? []
+        XCTAssertEqual(editorCalls.count, 14)
+        XCTAssertTrue(editorCalls.allSatisfy {
+            $0.haplotype1.isEmpty && $0.haplotype2.isEmpty && !$0.locus.contains("Candidate")
         })
-        XCTAssertTrue(
-            workbookCalls.allSatisfy {
-                $0.haplotype1.isEmpty
-                    && $0.haplotype2.isEmpty
-                    && !$0.locus.contains("Candidate")
-            }
-        )
         XCTAssertFalse(controller.testingHaplotypeMatrixText.contains("Candidate_nov"))
     }
 
@@ -2036,7 +2003,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             ),
         ]
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: result)
 

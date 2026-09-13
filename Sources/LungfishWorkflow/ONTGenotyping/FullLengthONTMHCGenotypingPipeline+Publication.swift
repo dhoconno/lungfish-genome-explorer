@@ -475,7 +475,6 @@ extension FullLengthONTMHCGenotypingPipeline {
             sampleSummaryCSVURL: relocated(result.sampleSummaryCSVURL)!,
             statsJSONURL: relocated(result.statsJSONURL)!,
             workbookURL: relocated(result.workbookURL)!,
-            primaryWorkbookURL: relocated(result.primaryWorkbookURL)!,
             haplotypeAnalysisURL: relocated(result.haplotypeAnalysisURL),
             unmatchedClustersFASTAURL: relocated(result.unmatchedClustersFASTAURL)!,
             deduplicatedUnmatchedClustersFASTAURL: relocated(result.deduplicatedUnmatchedClustersFASTAURL)!,
@@ -509,7 +508,6 @@ extension FullLengthONTMHCGenotypingPipeline {
 
     internal func stageManifest(
         request: FullLengthONTMHCGenotypingRunRequest,
-        workbookRevision: ONTGenotypeWorkbookRevision,
         evidenceArtifactPair: ONTMHCBAMArtifactPair,
         candidateArtifacts: ONTMHCCandidateArtifactManifest,
         referenceVisualizations: ONTMHCReferenceVisualizationArtifacts?,
@@ -525,8 +523,6 @@ extension FullLengthONTMHCGenotypingPipeline {
             outputName: request.outputName,
             analysisName: request.outputName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
-            currentWorkbookPath: relativePath(from: request.outputDirectory, to: request.currentWorkbookURL),
-            workbookRevisions: [workbookRevision],
             longSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.reportCSVURL),
             sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),

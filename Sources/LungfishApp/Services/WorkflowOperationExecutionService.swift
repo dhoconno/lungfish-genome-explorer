@@ -103,67 +103,6 @@ final class DefaultWorkflowOperationAIHaplotyper: WorkflowOperationAIHaplotyping
     }
 }
 
-protocol WorkflowOperationWorkbookUpdating: Sendable {
-    func applyHaplotypeCalls(
-        _ calls: [GenotypeWorkbookHaplotypeCall],
-        annotationSidecarURL: URL?,
-        into bundleURL: URL,
-        provenanceContext: GenotypeWorkbookRevisionProvenanceContext?
-    ) async throws -> URL
-}
-
-struct DefaultWorkflowOperationWorkbookUpdater: WorkflowOperationWorkbookUpdating {
-    typealias PythonExecutableResolver = @Sendable () async throws -> URL
-    typealias HaplotypeOverrideApplier = @Sendable (
-        _ calls: [GenotypeWorkbookHaplotypeCall],
-        _ annotationSidecarURL: URL?,
-        _ bundleURL: URL,
-        _ provenanceContext: GenotypeWorkbookRevisionProvenanceContext?,
-        _ pythonExecutableURL: URL
-    ) throws -> URL
-
-    private let pythonExecutableResolver: PythonExecutableResolver
-    private let haplotypeOverrideApplier: HaplotypeOverrideApplier
-
-    init(
-        pythonExecutableResolver: @escaping PythonExecutableResolver = {
-            try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl")
-        },
-        haplotypeOverrideApplier: @escaping HaplotypeOverrideApplier = { calls, annotationSidecarURL, bundleURL, provenanceContext, pythonExecutableURL in
-            let manifest = try GenotypeWorkbookRevisionService(pythonExecutableURL: pythonExecutableURL)
-                .applyHaplotypeOverrides(
-                    calls,
-                    annotationSidecarURL: annotationSidecarURL,
-                    into: bundleURL,
-                    provenanceContext: provenanceContext
-                )
-            if let currentWorkbookPath = manifest.currentWorkbookPath {
-                return ONTGenotypeResultBundle.resolvedURL(for: currentWorkbookPath, in: bundleURL)
-            }
-            return try ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL)
-        }
-    ) {
-        self.pythonExecutableResolver = pythonExecutableResolver
-        self.haplotypeOverrideApplier = haplotypeOverrideApplier
-    }
-
-    func applyHaplotypeCalls(
-        _ calls: [GenotypeWorkbookHaplotypeCall],
-        annotationSidecarURL: URL?,
-        into bundleURL: URL,
-        provenanceContext: GenotypeWorkbookRevisionProvenanceContext?
-    ) async throws -> URL {
-        let pythonExecutableURL = try await pythonExecutableResolver()
-        return try haplotypeOverrideApplier(
-            calls,
-            annotationSidecarURL,
-            bundleURL,
-            provenanceContext,
-            pythonExecutableURL
-        )
-    }
-}
-
 struct DefaultWorkflowOperationResultRefresher: WorkflowOperationResultRefreshing {
     @MainActor
     func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) {
@@ -194,7 +133,6 @@ final class WorkflowOperationExecutionService {
     private let bamImporter: WorkflowOperationBAMImporting
     private let resultRefresher: WorkflowOperationResultRefreshing
     private let aiHaplotyper: WorkflowOperationAIHaplotypingRunning
-    private let workbookUpdater: WorkflowOperationWorkbookUpdating
     private let fileManager: FileManager
 
     init(
@@ -204,7 +142,6 @@ final class WorkflowOperationExecutionService {
         bamImporter: WorkflowOperationBAMImporting = DefaultWorkflowOperationBAMImporter(),
         resultRefresher: WorkflowOperationResultRefreshing = DefaultWorkflowOperationResultRefresher(),
         aiHaplotyper: WorkflowOperationAIHaplotypingRunning? = nil,
-        workbookUpdater: WorkflowOperationWorkbookUpdating = DefaultWorkflowOperationWorkbookUpdater(),
         fileManager: FileManager = .default,
         localWorkflowRuntimeResolver: @escaping @Sendable (WorkflowEngineType) -> URL? = { engine in
             WorkflowEngineLaunch.resolve(executableName: engine.executableName,
@@ -218,7 +155,6 @@ final class WorkflowOperationExecutionService {
         self.bamImporter = bamImporter
         self.resultRefresher = resultRefresher
         self.aiHaplotyper = aiHaplotyper ?? DefaultWorkflowOperationAIHaplotyper(operationCenter: operationCenter)
-        self.workbookUpdater = workbookUpdater
         self.fileManager = fileManager
     }
 
@@ -498,22 +434,6 @@ final class WorkflowOperationExecutionService {
                     routeContext: routeContext,
                     parentOperationID: operationID
                 )
-                _ = operationCenter.updateWithLog(
-                    id: operationID,
-                    progress: 0.96,
-                    detail: "Updating current.xlsx with specialist AI haplotypes..."
-                )
-                let currentWorkbookURL = try await workbookUpdater.applyHaplotypeCalls(
-                    Self.workbookHaplotypeCalls(from: published.analysis),
-                    annotationSidecarURL: ONTGenotypeResultBundleData.annotationSidecarURL(
-                        forBundleAt: request.outputDirectory
-                    ),
-                    into: request.outputDirectory,
-                    provenanceContext: Self.aiWorkbookUpdateProvenanceContext(
-                        request: request,
-                        publication: published
-                    )
-                )
                 let analysisURL = ONTGenotypeResultBundle.resolvedURL(
                     for: published.revision.path,
                     in: request.outputDirectory
@@ -522,7 +442,6 @@ final class WorkflowOperationExecutionService {
                     outputURLs + [
                         analysisURL,
                         published.provenanceURL,
-                        currentWorkbookURL,
                         ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: request.outputDirectory),
                     ]
                 )
@@ -814,7 +733,6 @@ final class WorkflowOperationExecutionService {
             urls.append(cliPayload.provenanceURL)
         }
         urls.append(request.workbookURL)
-        urls.append(request.currentWorkbookURL)
         if request.haplotypeDefinitionSetID != nil {
             urls.append(request.haplotypeAnalysisURL)
         }
@@ -845,49 +763,6 @@ final class WorkflowOperationExecutionService {
         ].compactMap { $0 }
     }
 
-    static func workbookHaplotypeCalls(
-        from analysis: GenotypeHaplotypeAnalysis
-    ) -> [GenotypeWorkbookHaplotypeCall] {
-        analysis.samples.flatMap { sample in
-            sample.calls.filter {
-                GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0.locus)
-            }.map { call in
-                GenotypeWorkbookHaplotypeCall(
-                    sample: sample.sample,
-                    locus: call.locus,
-                    haplotype1: call.haplotype1,
-                    haplotype2: call.haplotype2,
-                    status: call.status.rawValue,
-                    notes: call.notes
-                )
-            }
-        }
-    }
-
-    private static func aiWorkbookUpdateProvenanceContext(
-        request: ONTBarcodeDemuxGenotypingRunRequest,
-        publication: WorkflowOperationAIHaplotypingPublication
-    ) -> GenotypeWorkbookRevisionProvenanceContext {
-        let argv = [
-            "lungfish-gui",
-            "workflow",
-            "miseq-amplicon-mhc-genotyping",
-            "--output-dir",
-            request.outputDirectory.path,
-            "--output-name",
-            request.outputName,
-            "--ai-specialist-preset",
-            request.aiSpecialistPresetID ?? "unspecified",
-            "--ai-revision",
-            publication.revision.id,
-        ]
-        return GenotypeWorkbookRevisionProvenanceContext(
-            toolName: "Lungfish Genome Explorer miSeq amplicon MHC AI haplotyping workflow",
-            toolKind: "gui",
-            argv: argv
-        )
-    }
-
     private func fullLengthONTMHCGenotypingOutputURLs(
         for request: FullLengthONTMHCGenotypingRunRequest,
         cliPayload: FullLengthONTMHCGenotypingCLIPayload?
@@ -909,7 +784,6 @@ final class WorkflowOperationExecutionService {
             urls.append(cliPayload.provenanceURL)
         }
         urls.append(request.workbookURL)
-        urls.append(request.currentWorkbookURL)
         if request.haplotypeDefinitionSetID != nil {
             urls.append(request.haplotypeAnalysisURL)
         }

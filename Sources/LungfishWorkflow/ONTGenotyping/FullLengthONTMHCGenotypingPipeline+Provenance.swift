@@ -143,7 +143,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         explicit["resolvedReferenceFASTA"] = .file(referenceFASTAURL)
         explicit["outputDirectory"] = .file(request.outputDirectory)
         explicit["outputName"] = .string(request.outputName)
-        explicit["currentWorkbook"] = .file(request.currentWorkbookURL)
+        explicit["reportReceipt"] = .file(request.workbookURL.appendingPathExtension("provenance.json"))
         explicit["genotypingEvidenceBAM"] = .file(cohortAlignmentResult.bamURL)
         explicit["genotypingEvidenceBAI"] = .file(cohortAlignmentResult.baiURL)
         explicit["mhcCohortSampleMergeOrder"] = .array(
@@ -239,7 +239,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         .output(request.sampleSummaryCSVURL, format: .text, role: .report)
         .output(request.statsJSONURL, format: .json, role: .report)
         .output(request.workbookURL, format: .unknown, role: .report)
-        .output(request.currentWorkbookURL, format: .unknown, role: .report)
+        .output(request.workbookURL.appendingPathExtension("provenance.json"), format: .json, role: .log)
         .relocatedOutput(manifestPublicationPlan.finalDescriptor)
         .output(request.unmatchedClustersFASTAURL, format: .fasta, role: .output)
         .output(request.rawUnmatchedConsensusDecisionsJSONURL, format: .json, role: .output)
@@ -272,6 +272,7 @@ extension FullLengthONTMHCGenotypingPipeline {
 
         if request.haplotypeDefinitionSetID != nil {
             builder = try builder.output(request.haplotypeAnalysisURL, format: .json, role: .report)
+                .output(GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: request.outputDirectory), format: .json, role: .output)
         }
 
         for input in request.inputFASTQURLs where !fullLengthONTMHCPathIsDirectory(input) {

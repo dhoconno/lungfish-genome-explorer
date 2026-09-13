@@ -100,6 +100,10 @@ public enum GUIImportedProvenanceRehydrator {
         }
         try validateMappedOutputIntegrity(sourceDescriptors, pathMap: pathMap)
 
+        // Validate the copied source generation first, then rebind nested Excel
+        // replay artifacts before the root envelope rehashes stored outputs.
+        try GenotypeExcelExportService.relocateReports(in: destinationRoot, from: sourceRoot, to: destinationRoot)
+
         var argumentPathMap = pathMap
         argumentPathMap[sourceURL.standardizedFileURL.path] = destinationURL.standardizedFileURL.path
         argumentPathMap[sourceRoot.standardizedFileURL.path] = destinationRoot.standardizedFileURL.path

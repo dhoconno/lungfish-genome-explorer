@@ -23,11 +23,9 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             genotype: genotype,
             sample: "AnimalA"
         )
-        let retryScheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let workbookScheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
+        let retryScheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.matrixAnnotationRetryScheduler = retryScheduler
-        controller.matrixWorkbookUpdateScheduler = workbookScheduler
         var surfacedErrors: [Error] = []
         controller.onMatrixAnnotationCommandError = { surfacedErrors.append($0) }
         _ = controller.view
@@ -44,11 +42,6 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 3)
         XCTAssertEqual(retryScheduler.scheduledCount, 1)
-        XCTAssertEqual(workbookScheduler.scheduledCount, 0)
-        XCTAssertEqual(
-            controller.testingCurrentWorkbookUpdateStatus,
-            "Saving annotation after the workbook update finishes."
-        )
         XCTAssertTrue(surfacedErrors.isEmpty)
         var persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
@@ -61,17 +54,11 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 3)
         XCTAssertEqual(retryScheduler.scheduledCount, 1)
-        XCTAssertEqual(
-            controller.testingCurrentWorkbookUpdateStatus,
-            "Saving annotation after the workbook update finishes."
-        )
         XCTAssertTrue(surfacedErrors.isEmpty)
         publicationLock.release()
         retryScheduler.fireScheduledActions()
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
-        XCTAssertEqual(workbookScheduler.scheduledCount, 0)
-        XCTAssertNil(controller.testingCurrentWorkbookUpdateStatus)
         XCTAssertTrue(surfacedErrors.isEmpty)
         persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
@@ -95,8 +82,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     func testExcelCaptureWaitsForPendingNativeAnnotationPersistenceBeforeOpeningPanel() throws {
         let root = try TestTempDirectory.make(prefix: "ExcelPendingNative")
         defer { TestTempDirectory.cleanup(root) }
-        let controller = GenotypeResultViewController()
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
+        let scheduler = MatrixAnnotationRetrySchedulerSpy()
         controller.matrixAnnotationRetryScheduler = scheduler
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
@@ -131,8 +118,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         try FileManager.default.createDirectory(at: firstBundle, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondBundle, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
-        let retryScheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
+        let retryScheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.matrixAnnotationRetryScheduler = retryScheduler
         var drainedCount = 0
         controller.onDeferredMatrixAnnotationMutationsDrained = { drainedCount += 1 }
@@ -200,8 +187,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             genotype: "FIRST",
             reads: 9
         )
-        let retryScheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
+        let retryScheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.matrixAnnotationRetryScheduler = retryScheduler
         _ = controller.view
         controller.configure(result: makeResult(
@@ -258,20 +245,17 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
 
     func testDeferredFailureOverlayRestoresUnderlyingWorkbookStatus() throws {
-        struct WorkbookFailure: Error {}
 
         let root = try TestTempDirectory.make(prefix: "MatrixDeferredStatusOverlay")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
-        let retryScheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
+        let retryScheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.matrixAnnotationRetryScheduler = retryScheduler
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
-        controller.applyCurrentWorkbookUpdateFailed(WorkbookFailure())
-        let underlyingStatus = try XCTUnwrap(controller.testingCurrentWorkbookUpdateStatus)
         let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL)
 
         controller.editMatrixComment(.init(
@@ -279,10 +263,6 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             intent: .upsert(body: "will hit unsafe lock")
         ))
 
-        XCTAssertEqual(
-            controller.testingCurrentWorkbookUpdateStatus,
-            "Saving annotation after the workbook update finishes."
-        )
         publicationLock.release()
         let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: bundleURL)
         try FileManager.default.removeItem(at: lockURL)
@@ -298,12 +278,11 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             return XCTFail("Expected unsafe lock error, got \(String(describing: surfacedError))")
         }
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
-        XCTAssertEqual(controller.testingCurrentWorkbookUpdateStatus, underlyingStatus)
     }
 
 
     func testWorkbookPublicationLockClassificationTraversesOnlyLegitimatePrimaryWrappers() {
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         let lock = ONTGenotypeWorkbookUpdateRecoveryError.lockHeld("/tmp/publication.lock")
         let nested = NSError(
             domain: "test.wrapper",
@@ -350,8 +329,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             genotype: genotype,
             sample: "AnimalA"
         )
-        let retryScheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
+        let retryScheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.matrixAnnotationRetryScheduler = retryScheduler
         _ = controller.view
         controller.configure(result: makeResult(
@@ -378,15 +357,13 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testFailedSidecarPublicationSchedulesNoWorkbookUpdate() throws {
+    func testFailedNativeSidecarPublicationSurfacesErrorWithoutDeferredMutation() throws {
         let root = try TestTempDirectory.make(prefix: "MatrixWorkbookPublicationFailure")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
-        controller.matrixWorkbookUpdateScheduler = scheduler
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
@@ -397,7 +374,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "stale")))
 
         XCTAssertNotNil(surfacedError)
-        XCTAssertEqual(scheduler.scheduledCount, 0)
+        XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
     }
 
 
@@ -426,9 +403,8 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             makeCall(sample: "AnimalA", genotype: second, reads: 10),
             makeCall(sample: "AnimalB", genotype: second, reads: 9),
         ]
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
-        controller.matrixWorkbookUpdateScheduler = scheduler
+        let scheduler = MatrixAnnotationRetrySchedulerSpy()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -493,7 +469,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         let staleAttemptTarget = GenotypeAnnotationSidecar.MatrixTarget.column(
             sample: "AnimalA"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -533,7 +509,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeCandidateResult(
             bundleURL: bundleURL,
@@ -596,7 +572,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         let secondTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A", genotype: second, sample: "AnimalB"
         )
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
@@ -626,7 +602,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         var author = "First analyst"
-        let controller = GenotypeResultViewController()
+        let controller = makeMatrixAnnotationGuardedController()
         controller.annotationAuthorProvider = { author }
         _ = controller.view
         controller.configure(result: makeResult(

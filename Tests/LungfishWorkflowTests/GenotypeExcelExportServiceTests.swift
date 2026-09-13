@@ -100,6 +100,124 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output), old)
     }
 
+    func testImportedReportRelocatesReceiptAndReplayWithoutChangingScientificCapture() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lge-report-copy-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source.lungfishgenotype")
+        let destination = root.appendingPathComponent("stored.lungfishgenotype")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: [
+            GenotypeTestFixtures.makeCall(sample: "Animal A", genotype: "Mafa-A*001", reads: 9)
+        ]), sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
+            generatedAt: timestamp, authority: .init(analysis: nil))
+        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+            snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
+            provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "fastq", "genotype", "--output-dir", source.path]))
+        let snapshotBytes = try Data(contentsOf: exported.snapshotURL)
+        let oldReceipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.receiptURL)) as? [String: Any])
+        let envelope = try ProvenanceRunBuilder(workflowName: "CLI genotype", workflowVersion: "1", toolName: "lungfish-cli", toolVersion: "test")
+            .argv(["lungfish-cli", "fastq", "genotype", "--output-dir", source.path])
+            .output(exported.outputURL, role: .output)
+            .output(exported.receiptURL, role: .output)
+            .output(exported.replayScriptURL, role: .output)
+            .output(exported.snapshotURL, role: .output)
+            .runtime(ProvenanceRuntimeIdentity.fixture())
+            .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: source)
+        try FileManager.default.copyItem(at: source, to: destination)
+        let imported = try GUIImportedProvenanceRehydrator.rehydrateRelocatedImportedCopy(from: source, to: destination)
+        try FileManager.default.removeItem(at: source)
+        let output = destination.appendingPathComponent("report.xlsx")
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: output.appendingPathExtension("provenance.json"))) as? [String: Any])
+        XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, output.path)
+        XCTAssertEqual(receipt["executedArgv"] as? [String], oldReceipt["executedArgv"] as? [String])
+        let snapshotPath = try XCTUnwrap((receipt["snapshot"] as? [String: Any])?["path"] as? String)
+        guard FileManager.default.fileExists(atPath: snapshotPath) else { return XCTFail("Relocated receipt still references deleted staging capture") }
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: snapshotPath)), snapshotBytes)
+        for descriptor in imported.outputs where descriptor.checksumSHA256 != nil {
+            XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path)))
+        }
+        let replayPath = try XCTUnwrap((receipt["replayScript"] as? [String: Any])?["path"] as? String)
+        let replayed = root.appendingPathComponent("replayed.xlsx")
+        XCTAssertEqual(try runCommand(["/bin/sh", replayPath, replayed.path]), 0)
+        XCTAssertEqual(try inspect(replayed)["sheets"] as? [String], ["Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
+    }
+
+    func testRelocationRejectsUntrustedRequestAndReplayPathsBeforeAnyRewrite() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("relocation-integrity-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: [
+            GenotypeTestFixtures.makeCall(sample: "Animal A", genotype: "Mafa-A*001", reads: 9)
+        ]), sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
+            generatedAt: timestamp, authority: .init(analysis: nil))
+        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+            snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
+            provenance: .init(toolVersion: "test", argv: ["historical", source.path]))
+        for mutation in ["escape", "symlink", "hash", "different-request", "missing-request", "different-snapshot", "different-output"] {
+            let destination = root.appendingPathComponent(mutation)
+            try FileManager.default.copyItem(at: source, to: destination)
+            let receiptURL = destination.appendingPathComponent("report.xlsx.provenance.json")
+            var receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: receiptURL)) as? [String: Any])
+            let request = try XCTUnwrap(receipt["request"] as? [String: Any])
+            let path = try XCTUnwrap(request["path"] as? String)
+            let copied = destination.appendingPathComponent(String(path.dropFirst(source.path.count + 1)))
+            let original = try Data(contentsOf: copied)
+            var argv = try XCTUnwrap(receipt["durableReplayArgv"] as? [String])
+            if mutation == "escape" {
+                var outside = request
+                let outsideURL = root.appendingPathComponent("outside-request.json")
+                try original.write(to: outsideURL)
+                outside["path"] = source.path + "/../outside-request.json"
+                receipt["request"] = outside
+            } else if mutation == "symlink" {
+                try FileManager.default.removeItem(at: copied)
+                try FileManager.default.createSymbolicLink(at: copied, withDestinationURL: URL(fileURLWithPath: path))
+            } else if mutation == "hash" {
+                try (original + Data("\n".utf8)).write(to: copied)
+            } else if mutation == "missing-request" {
+                receipt.removeValue(forKey: "request")
+            } else {
+                let flag = mutation == "different-request" ? "--provenance-request" : mutation == "different-snapshot" ? "--snapshot" : "--output"
+                let index = try XCTUnwrap(argv.firstIndex(of: flag))
+                let alternate = copied.deletingLastPathComponent().appendingPathComponent("unattested.json")
+                try original.write(to: alternate)
+                argv[index + 1] = source.appendingPathComponent(String(alternate.path.dropFirst(destination.path.count + 1))).path
+                receipt["durableReplayArgv"] = argv
+            }
+            try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]).write(to: receiptURL)
+            let beforeRequest = try Data(contentsOf: copied)
+            let beforeReceipt = try Data(contentsOf: receiptURL)
+            let replayURL = destination.appendingPathComponent(String(export.replayScriptURL.path.dropFirst(source.path.count + 1)))
+            let beforeReplay = try Data(contentsOf: replayURL)
+            XCTAssertThrowsError(try GenotypeExcelExportService.relocateReports(in: destination, from: source, to: destination), mutation)
+            XCTAssertEqual(try Data(contentsOf: copied), beforeRequest, mutation)
+            XCTAssertEqual(try Data(contentsOf: receiptURL), beforeReceipt, mutation)
+            XCTAssertEqual(try Data(contentsOf: replayURL), beforeReplay, mutation)
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), original, "Original source is never rewritten")
+        }
+    }
+
+    func testRelocationAcceptsOwnedTemporaryRootAliasWithoutFollowingNestedLinks() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lge-owned-alias-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source")
+        let final = root.appendingPathComponent("final")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: []),
+            sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
+            generatedAt: timestamp, authority: .init(analysis: nil))
+        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+            snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
+            provenance: .init(toolVersion: "test", argv: ["historical", source.path]))
+        XCTAssertNoThrow(try GenotypeExcelExportService.relocateReports(in: source,
+            from: source.resolvingSymlinksInPath(), to: final))
+        try FileManager.default.moveItem(at: source, to: final)
+        let relocatedReplay = final.appendingPathComponent(String(export.replayScriptURL.path.dropFirst(source.path.count + 1)))
+        XCTAssertEqual(try runCommand(["/bin/sh", relocatedReplay.path, root.appendingPathComponent("replayed.xlsx").path]), 0)
+    }
+
     func testSnapshotCLIRequiresOneSourceAndExplicitReplayInputs() throws {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-invalid-replay-\(UUID().uuidString).xlsx")
         for options in [[], ["--bundle", "bundle", "--snapshot", "snapshot"],
@@ -166,6 +284,106 @@ print(json.dumps(dict(sheets=w.sheetnames,formulas=sum(c.data_type=='f' for c in
             for (index, slot) in slots.enumerated() {
                 XCTAssertEqual(slot["comment"], "Haplotype slot: H\(index + 1)\nStatus: \(values[index + 2])\nSource: \(values[index + 4])", file: file, line: line)
             }
+        }
+    }
+
+    func testLegacyAnalyzedCallPrecedenceIsSharedWithNativePresentation() {
+        let call = GenotypeHaplotypeLocusCall(locus: "MHC-A", sourceLocus: "MHC-A",
+            haplotype1: "Pipeline-A", haplotype2: "-", status: .called,
+            matchedHaplotypes: [], observedGenotypeCount: 1, observedGenotypes: ["raw"])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: timestamp)
+        sidecar.manualHaplotypeAssignments = [
+            .init(sample: "S1", locus: "MHC-A", slot: .h1, label: "First-manual", colorTokenIndex: 1, diagnosticAlleles: [], notes: ""),
+            .init(sample: "S1", locus: "MHC-A", slot: .h1, label: "Last-manual", colorTokenIndex: 2, diagnosticAlleles: [], notes: ""),
+            .init(sample: "S1", locus: "MHC-A", slot: .h2, label: "-", colorTokenIndex: 1, diagnosticAlleles: [], notes: ""),
+        ]
+        let manual = GenotypeEffectiveCallAuthority.resolveLegacy(sample: "S1", call: call, sidecar: sidecar)
+        XCTAssertEqual(manual.h1.effective, "Last-manual")
+        XCTAssertEqual(manual.h1.baseline, "Pipeline-A")
+        XCTAssertEqual(manual.h2.effective, "-")
+        XCTAssertEqual(manual.h2.baseline, "-")
+        XCTAssertEqual(manual.h2.status, .noHaplotype)
+        XCTAssertEqual(manual.h1.source, .analystOverride)
+        sidecar.callOverrides = ["First-override", "Last-override"].map { label in
+            .init(sample: "S1", locus: "MHC-A", slot: .h1, originalCall: "Pipeline-A",
+                overrideCall: label, reasonTag: .analystJudgment, rationale: "legacy", author: "analyst",
+                timestamp: "historical-non-date")
+        }
+        let overridden = GenotypeEffectiveCallAuthority.resolveLegacy(sample: "S1", call: call, sidecar: sidecar)
+        XCTAssertEqual(overridden.h1.effective, "First-override")
+        XCTAssertEqual(overridden.h2.effective, "-")
+        XCTAssertEqual(overridden.h1.status, .called)
+        XCTAssertEqual(overridden.h2.status, .noHaplotype)
+        XCTAssertEqual(overridden.h1.authoritativeOverride, sidecar.callOverrides.first)
+    }
+
+    func testExplicitFilteredBandScopeSurvivesEmptyEvidenceRenderingAndReplayValidation() async throws {
+        let analysis = GenotypeHaplotypeAnalysis(assayID: "fixture", definitionSetID: "fixture",
+            definitionSetName: "fixture", speciesName: "fixture", samples: [.init(sample: "S1",
+                calls: ["MHC-A", "MHC-B"].map { .init(locus: $0, sourceLocus: $0,
+                    haplotype1: $0 + "-call", haplotype2: "-", status: .called,
+                    matchedHaplotypes: [], observedGenotypeCount: 0, observedGenotypes: []) })])
+        let result = GenotypeTestFixtures.makeResult(calls: [], haplotypeAnalysis: analysis)
+        func capture(_ scope: [String]?) throws -> GenotypeWorkbookPresentation.Snapshot {
+            let projection = GenotypeViewProjection(lens: "genotype", sampleColumns: ["S1"], rows: [],
+                haplotypeLocusScope: scope)
+            let transported = try JSONDecoder().decode(GenotypeViewProjection.self,
+                from: JSONEncoder().encode(projection))
+            XCTAssertEqual(transported.haplotypeLocusScope, scope)
+            return try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
+                allProjection: nil, filteredProjection: transported, generatedAt: timestamp, authority: .init(analysis: analysis))
+        }
+        let snapshot = try capture(["MHC-B"])
+        XCTAssertEqual(snapshot.calls.map(\.locus), ["MHC-A", "MHC-B"])
+        XCTAssertEqual(snapshot.allMatrix.loci, ["MHC-A", "MHC-B"])
+        XCTAssertEqual(snapshot.filteredMatrix.loci, ["MHC-B"])
+        XCTAssertTrue(snapshot.filteredMatrix.rows.isEmpty)
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(snapshot))
+        XCTAssertEqual(try capture(nil).filteredMatrix.loci, ["MHC-A", "MHC-B"])
+        XCTAssertEqual(try capture([]).filteredMatrix.loci, [])
+        XCTAssertThrowsError(try capture(["MHC-B", "MHC-B"]))
+        XCTAssertThrowsError(try capture(["MHC-unknown"]))
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-band-scope-\(UUID().uuidString).xlsx")
+        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+            snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]))
+        func assertBands(_ url: URL) throws {
+            let bands = try XCTUnwrap(try inspect(url)["bands"] as? [String: [[String: String]]])
+            XCTAssertEqual(bands["Genotype Matrix - All"]?.map { $0["value"] ?? "" },
+                ["MHC-A-call", "MHC-A-call", "MHC-B-call", "MHC-B-call"])
+            XCTAssertEqual(bands["Genotype Matrix - Filtered"]?.map { $0["value"] ?? "" },
+                ["MHC-B-call", "MHC-B-call"])
+        }
+        try assertBands(output)
+        let replayed = output.deletingPathExtension().appendingPathExtension("replayed.xlsx")
+        XCTAssertEqual(try runCommand(["/bin/sh", exported.replayScriptURL.path, replayed.path]), 0)
+        try assertBands(replayed)
+    }
+
+    func testTypedAndLegacyMiSeqCaptureIgnoreLegacyManualAssignments() throws {
+        let analysis = GenotypeHaplotypeAnalysis(assayID: "MHC-exon2-miSeq", definitionSetID: "fixture",
+            definitionSetName: "fixture", speciesName: "fixture", samples: [.init(sample: "S1", calls: [
+                .init(locus: "MHC-A", sourceLocus: "MHC-A", haplotype1: "Pipeline-A", haplotype2: "-",
+                    status: .called, matchedHaplotypes: [], observedGenotypeCount: 1, observedGenotypes: ["raw"])
+            ])])
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: timestamp)
+        sidecar.manualHaplotypeAssignments = [.init(sample: "S1", locus: "MHC-A", slot: .h1,
+            label: "Legacy-manual", colorTokenIndex: 1, diagnosticAlleles: [], notes: "must remain stored")]
+        for typed in [false, true] {
+            let manifest = ONTGenotypeResultBundleManifest(kind: typed ? GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue : "ont-barcode-genotype",
+                workflowKind: typed ? .miSeqAmpliconMHCGenotype : nil, workflowMode: typed ? .haplotyped : nil,
+                outputName: "test", analysisName: "test", primaryWorkbookPath: "report.xlsx",
+                longSummaryCSVPath: "calls.csv", sampleSummaryCSVPath: "samples.csv", statsJSONPath: "stats.json",
+                provenancePath: "provenance.json", haplotypeAnalysisPath: "analysis.json")
+            let result = GenotypeTestFixtures.makeResult(calls: [], haplotypeAnalysis: analysis, manifest: manifest)
+            let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar,
+                allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: analysis))
+            let call = try XCTUnwrap(snapshot.calls.first)
+            XCTAssertEqual(call.h1.effective, "Pipeline-A")
+            XCTAssertEqual(call.h2.effective, "Pipeline-A")
+            XCTAssertEqual(call.h2.pipeline, "-")
+            XCTAssertEqual(call.h1.source, "pipeline")
+            XCTAssertEqual(call.h2.status, "called")
+            XCTAssertEqual(try GenotypeAnnotationSidecar.decode(XCTUnwrap(snapshot.capturedScientificInputs?["annotations.json"])), sidecar)
         }
     }
 

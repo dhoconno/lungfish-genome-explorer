@@ -168,7 +168,8 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         ]
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(
-            result: makeResult(calls: [unsupported, supported]),
+            result: makeResult(calls: [unsupported, supported,
+                makeCall(sample: "Target", genotype: unsupported.genotype, reads: 0)]),
             sidecar: sidecar
         )
 
@@ -178,7 +179,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             evidence.map(\.id),
             matrix.testingVisibleRows.map(\.id)
         )
-        XCTAssertEqual(evidence.map(\.readSupport), [18, nil])
+        XCTAssertEqual(evidence.map(\.readSupport), [18, 0])
         XCTAssertEqual(
             evidence.map(\.indicators),
             [
@@ -186,6 +187,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
                 [.falseNegative],
             ]
         )
+        guard evidence.count == 2 else { return } // assertions above report missing evidence without an indexing crash
         XCTAssertTrue(
             evidence[0].accessibilityLabel.contains(
                 "Review: false positive."
@@ -193,7 +195,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         )
         XCTAssertTrue(
             evidence[1].accessibilityLabel.contains(
-                "Evidence: no supporting reads."
+                "Evidence: 0 unique reads."
             )
         )
     }

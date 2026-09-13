@@ -464,6 +464,7 @@ enum GenotypeExcelCLIExportSupport {
             haplotypeCalls: source.haplotypeCalls?.filter {
                 requestedSet.contains($0.sample)
             },
+            haplotypeLocusScope: source.haplotypeLocusScope,
             sourceRevision: source.sourceRevision,
             filterContext: source.filterContext,
             presentationColors: source.presentationColors
@@ -528,6 +529,7 @@ enum GenotypeExcelCLIExportSupport {
                     baselineHaplotype2Available: $0.h2.baselineAvailable
                 )
             },
+            haplotypeLocusScope: snapshot.filteredMatrix.loci,
             sourceRevision: authority.analysis.map {
                 .init(
                     assayID: $0.assayID,

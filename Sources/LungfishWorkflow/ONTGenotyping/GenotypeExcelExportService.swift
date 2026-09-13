@@ -146,6 +146,7 @@ public struct GenotypeExcelExportService: Sendable {
             "inputs": witnessedInputs, "scientificInputWitnesses": snapshot.sourceRevision,
             "snapshot": descriptor(snapshotURL, bytes: snapshotBytes),
             "script": descriptor(scriptURL, bytes: Data(Self.rendererScript.utf8)),
+            "request": descriptor(requestURL, bytes: try Data(contentsOf: requestURL)),
             "replayScript": descriptor(replayScriptURL, bytes: Data(replayScript.utf8)),
             "output": descriptor(output, bytes: bytes), "receiptPath": receipt.path, "replacingExisting": replacingExisting,
         ]

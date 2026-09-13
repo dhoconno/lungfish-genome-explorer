@@ -106,7 +106,20 @@ public enum GenotypeExcelSnapshotBuilder {
         let filteredRows = base.derive(filter).rows
         var raw = GenotypeMatrixReviewEligibility.rawSupport(in: result)
         var evidenceRows: [(locus: String, genotype: String, stable: String?, label: String)] =
-            allRows.map { ($0.locus, $0.genotype, $0.stableClusterID, $0.alleleName) }
+            allRows.map { row in
+                // Match native known-reference display semantics. This affects
+                // fallback labels only, never raw identity or captured viewport labels.
+                let label: String
+                if row.population == .known,
+                   let field = result.referenceMetadata?.alleleFieldKey,
+                   let value = result.referenceMetadata?.recordsBySequenceName[row.genotype]?[field],
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    label = value
+                } else {
+                    label = row.alleleName
+                }
+                return (row.locus, row.genotype, row.stableClusterID, label)
+            }
         // Catalog call IDs are transport identities; annotations and the native
         // projection use the displayed candidate identity. Map explicitly.
         for row in result.reviewableRowCatalog?.rows ?? [] {
@@ -166,6 +179,10 @@ public enum GenotypeExcelSnapshotBuilder {
         }
 
         func matrix(_ projection: GenotypeViewProjection?, full: Bool) throws -> P.Matrix {
+            let bandLoci = full ? loci : (projection?.haplotypeLocusScope ?? loci)
+            guard Set(bandLoci).count == bandLoci.count, Set(bandLoci).isSubset(of: Set(loci)) else {
+                throw CaptureError.incoherent("haplotype locus scope")
+            }
             let names = projection?.sampleColumns ?? sampleNames
             guard Set(names).count == names.count, Set(names).isSubset(of: Set(sampleNames)),
                   !full || Set(names) == Set(sampleNames) else { throw CaptureError.incoherent("sample scope") }
@@ -298,7 +315,7 @@ public enum GenotypeExcelSnapshotBuilder {
             }
             if full && seen != Set(evidence.keys) { throw CaptureError.incoherent("All projection omits authoritative rows") }
             let retainedRows = full ? rows : rows.filter { row in row.cells.contains { ($0.displayValue ?? 0) > 0 } }
-            return .init(samples: names.map { .init(id: $0, name: $0, comment: comments[.column(sample: $0)]?.body) }, loci: loci, rows: retainedRows)
+            return .init(samples: names.map { .init(id: $0, name: $0, comment: comments[.column(sample: $0)]?.body) }, loci: bandLoci, rows: retainedRows)
         }
         let all = try matrix(allProjection, full: true)
         let filtered = try matrix(filteredProjection, full: false)
@@ -343,9 +360,16 @@ public enum GenotypeExcelSnapshotBuilder {
         var calls: [P.Call] = []; var colors = authority.colors
         if let analysis = authority.analysis {
             let resolution = GenotypeEffectiveCallAuthority.resolve(analysis: analysis, sidecar: sidecar)
+            let usesIdentityBoundOverrides = GenotypeEffectiveCallAuthority.usesIdentityBoundOverrides(in: result.manifest, analysis: analysis)
+            let rawCalls = Dictionary(analysis.samples.flatMap { sample in
+                sample.calls.map { ([sample.sample, $0.locus], $0) }
+            }, uniquingKeysWith: { _, last in last })
             for sample in resolution.orderedSamples {
                 for locus in resolution.orderedLoci {
-                    guard let value = resolution.locusValue(sample: sample, locus: locus) else { continue }
+                    guard let resolved = resolution.locusValue(sample: sample, locus: locus),
+                          let rawCall = rawCalls[[sample, locus]] else { continue }
+                    let value = usesIdentityBoundOverrides ? resolved
+                        : GenotypeEffectiveCallAuthority.resolveLegacy(sample: sample, call: rawCall, sidecar: sidecar)
                     func slot(_ value: GenotypeEffectiveCallAuthority.SlotValue) -> P.Slot {
                         let source: String
                         switch value.source { case .pipeline: source = "pipeline"; case .analystOverride: source = "analystOverride"; case .staleOverride: source = "staleOverride" }

@@ -38,7 +38,7 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             lines[0],
             [
                 "outputDirectory", "reportCSVPath", "sampleSummaryCSVPath", "statsJSONPath",
-                "workbookPath", "primaryWorkbookPath", "haplotypeAnalysisPath",
+                "workbookPath", "haplotypeAnalysisPath",
                 "unmatchedClustersFASTAPath", "deduplicatedUnmatchedClustersFASTAPath",
                 "cdnaClustersFASTAPath", "provenancePath", "manifestPath", "referenceFASTAPath",
                 "genotypingEvidenceBAMPath", "genotypingEvidenceBAIPath", "reciprocalEvidenceBAMPath",
@@ -131,7 +131,6 @@ final class FastqFullLengthONTMHCGenotypingCommandTests: XCTestCase {
             sampleSummaryCSVPath: "/tmp/samples.csv",
             statsJSONPath: "/tmp/stats.json",
             workbookPath: "/tmp/current.xlsx",
-            primaryWorkbookPath: "/tmp/primary.xlsx",
             haplotypeAnalysisPath: nil,
             unmatchedClustersFASTAPath: "/tmp/unmatched.fasta",
             deduplicatedUnmatchedClustersFASTAPath: "/tmp/result.lungfishgenotype/deduplicated_unmatched_clusters.fasta",

@@ -712,24 +712,6 @@ extension InspectorViewController {
         }
     }
 
-    func updateGenotypeCurrentWorkbookSyncState(
-        bundleURL: URL,
-        phase: GenotypeCurrentWorkbookUIPhase,
-        isReadOnly: Bool
-    ) {
-        guard var state = viewModel.documentSectionViewModel.genotypeResultDocument,
-              state.bundleURL?.standardizedFileURL == bundleURL.standardizedFileURL
-        else {
-            return
-        }
-        let manualChangeCount = state.currentWorkbookUpdate?.manualChangeCount ?? 0
-        state.currentWorkbookUpdate = phase.presentation(
-            isReadOnly: isReadOnly,
-            manualChangeCount: manualChangeCount
-        )
-        viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
-    }
-
     private func genotypeSummaryRows(_ result: ONTGenotypeResultBundleData) -> [(String, String)] {
         [
             ("Samples", "\(result.sampleCount)"),
@@ -787,27 +769,6 @@ extension InspectorViewController {
         ]
     }
 
-    private func genotypeCurrentWorkbookUpdateState(
-        result: ONTGenotypeResultBundleData,
-        sidecar: GenotypeAnnotationSidecar
-    ) -> GenotypeResultCurrentWorkbookUpdateState {
-        let workbookChangeCount = genotypeWorkbookChangeCount(sidecar)
-        let isWritable = FileManager.default.isWritableFile(atPath: result.bundleURL.path)
-        return GenotypeCurrentWorkbookUIPhase.current.presentation(
-            isReadOnly: !isWritable,
-            manualChangeCount: workbookChangeCount
-        )
-    }
-
-    private func genotypeWorkbookChangeCount(
-        _ sidecar: GenotypeAnnotationSidecar
-    ) -> Int {
-        sidecar.callOverrides.count
-            + sidecar.manualHaplotypeAssignments.count
-            + sidecar.matrixStyles.count
-            + sidecar.matrixReviews.count
-            + sidecar.matrixComments.count
-    }
 
     private func genotypeSampleIds(_ result: ONTGenotypeResultBundleData) -> [String] {
         var seen: Set<String> = []

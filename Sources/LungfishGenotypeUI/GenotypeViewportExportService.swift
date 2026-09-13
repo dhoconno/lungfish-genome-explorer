@@ -348,6 +348,7 @@ enum GenotypeViewProjectionSerializer {
             diagnosticAllelesOnly: snapshot.filters["diagnosticAllelesOnly"].flatMap { Bool($0) },
             includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) },
             haplotypeCalls: snapshot.haplotypeCalls,
+            haplotypeLocusScope: snapshot.haplotypeLocusScope,
             sourceRevision: snapshot.sourceRevision,
             filterContext: snapshot.filters,
             presentationColors: snapshot.presentationColors

@@ -121,12 +121,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             referenceSourceURL: URL(fileURLWithPath: "/data/reference.lungfishref"),
             barcodeDefinitionsURL: URL(fileURLWithPath: "/data/fluidigm_barcode8.txt"),
             outputDirectory: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
-            outputName: "barcode08-mhc",
-            comparisonWorkbookURL: URL(fileURLWithPath: "/data/pbaa.xlsx")
+            outputName: "barcode08-mhc"
         )
 
         XCTAssertEqual(request.analysisName, "barcode08-mhc")
-        XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc_vs_Illumina-31262.xlsx")
+        XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc.xlsx")
     }
 
     func testRequestArgvRecordsRerunnableCLIArguments() {
@@ -138,8 +137,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             outputName: "barcode08-mhc",
             demuxManifestURL: URL(fileURLWithPath: "/data/barcode08.lungfishfastq/demux-manifest.json"),
             analysisName: "ONT08",
-            comparisonWorkbookURL: URL(fileURLWithPath: "/data/pbaa.xlsx"),
-            comparisonName: "Illumina-31262",
             threads: 14,
             sortThreads: 4,
             minSupport: 2,
@@ -150,17 +147,13 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
 
         XCTAssertEqual(request.reportCSVURL.lastPathComponent, "barcode08-mhc.retained-demux-genotypes.csv")
         XCTAssertEqual(request.sampleSummaryCSVURL.lastPathComponent, "barcode08-mhc.retained-demux-samples.csv")
-        XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc_ONT08_vs_Illumina-31262.xlsx")
+        XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc_ONT08.xlsx")
         XCTAssertEqual(request.retainedBAMURL.lastPathComponent, "barcode08-mhc.retained.demuxed.bam")
         XCTAssertTrue(request.argv.contains("genotype"))
         XCTAssertEqual(try testValue(after: "--mode", in: request.argv), "ont-barcode-demux")
         XCTAssertEqual(try testValue(after: "--read-type", in: request.argv), "ont")
         XCTAssertTrue(request.argv.contains("--analysis-name"))
         XCTAssertTrue(request.argv.contains("ONT08"))
-        XCTAssertTrue(request.argv.contains("--comparison-workbook"))
-        XCTAssertTrue(request.argv.contains("/data/pbaa.xlsx"))
-        XCTAssertTrue(request.argv.contains("--comparison-name"))
-        XCTAssertTrue(request.argv.contains("Illumina-31262"))
         XCTAssertEqual(try testValue(after: "--haplotype-assay", in: request.argv), "MHC-exon2-miSeq")
         XCTAssertEqual(
             try testValue(after: "--haplotype-definition", in: request.argv),
@@ -188,7 +181,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(request.outputName, "barcode08-mhc-retained")
         XCTAssertEqual(request.analysisName, "ONT08")
         XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc-retained_ONT08.xlsx")
-        XCTAssertFalse(request.argv.contains("--comparison-workbook"))
     }
 
     func testHaplotypeDropoutEvaluatorUsesMinSupportWithoutPercentThresholds() throws {
@@ -455,7 +447,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.wallTimeSeconds != nil }, "\(canonicalEnvelope.steps)")
     }
 
-    func testRunCreatesSeparateCurrentWorkbookAndManifestKeepsPrimaryImmutable() async throws {
+    func testRunPublishesUnifiedReportWithoutCurrentWorkbook() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -496,17 +488,23 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let currentWorkbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: outputDirectory)
 
         XCTAssertNil(manifest.reviewableRowCatalog)
+        XCTAssertNil(manifest.currentWorkbookPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.appendingPathComponent("artifacts/workbooks/current.xlsx").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.workbookURL.appendingPathExtension("provenance.json").path))
         XCTAssertEqual(manifest.primaryWorkbookPath, request.workbookURL.lastPathComponent)
-        XCTAssertEqual(manifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
-        XCTAssertNotEqual(primaryWorkbookURL, currentWorkbookURL)
-        XCTAssertEqual(try Data(contentsOf: primaryWorkbookURL), try Data(contentsOf: currentWorkbookURL))
-        XCTAssertEqual(result.workbookURL, currentWorkbookURL)
-        XCTAssertEqual(manifest.workbookRevisions?.first?.role, .initialCurrentCopy)
-        XCTAssertEqual(manifest.workbookRevisions?.first?.path, "artifacts/workbooks/current.xlsx")
-
+        XCTAssertNil(manifest.workbookRevisions)
+        XCTAssertEqual(result.workbookURL, primaryWorkbookURL)
+        XCTAssertEqual(currentWorkbookURL, primaryWorkbookURL, "Historical accessor falls back to the only report.")
         let loaded = try ONTGenotypeResultBundle.loadResult(from: outputDirectory)
         XCTAssertEqual(loaded.artifacts.primaryWorkbookURL, primaryWorkbookURL)
-        XCTAssertEqual(loaded.artifacts.workbookURL, currentWorkbookURL)
+        XCTAssertEqual(loaded.artifacts.workbookURL, primaryWorkbookURL)
+        let receipt = try jsonObject(at: request.reportProvenanceURL)
+        let runtime = try XCTUnwrap(receipt["runtime"] as? [String: Any])
+        let renderer = try XCTUnwrap(runtime["renderer"] as? [String: Any])
+        XCTAssertEqual((renderer["sheets"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
+            ["Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
+        XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, request.workbookURL.path)
+        XCTAssertEqual(loaded.calls.first?.passedUniqueReads, 1)
     }
 
     func testRunSynthesizesDemuxManifestForImportedONTBarcodeBundleWithoutPriorDemuxOutput() async throws {
@@ -572,7 +570,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(workMarker.lockRelativePath?.hasSuffix(".lock") == true)
     }
 
-    func testRunCreatesDecoratedCurrentWorkbookForMCMHaplotypingAndRecordsProvenance() async throws {
+    func testRunCapturesPrimaryHaplotypeAnalysisDefinitionAndPromptInUnifiedReport() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -620,79 +618,40 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         ).run(request)
 
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
-        let primaryWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: outputDirectory)
-        let currentWorkbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: outputDirectory)
-
+        XCTAssertNil(manifest.currentWorkbookPath)
+        XCTAssertNil(manifest.workbookRevisions)
         XCTAssertEqual(manifest.primaryWorkbookPath, request.workbookURL.lastPathComponent)
-        XCTAssertEqual(manifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
-        XCTAssertNotEqual(try Data(contentsOf: primaryWorkbookURL), try Data(contentsOf: currentWorkbookURL))
-        XCTAssertEqual(manifest.workbookRevisions?.first?.role, .initialCurrentCopy)
-        XCTAssertEqual(manifest.workbookRevisions?.first?.label, "Initial decorated MCM current workbook")
-        XCTAssertEqual(manifest.workbookRevisions?.first?.path, "artifacts/workbooks/current.xlsx")
-        XCTAssertEqual(
-            manifest.workbookRevisions?.first?.provenancePath,
-            "artifacts/workbooks/current-workbook-provenance.json"
-        )
+        let receipt = try jsonObject(at: request.reportProvenanceURL)
+        let snapshotDescriptor = try XCTUnwrap(receipt["snapshot"] as? [String: Any])
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(snapshotDescriptor["path"] as? String))))
+        XCTAssertTrue(snapshot.hasHaplotypeContent)
+        let primary = try JSONDecoder().decode(GenotypeHaplotypeAnalysis.self, from: Data(contentsOf: request.haplotypeAnalysisURL))
+        XCTAssertEqual(primary.samples.first?.sample, "DW472")
+        XCTAssertEqual(snapshot.calls.first { $0.sampleID == "DW472" && $0.locus == "MHC-A" }?.h1.pipeline, "M1A")
+        XCTAssertEqual(snapshot.calls.first { $0.sampleID == "DW472" && $0.locus == "MHC-DQ" }?.h1.pipeline, "M1DQ")
+        let files = try FileManager.default.subpathsOfDirectory(atPath: outputDirectory.path)
+        XCTAssertFalse(files.contains { $0.hasSuffix(".current-haplotype-analysis.json") || $0.hasSuffix("/current.xlsx") })
+        let prompt = request.specialistPromptSnapshotURL
+        XCTAssertEqual(try String(contentsOf: prompt, encoding: .utf8),
+            try MCMHaplotypingPreset.mcmMHCmiseq.bundledSpecialistPromptMarkdown())
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertTrue(envelope.outputs.contains { $0.path == prompt.path })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == request.haplotypeAnalysisURL.path })
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "MCM specialist prompt snapshot" })
+        let definitionInputs = envelope.steps.flatMap(\.inputs).filter { $0.path.hasSuffix("haplotype-definition.json") }
+        XCTAssertFalse(definitionInputs.isEmpty)
+        let frozenURL = GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: outputDirectory)
+        let frozenBytes = try Data(contentsOf: frozenURL)
+        XCTAssertTrue(envelope.outputs.contains { $0.path == frozenURL.path })
+        let capturedDefinition = try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: XCTUnwrap(snapshot.capturedScientificInputs?["definition.json"]))
+        XCTAssertEqual(capturedDefinition, try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: frozenBytes))
+        let witness = try XCTUnwrap((receipt["inputs"] as? [[String: Any]])?.first { $0["path"] as? String == frozenURL.path })
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: XCTUnwrap(witness["capturedPath"] as? String))), frozenBytes)
+        for descriptor in definitionInputs {
+            XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path)))
+        }
 
-        let currentSidecar = try jsonObject(at: request.currentWorkbookProvenanceURL)
-        let currentArgv = try XCTUnwrap(currentSidecar["argv"] as? [String])
-        XCTAssertTrue(currentArgv.contains("--client-current-workbook"))
-        XCTAssertEqual(currentSidecar["outputWorkbook"] as? String, currentWorkbookURL.path)
-        let currentHaplotypeAnalysisPath = try testValue(after: "--haplotype-analysis-json", in: currentArgv)
-        XCTAssertNotEqual(currentHaplotypeAnalysisPath, request.haplotypeAnalysisURL.path)
-        XCTAssertTrue(currentHaplotypeAnalysisPath.hasSuffix(".current-haplotype-analysis.json"))
-        let rawAnalysis = try jsonObject(at: request.haplotypeAnalysisURL)
-        let currentAnalysis = try jsonObject(at: URL(fileURLWithPath: currentHaplotypeAnalysisPath))
-        XCTAssertEqual(rawAnalysis["samples"] as? NSArray, currentAnalysis["samples"] as? NSArray)
-        XCTAssertEqual(
-            firstHaplotypeCall(in: currentAnalysis, sample: "DW472", locus: "MHC-A")?["haplotype1"] as? String,
-            "M1A"
-        )
-        XCTAssertEqual(
-            firstHaplotypeCall(in: rawAnalysis, sample: "DW472", locus: "MHC-DQ")?["haplotype1"] as? String,
-            "M1DQ"
-        )
-        XCTAssertEqual(
-            firstHaplotypeCall(in: currentAnalysis, sample: "DW472", locus: "MHC-DQ")?["haplotype1"] as? String,
-            "M1DQ"
-        )
-        let promptSnapshotURL = request.specialistPromptSnapshotURL
-        XCTAssertEqual(
-            try String(contentsOf: promptSnapshotURL, encoding: .utf8),
-            try MCMHaplotypingPreset.mcmMHCmiseq.bundledSpecialistPromptMarkdown()
-        )
-
-        let legacyProvenance = try jsonObject(at: request.provenanceURL)
-        let legacyOutputs = try XCTUnwrap(legacyProvenance["outputs"] as? [[String: Any]])
-        XCTAssertTrue(legacyOutputs.contains { record in
-            record["path"] as? String == request.currentWorkbookProvenanceURL.path
-                && record["role"] as? String == "current-report-provenance"
-        }, "\(legacyOutputs)")
-        XCTAssertTrue(legacyOutputs.contains { record in
-            record["path"] as? String == promptSnapshotURL.path
-                && record["role"] as? String == "specialist-prompt"
-        }, "\(legacyOutputs)")
-        let legacySteps = try XCTUnwrap(legacyProvenance["steps"] as? [[String: Any]])
-        XCTAssertTrue(legacySteps.contains { step in
-            step["toolName"] as? String == "openpyxl MCM current workbook report"
-                && ((step["argv"] as? [String])?.contains("--client-current-workbook") ?? false)
-        }, "\(legacySteps)")
-        XCTAssertTrue(legacySteps.contains { step in
-            step["toolName"] as? String == "MCM specialist prompt snapshot"
-                && step["output"] as? String == promptSnapshotURL.path
-        }, "\(legacySteps)")
-
-        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
-        XCTAssertTrue(canonicalEnvelope.outputs.contains { $0.path == request.currentWorkbookProvenanceURL.path })
-        XCTAssertTrue(canonicalEnvelope.outputs.contains { $0.path == promptSnapshotURL.path })
-        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
-            step.toolName == "openpyxl MCM current workbook report"
-                && step.argv.contains("--client-current-workbook")
-        }, "\(canonicalEnvelope.steps)")
-        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
-            step.toolName == "MCM specialist prompt snapshot"
-                && step.outputs.contains { $0.path == promptSnapshotURL.path }
-        }, "\(canonicalEnvelope.steps)")
     }
 
     func testAutoModeWithBarcodesAndMultipleInputsUsesONTPresetAndAllInputs() async throws {
@@ -1447,7 +1406,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             ).run(request)
             XCTFail("Expected workbook report generation to fail")
         } catch {
-            guard case ONTBarcodeDemuxGenotypingError.reportFailed(let status, _) = error else {
+            guard case GenotypeExcelExportService.ExportError.rendererFailed(let status, _) = error else {
                 return XCTFail("Unexpected error: \(error)")
             }
             XCTAssertEqual(status, 73)
@@ -1464,11 +1423,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             request.sampleSummaryCSVURL,
             request.statsJSONURL,
             request.workbookURL,
-            request.currentWorkbookURL,
             request.reportProvenanceURL,
-            request.currentWorkbookProvenanceURL,
             request.haplotypeAnalysisURL,
-            request.currentHaplotypeAnalysisURL,
             request.provenanceURL,
             outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
             outputDirectory.appendingPathComponent(
@@ -1585,7 +1541,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             request.sampleSummaryCSVURL,
             request.statsJSONURL,
             request.workbookURL,
-            request.currentWorkbookURL,
             request.reportProvenanceURL,
             request.provenanceURL,
             outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
@@ -1643,7 +1598,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         )
         let requiredOptionKeys: Set<String> = [
             "aiSpecialistPresetID", "analysisName", "barcodeDefinitions",
-            "comparisonName", "comparisonWorkbook", "demuxManifest",
+            "demuxManifest",
             "extraArguments", "haplotypeAssayID",
             "haplotypeDefinitionScope", "haplotypeDefinitionSetID",
             "haplotypeDropoutLocusFraction",
@@ -1752,12 +1707,12 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 if url.lastPathComponent.contains(
                     unsafeRequest.mappingBAMURL.lastPathComponent
                 ) {
-                    try Data("unsafe".utf8).write(
-                        to: unsafeProject.appendingPathComponent(
-                            ProjectOperationHistoryWriter
-                                .historyDirectoryName
-                        )
-                    )
+                    let history = unsafeProject.appendingPathComponent(ProjectOperationHistoryWriter.historyDirectoryName)
+                    let retainedHistory = unsafeProject.appendingPathComponent("fixture-retained-history")
+                    if !FileManager.default.fileExists(atPath: retainedHistory.path) {
+                        try FileManager.default.moveItem(at: history, to: retainedHistory)
+                        try Data("unsafe".utf8).write(to: history)
+                    }
                     throw CocoaError(.fileWriteNoPermission)
                 }
                 try FileManager.default.removeItem(at: url)
@@ -3332,448 +3287,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(stats["retainedUniqueReads"] as? Int, 13)
     }
 
-    func testReportWorkbookUsesRunBasenameAndFiltersZeroAlleleRows() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let scriptURL = root.appendingPathComponent("write-report.py")
-        let templateURL = root.appendingPathComponent("template.xlsx")
-        let genotypesCSV = root.appendingPathComponent("genotypes.csv")
-        let samplesCSV = root.appendingPathComponent("samples.csv")
-        let statsJSON = root.appendingPathComponent("stats.json")
-        let referenceFASTA = root.appendingPathComponent("reference.fa")
-        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
-        let outputXLSX = root.appendingPathComponent("barcode08-mhc_vs_Illumina-31262.xlsx")
-        let provenanceJSON = root.appendingPathComponent("report-provenance.json")
-
-        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
-        try makeMinimalComparisonWorkbook(at: templateURL)
-        try """
-        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
-        DW472,Mafa_F_01_w_06,7,7,100,7,7.0,100,7,7.0
-        unassigned,Mafa_F_01_w_06,3,3,,3,,100,10,10.0
-        """.write(to: genotypesCSV, atomically: true, encoding: .utf8)
-        try """
-        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
-        DW472,7,7,100,7.0,100,7.0
-        DW473,0,0,100,0.0,100,7.0
-        unassigned,3,3,,100.0,100,10.0
-        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
-        try #"{"passedAlignments":7}"#.write(to: statsJSON, atomically: true, encoding: .utf8)
-        try ">Mafa_F_01_w_06\nACGT\n>Mafa_F_02\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
-        try "sample,barcode\nDW472,ACGT\nDW473,TGCA\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
-
-        _ = try runPython([
-            scriptURL.path,
-            "--genotypes-csv", genotypesCSV.path,
-            "--samples-csv", samplesCSV.path,
-            "--stats-json", statsJSON.path,
-            "--reference-fasta", referenceFASTA.path,
-            "--barcode-definitions", barcodesCSV.path,
-            "--output-xlsx", outputXLSX.path,
-            "--provenance-json", provenanceJSON.path,
-            "--analysis-name", "barcode08-mhc",
-            "--run-name", "barcode08-mhc",
-            "--comparison-workbook", templateURL.path,
-            "--comparison-name", "Illumina-31262",
-        ])
-
-        let inspection = try inspectWorkbook(outputXLSX)
-        XCTAssertEqual(inspection["sheetnames"] as? [String], [
-            "barcode08-mhc",
-            "Illumina-31262",
-            "barcode08-mhc Long Summary",
-            "barcode08-mhc Sample Summary",
-            "Illumina-31262 Audit",
-            "Run Stats",
-        ])
-        XCTAssertEqual(inspection["readCountLabel"] as? String, "Filtered exact-match read count")
-        XCTAssertEqual(inspection["hasTotalReadCountRow"] as? Bool, false)
-        XCTAssertEqual(inspection["hasPercentRetainedRow"] as? Bool, false)
-        XCTAssertEqual(inspection["haplotypeSampleCellsAreBlank"] as? Bool, true)
-        XCTAssertEqual(inspection["commentsSampleCellsAreBlank"] as? Bool, true)
-        XCTAssertEqual(inspection["hasKeptAllele"] as? Bool, true)
-        XCTAssertEqual(inspection["hasZeroAllele"] as? Bool, false)
-        XCTAssertEqual(inspection["hasEmptyLocusHeader"] as? Bool, false)
-        XCTAssertEqual(inspection["analysisSampleColumns"] as? [String], ["DW472"])
-        XCTAssertEqual(inspection["keptAlleleDW472Count"] as? Int, 7)
-        XCTAssertEqual(inspection["readCountTotal"] as? Int, 7)
-        XCTAssertEqual(inspection["readCountAverage"] as? Double, 7.0)
-        XCTAssertEqual(inspection["keptAlleleSubtotal"] as? Int, 7)
-        XCTAssertEqual(inspection["keptAlleleObservedSamples"] as? Int, 1)
-        XCTAssertEqual(inspection["formulaCellsInAnalysisSummary"] as? [String], [])
-        XCTAssertEqual(inspection["containsUnassignedInWorkbook"] as? Bool, false)
-    }
-
-    func testReportWorkbookPopulatesExplicitHaplotypeAnalysis() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let scriptURL = root.appendingPathComponent("write-report.py")
-        let genotypesCSV = root.appendingPathComponent("genotypes.csv")
-        let samplesCSV = root.appendingPathComponent("samples.csv")
-        let statsJSON = root.appendingPathComponent("stats.json")
-        let referenceFASTA = root.appendingPathComponent("reference.fa")
-        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
-        let haplotypesJSON = root.appendingPathComponent("haplotypes.json")
-        let outputXLSX = root.appendingPathComponent("barcode08-mhc.xlsx")
-        let provenanceJSON = root.appendingPathComponent("report-provenance.json")
-
-        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
-        try """
-        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
-        DW472,01_Mafa_A1_063g|A1_063_01,42,42,100,42,42.0,100,42,42.0
-        """.write(to: genotypesCSV, atomically: true, encoding: .utf8)
-        try """
-        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
-        DW472,42,42,100,42.0,100,42.0
-        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
-        try #"{"passedAlignments":42}"#.write(to: statsJSON, atomically: true, encoding: .utf8)
-        try ">01_Mafa_A1_063g|A1_063_01\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
-        try "sample,barcode\nDW472,ACGT\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
-        try """
-        {
-          "schemaVersion": 1,
-          "assayID": "MHC-exon2-miSeq",
-          "definitionSetID": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
-          "definitionSetName": "Mauritian cynomolgus macaques",
-          "speciesName": "Mauritian cynomolgus macaques",
-          "samples": [
-            {
-              "sample": "DW472",
-              "calls": [
-                {
-                  "locus": "MHC-A",
-                  "sourceLocus": "Mafa-A",
-                  "haplotype1": "M1A",
-                  "haplotype2": "-",
-                  "status": "called",
-                  "matchedHaplotypes": [{"name": "M1A", "diagnosticAlleles": ["A1_063"], "observedDiagnosticAlleles": ["A1_063"]}],
-                  "observedGenotypeCount": 1,
-                  "observedGenotypes": ["01_Mafa_A1_063g|A1_063_01"],
-                  "notes": ""
-                },
-                {
-                  "locus": "MHC-DQ",
-                  "sourceLocus": "Mafa-DQ",
-                  "haplotype1": "M1DQ",
-                  "haplotype2": "M2DQ",
-                  "status": "called",
-                  "matchedHaplotypes": [{"name": "M1DQ", "diagnosticAlleles": ["DQA1_01", "DQB1_01"], "observedDiagnosticAlleles": ["DQA1_01", "DQB1_01"]}],
-                  "observedGenotypeCount": 2,
-                  "observedGenotypes": ["14_M1_DQA1_01_04", "15_M1_DQB1_01_01"],
-                  "notes": ""
-                }
-              ]
-            }
-          ]
-        }
-        """.write(to: haplotypesJSON, atomically: true, encoding: .utf8)
-
-        _ = try runPython([
-            scriptURL.path,
-            "--genotypes-csv", genotypesCSV.path,
-            "--samples-csv", samplesCSV.path,
-            "--stats-json", statsJSON.path,
-            "--reference-fasta", referenceFASTA.path,
-            "--barcode-definitions", barcodesCSV.path,
-            "--output-xlsx", outputXLSX.path,
-            "--provenance-json", provenanceJSON.path,
-            "--analysis-name", "barcode08-mhc",
-            "--run-name", "barcode08-mhc",
-            "--haplotype-analysis-json", haplotypesJSON.path,
-        ])
-
-        let inspection = try inspectHaplotypeWorkbook(outputXLSX)
-        XCTAssertTrue((inspection["sheetnames"] as? [String])?.contains("Haplotype Calls") ?? false)
-        XCTAssertEqual(inspection["mhcAHaplotype1"] as? String, "M1A")
-        XCTAssertEqual(inspection["mhcAHaplotype2"] as? String, "-")
-        XCTAssertEqual(inspection["mhcDQHaplotype1"] as? String, "M1DQ")
-        XCTAssertEqual(inspection["mhcDQHaplotype2"] as? String, "M2DQ")
-        XCTAssertEqual(inspection["haplotypeSheetRows"] as? Int, 3)
-        XCTAssertEqual(inspection["provenanceIncludesHaplotypes"] as? Bool, true)
-    }
-
-    func testReportScriptGroupsMiSeqClassIISourceLociBeforeClassISuffixes() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let scriptURL = root.appendingPathComponent("write-report.py")
-        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
-        let output = try runPython(["-c", #"""
-import json, runpy, sys
-report = runpy.run_path(sys.argv[1])
-loci = ["MHC-A1", "MHC-B", "MHC-B17", "MHC-B21Ps", "MHC-K", "MHC-DRB", "MHC-DQA1", "MHC-DQB1", "MHC-DPA1", "MHC-DPB1"]
-print(json.dumps({locus: report["mcm_allele_section_label"]("MCM_MHC_MiSeq_0025|source_loci=" + locus) for locus in loci}))
-"""#, scriptURL.path])
-        let sections = try JSONDecoder().decode([String: String].self, from: Data(output.utf8))
-        XCTAssertEqual(sections["MHC-A1"], "Mafa-A major alleles")
-        XCTAssertEqual(sections["MHC-B"], "Mafa-B alleles")
-        XCTAssertEqual(sections["MHC-B17"], "Mafa-B alleles")
-        XCTAssertEqual(sections["MHC-B21Ps"], "Mafa-B alleles")
-        XCTAssertEqual(sections["MHC-K"], "Mafa-K alleles")
-        XCTAssertEqual(sections["MHC-DRB"], "Mafa-DRB alleles")
-        XCTAssertEqual(sections["MHC-DQA1"], "Mafa-DQA/DQB alleles")
-        XCTAssertEqual(sections["MHC-DQB1"], "Mafa-DQA/DQB alleles")
-        XCTAssertEqual(sections["MHC-DPA1"], "Mafa-DPA/DPB alleles")
-        XCTAssertEqual(sections["MHC-DPB1"], "Mafa-DPA/DPB alleles")
-    }
-
-    func testReportScriptSortsMiSeqAllelesByDisplayNameWithinLocusSections() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let scriptURL = root.appendingPathComponent("write-report.py")
-        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
-        let output = try runPython(["-c", #"""
-import json, runpy, sys
-from openpyxl import Workbook
-report = runpy.run_path(sys.argv[1])
-genotypes = [
-    "MCM_MHC_MiSeq_0001|source_loci=MHC-DPB1|alleles=Mafa-DPB1_20:01",
-    "MCM_MHC_MiSeq_0002|source_loci=MHC-DPA1|alleles=Mafa-DPA1_10:01",
-    "MCM_MHC_MiSeq_0999|source_loci=MHC-DPA1|alleles=Mafa-DPA1_2:01",
-]
-ws = Workbook().active
-report["write_full_sequencing_results"](ws, ["sample"], {}, {"sample": {g: i+1 for i,g in enumerate(genotypes)}}, genotypes, {}, [])
-print(json.dumps([row[0].value for row in ws if str(row[0].value).startswith("Mafa-DP") and "*" in str(row[0].value)]))
-"""#, scriptURL.path])
-        let labels = try JSONDecoder().decode([String].self, from: Data(output.utf8))
-        XCTAssertEqual(labels, ["Mafa-DPA1*2:01", "Mafa-DPA1*10:01", "Mafa-DPB1*20:01"])
-    }
-
-    func testReportScriptWritesMCMClientCurrentWorkbook() throws {
-        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let scriptURL = root.appendingPathComponent("write-report.py")
-        let genotypesCSV = root.appendingPathComponent("genotypes.csv")
-        let samplesCSV = root.appendingPathComponent("samples.csv")
-        let statsJSON = root.appendingPathComponent("stats.json")
-        let referenceFASTA = root.appendingPathComponent("reference.fa")
-        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
-        let haplotypesJSON = root.appendingPathComponent("haplotypes.json")
-        let definitionJSON = root.appendingPathComponent("haplotype-definition.json")
-        let primaryWorkbook = root.appendingPathComponent("primary.xlsx")
-        let currentWorkbook = root.appendingPathComponent("current.xlsx")
-        let provenanceJSON = root.appendingPathComponent("current-workbook-provenance.json")
-
-        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
-        try Data("primary workbook placeholder\n".utf8).write(to: primaryWorkbook)
-        try """
-        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
-        \u{FEFF}DW472,02_M1_G_02_07_2mis_156bp,42,42,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,02_M2_G_02_06_156bp,21,21,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,"MCM_MHC_MiSeq_0068|source_loci=MHC-A1|haplotypes=M1,M2,M3|alleles=Mafa-A1_063:01:01:01,Mafa-A1_063:02:01:01|evidence_classes=primary_expressed",13,13,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,02_M4M7_G_02_04_156bp,11,11,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,04_M1_AG_05_3mis_156bp,18,18,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,05_M1M2M3_A1_063g,16,16,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,12_M1_B_046_01_01,11,11,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,12_M2_B_019_03,10,10,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,14_M1_DQA1_24_03,9,9,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,14_M2_DQB1_06g:14_M_DQB1_06_01_01,8,8,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,15_M1_DPA1_07_02,7,7,100,42,42.0,100,42,42.0
-        \u{FEFF}DW472,15_M2_DPB1_20_01,6,6,100,42,42.0,100,42,42.0
-        DW473,04_M4_AG_02_w_01_156bp,40,40,100,40,40.0,100,40,40.0
-        DW473,12_M4_B_027_02,30,30,100,40,40.0,100,40,40.0
-        """.write(to: genotypesCSV, atomically: true, encoding: .utf8)
-        try """
-        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
-        \u{FEFF}DW472,84,42,100,42,42.0,100,42.0
-        DW473,70,40,100,40,40.0,100,40.0
-        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
-        try """
-        {
-          "passedAlignments": 84,
-          "totalInputReads": 100,
-          "minSupport": 10,
-          "haplotypeMinSamplePercent": 1,
-          "haplotypeMinLocusPercent": 1,
-          "haplotypeMinLocusPercentOverrides": ["MHC-DP=10", "MHC-DQ=10"]
-        }
-        """.write(to: statsJSON, atomically: true, encoding: .utf8)
-        try """
-        >02_M1_G_02_07_2mis_156bp
-        ACGT
-        >02_M2_G_02_06_156bp
-        ACGT
-        >MCM_MHC_MiSeq_0068|source_loci=MHC-A1|haplotypes=M1,M2,M3|alleles=Mafa-A1_063:01:01:01,Mafa-A1_063:02:01:01|evidence_classes=primary_expressed
-        ACGT
-        >02_M4M7_G_02_04_156bp
-        ACGT
-        >04_M1_AG_05_3mis_156bp
-        ACGT
-        >05_M1M2M3_A1_063g
-        ACGT
-        >12_M1_B_046_01_01
-        ACGT
-        >12_M2_B_019_03
-        ACGT
-        >14_M1_DQA1_24_03
-        ACGT
-        >14_M2_DQB1_06g:14_M_DQB1_06_01_01
-        ACGT
-        >15_M1_DPA1_07_02
-        ACGT
-        >15_M2_DPB1_20_01
-        ACGT
-        >04_M4_AG_02_w_01_156bp
-        ACGT
-        >12_M4_B_027_02
-        ACGT
-        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
-        try "sample,barcode\nDW472,ACGT\nDW473,TGCA\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
-        try """
-        {
-          "schemaVersion": 1,
-          "assayID": "MHC-exon2-miSeq",
-          "definitionSetID": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
-          "definitionSetName": "Mauritian cynomolgus macaques",
-          "speciesName": "Mauritian cynomolgus macaques",
-          "samples": [
-            {
-              "sample": "DW472",
-              "calls": [
-                {"locus": "MHC-A", "sourceLocus": "Mafa-A", "haplotype1": "M1A", "haplotype2": "M2A", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 4, "observedGenotypes": ["02_M1_G_02_07_2mis_156bp", "02_M2_G_02_06_156bp", "04_M1_AG_05_3mis_156bp", "05_M1M2M3_A1_063g"], "notes": ""},
-                {"locus": "MHC-B", "sourceLocus": "Mafa-B", "haplotype1": "M1B", "haplotype2": "M2B", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 2, "observedGenotypes": ["12_M1_B_046_01_01", "12_M2_B_019_03"], "notes": ""},
-                {"locus": "MHC-DRB", "sourceLocus": "Mafa-DRB", "haplotype1": "M1DR", "haplotype2": "M2DR", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""},
-                {"locus": "MHC-DQ", "sourceLocus": "Mafa-DQ", "haplotype1": "M1DQ", "haplotype2": "M2DQ", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 2, "observedGenotypes": ["14_M1_DQA1_24_03", "14_M2_DQB1_06g:14_M_DQB1_06_01_01"], "notes": ""},
-                {"locus": "MHC-DP", "sourceLocus": "Mafa-DP", "haplotype1": "M1DP", "haplotype2": "M2DP", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 2, "observedGenotypes": ["15_M1_DPA1_07_02", "15_M2_DPB1_20_01"], "notes": ""}
-              ]
-            },
-            {
-              "sample": "DW473",
-              "calls": [
-                {"locus": "MHC-A", "sourceLocus": "Mafa-A", "haplotype1": "M4A", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 1, "observedGenotypes": ["04_M4_AG_02_w_01_156bp"], "notes": ""},
-                {"locus": "MHC-B", "sourceLocus": "Mafa-B", "haplotype1": "M4B", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 1, "observedGenotypes": ["12_M4_B_027_02"], "notes": ""},
-                {"locus": "MHC-DRB", "sourceLocus": "Mafa-DRB", "haplotype1": "M4DR", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""},
-                {"locus": "MHC-DQ", "sourceLocus": "Mafa-DQ", "haplotype1": "M4DQ", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""},
-                {"locus": "MHC-DP", "sourceLocus": "Mafa-DP", "haplotype1": "M4DP", "haplotype2": "-", "status": "called", "matchedHaplotypes": [], "observedGenotypeCount": 0, "observedGenotypes": [], "notes": ""}
-              ]
-            }
-          ]
-        }
-        """.write(to: haplotypesJSON, atomically: true, encoding: .utf8)
-        try """
-        {
-          "id": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
-          "assayID": "MHC-exon2-miSeq",
-          "displayName": "Mauritian cynomolgus macaques",
-          "speciesName": "Mauritian cynomolgus macaque",
-          "speciesCode": "MCM",
-          "prefix": "Mafa",
-            "locusDefinitions": [
-            {"locus": "MHC-A", "sourceLocus": "Mafa-A", "haplotypes": [
-              {"name": "M1A", "diagnosticAlleles": ["02_M1_G_02_07_2mis_156bp", "04_M1_AG_05_3mis_156bp"], "colorTokenIndex": 1},
-              {"name": "M2A", "diagnosticAlleles": ["02_M2_G_02_06_156bp"], "colorTokenIndex": 2}
-            ]},
-            {"locus": "MHC-B", "sourceLocus": "Mafa-B", "haplotypes": [
-              {"name": "M1B", "diagnosticAlleles": ["12_M1_B_046_01_01"], "colorTokenIndex": 1},
-              {"name": "M2B", "diagnosticAlleles": ["12_M2_B_019_03"], "colorTokenIndex": 2}
-            ]},
-            {"locus": "MHC-DQ", "sourceLocus": "Mafa-DQ", "haplotypes": [
-              {"name": "M1DQ", "diagnosticAlleles": ["14_M1_DQA1_24_03"], "colorTokenIndex": 1},
-              {"name": "M2DQ", "diagnosticAlleles": ["14_M2_DQB1_06g:14_M_DQB1_06_01_01"], "colorTokenIndex": 2}
-            ]},
-            {"locus": "MHC-DP", "sourceLocus": "Mafa-DP", "haplotypes": [
-              {"name": "M1DP", "diagnosticAlleles": ["15_M1_DPA1_07_02"], "colorTokenIndex": 1},
-              {"name": "M2DP", "diagnosticAlleles": ["15_M2_DPB1_20_01"], "colorTokenIndex": 2}
-            ]}
-          ]
-        }
-        """.write(to: definitionJSON, atomically: true, encoding: .utf8)
-
-        _ = try runPython([
-            scriptURL.path,
-            "--client-current-workbook",
-            "--genotypes-csv", genotypesCSV.path,
-            "--samples-csv", samplesCSV.path,
-            "--stats-json", statsJSON.path,
-            "--reference-fasta", referenceFASTA.path,
-            "--barcode-definitions", barcodesCSV.path,
-            "--output-xlsx", currentWorkbook.path,
-            "--provenance-json", provenanceJSON.path,
-            "--analysis-name", "barcode08-mhc",
-            "--run-name", "barcode08-mhc",
-            "--haplotype-analysis-json", haplotypesJSON.path,
-            "--haplotype-definition-json", definitionJSON.path,
-            "--primary-workbook", primaryWorkbook.path,
-        ])
-
-        let inspection = try inspectMCMClientCurrentWorkbook(currentWorkbook, provenanceJSON: provenanceJSON)
-        XCTAssertEqual(inspection["sheetnames"] as? [String], [
-            "Interpretation Guide",
-            "MHC Alleles Per MHC Haplotype",
-            "Abbreviated Haplotypes",
-            "Full Sequencing Results 1",
-            "Custom Sort",
-        ])
-        XCTAssertEqual(inspection["abbreviatedHaplotype1"] as? String, "M1")
-        XCTAssertEqual(inspection["abbreviatedHaplotype2"] as? String, "M2")
-        XCTAssertEqual(inspection["abbreviatedHomozygoteHaplotype1"] as? String, "M4")
-        XCTAssertEqual(inspection["abbreviatedHomozygoteHaplotype2"] as? String, "M4")
-        XCTAssertEqual(inspection["mhcAHaplotype1"] as? String, "M1A")
-        XCTAssertEqual(inspection["mhcAHaplotype2"] as? String, "M2A")
-        XCTAssertEqual(inspection["fullHomozygoteAHaplotype1"] as? String, "M4A")
-        XCTAssertEqual(inspection["fullHomozygoteAHaplotype2"] as? String, "M4A")
-        XCTAssertEqual(inspection["definitionIncludesM1A"] as? Bool, true)
-        XCTAssertEqual(inspection["definitionIncludesM1G"] as? Bool, true)
-        XCTAssertEqual(inspection["m2Fill"] as? String, "00000000")
-        XCTAssertTrue((inspection["m2FontColor"] as? String)?.hasSuffix("FF0000") ?? false)
-        XCTAssertEqual(inspection["m2GenotypeFill"] as? String, "00000000")
-        XCTAssertTrue((inspection["m2GenotypeFontColor"] as? String)?.hasSuffix("FF0000") ?? false)
-        XCTAssertEqual(inspection["m2GenotypeRowBold"] as? Bool, true)
-        XCTAssertEqual(inspection["m2AlleleNameFontName"] as? String, "Calibri")
-        XCTAssertEqual(inspection["m2AlleleNameFontSize"] as? Double, 11.0)
-        XCTAssertTrue((inspection["m2AlleleNameFontColor"] as? String)?.hasSuffix("FF0000") ?? false)
-        XCTAssertEqual(inspection["m2AlleleNameBold"] as? Bool, false)
-        XCTAssertEqual(inspection["sharedAlleleNameFontName"] as? String, "Calibri")
-        XCTAssertEqual(inspection["sharedAlleleNameFontSize"] as? Double, 11.0)
-        XCTAssertFalse((inspection["sharedAlleleNameFontColor"] as? String)?.hasSuffix("00B050") ?? false)
-        XCTAssertFalse((inspection["sharedAlleleNameFontColor"] as? String)?.hasSuffix("7030A0") ?? false)
-        XCTAssertEqual(inspection["sharedAlleleNameBold"] as? Bool, false)
-        XCTAssertEqual(inspection["fullHasGenericGenotypeHeader"] as? Bool, false)
-        XCTAssertLessThan(inspection["fullMafaGHeaderRow"] as? Int ?? 0, inspection["fullMafaAGHeaderRow"] as? Int ?? 0)
-        XCTAssertLessThan(inspection["fullMafaAGHeaderRow"] as? Int ?? 0, inspection["fullMafaAMajorHeaderRow"] as? Int ?? 0)
-        XCTAssertLessThan(inspection["fullMafaAMajorHeaderRow"] as? Int ?? 0, inspection["fullMafaBHeaderRow"] as? Int ?? 0)
-        XCTAssertEqual(inspection["fullDQAHaplotype1"] as? String, "M1DQ")
-        XCTAssertEqual(inspection["fullDQBHaplotype1"] as? String, "M1DQ")
-        XCTAssertEqual(inspection["fullDPAHaplotype1"] as? String, "M1DP")
-        XCTAssertEqual(inspection["fullDPBHaplotype1"] as? String, "M1DP")
-        XCTAssertEqual(inspection["fullCollapsedDQRowExists"] as? Bool, false)
-        XCTAssertEqual(inspection["fullCollapsedDPRowExists"] as? Bool, false)
-        XCTAssertEqual(inspection["abbreviatedReadCountHeader"] as? String, "Mapped Read Count")
-        XCTAssertEqual(inspection["metadataCompactLabel"] as? String, "Mafa-A1*063:01:01:01/Mafa-A1*063:02:01:01")
-        XCTAssertEqual(inspection["metadataLabelSection"] as? String, "Mafa-A major alleles")
-        XCTAssertEqual(inspection["metadataLabelHasMiSeqComment"] as? Bool, true)
-        XCTAssertEqual(inspection["metadataLabelHasPrimaryBadge"] as? Bool, true)
-        XCTAssertEqual(inspection["customSortFirstSection"] as? String, "MHC homozygous MCM animals")
-        XCTAssertEqual(inspection["customSortFirstSectionSampleID"] as? String, "DW473")
-        XCTAssertEqual(inspection["customSortHomozygoteSampleID"] as? String, "DW473")
-        XCTAssertEqual(inspection["customSortHomozygoteHaplotype1"] as? String, "M4")
-        XCTAssertEqual(inspection["customSortHomozygoteHaplotype2"] as? String, "M4")
-        XCTAssertEqual(inspection["containsBOM"] as? Bool, false)
-        XCTAssertEqual(inspection["abbreviatedA2FontName"] as? String, "Calibri")
-        XCTAssertEqual(inspection["abbreviatedA2FontSize"] as? Double, 11.0)
-        XCTAssertEqual(inspection["abbreviatedA2FontBold"] as? Bool, true)
-        XCTAssertEqual(inspection["customSortSectionFontName"] as? String, "Arial")
-        XCTAssertEqual(inspection["customSortSectionFontSize"] as? Double, 14.0)
-        XCTAssertEqual(inspection["customSortA1FontSize"] as? Double, 12.0)
-        XCTAssertEqual(inspection["fullA1FontSize"] as? Double, 11.0)
-        XCTAssertEqual(inspection["customSortAutoFilter"] as? String, "")
-        XCTAssertEqual(inspection["abbreviatedAutoFilter"] as? String, "")
-        XCTAssertEqual(inspection["guideAssay"] as? String, "MHC-exon2-miSeq")
-        XCTAssertEqual(inspection["guideDefinition"] as? String, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
-        XCTAssertEqual(inspection["guideMinReads"] as? String, "10")
-        XCTAssertEqual(inspection["guideMinSamplePercent"] as? String, "1%")
-        XCTAssertEqual(inspection["guideMinLocusPercent"] as? String, "1%")
-        XCTAssertEqual(inspection["guideLocusOverrides"] as? String, "MHC-DP=10%; MHC-DQ=10%")
-        XCTAssertEqual(inspection["provenanceMode"] as? String, "mcm-client-current")
-        XCTAssertTrue((inspection["provenanceOutputWorkbook"] as? String)?.hasSuffix("current.xlsx") ?? false)
-    }
 
     private func pythonCanImportOpenpyxl() -> Bool {
         (try? runPython(["-c", "import openpyxl"])) != nil
@@ -4716,6 +4229,12 @@ print(json.dumps(payload))
 
         script = os.path.basename(sys.argv[1]) if len(sys.argv) > 1 else ""
         started = time.time()
+        if script == "renderer.py":
+            if \#(failWorkbookReport ? "True" : "False"):
+                print("intentional workbook report failure", file=sys.stderr)
+                sys.exit(73)
+            real_python = os.environ.get("LUNGFISH_TEST_PYTHON", os.path.expanduser("~/.lungfish/conda/envs/openpyxl/bin/python3"))
+            os.execv(real_python, [real_python] + sys.argv[1:])
         if script == "filter-demux-retained-bam.py":
             output_dir = option("--output-dir")
             prefix = option("--prefix")
@@ -4753,38 +4272,6 @@ print(json.dumps(payload))
             with open(outputs["provenance"], "w") as handle:
                 json.dump({"argv": sys.argv, "exitStatus": 0}, handle)
             print(json.dumps(stats))
-            sys.exit(0)
-
-        if script == "write-retained-demux-workbook.py":
-            if \#(failWorkbookReport ? "True" : "False"):
-                print("intentional workbook report failure", file=sys.stderr)
-                sys.exit(73)
-            output_xlsx = option("--output-xlsx")
-            provenance_json = option("--provenance-json")
-            is_client_current = "--client-current-workbook" in sys.argv
-            os.makedirs(os.path.dirname(output_xlsx), exist_ok=True)
-            with open(output_xlsx, "w") as handle:
-                handle.write("client current workbook\n" if is_client_current else "workbook\n")
-            with open(provenance_json, "w") as handle:
-                json.dump({
-                    "argv": sys.argv,
-                    "exitStatus": 0,
-                    "mode": "mcm-client-current" if is_client_current else "standard-report",
-                    "outputWorkbook": output_xlsx,
-                }, handle)
-            print(json.dumps({
-                "outputXLSX": output_xlsx,
-                "provenanceJSON": provenance_json,
-                "openpyxlVersion": "test-openpyxl",
-                "sheetNames": [
-                    "Interpretation Guide",
-                    "MHC Alleles Per MHC Haplotype",
-                    "Abbreviated Haplotypes",
-                    "Full Sequencing Results 1",
-                    "Custom Sort",
-                ] if is_client_current else ["barcode08-mhc"],
-                "auditRows": 0,
-            }))
             sys.exit(0)
 
         print(f"unsupported fake python script: {script}", file=sys.stderr)

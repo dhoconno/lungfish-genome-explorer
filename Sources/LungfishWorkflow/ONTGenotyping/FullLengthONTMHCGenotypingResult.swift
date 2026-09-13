@@ -37,7 +37,6 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let sampleSummaryCSVURL: URL
     public let statsJSONURL: URL
     public let workbookURL: URL
-    public let primaryWorkbookURL: URL
     public let haplotypeAnalysisURL: URL?
     public let unmatchedClustersFASTAURL: URL
     public let deduplicatedUnmatchedClustersFASTAURL: URL
@@ -64,7 +63,6 @@ extension FullLengthONTMHCGenotypingResult {
         case sampleSummaryCSVURL
         case statsJSONURL
         case workbookURL
-        case primaryWorkbookURL
         case haplotypeAnalysisURL
         case unmatchedClustersFASTAURL
         case deduplicatedUnmatchedClustersFASTAURL
@@ -91,7 +89,6 @@ extension FullLengthONTMHCGenotypingResult {
         sampleSummaryCSVURL = try container.decode(URL.self, forKey: .sampleSummaryCSVURL)
         statsJSONURL = try container.decode(URL.self, forKey: .statsJSONURL)
         workbookURL = try container.decode(URL.self, forKey: .workbookURL)
-        primaryWorkbookURL = try container.decode(URL.self, forKey: .primaryWorkbookURL)
         haplotypeAnalysisURL = try container.decodeIfPresent(URL.self, forKey: .haplotypeAnalysisURL)
         unmatchedClustersFASTAURL = try container.decode(URL.self, forKey: .unmatchedClustersFASTAURL)
         deduplicatedUnmatchedClustersFASTAURL = try container.decode(
@@ -124,7 +121,6 @@ extension FullLengthONTMHCGenotypingResult {
         try container.encode(sampleSummaryCSVURL, forKey: .sampleSummaryCSVURL)
         try container.encode(statsJSONURL, forKey: .statsJSONURL)
         try container.encode(workbookURL, forKey: .workbookURL)
-        try container.encode(primaryWorkbookURL, forKey: .primaryWorkbookURL)
         try container.encodeIfPresent(haplotypeAnalysisURL, forKey: .haplotypeAnalysisURL)
         try container.encode(unmatchedClustersFASTAURL, forKey: .unmatchedClustersFASTAURL)
         try container.encode(deduplicatedUnmatchedClustersFASTAURL, forKey: .deduplicatedUnmatchedClustersFASTAURL)
