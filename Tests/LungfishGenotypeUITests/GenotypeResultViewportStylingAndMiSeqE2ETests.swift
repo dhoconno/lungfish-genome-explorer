@@ -2096,6 +2096,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             sample: "AnimalA"
         )
 
+        XCTAssertTrue(controller.testingDetailPaneHidden)
         XCTAssertEqual(
             controller.testingSelectedCandidateStableClusterID,
             candidate.stableClusterID
@@ -3504,7 +3505,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testHaplotypedMiSeqMatrixSelectionControlsVisibleCurationPane()
+    func testHaplotypedMiSeqMatrixSuppressesDetailPaneAcrossSelectionAndRefreshTransitions()
         throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
@@ -3520,18 +3521,62 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertTrue(controller.testingCohortSummaryIsHidden)
         XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertTrue(controller.testingDetailPaneHidden)
 
-        controller.testingComparisonMatrix.testingSelectMatrixTargets([
-            .column(sample: "Sample-A"),
-        ])
+        controller.testingSelectMatrixColumn(sample: "Sample-A")
+        let column = try XCTUnwrap(
+            controller.testingCurrentSelectionMatrixTargets.first
+        )
 
         XCTAssertTrue(controller.testingCohortSummaryIsHidden)
         XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
         XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 1)
+        XCTAssertTrue(controller.testingDetailPaneHidden)
+        XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [column])
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Selected Sample", "Sample-A")
+        })
         XCTAssertEqual(
             controller.testingEffectiveHaplotypeEditorSample,
             "Sample-A"
         )
+
+        controller.testingSelectMatrixRows(
+            genotypes: ["A-genotype"],
+            sample: nil
+        )
+        let row = try XCTUnwrap(
+            controller.testingCurrentSelectionMatrixTargets.first
+        )
+        XCTAssertTrue(controller.testingDetailPaneHidden)
+        XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [row])
+
+        controller.testingSelectMatrixCell(
+            genotype: "A-genotype",
+            sample: "Sample-A"
+        )
+        let cell = try XCTUnwrap(
+            controller.testingCurrentSelectionMatrixTargets.first
+        )
+        XCTAssertTrue(controller.testingDetailPaneHidden)
+        XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [cell])
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Sample", "Sample-A")
+        })
+
+        controller.addMatrixComment(.init(
+            targets: [cell],
+            body: "Retained Inspector identity"
+        ))
+        XCTAssertTrue(controller.testingDetailPaneHidden)
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
+            $0 == ("Cell Comment", "Retained Inspector identity")
+        })
+
+        state.matrixMinimumReads = 2
+        controller.testingApplyDisplayState(state)
+        XCTAssertTrue(controller.testingDetailPaneHidden)
+        XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [cell])
 
         controller.testingComparisonMatrix.testingSelectMatrixTargets([])
 
@@ -3539,6 +3584,72 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
         XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 0)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+        XCTAssertTrue(controller.testingDetailPaneHidden)
+        XCTAssertTrue(controller.testingCurrentSelectionMatrixTargets.isEmpty)
+
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        controller.testingSelectCellEvidence(
+            animalId: "Sample-A",
+            locus: "MHC-A"
+        )
+        XCTAssertFalse(controller.testingDetailPaneHidden)
+        XCTAssertFalse(controller.testingCallEvidencePaneHidden)
+        XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "Sample-A")
+    }
+
+
+    func testMalformedOrUnknownWorkflowDeclarationDoesNotSuppressMatrixDetailPane()
+        throws
+    {
+        for declaration in [
+            #""workflowKind":"future-mhc-workflow""#,
+            #""workflowMode":{"future":true}"#,
+            #""workflowKind":null"#,
+        ] {
+            let json = """
+            {
+              "schemaVersion": 1,
+              "kind": "ont-barcode-genotype",
+              \(declaration),
+              "outputName": "unknown-workflow",
+              "analysisName": "Unknown workflow",
+              "primaryWorkbookPath": "result.xlsx",
+              "longSummaryCSVPath": "calls.csv",
+              "sampleSummaryCSVPath": "samples.csv",
+              "statsJSONPath": "stats.json",
+              "provenancePath": "provenance.json"
+            }
+            """
+            let manifest = try JSONDecoder().decode(
+                ONTGenotypeResultBundleManifest.self,
+                from: Data(json.utf8)
+            )
+            let controller = makeMatrixAnnotationGuardedController()
+            _ = controller.view
+            controller.configure(result: makeResult(
+                samples: [],
+                calls: [makeCall(
+                    sample: "Sample-A",
+                    genotype: "A1",
+                    reads: 10
+                )],
+                haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis(
+                    sample: "Sample-A"
+                ),
+                manifest: manifest
+            ))
+
+            controller.testingApplyDisplayState(.init(
+                viewportLens: .summary,
+                summaryViewMode: .matrix
+            ))
+
+            XCTAssertFalse(
+                controller.testingDetailPaneHidden,
+                declaration
+            )
+        }
     }
 
 

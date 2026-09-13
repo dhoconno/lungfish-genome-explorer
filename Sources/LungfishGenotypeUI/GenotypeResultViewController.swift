@@ -3093,7 +3093,7 @@ public final class GenotypeResultViewController: NSViewController {
         let evidence = callEvidence
         host.rootView = makeCallEvidenceView(evidence: evidence)
         host.isHidden = evidence == nil
-        detailContainer.isHidden = selectedLens == .review && evidence == nil
+        updateDetailPaneVisibility()
         syncOutlineReviewSelection()
     }
 
@@ -3826,7 +3826,6 @@ public final class GenotypeResultViewController: NSViewController {
                 && currentSelectedLocus != nil
         cohortSummaryPanel.isHidden = showsSelectedCallEvidence
         detailScrollView.isHidden = true
-        detailContainer.isHidden = false
         if showsSelectedCallEvidence {
             if callEvidenceHost == nil {
                 installCallEvidenceHost()
@@ -3840,7 +3839,6 @@ public final class GenotypeResultViewController: NSViewController {
         if rawMatrixUsesSampleCurationDetail && showsRawMatrix {
             cohortSummaryPanel.isHidden = true
             detailScrollView.isHidden = false
-            detailContainer.isHidden = false
             callEvidenceHost?.isHidden = true
             if currentSelectionState?.matrixTargets.isEmpty ?? true {
                 teardownSampleCurationWorkbench()
@@ -3851,9 +3849,7 @@ public final class GenotypeResultViewController: NSViewController {
         if showsRawMatrix {
             ensureComparisonMatrixConfigured()
         }
-        if detailPaneSuppressedForBareSelection {
-            detailContainer.isHidden = true
-        }
+        updateDetailPaneVisibility()
     }
 
     /// True while the selected call has nothing to put in the detail pane: no
@@ -3864,9 +3860,18 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func setDetailPaneSuppressed(_ suppressed: Bool) {
         detailPaneSuppressedForBareSelection = suppressed
-        // Lifting the suppression restores the review lens's own rule for
-        // the pane; every other lens shows it.
-        detailContainer.isHidden = suppressed
+        updateDetailPaneVisibility()
+    }
+
+    private var detailPaneSuppressedForActiveMiSeqMatrix: Bool {
+        selectedLens == .summary
+            && displayState.summaryViewMode == .matrix
+            && presentationPolicy?.appliesToHaplotypedMiSeq == true
+    }
+
+    private func updateDetailPaneVisibility() {
+        detailContainer.isHidden = detailPaneSuppressedForBareSelection
+            || detailPaneSuppressedForActiveMiSeqMatrix
             || (selectedLens == .review && callEvidence == nil)
     }
 
@@ -9326,12 +9331,6 @@ public final class GenotypeResultViewController: NSViewController {
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
         panel.prompt = "Export"
-        if format == .excel {
-            let disclosure = NSTextField(wrappingLabelWithString: GenotypeExcelExportSessionState.disclosure)
-            disclosure.preferredMaxLayoutWidth = 430
-            disclosure.frame = NSRect(x: 0, y: 0, width: 430, height: 62)
-            panel.accessoryView = disclosure
-        }
         excelSavePanelPresenter(panel, view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] url in
             guard let url else { return }
             guard let self, originStillCurrent(), self.representedBundleURL == origin,

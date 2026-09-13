@@ -379,6 +379,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         controller.excelSavePanelPresenter = { panel, _, completion in
             panels += 1
             XCTAssertEqual(panel.allowedContentTypes.first?.preferredFilenameExtension, "xlsx")
+            XCTAssertNil(panel.accessoryView)
             completion(nil)
         }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)

@@ -206,9 +206,15 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             manifest: manifest
         ))
 
+        XCTAssertFalse(
+            controller.testingDetailPaneHidden,
+            "genotype-only MiSeq retains its existing manual-calls workbench"
+        )
+
         controller.testingShowMatrixTargetSelection([
             .column(sample: "AnimalA"),
         ])
+        XCTAssertFalse(controller.testingDetailPaneHidden)
         XCTAssertNotNil(controller.testingSampleWorkbenchLayoutMode)
         controller.testingUpdateManualHaplotypeLabel("Provisional-A-H1")
         XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
