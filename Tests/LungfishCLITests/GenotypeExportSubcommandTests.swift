@@ -305,6 +305,135 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output), prior)
     }
 
+    func testExternalManifestSummaryIsCapturedExactlyAndMutationRejectsPublication() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = try temporaryDirectory(prefix: "genotype-external-summary")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let internalSummary = bundle.appendingPathComponent("calls.csv")
+        let externalSummary = root.appendingPathComponent("authoritative-summary.scientific-input")
+        let originalBytes = try Data(contentsOf: internalSummary)
+        try originalBytes.write(to: externalSummary)
+        try pointManifestLongSummary(in: bundle, at: externalSummary)
+
+        let output = root.appendingPathComponent("external.xlsx")
+        _ = try await GenotypeExportSubcommand.parse([
+            "--bundle", bundle.path,
+            "--output", output.path,
+        ]).runReturningResolvedColumns(managedPythonResolver: { python })
+
+        let receipt = try jsonObject(output.appendingPathExtension("provenance.json"))
+        let witness = try XCTUnwrap(
+            (receipt["inputs"] as? [[String: Any]])?.first {
+                $0["path"] as? String == externalSummary.path
+            }
+        )
+        XCTAssertEqual(witness["sizeBytes"] as? Int, originalBytes.count)
+        XCTAssertEqual(
+            witness["sha256"] as? String,
+            try ProvenanceFileHasher.sha256(of: externalSummary)
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: URL(
+                    fileURLWithPath: try XCTUnwrap(witness["capturedPath"] as? String)
+                )
+            ),
+            originalBytes
+        )
+
+        let forced = root.appendingPathComponent("forced-existing.xlsx")
+        let forcedReceipt = forced.appendingPathExtension("provenance.json")
+        let priorOutput = Data("existing output owner".utf8)
+        let priorReceipt = Data("existing receipt owner".utf8)
+        try priorOutput.write(to: forced)
+        try priorReceipt.write(to: forcedReceipt)
+        do {
+            _ = try await GenotypeExportSubcommand.parse([
+                "--bundle", bundle.path,
+                "--output", forced.path,
+                "--force",
+            ]).runReturningResolvedColumns(managedPythonResolver: {
+                try Data("mutated after scientific capture".utf8).write(
+                    to: externalSummary,
+                    options: .atomic
+                )
+                return python
+            })
+            XCTFail("mutated external scientific input was accepted")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains("scientific input changed"),
+                String(describing: error)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: forced), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: forcedReceipt), priorReceipt)
+    }
+
+    func testCustomDefinitionMutationAfterCaptureRejectsForcedPublication() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = try temporaryDirectory(prefix: "genotype-definition-mutation")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let analysisRoot = project.appendingPathComponent("Analyses/Run", isDirectory: true)
+        try FileManager.default.createDirectory(at: analysisRoot, withIntermediateDirectories: true)
+        let bundle = try makeBundle(in: analysisRoot)
+        let store = HaplotypeDefinitionStore(projectRoot: project)
+        try store.ensureFolderExists()
+        let definitionURL = try XCTUnwrap(store.definitionURL(for: "mauritian-cynomolgus-macaques"))
+        let definitionA = GenotypeHaplotypeDefinitionSet(
+            id: "mauritian-cynomolgus-macaques",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Captured definition A",
+            speciesName: "Fixture",
+            speciesCode: "Fixture",
+            prefix: "Mafa",
+            locusDefinitions: []
+        )
+        let definitionB = GenotypeHaplotypeDefinitionSet(
+            id: definitionA.id,
+            assayID: definitionA.assayID,
+            displayName: "Replacement definition B",
+            speciesName: definitionA.speciesName,
+            speciesCode: definitionA.speciesCode,
+            prefix: definitionA.prefix,
+            locusDefinitions: []
+        )
+        try JSONEncoder().encode(definitionA).write(to: definitionURL, options: .atomic)
+        let output = root.appendingPathComponent("existing.xlsx")
+        let receipt = output.appendingPathExtension("provenance.json")
+        let priorOutput = Data("existing output owner".utf8)
+        let priorReceipt = Data("existing receipt owner".utf8)
+        try priorOutput.write(to: output)
+        try priorReceipt.write(to: receipt)
+
+        do {
+            _ = try await GenotypeExportSubcommand.parse([
+                "--bundle", bundle.path,
+                "--output", output.path,
+                "--force",
+            ]).runReturningResolvedColumns(
+                afterExcelAuthorityCapture: {
+                    try JSONEncoder().encode(definitionB).write(
+                        to: definitionURL,
+                        options: .atomic
+                    )
+                },
+                managedPythonResolver: { python }
+            )
+            XCTFail("definition mutation after capture was accepted")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains("definition")
+                    && String(describing: error).contains("changed"),
+                String(describing: error)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: output), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: receipt), priorReceipt)
+    }
+
     private func makeBundle(in root: URL) throws -> URL {
         let bundle = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
@@ -372,6 +501,19 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             forBundleAt: bundle
         )
         return bundle
+    }
+
+    private func pointManifestLongSummary(in bundle: URL, at url: URL) throws {
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: bundle)
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL))
+                as? [String: Any]
+        )
+        object["longSummaryCSVPath"] = url.standardizedFileURL.path
+        try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: manifestURL, options: .atomic)
     }
 
     private func inspect(

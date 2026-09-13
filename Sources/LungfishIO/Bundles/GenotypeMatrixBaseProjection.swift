@@ -31,6 +31,12 @@ public struct GenotypeMatrixBaseProjection: Sendable {
 
         public static let unfiltered = Self()
 
+        public var hasActiveNumericThresholds: Bool {
+            globalMinimumPercent > 0
+                || matrixMinimumReads > 0
+                || matrixMinimumPercent > 0
+        }
+
         public init(
             globalMinimumPercent: Double = 0,
             globalDenominator: ONTGenotypeSupportDenominator = .viewedLocus,

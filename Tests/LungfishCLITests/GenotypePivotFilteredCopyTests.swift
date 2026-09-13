@@ -236,6 +236,112 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         )
     }
 
+    func testPivotProjectionPreservesLowerAuthoritativeOccurrenceAndAttestedZero() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-projected-occurrences-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundle = try makeBundle(in: root, includeCalls: true)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
+        S1,01_M1A_A1_063,16,16,100,20,20.0,1000,20,2.0
+        S1,01_M1A_A1_063,4,4,100,20,20.0,1000,20,2.0
+        S2,01_M1A_A1_063,0,0,80,0,0.0,1000,20,2.0
+        """.write(
+            to: bundle.appendingPathComponent("calls.csv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let projectionURL = root.appendingPathComponent("projection.json")
+        try JSONEncoder().encode(
+            GenotypeViewProjection(
+                lens: "allele",
+                sampleColumns: ["S1", "S2"],
+                rows: [
+                    .init(
+                        label: "Captured allele",
+                        rawGenotype: "01_M1A_A1_063",
+                        cells: ["4", "0"]
+                    ),
+                ]
+            )
+        ).write(to: projectionURL)
+        let output = root.appendingPathComponent("report.xlsx")
+
+        try await GenotypeExportPivotXlsxSubcommand.parse([
+            "--bundle", bundle.path,
+            "--output", output.path,
+            "--view-projection", projectionURL.path,
+        ]).run(managedPythonResolver: { python })
+
+        let receipt = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: output.appendingPathExtension("provenance.json"))
+            ) as? [String: Any]
+        )
+        let snapshotPath = try XCTUnwrap(
+            (receipt["snapshot"] as? [String: Any])?["path"] as? String
+        )
+        let snapshot = try JSONDecoder().decode(
+            GenotypeWorkbookPresentation.Snapshot.self,
+            from: Data(contentsOf: URL(fileURLWithPath: snapshotPath))
+        )
+        let row = try XCTUnwrap(snapshot.filteredMatrix.rows.first)
+        XCTAssertEqual(row.displayName, "Captured allele")
+        XCTAssertEqual(row.cells.map(\.displayValue), [4, 0])
+    }
+
+    func testPivotRejectsIncoherentProjectionBeforeForcedDestinationReplacement() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-incoherent-projection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundle = try makeBundle(in: root, includeCalls: true)
+        let projectionURL = root.appendingPathComponent("projection.json")
+        try JSONEncoder().encode(
+            GenotypeViewProjection(
+                lens: "allele",
+                sampleColumns: ["S1"],
+                rows: [
+                    .init(
+                        label: "Unsupported count",
+                        rawGenotype: "01_M1A_A1_063",
+                        cells: ["999"]
+                    ),
+                ]
+            )
+        ).write(to: projectionURL)
+        let output = root.appendingPathComponent("existing.xlsx")
+        let receipt = output.appendingPathExtension("provenance.json")
+        let priorOutput = Data("existing output owner".utf8)
+        let priorReceipt = Data("existing receipt owner".utf8)
+        try priorOutput.write(to: output)
+        try priorReceipt.write(to: receipt)
+
+        do {
+            try await GenotypeExportPivotXlsxSubcommand.parse([
+                "--bundle", bundle.path,
+                "--output", output.path,
+                "--view-projection", projectionURL.path,
+                "--force",
+            ]).run(managedPythonResolver: {
+                XCTFail("incoherent projection must fail before runtime resolution")
+                throw CocoaError(.fileNoSuchFile)
+            })
+            XCTFail("incoherent projection was accepted")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "projected value does not match authoritative evidence"
+                ),
+                String(describing: error)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: output), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: receipt), priorReceipt)
+    }
+
     private func makeBundle(in root: URL, includeCalls: Bool) throws -> URL {
         let bundle = root.appendingPathComponent(
             includeCalls ? "called.lungfishgenotype" : "uncalled.lungfishgenotype",

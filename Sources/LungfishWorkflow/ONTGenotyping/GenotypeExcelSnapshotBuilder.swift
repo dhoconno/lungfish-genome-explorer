@@ -215,13 +215,34 @@ public enum GenotypeExcelSnapshotBuilder {
                     let cellTarget = T.cell(locus: scientific.locus, genotype: scientific.genotype, sample: sample, stableClusterID: scientific.stable)
                     let support = raw[cellTarget]
                     let text = row.cells[index].trimmingCharacters(in: .whitespacesAndNewlines)
-                    let value: Int?
-                    if text.isEmpty || text == "-" { value = nil }
-                    else { guard let number = Int(text), number >= 0 else { throw CaptureError.incoherent("nonnumeric evidence") }; value = number }
+                    let projectedValue: Int?
+                    if text.isEmpty || text == "-" { projectedValue = nil }
+                    else { guard let number = Int(text), number >= 0 else { throw CaptureError.incoherent("nonnumeric evidence") }; projectedValue = number }
                     let occurrences = allNativeValues[key]?.sampleSupport.filter { $0.sample == sample }.map(\.passedUniqueReads) ?? []
                     let allValue = occurrences.first ?? support
-                    guard value == nil || value == support || value.map(occurrences.contains) == true,
-                          !full || value == allValue else { throw CaptureError.incoherent("projected value does not match authoritative evidence") }
+                    guard projectedValue == nil || projectedValue == support
+                            || projectedValue.map(occurrences.contains) == true,
+                          !full || projectedValue == allValue else {
+                        throw CaptureError.incoherent(
+                            "projected value does not match authoritative evidence"
+                        )
+                    }
+                    let value: Int?
+                    if !full, projection != nil, filter.hasActiveNumericThresholds,
+                       let projectedValue, projectedValue > 0,
+                       allNativeValues[key] != nil {
+                        let admittedOccurrences = nativeValues[key]?.sampleSupport
+                            .filter { $0.sample == sample }
+                            .map(\.passedUniqueReads) ?? []
+                        value = admittedOccurrences.contains(projectedValue)
+                            ? projectedValue
+                            : nil
+                    } else {
+                        // An attested zero is evidence, not an empty cell. The
+                        // row policy decides retention from positive visible
+                        // cells after every projected value is validated.
+                        value = projectedValue
+                    }
                     let capturedFill = row.cellColorsHex.flatMap { $0.indices.contains(index) ? $0[index] : nil }
                     let style = row.cellStyles.flatMap { $0.indices.contains(index) ? $0[index] : nil }
                         ?? GenotypeMatrixStyleResolver.resolve([.init(fillColor: capturedFill ?? row.rowColorHex)], initial: resolvedStyle(cellTarget, styles: styles))

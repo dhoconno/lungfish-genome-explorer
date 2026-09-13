@@ -178,18 +178,23 @@ enum GenotypeExcelCLIExportSupport {
 
     static func export(
         _ request: Request,
+        afterAuthorityCapture: (@Sendable () throws -> Void)? = nil,
         managedPythonResolver: @escaping @Sendable () async throws -> URL
     ) async throws -> Outcome {
         let bundle = request.bundleURL.standardizedFileURL
         let output = request.outputURL.standardizedFileURL
         let generatedAt = ISO8601DateFormatter().string(from: Date())
 
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
         var witnessed = try scientificFileWitnesses(
-            in: bundle,
-            additionalURLs: [request.annotationURL, request.projectionURL]
-                .compactMap { $0 }
+            at: resolvedScientificInputURLs(
+                manifest: manifest,
+                bundleURL: bundle,
+                includeAutomaticSidecar: request.annotationURL == nil
+            ) + [request.annotationURL, request.projectionURL].compactMap { $0 }
         )
         let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
+        try verify(witnessed)
         var sidecar = try loadSidecar(
             bundleURL: bundle,
             explicitURL: request.annotationURL,
@@ -206,7 +211,7 @@ enum GenotypeExcelCLIExportSupport {
                 from: Data(contentsOf: url.standardizedFileURL)
             )
         }
-        var scopedProjection = try loadedProjection.map {
+        let scopedProjection = try loadedProjection.map {
             try self.projection($0, retainingSamples: request.samples)
         }
         let definition = GenotypeHaplotypeAnalysisResolver.activeDefinitionSet(
@@ -227,34 +232,26 @@ enum GenotypeExcelCLIExportSupport {
             locusDisplayOrder: order,
             colors: scopedProjection?.presentationColors ?? []
         )
-        let nativeSnapshot = try GenotypeExcelSnapshotBuilder.capture(
-            result: result,
-            sidecar: sidecar,
-            allProjection: nil,
-            filteredProjection: nil,
-            generatedAt: generatedAt,
-            authority: authority,
-            filter: request.filter
-        )
-
-        // Command-line numeric thresholds remain scientific authority even
-        // when a captured viewport supplies the narrower row/column mask. The
-        // allowed values come from the common builder's native filtered
-        // projection; the CLI does not reimplement a threshold formula.
-        if let projection = scopedProjection, request.filter != .unfiltered {
-            scopedProjection = applyingNativeFilter(
-                projection,
-                nativeMatrix: nativeSnapshot.filteredMatrix
-            )
-        }
-
-        var snapshot = nativeSnapshot
+        var snapshot: GenotypeWorkbookPresentation.Snapshot
         if let scopedProjection {
+            // The shared builder validates every captured cell against raw or
+            // per-occurrence authority before applying any active numeric
+            // thresholds. Denominator-only defaults never transform evidence.
             snapshot = try GenotypeExcelSnapshotBuilder.capture(
                 result: result,
                 sidecar: sidecar,
                 allProjection: nil,
                 filteredProjection: scopedProjection,
+                generatedAt: generatedAt,
+                authority: authority,
+                filter: request.filter
+            )
+        } else {
+            snapshot = try GenotypeExcelSnapshotBuilder.capture(
+                result: result,
+                sidecar: sidecar,
+                allProjection: nil,
+                filteredProjection: nil,
                 generatedAt: generatedAt,
                 authority: authority,
                 filter: request.filter
@@ -283,19 +280,39 @@ enum GenotypeExcelCLIExportSupport {
             )
         }
 
-        if let definitionURL = GenotypeHaplotypeAnalysisResolver
-            .activeDefinitionFileURL(for: result, bundleURL: bundle, sidecar: sidecar),
-           !witnessed.contains(where: {
-               URL(fileURLWithPath: $0.path).standardizedFileURL
-                   == definitionURL.standardizedFileURL
-           }) {
-            witnessed.append(
-                .init(
-                    path: definitionURL.standardizedFileURL.path,
-                    data: try Data(contentsOf: definitionURL.standardizedFileURL)
+        if let definition {
+            guard let definitionURL = GenotypeHaplotypeAnalysisResolver
+                    .activeDefinitionFileURL(
+                        for: result,
+                        bundleURL: bundle,
+                        sidecar: sidecar
+                    ) else {
+                throw GenotypeExcelExportService.ExportError.invalidInput(
+                    "captured haplotype definition source changed or disappeared"
                 )
-            )
+            }
+            let definitionData = try Data(contentsOf: definitionURL.standardizedFileURL)
+            guard try JSONDecoder().decode(
+                GenotypeHaplotypeDefinitionSet.self,
+                from: definitionData
+            ) == definition else {
+                throw GenotypeExcelExportService.ExportError.invalidInput(
+                    "captured haplotype definition source changed"
+                )
+            }
+            if !witnessed.contains(where: {
+                URL(fileURLWithPath: $0.path).standardizedFileURL
+                    == definitionURL.standardizedFileURL
+            }) {
+                witnessed.append(
+                    .init(
+                        path: definitionURL.standardizedFileURL.path,
+                        data: definitionData
+                    )
+                )
+            }
         }
+        try afterAuthorityCapture?()
         try verify(witnessed)
 
         let python = try await managedPythonResolver()
@@ -484,86 +501,107 @@ enum GenotypeExcelCLIExportSupport {
         )
     }
 
-    private static func applyingNativeFilter(
-        _ source: GenotypeViewProjection,
-        nativeMatrix: GenotypeWorkbookPresentation.Matrix
-    ) -> GenotypeViewProjection {
-        let rows = source.rows.map { row -> GenotypeViewProjectionRow in
-            let genotype = row.rawGenotype ?? row.label
-            let native = nativeMatrix.rows.filter {
-                $0.target.genotype == genotype
-                    && $0.target.stableClusterID == row.stableClusterID
-                    && (row.locus == nil || $0.target.locus == row.locus)
-            }
-            let allowed = native.count == 1
-                ? Dictionary(uniqueKeysWithValues: native[0].cells.map {
-                    ($0.sampleID, $0.displayValue ?? 0)
-                })
-                : [:]
-            let cells = source.sampleColumns.enumerated().map { index, sample in
-                let literal = row.cells[index]
-                guard let value = Int(literal.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      value > 0,
-                      allowed[sample] == value else {
-                    return ""
-                }
-                return literal
-            }
-            return GenotypeViewProjectionRow(
-                label: row.label,
-                rawGenotype: row.rawGenotype,
-                locus: row.locus,
-                stableClusterID: row.stableClusterID,
-                cells: cells,
-                cellColorsHex: row.cellColorsHex,
-                rowColorHex: row.rowColorHex,
-                rowStyle: row.rowStyle,
-                cellStyles: row.cellStyles
-            )
-        }
-        return GenotypeViewProjection(
-            lens: source.lens,
-            sampleColumns: source.sampleColumns,
-            rows: rows,
-            cellColorMode: source.cellColorMode,
-            genotypeLocusDisplayOrder: source.genotypeLocusDisplayOrder,
-            genotypeNumericPrefixOrder: source.genotypeNumericPrefixOrder,
-            diagnosticAllelesOnly: source.diagnosticAllelesOnly,
-            includeTotalReads: source.includeTotalReads,
-            haplotypeCalls: source.haplotypeCalls,
-            sourceRevision: source.sourceRevision,
-            filterContext: source.filterContext,
-            presentationColors: source.presentationColors
-        )
-    }
-
     private static func scientificFileWitnesses(
-        in bundleURL: URL,
-        additionalURLs: [URL]
+        at sourceURLs: [URL]
     ) throws -> [GenotypeExcelExportService.InputWitness] {
-        let extensions = Set([
-            "json", "csv", "tsv", "txt", "fasta", "fa", "fna", "gb", "gbk",
-        ])
-        var urls = additionalURLs.map(\.standardizedFileURL)
-        if let enumerator = FileManager.default.enumerator(
-            at: bundleURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsPackageDescendants]
-        ) {
-            for case let url as URL in enumerator {
-                let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-                guard values.isRegularFile == true,
-                      extensions.contains(url.pathExtension.lowercased()) else {
-                    continue
-                }
-                urls.append(url.standardizedFileURL)
-            }
-        }
+        let urls = sourceURLs.map(\.standardizedFileURL)
         var seen = Set<String>()
         return try urls.sorted { $0.path < $1.path }.compactMap { url in
             guard seen.insert(url.path).inserted else { return nil }
             return .init(path: url.path, data: try Data(contentsOf: url))
         }
+    }
+
+    /// Exact paths the result loader consumes. Core CSV/JSON paths may be
+    /// absolute and may use any filename extension; declared artifact paths
+    /// remain bundle-relative under the loader's integrity contract.
+    private static func resolvedScientificInputURLs(
+        manifest: ONTGenotypeResultBundleManifest,
+        bundleURL: URL,
+        includeAutomaticSidecar: Bool
+    ) throws -> [URL] {
+        var urls = [
+            ONTGenotypeResultBundle.manifestURL(in: bundleURL),
+            ONTGenotypeResultBundle.resolvedURL(
+                for: manifest.longSummaryCSVPath,
+                in: bundleURL
+            ),
+            ONTGenotypeResultBundle.resolvedURL(
+                for: manifest.sampleSummaryCSVPath,
+                in: bundleURL
+            ),
+            ONTGenotypeResultBundle.resolvedURL(
+                for: manifest.statsJSONPath,
+                in: bundleURL
+            ),
+            ONTGenotypeResultBundle.resolvedURL(
+                for: manifest.provenancePath,
+                in: bundleURL
+            ),
+        ]
+        if let path = manifest.haplotypeAnalysisPath {
+            let url = ONTGenotypeResultBundle.resolvedURL(for: path, in: bundleURL)
+            if FileManager.default.fileExists(atPath: url.path) { urls.append(url) }
+        }
+
+        var references: [ONTMHCArtifactReference] = []
+        if let candidate = manifest.mhcCandidateArtifacts {
+            references += [
+                candidate.genotypingEvidence?.bam,
+                candidate.genotypingEvidence?.bai,
+                candidate.reciprocalEvidence?.bam,
+                candidate.reciprocalEvidence?.bai,
+                candidate.candidateJSON,
+                candidate.candidateFASTA,
+                candidate.candidateGenBank,
+                candidate.candidateEMBL,
+                candidate.unnameableJSON,
+                candidate.unnameableFASTA,
+                candidate.unnameableGenBank,
+                candidate.unnameableEMBL,
+                candidate.rawUnmatchedFASTA,
+                candidate.sourceIdentityMap,
+            ].compactMap { $0 }
+        }
+        if let alignment = manifest.alignmentArtifacts {
+            references += [
+                alignment.genotypingEvidence?.bam,
+                alignment.genotypingEvidence?.bai,
+                alignment.reciprocalEvidence?.bam,
+                alignment.reciprocalEvidence?.bai,
+            ].compactMap { $0 }
+        }
+        if let provisional = manifest.provisionalExon2Artifacts {
+            references += [provisional.catalogJSON, provisional.sequencesFASTA]
+        }
+        if let visualization = manifest.mhcReferenceVisualizations {
+            references.append(visualization.recordsJSON)
+        }
+        if let catalog = manifest.reviewableRowCatalog { references.append(catalog) }
+        urls += try references.map {
+            try BundleManifest.validatedBundleMemberURL(
+                for: $0.path,
+                in: bundleURL,
+                field: "genotype scientific artifact"
+            )
+        }
+        if let store = manifest.referenceRecordStore {
+            urls.append(
+                try BundleManifest.validatedBundleMemberURL(
+                    for: store.databasePath,
+                    in: bundleURL,
+                    field: "reference_record_store.database_path"
+                )
+            )
+        }
+        let automaticSidecar = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundleURL
+        )
+        if includeAutomaticSidecar,
+           FileManager.default.fileExists(atPath: automaticSidecar.path) {
+            urls.append(automaticSidecar)
+        }
+        return urls
     }
 
     private static func verify(
