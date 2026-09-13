@@ -40,6 +40,13 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         XCTAssertEqual(artifact["sha256"] as? String, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined())
         XCTAssertEqual(artifact["sizeBytes"] as? Int, bytes.count)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
+        XCTAssertEqual(exported.artifactDirectoryURL.standardizedFileURL,
+            exported.snapshotURL.deletingLastPathComponent().standardizedFileURL)
+        XCTAssertEqual(Set(exported.artifactURLs.map(\.lastPathComponent)),
+            ["snapshot.json", "renderer.py", "request.json", "replay.sh", "stdout.json", "stderr.txt", "input-0.bin"])
+        XCTAssertEqual(Set(exported.artifactURLs.map { $0.standardizedFileURL }),
+            Set(try FileManager.default.contentsOfDirectory(at: exported.artifactDirectoryURL,
+                includingPropertiesForKeys: nil).map { $0.standardizedFileURL }))
         XCTAssertTrue(FileManager.default.fileExists(atPath: exported.snapshotURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: exported.replayScriptURL.path))
         let inspection = try inspect(output)

@@ -35,6 +35,9 @@ public struct GenotypeExcelExportService: Sendable {
         public let receiptURL: URL
         public let snapshotURL: URL
         public let replayScriptURL: URL
+        /// Exact durable files created by this export, excluding published report/receipt.
+        public let artifactDirectoryURL: URL
+        public let artifactURLs: [URL]
     }
 
     public enum ExportError: Error, LocalizedError {
@@ -118,10 +121,12 @@ public struct GenotypeExcelExportService: Sendable {
             + "\nexec " + replayPrefix.map(Self.shellQuote).joined(separator: " ")
             + " --output \"${1:-$replay_default_output}\"" + (replacingExisting ? " --force" : "") + "\n"
         try Data(replayScript.utf8).write(to: replayScriptURL, options: .atomic)
+        var artifactURLs = [snapshotURL, scriptURL, replayScriptURL, requestURL, stdoutURL, stderrURL]
         var witnessedInputs: [[String: Any]] = []
         for (index, input) in provenance.inputs.enumerated() {
             let capturedURL = durable.appendingPathComponent("input-\(index).bin")
             try input.data.write(to: capturedURL, options: .atomic)
+            artifactURLs.append(capturedURL)
             witnessedInputs.append(["path": input.path, "capturedPath": capturedURL.path,
                 "sha256": GenotypeExcelSnapshotBuilder.digest(input.data), "sizeBytes": input.data.count,
                 "verifyCurrentFile": input.verifyCurrentFile])
@@ -165,7 +170,8 @@ public struct GenotypeExcelExportService: Sendable {
             catch let recovery as ScientificPublicationRecoveryRequired { retainArtifacts = true; throw recovery }
         }
         retainArtifacts = true
-        return .init(outputURL: output, receiptURL: receipt, snapshotURL: snapshotURL, replayScriptURL: replayScriptURL)
+        return .init(outputURL: output, receiptURL: receipt, snapshotURL: snapshotURL, replayScriptURL: replayScriptURL,
+            artifactDirectoryURL: durable, artifactURLs: artifactURLs)
     }
 
     private func verify(_ inputs: [InputWitness]) throws {

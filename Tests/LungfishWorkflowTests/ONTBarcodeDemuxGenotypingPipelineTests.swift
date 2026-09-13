@@ -1368,7 +1368,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             ],
             failWorkbookReport: true
         )
-        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let referenceBundle = try makeMHCReferenceBundle(root: root, definition: Self.mhcDefinition(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques", assayID: "MHC-exon2-miSeq"))
+        let referenceFASTA = referenceBundle.appendingPathComponent("reference.fa")
         try """
         >\(provisionalGenotype)
         AACCGGTT
@@ -1385,13 +1387,14 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         )
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: [sample.bundleURL],
-            referenceSourceURL: referenceFASTA,
+            referenceSourceURL: referenceBundle,
             outputDirectory: outputDirectory,
             outputName: "miseq-downstream-failure",
             analysisName: "MiSeq downstream failure",
             threads: 2,
             sortThreads: 1,
             minSupport: 1,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
             mode: .illuminaPaired,
             readType: .illumina
         )
@@ -1425,6 +1428,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             request.workbookURL,
             request.reportProvenanceURL,
             request.haplotypeAnalysisURL,
+            outputDirectory.appendingPathComponent("artifacts/haplotyping/haplotype-definition.json"),
             request.provenanceURL,
             outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename),
             outputDirectory.appendingPathComponent(
@@ -1446,6 +1450,169 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 FileManager.default.fileExists(atPath: url.path),
                 "Downstream failure left an unprovenanced output: \(url.path)"
             )
+        }
+    }
+
+
+    func testPreManifestFailureRemovesOnlyThisRunsDefinitionAndReplayAssets() async throws {
+        try await exercisePreManifestReportFailure(retainArtifacts: false)
+    }
+
+    func testPreManifestCleanupFailureAttestsSurvivingDefinitionAndEveryReplayFile() async throws {
+        try await exercisePreManifestReportFailure(retainArtifacts: true)
+    }
+
+    func testPostCommitCleanupFailurePreservesSelectedDefinitionAndEveryReplayFile() async throws {
+        try await exercisePreManifestReportFailure(retainArtifacts: true, postCommit: true)
+    }
+
+    func testPreManifestSubstitutedReplayMemberIsNeitherRemovedNorAttested() async throws {
+        try await exercisePreManifestReportFailure(retainArtifacts: true, substituteMember: true)
+    }
+
+    func testPreexistingUnownedDefinitionIsNotOverwrittenAdoptedOrRemoved() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let condaRoot = root.appendingPathComponent("conda")
+        let micromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot,
+            genotypeRows: ["DW001,Mafa-A1*001:01,12,11"])
+        let reference = try makeMHCReferenceBundle(root: root, definition: Self.mhcDefinition(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques", assayID: "MHC-exon2-miSeq"))
+        try ">Mafa-A1*001:01\nAACCGGTT\n".write(to: reference.appendingPathComponent("reference.fa"), atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(root: root, name: "DW001", sequence: "AACCGGTT")
+        let output = root.appendingPathComponent("unowned-definition.lungfishgenotype")
+        let definition = output.appendingPathComponent("artifacts/haplotyping/haplotype-definition.json")
+        try FileManager.default.createDirectory(at: definition.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let unownedBytes = Data("preexisting definition belongs to another run".utf8)
+        try unownedBytes.write(to: definition)
+        let identity = try FileSystemObjectIdentity.noFollow(definition)
+        let request = ONTBarcodeDemuxGenotypingRunRequest(inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: reference, outputDirectory: output, outputName: "unowned-definition",
+            threads: 2, sortThreads: 1, minSupport: 1,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            mode: .illuminaPaired, readType: .illumina)
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(condaManager: CondaManager(rootPrefix: condaRoot,
+            bundledMicromambaProvider: { micromamba }, bundledMicromambaVersionProvider: { "test" }))
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("An unowned definition must not be overwritten")
+        } catch { }
+        XCTAssertEqual(try Data(contentsOf: definition), unownedBytes)
+        XCTAssertEqual(try FileSystemObjectIdentity.noFollow(definition), identity)
+        let operations = try FileManager.default.contentsOfDirectory(
+            at: root.appendingPathComponent(ProjectOperationHistoryWriter.historyDirectoryName), includingPropertiesForKeys: nil)
+        let failure = try jsonObject(at: XCTUnwrap(operations.first).appendingPathComponent("failure-provenance.json"))
+        let outputs = try XCTUnwrap(failure["outputs"] as? [[String: Any]])
+        XCTAssertFalse(outputs.contains { $0["path"] as? String == definition.standardizedFileURL.path })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.workbookURL.path))
+    }
+
+    private func exercisePreManifestReportFailure(
+        retainArtifacts: Bool, postCommit: Bool = false, substituteMember: Bool = false
+    ) async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let condaRoot = root.appendingPathComponent("conda")
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot,
+            genotypeRows: ["DW001,Mafa-A1*001:01,12,11"])
+        let reference = try makeMHCReferenceBundle(root: root, definition: Self.mhcDefinition(
+            id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques", assayID: "MHC-exon2-miSeq"))
+        try ">Mafa-A1*001:01\nAACCGGTT\n".write(to: reference.appendingPathComponent("reference.fa"), atomically: true, encoding: .utf8)
+        let sample = try makeMergedFASTQBundle(root: root, name: "DW001", sequence: "AACCGGTT")
+        let output = root.appendingPathComponent("failed-report.lungfishgenotype")
+        let request = ONTBarcodeDemuxGenotypingRunRequest(inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: reference, outputDirectory: output, outputName: "failed-report",
+            threads: 2, sortThreads: 1, minSupport: 1,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            mode: .illuminaPaired, readType: .illumina)
+        let definition = output.appendingPathComponent("artifacts/haplotyping/haplotype-definition.json")
+        let foreign = output.appendingPathComponent(request.workbookURL.lastPathComponent + ".export-other-run")
+        try FileManager.default.createDirectory(at: foreign, withIntermediateDirectories: true)
+        let foreignFile = foreign.appendingPathComponent("snapshot.json")
+        try Data("unowned report capture".utf8).write(to: foreignFile)
+        let unrelatedTarget = root.appendingPathComponent("unrelated-symlink-target")
+        let unrelatedBytes = Data("never traverse or attest this unrelated target".utf8)
+        try unrelatedBytes.write(to: unrelatedTarget)
+        let captures = LockedMessages()
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(condaManager: CondaManager(rootPrefix: condaRoot,
+            bundledMicromambaProvider: { bundledMicromamba }, bundledMicromambaVersionProvider: { "test" }),
+            fileRemover: { url in
+                if (postCommit && url.lastPathComponent.contains(".amplicon-genotyping"))
+                    || (!postCommit && retainArtifacts && (url.lastPathComponent.contains(".export-")
+                        || url.lastPathComponent.contains("haplotype-definition.json"))) {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try FileManager.default.removeItem(at: url)
+            })
+        do {
+            _ = try await pipeline.run(request) { progress, _ in
+                guard progress == 0.93 else { return }
+                do {
+                    let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: request.reportProvenanceURL)) as? [String: Any]
+                    guard let snapshot = receipt?["snapshot"] as? [String: Any],
+                          let path = snapshot["path"] as? String else { throw CocoaError(.fileReadCorruptFile) }
+                    let replayRoot = URL(fileURLWithPath: path).deletingLastPathComponent()
+                    captures.append("root\u{0}" + replayRoot.path)
+                    for file in [definition] + (try FileManager.default.contentsOfDirectory(at: replayRoot, includingPropertiesForKeys: nil)) {
+                        captures.append(file.path + "\u{0}" + (try Data(contentsOf: file)).base64EncodedString())
+                    }
+                    if substituteMember {
+                        let snapshot = replayRoot.appendingPathComponent("snapshot.json")
+                        try FileManager.default.moveItem(at: snapshot, to: root.appendingPathComponent("original-snapshot.json"))
+                        try FileManager.default.createSymbolicLink(at: snapshot, withDestinationURL: unrelatedTarget)
+                    }
+                    if !postCommit {
+                        try FileManager.default.createDirectory(at: ONTGenotypeResultBundle.manifestURL(in: output),
+                            withIntermediateDirectories: false)
+                    }
+                } catch { captures.append("error\u{0}" + error.localizedDescription) }
+            }
+            XCTFail("The injected publication or cleanup failure must be surfaced")
+        } catch { }
+        let records = captures.values.map { $0.components(separatedBy: "\u{0}") }
+        XCTAssertFalse(records.contains { $0.first == "error" }, captures.values.joined(separator: "\n"))
+        let replayRoot = URL(fileURLWithPath: try XCTUnwrap(records.first { $0.first == "root" }?[1]))
+        let files = records.filter { $0.first != "root" && $0.first != "error" }
+        XCTAssertTrue(files.contains { $0[0].hasSuffix("/snapshot.json") })
+        XCTAssertTrue(files.contains { $0[0].hasSuffix("/request.json") })
+        XCTAssertTrue(files.contains { $0[0].hasSuffix("/renderer.py") })
+        XCTAssertTrue(files.contains { $0[0].hasSuffix("/replay.sh") })
+        XCTAssertEqual(files.filter { URL(fileURLWithPath: $0[0]).lastPathComponent.hasPrefix("input-") }.count, 5)
+        XCTAssertEqual(try Data(contentsOf: foreignFile), Data("unowned report capture".utf8))
+        XCTAssertEqual(FileManager.default.fileExists(atPath: replayRoot.path), retainArtifacts)
+        XCTAssertEqual(FileManager.default.fileExists(atPath: definition.path), retainArtifacts)
+        XCTAssertEqual(FileManager.default.fileExists(atPath: request.workbookURL.path), postCommit)
+        XCTAssertEqual(FileManager.default.fileExists(atPath: request.reportProvenanceURL.path), postCommit)
+        if postCommit {
+            let published = try ONTGenotypeResultBundle.loadResult(from: output)
+            XCTAssertNotNil(published.haplotypeAnalysis)
+            XCTAssertEqual(published.calls.map(\.passedUniqueReads), [11])
+        }
+        XCTAssertEqual(try Data(contentsOf: unrelatedTarget), unrelatedBytes)
+        let operations = try FileManager.default.contentsOfDirectory(
+            at: root.appendingPathComponent(ProjectOperationHistoryWriter.historyDirectoryName), includingPropertiesForKeys: nil)
+        let operation = try XCTUnwrap(operations.first)
+        let failure = try jsonObject(at: operation.appendingPathComponent("failure-provenance.json"))
+        let descriptors = try XCTUnwrap(failure["outputs"] as? [[String: Any]])
+        XCTAssertFalse(descriptors.contains { ($0["path"] as? String)?.hasPrefix(foreign.path) == true })
+        for file in files {
+            let url = URL(fileURLWithPath: file[0]).standardizedFileURL
+            let expected = try XCTUnwrap(Data(base64Encoded: file[1]))
+            if substituteMember && url.lastPathComponent == "snapshot.json" {
+                XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: url.path), unrelatedTarget.path)
+                XCTAssertFalse(descriptors.contains { $0["path"] as? String == url.path })
+                let diagnostics = try XCTUnwrap(failure["reportArtifactDiagnostics"] as? [[String: String]])
+                XCTAssertTrue(diagnostics.contains { $0["path"] == url.path && $0["error"]?.isEmpty == false })
+            } else if retainArtifacts {
+                XCTAssertEqual(try Data(contentsOf: url), expected)
+                let actualPaths = descriptors.compactMap { $0["path"] as? String }
+                let descriptor = try XCTUnwrap(descriptors.first { $0["path"] as? String == url.path }, "Missing failed-run descriptor: \(url.path); actual=\(actualPaths)")
+                XCTAssertEqual(descriptor["sha256"] as? String, try ProvenanceFileHasher.sha256(of: url))
+                XCTAssertEqual((descriptor["fileSize"] as? NSNumber)?.uint64Value, UInt64(expected.count))
+            } else {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+                XCTAssertFalse(descriptors.contains { $0["path"] as? String == url.path })
+            }
         }
     }
 

@@ -707,7 +707,7 @@ private final class ONTGenotypingMappingProcessGroup: @unchecked Sendable {
     }
 }
 
-private struct AmpliconWorkDirectoryDisposition: Codable, Sendable {
+struct AmpliconWorkDirectoryDisposition: Codable, Sendable {
     let path: String
     let disposition: String
     let error: String?
@@ -857,6 +857,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
         var failureCleanupDispositions: [AmpliconWorkDirectoryDisposition] = []
         var successfulCleanupPlan: GenotypingCleanupPlan?
+        var reportArtifacts = GenotypePipelineReportArtifactOwnership()
         do {
         try FileManager.default.createDirectory(
             at: supportDirectory,
@@ -978,7 +979,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
                 request: request,
                 supportDirectory: supportDirectory,
-                generatedAt: Date()
+                generatedAt: Date(), reportArtifacts: &reportArtifacts
             )
 
             let referenceRecordStoreSnapshot = try await GenotypeReferenceRecordStoreSnapshot.publish(
@@ -998,7 +999,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 reviewableRowCatalogPublication: reviewableRowCatalogPublication, completedAt: Date())
             progressHandler?(0.84, "Writing Excel genotype report.")
             let report = try await runReport(request: request, manifest: reportManifest,
-                analysis: haplotypeAnalysis, catalog: reviewableRowCatalogPublication?.document, pythonURL: reportPythonURL)
+                analysis: haplotypeAnalysis, catalog: reviewableRowCatalogPublication?.document, pythonURL: reportPythonURL, reportArtifacts: &reportArtifacts)
             let reportScriptURL = report.export.snapshotURL.deletingLastPathComponent().appendingPathComponent("renderer.py")
             let completedAt = Date()
             progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
@@ -1061,6 +1062,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             )
         } catch {
             var reportedError: Error = error
+            let reportDispositions = reportArtifacts.rollback(remover: fileRemover)
+            failureCleanupDispositions.append(contentsOf: reportDispositions)
+            if let failure = reportDispositions.first(where: { $0.error != nil }) {
+                reportedError = ONTBarcodeDemuxGenotypingError.reportFailed(status: 1,
+                    stderr: "\(error.localizedDescription); report artifact rollback failed: \(failure.error ?? failure.path)")
+            }
             if resolvedMode == .illuminaPaired {
                 let dispositions = rollbackScientificOutputsAfterFinalizationFailure(
                     request: request,
@@ -1188,7 +1195,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 resolvedReadType: resolvedReadType,
                 failureScientificFASTQURLs: failureScientificFASTQURLs,
                 cleanupPlan: successfulCleanupPlan,
-                additionalDispositions: failureCleanupDispositions
+                additionalDispositions: failureCleanupDispositions,
+                reportArtifacts: reportArtifacts
             )
         }
     }
@@ -1211,7 +1219,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedReadType: AmpliconGenotypingReadType,
         failureScientificFASTQURLs: [URL],
         cleanupPlan: GenotypingCleanupPlan?,
-        additionalDispositions: [AmpliconWorkDirectoryDisposition]
+        additionalDispositions: [AmpliconWorkDirectoryDisposition],
+        reportArtifacts: GenotypePipelineReportArtifactOwnership
     ) -> Error {
         let historyWriter = ProjectOperationHistoryWriter(
             projectURL: projectRoot
@@ -1226,7 +1235,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 resolvedMode: resolvedMode,
                 resolvedReadType: resolvedReadType,
                 failureScientificFASTQURLs: failureScientificFASTQURLs,
-                error: originalError
+                error: originalError,
+                reportArtifacts: reportArtifacts
             )
         } catch let preparationError as AmpliconFailureProvenancePreparationError {
             reportedError = ONTBarcodeDemuxGenotypingError.reportFailed(
@@ -1728,14 +1738,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedMode: AmpliconGenotypingMode,
         resolvedReadType: AmpliconGenotypingReadType,
         failureScientificFASTQURLs: [URL],
-        error: Error
+        error: Error,
+        reportArtifacts: GenotypePipelineReportArtifactOwnership
     ) throws {
         let completedAt = Date()
         let inputs = try failureScientificInputDescriptors(
             for: request,
             failureScientificFASTQURLs: failureScientificFASTQURLs
         )
-        let outputs = try failureScientificOutputDescriptors(for: request)
+        let reportInventory = reportArtifacts.failureInventory()
+        let outputs = try failureScientificOutputDescriptors(for: request) + reportInventory.outputs
         let resolvedOptions = failureResolvedOptions(
             request: request,
             resolvedMode: resolvedMode,
@@ -1770,6 +1782,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "inputs": inputs,
             "files": inputs + outputs,
             "outputs": outputs,
+            "reportArtifactDiagnostics": reportInventory.diagnostics,
             "output": request.outputDirectory.path,
             "startedAt": ISO8601DateFormatter().string(from: startedAt),
             "completedAt": ISO8601DateFormatter().string(from: completedAt),
@@ -3415,7 +3428,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func runReport(
         request: ONTBarcodeDemuxGenotypingRunRequest, manifest: ONTGenotypeResultBundleManifest,
-        analysis: GenotypeHaplotypeAnalysis?, catalog: GenotypeReviewableRowCatalog?, pythonURL: URL
+        analysis: GenotypeHaplotypeAnalysis?, catalog: GenotypeReviewableRowCatalog?, pythonURL: URL,
+        reportArtifacts: inout GenotypePipelineReportArtifactOwnership
     ) async throws -> ReportStepResult {
         let startedAt = Date()
         let exported = try await GenotypePipelineExcelReport.write(physicalDirectory: request.outputDirectory,
@@ -3423,6 +3437,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             definition: try analysis.map { _ in try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self,
                 from: Data(contentsOf: haplotypeDefinitionSnapshotURL(for: request))) }, catalog: catalog,
             python: pythonURL, argv: request.argv, condaRoot: condaManager.rootPrefix)
+        try reportArtifacts.captureExport(exported)
         let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: exported.receiptURL)) as! [String: Any]
         let runtime = receipt["runtime"] as! [String: Any]
         let renderer = runtime["renderer"] as! [String: Any]
@@ -3437,7 +3452,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func writeHaplotypeAnalysisIfRequested(
         request: ONTBarcodeDemuxGenotypingRunRequest,
         supportDirectory: URL,
-        generatedAt: Date
+        generatedAt: Date,
+        reportArtifacts: inout GenotypePipelineReportArtifactOwnership
     ) throws -> GenotypeHaplotypeAnalysis? {
         guard let definitionSetID = request.haplotypeDefinitionSetID else {
             return nil
@@ -3446,7 +3462,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
         }
         let assayID = definitionSet.assayID
-        try writeHaplotypeDefinitionSnapshot(definitionSet, to: haplotypeDefinitionSnapshotURL(for: request))
+        let definitionURL = try writeHaplotypeDefinitionSnapshot(definitionSet, to: haplotypeDefinitionSnapshotURL(for: request))
+        try reportArtifacts.captureDefinition(definitionURL)
 
         let manifest = ONTGenotypeResultBundleManifest(
             kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
@@ -4039,7 +4056,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(definitionSet)
-        try data.write(to: url, options: .atomic)
+        try data.write(to: url, options: .withoutOverwriting)
         return url
     }
 
@@ -4819,7 +4836,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     }
 
     private func reportArtifactURLs(_ report: ReportStepResult) throws -> [URL] {
-        try FileManager.default.contentsOfDirectory(at: report.export.snapshotURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        report.export.artifactURLs
     }
 
     private func makeBundleManifest(
