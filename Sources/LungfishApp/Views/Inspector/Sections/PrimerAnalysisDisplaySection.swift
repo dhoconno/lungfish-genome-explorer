@@ -48,9 +48,9 @@ struct PrimerAnalysisDisplaySection: View {
             Toggle("Reverse oligos (−)", isOn: $session.settings.showReverse)
                 .accessibilityIdentifier("primerAnalysisDisplay.reverse")
                 .help("Show or hide all reverse-strand oligos.")
-            Toggle("Saved amplicon spans", isOn: $session.settings.showAmplicons)
+            Toggle("Amplicon marks", isOn: $session.settings.showAmplicons)
                 .accessibilityIdentifier("primerAnalysisDisplay.amplicons")
-                .help("Show or hide the saved amplicon span overlays.")
+                .help("Show or hide amplicon track marks. Details remain available for the selected primer.")
             if session.hasBindingContexts {
                 Toggle("Matching observed bases as dots", isOn: $session.settings.showIdentityDots)
                     .help("Applies within the selected primer footprint in Binding inspection.")
@@ -186,6 +186,7 @@ struct PrimerAnalysisDisplaySection: View {
                 Text("\(primer.start + 1)–\(primer.end) · \(primer.strand) · \(primer.pool.map { "Pool \($0)" } ?? "Unpooled")")
                 if let summary = session.compatibilitySummaries[primer.id] {
                     Text(summary.label)
+                        .help("Exact matches in assessable alignment rows. Gaps and ambiguous target bases are unassessed; this does not measure amplification.")
                 } else if session.compatibilityReady {
                     Text("MSA matches unavailable")
                 }

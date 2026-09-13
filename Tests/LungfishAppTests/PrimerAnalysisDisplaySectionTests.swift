@@ -83,9 +83,18 @@ final class PrimerAnalysisDisplaySectionTests: XCTestCase {
             })
 
         XCTAssertTrue(toggle.isDisabled())
+        XCTAssertFalse(try toggle.isOn())
         XCTAssertEqual(try toggle.help().string(), "Unavailable while Pool 1 is hidden.")
         XCTAssertTrue(session.settings.hiddenPrimerIDs.isEmpty)
         XCTAssertFalse(session.isVisible(session.targets[0].primers[0], in: session.targets[0]))
+
+        session.setPoolShown(1, resultID: "scheme-a", shown: true)
+        let restored = try PrimerAnalysisDisplaySection(session: session).inspect()
+            .find(ViewType.Toggle.self, where: {
+                try $0.accessibilityIdentifier() == "primerAnalysisDisplay.primer.a-left"
+            })
+        XCTAssertFalse(restored.isDisabled())
+        XCTAssertTrue(try restored.isOn())
     }
 
     func testCompatibilityControlsRequireSavedAlignmentAndExplicitCalculation() async throws {
@@ -117,6 +126,14 @@ final class PrimerAnalysisDisplaySectionTests: XCTestCase {
             try $0.accessibilityIdentifier() == "primerAnalysisDisplay.unassessed"
         }).tap()
         XCTAssertFalse(session.settings.showUnassessed)
+        let excludedByMSA = try PrimerAnalysisDisplaySection(session: session).inspect()
+            .find(ViewType.Toggle.self, where: {
+                try $0.accessibilityIdentifier() == "primerAnalysisDisplay.primer.a-left"
+            })
+        XCTAssertTrue(excludedByMSA.isDisabled())
+        XCTAssertFalse(try excludedByMSA.isOn())
+        XCTAssertEqual(try excludedByMSA.help().string(),
+                       "Unavailable because the MSA match filter excludes this oligo.")
         try filtering.find(ViewType.Toggle.self, where: {
             try $0.accessibilityIdentifier() == "primerAnalysisDisplay.identityDots"
         }).tap()
