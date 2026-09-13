@@ -114,6 +114,14 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("panel-mode"), help: "Combined panels: equal or entropy.") var panelMode = "equal"
         @Option(name: .customLong("max-amplicons")) var maxAmplicons: Int?
         @Option(name: .customLong("max-amplicons-per-msa")) var maxAmpliconsPerMSA: Int?
+        @Option(name: .customLong("selection-algorithm"), help: "Panel selector: legacy or coverage.") var selectionAlgorithm = "legacy"
+        @Option(name: .customLong("coverage-metric"), help: "Coverage objective: full-span or primer-trimmed.") var coverageMetric = "full-span"
+        @Option(name: .customLong("coverage-target")) var coverageTarget = 0.90
+        @Option(name: .customLong("optimizer-seed")) var optimizerSeed = 0
+        @Option(name: .customLong("optimizer-starts")) var optimizerStarts = 4
+        @Option(name: .customLong("optimizer-repair-rounds")) var optimizerRepairRounds = 2
+        @Option(name: .customLong("optimizer-time-limit")) var optimizerTimeLimit = 120.0
+        @Option(name: .customLong("mispriming-product-size")) var misprimingProductSize: Int?
 
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
@@ -140,7 +148,13 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             guard let resolvedPanelMode = PrimalScheme3PanelMode(rawValue: panelMode) else {
                 throw ValidationError("--panel-mode must be equal or entropy.")
             }
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum, ampliconSizeMaximum: ampliconSizeMaximum)
+            guard let resolvedSelectionAlgorithm = PrimalScheme3SelectionAlgorithm(rawValue: selectionAlgorithm) else {
+                throw ValidationError("--selection-algorithm must be legacy or coverage.")
+            }
+            guard let resolvedCoverageMetric = PrimalScheme3CoverageMetric(rawValue: coverageMetric) else {
+                throw ValidationError("--coverage-metric must be full-span or primer-trimmed.")
+            }
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum, ampliconSizeMaximum: ampliconSizeMaximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize)
             let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))

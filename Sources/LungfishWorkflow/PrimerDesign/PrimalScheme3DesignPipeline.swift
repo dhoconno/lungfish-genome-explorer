@@ -16,6 +16,15 @@ public enum PrimalScheme3PanelMode: String, Codable, CaseIterable, Sendable {
     case equal, entropy
 }
 
+public enum PrimalScheme3SelectionAlgorithm: String, Codable, CaseIterable, Sendable {
+    case legacy, coverage
+}
+
+public enum PrimalScheme3CoverageMetric: String, Codable, CaseIterable, Sendable {
+    case fullSpan = "full-span"
+    case primerTrimmed = "primer-trimmed"
+}
+
 public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public static var defaultCoreCount: Int { max(1, min(4, ProcessInfo.processInfo.activeProcessorCount)) }
     public let requestedAmpliconSizeMinimum: Int?
@@ -39,6 +48,17 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public let highGC: Bool
     public let coreCount: Int
     public let terminalGapPolicy: PrimalScheme3TerminalGapPolicy
+    public let selectionAlgorithm: PrimalScheme3SelectionAlgorithm
+    public let coverageMetric: PrimalScheme3CoverageMetric
+    public let coverageTarget: Double
+    public let optimizerSeed: Int
+    public let optimizerStarts: Int
+    public let optimizerRepairRounds: Int
+    public let optimizerTimeLimit: Double
+    public let requestedMisprimingProductSize: Int?
+    public var misprimingProductSize: Int {
+        requestedMisprimingProductSize ?? (selectionAlgorithm == .coverage ? 2_000 : 0)
+    }
     public init(ampliconSize: Int, poolCount: Int, minOverlap: Int = 10,
                 minimumBaseFrequency: Double = 0, highGC: Bool = false, coreCount: Int = PrimalScheme3DesignOptions.defaultCoreCount,
                 terminalGapPolicy: PrimalScheme3TerminalGapPolicy = .observedOnly,
@@ -46,7 +66,13 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
                 backtrack: Bool = false, ignoreN: Bool = false,
                 panelMode: PrimalScheme3PanelMode = .equal,
                 maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil,
-                ampliconSizeMinimum: Int? = nil, ampliconSizeMaximum: Int? = nil) {
+                ampliconSizeMinimum: Int? = nil, ampliconSizeMaximum: Int? = nil,
+                selectionAlgorithm: PrimalScheme3SelectionAlgorithm = .legacy,
+                coverageMetric: PrimalScheme3CoverageMetric = .fullSpan,
+                coverageTarget: Double = 0.90, optimizerSeed: Int = 0,
+                optimizerStarts: Int = 4, optimizerRepairRounds: Int = 2,
+                optimizerTimeLimit: Double = 120,
+                misprimingProductSize: Int? = nil) {
         self.requestedAmpliconSizeMinimum = ampliconSizeMinimum
         self.requestedAmpliconSizeMaximum = ampliconSizeMaximum
         self.dimerScore = dimerScore
@@ -63,6 +89,51 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         self.highGC = highGC
         self.coreCount = coreCount
         self.terminalGapPolicy = terminalGapPolicy
+        self.selectionAlgorithm = selectionAlgorithm
+        self.coverageMetric = coverageMetric
+        self.coverageTarget = coverageTarget
+        self.optimizerSeed = optimizerSeed
+        self.optimizerStarts = optimizerStarts
+        self.optimizerRepairRounds = optimizerRepairRounds
+        self.optimizerTimeLimit = optimizerTimeLimit
+        self.requestedMisprimingProductSize = misprimingProductSize
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case requestedAmpliconSizeMinimum, requestedAmpliconSizeMaximum, dimerScore, useMatchDB
+        case backtrack, ignoreN, panelMode, maxAmplicons, maxAmpliconsPerMSA, ampliconSize
+        case poolCount, minOverlap, minimumBaseFrequency, highGC, coreCount, terminalGapPolicy
+        case selectionAlgorithm, coverageMetric, coverageTarget, optimizerSeed, optimizerStarts
+        case optimizerRepairRounds, optimizerTimeLimit, requestedMisprimingProductSize
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            ampliconSize: try values.decode(Int.self, forKey: .ampliconSize),
+            poolCount: try values.decode(Int.self, forKey: .poolCount),
+            minOverlap: try values.decode(Int.self, forKey: .minOverlap),
+            minimumBaseFrequency: try values.decode(Double.self, forKey: .minimumBaseFrequency),
+            highGC: try values.decode(Bool.self, forKey: .highGC),
+            coreCount: try values.decode(Int.self, forKey: .coreCount),
+            terminalGapPolicy: try values.decode(PrimalScheme3TerminalGapPolicy.self, forKey: .terminalGapPolicy),
+            dimerScore: try values.decode(Double.self, forKey: .dimerScore),
+            useMatchDB: try values.decode(Bool.self, forKey: .useMatchDB),
+            backtrack: try values.decode(Bool.self, forKey: .backtrack),
+            ignoreN: try values.decode(Bool.self, forKey: .ignoreN),
+            panelMode: try values.decode(PrimalScheme3PanelMode.self, forKey: .panelMode),
+            maxAmplicons: try values.decodeIfPresent(Int.self, forKey: .maxAmplicons),
+            maxAmpliconsPerMSA: try values.decodeIfPresent(Int.self, forKey: .maxAmpliconsPerMSA),
+            ampliconSizeMinimum: try values.decodeIfPresent(Int.self, forKey: .requestedAmpliconSizeMinimum),
+            ampliconSizeMaximum: try values.decodeIfPresent(Int.self, forKey: .requestedAmpliconSizeMaximum),
+            selectionAlgorithm: try values.decodeIfPresent(PrimalScheme3SelectionAlgorithm.self, forKey: .selectionAlgorithm) ?? .legacy,
+            coverageMetric: try values.decodeIfPresent(PrimalScheme3CoverageMetric.self, forKey: .coverageMetric) ?? .fullSpan,
+            coverageTarget: try values.decodeIfPresent(Double.self, forKey: .coverageTarget) ?? 0.90,
+            optimizerSeed: try values.decodeIfPresent(Int.self, forKey: .optimizerSeed) ?? 0,
+            optimizerStarts: try values.decodeIfPresent(Int.self, forKey: .optimizerStarts) ?? 4,
+            optimizerRepairRounds: try values.decodeIfPresent(Int.self, forKey: .optimizerRepairRounds) ?? 2,
+            optimizerTimeLimit: try values.decodeIfPresent(Double.self, forKey: .optimizerTimeLimit) ?? 120,
+            misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize))
     }
 
     public var provenanceOptions: [String: ParameterValue] {
@@ -77,7 +148,14 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
          "useMatchDB": .boolean(useMatchDB), "backtrack": .boolean(backtrack), "ignoreN": .boolean(ignoreN),
          "panelMode": .string(panelMode.rawValue),
          "maxAmplicons": maxAmplicons.map(ParameterValue.integer) ?? .string("unlimited"),
-         "maxAmpliconsPerMSA": maxAmpliconsPerMSA.map(ParameterValue.integer) ?? .string("unlimited")]
+         "maxAmpliconsPerMSA": maxAmpliconsPerMSA.map(ParameterValue.integer) ?? .string("unlimited"),
+         "selectionAlgorithm": .string(selectionAlgorithm.rawValue),
+         "coverageMetric": .string(coverageMetric.rawValue), "coverageTarget": .number(coverageTarget),
+         "optimizerSeed": .integer(optimizerSeed), "optimizerStarts": .integer(optimizerStarts),
+         "optimizerRepairRounds": .integer(optimizerRepairRounds),
+         "optimizerTimeLimit": .number(optimizerTimeLimit),
+         "requestedMisprimingProductSize": requestedMisprimingProductSize.map(ParameterValue.integer) ?? .null,
+         "misprimingProductSize": .integer(misprimingProductSize)]
     }
 }
 
@@ -118,6 +196,8 @@ struct PrimalScheme3Command: Sendable {
     let executableOverride: URL?
     let arguments: [String]
     let workingDirectory: URL
+    let selectionAlgorithm: PrimalScheme3SelectionAlgorithm
+    let terminalGapPolicy: PrimalScheme3TerminalGapPolicy
     var managedEnvironmentURL: URL? = nil
 }
 
@@ -132,10 +212,12 @@ struct PrimalScheme3Execution: Sendable {
     let endedAt: Date
     var executableSHA256: String? = nil
     var runtimeEvidence: [String: Data] = [:]
+    var capabilitiesJSON: Data? = nil
 }
 
 public struct PrimalScheme3DesignPipeline: Sendable {
     public static let toolVersion = "3.3.0+lge.2"
+    public static let coverageToolVersion = "3.3.0+lge.3"
     public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
     public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
     typealias Runner = @Sendable (PrimalScheme3Command) async throws -> PrimalScheme3Execution
@@ -179,12 +261,30 @@ public struct PrimalScheme3DesignPipeline: Sendable {
               options.ampliconSize <= options.ampliconSizeMaximum else {
             throw PrimalScheme3DesignError.invalidRequest("Amplicon bounds must be positive, with minimum ≤ target ≤ maximum.")
         }
-        guard options.dimerScore.isFinite,
-              options.maxAmplicons.map({ $0 > 0 }) ?? true,
-              options.maxAmpliconsPerMSA.map({ $0 > 0 }) ?? true,
+        let validCap: (Int?) -> Bool = { value in
+            value.map { options.selectionAlgorithm == .coverage ? $0 >= 0 : $0 > 0 } ?? true
+        }
+        guard options.dimerScore.isFinite, validCap(options.maxAmplicons), validCap(options.maxAmpliconsPerMSA),
               grouping != .combined || (!options.backtrack && !options.ignoreN),
               grouping != .independent || (options.panelMode == .equal && options.maxAmplicons == nil && options.maxAmpliconsPerMSA == nil) else {
             throw PrimalScheme3DesignError.invalidRequest("Dimer score must be finite and amplicon limits positive. Backtracking and unknown-base omission apply only to independent schemes; panel modes and limits apply only to combined panels.")
+        }
+        if options.selectionAlgorithm == .legacy {
+            guard options.coverageMetric == .fullSpan, options.coverageTarget == 0.90,
+                  options.optimizerSeed == 0, options.optimizerStarts == 4,
+                  options.optimizerRepairRounds == 2, options.optimizerTimeLimit == 120,
+                  options.misprimingProductSize == 0 else {
+                throw PrimalScheme3DesignError.invalidRequest("Coverage optimizer settings require --selection-algorithm coverage.")
+            }
+        } else {
+            guard grouping == .combined, options.panelMode == .equal, options.useMatchDB,
+                  options.requestedAmpliconSizeMinimum != nil || options.requestedAmpliconSizeMaximum != nil,
+                  options.coverageTarget.isFinite, (0...1).contains(options.coverageTarget),
+                  options.optimizerStarts > 0, options.optimizerRepairRounds >= 0,
+                  options.optimizerTimeLimit.isFinite, options.optimizerTimeLimit > 0,
+                  options.misprimingProductSize > 0 else {
+                throw PrimalScheme3DesignError.invalidRequest("Coverage selection requires a combined equal panel, supplied-MSA specificity, an explicit amplicon bound, finite selector settings, positive starts/time/product size, and nonnegative repair rounds.")
+            }
         }
         var args = [grouping == .combined ? "panel-create" : "scheme-create"]
         // Stock panel-create defaults to region-only, which requires a BED file.
@@ -205,6 +305,22 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         } else {
             if let count = options.maxAmplicons { args += ["--max-amplicons", String(count)] }
             if let count = options.maxAmpliconsPerMSA { args += ["--max-amplicons-msa", String(count)] }
+        }
+        if options.selectionAlgorithm == .coverage {
+            args += ["--selection-algorithm", "coverage",
+                     "--coverage-metric", options.coverageMetric.rawValue,
+                     "--coverage-target", String(options.coverageTarget),
+                     "--optimizer-seed", String(options.optimizerSeed),
+                     "--optimizer-starts", String(options.optimizerStarts),
+                     "--optimizer-repair-rounds", String(options.optimizerRepairRounds),
+                     "--optimizer-time-limit", String(options.optimizerTimeLimit),
+                     "--mispriming-product-size", String(options.misprimingProductSize)]
+            if options.requestedAmpliconSizeMinimum == nil {
+                args += ["--amplicon-size-min", String(options.ampliconSizeMinimum)]
+            }
+            if options.requestedAmpliconSizeMaximum == nil {
+                args += ["--amplicon-size-max", String(options.ampliconSizeMaximum)]
+            }
         }
         return args
     }
@@ -251,6 +367,10 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         _ = try Self.arguments(inputs: [request.inputURLs[0]], output: destination,
                                grouping: request.grouping, options: request.options)
+        if request.options.selectionAlgorithm == .coverage, request.executableURL == nil {
+            throw PrimalScheme3DesignError.invalidRequest(
+                "Coverage selection requires an explicit verified lge.3 executable: --primalscheme3-path /path/to/primalscheme3")
+        }
         let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
         defer { runtimeLease?.release() }
         progress?(0.05, "Validating alignment inputs")
@@ -327,18 +447,32 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let args = try Self.arguments(inputs: group.map(\.alignedURL), output: output,
                                           grouping: request.grouping, options: request.options)
             let executed = try await runner(.init(executableOverride: request.executableURL,
-                                                  arguments: args, workingDirectory: scratch, managedEnvironmentURL: runtimeLease?.environmentURL))
+                                                  arguments: args, workingDirectory: scratch,
+                                                  selectionAlgorithm: request.options.selectionAlgorithm,
+                                                  terminalGapPolicy: request.options.terminalGapPolicy,
+                                                  managedEnvironmentURL: runtimeLease?.environmentURL))
             try Task.checkCancellation()
             guard executed.exitStatus == 0 else {
                 throw PrimalScheme3DesignError.executionFailed(executed.exitStatus, executed.stderr)
             }
-            guard executed.version == Self.toolVersion, !executed.argv.isEmpty else {
+            let supportedVersion = request.options.selectionAlgorithm == .coverage
+                ? executed.version == Self.coverageToolVersion
+                : [Self.toolVersion, Self.coverageToolVersion].contains(executed.version)
+            guard supportedVersion, !executed.argv.isEmpty else {
                 throw PrimalScheme3DesignError.invalidRequest("The executed tool did not report the verified PrimalScheme3-LGE custom fork identity.")
             }
+            let capabilities = request.options.selectionAlgorithm == .coverage
+                ? try PrimalScheme3CoverageContract.validateCapabilities(
+                    executed.capabilitiesJSON ?? { throw PrimalScheme3DesignError.invalidRequest("Coverage capability evidence is missing from the executable probe.") }(),
+                    terminalPolicy: request.options.terminalGapPolicy)
+                : nil
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
                 throw PrimalScheme3DesignError.invalidRequest("Native configuration is missing or malformed.")
+            }
+            guard configuration["version"] as? String == executed.version else {
+                throw PrimalScheme3DesignError.invalidRequest("The native configuration version does not match the executed tool identity.")
             }
             guard configuration["terminal_gap_policy"] as? String == request.options.terminalGapPolicy.rawValue,
                   configuration["discovery_backend"] as? String == request.options.terminalGapPolicy.discoveryBackend else {
@@ -358,6 +492,11 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             guard FileManager.default.fileExists(atPath: output.appendingPathComponent("primer.bed").path),
                   FileManager.default.fileExists(atPath: output.appendingPathComponent("reference.fasta").path) else {
                 throw PrimalScheme3DesignError.invalidRequest("Native primer.bed or reference.fasta output is missing.")
+            }
+            if let capabilities {
+                try PrimalScheme3CoverageContract.validateNativeOutput(
+                    at: output, configuration: configuration, capabilities: capabilities,
+                    options: request.options, inputCount: group.count, executedArgv: executed.argv)
             }
             let files = try Self.regularFiles(in: output)
             var resultPaths: [String] = []
@@ -508,14 +647,34 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         let executableHash = try ProvenanceFileHasher.sha256(of: executable)
         let native = NativeToolRunner()
-        let version = try await native.runProcess(executableURL: executable, arguments: ["--version"],
-                                                  workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
-        guard version.exitCode == 0, version.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "PrimalScheme3-LGE version: \(Self.toolVersion)" else {
-            throw PrimalScheme3DesignError.invalidRequest("This adapter requires the PrimalScheme3-LGE custom fork \(Self.toolVersion). Install or repair PCR Primer Design in the plugin manager; stock PrimalScheme3 is not interchangeable with this fork.")
+        let probeArguments = command.selectionAlgorithm == .coverage ? ["--capabilities-json"] : ["--version"]
+        let probe = try await native.runProcess(executableURL: executable, arguments: probeArguments,
+                                                workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+        let capabilitiesJSON: Data?
+        let executedVersion: String
+        if command.selectionAlgorithm == .coverage {
+            guard probe.exitCode == 0, let data = probe.stdout.data(using: .utf8) else {
+                throw PrimalScheme3DesignError.invalidRequest("Coverage requires a verified PrimalScheme3-LGE lge.3 executable. Pass --primalscheme3-path /path/to/primalscheme3.")
+            }
+            _ = try PrimalScheme3CoverageContract.validateCapabilities(data, terminalPolicy: command.terminalGapPolicy)
+            capabilitiesJSON = data
+            executedVersion = Self.coverageToolVersion
+        } else {
+            let reported = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let accepted = [Self.toolVersion, Self.coverageToolVersion].first { reported == "PrimalScheme3-LGE version: \($0)" }
+            guard probe.exitCode == 0, let accepted else {
+                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2 or lge.3; stock PrimalScheme3 is not interchangeable with this fork.")
+            }
+            guard prefix == nil || accepted == Self.toolVersion else {
+                throw PrimalScheme3DesignError.invalidRequest("The managed PrimalScheme3 runtime must remain at \(Self.toolVersion).")
+            }
+            capabilitiesJSON = nil
+            executedVersion = accepted
         }
-        runtimeEvidence["version-probe.json"] = try JSONSerialization.data(withJSONObject: [
-            "argv": version.arguments, "stdout": version.stdout, "stderr": version.stderr, "exitStatus": version.exitCode
+        runtimeEvidence[command.selectionAlgorithm == .coverage ? "capabilities-probe.json" : "version-probe.json"] = try JSONSerialization.data(withJSONObject: [
+            "argv": probe.arguments, "stdout": probe.stdout, "stderr": probe.stderr, "exitStatus": probe.exitCode
         ], options: [.prettyPrinted, .sortedKeys])
+        if let capabilitiesJSON { runtimeEvidence["capabilities.json"] = capabilitiesJSON }
         try Task.checkCancellation()
         let start = Date()
         let result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
@@ -524,10 +683,11 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             throw PrimalScheme3DesignError.invalidRequest("The executable changed during the run.")
         }
         return .init(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode,
-                     version: Self.toolVersion, runtime: .init(executablePath: executable.path,
+                     version: executedVersion, runtime: .init(executablePath: executable.path,
                      condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
                      pluginPack: prefix == nil ? nil : "pcr-primer-design", dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet),
-                     startedAt: start, endedAt: Date(), executableSHA256: executableHash, runtimeEvidence: runtimeEvidence)
+                     startedAt: start, endedAt: Date(), executableSHA256: executableHash,
+                     runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON)
     }
 
     private static func physicalParent(_ url: URL) throws -> URL {

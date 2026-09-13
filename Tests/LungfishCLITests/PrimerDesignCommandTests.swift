@@ -50,4 +50,22 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(legacy.terminalGapPolicy, "legacy")
         XCTAssertThrowsError(try command.validatedInputURLs(paths: ["/tmp/raw-aligned.fasta"]))
     }
+
+    func testPrimalSchemeParsesCoverageSelectorOptions() throws {
+        let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--selection-algorithm", "coverage", "--coverage-metric", "primer-trimmed",
+            "--coverage-target", "0.8", "--optimizer-seed=-3", "--optimizer-starts", "6",
+            "--optimizer-repair-rounds", "1", "--optimizer-time-limit", "4.5",
+            "--mispriming-product-size", "900", "--amplicon-size-min", "150",
+        ])
+        XCTAssertEqual(command.selectionAlgorithm, "coverage")
+        XCTAssertEqual(command.coverageMetric, "primer-trimmed")
+        XCTAssertEqual(command.coverageTarget, 0.8)
+        XCTAssertEqual(command.optimizerSeed, -3)
+        XCTAssertEqual(command.optimizerStarts, 6)
+        XCTAssertEqual(command.optimizerRepairRounds, 1)
+        XCTAssertEqual(command.optimizerTimeLimit, 4.5)
+        XCTAssertEqual(command.misprimingProductSize, 900)
+    }
 }
