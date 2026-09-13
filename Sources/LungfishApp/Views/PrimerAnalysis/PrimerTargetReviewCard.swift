@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Saved-coordinate summary; the model defines coverage semantics and never infers assay success.
 struct PrimerTargetReviewCard: View {
+  @Environment(\.primerAnalysisVisibility) private var visibility
   let target: PrimerTargetDesignReview
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
 
@@ -38,6 +39,10 @@ struct PrimerTargetReviewCard: View {
         Text("\(target.referenceLength.formatted()) bp reference · amplicon spans are not available in this saved result")
           .font(.caption).foregroundStyle(.secondary)
       }
+      if visibility.visiblePrimers(in: target).count != target.primers.count {
+        Text("\(visibility.visiblePrimers(in: target).count) of \(target.primers.count) oligos displayed. Coverage above describes the complete saved scheme.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
       PrimerReferenceCoverageTrack(target: target, selection: selection)
       HStack(spacing: 16) {
         legend("Amplicon", color: .accentColor.opacity(0.45))
@@ -69,12 +74,15 @@ struct PrimerTargetReviewCard: View {
 }
 
 struct PrimerReferenceCoverageTrack: View {
+  @Environment(\.primerAnalysisVisibility) private var visibility
   let target: PrimerTargetDesignReview
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
 
   private var pools: [Int?] {
     let values = Set(target.intervals.compactMap(\.pool) + target.primers.compactMap(\.pool)).sorted()
-    return values.isEmpty ? [nil] : values.map(Optional.some)
+    return (values.isEmpty ? [nil] : values.map(Optional.some)).filter {
+      visibility.isPoolVisible($0, resultID: target.sourceResultID)
+    }
   }
 
   var body: some View {
@@ -100,10 +108,10 @@ struct PrimerReferenceCoverageTrack: View {
         Text(target.referenceLength.formatted()).font(.caption2).foregroundStyle(.secondary)
           .frame(width: width, alignment: .trailing)
         Capsule().fill(.secondary.opacity(0.15)).frame(width: width, height: 12).offset(y: 24)
-        ForEach(target.intervals.filter { $0.pool == pool }) { interval in
+        ForEach(target.intervals.filter { visibility.settings.showAmplicons && $0.pool == pool }) { interval in
           intervalMark(interval, width: width, scale: scale)
         }
-        ForEach(target.primers.filter { $0.pool == pool }) { primer in
+        ForEach(target.primers.filter { $0.pool == pool && visibility.isVisible($0, in: target) }) { primer in
           primerMark(primer, width: width, scale: scale)
         }
       }

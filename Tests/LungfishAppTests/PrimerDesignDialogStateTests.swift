@@ -146,9 +146,6 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     state.engine = .primalScheme
     XCTAssertEqual(try state.primalSchemeOptions().terminalGapPolicy, .observedOnly)
     state.excludeUncoveredEnds = false
-    state.minimumPrimerVariantFrequencyPercent = "110"
-    XCTAssertNotNil(state.validationMessage)
-    state.minimumPrimerVariantFrequencyPercent = "50"
     state.coreCount = "0"
     XCTAssertNotNil(state.validationMessage)
     state.coreCount = "2"
@@ -162,7 +159,7 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     state.highGC = true
     let options = try state.primalSchemeOptions()
     XCTAssertEqual(options.minOverlap, 15)
-    XCTAssertEqual(options.minimumBaseFrequency, 0.5)
+    XCTAssertEqual(options.minimumBaseFrequency, 0)
     XCTAssertEqual(options.coreCount, 2)
     XCTAssertTrue(options.highGC)
     XCTAssertEqual(options.terminalGapPolicy, .legacy)
@@ -261,15 +258,37 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     }
   }
 
-  func testPrimerVariantPercentResolvesToNativeFractionWithoutChangingDefaults() throws {
+  func testGUIPrimalSchemeAlwaysResolvesZeroMinimumBaseFrequency() throws {
     let state = configuredState()
     state.engine = .primalScheme
     XCTAssertEqual(try state.primalSchemeOptions().minimumBaseFrequency, 0)
-    state.minimumPrimerVariantFrequencyPercent = "2.5"
-    XCTAssertEqual(try state.primalSchemeOptions().minimumBaseFrequency, 0.025, accuracy: 0.000001)
-    for value in ["-1", "100.1", "nan", "inf", ""] {
-      state.minimumPrimerVariantFrequencyPercent = value
-      XCTAssertThrowsError(try state.primalSchemeOptions(), value)
+
+    state.ampliconSize = "200"
+    state.ampliconSizeMinimum = "150"
+    state.ampliconSizeMaximum = "250"
+    state.poolCount = "3"
+    state.coreCount = "2"
+    state.highGC = true
+    state.dimerScore = "-28"
+    state.useMatchDB = false
+    state.backtrack = true
+    state.ignoreN = true
+    state.panelMode = .entropy
+    state.maxAmplicons = "12"
+    state.maxAmpliconsPerMSA = "3"
+
+    for grouping in [PrimerAnalysisGrouping.independent, .combined] {
+      state.grouping = grouping
+      for excludeUncoveredEnds in [true, false] {
+        state.excludeUncoveredEnds = excludeUncoveredEnds
+        let options = try state.primalSchemeOptions()
+        XCTAssertEqual(options.minimumBaseFrequency, 0)
+        XCTAssertEqual(options.poolCount, 3)
+        XCTAssertEqual(options.ampliconSizeMinimum, 150)
+        XCTAssertEqual(options.ampliconSizeMaximum, 250)
+        XCTAssertTrue(options.highGC)
+        XCTAssertEqual(options.terminalGapPolicy, excludeUncoveredEnds ? .observedOnly : .legacy)
+      }
     }
   }
 

@@ -159,14 +159,7 @@ struct PrimerDesignDialog: View {
       Text(state.ampliconSpanDescription).font(.caption).foregroundStyle(.secondary)
       Text("The target sets default bounds until you edit them. It is nominal; selection does not favor the closest size.")
         .font(.caption).foregroundStyle(.secondary)
-      HStack {
-        numberField("Primer pools", $state.poolCount)
-        numberField("Minimum primer-variant frequency (%)", $state.minimumPrimerVariantFrequencyPercent)
-      }
-      Text("Filters each distinct candidate primer sequence independently. Zero retains the native default. This is not a maximum percentage of unmatched alignment rows and does not restrict mismatches to the 5′ end.")
-        .font(.caption).foregroundStyle(.secondary)
-      Text("Frequency is based on alignment observations, not read abundance or population allele frequency. Uncovered terminal observations are excluded when the missing-ends option is enabled.")
-        .font(.caption).foregroundStyle(.secondary)
+      numberField("Primer pools", $state.poolCount)
     }
   }
 

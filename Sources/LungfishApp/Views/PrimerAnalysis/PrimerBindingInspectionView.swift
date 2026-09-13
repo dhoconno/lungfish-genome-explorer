@@ -4,12 +4,20 @@ import SwiftUI
 struct PrimerBindingInspectionView: View {
     let contexts: [PrimerBindingInspectionContext]
     var selectedReviewPrimerID: String? = nil
+    var visibility = PrimerAnalysisVisibility()
+    var reviewTargets: [PrimerTargetDesignReview] = []
+    var identityDots: Binding<Bool>? = nil
     @State private var selectedContextID: String?
     @State private var selectedPrimerID: String?
-    @State private var showIdentityDots = true
+    @State private var localIdentityDots = true
+    private var dots: Binding<Bool> { identityDots ?? $localIdentityDots }
+    private var showIdentityDots: Bool { dots.wrappedValue }
+    private var displayedContexts: [PrimerBindingInspectionContext] {
+        reviewTargets.isEmpty ? contexts : contexts.map { visibility.filtering($0, targets: reviewTargets) }
+    }
 
     private var context: PrimerBindingInspectionContext? {
-        contexts.first { $0.id == selectedContextID } ?? contexts.first
+        displayedContexts.first { $0.id == selectedContextID } ?? displayedContexts.first
     }
 
     var body: some View {
@@ -19,19 +27,23 @@ struct PrimerBindingInspectionView: View {
                 .font(.caption).foregroundStyle(.secondary)
             if let context {
                 Picker("Target alignment", selection: Binding(get: { context.id }, set: { selectedContextID = $0; selectedPrimerID = nil })) {
-                    ForEach(contexts) { Text($0.title).tag($0.id) }
+                    ForEach(displayedContexts) { Text($0.title).tag($0.id) }
                 }
                 if let reason = context.unavailableReason {
                     Text(reason).foregroundStyle(.secondary)
                 }
-                let primer = context.primers.first(where: { $0.id == selectedPrimerID }) ?? context.primers.first
+                let primer = Self.resolvePrimer(in: context, selectedID: selectedPrimerID)
                 let track = primer.flatMap { try? context.displayTrack(for: $0, showIdentityDots: showIdentityDots) }
-                if let primer {
-                    Picker("Compare primer", selection: Binding(get: { primer.id }, set: { selectedPrimerID = $0 })) {
+                if !context.primers.isEmpty {
+                    Picker("Compare primer", selection: Binding(get: { primer?.id ?? "" }, set: { selectedPrimerID = $0 })) {
+                        Text("Choose a visible primer").tag("")
                         ForEach(context.primers) { Text($0.name).tag($0.id) }
                     }
-                    Toggle("Show matching observed bases as dots", isOn: $showIdentityDots)
-                        .disabled(track == nil)
+                }
+                if primer != nil {
+                    if identityDots == nil {
+                        Toggle("Show matching observed bases as dots", isOn: dots).disabled(track == nil)
+                    }
                     Text(track?.label ?? "Primer sequence track unavailable: sequence length and mapped columns do not agree.")
                         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
@@ -49,14 +61,26 @@ struct PrimerBindingInspectionView: View {
                     PrimerBindingComparisonTable(context: context, primer: primer)
                         .frame(minHeight: 100, idealHeight: 180, maxHeight: .infinity, alignment: .topLeading)
                 } else if context.unavailableReason == nil {
-                    Text("No primer sites were returned for this alignment.").foregroundStyle(.secondary)
+                    Text(!context.primers.isEmpty ? "The selected primer is hidden or unavailable. Choose a visible primer above or adjust Inspector → View."
+                         : contexts.first(where: { $0.id == context.id })?.primers.isEmpty == false
+                         ? "All primer sites for this alignment are hidden. Use Show all in Inspector → View to restore them."
+                         : "No primer sites were returned for this alignment.").foregroundStyle(.secondary)
                 }
             } else {
                 Text("Alignment binding inspection is available for stored PrimalScheme results with a verified input alignment and reference mapping.")
                     .foregroundStyle(.secondary)
             }
-        }.onAppear { adoptReviewSelection() }
+        }.onAppear {
+            adoptReviewSelection()
+            if selectedPrimerID == nil { selectedPrimerID = context?.primers.first?.id }
+        }
         .onChange(of: selectedReviewPrimerID) { _, _ in adoptReviewSelection() }
+    }
+
+    nonisolated static func resolvePrimer(in context: PrimerBindingInspectionContext,
+                                          selectedID: String?) -> PrimerBindingInspectionPrimer? {
+        guard let selectedID else { return context.primers.first }
+        return context.primers.first { $0.id == selectedID }
     }
 
     nonisolated static func legend(hasTrack: Bool, showIdentityDots: Bool) -> String {
@@ -73,11 +97,25 @@ struct PrimerBindingInspectionView: View {
     }
 
     private func adoptReviewSelection() {
-        guard let selectedReviewPrimerID,
-          let context = contexts.first(where: { $0.primers.contains { $0.reviewPrimerID == selectedReviewPrimerID } }),
-          let primer = context.primers.first(where: { $0.reviewPrimerID == selectedReviewPrimerID }) else { return }
-        selectedContextID = context.id
-        selectedPrimerID = primer.id
+        guard let selectedReviewPrimerID else { return }
+        guard let requested = Self.bindingSelection(for: selectedReviewPrimerID, contexts: contexts) else {
+            selectedPrimerID = "" // Explicit unavailable request; never substitute the first visible oligo.
+            return
+        }
+        selectedContextID = requested.contextID
+        selectedPrimerID = requested.primerID
+    }
+
+    nonisolated static func bindingSelection(for reviewID: String, contexts: [PrimerBindingInspectionContext])
+      -> (contextID: String, primerID: String)? {
+        // Adopt identity from the saved records, including hidden members. Rendering resolves
+        // that exact identity against the displayed set and shows an unavailable state if hidden.
+        for context in contexts {
+            if let primer = context.primers.first(where: { $0.reviewPrimerID == reviewID }) {
+                return (context.id, primer.id)
+            }
+        }
+        return nil
     }
 }
 
@@ -88,6 +126,7 @@ private struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
 
     final class Coordinator {
         var loadedID: String?
+        var loadedAnnotationIDs: [String] = []
         var focusedPrimerID: String?
         var loadedTrack: MSAReadOnlyPrimerTrack?
     }
@@ -100,9 +139,11 @@ private struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
 
     func updateNSViewController(_ controller: MultipleSequenceAlignmentViewController, context: Context) {
         do {
-            if context.coordinator.loadedID != self.context.id {
+            let annotationIDs = self.context.annotations.map(\.id)
+            if context.coordinator.loadedID != self.context.id || context.coordinator.loadedAnnotationIDs != annotationIDs {
                 try controller.displayReadOnlyAlignment(fasta: self.context.alignedFASTA, annotations: self.context.annotations)
                 context.coordinator.loadedID = self.context.id
+                context.coordinator.loadedAnnotationIDs = annotationIDs
                 context.coordinator.focusedPrimerID = nil
                 context.coordinator.loadedTrack = nil
             }

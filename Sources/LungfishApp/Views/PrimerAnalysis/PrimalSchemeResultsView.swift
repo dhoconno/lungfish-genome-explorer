@@ -3,13 +3,13 @@ import Foundation
 import SwiftUI
 
 struct PrimalSchemeResultsView: View {
+  @Environment(\.primerAnalysisVisibility) private var visibility
   let results: [PrimalSchemeDisplayResult]
   var engineDescription: String = "PrimalScheme3"
   var reviewTargets: [PrimerTargetDesignReview] = []
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
   var onInspectSelection: () -> Void = {}
   @State private var selectedResultID: String?
-  @State private var selectedPool: Int?
   @State private var localSelection: PrimerReviewSelection?
 
   private var activeSelection: Binding<PrimerReviewSelection?> {
@@ -31,7 +31,6 @@ struct PrimalSchemeResultsView: View {
       Text(engineDescription).font(.callout).foregroundStyle(.secondary)
       Picker("Selected scheme", selection: Binding(get: { result?.id }, set: { id in
         selectedResultID = id
-        selectedPool = nil
         if let chosen = results.first(where: { $0.id == id }), let primer = chosen.primers.first {
           select(primer, in: chosen)
         } else { activeSelection.wrappedValue = nil }
@@ -44,7 +43,11 @@ struct PrimalSchemeResultsView: View {
 
   private func schemeResults(_ result: PrimalSchemeDisplayResult) -> some View {
     let pools = Set(result.primers.map(\.pool)).sorted()
-    let visible = result.primers.filter { selectedPool == nil || $0.pool == selectedPool }
+    let visible = result.primers.filter { primer in
+      let review = target(for: primer, in: result)
+      guard let record = review.primers.first(where: { $0.id == "\(result.id)-primer-\(primer.id)" }) else { return false }
+      return visibility.isVisible(record, in: review)
+    }
     let selected = result.primers.first { "\(result.id)-primer-\($0.id)" == activeSelection.wrappedValue?.primerID }
       ?? result.primers.first { $0.reference == selectedTarget?.referenceID } ?? visible.first
     return VStack(alignment: .leading, spacing: 16) {
@@ -54,7 +57,7 @@ struct PrimalSchemeResultsView: View {
         HStack(alignment: .top, spacing: 16) {
           VStack(alignment: .leading, spacing: 5) {
             Text("Prepare primer pools for ordering").font(.headline)
-            Text("The stored CSV includes every oligo in the selected scheme, grouped by pool, with its 5′–3′ sequence. Each sequence variant retains its own row. Copy the sheet before filling in your synthesis scale, purification or modifications.")
+            Text("The stored CSV includes the complete selected scheme, including oligos hidden by display filters, grouped by pool with 5′–3′ sequences. Each variant retains its own row. Copy the sheet before filling in your synthesis scale, purification or modifications.")
               .font(.caption).foregroundStyle(.secondary)
           }
           Spacer()
@@ -75,18 +78,10 @@ struct PrimalSchemeResultsView: View {
           PrimerTargetReviewCard(target: target, selection: activeSelection)
         }
       }.id(PrimerReviewSelection.selectedDesignAnchor)
-      Picker("Pool", selection: $selectedPool) {
-        Text("All pools").tag(nil as Int?)
-        ForEach(pools, id: \.self) { Text("Pool \($0)").tag(Optional($0)) }
-      }.onChange(of: selectedPool) {
-        if let first = result.primers.first(where: { selectedPool == nil || $0.pool == selectedPool }) {
-          select(first, in: result)
-        }
-      }
-      Text("Showing oligos for all selected amplicons in the chosen pools. Select a primer to inspect its amplicon’s full primer set, reference span and pool.")
+      Text("\(visible.count) of \(result.primers.count) selected oligos displayed. Use Inspector → View to show or hide pools and variants. Select a primer to inspect its saved amplicon, reference span and pool.")
         .font(.caption).foregroundStyle(.secondary)
-      if visible.isEmpty { Text("No primer records were returned.").foregroundStyle(.secondary) }
-      ForEach(pools.filter { selectedPool == nil || $0 == selectedPool }, id: \.self) { pool in
+      if visible.isEmpty { Text(result.primers.isEmpty ? "No primer records were returned." : "All oligos are hidden by display filters. Use Show all in Inspector → View to restore them.").foregroundStyle(.secondary) }
+      ForEach(pools.filter { pool in visible.contains { $0.pool == pool } }, id: \.self) { pool in
         let members = visible.filter { $0.pool == pool }
         VStack(alignment: .leading, spacing: 8) {
           HStack {

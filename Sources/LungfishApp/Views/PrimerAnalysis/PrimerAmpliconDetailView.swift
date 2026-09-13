@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Uses verified saved membership only. Selected variant sets are not paired by their suffixes.
 struct PrimerAmpliconDetailView: View {
+  @Environment(\.primerAnalysisVisibility) private var visibility
   let target: PrimerTargetDesignReview
   let selection: Binding<PrimerReviewSelection?>
 
@@ -58,14 +59,14 @@ struct PrimerAmpliconDetailView: View {
             let verifiedMembers = PrimerReviewClipboard.ampliconPrimers(interval, in: target) {
             selectedVariantSet(verifiedMembers)
           } else {
-            ForEach(members) { primer in oligo(primer) }
+            ForEach(members.filter { visibility.isVisible($0, in: target) }) { primer in oligo(primer) }
           }
         } else if let primer = selectedPrimer {
           Text("Amplicon correspondence unavailable")
             .font(.headline)
           Text("Inspect this primer independently. Its pool and position do not establish a primer pair.")
             .font(.caption).foregroundStyle(.secondary)
-          oligo(primer)
+          if visibility.isVisible(primer, in: target) { oligo(primer) }
         } else {
           Text("Select an amplicon or primer on the reference track.").foregroundStyle(.secondary)
         }
@@ -81,12 +82,19 @@ struct PrimerAmpliconDetailView: View {
       Text("Selected primer set").font(.headline)
       Text("All listed variants are selected components, not backup candidates. Suffix numbers enumerate oligos; they do not indicate quality rank or matched forward/reverse pairs.")
         .font(.caption).foregroundStyle(.secondary)
+      let displayed = members.filter { visibility.isVisible($0, in: target) }.count
+      if displayed != members.count {
+        Text("\(displayed) of \(members.count) saved oligos displayed. Inspector filters hide members; associated-primer and pool actions still use the complete saved set.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
       ForEach(VariantSide.allCases, id: \.rawValue) { side in
         let group = members.filter { variantSide($0) == side }
         if !group.isEmpty {
+          let shown = group.filter { visibility.isVisible($0, in: target) }
           VStack(alignment: .leading, spacing: 4) {
-            Text("\(side.title) · \(group.count)").font(.subheadline.weight(.semibold))
-            ForEach(group) { primer in oligo(primer) }
+            Text(shown.count == group.count ? "\(side.title) · \(group.count)" : "\(side.title) · \(shown.count) of \(group.count) displayed")
+              .font(.subheadline.weight(.semibold))
+            ForEach(shown) { primer in oligo(primer) }
           }
         }
       }

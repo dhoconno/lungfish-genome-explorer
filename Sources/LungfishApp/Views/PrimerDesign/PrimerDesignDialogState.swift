@@ -71,7 +71,6 @@ final class PrimerDesignDialogState {
   private var isUpdatingAmpliconBounds = false
   var poolCount = "2"
   var minOverlap = "10"
-  var minimumPrimerVariantFrequencyPercent = "0"
   var highGC = false
   var dimerScore = "-26"
   var useMatchDB = true
@@ -233,12 +232,9 @@ final class PrimerDesignDialogState {
       }
       overlap = value
     } else { overlap = 10 }
-    let frequencyPercent = try finiteNumber(minimumPrimerVariantFrequencyPercent, "Minimum primer-variant frequency")
-    guard (0...100).contains(frequencyPercent) else { throw invalid("Minimum primer-variant frequency must be between 0 and 100 percent.") }
-    let frequency = frequencyPercent / 100
     return PrimalScheme3DesignOptions(
       ampliconSize: sizes.target, poolCount: try positiveInteger(poolCount, "Pool count"),
-      minOverlap: overlap, minimumBaseFrequency: frequency, highGC: highGC,
+      minOverlap: overlap, minimumBaseFrequency: 0, highGC: highGC,
       coreCount: try positiveInteger(coreCount, "CPU cores"),
       terminalGapPolicy: excludeUncoveredEnds ? .observedOnly : .legacy,
       dimerScore: try finiteNumber(dimerScore, "Dimer score threshold"), useMatchDB: useMatchDB,

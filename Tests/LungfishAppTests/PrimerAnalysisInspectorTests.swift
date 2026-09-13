@@ -9,6 +9,23 @@ import LungfishWorkflow
 
 @MainActor
 final class PrimerAnalysisInspectorTests: XCTestCase {
+    func testFailedLoadRetainsSharedDisplaySessionForSuccessfulRetry() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let inspector = InspectorViewController()
+        let session = PrimerAnalysisDisplaySession()
+        inspector.beginPrimerAnalysisDocument(at: fixture.bundleURL, displaySession: session)
+        inspector.failPrimerAnalysisDocument(at: fixture.bundleURL, message: "Temporary read failure")
+        XCTAssertTrue(inspector.viewModel.primerAnalysisDisplaySession === session)
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundleURL)
+        session.configure(snapshot)
+        inspector.updatePrimerAnalysisDocument(snapshot)
+        XCTAssertTrue(inspector.viewModel.primerAnalysisDisplaySession === session)
+        XCTAssertNil(inspector.viewModel.primerAnalysisDocument?.errorMessage)
+        inspector.clearSelection()
+        XCTAssertNil(inspector.viewModel.primerAnalysisDisplaySession)
+    }
+
     func testVerifiedAnalysisUsesNativeInspectorTabsAndReadOnlyProvenance() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

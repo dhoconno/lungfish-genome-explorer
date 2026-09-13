@@ -9,6 +9,7 @@ private final class PrimerAnalysisHostingController: NSHostingController<PrimerA
 extension ViewerViewController {
     func displayPrimerAnalysisBundle(
         at url: URL,
+        displaySession: PrimerAnalysisDisplaySession? = nil,
         onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
         onDismiss: @escaping @MainActor () -> Void = {},
         onExportRequested: (@MainActor (PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)? = nil
@@ -16,7 +17,7 @@ extension ViewerViewController {
         clearViewport()
         let installationID = UUID()
         let controller = PrimerAnalysisHostingController(rootView: PrimerAnalysisViewerView(
-            bundleURL: url, model: PrimerAnalysisViewerModel(), onLoadStateChanged: { [weak self] state in
+            bundleURL: url, model: PrimerAnalysisViewerModel(), displaySession: displaySession, onLoadStateChanged: { [weak self] state in
                 guard let installed = self?.primerAnalysisViewController as? PrimerAnalysisHostingController,
                     installed.installationID == installationID else { return }
                 onLoadStateChanged(state)

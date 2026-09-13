@@ -2,7 +2,9 @@ import Foundation
 import LungfishIO
 
 extension InspectorViewController {
-    func beginPrimerAnalysisDocument(at url: URL) {
+    func beginPrimerAnalysisDocument(at url: URL, displaySession: PrimerAnalysisDisplaySession? = nil) {
+        viewModel.primerAnalysisDisplaySession?.cancel()
+        viewModel.primerAnalysisDisplaySession = displaySession
         viewModel.primerAnalysisDocument = .init(bundleURL: url.standardizedFileURL)
         viewModel.selectedItem = url.deletingPathExtension().lastPathComponent
         viewModel.selectedType = "Primer Analysis"
@@ -53,17 +55,22 @@ extension InspectorViewController {
 
     func failPrimerAnalysisDocument(at url: URL, message: String) {
         guard viewModel.primerAnalysisDocument?.bundleURL == url.standardizedFileURL else { return }
+        // Retry reuses the viewer's session. Invalidate its data without disconnecting it.
+        viewModel.primerAnalysisDisplaySession?.invalidate()
         viewModel.primerAnalysisDocument = .init(bundleURL: url.standardizedFileURL,
             isLoading: false, errorMessage: message)
         viewModel.provenanceSectionViewModel.presentUnavailableVerifiedRecord(item: .init(
             url: url, sidebarType: .primerAnalysisBundle, contentMode: viewModel.contentMode,
             displayName: url.deletingPathExtension().lastPathComponent), message: message)
+        viewModel.reconcileSelectedTab()
     }
 
     func clearPrimerAnalysisDocument(matching url: URL? = nil) {
         guard let document = viewModel.primerAnalysisDocument,
             url == nil || document.bundleURL == url?.standardizedFileURL else { return }
         viewModel.primerAnalysisDocument = nil
+        viewModel.primerAnalysisDisplaySession?.cancel()
+        viewModel.primerAnalysisDisplaySession = nil
         viewModel.provenanceSectionViewModel.clear()
         viewModel.reconcileSelectedTab()
     }

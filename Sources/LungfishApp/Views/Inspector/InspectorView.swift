@@ -142,7 +142,12 @@ public struct InspectorView: View {
             }
 
         case .view:
-            InspectorReadStyleSection(viewModel: viewModel)
+            if viewModel.primerAnalysisDocument != nil,
+               let session = viewModel.primerAnalysisDisplaySession, session.isAvailable {
+                PrimerAnalysisDisplaySection(session: session)
+            } else {
+                InspectorReadStyleSection(viewModel: viewModel)
+            }
 
         case .analysis:
             InspectorAnalysisWorkflowSection(viewModel: viewModel)

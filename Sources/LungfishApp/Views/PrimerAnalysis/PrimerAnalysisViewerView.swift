@@ -14,6 +14,7 @@ struct PrimerAnalysisViewerView: View {
   let onLoadStateChanged: @MainActor (PrimerAnalysisViewerModel.State) -> Void
   let onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)?
   @StateObject private var model: PrimerAnalysisViewerModel
+  @State private var displaySession: PrimerAnalysisDisplaySession
   @State private var selectedSection: Section
   @State private var retryGeneration: UInt64 = 0
   @State private var selection: PrimerReviewSelection?
@@ -30,6 +31,7 @@ struct PrimerAnalysisViewerView: View {
     model: PrimerAnalysisViewerModel,
     selectedSection: Section = .overview,
     selection: PrimerReviewSelection? = nil,
+    displaySession: PrimerAnalysisDisplaySession? = nil,
     onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
     onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)? = nil
   ) {
@@ -39,6 +41,7 @@ struct PrimerAnalysisViewerView: View {
     _model = StateObject(wrappedValue: model)
     _selectedSection = State(initialValue: selectedSection)
     _selection = State(initialValue: selection)
+    _displaySession = State(initialValue: displaySession ?? PrimerAnalysisDisplaySession())
   }
 
   var body: some View {
@@ -66,14 +69,16 @@ struct PrimerAnalysisViewerView: View {
     .task(id: LoadIdentity(bundleURL: bundleURL, retryGeneration: retryGeneration)) {
       await model.load(from: bundleURL)
       guard !Task.isCancelled else { return }
+      if case .loaded(let snapshot) = model.state { displaySession.configure(snapshot) }
       onLoadStateChanged(model.state)
     }
+    .onDisappear { displaySession.cancel() }
   }
 
   private func loadedContent(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {
     let visibleSection = snapshot.visibleSection(selectedSection)
     let bindingContexts = snapshot.inspectableBindingContexts
-    let bindingPrimerIDs = Set(bindingContexts.flatMap { $0.primers.map(\.reviewPrimerID) })
+    let bindingPrimerIDs = displaySession.visibility.bindingPrimerIDs(in: bindingContexts, targets: snapshot.designReview)
     return VStack(spacing: 0) {
       Picker("Saved result section", selection: Binding(
         get: { visibleSection }, set: { selectedSection = snapshot.visibleSection($0) })) {
@@ -83,6 +88,13 @@ struct PrimerAnalysisViewerView: View {
       .labelsHidden()
       .padding()
       .accessibilityIdentifier("primerAnalysisViewer.tabs")
+
+      if snapshot.primer3Results == nil, displaySession.isAvailable {
+        Text("\(displaySession.visibleCount) of \(displaySession.totalCount) selected oligos displayed · Adjust visibility in Inspector → View. Saved coverage and full-set exports are unchanged.")
+          .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal).padding(.bottom, 8)
+          .accessibilityIdentifier("primerAnalysisViewer.displaySummary")
+      }
 
       if visibleSection != .binding, let primerID = selection?.primerID,
         bindingPrimerIDs.contains(primerID) {
@@ -95,7 +107,9 @@ struct PrimerAnalysisViewerView: View {
       }
       Divider()
       if visibleSection == .binding {
-        PrimerBindingInspectionView(contexts: bindingContexts, selectedReviewPrimerID: selection?.primerID)
+        PrimerBindingInspectionView(contexts: bindingContexts, selectedReviewPrimerID: selection?.primerID,
+          visibility: displaySession.visibility, reviewTargets: snapshot.designReview,
+          identityDots: Binding(get: { displaySession.settings.showIdentityDots }, set: { displaySession.settings.showIdentityDots = $0 }))
           .padding(20)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
@@ -123,6 +137,9 @@ struct PrimerAnalysisViewerView: View {
     .onChange(of: snapshot.availableSections, initial: true) { _, _ in
       selectedSection = snapshot.visibleSection(selectedSection)
     }
+    .onChange(of: displaySession.settings) { _, _ in reconcileVisibleSelection(snapshot) }
+    .onChange(of: displaySession.compatibilityReady) { _, _ in reconcileVisibleSelection(snapshot) }
+    .environment(\.primerAnalysisVisibility, displaySession.visibility)
     .environment(\.primerReviewActions, PrimerReviewContextActions(
       targets: snapshot.designReview,
       bindingPrimerIDs: bindingPrimerIDs,
@@ -132,6 +149,15 @@ struct PrimerAnalysisViewerView: View {
         selection = clicked; selectedSection = .binding
       },
       onExportRequested: onExportRequested))
+  }
+
+  private func reconcileVisibleSelection(_ snapshot: PrimerAnalysisViewerSnapshot) {
+    guard let current = selection, let id = current.primerID,
+      let target = snapshot.designReview.first(where: { $0.id == current.targetID }),
+      let primer = target.primers.first(where: { $0.id == id }),
+      !displaySession.isVisible(primer, in: target) else { return }
+    // Keep the amplicon context; hiding a primer never silently selects a different oligo.
+    selection = .init(targetID: current.targetID, primerID: nil, ampliconID: current.ampliconID)
   }
 
   private func overview(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {

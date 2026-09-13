@@ -21,7 +21,8 @@ extension MainSplitViewController {
             }
         }
         inspectorController.clearSelection()
-        viewerController.displayPrimerAnalysisBundle(at: url, onLoadStateChanged: { [weak self] state in
+        let displaySession = PrimerAnalysisDisplaySession(preferences: primerAnalysisDisplayPreferences)
+        viewerController.displayPrimerAnalysisBundle(at: url, displaySession: displaySession, onLoadStateChanged: { [weak self] state in
             guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
             switch state {
             case .loading: break
@@ -33,7 +34,7 @@ extension MainSplitViewController {
         }, onExportRequested: exportAction)
         // clearViewport() during installation tears down the previous inspector before
         // establishing the new scope. The verified load callback commits only to this scope.
-        inspectorController.beginPrimerAnalysisDocument(at: url)
+        inspectorController.beginPrimerAnalysisDocument(at: url, displaySession: displaySession)
     }
 
     private func exportPrimerAnalysisSelection(at analysisURL: URL, projectURL: URL,

@@ -380,6 +380,9 @@ public class MainSplitViewController: NSSplitViewController {
     /// The inspector panel (selection details)
     public private(set) var inspectorController: InspectorViewController!
 
+    /// Per-analysis visual preferences for this window; scientific payloads remain immutable.
+    let primerAnalysisDisplayPreferences = PrimerAnalysisDisplayPreferences()
+
     /// One result-owned source of truth for the displayed classifier's sample
     /// metadata. Replaced whenever classifier routing changes.
     var classifierMetadataPresentationContext: SampleMetadataPresentationContext?
