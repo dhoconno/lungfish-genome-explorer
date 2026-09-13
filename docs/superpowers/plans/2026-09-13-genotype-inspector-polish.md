@@ -17,7 +17,7 @@
 - Preserve all scientific QA reports, task ledger, review packages, test logs, and existing caches.
 - No inference algorithm, scientific data semantics, or provenance schema changes.
 - Every scientific output workflow retains reproducibility provenance: tool/workflow version, exact invocation, resolved options/defaults, runtime, input and final output paths/checksums/sizes, exit status, wall time, useful stderr. Existing export snapshot capture and provenance writing remain authoritative.
-- MiSeq detection uses explicit workflow identity and supported legacy checks. Unknown future/malformed workflow declarations must not be guessed into MiSeq. `appliesToHaplotypedMiSeq` alone is too narrow because it excludes typed genotype-only MiSeq.
+- Scope the change to `appliesToHaplotypedMiSeq` plus active Summary / Matrix. The user's clarification expressly preserves the Haplotype Calls editor and excludes the other genotype-only/manual-workbench presentations from this cleanup. No new editor sheet or relocated manual editing UI.
 - Do not hide evidence in ONT/general genotype-only or non-matrix views. Do not stop publishing selection to the Inspector when its bottom pane is hidden.
 - No parallel Swift compiles. Root baseline must pass before source/test edits. PM assigns one implementation at a time; each implementer owns focused test runs while active. Root owns final packaging.
 - Use apply_patch for edits. Implementers do not dispatch subagents. Commit only task files and retain detailed reports in the supplied SDD workspace.
@@ -58,10 +58,10 @@ editable_cells = all(not cell.protection.locked for sheet in workbook.worksheets
 - Test if policy changes: existing presentation-policy tests found beside these tests.
 
 **Interfaces:**
-- Consumes: existing explicit MiSeq workflow declaration and supported legacy identity, `summaryViewMode`, selected lens/evidence/bare-selection state.
+- Consumes: existing `appliesToHaplotypedMiSeq` presentation policy, `summaryViewMode`, selected lens/evidence/bare-selection state.
 - Produces: one authoritative visibility decision at every existing detail-pane update ingress; unchanged published selection and sample-sheet notification. Save panel export completion/capture interfaces stay unchanged.
 
-- [ ] Add/adjust fixture-based tests before production changes: typed haplotyped MiSeq and typed genotype-only MiSeq matrix have hidden detail pane initially, after sample/row/cell/allele selection, after clearing, after annotation/display refresh. Haplotype Calls evidence returns correctly. ONT/general genotype-only remains unchanged; retain `testSelectedFASTARowWithNothingToDetailHidesThePane`'s generic reopen behavior. Test unknown/malformed workflow identity does not broaden MiSeq behavior.
+- [ ] Add/adjust fixture-based tests before production changes: paired haplotyped MiSeq matrix has hidden detail pane initially, after sample/row/cell/allele selection, after clearing, after annotation/display refresh. Haplotype Calls detail/editor returns correctly. Typed genotype-only MiSeq, ONT and general genotype-only remain unchanged; retain `testSelectedFASTARowWithNothingToDetailHidesThePane`'s generic reopen behavior. The existing presentation policy must remain the boundary rather than broadening workflow identity.
 
 ```swift
 XCTAssertTrue(controller.testingDetailPaneHidden)
@@ -71,7 +71,7 @@ XCTAssertTrue(controller.testingDetailPaneHidden)
 
 - [ ] Add save-panel assertion `XCTAssertNil(panel.accessoryView)` through the existing injected panel presenter; preserve normal extension/name/owner window and cancellation behavior. Run focused tests red with `swift test --jobs 4 --skip-update --filter 'GenotypeResultViewportLayoutTests|GenotypeExcelDialogBehaviorTests'` and the exact containing class of each new test.
 - [ ] Centralize matrix suppression and combine it with existing bare-selection/review rules. The matrix must actually be the active summary viewport (`selectedLens == .summary` and matrix mode), not merely a stale stored matrix preference in Review/Audit. Current assignments around `applySummaryViewModeVisibility`, `setDetailPaneSuppressed`, and review updates must all respect the scoped suppression. Do not remove selection publication or call/annotation callbacks. Remove the save-panel static accessory creation only.
-- [ ] Run the changed focused classes green; ensure MiSeq H1/H2 and sample Edit calls route are retained. Record command/log/outcomes and self-review.
+- [ ] Preserve Haplotype Calls detail/editor and H1/H2 operations without changing their presentation. Do not relocate genotype-only editors or add a sheet: those manual-workbench workflows are outside this pane-removal scope. Run the changed focused classes green; ensure sample selection publication and existing Edit calls routes remain usable. Record command/log/outcomes and self-review.
 - [ ] Commit task files with `fix: keep MiSeq genotype matrices free of the detail pane`.
 
 ### Task 3: Consistent compact five-tab Inspector
@@ -106,7 +106,7 @@ LabeledContent(label) {
 // If horizontal content cannot fit, use a leading label-over-value fallback.
 ```
 
-- [ ] Run focused tests serially using `swift test --jobs 4 --skip-update --filter` and the concrete changed test class names. Follow existing `PrimerAnalysisInspectorTests`/`PrimerAnalysisDisplaySectionTests` NSHostingView snapshot pattern to save all five tabs at 300 and 420-point widths plus enlarged text into this plan's QA directory. Inspect the rendered PNGs; fix clipping/overlap/unreadable hierarchy, and record actual image paths and results. Test meaningful names/hints/values, keyboard-accessible retained controls, and exact five-tab routes. Do not claim VoiceOver runtime verification from source attributes alone.
+- [ ] Run focused tests serially using `swift test --jobs 4 --skip-update --filter` and the concrete changed test class names. Follow existing `PrimerAnalysisInspectorTests`/`PrimerAnalysisDisplaySectionTests` NSHostingView snapshot pattern to save all five tabs at 300 and 420-point widths plus enlarged text into this plan's QA directory. Use populated synthetic fixtures: a selected sample with long identity/allele values, review/comment context, and actual provenance rows rather than only empty states. Make relevant disclosure content visible, including Percent Basis in View; capture extra scroll/expanded states when needed to inspect changed controls. Restore any shared typography/settings after testing. Inspect the rendered PNGs; fix clipping/overlap/unreadable hierarchy, and record actual image paths and results. Test meaningful names/hints/values, keyboard-accessible retained controls, and exact five-tab routes. Do not claim VoiceOver runtime verification from source attributes alone.
 - [ ] Record complete test/render evidence and limitations in the report. Commit only task source/tests with `refactor: simplify genotyping Inspector presentation`.
 
 ## Final handoff
