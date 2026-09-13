@@ -45,11 +45,11 @@ final class GenotypeMatrixHaplotypeSupportTests: GenotypeResultViewportTestCase 
         })
         XCTAssertFalse(button.isHidden)
         matrix.testingSetStandardColumnVisibleWithoutPersist("uniqueReads", visible: true)
-        XCTAssertEqual(button.menu?.items.first { $0.title == "Total reads" }?.state, .on)
-        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Total reads"))
+        XCTAssertEqual(button.menu?.items.first { $0.title == "Total Reads" }?.state, .on)
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Total Reads"))
         matrix.testingSetStandardColumnVisibleWithoutPersist("uniqueReads", visible: false)
-        XCTAssertEqual(button.menu?.items.first { $0.title == "Total reads" }?.state, .off)
-        XCTAssertFalse(matrix.testingPinnedColumnTitles.contains("Total reads"))
+        XCTAssertEqual(button.menu?.items.first { $0.title == "Total Reads" }?.state, .off)
+        XCTAssertFalse(matrix.testingPinnedColumnTitles.contains("Total Reads"))
     }
 
     func testCompleteLegendIncludesEveryHaplotypeAndLocusBeyondCompactLimit() throws {
@@ -127,7 +127,7 @@ final class GenotypeMatrixHaplotypeSupportTests: GenotypeResultViewportTestCase 
         state.cellColorMode = .haplotype
         matrix.applyDisplayState(state)
         let snapshot = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/test.lungfishgenotype"), analysisName: "test", lens: "matrix")
-        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Total reads"))
+        XCTAssertTrue(matrix.testingPinnedColumnTitles.contains("Total Reads"))
         XCTAssertEqual(snapshot.filters["includeTotalReads"], "true")
         XCTAssertEqual(snapshot.filters["diagnosticAllelesOnly"], "true")
         XCTAssertEqual(snapshot.rows.first { $0.genotype == first }?.totalUniqueReads, 21)

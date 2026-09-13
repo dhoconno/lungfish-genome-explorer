@@ -73,6 +73,43 @@ def _validate_matrix(matrix, label):
     for locus in matrix['loci']:
         _identity(locus, label + ' locus')
     _unique(matrix['loci'], label + ' locus')
+    columns = matrix.get('columns')
+    column_keys = None
+    column_kinds = None
+    if columns is not None:
+        if not isinstance(columns, list):
+            _invalid(label + '.columns must be an array or null')
+        column_keys = []
+        column_kinds = []
+        valid_kinds = {
+            'genotype', 'referenceMetadata', 'stableClusterID',
+            'locus', 'sampleCount', 'totalUniqueReads',
+        }
+        for column in columns:
+            if not isinstance(column, dict):
+                _invalid(label + ' column must be an object')
+            _identity(column.get('key'), label + ' column key')
+            _identity(column.get('title'), label + ' column title')
+            kind = column.get('kind')
+            if kind not in valid_kinds:
+                _invalid(label + ' column kind is unsupported')
+            source_key = column.get('sourceKey')
+            _string(source_key, label + ' column sourceKey', allow_none=True)
+            primary_identity = column.get('isPrimaryIdentity')
+            if primary_identity is not None and not isinstance(primary_identity, bool):
+                _invalid(label + ' column isPrimaryIdentity must be a boolean or null')
+            if kind == 'referenceMetadata':
+                if not source_key or column['key'] != 'reference.' + source_key:
+                    _invalid(label + ' reference column identity is invalid')
+            elif source_key is not None:
+                _invalid(label + ' standard column must not have sourceKey')
+            elif primary_identity is not None:
+                _invalid(label + ' standard column must not define isPrimaryIdentity')
+            column_keys.append(column['key'])
+            column_kinds.append(kind)
+        _unique(column_keys, label + ' column key')
+        if sum(column.get('isPrimaryIdentity') is True for column in columns) > 1:
+            _invalid(label + ' must not define multiple primary identity columns')
     row_ids = []
     roster = set(sample_ids)
     for row_index, row in enumerate(matrix['rows']):
@@ -89,6 +126,25 @@ def _validate_matrix(matrix, label):
         _string(row.get('displayName'), label + ' row displayName')
         _string(row.get('comment'), label + ' row comment', allow_none=True)
         _style(row.get('style'), label + ' row style', row.get('fillHex'))
+        column_values = row.get('columnValues')
+        if columns is None:
+            if column_values is not None:
+                _invalid(label + ' legacy row must not contain columnValues')
+        else:
+            if not isinstance(column_values, list) or len(column_values) != len(column_keys):
+                _invalid(label + ' row has invalid column value count')
+            for value_index, value in enumerate(column_values):
+                if not isinstance(value, dict) or value.get('key') != column_keys[value_index]:
+                    _invalid(label + ' row has misaligned column values')
+                text = value.get('text')
+                integer = value.get('integer')
+                _string(text, label + ' column text', allow_none=True)
+                _count(integer, label + ' column integer')
+                if column_kinds[value_index] in ('sampleCount', 'totalUniqueReads'):
+                    if integer is None or text is not None:
+                        _invalid(label + ' numeric column value is invalid')
+                elif text is None or integer is not None:
+                    _invalid(label + ' text column value is invalid')
         cells = row.get('cells')
         if not isinstance(cells, list):
             _invalid(label + ' row cells must be an array')
@@ -114,6 +170,8 @@ def _validate_matrix(matrix, label):
     }
 
 def _validate_filtered_consistency(all_matrix, filtered_matrix, all_index, filtered_index):
+    if all_matrix.get('columns') != filtered_matrix.get('columns'):
+        _invalid('matrix column layout differs between All and Filtered')
     for sample_id, sample in filtered_index['samples'].items():
         if sample_id not in all_index['samples']:
             _invalid('unknown filtered sample')
@@ -277,25 +335,13 @@ def _apply_review(cell, review):
         cell.font = font
 
 def _sample_comment(sample):
-    if sample.get('comment') is None:
-        return None
-    return 'Sample comment: ' + json.dumps(sample['comment'], ensure_ascii=False)
+    return sample.get('comment')
 
 def _row_comment(row):
-    if row.get('comment') is None:
-        return None
-    return 'Row comment: ' + json.dumps(row['comment'], ensure_ascii=False)
+    return row.get('comment')
 
-def _cell_comment(cell, review):
-    generated = 'Evidence: display=' + json.dumps(cell.get('displayValue')) + ', raw support=' + json.dumps(cell.get('rawSupport'))
-    if cell.get('comment') is not None:
-        generated += '\nCurrent comment: ' + json.dumps(cell['comment'], ensure_ascii=False)
-    if review is not None:
-        generated += '\nCurrent review: ' + json.dumps(review, ensure_ascii=False)
-    return generated
-
-def _slot_comment(slot_name, slot):
-    return 'Haplotype slot: ' + slot_name.upper() + '\nStatus: ' + slot['status'] + '\nSource: ' + slot['source']
+def _cell_comment(cell):
+    return cell.get('comment')
 
 def _finish_sheet(sheet, header_rows):
     for row_number in header_rows:
@@ -347,22 +393,52 @@ def _render_matrix(workbook, title, matrix, payload, colors):
     sheet = workbook.create_sheet(title)
     calls = {(call['sampleID'], call['locus']): call for call in payload['calls']}
     has_bands = payload['hasHaplotypeContent'] and bool(matrix['loci'])
+    explicit_columns = matrix.get('columns')
+    legacy = explicit_columns is None
+    columns = explicit_columns if explicit_columns is not None else [
+        {'key': 'legacy.locus', 'title': 'Locus', 'kind': 'locus'},
+        {'key': 'legacy.allele', 'title': 'Allele', 'kind': 'genotype'},
+    ]
+    sample_start = 2 + len(columns)
+
+    def presentation_value(row, index, column):
+        if legacy:
+            return row['target']['locus'] if column['kind'] == 'locus' else row['displayName']
+        value = row['columnValues'][index]
+        return value.get('text') if value.get('text') is not None else value.get('integer')
+
+    def presentation_anchor():
+        for index, column in enumerate(columns):
+            if column['kind'] == 'genotype':
+                return 2 + index
+        for index, column in enumerate(columns):
+            if column['kind'] == 'referenceMetadata' and column.get('isPrimaryIdentity') is True:
+                return 2 + index
+        for index, column in enumerate(columns):
+            if column['kind'] == 'locus':
+                return 2 + index
+        return 2 if columns else 1
+
+    anchor_column = presentation_anchor()
 
     if has_bands:
         _literal(sheet['A1'], 'Stable ID')
-        _literal(sheet['B1'], 'Locus')
-        _literal(sheet['C1'], 'Slot / allele')
-        for column, sample in enumerate(matrix['samples'], 4):
+        for index, presentation in enumerate(columns, 2):
+            _literal(sheet.cell(1, index), presentation['title'])
+        for column, sample in enumerate(matrix['samples'], sample_start):
             _literal(sheet.cell(1, column), sample['name'])
             generated = _sample_comment(sample)
-            if generated:
+            if generated is not None:
                 sheet.cell(1, column).comment = Comment(generated, 'LGE')
+        locus_columns = [2 + index for index, column in enumerate(columns) if column['kind'] == 'locus']
         for locus_index, locus in enumerate(matrix['loci']):
             for slot_offset, slot in enumerate(('h1', 'h2')):
                 row_number = 2 + locus_index * 2 + slot_offset
-                _literal(sheet.cell(row_number, 2), locus)
-                _literal(sheet.cell(row_number, 3), slot.upper())
-                for column, sample in enumerate(matrix['samples'], 4):
+                if locus_columns:
+                    _literal(sheet.cell(row_number, locus_columns[0]), locus)
+                label = slot.upper() if locus_columns and anchor_column != locus_columns[0] else locus + ' ' + slot.upper()
+                _literal(sheet.cell(row_number, anchor_column), label)
+                for column, sample in enumerate(matrix['samples'], sample_start):
                     call = calls.get((sample['id'], locus))
                     if call is None:
                         continue
@@ -370,46 +446,54 @@ def _render_matrix(workbook, title, matrix, payload, colors):
                     cell = sheet.cell(row_number, column)
                     _literal(cell, value)
                     _apply_call_color(cell, locus, value, colors)
-                    cell.comment = Comment(_slot_comment(slot, call[slot]), 'LGE')
         header_row = 2 + 2 * len(matrix['loci'])
     else:
         header_row = 1
 
     _literal(sheet.cell(header_row, 1), 'Stable ID')
-    _literal(sheet.cell(header_row, 2), 'Locus')
-    _literal(sheet.cell(header_row, 3), 'Allele')
-    for column, sample in enumerate(matrix['samples'], 4):
+    for index, presentation in enumerate(columns, 2):
+        _literal(sheet.cell(header_row, index), presentation['title'])
+    for column, sample in enumerate(matrix['samples'], sample_start):
         _literal(sheet.cell(header_row, column), sample['name'])
         generated = _sample_comment(sample)
-        if generated and not has_bands:
+        if generated is not None and not has_bands:
             sheet.cell(header_row, column).comment = Comment(generated, 'LGE')
     for row_number, row in enumerate(matrix['rows'], header_row + 1):
         _literal(sheet.cell(row_number, 1), row['id'])
-        _literal(sheet.cell(row_number, 2), row['target']['locus'])
-        _literal(sheet.cell(row_number, 3), row['displayName'])
-        _apply_style(sheet.cell(row_number, 3), row.get('style'), row.get('fillHex'))
+        for index, presentation in enumerate(columns):
+            _literal(sheet.cell(row_number, 2 + index), presentation_value(row, index, presentation))
+        _apply_style(sheet.cell(row_number, anchor_column), row.get('style'), row.get('fillHex'))
         generated = _row_comment(row)
-        if generated:
-            sheet.cell(row_number, 3).comment = Comment(generated, 'LGE')
+        if generated is not None:
+            sheet.cell(row_number, anchor_column).comment = Comment(generated, 'LGE')
         by_sample = {cell['sampleID']: cell for cell in row['cells']}
-        for column, sample in enumerate(matrix['samples'], 4):
+        for column, sample in enumerate(matrix['samples'], sample_start):
             captured = by_sample[sample['id']]
             cell = sheet.cell(row_number, column)
             _literal(cell, captured.get('displayValue'))
             _apply_style(cell, captured.get('style'), captured.get('fillHex'))
             review = _valid_review(captured)
             _apply_review(cell, review)
-            cell.comment = Comment(_cell_comment(captured, review), 'LGE')
+            generated = _cell_comment(captured)
+            if generated is not None:
+                cell.comment = Comment(generated, 'LGE')
 
     sheet.column_dimensions['A'].hidden = True
-    sheet.column_dimensions['B'].width = 18
-    sheet.column_dimensions['C'].width = 64
-    for column in range(4, 4 + len(matrix['samples'])):
+    widths = {
+        'genotype': 64, 'referenceMetadata': 32, 'stableClusterID': 22,
+        'locus': 18, 'sampleCount': 14, 'totalUniqueReads': 14,
+    }
+    for index, presentation in enumerate(columns, 2):
+        sheet.column_dimensions[get_column_letter(index)].width = widths[presentation['kind']]
+    for column in range(sample_start, sample_start + len(matrix['samples'])):
         sheet.column_dimensions[get_column_letter(column)].width = 18
-    sheet.freeze_panes = 'D' + str(header_row)
-    sheet.auto_filter.ref = 'B%d:%s%d' % (
+    sheet.freeze_panes = get_column_letter(sample_start) + str(header_row)
+    first_filter_column = 2 if columns or matrix['samples'] else 1
+    last_filter_column = max(1, 1 + len(columns) + len(matrix['samples']))
+    sheet.auto_filter.ref = '%s%d:%s%d' % (
+        get_column_letter(first_filter_column),
         header_row,
-        get_column_letter(max(3, 3 + len(matrix['samples']))),
+        get_column_letter(last_filter_column),
         header_row + len(matrix['rows']),
     )
     for row_number in range(1, sheet.max_row + 1):

@@ -37,7 +37,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             ),
         ], calls: [callA, callB]))
 
-        XCTAssertEqual(controller.testingPinnedMatrixColumnTitles, ["", "Genotype", "Locus", "Samples", "Total reads"])
+        XCTAssertEqual(controller.testingPinnedMatrixColumnTitles, ["", "Genotype", "Total Reads"])
         XCTAssertEqual(controller.testingVisibleMatrixSampleColumnTitles, ["AnimalA", "AnimalB"])
         XCTAssertEqual(controller.testingVisibleMatrixSampleReadTitles, ["12", "9"])
     }

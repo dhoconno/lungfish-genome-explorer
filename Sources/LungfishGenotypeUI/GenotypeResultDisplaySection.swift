@@ -1401,7 +1401,7 @@ public struct GenotypeResultDisplaySection: View {
                     }
                     Text("Genotype Matrix compares allele read support across samples. Slash-separated names can represent alleles the assay cannot distinguish.")
                     if viewModel.hasHaplotypingResult { Text("Diagnostic alleles only shows evidence used by the active definitions. Turn it off to inspect all observed alleles. Display filters do not change calls.") }
-                    Text("Use Columns to choose the identifiers and read totals you need. Total reads includes all samples in the result, even hidden columns.")
+                    Text("Use Columns to choose the identifiers and read totals you need. Total Reads includes all samples in the result, even hidden columns.")
                     if viewModel.hasHaplotypingResult { Text("To correct an assignment, inspect its evidence and choose Change. Custom names require a rationale, acknowledgement and explicit application; the original call remains in the audit history.") }
                     Text(GenotypeExcelExportSessionState.disclosure)
                     Button("Done") { showsReviewHelp = false }.keyboardShortcut(.cancelAction)

@@ -1048,7 +1048,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     func exportSnapshot(bundleURL: URL, analysisName: String, lens: String, unfiltered: Bool = false) -> GenotypeViewportExportSnapshot {
         settlePendingFilterForExport()
-        let exportSampleNames = unfiltered ? sampleNames : activeSampleNames()
+        let matrixColumns = exportMatrixColumns()
+        let exportSampleNames = samplesInPreferredColumnOrder(
+            unfiltered ? sampleNames : activeSampleNames()
+        )
         let exportSampleSet = Set(exportSampleNames)
         let filters: [String: String] = [
             "searchText": filterText,
@@ -1090,8 +1093,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 displayName: biologicalAlleleDisplayName(for: row),
                 locus: row.locus,
                 stableClusterID: row.stableClusterID,
-                sampleCount: reads.count,
-                totalUniqueReads: reads.values.reduce(0, +),
+                sampleCount: row.sampleCount,
+                totalUniqueReads: row.totalUniqueReads,
                 sampleReads: reads,
                 rowStyle: rowStyles[RowKey(locus: row.locus, genotype: row.genotype, stableClusterID: row.stableClusterID)] ?? .default,
                 cellStyles: styles,
@@ -1099,7 +1102,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 renderedCellStyles: Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample in
                     if unfiltered { return (sample, unfilteredExportStyle(for: sample, row: row)) }
                     return sampleColumnIdentifierByName[sample].map { (sample, exportRenderedStyle(for: $0, row: row)) }
-                })
+                }),
+                matrixColumnValues: exportMatrixColumnValues(for: row, columns: matrixColumns)
             )
         }
         return GenotypeViewportExportSnapshot(
@@ -1112,8 +1116,67 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             // Manual bands include blank editor slots, not scientific calls.
             // Effective-call scope is independent of collapse and evidence rows.
             haplotypeLocusScope: !unfiltered && haplotypeBandMode == .effectiveMiSeqCalls
-                ? activeHaplotypeBandLoci : nil
+                ? activeHaplotypeBandLoci : nil,
+            matrixColumns: matrixColumns
         )
+    }
+
+    private func exportMatrixColumns() -> [GenotypeWorkbookPresentation.MatrixColumn] {
+        pinnedTableView.tableColumns.compactMap { column in
+            let identifier = column.identifier
+            let kind: GenotypeWorkbookPresentation.MatrixColumn.Kind
+            let key: String
+            let sourceKey: String?
+            let isPrimaryIdentity: Bool?
+            switch identifier {
+            case ColumnID.rowSelector:
+                return nil
+            case ColumnID.genotype:
+                kind = .genotype; key = "standard.genotype"; sourceKey = nil; isPrimaryIdentity = nil
+            case ColumnID.stableClusterID:
+                kind = .stableClusterID; key = "standard.stableClusterID"; sourceKey = nil; isPrimaryIdentity = nil
+            case ColumnID.locus:
+                kind = .locus; key = "standard.locus"; sourceKey = nil; isPrimaryIdentity = nil
+            case ColumnID.samples:
+                kind = .sampleCount; key = "standard.samples"; sourceKey = nil; isPrimaryIdentity = nil
+            case ColumnID.uniqueReads:
+                kind = .totalUniqueReads; key = "standard.totalUniqueReads"; sourceKey = nil; isPrimaryIdentity = nil
+            default:
+                guard identifier.rawValue.hasPrefix(ColumnID.referencePrefix) else { return nil }
+                let fieldKey = String(identifier.rawValue.dropFirst(ColumnID.referencePrefix.count))
+                kind = .referenceMetadata; key = "reference.\(fieldKey)"; sourceKey = fieldKey
+                isPrimaryIdentity = fieldKey == result?.referenceMetadata?.alleleFieldKey ? true : nil
+            }
+            return .init(
+                key: key,
+                title: column.title,
+                kind: kind,
+                sourceKey: sourceKey,
+                isPrimaryIdentity: isPrimaryIdentity
+            )
+        }
+    }
+
+    private func exportMatrixColumnValues(
+        for row: GenotypeCandidateMatrixRow,
+        columns: [GenotypeWorkbookPresentation.MatrixColumn]
+    ) -> [GenotypeWorkbookPresentation.MatrixColumnValue] {
+        columns.map { column in
+            switch column.kind {
+            case .genotype:
+                return .init(key: column.key, text: row.genotype)
+            case .referenceMetadata:
+                return .init(key: column.key, text: column.sourceKey.map { referenceValue(for: row, fieldKey: $0) } ?? "")
+            case .stableClusterID:
+                return .init(key: column.key, text: row.stableClusterID ?? "")
+            case .locus:
+                return .init(key: column.key, text: row.locus)
+            case .sampleCount:
+                return .init(key: column.key, integer: row.sampleCount)
+            case .totalUniqueReads:
+                return .init(key: column.key, integer: row.totalUniqueReads)
+            }
+        }
     }
 
     /// Visibility is a projection concern; keep the captured presentation settings
@@ -1244,7 +1307,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         columnsButton.controlSize = .small
         columnsButton.setAccessibilityIdentifier("genotype-matrix-columns")
         columnsButton.setAccessibilityLabel("Columns")
-        columnsButton.toolTip = "Show or hide matrix columns, including Total reads and reference names."
+        columnsButton.toolTip = "Show or hide matrix columns, including Total Reads and reference names."
         haplotypeLegendButton.controlSize = .small
         haplotypeLegendButton.target = self
         haplotypeLegendButton.action = #selector(showHaplotypeLegend(_:))
@@ -1656,7 +1719,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             addColumn(to: pinnedTableView, identifier: ColumnID.samples, title: "Samples", width: 70, minWidth: 50, ascending: false)
         }
         if visibleStandardColumnIDs.contains(ColumnID.uniqueReads.rawValue) {
-            addColumn(to: pinnedTableView, identifier: ColumnID.uniqueReads, title: "Total reads", width: 100, minWidth: 72, ascending: false, headerToolTip: "Sum of supporting unique reads across all samples in this result")
+            addColumn(to: pinnedTableView, identifier: ColumnID.uniqueReads, title: "Total Reads", width: 100, minWidth: 72, ascending: false, headerToolTip: "Sum of supporting unique reads across all samples in this result")
         }
         updatePinnedTableAccessibilityLabel()
 
@@ -1786,11 +1849,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if let stored = columnDefaults.array(forKey: standardKey) as? [String] {
             visibleStandardColumnIDs = Set(stored)
         } else if hasEmbeddedMHCAlleles {
-            visibleStandardColumnIDs = [ColumnID.locus.rawValue]
+            visibleStandardColumnIDs = [ColumnID.uniqueReads.rawValue]
         } else if metadata == nil {
-            visibleStandardColumnIDs = [ColumnID.genotype.rawValue, ColumnID.locus.rawValue, ColumnID.samples.rawValue, ColumnID.uniqueReads.rawValue]
+            visibleStandardColumnIDs = [ColumnID.genotype.rawValue, ColumnID.uniqueReads.rawValue]
         } else {
-            visibleStandardColumnIDs = [ColumnID.locus.rawValue, ColumnID.samples.rawValue, ColumnID.uniqueReads.rawValue]
+            visibleStandardColumnIDs = [ColumnID.uniqueReads.rawValue]
+            if alleleFieldKey == nil {
+                visibleStandardColumnIDs.insert(ColumnID.genotype.rawValue)
+            }
         }
 
         if hasEmbeddedMHCAlleles {
@@ -1838,7 +1904,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             (ColumnID.genotype.rawValue, genotypeColumnTitle),
             (ColumnID.locus.rawValue, "Locus"),
             (ColumnID.samples.rawValue, "Samples"),
-            (ColumnID.uniqueReads.rawValue, "Total reads"),
+            (ColumnID.uniqueReads.rawValue, "Total Reads"),
         ] {
             let item = NSMenuItem(title: title, action: #selector(togglePinnedStandardColumn(_:)), keyEquivalent: "")
             item.target = self
@@ -7207,6 +7273,8 @@ extension GenotypeComparisonMatrixView {
         UserDefaults.standard.removeObject(forKey: referenceVisibilityKey)
         UserDefaults.standard.removeObject(forKey: mhcReferenceVisibilityKey)
         UserDefaults.standard.removeObject(forKey: mhcStandardVisibilityKey)
+        UserDefaults.standard.removeObject(forKey: genBankStandardVisibilityKey)
+        UserDefaults.standard.removeObject(forKey: fastaStandardVisibilityKey)
     }
 
     var testingVisibleRows: [GenotypeCandidateMatrixRow] { visibleRows }

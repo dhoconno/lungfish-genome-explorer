@@ -5,11 +5,13 @@ extension GenotypeWorkbookPresentation {
         public let samples: [Sample]
         public let loci: [String]
         public let rows: [Row]
+        public let columns: [MatrixColumn]?
 
-        public init(samples: [Sample], loci: [String], rows: [Row]) {
+        public init(samples: [Sample], loci: [String], rows: [Row], columns: [MatrixColumn]? = nil) {
             self.samples = samples
             self.loci = loci
             self.rows = rows
+            self.columns = columns
         }
     }
 

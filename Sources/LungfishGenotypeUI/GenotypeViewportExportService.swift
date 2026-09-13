@@ -333,7 +333,8 @@ enum GenotypeViewProjectionSerializer {
                 cellColorsHex: hasAnyCellColor ? cellColors : nil,
                 rowColorHex: row.renderedRowStyle.map { normalizedHex($0.fillColor) } ?? normalizedHex(row.rowStyle.fillColor),
                 rowStyle: row.renderedRowStyle.map(presentationStyle),
-                cellStyles: row.renderedCellStyles.map { styles in columns.map { styles[$0].map(presentationStyle) } }
+                cellStyles: row.renderedCellStyles.map { styles in columns.map { styles[$0].map(presentationStyle) } },
+                matrixColumnValues: row.matrixColumnValues
             )
         }
         return GenotypeViewProjection(
@@ -347,6 +348,7 @@ enum GenotypeViewProjectionSerializer {
             genotypeNumericPrefixOrder: snapshot.filters["genotypeNumericPrefixOrder"].flatMap { Bool($0) },
             diagnosticAllelesOnly: snapshot.filters["diagnosticAllelesOnly"].flatMap { Bool($0) },
             includeTotalReads: snapshot.filters["includeTotalReads"].flatMap { Bool($0) },
+            matrixColumns: snapshot.matrixColumns,
             haplotypeCalls: snapshot.haplotypeCalls,
             haplotypeLocusScope: snapshot.haplotypeLocusScope,
             sourceRevision: snapshot.sourceRevision,

@@ -18,6 +18,93 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
                 .appendingPathComponent(".build/debug/lungfish-cli").path)
     }
 
+    func testMatrixCommentsAreExactUserNotesAndReviewsRemainPureFormatting() async throws {
+        let root = ProcessInfo.processInfo.environment["LUNGFISH_RETAINED_EXCEL_QA_DIR"]
+            .map { URL(fileURLWithPath: $0).appendingPathComponent("comments-\(UUID().uuidString)") }
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("lge-excel-comments-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let genotype = "Mafa-A*001"
+        let result = GenotypeTestFixtures.makeResult(calls: [
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 9),
+            GenotypeTestFixtures.makeCall(sample: "S2", genotype: genotype, reads: 0),
+        ])
+        var annotated = GenotypeAnnotationSidecar.empty(generatedAt: timestamp)
+        annotated.matrixComments = [
+            .init(target: .row(locus: "MHC-A", genotype: genotype), body: "row body", author: "Analyst", timestamp: timestamp),
+            .init(target: .column(sample: "S1"), body: "column body", author: "Analyst", timestamp: timestamp),
+            .init(target: .cell(locus: "MHC-A", genotype: genotype, sample: "S1"), body: "=cell body", author: "Analyst", timestamp: timestamp),
+            .init(target: .cell(locus: "MHC-A", genotype: genotype, sample: "S2"), body: "zero body", author: "Analyst", timestamp: timestamp),
+        ]
+        annotated.matrixReviews = [
+            .init(target: .cell(locus: "MHC-A", genotype: genotype, sample: "S1"), disposition: .falsePositive, author: "Analyst", timestamp: timestamp),
+            .init(target: .cell(locus: "MHC-A", genotype: genotype, sample: "S2"), disposition: .falseNegative, author: "Analyst", timestamp: timestamp),
+        ]
+        let columns: [GenotypeWorkbookPresentation.MatrixColumn] = [
+            .init(key: "standard.genotype", title: "Genotype", kind: .genotype),
+            .init(key: "standard.totalUniqueReads", title: "Total Reads", kind: .totalUniqueReads),
+        ]
+        let projectedRow = GenotypeViewProjectionRow(
+            label: genotype,
+            rawGenotype: genotype,
+            locus: "MHC-A",
+            cells: ["9", "0"],
+            matrixColumnValues: [
+                .init(key: "standard.genotype", text: genotype),
+                .init(key: "standard.totalUniqueReads", integer: 9),
+            ]
+        )
+        let projection = GenotypeViewProjection(
+            lens: "genotype",
+            sampleColumns: ["S1", "S2"],
+            rows: [projectedRow],
+            matrixColumns: columns
+        )
+        let annotatedSnapshot = try GenotypeExcelSnapshotBuilder.capture(
+            result: result, sidecar: annotated, allProjection: projection,
+            filteredProjection: projection, generatedAt: timestamp,
+            authority: .init(analysis: nil)
+        )
+        let annotatedOutput = root.appendingPathComponent("annotated.xlsx")
+        let annotatedExport = try await GenotypeExcelExportService(
+            pythonExecutableURL: python, replayExecutableURL: cli
+        ).export(
+            snapshot: annotatedSnapshot, outputURL: annotatedOutput,
+            provenance: .init(toolVersion: "test", argv: ["test"])
+        )
+        let annotatedInspection = try inspectMatrixComments(annotatedOutput)
+        let expectedComments = [
+            "D1|column body|LGE", "B2|row body|LGE",
+            "D2|=cell body|LGE", "E2|zero body|LGE",
+        ]
+        for title in ["Genotype Matrix - All", "Genotype Matrix - Filtered"] {
+            XCTAssertEqual(annotatedInspection[title]?["comments"] as? [String], expectedComments)
+            XCTAssertEqual(annotatedInspection[title]?["formats"] as? [String], ["\"[\"0\"]\"", "0;-0;\"FN\""])
+            XCTAssertEqual(annotatedInspection[title]?["headers"] as? [String], ["Genotype", "Total Reads", "S1", "S2"])
+            XCTAssertEqual(annotatedInspection[title]?["presentationValues"] as? [AnyHashable], [genotype, 9])
+        }
+
+        let plainSnapshot = try GenotypeExcelSnapshotBuilder.capture(
+            result: result, sidecar: .empty(generatedAt: timestamp),
+            allProjection: projection, filteredProjection: projection, generatedAt: timestamp,
+            authority: .init(analysis: nil)
+        )
+        let plainOutput = root.appendingPathComponent("plain.xlsx")
+        _ = try await GenotypeExcelExportService(
+            pythonExecutableURL: python, replayExecutableURL: cli
+        ).export(
+            snapshot: plainSnapshot, outputURL: plainOutput,
+            provenance: .init(toolVersion: "test", argv: ["test"])
+        )
+        let plainInspection = try inspectMatrixComments(plainOutput)
+        for title in ["Genotype Matrix - All", "Genotype Matrix - Filtered"] {
+            XCTAssertEqual(plainInspection[title]?["comments"] as? [String], [])
+        }
+        print("Retained annotated layout QA: \(annotatedOutput.path)")
+        print("Retained annotated provenance QA: \(annotatedExport.receiptURL.path)")
+        print("Retained annotated replay QA: \(annotatedExport.replayScriptURL.path)")
+        print("Retained no-comment QA: \(plainOutput.path)")
+    }
+
     func testServicePublishesThreeSheetReportAndDurableReplayWithExactWitnesses() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lge-excel-service-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -356,6 +443,42 @@ print(json.dumps(dict(sheets=w.sheetnames,formulas=sum(c.data_type=='f' for c in
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    private func inspectMatrixComments(_ output: URL) throws -> [String: [String: Any]] {
+        let process = Process()
+        process.executableURL = python
+        process.arguments = ["-c", #"""
+import json, openpyxl, sys
+w = openpyxl.load_workbook(sys.argv[1], data_only=False)
+result = {}
+for title in ('Genotype Matrix - All', 'Genotype Matrix - Filtered'):
+    s = w[title]
+    comments = []
+    for row in s.iter_rows():
+        for cell in row:
+            if cell.comment:
+                comments.append(cell.coordinate + '|' + cell.comment.text + '|' + cell.comment.author)
+    header = next(row for row in s.iter_rows() if any(cell.value == 'S1' for cell in row))
+    s1 = next(cell.column for cell in header if cell.value == 'S1')
+    s2 = next(cell.column for cell in header if cell.value == 'S2')
+    data = next(row for row in s.iter_rows(min_row=header[0].row + 1) if any(cell.value == 'Mafa-A*001' for cell in row))
+    result[title] = dict(
+        comments=comments,
+        formats=[data[s1 - 1].number_format, data[s2 - 1].number_format],
+        headers=[cell.value for cell in header[1:]],
+        presentationValues=[cell.value for cell in data[1:s1 - 1]],
+    )
+print(json.dumps(result))
+"""#, output.path]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stdout
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, String(data: data, encoding: .utf8) ?? "")
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: [String: Any]])
+    }
+
     private func assertWorkbookCalls(_ inspection: [String: Any], values: [String], fills: [String], file: StaticString = #filePath, line: UInt = #line) throws {
         let calls = try XCTUnwrap(inspection["calls"] as? [[String: Any]], file: file, line: line)
         XCTAssertEqual(calls.count, 1, file: file, line: line)
@@ -367,8 +490,8 @@ print(json.dumps(dict(sheets=w.sheetnames,formulas=sum(c.data_type=='f' for c in
             XCTAssertEqual(slots.map { $0["slot"] ?? "" }, ["H1", "H2"], file: file, line: line)
             XCTAssertEqual(slots.map { $0["value"] ?? "" }, Array(values.prefix(2)), file: file, line: line)
             XCTAssertEqual(slots.map { $0["fill"] ?? "" }, fills, file: file, line: line)
-            for (index, slot) in slots.enumerated() {
-                XCTAssertEqual(slot["comment"], "Haplotype slot: H\(index + 1)\nStatus: \(values[index + 2])\nSource: \(values[index + 4])", file: file, line: line)
+            for slot in slots {
+                XCTAssertEqual(slot["comment"], "", "Haplotype status/source stay in table columns, not synthetic comments", file: file, line: line)
             }
         }
     }
@@ -424,6 +547,8 @@ print(json.dumps(dict(sheets=w.sheetnames,formulas=sum(c.data_type=='f' for c in
         XCTAssertEqual(snapshot.allMatrix.loci, ["MHC-A", "MHC-B"])
         XCTAssertEqual(snapshot.filteredMatrix.loci, ["MHC-B"])
         XCTAssertTrue(snapshot.filteredMatrix.rows.isEmpty)
+        XCTAssertNil(snapshot.allMatrix.columns)
+        XCTAssertTrue(snapshot.allMatrix.rows.allSatisfy { $0.columnValues == nil })
         XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(snapshot))
         XCTAssertEqual(try capture(nil).filteredMatrix.loci, ["MHC-A", "MHC-B"])
         XCTAssertEqual(try capture([]).filteredMatrix.loci, [])
