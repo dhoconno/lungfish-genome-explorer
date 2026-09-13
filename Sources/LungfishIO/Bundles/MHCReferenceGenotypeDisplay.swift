@@ -3,6 +3,36 @@ import Foundation
 /// Analyst-facing labels for collapsed MHC reference targets. The original genotype
 /// remains the identity for alignment evidence, annotations, and haplotype matching.
 public enum MHCReferenceGenotypeDisplay {
+    /// Reconstructs the reference metadata that the native matrix presents for
+    /// historical MiSeq targets whose biological allele labels live in their
+    /// FASTA identities rather than a stored GenBank record.
+    public static func effectiveReferenceMetadata(
+        storedMetadata: ONTGenotypeReferenceMetadata?,
+        genotypes: [String]
+    ) -> ONTGenotypeReferenceMetadata? {
+        guard genotypes.contains(where: { !alleleNames(for: $0).isEmpty }) else {
+            return storedMetadata
+        }
+        let key = storedMetadata?.alleleFieldKey ?? "feature.allele"
+        var fields = storedMetadata?.fields ?? []
+        if !fields.contains(where: { $0.key == key }) {
+            fields.insert(.init(
+                key: key,
+                displayTitle: "Allele",
+                valueType: "text",
+                sourceCategory: "reference",
+                preferredOrder: 0
+            ), at: 0)
+        }
+        var records = storedMetadata?.recordsBySequenceName ?? [:]
+        for genotype in genotypes {
+            if records[genotype]?[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                records[genotype, default: [:]][key] = alleleName(for: genotype)
+            }
+        }
+        return .init(fields: fields, recordsBySequenceName: records, alleleFieldKey: key)
+    }
+
     public static func alleleName(for genotype: String) -> String {
         let names = alleleNames(for: genotype)
         return names.isEmpty ? genotype : names.joined(separator: " / ")

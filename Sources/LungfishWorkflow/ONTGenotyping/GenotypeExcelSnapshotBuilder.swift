@@ -97,6 +97,10 @@ public enum GenotypeExcelSnapshotBuilder {
             + (result.reviewableRowCatalog?.samples ?? []) + (result.mhcCandidates?.observations.map(\.sampleID) ?? [])
             + (result.mhcUnnameableClusters?.observations.map(\.sampleID) ?? [])
             + (authority.analysis?.samples.map(\.sample) ?? []))
+        let effectiveReferenceMetadata = MHCReferenceGenotypeDisplay.effectiveReferenceMetadata(
+            storedMetadata: result.referenceMetadata,
+            genotypes: result.calls.map(\.genotype)
+        )
         let base = GenotypeMatrixBaseProjection(calls: result.calls, samples: result.samples,
             candidateDocument: result.mhcCandidates, unnameableDocument: result.mhcUnnameableClusters,
             logicalSampleNames: sampleNames, candidateSettings: .default,
@@ -156,6 +160,30 @@ public enum GenotypeExcelSnapshotBuilder {
         let allNativeValues = Dictionary(allRows.map { (rowKey($0.locus, $0.genotype, $0.stableClusterID), $0) }, uniquingKeysWith: { first, _ in first })
         let nativeValues = Dictionary(filteredRows.map { (rowKey($0.locus, $0.genotype, $0.stableClusterID), $0) }, uniquingKeysWith: { first, _ in first })
         let lookupByName = Dictionary(grouping: evidenceRows, by: { rowKey("", $0.genotype, $0.stable) })
+
+        let explicitColumnSets = [allProjection?.matrixColumns, filteredProjection?.matrixColumns].compactMap { $0 }
+        guard explicitColumnSets.dropFirst().allSatisfy({ $0 == explicitColumnSets.first }) else {
+            throw CaptureError.incoherent("matrix column layout differs between All and Filtered projections")
+        }
+        let matrixColumns = explicitColumnSets.first
+        guard matrixColumns.map({ Set($0.map(\.key)).count == $0.count
+            && $0.allSatisfy({ !$0.key.isEmpty && !$0.title.isEmpty }) }) ?? true else {
+                throw CaptureError.incoherent("invalid matrix column identity")
+        }
+        for column in matrixColumns ?? [] {
+            if column.kind == .referenceMetadata {
+                guard let sourceKey = column.sourceKey, !sourceKey.isEmpty,
+                      column.key == "reference.\(sourceKey)" else {
+                    throw CaptureError.incoherent("invalid reference metadata column")
+                }
+                let expectedPrimaryIdentity = sourceKey == effectiveReferenceMetadata?.alleleFieldKey ? true : nil
+                guard column.isPrimaryIdentity == expectedPrimaryIdentity else {
+                    throw CaptureError.incoherent("reference metadata primary identity disagrees with native configuration")
+                }
+            } else if column.sourceKey != nil || column.isPrimaryIdentity != nil {
+                throw CaptureError.incoherent("standard matrix column has reference metadata identity")
+            }
+        }
 
         func catalogCandidatePassesSupplementalPercent(
             locus: String,
@@ -309,13 +337,69 @@ public enum GenotypeExcelSnapshotBuilder {
                         fillHex: row.cellColorsHex.flatMap { $0.indices.contains(index) ? $0[index] : nil } ?? style.fillHex,
                         comment: comments[cellTarget]?.body, review: reviews[cellTarget].map { $0.disposition == .falsePositive ? "false-positive" : "false-negative" }, style: style)
                 }
+                let native = full ? allNativeValues[key] : nativeValues[key]
+                let supplementalPassesPercent: Bool = {
+                    guard !full, native == nil, let stable = scientific.stable else { return true }
+                    return catalogCandidatePassesSupplementalPercent(
+                        locus: scientific.locus, genotype: scientific.genotype,
+                        stableClusterID: stable
+                    )
+                }()
+                let supplementalSupports = sampleNames.compactMap { sample -> Int? in
+                    let value = raw[.cell(locus: scientific.locus, genotype: scientific.genotype,
+                        sample: sample, stableClusterID: scientific.stable)]
+                    guard let value else { return nil }
+                    if full { return value }
+                    return supplementalPassesPercent && value >= filter.matrixMinimumReads ? value : nil
+                }
+                let expectedColumnValues = matrixColumns?.map { column -> P.MatrixColumnValue in
+                    switch column.kind {
+                    case .genotype:
+                        return .init(key: column.key, text: scientific.genotype)
+                    case .referenceMetadata:
+                        let sourceKey = column.sourceKey ?? ""
+                        var value = effectiveReferenceMetadata?.recordsBySequenceName[scientific.genotype]?[sourceKey] ?? ""
+                        if value.isEmpty, sourceKey == effectiveReferenceMetadata?.alleleFieldKey {
+                            value = scientific.genotype
+                        }
+                        return .init(key: column.key, text: value)
+                    case .stableClusterID:
+                        return .init(key: column.key, text: scientific.stable ?? "")
+                    case .locus:
+                        return .init(key: column.key, text: scientific.locus)
+                    case .sampleCount:
+                        return .init(key: column.key, integer: native?.sampleCount
+                            ?? supplementalSupports.filter { $0 > 0 }.count)
+                    case .totalUniqueReads:
+                        return .init(key: column.key, integer: native?.totalUniqueReads
+                            ?? supplementalSupports.reduce(0, +))
+                    }
+                }
+                let columnValues: [P.MatrixColumnValue]?
+                if let expectedColumnValues {
+                    if let capturedValues = row.matrixColumnValues {
+                        guard capturedValues == expectedColumnValues else {
+                            throw CaptureError.incoherent("projected native matrix column values disagree with scientific authority")
+                        }
+                        columnValues = capturedValues
+                    } else {
+                        columnValues = expectedColumnValues
+                    }
+                } else {
+                    guard row.matrixColumnValues == nil else {
+                        throw CaptureError.incoherent("projected native matrix column values disagree with scientific authority")
+                    }
+                    columnValues = nil
+                }
                 return .init(id: digest(Data(key.utf8)), target: .init(kind: "row", locus: scientific.locus,
                     genotype: scientific.genotype, stableClusterID: scientific.stable), displayName: row.label,
-                    comment: comments[target]?.body, fillHex: row.rowColorHex ?? rowStyle.fillHex, cells: cells, style: rowStyle)
+                    comment: comments[target]?.body, fillHex: row.rowColorHex ?? rowStyle.fillHex,
+                    cells: cells, style: rowStyle, columnValues: columnValues)
             }
             if full && seen != Set(evidence.keys) { throw CaptureError.incoherent("All projection omits authoritative rows") }
             let retainedRows = full ? rows : rows.filter { row in row.cells.contains { ($0.displayValue ?? 0) > 0 } }
-            return .init(samples: names.map { .init(id: $0, name: $0, comment: comments[.column(sample: $0)]?.body) }, loci: bandLoci, rows: retainedRows)
+            return .init(samples: names.map { .init(id: $0, name: $0, comment: comments[.column(sample: $0)]?.body) },
+                loci: bandLoci, rows: retainedRows, columns: matrixColumns)
         }
         let all = try matrix(allProjection, full: true)
         let filtered = try matrix(filteredProjection, full: false)

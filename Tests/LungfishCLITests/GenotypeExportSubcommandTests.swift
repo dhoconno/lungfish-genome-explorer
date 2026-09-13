@@ -69,7 +69,11 @@ final class GenotypeExportSubcommandTests: XCTestCase {
                     cellColorsHex: ["#123456"],
                     rowColorHex: "#ABCDEF",
                     rowStyle: .init(fillHex: "#ABCDEF", isBold: true),
-                    cellStyles: [.init(textHex: "#FFFFFF", isItalic: true)]
+                    cellStyles: [.init(textHex: "#FFFFFF", isItalic: true)],
+                    matrixColumnValues: [
+                        .init(key: "standard.genotype", text: "01_M1A_A1_063"),
+                        .init(key: "standard.totalUniqueReads", integer: 39),
+                    ]
                 ),
             ],
             cellColorMode: "read-depth",
@@ -77,6 +81,10 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             genotypeNumericPrefixOrder: true,
             diagnosticAllelesOnly: true,
             includeTotalReads: true,
+            matrixColumns: [
+                .init(key: "standard.genotype", title: "Genotype", kind: .genotype),
+                .init(key: "standard.totalUniqueReads", title: "Total Reads", kind: .totalUniqueReads),
+            ],
             haplotypeCalls: [
                 .init(
                     sample: "S1", locus: "MHC-A", haplotype1: "M1A",
@@ -104,6 +112,8 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(decoded.rows.first?.rawGenotype, "01_M1A_A1_063")
         XCTAssertEqual(decoded.rows.first?.stableClusterID, "cluster-1")
         XCTAssertEqual(decoded.rows.first?.cellStyles?.first??.textHex, "#FFFFFF")
+        XCTAssertEqual(decoded.matrixColumns?.map(\.key), ["standard.genotype", "standard.totalUniqueReads"])
+        XCTAssertEqual(decoded.rows.first?.matrixColumnValues?.last?.integer, 39)
         XCTAssertEqual(decoded.haplotypeCalls?.first?.baselineHaplotype2, "M3A")
         XCTAssertEqual(decoded.filterContext?["Search"], "A1")
         XCTAssertEqual(decoded.presentationColors?.first?.fillHex, "#008000")

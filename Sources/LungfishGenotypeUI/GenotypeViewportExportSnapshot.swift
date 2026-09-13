@@ -33,6 +33,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let haplotypeSampleScope: [String]?
     let haplotypeLocusScope: [String]?
     let presentationColors: [GenotypeWorkbookPresentation.Color]
+    let matrixColumns: [GenotypeWorkbookPresentation.MatrixColumn]
     /// Canonical immutable scientific capture for the one-way Excel report.
     let excelSnapshotData: Data?
 
@@ -52,6 +53,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         haplotypeSampleScope: [String]? = nil,
         haplotypeLocusScope: [String]? = nil,
         presentationColors: [GenotypeWorkbookPresentation.Color] = [],
+        matrixColumns: [GenotypeWorkbookPresentation.MatrixColumn] = [],
         excelSnapshotData: Data? = nil
     ) {
         self.bundleURL = bundleURL
@@ -69,6 +71,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.haplotypeSampleScope = haplotypeSampleScope
         self.haplotypeLocusScope = haplotypeLocusScope
         self.presentationColors = presentationColors
+        self.matrixColumns = matrixColumns
         self.excelSnapshotData = excelSnapshotData
     }
 }
@@ -113,6 +116,7 @@ struct GenotypeViewportExportRow: Equatable {
     let cellStyles: [String: GenotypeResultHighlightStyle]
     let renderedRowStyle: GenotypeMatrixRenderedStyle?
     let renderedCellStyles: [String: GenotypeMatrixRenderedStyle]?
+    let matrixColumnValues: [GenotypeWorkbookPresentation.MatrixColumnValue]
 
     init(
         genotype: String,
@@ -125,7 +129,8 @@ struct GenotypeViewportExportRow: Equatable {
         rowStyle: GenotypeResultHighlightStyle,
         cellStyles: [String: GenotypeResultHighlightStyle],
         renderedRowStyle: GenotypeMatrixRenderedStyle? = nil,
-        renderedCellStyles: [String: GenotypeMatrixRenderedStyle]? = nil
+        renderedCellStyles: [String: GenotypeMatrixRenderedStyle]? = nil,
+        matrixColumnValues: [GenotypeWorkbookPresentation.MatrixColumnValue] = []
     ) {
         self.genotype = genotype
         self.displayName = displayName ?? genotype
@@ -138,5 +143,6 @@ struct GenotypeViewportExportRow: Equatable {
         self.cellStyles = cellStyles
         self.renderedRowStyle = renderedRowStyle
         self.renderedCellStyles = renderedCellStyles
+        self.matrixColumnValues = matrixColumnValues
     }
 }

@@ -40,6 +40,9 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
     public let diagnosticAllelesOnly: Bool?
     /// Append a read sum across the exported sample columns.
     public let includeTotalReads: Bool?
+    /// Ordered native identity/metadata columns captured independently of the
+    /// sample axis. Nil identifies a legacy projection.
+    public let matrixColumns: [GenotypeWorkbookPresentation.MatrixColumn]?
     /// Ordered, exact effective calls for the projection's visible scope.
     /// Nil identifies a legacy projection whose workbook companions retain
     /// their historical behavior.
@@ -60,6 +63,7 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         genotypeNumericPrefixOrder: Bool? = nil,
         diagnosticAllelesOnly: Bool? = nil,
         includeTotalReads: Bool? = nil,
+        matrixColumns: [GenotypeWorkbookPresentation.MatrixColumn]? = nil,
         haplotypeCalls: [GenotypeViewProjectionHaplotypeCall]? = nil,
         haplotypeLocusScope: [String]? = nil,
         sourceRevision: GenotypeViewProjectionSourceRevision? = nil,
@@ -74,6 +78,7 @@ public struct GenotypeViewProjection: Codable, Sendable, Equatable {
         self.genotypeNumericPrefixOrder = genotypeNumericPrefixOrder
         self.diagnosticAllelesOnly = diagnosticAllelesOnly
         self.includeTotalReads = includeTotalReads
+        self.matrixColumns = matrixColumns
         self.haplotypeCalls = haplotypeCalls
         self.haplotypeLocusScope = haplotypeLocusScope
         self.sourceRevision = sourceRevision
@@ -162,6 +167,9 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
     public let rowColorHex: String?
     public let rowStyle: GenotypeWorkbookPresentation.Style?
     public let cellStyles: [GenotypeWorkbookPresentation.Style?]?
+    /// Native values keyed to the projection's matrixColumns. Nil identifies
+    /// a legacy row whose values are reconstructed from scientific authority.
+    public let matrixColumnValues: [GenotypeWorkbookPresentation.MatrixColumnValue]?
 
     public init(
         label: String,
@@ -172,7 +180,8 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
         cellColorsHex: [String?]? = nil,
         rowColorHex: String? = nil,
         rowStyle: GenotypeWorkbookPresentation.Style? = nil,
-        cellStyles: [GenotypeWorkbookPresentation.Style?]? = nil
+        cellStyles: [GenotypeWorkbookPresentation.Style?]? = nil,
+        matrixColumnValues: [GenotypeWorkbookPresentation.MatrixColumnValue]? = nil
     ) {
         self.label = label
         self.rawGenotype = rawGenotype
@@ -183,5 +192,6 @@ public struct GenotypeViewProjectionRow: Codable, Sendable, Equatable {
         self.rowColorHex = rowColorHex
         self.rowStyle = rowStyle
         self.cellStyles = cellStyles
+        self.matrixColumnValues = matrixColumnValues
     }
 }

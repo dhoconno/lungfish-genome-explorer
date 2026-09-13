@@ -62,6 +62,11 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertEqual(empty.filteredHeaderValues, ["Stable ID", "Locus", "Allele"])
     }
 
+    func testExplicitEmptyPresentationUsesInternalRowAnchorWithoutShiftingSamples() throws {
+        XCTAssertTrue(try render(snapshot: fixture(), mutation: "explicit-empty-columns").explicitEmptyLayout)
+        XCTAssertTrue(try render(snapshot: fixture(), mutation: "primary-identity-anchor").primaryIdentityAnchor)
+    }
+
     func testAllAndFilteredMatricesKeepTheirOwnCapturedPresentation() throws {
         let result = try render(snapshot: fixture(), mutation: "matrix-specific-presentation")
 
@@ -74,35 +79,20 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertEqual(result.filteredEvidence, [nil, 5])
     }
 
-    func testMatrixBandNotesPreserveOrdinaryUnresolvedAndManualSlotState() throws {
+    func testMatrixBandsNeverInventSlotComments() throws {
         let ordinary = try render(snapshot: fixture())
         XCTAssertTrue(ordinary.bandSlotParity)
-        XCTAssertEqual(ordinary.bandNotes, [
-            "Haplotype slot: H1\nStatus: ok\nSource: pipeline",
-            "Haplotype slot: H2\nStatus: ok\nSource: pipeline",
-            "Haplotype slot: H1\nStatus: ok\nSource: pipeline",
-            "Haplotype slot: H2\nStatus: ok\nSource: pipeline",
-        ])
+        XCTAssertEqual(ordinary.bandNotes, ["", "", "", ""])
         XCTAssertEqual(ordinary.bandEffectiveValues, ["M4A", "M4A", "M4A", "M4A"])
 
         let unresolved = try render(snapshot: fixture(), mutation: "analyzed-unresolved")
         XCTAssertTrue(unresolved.bandSlotParity)
-        XCTAssertEqual(unresolved.bandNotes, [
-            "Haplotype slot: H1\nStatus: unresolved\nSource: pipeline",
-            "Haplotype slot: H2\nStatus: error\nSource: pipeline",
-            "Haplotype slot: H1\nStatus: unresolved\nSource: pipeline",
-            "Haplotype slot: H2\nStatus: error\nSource: pipeline",
-        ])
+        XCTAssertEqual(unresolved.bandNotes, ["", "", "", ""])
         XCTAssertEqual(unresolved.bandEffectiveValues, [nil, nil, nil, nil])
 
         let manual = try render(snapshot: fixture(), mutation: "manual-explicit-absence")
         XCTAssertTrue(manual.bandSlotParity)
-        XCTAssertEqual(manual.bandNotes, [
-            "Haplotype slot: H1\nStatus: ok\nSource: manual",
-            "Haplotype slot: H2\nStatus: explicit-absence\nSource: manual",
-            "Haplotype slot: H1\nStatus: ok\nSource: manual",
-            "Haplotype slot: H2\nStatus: explicit-absence\nSource: manual",
-        ])
+        XCTAssertEqual(manual.bandNotes, ["", "", "", ""])
         XCTAssertEqual(manual.bandEffectiveValues, ["Manual-A1", nil, "Manual-A1", nil])
     }
 
@@ -126,6 +116,9 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
             "duplicate-call-id", "duplicate-call-target", "unknown-call-sample", "unknown-call-locus",
             "negative-raw", "negative-display", "inconsistent-baseline", "invalid-slot-types",
             "invalid-style-types", "invalid-metadata", "invalid-source-revision", "invalid-generated-at",
+            "duplicate-column-key", "unknown-column-kind", "missing-column-value",
+            "misaligned-column-value", "inconsistent-columns", "invalid-primary-identity",
+            "duplicate-primary-identity",
         ]
         for mutation in mutations {
             let failure = try validationFailure(snapshot: fixture(), mutation: mutation)
@@ -171,6 +164,8 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         let bandEffectiveValues: [String?]
         let bandSlotParity: Bool
         let matrixDisplayLabels: [String]
+        let explicitEmptyLayout: Bool
+        let primaryIdentityAnchor: Bool
     }
 
     private struct ValidationFailure: Decodable {
@@ -216,6 +211,8 @@ with zipfile.ZipFile(out) as archive:
     formula_xml=any(b'<f' in archive.read(name) for name in archive.namelist() if name.startswith('xl/worksheets/sheet'))
 headers=[cell.value for cell in calls[1]] if calls else []
 annotation_case=sys.argv[4]=='annotations-and-literals'
+explicit_empty=sys.argv[4]=='explicit-empty-columns'
+primary_anchor=sys.argv[4]=='primary-identity-anchor'
 if annotation_case:
     fp=all_ws['D5']; invalid_positive=all_ws['E5']; fn=all_ws['D6']; invalid_unknown=all_ws['E6']; invalid_name=all_ws['D7']
     review_styles=(fp.number_format=='"["0"]"' and fp.font.italic and font_rgb(fp)=='767676' and
@@ -229,9 +226,8 @@ if annotation_case:
     literal_text=(all_ws['D1'].value=='=sample formula-like' and all_ws['D1'].data_type=='s' and
         all_ws['D2'].value=='=call formula-like' and all_ws['D2'].data_type=='s' and
         calls['D2'].value=='=call formula-like' and calls['D2'].data_type=='s' and calls['L2'].data_type=='s')
-    generated_comments=(note(all_ws['D1']).startswith('Sample comment: "=sample comment"') and
-        'Evidence: display=1, raw support=1' in note(fp) and 'Current comment: "=cell comment"' in note(fp) and
-        'Current review: "false-positive"' in note(fp) and '[LGE Edit' not in note(fp))
+    generated_comments=(note(all_ws['D1'])=='=sample comment' and note(all_ws['C5'])=='=row comment' and
+        note(fp)=='=cell comment' and note(all_ws['E5'])=='' and note(all_ws['D6'])=='')
 else:
     review_styles=invalid_reviews_withheld=explicit_style_clearing=literal_text=generated_comments=False
 matrix_specific=sys.argv[4]=='matrix-specific-presentation'
@@ -244,17 +240,15 @@ has_slot_bands=calls is not None and bool(p['allMatrix']['loci']) and bool(p['fi
 if has_slot_bands:
     band_notes=[note(all_ws['D2']),note(all_ws['D3']),note(filtered_ws['D2']),note(filtered_ws['D3'])]
     band_effective=[all_ws['D2'].value,all_ws['D3'].value,filtered_ws['D2'].value,filtered_ws['D3'].value]
-    expected_h1='Haplotype slot: H1\nStatus: '+str(calls['F2'].value)+'\nSource: '+str(calls['H2'].value)
-    expected_h2='Haplotype slot: H2\nStatus: '+str(calls['G2'].value)+'\nSource: '+str(calls['I2'].value)
-    band_slot_parity=band_notes==[expected_h1,expected_h2,expected_h1,expected_h2]
+    band_slot_parity=band_notes==['','','','']
 else:
     band_notes=[]; band_effective=[]; band_slot_parity=False
 result={
     'sheetNames':wb.sheetnames,
-    'allEvidence':[all_ws['D5'].value,all_ws['E5'].value],
-    'filteredEvidence':[filtered_ws['D5'].value,filtered_ws['E5'].value],
-    'allCalls':[all_ws['D2'].value,all_ws['D3'].value,all_ws['E2'].value,all_ws['E3'].value] if p['hasHaplotypeContent'] and p['allMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
-    'filteredCalls':[filtered_ws['D2'].value,filtered_ws['D3'].value,filtered_ws['E2'].value,filtered_ws['E3'].value] if p['hasHaplotypeContent'] and p['filteredMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
+    'allEvidence':([all_ws['E5'].value,all_ws['F5'].value] if primary_anchor else [all_ws['D5'].value,all_ws['E5'].value]),
+    'filteredEvidence':([filtered_ws['E5'].value,filtered_ws['F5'].value] if primary_anchor else [filtered_ws['D5'].value,filtered_ws['E5'].value]),
+    'allCalls':[all_ws['D2'].value,all_ws['D3'].value,all_ws['E2'].value,all_ws['E3'].value] if p['hasHaplotypeContent'] and p['allMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence','explicit-empty-columns') else [],
+    'filteredCalls':[filtered_ws['D2'].value,filtered_ws['D3'].value,filtered_ws['E2'].value,filtered_ws['E3'].value] if p['hasHaplotypeContent'] and p['filteredMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence','explicit-empty-columns') else [],
     'callValues':[calls['D2'].value,calls['E2'].value,calls['D3'].value,calls['E3'].value] if calls and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
     'm4aFills':[fill_rgb(calls['D2']),fill_rgb(all_ws['D2']),fill_rgb(filtered_ws['D2'])] if calls else [],
     'hasFormulaCells':any(c.data_type=='f' for ws in wb for row in ws for c in row),
@@ -288,6 +282,14 @@ result={
     'bandEffectiveValues':band_effective,
     'bandSlotParity':band_slot_parity,
     'matrixDisplayLabels':[str(all_ws['C5'].value),str(filtered_ws['C5'].value)],
+    'explicitEmptyLayout':(not explicit_empty or (
+        all_ws['B4'].value=='S1' and all_ws['C4'].value=='S2' and
+        all_ws['A5'].comment is not None and all_ws['A5'].comment.text=='only row note' and
+        all_ws['B5'].comment is None and all_ws.freeze_panes=='B4')),
+    'primaryIdentityAnchor':(not primary_anchor or (
+        all_ws['B4'].value=='Definition' and all_ws['C4'].value=='Allele' and all_ws['D4'].value=='Locus' and
+        all_ws['C5'].comment is not None and all_ws['C5'].comment.text=='primary row note' and
+        all_ws['B5'].comment is None and all_ws['D5'].comment is None and all_ws.freeze_panes=='E4')),
 }
 json.dump(result,open(sys.argv[3],'w'))
 """#
@@ -365,6 +367,28 @@ def mutate(p,name):
         p['filteredMatrix']={'samples':[p['allMatrix']['samples'][1]],'loci':[], 'rows':[dict(p['allMatrix']['rows'][0],cells=[p['allMatrix']['rows'][0]['cells'][1]])]}
     elif name=='empty-filtered':
         p['filteredMatrix']={'samples':[],'loci':[],'rows':[]}
+    elif name=='explicit-empty-columns':
+        for matrix_name in ('allMatrix','filteredMatrix'):
+            p[matrix_name]['columns']=[]
+            for row in p[matrix_name]['rows']:
+                row['columnValues']=[]
+                row['comment']='only row note'
+    elif name=='primary-identity-anchor':
+        columns=[
+            {'key':'reference.definition','title':'Definition','kind':'referenceMetadata','sourceKey':'definition'},
+            {'key':'reference.allele','title':'Allele','kind':'referenceMetadata','sourceKey':'allele','isPrimaryIdentity':True},
+            {'key':'standard.locus','title':'Locus','kind':'locus'},
+        ]
+        for matrix_name in ('allMatrix','filteredMatrix'):
+            matrix=p[matrix_name]
+            matrix['columns']=[dict(column) for column in columns]
+            for row in matrix['rows']:
+                row['columnValues']=[
+                    {'key':'reference.definition','text':'definition '+row['displayName']},
+                    {'key':'reference.allele','text':row['displayName']},
+                    {'key':'standard.locus','text':row['target']['locus']},
+                ]
+            matrix['rows'][0]['comment']='primary row note'
     elif name=='annotations-and-literals':
         p['allMatrix']['samples'][0].update(name='=sample formula-like',comment='=sample comment')
         p['filteredMatrix']['samples'][0].update(name='=sample formula-like',comment='=sample comment')
@@ -403,6 +427,33 @@ def mutate(p,name):
     elif name=='invalid-metadata': p['metadata']=[['Scope',3]]
     elif name=='invalid-source-revision': p['sourceRevision']={'sha256':3}
     elif name=='invalid-generated-at': p['generatedAt']=3
+    elif name in ('duplicate-column-key','unknown-column-kind','missing-column-value','misaligned-column-value','inconsistent-columns','invalid-primary-identity','duplicate-primary-identity'):
+        columns=[
+            {'key':'standard.genotype','title':'Genotype','kind':'genotype'},
+            {'key':'standard.totalUniqueReads','title':'Total Reads','kind':'totalUniqueReads'},
+        ]
+        for matrix_name in ('allMatrix','filteredMatrix'):
+            matrix=p[matrix_name]
+            matrix['columns']=[dict(column) for column in columns]
+            for row in matrix['rows']:
+                row['columnValues']=[
+                    {'key':'standard.genotype','text':row['target']['genotype']},
+                    {'key':'standard.totalUniqueReads','integer':6},
+                ]
+        if name=='duplicate-column-key':
+            for matrix_name in ('allMatrix','filteredMatrix'):
+                p[matrix_name]['columns'][1]['key']='standard.genotype'
+        elif name=='unknown-column-kind':
+            for matrix_name in ('allMatrix','filteredMatrix'):
+                p[matrix_name]['columns'][0]['kind']='invented'
+        elif name=='missing-column-value': p['allMatrix']['rows'][0]['columnValues'].pop()
+        elif name=='misaligned-column-value': p['allMatrix']['rows'][0]['columnValues'].reverse()
+        elif name=='inconsistent-columns': p['filteredMatrix']['columns'].reverse()
+        elif name=='invalid-primary-identity': p['allMatrix']['columns'][0]['isPrimaryIdentity']='yes'
+        elif name=='duplicate-primary-identity':
+            for matrix_name in ('allMatrix','filteredMatrix'):
+                for column in p[matrix_name]['columns']:
+                    column['isPrimaryIdentity']=True
 """#
     }
 

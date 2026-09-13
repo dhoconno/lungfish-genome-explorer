@@ -12,6 +12,224 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
     }
+    private var cli: URL {
+        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_CLI"]
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent(".build/debug/lungfish-cli").path)
+    }
+
+    func testExcelCaptureFreezesOrderedNativeMetadataColumnsAndFullRosterTotals() async throws {
+        GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
+        defer { GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility() }
+        let retainedRoot = ProcessInfo.processInfo.environment["LUNGFISH_RETAINED_EXCEL_QA_DIR"]
+            .map(URL.init(fileURLWithPath:))
+        let root: URL
+        if let retainedRoot {
+            root = retainedRoot.appendingPathComponent("native-columns-\(UUID().uuidString)")
+        } else {
+            root = try TestTempDirectory.make(prefix: "ExcelNativeColumns")
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { if retainedRoot == nil { TestTempDirectory.cleanup(root) } }
+        let genotype = "NHP01222"
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [
+                .init(key: "feature.allele", displayTitle: "Allele", valueType: "text", sourceCategory: "feature", preferredOrder: 0),
+                .init(key: "record.collision", displayTitle: "AnimalA", valueType: "text", sourceCategory: "record", preferredOrder: 1),
+            ],
+            recordsBySequenceName: [genotype: [
+                "feature.allele": "Mafa-A1*001:01",
+                "record.collision": "=literal metadata",
+            ]],
+            alleleFieldKey: "feature.allele"
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "fixture", definitionSetID: "fixture", definitionSetName: "fixture",
+            speciesName: "fixture", samples: ["AnimalA", "AnimalB"].map { sample in
+                .init(sample: sample, calls: [
+                    .init(locus: "MHC-A", sourceLocus: "MHC-A", haplotype1: "H1-call",
+                        haplotype2: "H2-call", status: .called, matchedHaplotypes: [],
+                        observedGenotypeCount: 1, observedGenotypes: [genotype]),
+                ])
+            }
+        )
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: genotype, reads: 9),
+            makeCall(sample: "AnimalB", genotype: genotype, reads: 7),
+        ], haplotypeAnalysis: analysis, referenceMetadata: metadata))
+        let matrix = controller.testingComparisonMatrix
+        for key in ["genotype", "samples", "uniqueReads"] {
+            matrix.testingSetStandardColumnVisibleWithoutPersist(key, visible: true)
+        }
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(fieldKey: "feature.allele", visible: true)
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(fieldKey: "record.collision", visible: true)
+        matrix.testingMoveSampleColumn(sample: "AnimalB", to: 0)
+        var state = controller.testingDisplayState
+        state.matrixSampleFilterText = "AnimalA"
+        controller.testingApplyDisplayStateImmediately(state)
+
+        let bytes = try XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        let all = try XCTUnwrap(object["allMatrix"] as? [String: Any])
+        let filtered = try XCTUnwrap(object["filteredMatrix"] as? [String: Any])
+        let columns = try XCTUnwrap(all["columns"] as? [[String: Any]])
+        XCTAssertEqual(columns.compactMap { $0["key"] as? String }, [
+            "standard.genotype", "reference.feature.allele", "reference.record.collision",
+            "standard.samples", "standard.totalUniqueReads",
+        ])
+        XCTAssertEqual(columns.compactMap { $0["title"] as? String }, [
+            "Genotype", "Allele", "AnimalA", "Samples", "Total Reads",
+        ])
+        XCTAssertEqual(columns[1]["isPrimaryIdentity"] as? Bool, true)
+        XCTAssertTrue(columns.enumerated().allSatisfy { index, column in
+            index == 1 || column["isPrimaryIdentity"] == nil
+        })
+        XCTAssertEqual(
+            (filtered["columns"] as? [[String: Any]])?.compactMap { $0["key"] as? String },
+            columns.compactMap { $0["key"] as? String }
+        )
+        for matrixObject in [all, filtered] {
+            let rows = try XCTUnwrap(matrixObject["rows"] as? [[String: Any]])
+            let values = try XCTUnwrap(rows.first?["columnValues"] as? [[String: Any]])
+            XCTAssertEqual(values.compactMap { $0["key"] as? String }, columns.compactMap { $0["key"] as? String })
+            XCTAssertEqual(values.map { $0["text"] as? String }, [
+                genotype, "Mafa-A1*001:01", "=literal metadata", nil, nil,
+            ])
+            XCTAssertEqual(values.map { $0["integer"] as? Int }, [nil, nil, nil, 2, 16])
+        }
+        XCTAssertEqual((all["samples"] as? [[String: Any]])?.compactMap { $0["name"] as? String }, ["AnimalB", "AnimalA"])
+        XCTAssertEqual((filtered["samples"] as? [[String: Any]])?.compactMap { $0["name"] as? String }, ["AnimalA"])
+
+        let scientific = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: bytes)
+        let output = root.appendingPathComponent("native-columns.xlsx")
+        let exported = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
+            snapshot: scientific,
+            outputURL: output,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        print("Retained native-column workbook QA: \(output.path)")
+        print("Retained native-column snapshot QA: \(exported.snapshotURL.path)")
+        print("Retained native-column provenance QA: \(exported.receiptURL.path)")
+        print("Retained native-column replay QA: \(exported.replayScriptURL.path)")
+    }
+
+    func testPrimaryIdentityDefaultsAndEmbeddedMHCMetadataFallbackMatchNativeRows() throws {
+        GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
+        defer { GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility() }
+        let genericMetadata = ONTGenotypeReferenceMetadata(
+            fields: [.init(key: "record.definition", displayTitle: "Definition", valueType: "text",
+                sourceCategory: "record", preferredOrder: 0)],
+            recordsBySequenceName: ["REF001": ["record.definition": "Reference one"]],
+            alleleFieldKey: nil
+        )
+        let generic = GenotypeComparisonMatrixView()
+        generic.configure(result: makeResult(samples: [], calls: [makeCall(sample: "S1", genotype: "REF001", reads: 4)],
+            referenceMetadata: genericMetadata))
+        XCTAssertEqual(generic.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/generic.lungfishgenotype"),
+            analysisName: "generic", lens: "genotype").matrixColumns.map(\.title), ["Genotype", "Total Reads"])
+
+        let alleleKey = "feature.allele"
+        let ordinaryMetadata = ONTGenotypeReferenceMetadata(
+            fields: [.init(key: alleleKey, displayTitle: "Allele", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 0)],
+            recordsBySequenceName: ["REF-EMPTY": [alleleKey: ""]],
+            alleleFieldKey: alleleKey
+        )
+        let ordinaryController = GenotypeResultViewController()
+        _ = ordinaryController.view
+        ordinaryController.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "S1", genotype: "REF-EMPTY", reads: 4),
+            makeCall(sample: "S1", genotype: "REF-MISSING", reads: 3),
+        ], referenceMetadata: ordinaryMetadata))
+        let ordinaryData = try XCTUnwrap(ordinaryController.captureExcelExportSnapshot().excelSnapshotData)
+        let ordinarySnapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: ordinaryData)
+        XCTAssertEqual(ordinarySnapshot.allMatrix.columns?.map(\.title), ["Allele", "Total Reads"])
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: ordinarySnapshot.allMatrix.rows.map {
+            ($0.target.genotype, $0.columnValues?.first?.text)
+        }).compactMapValues { $0 }, [
+            "REF-EMPTY": "REF-EMPTY",
+            "REF-MISSING": "REF-MISSING",
+        ])
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(ordinarySnapshot))
+
+        let embedded = "MCM_MHC_MiSeq_0099|source_loci=MHC-A|alleles=Mafa-A1_002:01,Mafa-A1_003:01"
+        let embeddedMetadata = ONTGenotypeReferenceMetadata(
+            fields: [.init(key: alleleKey, displayTitle: "Allele", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 0)],
+            recordsBySequenceName: [embedded: [alleleKey: " \t "]],
+            alleleFieldKey: alleleKey
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: [makeCall(sample: "S1", genotype: embedded, reads: 4)],
+            referenceMetadata: embeddedMetadata))
+        let data = try XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData)
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+        XCTAssertEqual(snapshot.allMatrix.columns?.map(\.title), ["Allele", "Total Reads"])
+        XCTAssertEqual(snapshot.allMatrix.columns?.first?.isPrimaryIdentity, true)
+        XCTAssertEqual(snapshot.allMatrix.rows.first?.columnValues?.first?.text,
+            "Mafa-A1_002:01 / Mafa-A1_003:01")
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(snapshot))
+    }
+
+    func testSynthesizedMHCAlleleKeepsNativeRowCommentAnchorThroughReplay() async throws {
+        GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
+        defer { GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility() }
+        let root = try TestTempDirectory.make(prefix: "ExcelEffectiveAllele")
+        defer { TestTempDirectory.cleanup(root) }
+        let genotype = "MCM_MHC_MiSeq_0099|source_loci=MHC-A|alleles=Mafa-A1_002:01,Mafa-A1_003:01"
+        let definitionKey = "record.definition"
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [.init(key: definitionKey, displayTitle: "Definition", valueType: "text",
+                sourceCategory: "record", preferredOrder: -1)],
+            recordsBySequenceName: [genotype: [definitionKey: "preceding metadata"]],
+            alleleFieldKey: nil
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-13T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(target: .row(locus: "MHC-A", genotype: genotype), body: "native row note",
+                author: "Analyst", timestamp: "2026-09-13T00:00:00Z"),
+        ]
+        try sidecar.encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "S1", genotype: genotype, reads: 4),
+        ], referenceMetadata: metadata))
+        let matrix = controller.testingComparisonMatrix
+        matrix.testingSetStandardColumnVisibleWithoutPersist("genotype", visible: false)
+        matrix.testingSetStandardColumnVisibleWithoutPersist("locus", visible: true)
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(fieldKey: definitionKey, visible: true)
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(fieldKey: "feature.allele", visible: true)
+
+        let data = try XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData)
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+        XCTAssertEqual(snapshot.allMatrix.columns?.map(\.title), ["Definition", "Allele", "Locus", "Total Reads"])
+        XCTAssertEqual(snapshot.allMatrix.columns?[1].isPrimaryIdentity, true)
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(snapshot))
+
+        let output = root.appendingPathComponent("effective-allele.xlsx")
+        let exported = try await GenotypeExcelExportService(
+            pythonExecutableURL: openpyxlPython,
+            replayExecutableURL: cli
+        ).export(
+            snapshot: snapshot,
+            outputURL: output,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        let expected = ["C2|native row note|LGE"]
+        XCTAssertEqual(try workbookComments(output)["Genotype Matrix - All"], expected)
+        XCTAssertEqual(try workbookComments(output)["Genotype Matrix - Filtered"], expected)
+
+        let replayed = root.appendingPathComponent("effective-allele-replayed.xlsx")
+        XCTAssertEqual(try runCommand(["/bin/sh", exported.replayScriptURL.path, replayed.path]), 0)
+        XCTAssertEqual(try workbookComments(replayed)["Genotype Matrix - All"], expected)
+        XCTAssertEqual(try workbookComments(replayed)["Genotype Matrix - Filtered"], expected)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replayed.appendingPathExtension("provenance.json").path))
+    }
 
     func testExportFreezesAllAndPositiveDisplayedVisibleEvidenceBeforeSavePanel() async throws {
         let root = try TestTempDirectory.make(prefix: "ExcelUnifiedCapture")
@@ -436,7 +654,10 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
 import json, openpyxl, sys
 workbook = openpyxl.load_workbook(sys.argv[1], data_only=False)
 sheet = workbook[sys.argv[2]]
-matches = [row[3].value for row in sheet.iter_rows() if row[2].value == sys.argv[3]]
+header = next(row for row in sheet.iter_rows() if any(cell.value == 'S1' for cell in row))
+sample_column = next(cell.column for cell in header if cell.value == 'S1')
+matches = [row[sample_column - 1].value for row in sheet.iter_rows(min_row=header[0].row + 1)
+           if any(cell.value == sys.argv[3] for cell in row[:sample_column - 1])]
 print(json.dumps(matches))
 """#, workbook.path, sheet, genotype]
         let stdout = Pipe()
@@ -447,6 +668,37 @@ print(json.dumps(matches))
         XCTAssertEqual(process.terminationStatus, 0)
         let values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Int])
         return try XCTUnwrap(values.count == 1 ? values.first : nil)
+    }
+
+    private func workbookComments(_ workbook: URL) throws -> [String: [String]] {
+        let process = Process()
+        process.executableURL = openpyxlPython
+        process.arguments = ["-c", #"""
+import json, openpyxl, sys
+workbook = openpyxl.load_workbook(sys.argv[1], data_only=False)
+result = {}
+for title in ('Genotype Matrix - All', 'Genotype Matrix - Filtered'):
+    sheet = workbook[title]
+    result[title] = [f'{cell.coordinate}|{cell.comment.text}|{cell.comment.author}'
+                     for row in sheet.iter_rows() for cell in row if cell.comment]
+print(json.dumps(result))
+"""#, workbook.path]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        return try JSONDecoder().decode([String: [String]].self, from: data)
+    }
+
+    private func runCommand(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try XCTUnwrap(arguments.first))
+        process.arguments = Array(arguments.dropFirst())
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 
 }

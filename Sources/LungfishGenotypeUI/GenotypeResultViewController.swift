@@ -8885,7 +8885,8 @@ public final class GenotypeResultViewController: NSViewController {
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
             haplotypeLocusScope: base.haplotypeLocusScope,
-            presentationColors: base.presentationColors
+            presentationColors: base.presentationColors,
+            matrixColumns: base.matrixColumns
         )
     }
 
@@ -8909,7 +8910,8 @@ public final class GenotypeResultViewController: NSViewController {
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
             haplotypeLocusScope: base.haplotypeLocusScope,
-            presentationColors: base.presentationColors
+            presentationColors: base.presentationColors,
+            matrixColumns: base.matrixColumns
         )
     }
 
@@ -8958,7 +8960,8 @@ public final class GenotypeResultViewController: NSViewController {
             sourceRevision: base.sourceRevision,
             haplotypeSampleScope: base.haplotypeSampleScope,
             haplotypeLocusScope: base.haplotypeLocusScope,
-            presentationColors: resolvedWorkbookPresentationColors()
+            presentationColors: resolvedWorkbookPresentationColors(),
+            matrixColumns: base.matrixColumns
         )
     }
 
@@ -8986,7 +8989,8 @@ public final class GenotypeResultViewController: NSViewController {
                 sourceRevision: sourceRevision,
                 haplotypeSampleScope: base.haplotypeSampleScope,
                 haplotypeLocusScope: base.haplotypeLocusScope,
-                presentationColors: base.presentationColors
+                presentationColors: base.presentationColors,
+                matrixColumns: base.matrixColumns
             )
         }
         guard let analysis else {
@@ -9150,7 +9154,8 @@ public final class GenotypeResultViewController: NSViewController {
                 haplotypeCalls: matrix.haplotypeCalls,
                 sourceRevision: matrix.sourceRevision,
                 haplotypeSampleScope: haplotypeScope.haplotypeSampleScope,
-                haplotypeLocusScope: haplotypeScope.haplotypeLocusScope
+                haplotypeLocusScope: haplotypeScope.haplotypeLocusScope,
+                matrixColumns: matrix.matrixColumns
             )
         } else {
             ensureComparisonMatrixConfigured()
@@ -9269,7 +9274,8 @@ public final class GenotypeResultViewController: NSViewController {
                 },
                 cellColorsHex: row.cellColorsHex.map { colors in indices.map { $0.flatMap { colors[$0] } } },
                 rowColorHex: row.rowColorHex, rowStyle: row.rowStyle,
-                cellStyles: row.cellStyles.map { styles in indices.map { $0.flatMap { styles[$0] } } })
+                cellStyles: row.cellStyles.map { styles in indices.map { $0.flatMap { styles[$0] } } },
+                matrixColumnValues: row.matrixColumnValues)
         }
         let projection = GenotypeViewProjection(lens: allProjection.lens,
             sampleColumns: allSamples,
@@ -9279,7 +9285,8 @@ public final class GenotypeResultViewController: NSViewController {
                     stableClusterID: row.target.stableClusterID,
                     cells: cells.map { $0.displayValue.map(String.init) ?? "" },
                     rowStyle: row.style, cellStyles: cells.map(\.style))
-            }, filterContext: allProjection.filterContext, presentationColors: colors)
+            }, matrixColumns: allProjection.matrixColumns,
+            filterContext: allProjection.filterContext, presentationColors: colors)
         let capture = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: sidecar,
             allProjection: projection,
             filteredProjection: GenotypeViewProjectionSerializer.makeProjection(from: filtered),
@@ -9294,6 +9301,7 @@ public final class GenotypeResultViewController: NSViewController {
         return GenotypeViewportExportSnapshot(bundleURL: filtered.bundleURL, analysisName: filtered.analysisName,
             lens: filtered.lens, filters: filtered.filters, sampleNames: filtered.sampleNames, rows: filtered.rows,
             annotationSidecarData: try sidecar.encoded(), presentationColors: colors,
+            matrixColumns: filtered.matrixColumns,
             excelSnapshotData: try encoder.encode(capture))
     }
 

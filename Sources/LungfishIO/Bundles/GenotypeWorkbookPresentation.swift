@@ -1,6 +1,49 @@
 import Foundation
 
 public enum GenotypeWorkbookPresentation {
+    public struct MatrixColumn: Codable, Sendable, Equatable {
+        public enum Kind: String, Codable, Sendable {
+            case genotype
+            case referenceMetadata
+            case stableClusterID
+            case locus
+            case sampleCount
+            case totalUniqueReads
+        }
+
+        public let key: String
+        public let title: String
+        public let kind: Kind
+        public let sourceKey: String?
+        public let isPrimaryIdentity: Bool?
+
+        public init(
+            key: String,
+            title: String,
+            kind: Kind,
+            sourceKey: String? = nil,
+            isPrimaryIdentity: Bool? = nil
+        ) {
+            self.key = key
+            self.title = title
+            self.kind = kind
+            self.sourceKey = sourceKey
+            self.isPrimaryIdentity = isPrimaryIdentity
+        }
+    }
+
+    public struct MatrixColumnValue: Codable, Sendable, Equatable {
+        public let key: String
+        public let text: String?
+        public let integer: Int?
+
+        public init(key: String, text: String? = nil, integer: Int? = nil) {
+            self.key = key
+            self.text = text
+            self.integer = integer
+        }
+    }
+
     /// Fully resolved presentation. A present record with nil colors and false
     /// traits explicitly means no decoration, never an inheritance request.
     public struct Style: Codable, Sendable, Equatable {
@@ -69,15 +112,17 @@ public enum GenotypeWorkbookPresentation {
         public let displayName: String
         public let comment: String?
         public let fillHex: String?
+        public let columnValues: [MatrixColumnValue]?
         public var cells: [Cell]
 
-        public init(id: String, target: Target, displayName: String, comment: String?, fillHex: String?, cells: [Cell], style: Style? = nil) {
+        public init(id: String, target: Target, displayName: String, comment: String?, fillHex: String?, cells: [Cell], style: Style? = nil, columnValues: [MatrixColumnValue]? = nil) {
             self.style = style
             self.id = id
             self.target = target
             self.displayName = displayName
             self.comment = comment
             self.fillHex = fillHex
+            self.columnValues = columnValues
             self.cells = cells
         }
     }

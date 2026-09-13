@@ -453,7 +453,8 @@ enum GenotypeExcelCLIExportSupport {
                     rowStyle: row.rowStyle,
                     cellStyles: row.cellStyles.map { values in
                         indices.map { values.indices.contains($0) ? values[$0] : nil }
-                    }
+                    },
+                    matrixColumnValues: row.matrixColumnValues
                 )
             },
             cellColorMode: source.cellColorMode,
@@ -461,6 +462,7 @@ enum GenotypeExcelCLIExportSupport {
             genotypeNumericPrefixOrder: source.genotypeNumericPrefixOrder,
             diagnosticAllelesOnly: source.diagnosticAllelesOnly,
             includeTotalReads: source.includeTotalReads,
+            matrixColumns: source.matrixColumns,
             haplotypeCalls: source.haplotypeCalls?.filter {
                 requestedSet.contains($0.sample)
             },
@@ -507,9 +509,11 @@ enum GenotypeExcelCLIExportSupport {
                     cellColorsHex: samples.map { values[$0]?.fillHex },
                     rowColorHex: row.fillHex,
                     rowStyle: row.style,
-                    cellStyles: samples.map { values[$0]?.style }
+                    cellStyles: samples.map { values[$0]?.style },
+                    matrixColumnValues: row.columnValues
                 )
             },
+            matrixColumns: snapshot.filteredMatrix.columns,
             haplotypeCalls: snapshot.calls.filter {
                 requestedSet.contains($0.sampleID)
             }.map {
