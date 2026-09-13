@@ -111,7 +111,7 @@ struct PrimerAnalysisDisplaySection: View {
                         .accessibilityLabel("Minimum MSA match percent")
                         .accessibilityIdentifier("primerAnalysisDisplay.minimumCompatibility")
                         .help("Minimum percentage of assessable alignment rows that must match exactly.")
-                    Toggle("Keep oligos without assessable rows", isOn: $session.settings.showUnassessed)
+                    Toggle("Keep primers without match data", isOn: $session.settings.showUnassessed)
                         .accessibilityIdentifier("primerAnalysisDisplay.unassessed")
                         .help("Keep oligos that cannot be assessed against any alignment row.")
                 }
@@ -173,7 +173,7 @@ struct PrimerAnalysisDisplaySection: View {
 
     private func oligoControl(_ primer: PrimerReviewPrimer, in target: PrimerTargetDesignReview) -> some View {
         let exclusionReason = otherFilterExclusionReason(for: primer, in: target)
-        VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 4) {
             Toggle(isOn: Binding(
                 get: { session.isVisible(primer, in: target) },
                 set: { session.setPrimerShown(primer.id, shown: $0) })) {
@@ -186,7 +186,7 @@ struct PrimerAnalysisDisplaySection: View {
                 Text("\(primer.start + 1)–\(primer.end) · \(primer.strand) · \(primer.pool.map { "Pool \($0)" } ?? "Unpooled")")
                 if let summary = session.compatibilitySummaries[primer.id] {
                     Text(summary.label)
-                        .help("Exact matches in assessable alignment rows. Gaps and ambiguous target bases are unassessed; this does not measure amplification.")
+                        .help(summary.help)
                 } else if session.compatibilityReady {
                     Text("MSA matches unavailable")
                 }

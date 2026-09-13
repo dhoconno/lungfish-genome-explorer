@@ -30,6 +30,7 @@ struct PrimerTargetReviewCard: View {
           Text(target.coveragePercent.map { String(format: "%.1f%%", $0) } ?? "Unavailable")
             .font(.title2.weight(.semibold)).monospacedDigit()
           Text(target.coverageLabel).font(.caption).foregroundStyle(.secondary)
+            .help(target.notes.joined(separator: "\n"))
         }
       }
       if let covered = target.coveredBases {
@@ -40,8 +41,9 @@ struct PrimerTargetReviewCard: View {
           .font(.caption).foregroundStyle(.secondary)
       }
       if visibility.visiblePrimers(in: target).count != target.primers.count {
-        Text("\(visibility.visiblePrimers(in: target).count) of \(target.primers.count) oligos displayed. Coverage above describes the complete saved scheme.")
+        Text("\(visibility.visiblePrimers(in: target).count)/\(target.primers.count) oligos shown")
           .font(.caption).foregroundStyle(.secondary)
+          .help("Coverage describes the complete saved scheme.")
       }
       PrimerReferenceCoverageTrack(target: target, selection: selection)
       HStack(spacing: 16) {
@@ -55,11 +57,6 @@ struct PrimerTargetReviewCard: View {
         .help("Select a saved amplicon or primer to inspect its span, pool and sequence. Control-click for copy, alignment and extraction actions.")
       if selection.wrappedValue?.targetID == target.id {
         PrimerAmpliconDetailView(target: target, selection: selection)
-      }
-      if !target.notes.isEmpty {
-        ForEach(Array(target.notes.enumerated()), id: \.offset) { _, note in
-          Text(note).font(.caption).foregroundStyle(.secondary)
-        }
       }
     }
   }

@@ -44,13 +44,10 @@ struct PrimerAmpliconDetailView: View {
           HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(interval.length.formatted()) bp").font(.title2.weight(.semibold)).monospacedDigit()
             Text(interval.sizeLabel).font(.caption).foregroundStyle(.secondary)
+              .help("The saved reference span encloses this primer set. Individual products and alignment rows may differ in length.")
           }
           Text("\(target.presentation == .primer3Template ? "Template" : "Reference") coordinates \(interval.start + 1)–\(interval.end) · 1-based inclusive")
             .font(.caption).foregroundStyle(.secondary)
-          if target.presentation == .schemeReference {
-            Text("This saved reference span encloses the selected primer set. Individual products and alignment rows may differ in length.")
-              .font(.caption).foregroundStyle(.secondary)
-          }
           let members = target.primers.filter { interval.primerIDs.contains($0.id) }
           if members.isEmpty {
             Text("Amplicon correspondence unavailable. The saved span is available, but primer membership cannot be established from these records.")
@@ -80,12 +77,12 @@ struct PrimerAmpliconDetailView: View {
   private func selectedVariantSet(_ members: [PrimerReviewPrimer]) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Selected primer set").font(.headline)
-      Text("All listed variants are selected components, not backup candidates. Suffix numbers enumerate oligos; they do not indicate quality rank or matched forward/reverse pairs.")
-        .font(.caption).foregroundStyle(.secondary)
+        .help("All listed variants are selected components, not backup candidates. Suffix numbers enumerate oligos; they do not indicate quality rank or matched forward/reverse pairs.")
       let displayed = members.filter { visibility.isVisible($0, in: target) }.count
       if displayed != members.count {
-        Text("\(displayed) of \(members.count) saved oligos displayed. Inspector filters hide members; associated-primer and pool actions still use the complete saved set.")
+        Text("\(displayed)/\(members.count) oligos shown")
           .font(.caption).foregroundStyle(.secondary)
+          .help("Inspector filters hide members. Associated-primer and pool actions use the complete saved set; Export displayed primer order uses only displayed primers.")
       }
       ForEach(VariantSide.allCases, id: \.rawValue) { side in
         let group = members.filter { variantSide($0) == side }
