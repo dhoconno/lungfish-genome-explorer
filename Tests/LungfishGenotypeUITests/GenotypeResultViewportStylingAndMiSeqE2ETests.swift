@@ -3599,6 +3599,287 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
+    func testMountedHaplotypedMiSeqMatrixReclaimsEntireSplitViewportAndRestoresHaplotypeDivider()
+        throws
+    {
+        let fixture = try makeSynchronizedMiSeqFixture()
+        defer { TestTempDirectory.cleanup(fixture.root) }
+        let denseCalls = fixture.result.calls + (0..<40).map { index in
+            makeCall(
+                sample: index.isMultiple(of: 2) ? "Sample-A" : "Sample-B",
+                genotype: String(
+                    format: "%02d_Mafa_%@_%03d_01",
+                    index % 20,
+                    index.isMultiple(of: 2) ? "A1" : "B",
+                    index
+                ),
+                reads: 20 + index
+            )
+        }
+        let denseSamples = ["Sample-A", "Sample-B"].map { sample in
+            let calls = denseCalls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample,
+                passedAlignments: calls.reduce(0) {
+                    $0 + $1.passedAlignments
+                },
+                passedUniqueReads: calls.reduce(0) {
+                    $0 + $1.passedUniqueReads
+                },
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: calls
+            )
+        }
+        let denseResult = ONTGenotypeResultBundleData(
+            bundleURL: fixture.result.bundleURL,
+            manifest: fixture.result.manifest,
+            artifacts: fixture.result.artifacts,
+            stats: fixture.result.stats,
+            calls: denseCalls,
+            samples: denseSamples,
+            haplotypeAnalysis: fixture.result.haplotypeAnalysis
+        )
+        let controller = makeMatrixAnnotationGuardedController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 760),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.contentView = controller.view
+        window.setContentSize(NSSize(width: 1_000, height: 760))
+        window.makeKeyAndOrderFront(nil)
+        controller.configure(result: denseResult)
+        var state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+
+        let splitView = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSplitView.self)
+        )
+        let matrix = controller.testingComparisonMatrix
+        let samplePane = try XCTUnwrap(matrix.superview)
+        captureMountedWindowIfRequested(window)
+
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertGreaterThanOrEqual(controller.testingVisibleGenotypes.count, 30)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        XCTAssertTrue(splitView.arrangedSubviews.first === samplePane)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        XCTAssertEqual(matrix.frame.minY, 0, accuracy: 1)
+        XCTAssertGreaterThan(matrix.frame.maxY, samplePane.bounds.height - 80)
+
+        controller.testingSelectMatrixCell(
+            genotype: denseCalls[0].genotype,
+            sample: "Sample-A"
+        )
+        let selection = controller.testingCurrentSelectionMatrixTargets
+        XCTAssertFalse(selection.isEmpty)
+
+        window.setContentSize(NSSize(width: 1_200, height: 900))
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            selection
+        )
+
+        state = controller.testingDisplayState
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 2)
+        XCTAssertFalse(controller.testingDetailPaneHidden)
+        XCTAssertFalse(controller.testingCohortSummaryIsHidden)
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            selection
+        )
+        controller.testingSelectCellEvidence(
+            animalId: "Sample-A",
+            locus: "MHC-A"
+        )
+        flushMountedController(controller)
+        XCTAssertFalse(controller.testingCallEvidencePaneHidden)
+        XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "Sample-A")
+        captureMountedWindowIfRequested(
+            window,
+            environmentKey: "LUNGFISH_MISEQ_CALLS_VIEWPORT_SCREENSHOT"
+        )
+
+        let requestedHaplotypeDivider = round(splitView.bounds.height * 0.61)
+        splitView.setPosition(requestedHaplotypeDivider, ofDividerAt: 0)
+        flushMountedController(controller)
+        let restoredHaplotypeExtent = splitView.arrangedSubviews[0].frame.height
+        XCTAssertEqual(
+            restoredHaplotypeExtent,
+            requestedHaplotypeDivider,
+            accuracy: 2
+        )
+
+        state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        XCTAssertEqual(controller.testingCurrentSelectedSample, "Sample-A")
+
+        state = controller.testingDisplayState
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 2)
+        XCTAssertEqual(
+            splitView.arrangedSubviews[0].frame.height,
+            restoredHaplotypeExtent,
+            accuracy: 2
+        )
+        XCTAssertFalse(controller.testingCallEvidencePaneHidden)
+        XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "Sample-A")
+
+        state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        state = controller.testingDisplayState
+        state.layout = .listTrailing
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        state = controller.testingDisplayState
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertTrue(splitView.isVertical)
+        XCTAssertFalse(splitView.arrangedSubviews[0] === samplePane)
+        XCTAssertTrue(splitView.arrangedSubviews[1] === samplePane)
+        XCTAssertEqual(splitView.arrangedSubviews[0].frame.width, 360, accuracy: 2)
+
+        let requestedTrailingDivider = round(splitView.bounds.width * 0.43)
+        splitView.setPosition(requestedTrailingDivider, ofDividerAt: 0)
+        flushMountedController(controller)
+        let restoredTrailingExtent = splitView.arrangedSubviews[0].frame.width
+        state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        state = controller.testingDisplayState
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertFalse(splitView.arrangedSubviews[0] === samplePane)
+        XCTAssertTrue(splitView.arrangedSubviews[1] === samplePane)
+        XCTAssertEqual(
+            splitView.arrangedSubviews[0].frame.width,
+            restoredTrailingExtent,
+            accuracy: 2
+        )
+
+        state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        state = controller.testingDisplayState
+        state.layout = .listLeading
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        state = controller.testingDisplayState
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertTrue(splitView.isVertical)
+        XCTAssertTrue(splitView.arrangedSubviews[0] === samplePane)
+        XCTAssertEqual(samplePane.frame.width, 720, accuracy: 2)
+
+        state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        state = controller.testingDisplayState
+        state.layout = .listTop
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 1)
+        assertPaneFillsSplitView(samplePane, splitView: splitView)
+        state = controller.testingDisplayState
+        state.summaryViewMode = .outline
+        controller.testingApplyDisplayState(state)
+        flushMountedController(controller)
+        XCTAssertFalse(splitView.isVertical)
+        XCTAssertTrue(splitView.arrangedSubviews[0] === samplePane)
+        XCTAssertEqual(
+            samplePane.frame.height,
+            round(splitView.bounds.height * 0.75),
+            accuracy: 2
+        )
+    }
+
+
+    private func assertPaneFillsSplitView(
+        _ pane: NSView,
+        splitView: NSSplitView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            pane.frame.minX,
+            splitView.bounds.minX,
+            accuracy: 1,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            pane.frame.minY,
+            splitView.bounds.minY,
+            accuracy: 1,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            pane.frame.width,
+            splitView.bounds.width,
+            accuracy: 1,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            pane.frame.height,
+            splitView.bounds.height,
+            accuracy: 1,
+            file: file,
+            line: line
+        )
+    }
+
+
+    private func captureMountedWindowIfRequested(
+        _ window: NSWindow,
+        environmentKey: String = "LUNGFISH_MISEQ_MATRIX_VIEWPORT_SCREENSHOT"
+    ) {
+        guard let path = ProcessInfo.processInfo.environment[environmentKey],
+              FileManager.default.isExecutableFile(
+            atPath: "/usr/sbin/screencapture"
+        ) else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = [
+            "-x", "-l", String(window.windowNumber), path,
+        ]
+        try? process.run()
+        process.waitUntilExit()
+    }
+
+
     func testMalformedOrUnknownWorkflowDeclarationDoesNotSuppressMatrixDetailPane()
         throws
     {

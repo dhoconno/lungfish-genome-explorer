@@ -353,6 +353,7 @@ public final class GenotypeResultViewController: NSViewController {
     private let artifactStack = NSStackView()
 
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    private var miSeqMatrixDetachedLayout: GenotypeResultPanelLayout?
 
     private var result: ONTGenotypeResultBundleData?
     public private(set) var manualHaplotypeEligibility:
@@ -1178,7 +1179,12 @@ public final class GenotypeResultViewController: NSViewController {
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        guard selectedLens == .summary, splitView.arrangedSubviews.count == 2 else { return }
+        guard selectedLens == .summary else { return }
+        if splitView.arrangedSubviews.count == 1 {
+            splitView.arrangedSubviews[0].frame = splitView.bounds
+            return
+        }
+        guard splitView.arrangedSubviews.count == 2 else { return }
         if view.window == nil {
             applySplitPositionIfNeeded()
         } else if splitCoordinator.needsInitialSplitValidation {
@@ -3870,9 +3876,44 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func updateDetailPaneVisibility() {
-        detailContainer.isHidden = detailPaneSuppressedForBareSelection
+        let showsPairedMiSeqHaplotypeCalls =
+            selectedLens == .summary
+                && displayState.summaryViewMode == .outline
+                && presentationPolicy?.appliesToHaplotypedMiSeq == true
+        detailContainer.isHidden = (
+            detailPaneSuppressedForBareSelection
+                && !showsPairedMiSeqHaplotypeCalls
+        )
             || detailPaneSuppressedForActiveMiSeqMatrix
             || (selectedLens == .review && callEvidence == nil)
+        updateMiSeqMatrixSplitArrangement()
+    }
+
+    private func updateMiSeqMatrixSplitArrangement() {
+        let detailIsArranged = splitView.arrangedSubviews.contains {
+            $0 === detailContainer
+        }
+        if detailPaneSuppressedForActiveMiSeqMatrix {
+            guard detailIsArranged else { return }
+            miSeqMatrixDetachedLayout = displayState.layout
+            splitView.removeArrangedSubview(detailContainer)
+            detailContainer.removeFromSuperview()
+            sampleContainer.frame = splitView.bounds
+        } else if !detailIsArranged {
+            if let detachedLayout = miSeqMatrixDetachedLayout,
+               detachedLayout != displayState.layout {
+                splitView.clearRequestedDividerPosition()
+                splitCoordinator.invalidateInitialSplitPosition()
+            }
+            miSeqMatrixDetachedLayout = nil
+            if displayState.layout == .listTrailing {
+                splitView.insertArrangedSubview(detailContainer, at: 0)
+            } else {
+                splitView.addArrangedSubview(detailContainer)
+            }
+            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+        }
     }
 
     private var rawMatrixUsesSampleCurationDetail: Bool {
@@ -9954,6 +9995,7 @@ private final class FlippedDocumentView: NSView {
 
 extension GenotypeResultViewController: NSSplitViewDelegate {
     public func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard splitView.arrangedSubviews.count == 2 else { return }
         splitCoordinator.splitViewDidResizeSubviews(
             splitView,
             minimumExtents: minimumSplitExtents()
@@ -9961,6 +10003,10 @@ extension GenotypeResultViewController: NSSplitViewDelegate {
     }
 
     public func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        if self.splitView.arrangedSubviews.count == 1 {
+            self.splitView.arrangedSubviews[0].frame = self.splitView.bounds
+            return
+        }
         splitCoordinator.resizeSubviewsWithOldSize(
             self.splitView,
             oldSize: oldSize,
