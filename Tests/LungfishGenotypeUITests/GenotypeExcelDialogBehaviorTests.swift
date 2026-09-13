@@ -12,6 +12,11 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
     }
+    private var cli: URL {
+        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_CLI"]
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent(".build/debug/lungfish-cli").path)
+    }
 
     func testExcelCaptureFreezesOrderedNativeMetadataColumnsAndFullRosterTotals() async throws {
         GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
@@ -130,7 +135,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         let embeddedMetadata = ONTGenotypeReferenceMetadata(
             fields: [.init(key: alleleKey, displayTitle: "Allele", valueType: "text",
                 sourceCategory: "feature", preferredOrder: 0)],
-            recordsBySequenceName: [embedded: [alleleKey: ""]],
+            recordsBySequenceName: [embedded: [alleleKey: " \t "]],
             alleleFieldKey: alleleKey
         )
         let controller = GenotypeResultViewController()
@@ -144,6 +149,63 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(snapshot.allMatrix.rows.first?.columnValues?.first?.text,
             "Mafa-A1_002:01 / Mafa-A1_003:01")
         XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(snapshot))
+    }
+
+    func testSynthesizedMHCAlleleKeepsNativeRowCommentAnchorThroughReplay() async throws {
+        GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility()
+        defer { GenotypeComparisonMatrixView.testingResetPersistedReferenceVisibility() }
+        let root = try TestTempDirectory.make(prefix: "ExcelEffectiveAllele")
+        defer { TestTempDirectory.cleanup(root) }
+        let genotype = "MCM_MHC_MiSeq_0099|source_loci=MHC-A|alleles=Mafa-A1_002:01,Mafa-A1_003:01"
+        let definitionKey = "record.definition"
+        let metadata = ONTGenotypeReferenceMetadata(
+            fields: [.init(key: definitionKey, displayTitle: "Definition", valueType: "text",
+                sourceCategory: "record", preferredOrder: -1)],
+            recordsBySequenceName: [genotype: [definitionKey: "preceding metadata"]],
+            alleleFieldKey: nil
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-09-13T00:00:00Z")
+        sidecar.matrixComments = [
+            .init(target: .row(locus: "MHC-A", genotype: genotype), body: "native row note",
+                author: "Analyst", timestamp: "2026-09-13T00:00:00Z"),
+        ]
+        try sidecar.encoded().write(to: root.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "S1", genotype: genotype, reads: 4),
+        ], referenceMetadata: metadata))
+        let matrix = controller.testingComparisonMatrix
+        matrix.testingSetStandardColumnVisibleWithoutPersist("genotype", visible: false)
+        matrix.testingSetStandardColumnVisibleWithoutPersist("locus", visible: true)
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(fieldKey: definitionKey, visible: true)
+        matrix.testingSetReferenceColumnVisibleWithoutPersist(fieldKey: "feature.allele", visible: true)
+
+        let data = try XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData)
+        let snapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+        XCTAssertEqual(snapshot.allMatrix.columns?.map(\.title), ["Definition", "Allele", "Locus", "Total Reads"])
+        XCTAssertEqual(snapshot.allMatrix.columns?[1].isPrimaryIdentity, true)
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(snapshot))
+
+        let output = root.appendingPathComponent("effective-allele.xlsx")
+        let exported = try await GenotypeExcelExportService(
+            pythonExecutableURL: openpyxlPython,
+            replayExecutableURL: cli
+        ).export(
+            snapshot: snapshot,
+            outputURL: output,
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+        )
+        let expected = ["C2|native row note|LGE"]
+        XCTAssertEqual(try workbookComments(output)["Genotype Matrix - All"], expected)
+        XCTAssertEqual(try workbookComments(output)["Genotype Matrix - Filtered"], expected)
+
+        let replayed = root.appendingPathComponent("effective-allele-replayed.xlsx")
+        XCTAssertEqual(try runCommand(["/bin/sh", exported.replayScriptURL.path, replayed.path]), 0)
+        XCTAssertEqual(try workbookComments(replayed)["Genotype Matrix - All"], expected)
+        XCTAssertEqual(try workbookComments(replayed)["Genotype Matrix - Filtered"], expected)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replayed.appendingPathExtension("provenance.json").path))
     }
 
     func testExportFreezesAllAndPositiveDisplayedVisibleEvidenceBeforeSavePanel() async throws {
@@ -583,6 +645,37 @@ print(json.dumps(matches))
         XCTAssertEqual(process.terminationStatus, 0)
         let values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [Int])
         return try XCTUnwrap(values.count == 1 ? values.first : nil)
+    }
+
+    private func workbookComments(_ workbook: URL) throws -> [String: [String]] {
+        let process = Process()
+        process.executableURL = openpyxlPython
+        process.arguments = ["-c", #"""
+import json, openpyxl, sys
+workbook = openpyxl.load_workbook(sys.argv[1], data_only=False)
+result = {}
+for title in ('Genotype Matrix - All', 'Genotype Matrix - Filtered'):
+    sheet = workbook[title]
+    result[title] = [f'{cell.coordinate}|{cell.comment.text}|{cell.comment.author}'
+                     for row in sheet.iter_rows() for cell in row if cell.comment]
+print(json.dumps(result))
+"""#, workbook.path]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        return try JSONDecoder().decode([String: [String]].self, from: data)
+    }
+
+    private func runCommand(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try XCTUnwrap(arguments.first))
+        process.arguments = Array(arguments.dropFirst())
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 
 }

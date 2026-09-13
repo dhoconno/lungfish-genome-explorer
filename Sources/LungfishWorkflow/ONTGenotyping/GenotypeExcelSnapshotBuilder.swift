@@ -97,6 +97,10 @@ public enum GenotypeExcelSnapshotBuilder {
             + (result.reviewableRowCatalog?.samples ?? []) + (result.mhcCandidates?.observations.map(\.sampleID) ?? [])
             + (result.mhcUnnameableClusters?.observations.map(\.sampleID) ?? [])
             + (authority.analysis?.samples.map(\.sample) ?? []))
+        let effectiveReferenceMetadata = MHCReferenceGenotypeDisplay.effectiveReferenceMetadata(
+            storedMetadata: result.referenceMetadata,
+            genotypes: result.calls.map(\.genotype)
+        )
         let base = GenotypeMatrixBaseProjection(calls: result.calls, samples: result.samples,
             candidateDocument: result.mhcCandidates, unnameableDocument: result.mhcUnnameableClusters,
             logicalSampleNames: sampleNames, candidateSettings: .default,
@@ -111,8 +115,8 @@ public enum GenotypeExcelSnapshotBuilder {
                 // fallback labels only, never raw identity or captured viewport labels.
                 let label: String
                 if row.population == .known,
-                   let field = result.referenceMetadata?.alleleFieldKey,
-                   let value = result.referenceMetadata?.recordsBySequenceName[row.genotype]?[field],
+                   let field = effectiveReferenceMetadata?.alleleFieldKey,
+                   let value = effectiveReferenceMetadata?.recordsBySequenceName[row.genotype]?[field],
                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     label = value
                 } else {
@@ -172,7 +176,7 @@ public enum GenotypeExcelSnapshotBuilder {
                       column.key == "reference.\(sourceKey)" else {
                     throw CaptureError.incoherent("invalid reference metadata column")
                 }
-                let expectedPrimaryIdentity = sourceKey == result.referenceMetadata?.alleleFieldKey ? true : nil
+                let expectedPrimaryIdentity = sourceKey == effectiveReferenceMetadata?.alleleFieldKey ? true : nil
                 guard column.isPrimaryIdentity == expectedPrimaryIdentity else {
                     throw CaptureError.incoherent("reference metadata primary identity disagrees with native configuration")
                 }
@@ -354,12 +358,7 @@ public enum GenotypeExcelSnapshotBuilder {
                         return .init(key: column.key, text: scientific.genotype)
                     case .referenceMetadata:
                         let sourceKey = column.sourceKey ?? ""
-                        var value = result.referenceMetadata?.recordsBySequenceName[scientific.genotype]?[sourceKey] ?? ""
-                        if value.isEmpty,
-                           sourceKey == (result.referenceMetadata?.alleleFieldKey ?? "feature.allele") {
-                            let embedded = MHCReferenceGenotypeDisplay.alleleName(for: scientific.genotype)
-                            if !embedded.isEmpty { value = embedded }
-                        }
+                        let value = effectiveReferenceMetadata?.recordsBySequenceName[scientific.genotype]?[sourceKey] ?? ""
                         return .init(key: column.key, text: value)
                     case .stableClusterID:
                         return .init(key: column.key, text: scientific.stable ?? "")

@@ -1145,7 +1145,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 guard identifier.rawValue.hasPrefix(ColumnID.referencePrefix) else { return nil }
                 let fieldKey = String(identifier.rawValue.dropFirst(ColumnID.referencePrefix.count))
                 kind = .referenceMetadata; key = "reference.\(fieldKey)"; sourceKey = fieldKey
-                isPrimaryIdentity = fieldKey == result?.referenceMetadata?.alleleFieldKey ? true : nil
+                isPrimaryIdentity = fieldKey == alleleFieldKey ? true : nil
             }
             return .init(
                 key: key,
@@ -1821,22 +1821,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } ?? false
         hasNumericReferencePrefixes = storedMetadata == nil && !hasEmbeddedMHCAlleles
             && (result?.calls.contains { GenotypeReferenceNumericPrefixOrder.hasPrefix($0.genotype) } ?? false)
-        var metadata = storedMetadata
-        if hasEmbeddedMHCAlleles {
-            let key = storedMetadata?.alleleFieldKey ?? "feature.allele"
-            var fields = storedMetadata?.fields ?? []
-            if !fields.contains(where: { $0.key == key }) {
-                fields.insert(.init(key: key, displayTitle: "Allele", valueType: "text",
-                                    sourceCategory: "reference", preferredOrder: 0), at: 0)
-            }
-            var records = storedMetadata?.recordsBySequenceName ?? [:]
-            for call in result?.calls ?? [] {
-                if records[call.genotype]?[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
-                    records[call.genotype, default: [:]][key] = MHCReferenceGenotypeDisplay.alleleName(for: call.genotype)
-                }
-            }
-            metadata = .init(fields: fields, recordsBySequenceName: records, alleleFieldKey: key)
-        }
+        let metadata = MHCReferenceGenotypeDisplay.effectiveReferenceMetadata(
+            storedMetadata: storedMetadata,
+            genotypes: result?.calls.map(\.genotype) ?? []
+        )
         referenceFields = metadata?.fields.sorted {
             if $0.preferredOrder != $1.preferredOrder { return $0.preferredOrder < $1.preferredOrder }
             return $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
