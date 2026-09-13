@@ -53,17 +53,9 @@ struct PrimalSchemeResultsView: View {
       Text("\(result.primers.count) selected oligos · \(pools.count) pools · \(Set(result.primers.map(\.reference)).count) references")
         .font(.caption).foregroundStyle(.secondary)
       if let orderSheetURL = result.orderSheetURL {
-        HStack(alignment: .top, spacing: 16) {
-          VStack(alignment: .leading, spacing: 5) {
-            Text("Prepare primer pools for ordering").font(.headline)
-            Text("Complete saved scheme · one 5′–3′ oligo per row")
-              .font(.caption).foregroundStyle(.secondary)
-              .help("The stored CSV includes oligos hidden by display filters and groups them by pool. Copy the sheet before adding synthesis scale, purification or modifications.")
-          }
-          Spacer()
-          Button("Show order sheet…") { NSWorkspace.shared.activateFileViewerSelecting([orderSheetURL]) }
-            .accessibilityIdentifier("primerAnalysisViewer.orderSheet")
-        }.padding(12).background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+        Button("Show saved order sheet…") { NSWorkspace.shared.activateFileViewerSelecting([orderSheetURL]) }
+          .help("Opens the complete saved scheme, including oligos hidden from this viewport. Use the displayed-order action in Inspector for the currently shown set.")
+          .accessibilityIdentifier("primerAnalysisViewer.orderSheet")
       } else {
         Text("This saved analysis has no ordering worksheet. Its native primer records remain available in the Inspector’s Files tab.")
           .font(.caption).foregroundStyle(.secondary)

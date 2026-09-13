@@ -49,9 +49,8 @@ struct PrimerBindingInspectionView: View {
                 PrimerBindingAlignmentCanvas(context: context, selectedPrimerID: primer?.id, track: track)
                     .frame(minHeight: 200, idealHeight: 320, maxHeight: 400)
                     .border(Color.secondary.opacity(0.25))
+                    .help(Self.legend(hasTrack: track != nil, showIdentityDots: showIdentityDots))
                     .accessibilityIdentifier("primerAnalysisViewer.bindingAlignment")
-                Text(Self.legend(hasTrack: track != nil, showIdentityDots: showIdentityDots))
-                    .font(.caption2).foregroundStyle(.secondary)
                 if let primer {
                     Text("5′ \(primer.sequence) 3′ · strand \(primer.strand) · alignment columns \(primer.alignedStart + 1)–\(primer.alignedEnd)")
                         .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
@@ -184,8 +183,6 @@ private struct PrimerBindingComparisonTable: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(context.rows.count) alignment rows · sites shown in reference orientation")
-                .font(.caption).foregroundStyle(.secondary)
             if isLoading {
                 ProgressView("Comparing selected primer…").controlSize(.small)
             } else if let errorMessage {

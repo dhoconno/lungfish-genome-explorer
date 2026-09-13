@@ -90,9 +90,10 @@ struct PrimerAnalysisViewerView: View {
       .accessibilityIdentifier("primerAnalysisViewer.tabs")
 
       if snapshot.primer3Results == nil, displaySession.isAvailable {
-        Text("\(displaySession.visibleCount) of \(displaySession.totalCount) selected oligos displayed · Adjust visibility in Inspector → View. Saved coverage and full-set exports are unchanged.")
+        Text("\(displaySession.visibleCount)/\(displaySession.totalCount) oligos shown")
           .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
           .padding(.horizontal).padding(.bottom, 8)
+          .help("Adjust visibility in Inspector → View. Saved coverage and full-set exports remain based on the complete saved scheme.")
           .accessibilityIdentifier("primerAnalysisViewer.displaySummary")
       }
 
@@ -161,33 +162,10 @@ struct PrimerAnalysisViewerView: View {
   }
 
   private func overview(_ snapshot: PrimerAnalysisViewerSnapshot) -> some View {
-    let manifest = snapshot.bundle.manifest
     return VStack(alignment: .leading, spacing: 18) {
-      Text(snapshot.bundle.url.deletingPathExtension().lastPathComponent)
-        .font(.title2.weight(.semibold))
-        .textSelection(.enabled)
-      field("Saved grouping", snapshot.groupingLabel)
-      Text("\(manifest.inputs.count) input\(manifest.inputs.count == 1 ? "" : "s") • \(manifest.results.count) result\(manifest.results.count == 1 ? "" : "s")")
-        .foregroundStyle(.secondary)
-
-      DisclosureGroup("Saved identifiers") {
-        VStack(alignment: .leading, spacing: 8) {
-          field("Analysis ID", manifest.analysisID.uuidString)
-          field("Run ID", manifest.runID.uuidString)
-        }
-        .padding(.top, 6)
-      }
-
       if snapshot.designReview.isEmpty {
         ContentUnavailableView("Design summary unavailable", systemImage: "chart.bar.xaxis", description: Text("This saved analysis has no supported coordinates to summarize. Its original outputs remain available in the Inspector’s Files tab."))
       } else {
-        HStack(spacing: 28) {
-          summaryMetric(snapshot.primer3Results == nil ? "Mapping references" : "Candidate reviews", value: String(snapshot.designReview.count))
-          summaryMetric(snapshot.primer3Results == nil ? "Primer sites" : "Oligo sites", value: String(snapshot.designReview.reduce(0) { $0 + $1.primers.count }))
-          if snapshot.primer3Results == nil {
-            summaryMetric("Scheme pools", value: String(snapshot.primalSchemeResults.reduce(0) { $0 + Set($1.primers.map(\.pool)).count }))
-          }
-        }
         ForEach(snapshot.designReview) { target in
           PrimerTargetReviewCard(target: target, selection: $selection)
         }
@@ -199,17 +177,4 @@ struct PrimerAnalysisViewerView: View {
     .accessibilityIdentifier("primerAnalysisViewer.overview")
   }
 
-  private func field(_ label: String, _ value: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(label).font(.caption).foregroundStyle(.secondary)
-      Text(value).textSelection(.enabled)
-    }
-  }
-
-  private func summaryMetric(_ label: String, value: String) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text(value).font(.title2.weight(.semibold)).monospacedDigit()
-      Text(label).font(.caption).foregroundStyle(.secondary)
-    }
-  }
 }
