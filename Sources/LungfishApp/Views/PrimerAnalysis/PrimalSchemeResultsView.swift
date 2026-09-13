@@ -121,7 +121,7 @@ struct PrimalSchemeResultsView: View {
       Text("Calculating MSA matches…").font(.caption).foregroundStyle(.secondary)
     } else {
       Text("MSA matches: unavailable").font(.caption).foregroundStyle(.secondary)
-        .help("This saved primer has no assessable MSA comparison.")
+        .help("No MSA match result is available for this primer.")
     }
   }
 

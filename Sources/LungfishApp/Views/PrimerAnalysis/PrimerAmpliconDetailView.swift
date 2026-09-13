@@ -125,7 +125,7 @@ struct PrimerAmpliconDetailView: View {
       }.buttonStyle(.plain)
       Text("Binding site \(primer.start + 1)–\(primer.end) (\(primer.strand)) · \(primer.sequence.count) nt oligo")
         .font(.caption).foregroundStyle(.secondary)
-      compatibility(primer)
+      if target.presentation == .schemeReference { compatibility(primer) }
       if !primer.sequence.isEmpty {
         Text("5′ \(primer.sequence) 3′").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
       }
@@ -146,7 +146,7 @@ struct PrimerAmpliconDetailView: View {
     } else {
       Text("MSA matches: unavailable")
         .font(.caption).foregroundStyle(.secondary)
-        .help("This saved primer has no assessable MSA comparison.")
+        .help("No MSA match result is available for this primer.")
     }
   }
 }
