@@ -434,6 +434,157 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: receipt), priorReceipt)
     }
 
+    func testManifestDiscoveryAndLoadedResultRemainBoundToCapturedBytes() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = try temporaryDirectory(prefix: "genotype-manifest-generation")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let replacementSummary = root.appendingPathComponent("generation-b.evidence")
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
+        S1,99_generation_B,91,91,100,91,91.0,1000,91,9.1
+        """.write(to: replacementSummary, atomically: true, encoding: .utf8)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: bundle)
+        var generationB = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL))
+                as? [String: Any]
+        )
+        generationB["longSummaryCSVPath"] = replacementSummary.path
+        let generationBData = try JSONSerialization.data(
+            withJSONObject: generationB,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        let output = root.appendingPathComponent("existing.xlsx")
+        let receipt = output.appendingPathExtension("provenance.json")
+        let priorOutput = Data("existing output owner".utf8)
+        let priorReceipt = Data("existing receipt owner".utf8)
+        try priorOutput.write(to: output)
+        try priorReceipt.write(to: receipt)
+
+        do {
+            _ = try await GenotypeExportSubcommand.parse([
+                "--bundle", bundle.path,
+                "--output", output.path,
+                "--force",
+            ]).runReturningResolvedColumns(
+                afterExcelManifestDecode: {
+                    try generationBData.write(to: manifestURL, options: .atomic)
+                },
+                managedPythonResolver: {
+                    XCTFail("manifest generation mismatch must fail before rendering")
+                    return python
+                }
+            )
+            XCTFail("result loaded from manifest B after discovery from A")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains("manifest")
+                    || String(describing: error).contains("scientific input changed"),
+                String(describing: error)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: output), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: receipt), priorReceipt)
+    }
+
+    func testExternalReferenceOrderManifestIsWitnessedAndMutationRejectsPublication() async throws {
+        let python = try XCTUnwrap(Self.managedPythonURL)
+        let root = try temporaryDirectory(prefix: "genotype-reference-order")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let reference = root.appendingPathComponent(
+            "ordering.lungfishmhcref",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: reference, withIntermediateDirectories: true)
+        let orderA = MHCAmpliconReferenceBundleManifest(
+            name: "Ordering A",
+            referenceFastaPath: "reference.fasta",
+            referenceBundlePath: nil,
+            haplotypeDefinitionPaths: [],
+            defaultHaplotypeDefinitionID: nil,
+            metrics: .init(referenceCount: 0, haplotypeDefinitionCount: 0),
+            genotypeLocusDisplayOrder: ["MHC-B", "MHC-A"],
+            createdAt: "2026-09-12T00:00:00Z"
+        )
+        let orderB = MHCAmpliconReferenceBundleManifest(
+            name: "Ordering B",
+            referenceFastaPath: "reference.fasta",
+            referenceBundlePath: nil,
+            haplotypeDefinitionPaths: [],
+            defaultHaplotypeDefinitionID: nil,
+            metrics: .init(referenceCount: 0, haplotypeDefinitionCount: 0),
+            genotypeLocusDisplayOrder: ["MHC-A", "MHC-B"],
+            createdAt: "2026-09-12T00:00:00Z"
+        )
+        try MHCAmpliconReferenceBundle.writeManifest(orderA, to: reference)
+        try JSONSerialization.data(
+            withJSONObject: [
+                "argv": [
+                    "lungfish-cli", "fastq", "genotype-cohort",
+                    "--reference", reference.path,
+                ],
+            ],
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: bundle.appendingPathComponent("provenance.json"), options: .atomic)
+
+        let output = root.appendingPathComponent("reference-order.xlsx")
+        _ = try await GenotypeExportSubcommand.parse([
+            "--bundle", bundle.path,
+            "--output", output.path,
+        ]).runReturningResolvedColumns(managedPythonResolver: { python })
+
+        let referenceManifestURL = MHCAmpliconReferenceBundle.manifestURL(in: reference)
+        let originalBytes = try Data(contentsOf: referenceManifestURL)
+        let receiptObject = try jsonObject(output.appendingPathExtension("provenance.json"))
+        let witness = try XCTUnwrap(
+            (receiptObject["inputs"] as? [[String: Any]])?.first {
+                $0["path"] as? String == referenceManifestURL.path
+            }
+        )
+        XCTAssertEqual(witness["sizeBytes"] as? Int, originalBytes.count)
+        XCTAssertEqual(
+            witness["sha256"] as? String,
+            try ProvenanceFileHasher.sha256(of: referenceManifestURL)
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: URL(
+                    fileURLWithPath: try XCTUnwrap(witness["capturedPath"] as? String)
+                )
+            ),
+            originalBytes
+        )
+
+        let forced = root.appendingPathComponent("forced-existing.xlsx")
+        let forcedReceipt = forced.appendingPathExtension("provenance.json")
+        let priorOutput = Data("existing output owner".utf8)
+        let priorReceipt = Data("existing receipt owner".utf8)
+        try priorOutput.write(to: forced)
+        try priorReceipt.write(to: forcedReceipt)
+        try originalBytes.write(to: referenceManifestURL, options: .atomic)
+        do {
+            _ = try await GenotypeExportSubcommand.parse([
+                "--bundle", bundle.path,
+                "--output", forced.path,
+                "--force",
+            ]).runReturningResolvedColumns(
+                afterExcelAuthorityCapture: {
+                    try MHCAmpliconReferenceBundle.writeManifest(orderB, to: reference)
+                },
+                managedPythonResolver: { python }
+            )
+            XCTFail("mutated reference-order authority was accepted")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains("scientific input changed"),
+                String(describing: error)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: forced), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: forcedReceipt), priorReceipt)
+    }
+
     private func makeBundle(in root: URL) throws -> URL {
         let bundle = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)

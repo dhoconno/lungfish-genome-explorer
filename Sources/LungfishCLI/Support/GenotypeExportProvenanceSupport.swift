@@ -178,6 +178,7 @@ enum GenotypeExcelCLIExportSupport {
 
     static func export(
         _ request: Request,
+        afterManifestDecode: (@Sendable () throws -> Void)? = nil,
         afterAuthorityCapture: (@Sendable () throws -> Void)? = nil,
         managedPythonResolver: @escaping @Sendable () async throws -> URL
     ) async throws -> Outcome {
@@ -185,15 +186,29 @@ enum GenotypeExcelCLIExportSupport {
         let output = request.outputURL.standardizedFileURL
         let generatedAt = ISO8601DateFormatter().string(from: Date())
 
-        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(
+            in: bundle
+        ).standardizedFileURL
+        let manifestData = try ONTGenotypeResultBundle.readManifestDataNoFollow(
+            from: bundle
+        )
+        let manifest = try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: manifestData
+        )
+        try afterManifestDecode?()
         var witnessed = try scientificFileWitnesses(
             at: resolvedScientificInputURLs(
                 manifest: manifest,
                 bundleURL: bundle,
                 includeAutomaticSidecar: request.annotationURL == nil
-            ) + [request.annotationURL, request.projectionURL].compactMap { $0 }
+            ) + [request.annotationURL, request.projectionURL].compactMap { $0 },
+            capturedDataByPath: [manifestURL.path: manifestData]
         )
-        let result = try ONTGenotypeResultBundle.loadResult(from: bundle)
+        let result = try ONTGenotypeResultBundle.loadResult(
+            from: bundle,
+            requiring: manifest
+        )
         try verify(witnessed)
         var sidecar = try loadSidecar(
             bundleURL: bundle,
@@ -224,8 +239,36 @@ enum GenotypeExcelCLIExportSupport {
             sidecar: sidecar,
             definitionSet: definition
         )
+        let referenceOrderCapture: ONTGenotypeResultBundle
+            .ReferenceGenotypeLocusDisplayOrderCapture?
+        if sidecar.settings.genotypeLocusDisplayOrder == nil,
+           result.manifest.genotypeLocusDisplayOrder == nil {
+            let provenancePath = result.artifacts.provenanceURL.standardizedFileURL.path
+            let provenanceData = witnessed.first { $0.path == provenancePath }?.data
+            referenceOrderCapture = try ONTGenotypeResultBundle
+                .referenceGenotypeLocusDisplayOrderCapture(
+                    manifest: result.manifest,
+                    in: bundle,
+                    provenanceData: provenanceData
+                )
+        } else {
+            referenceOrderCapture = nil
+        }
+        if let referenceOrderCapture,
+           !witnessed.contains(where: {
+               URL(fileURLWithPath: $0.path).standardizedFileURL
+                   == referenceOrderCapture.manifestURL
+           }) {
+            witnessed.append(
+                .init(
+                    path: referenceOrderCapture.manifestURL.path,
+                    data: referenceOrderCapture.manifestData
+                )
+            )
+        }
         let order = sidecar.settings.genotypeLocusDisplayOrder
-            ?? result.genotypeLocusDisplayOrder
+            ?? result.manifest.genotypeLocusDisplayOrder
+            ?? referenceOrderCapture?.order
         let authority = GenotypeExcelSnapshotBuilder.CapturedAuthority(
             analysis: analysis,
             definitionSet: definition,
@@ -502,13 +545,17 @@ enum GenotypeExcelCLIExportSupport {
     }
 
     private static func scientificFileWitnesses(
-        at sourceURLs: [URL]
+        at sourceURLs: [URL],
+        capturedDataByPath: [String: Data] = [:]
     ) throws -> [GenotypeExcelExportService.InputWitness] {
         let urls = sourceURLs.map(\.standardizedFileURL)
         var seen = Set<String>()
         return try urls.sorted { $0.path < $1.path }.compactMap { url in
             guard seen.insert(url.path).inserted else { return nil }
-            return .init(path: url.path, data: try Data(contentsOf: url))
+            return .init(
+                path: url.path,
+                data: try capturedDataByPath[url.path] ?? Data(contentsOf: url)
+            )
         }
     }
 

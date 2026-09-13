@@ -144,6 +144,27 @@ public enum GenotypeExcelSnapshotBuilder {
         let nativeValues = Dictionary(filteredRows.map { (rowKey($0.locus, $0.genotype, $0.stableClusterID), $0) }, uniquingKeysWith: { first, _ in first })
         let lookupByName = Dictionary(grouping: evidenceRows, by: { rowKey("", $0.genotype, $0.stable) })
 
+        func catalogCandidatePassesSupplementalPercent(
+            locus: String,
+            genotype: String,
+            stableClusterID: String
+        ) -> Bool {
+            let positiveSamples = Set(sampleNames.filter { sample in
+                (raw[.cell(
+                    locus: locus,
+                    genotype: genotype,
+                    sample: sample,
+                    stableClusterID: stableClusterID
+                )] ?? 0) > 0
+            })
+            let fraction = GenotypeMatrixBaseProjection.candidatePopulationFraction(
+                supportingSamples: positiveSamples,
+                logicalSamples: Set(sampleNames)
+            ) ?? 0
+            return fraction >= filter.globalMinimumPercent / 100
+                && fraction >= filter.matrixMinimumPercent / 100
+        }
+
         func matrix(_ projection: GenotypeViewProjection?, full: Bool) throws -> P.Matrix {
             let names = projection?.sampleColumns ?? sampleNames
             guard Set(names).count == names.count, Set(names).isSubset(of: Set(sampleNames)),
@@ -176,13 +197,16 @@ public enum GenotypeExcelSnapshotBuilder {
                     if !full && native == nil && !hasCatalogOnlyEvidence { return nil }
                     var passesSupplementalPercent = true
                     if !full && hasCatalogOnlyEvidence && (filter.globalMinimumPercent > 0 || filter.matrixMinimumPercent > 0) {
-                        let positiveSamples = Set(sampleNames.filter { sample in
-                            (raw[.cell(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: row.stable)] ?? 0) > 0
-                        })
-                        if row.stable != nil {
-                            let fraction = GenotypeMatrixBaseProjection.candidatePopulationFraction(supportingSamples: positiveSamples, logicalSamples: Set(sampleNames)) ?? 0
-                            passesSupplementalPercent = fraction >= filter.globalMinimumPercent / 100 && fraction >= filter.matrixMinimumPercent / 100
+                        if let stableClusterID = row.stable {
+                            passesSupplementalPercent = catalogCandidatePassesSupplementalPercent(
+                                locus: row.locus,
+                                genotype: row.genotype,
+                                stableClusterID: stableClusterID
+                            )
                         } else {
+                            let positiveSamples = Set(sampleNames.filter { sample in
+                                (raw[.cell(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: nil)] ?? 0) > 0
+                            })
                             guard positiveSamples.isEmpty else {
                                 throw CaptureError.incoherent("positive catalog-only reference evidence lacks native per-occurrence percent denominators")
                             }
@@ -229,14 +253,32 @@ public enum GenotypeExcelSnapshotBuilder {
                     }
                     let value: Int?
                     if !full, projection != nil, filter.hasActiveNumericThresholds,
-                       let projectedValue, projectedValue > 0,
-                       allNativeValues[key] != nil {
-                        let admittedOccurrences = nativeValues[key]?.sampleSupport
-                            .filter { $0.sample == sample }
-                            .map(\.passedUniqueReads) ?? []
-                        value = admittedOccurrences.contains(projectedValue)
-                            ? projectedValue
-                            : nil
+                       let projectedValue, projectedValue > 0 {
+                        if allNativeValues[key] != nil {
+                            let admittedOccurrences = nativeValues[key]?.sampleSupport
+                                .filter { $0.sample == sample }
+                                .map(\.passedUniqueReads) ?? []
+                            value = admittedOccurrences.contains(projectedValue)
+                                ? projectedValue
+                                : nil
+                        } else {
+                            let passesReads = projectedValue >= filter.matrixMinimumReads
+                            // A stable ID identifies candidate evidence, whose
+                            // percent basis is supporting samples over the full
+                            // logical roster. A catalog-only reference row has
+                            // no per-occurrence denominator; keep its captured
+                            // value rather than inventing one.
+                            let passesPercent = scientific.stable.map {
+                                catalogCandidatePassesSupplementalPercent(
+                                    locus: scientific.locus,
+                                    genotype: scientific.genotype,
+                                    stableClusterID: $0
+                                )
+                            } ?? true
+                            value = passesReads && passesPercent
+                                ? projectedValue
+                                : nil
+                        }
                     } else {
                         // An attested zero is evidence, not an empty cell. The
                         // row policy decides retention from positive visible

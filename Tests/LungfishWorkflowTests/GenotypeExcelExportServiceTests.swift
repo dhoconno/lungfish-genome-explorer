@@ -514,6 +514,111 @@ print(json.dumps(dict(sheets=w.sheetnames,formulas=sum(c.data_type=='f' for c in
         XCTAssertEqual(readFiltered.filteredMatrix.rows.first?.cells.first?.displayValue, 7)
     }
 
+    func testProjectedCatalogOnlyCandidateUsesSupplementalNumericFilters() throws {
+        let catalog = GenotypeReviewableRowCatalog(
+            schemaID: GenotypeReviewableRowCatalog.schemaID,
+            schemaVersion: 1,
+            samples: ["S1", "S2"],
+            rows: [
+                .init(
+                    kind: .candidate,
+                    callID: "candidate:MHC-A:catalog-only",
+                    displayName: "Catalog-only candidate",
+                    locus: "MHC-A",
+                    stableID: "catalog-only",
+                    section: "candidate",
+                    sortKey: "A",
+                    supportBySample: ["S1": 4, "S2": 0]
+                ),
+            ]
+        )
+        let result = GenotypeTestFixtures.makeResult(
+            calls: [],
+            reviewableRowCatalog: catalog
+        )
+        let sidecar = GenotypeAnnotationSidecar.empty(generatedAt: timestamp)
+        let projection = GenotypeViewProjection(
+            lens: "genotype",
+            sampleColumns: ["S1", "S2"],
+            rows: [
+                .init(
+                    label: "Catalog-only candidate",
+                    locus: "MHC-A",
+                    stableClusterID: "catalog-only",
+                    cells: ["4", "0"]
+                ),
+            ]
+        )
+
+        let unfiltered = try GenotypeExcelSnapshotBuilder.capture(
+            result: result,
+            sidecar: sidecar,
+            allProjection: nil,
+            filteredProjection: projection,
+            generatedAt: timestamp,
+            authority: .init(analysis: nil)
+        )
+        XCTAssertEqual(
+            unfiltered.filteredMatrix.rows.first?.cells.map(\.displayValue),
+            [4, 0]
+        )
+
+        let admitted = try GenotypeExcelSnapshotBuilder.capture(
+            result: result,
+            sidecar: sidecar,
+            allProjection: nil,
+            filteredProjection: projection,
+            generatedAt: timestamp,
+            authority: .init(analysis: nil),
+            filter: .init(matrixMinimumReads: 3)
+        )
+        XCTAssertEqual(
+            admitted.filteredMatrix.rows.first?.cells.map(\.displayValue),
+            [4, 0]
+        )
+
+        for filter in [
+            GenotypeMatrixBaseProjection.Filter(matrixMinimumReads: 5),
+            GenotypeMatrixBaseProjection.Filter(matrixMinimumPercent: 60),
+            GenotypeMatrixBaseProjection.Filter(globalMinimumPercent: 60),
+        ] {
+            let filtered = try GenotypeExcelSnapshotBuilder.capture(
+                result: result,
+                sidecar: sidecar,
+                allProjection: nil,
+                filteredProjection: projection,
+                generatedAt: timestamp,
+                authority: .init(analysis: nil),
+                filter: filter
+            )
+            XCTAssertTrue(filtered.filteredMatrix.rows.isEmpty)
+        }
+
+        let unsupported = GenotypeViewProjection(
+            lens: "genotype",
+            sampleColumns: ["S1", "S2"],
+            rows: [
+                .init(
+                    label: "Catalog-only candidate",
+                    locus: "MHC-A",
+                    stableClusterID: "catalog-only",
+                    cells: ["5", "0"]
+                ),
+            ]
+        )
+        XCTAssertThrowsError(
+            try GenotypeExcelSnapshotBuilder.capture(
+                result: result,
+                sidecar: sidecar,
+                allProjection: nil,
+                filteredProjection: unsupported,
+                generatedAt: timestamp,
+                authority: .init(analysis: nil),
+                filter: .init(matrixMinimumReads: 5)
+            )
+        )
+    }
+
     func testExportRejectsConsistentMatrixCorruptionWithUnchangedScientificWitnesses() async throws {
         let original = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: [
             GenotypeTestFixtures.makeCall(sample: "S1", genotype: "Mafa-A*001", reads: 1)]),

@@ -289,6 +289,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         afterProvenanceArtifactPublication:
             ((ProvenanceWriterMutation) throws -> Void)? = nil,
         afterRollbackArtifactDetached: ((URL) throws -> Void)? = nil,
+        afterExcelManifestDecode: (@Sendable () throws -> Void)? = nil,
         afterExcelAuthorityCapture: (@Sendable () throws -> Void)? = nil,
         managedPythonResolver: @escaping @Sendable () async throws -> URL = {
             try await CondaManager.shared.toolPath(
@@ -299,6 +300,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     ) async throws -> [String] {
         if format == .xlsx {
             return try await runExcel(
+                afterManifestDecode: afterExcelManifestDecode,
                 afterAuthorityCapture: afterExcelAuthorityCapture,
                 managedPythonResolver: managedPythonResolver
             )
@@ -399,6 +401,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     }
 
     private func runExcel(
+        afterManifestDecode: (@Sendable () throws -> Void)?,
         afterAuthorityCapture: (@Sendable () throws -> Void)?,
         managedPythonResolver: @escaping @Sendable () async throws -> URL
     ) async throws -> [String] {
@@ -488,6 +491,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 ],
                 replacingExisting: force
             ),
+            afterManifestDecode: afterManifestDecode,
             afterAuthorityCapture: afterAuthorityCapture,
             managedPythonResolver: managedPythonResolver
         )
