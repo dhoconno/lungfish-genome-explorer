@@ -1046,8 +1046,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return rowStyles[RowKey(locus: target.locus, genotype: target.genotype, stableClusterID: target.stableClusterID)] ?? .default
     }
 
-    func exportSnapshot(bundleURL: URL, analysisName: String, lens: String) -> GenotypeViewportExportSnapshot {
-        let exportSampleNames = activeSampleNames()
+    func exportSnapshot(bundleURL: URL, analysisName: String, lens: String, unfiltered: Bool = false) -> GenotypeViewportExportSnapshot {
+        settlePendingFilterForExport()
+        let exportSampleNames = unfiltered ? sampleNames : activeSampleNames()
         let exportSampleSet = Set(exportSampleNames)
         let filters: [String: String] = [
             "searchText": filterText,
@@ -1067,7 +1068,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             "genotypeNumericPrefixOrder": String(usesNumericReferenceOrder),
             "hideFilteredHighlights": String(displayState.hideFilteredHighlights),
         ]
-        let rows = visibleRows.map { row in
+        let exportRows = unfiltered ? unfilteredExportRows() : visibleRows
+        let rows = exportRows.map { row in
             let reads = Dictionary(uniqueKeysWithValues: row.sampleSupport.compactMap { support -> (String, Int)? in
                 guard exportSampleSet.contains(support.sample) else { return nil }
                 return (support.sample, support.passedUniqueReads)
@@ -1092,7 +1094,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 cellStyles: styles,
                 renderedRowStyle: exportRenderedStyle(for: ColumnID.genotype, row: row),
                 renderedCellStyles: Dictionary(uniqueKeysWithValues: exportSampleNames.compactMap { sample in
-                    sampleColumnIdentifierByName[sample].map { (sample, exportRenderedStyle(for: $0, row: row)) }
+                    if unfiltered { return (sample, unfilteredExportStyle(for: sample, row: row)) }
+                    return sampleColumnIdentifierByName[sample].map { (sample, exportRenderedStyle(for: $0, row: row)) }
                 })
             )
         }
@@ -1104,6 +1107,59 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             sampleNames: exportSampleNames,
             rows: rows
         )
+    }
+
+    /// Visibility is a projection concern; keep the captured presentation settings
+    /// while deriving a complete inventory without changing the live matrix.
+    private func unfilteredExportRows() -> [GenotypeCandidateMatrixRow] {
+        guard let result else { return [] }
+        var settings = effectiveCandidateDisplaySettings
+        settings.showKnown = true
+        settings.showSharedCandidates = true
+        settings.showSingletonCandidates = true
+        return GenotypeMatrixBaseProjection(
+            calls: result.calls, samples: result.samples,
+            candidateDocument: validatedMHCCandidateDocument(from: result),
+            unnameableDocument: result.mhcUnnameableClusters,
+            logicalSampleNames: sampleNames, candidateSettings: settings,
+            usesBiologicalAlleleOrder: usesBiologicalAlleleOrder,
+            locusDisplayOrder: effectiveLocusDisplayOrder,
+            usesNumericReferenceOrder: usesNumericReferenceOrder
+        ).derive(.unfiltered).rows
+    }
+
+    func settlePendingFilterForExport() {
+        guard pendingFilterTask != nil else { return }
+        pendingFilterTask?.cancel()
+        pendingFilterTask = nil
+        applyFilterAndSort()
+    }
+
+    /// Full evidence uses the same native annotation/haplotype style authority
+    /// with raw support, independently of the live sample mask and thresholds.
+    private func unfilteredExportStyle(for sample: String, row: GenotypeCandidateMatrixRow) -> GenotypeMatrixRenderedStyle {
+        var style = mergedRenderedStyle(for: sample, row: row)
+        if displayState.cellColorMode == .haplotype {
+            applyHaplotypeColor(to: &style, sample: sample, row: row, isFiltered: false, usingRawSupport: true)
+        }
+        applyAutomaticTextContrast(to: &style, against: style.fillColor)
+        var background: NSColor?
+        if displayState.cellColorMode != .none, let fill = style.fillColor {
+            background = Self.color(from: fill)
+        } else if displayState.cellColorMode == .support {
+            let fraction = supportFractionByCell[CellKey(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: row.stableClusterID)]
+            let alpha: Double? = manualHaplotypeEditingEligible
+                ? ((row.support(for: sample)?.passedUniqueReads ?? 0) > 0 ? 0.20 : nil)
+                : (row.population == .known ? fraction.map { min(0.20, max(0.06, 0.05 + $0 * 0.22)) } : nil)
+            if let alpha { background = NSColor.systemBlue.withAlphaComponent(alpha) }
+        }
+        let border = displayState.cellColorMode == .none ? nil
+            : style.borderColor.map { Self.color(from: $0).withAlphaComponent(0.95) }
+        // Match the native export resolver's device-to-sRGB conversion for
+        // explicit decoration and support fills, not only semantic colors.
+        style.fillColor = exportAnnotationColor(background)
+        style.borderColor = exportAnnotationColor(border)
+        return style
     }
 
     func selectFirstSharedCall() {
@@ -1125,14 +1181,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
+    private func exportAnnotationColor(_ color: NSColor?) -> AnnotationColor? {
+        guard let color = color?.usingColorSpace(.sRGB) else { return nil }
+        return AnnotationColor(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent, alpha: color.alphaComponent)
+    }
+
     private func exportRenderedStyle(for identifier: NSUserInterfaceItemIdentifier, row: GenotypeCandidateMatrixRow) -> GenotypeMatrixRenderedStyle {
         var style = renderedStyle(for: identifier, row: row)
-        func annotation(_ color: NSColor?) -> AnnotationColor? {
-            guard let color = color?.usingColorSpace(.sRGB) else { return nil }
-            return AnnotationColor(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent, alpha: color.alphaComponent)
-        }
-        style.fillColor = annotation(backgroundColor(for: identifier, row: row, renderedStyle: style))
-        style.borderColor = annotation(borderColor(for: identifier, row: row, renderedStyle: style))
+        style.fillColor = exportAnnotationColor(backgroundColor(for: identifier, row: row, renderedStyle: style))
+        style.borderColor = exportAnnotationColor(borderColor(for: identifier, row: row, renderedStyle: style))
         return style
     }
 
@@ -6139,10 +6196,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func haplotypeSupport(
         sample: String,
-        row: GenotypeCandidateMatrixRow
+        row: GenotypeCandidateMatrixRow,
+        usingRawSupport: Bool = false
     ) -> [GenotypeAlleleHaplotypeEvidenceIndex.Support] {
         guard row.population == .known,
-              (support(for: sample, row: row)?.passedUniqueReads ?? 0) > 0,
+              ((usingRawSupport ? row.support(for: sample) : support(for: sample, row: row))?.passedUniqueReads ?? 0) > 0,
               reviewDisposition(for: sample, row: row) != .falsePositive else { return [] }
         return haplotypeEvidence.support(locus: row.locus, genotype: row.genotype, sample: sample)
     }
@@ -6151,14 +6209,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         to rendered: inout GenotypeMatrixRenderedStyle,
         sample: String,
         row: GenotypeCandidateMatrixRow,
-        isFiltered: Bool
+        isFiltered: Bool,
+        usingRawSupport: Bool = false
     ) {
         // Semantic mode owns the fill. Stored analyst highlights are still
         // available in Highlights mode, but cannot imply haplotype support here.
         rendered.fillColor = nil
         rendered.textColor = nil
         guard !isFiltered else { return }
-        let matches = haplotypeSupport(sample: sample, row: row)
+        let matches = haplotypeSupport(sample: sample, row: row, usingRawSupport: usingRawSupport)
         let assignments = Set(matches.map { "\($0.name):\($0.fillColor.hexString)" })
         if assignments.count == 1 {
             rendered.fillColor = matches.first?.fillColor

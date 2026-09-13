@@ -3928,7 +3928,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertFalse(controller.testingEffectiveHaplotypeEditorIsDirty)
         XCTAssertNil(controller.testingEffectiveHaplotypeEditorPersistenceError)
         XCTAssertEqual(inspectorNotifications, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertEqual(
             controller.testingComparisonMatrix.testingHaplotypeBandRenderedValue(
                 sample: "Sample-A",
@@ -4012,7 +4012,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.testingSaveEffectiveHaplotypeDraft()
 
         XCTAssertEqual(inspectorNotifications, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertEqual(
             controller.testingComparisonMatrix.testingHaplotypeBandRenderedValue(
                 sample: "Sample-A",
@@ -4061,7 +4061,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             "A1 • A2"
         )
         XCTAssertEqual(inspectorNotifications, 2)
-        XCTAssertEqual(workbookActions, [.markDirty, .markDirty])
+        XCTAssertTrue(workbookActions.isEmpty)
         sidecar = try GenotypeAnnotationSidecar.decode(
             Data(contentsOf: fixture.bundleURL.appendingPathComponent(
                 GenotypeAnnotationSidecar.filename

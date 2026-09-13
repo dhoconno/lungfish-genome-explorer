@@ -36,7 +36,7 @@ public struct GenotypeMatrixAnnotationSection: View {
             commentCards
             appearanceControls
 
-            Text("Edits are saved to annotations.json and synced to current.xlsx.")
+            Text("Edits are saved in LGE. Export again to create an updated Excel snapshot.")
                 .font(contentBodyFont)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -1,4 +1,5 @@
 import LungfishKit
+import CryptoKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
@@ -14,7 +15,6 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         try await GenotypeThreeSheetCohortAcceptance.run()
     }
 
-    #if false // Retired old CLI source-copy bridge; Task 4 covers GUI snapshot handoff.
     @MainActor
     func testReviewedActiveAnalysisReachesProductionFilteredWorkbookAndProvenance()
         async throws
@@ -136,136 +136,75 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             intent: .set(.falsePositive)
         ))
 
-        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
-        let projectedCall = try XCTUnwrap(snapshot.haplotypeCalls?.first)
-        XCTAssertEqual(projectedCall.haplotype1, "M1A")
-        XCTAssertEqual(projectedCall.haplotype2, "M1A")
-        XCTAssertEqual(projectedCall.baselineHaplotype1, "M1A")
-        XCTAssertEqual(projectedCall.baselineHaplotype2, "-")
-        XCTAssertEqual(snapshot.rows.map(\.genotype), [retained.genotype])
-        XCTAssertNil(snapshot.sourceRevision?.analysisRevisionID, "Reviewed transient analysis must not claim the stale persisted revision")
-
-        let sourceURL = bundleURL.appendingPathComponent("source.xlsx")
-        _ = try runPython(
-            python,
-            script: Self.makeScientificSourceWorkbookScript,
-            arguments: [sourceURL.path]
-        )
-        let projectionURL = root.appendingPathComponent("captured-projection.json")
-        try JSONEncoder().encode(
-            GenotypeViewProjectionSerializer.makeProjection(from: snapshot)
-        ).write(to: projectionURL)
-        let annotationURL = root.appendingPathComponent("captured-annotations.json")
-        let annotationData = try XCTUnwrap(snapshot.annotationSidecarData)
-        try annotationData.write(to: annotationURL)
-        let sidecar = try GenotypeAnnotationSidecar.decode(annotationData)
-        let outputURL = root.appendingPathComponent("filtered.xlsx")
-        let buildURL = root.appendingPathComponent("build", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: buildURL,
-            withIntermediateDirectories: true
-        )
-        let command = try GenotypeExportPivotXlsxSubcommand.parse([
-            "--bundle", bundleURL.path,
-            "--output", outputURL.path,
-            "--view-projection", projectionURL.path,
-            "--annotations", annotationURL.path,
-            "--min-percent", "7.5",
-            "--percent-basis", "sample-retained",
-        ])
-        try await command.exportFilteredCopy(
-            of: sourceURL,
-            result: result,
-            sidecar: sidecar,
-            thresholds: .init(
-                minimumPercent: 7.5,
-                percentBasis: .sampleRetained
-            ),
-            projection: GenotypeViewProjectionSerializer.makeProjection(
-                from: snapshot
-            ),
-            projectionURL: projectionURL,
-            annotationURL: annotationURL,
-            capturedInputRecords: [
-                ProvenanceRecorder.fileRecord(
-                    url: projectionURL,
-                    role: .input
-                ),
-                ProvenanceRecorder.fileRecord(
-                    url: annotationURL,
-                    role: .input
-                ),
-            ],
-            bundleURL: bundleURL,
-            outputURL: outputURL,
-            buildDir: buildURL,
-            managedPythonResolver: { python },
-            startedAt: Date()
-        )
-
-        let dumped = try runPython(
-            python,
-            script: Self.dumpScientificFilteredWorkbookScript,
-            arguments: [outputURL.path]
-        )
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(dumped.utf8))
-                as? [String: Any]
-        )
-        XCTAssertEqual(
-            payload["sheets"] as? [String],
-            ["Genotype Matrix", "Haplotype Calls", "Export Metadata"]
-        )
-        XCTAssertEqual(
-            payload["call"] as? [String],
-            [
-                "AnimalA", "MHC-A", "M1A", "M1A", "called", "called",
-                "pipeline", "pipeline", "M1A", "-",
-            ]
-        )
-        XCTAssertEqual(
-            payload["matrixRows"] as? [[String]],
-            [[retained.genotype, "MHC-A", "", "100"]]
-        )
+        let snapshot = try controller.captureExcelExportSnapshot()
+        let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
+        let call = try XCTUnwrap(frozen.calls.first)
+        XCTAssertEqual(call.h1.effective, "M1A")
+        XCTAssertEqual(call.h2.effective, "M1A")
+        XCTAssertEqual(call.h1.pipeline, "M1A")
+        XCTAssertEqual(call.h2.pipeline, "-")
+        XCTAssertEqual(frozen.filteredMatrix.rows.map(\.target.genotype), [retained.genotype])
+        XCTAssertEqual(frozen.allMatrix.rows.map(\.target.genotype), [retained.genotype, excluded.genotype])
+        XCTAssertEqual(frozen.sourceRevision["analysisRevisionID"], "", "Transient reviewed analysis cannot claim the persisted revision")
+        let outputURL = root.appendingPathComponent("report.xlsx")
+        // Later native edits and source deletion cannot change captured calls,
+        // evidence, annotations, definition or provenance.
+        controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "Later edit")))
+        try FileManager.default.removeItem(at: inputsURL)
+        let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let nativeBytes = try Data(contentsOf: annotationURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: bundleURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundleURL.path) }
+        let exported = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: outputURL, pythonExecutableURL: python)
+        XCTAssertEqual(try Data(contentsOf: annotationURL), nativeBytes)
+        let publishedBytes = try Data(contentsOf: outputURL)
+        let publishedReceipt = try Data(contentsOf: exported.provenanceURL)
+        do {
+            _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: outputURL,
+                pythonExecutableURL: URL(fileURLWithPath: "/usr/bin/false"))
+            XCTFail("Failed renderer must reject publication")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: outputURL), publishedBytes)
+        XCTAssertEqual(try Data(contentsOf: exported.provenanceURL), publishedReceipt)
+        let dumped = try runPython(python, script: Self.dumpScientificFilteredWorkbookScript, arguments: [outputURL.path])
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(dumped.utf8)) as? [String: Any])
+        XCTAssertEqual(payload["sheets"] as? [String], ["Haplotype Calls", "Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
+        XCTAssertEqual(payload["call"] as? [String], ["AnimalA", "MHC-A", "M1A", "M1A", "called", "called", "pipeline", "pipeline", "M1A", "-"])
+        XCTAssertEqual(payload["matrixRows"] as? [[String]], [[retained.genotype, "MHC-A", "", "100"]])
+        XCTAssertEqual(payload["allRows"] as? Int, 2)
+        XCTAssertEqual(payload["bands"] as? [[String]], [["M1A", "M1A"], ["M1A", "M1A"]])
         let metadata = try XCTUnwrap(payload["metadata"] as? [String: String])
         XCTAssertEqual(metadata["minimumSupportPercent"], "7.5")
         XCTAssertEqual(metadata["supportDenominator"], "Sample Retained")
         XCTAssertEqual(metadata["matrixMinimumPercent"], "0.0")
         XCTAssertEqual(metadata["matrixPercentDenominator"], "Viewed Locus")
-        let sourceRevision = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(XCTUnwrap(metadata["Source revision"]).utf8)) as? [String: String])
-        XCTAssertNil(sourceRevision["analysisRevisionID"], "Optional transient revision is omitted from the structured source metadata")
-        XCTAssertEqual(sourceRevision["definitionSetID"], definition.id)
+        XCTAssertEqual(payload["formulaCount"] as? Int, 0)
 
-        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
-            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        ))
-        XCTAssertTrue(provenance.argv.containsSubsequence([
-            "--min-percent", "7.5", "--percent-basis", "sample-retained",
-        ]))
-        XCTAssertEqual(
-            provenance.options.resolvedDefaults["minPercent"],
-            .number(7.5)
-        )
-        XCTAssertEqual(
-            provenance.options.resolvedDefaults["percentBasis"],
-            .string("sample-retained")
-        )
-        let inputs = provenance.files + provenance.steps.flatMap(\.inputs)
-        XCTAssertTrue(inputs.contains {
-            $0.path == projectionURL.path && $0.checksumSHA256 != nil
-        })
-        XCTAssertTrue(inputs.contains {
-            $0.path == annotationURL.path && $0.checksumSHA256 != nil
-        })
-        let definitionURL = inputsURL.appendingPathComponent(
-            "haplotype-definition.json"
-        )
-        XCTAssertTrue(inputs.contains {
-            $0.path == definitionURL.path && $0.checksumSHA256 != nil
-        })
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.provenanceURL)) as? [String: Any])
+        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel")
+        XCTAssertEqual(receipt["toolVersion"] as? String, LungfishAppVersion.short)
+        XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
+        let descriptor = try XCTUnwrap(receipt["output"] as? [String: Any])
+        XCTAssertEqual(descriptor["path"] as? String, outputURL.path)
+        XCTAssertEqual(descriptor["sha256"] as? String, try ProvenanceFileHasher.sha256(of: outputURL))
+        XCTAssertEqual(descriptor["sizeBytes"] as? Int, try Data(contentsOf: outputURL).count)
+        XCTAssertTrue((receipt["durableReplayArgv"] as? [String])?.contains("--snapshot") == true)
+        let resolvedCLI = try XCTUnwrap(LungfishCLIRunner.findCLI())
+        XCTAssertEqual((receipt["durableReplayArgv"] as? [String])?.first, resolvedCLI.standardizedFileURL.path)
+        let stored = try XCTUnwrap(receipt["snapshot"] as? [String: Any])
+        let storedURL = URL(fileURLWithPath: try XCTUnwrap(stored["path"] as? String))
+        let replay = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: Data(contentsOf: storedURL))
+        XCTAssertEqual(replay.sourceRevision["definitionSetID"], definition.id)
+        XCTAssertEqual(replay.sourceRevision["analysisRevisionID"], "")
+        XCTAssertEqual(replay.calls.first?.h2.effective, "M1A")
+        let scientific = try XCTUnwrap(replay.capturedScientificInputs)
+        for name in ["result.json", "annotations.json", "analysis.json", "definition.json", "all-projection.json", "filtered-projection.json"] {
+            XCTAssertEqual(replay.sourceRevision[name], SHA256.hash(data: try XCTUnwrap(scientific[name])).map { String(format: "%02x", $0) }.joined())
+        }
+        let capturedSidecar = try GenotypeAnnotationSidecar.decode(XCTUnwrap(scientific["annotations.json"]))
+        XCTAssertNil(capturedSidecar.resolvedMatrixComments[.column(sample: "AnimalA")])
+        XCTAssertEqual(capturedSidecar.matrixReviews.first?.target, reviewTarget)
     }
-
-    #endif
 
     func testExportShellsGenotypeExportCLIWithProjectionAndVisibleSamples() throws {
         let root = try temporaryDirectory()
@@ -302,7 +241,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
 
         let result = try GenotypeViewportExportService(runner: runner).export(
             snapshot: snapshot,
-            format: .excel,
+            format: .csv,
             to: outputURL
         )
 
@@ -314,7 +253,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         let arguments = try XCTUnwrap(runner.invocations.first)
         XCTAssertEqual(arguments.prefix(2), ["genotype", "export"])
         XCTAssertEqual(try value(after: "--bundle", in: arguments), sourceBundle.path)
-        XCTAssertEqual(try value(after: "--export-format", in: arguments), "xlsx")
+        XCTAssertEqual(try value(after: "--export-format", in: arguments), "csv")
         XCTAssertEqual(try value(after: "--output", in: arguments), outputURL.path)
         XCTAssertEqual(try value(after: "--lens", in: arguments), "summary.matrix")
         XCTAssertEqual(try value(after: "--filter", in: arguments), "MHC-A")
@@ -391,7 +330,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertThrowsError(
             try GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
-                format: .excel,
+                format: .csv,
                 to: outputURL
             )
         )
@@ -432,7 +371,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertThrowsError(
             try GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
-                format: .excel,
+                format: .csv,
                 to: outputURL
             )
         )
@@ -473,7 +412,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
 
         let result = try GenotypeViewportExportService(runner: runner).export(
             snapshot: snapshot,
-            format: .excel,
+            format: .csv,
             to: outputURL
         )
 
@@ -520,7 +459,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertThrowsError(
             try GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
-                format: .excel,
+                format: .csv,
                 to: outputURL
             )
         )
@@ -566,7 +505,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertThrowsError(
             try GenotypeViewportExportService(runner: runner).export(
                 snapshot: snapshot,
-                format: .excel,
+                format: .csv,
                 to: outputURL
             )
         )
@@ -695,56 +634,27 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         return String(data: output, encoding: .utf8) ?? ""
     }
 
-    private static let makeScientificSourceWorkbookScript = #"""
-import sys
-from openpyxl import Workbook
-
-wb = Workbook()
-ws = wb.active
-ws.title = "Synthetic"
-ws.append(["Animal ID", None, None, "AnimalA"])
-ws.append(["GS ID", "Total", "Average", "AnimalA"])
-ws.append(["Mapped Read Count", 103, 103, 103])
-for locus in ["MHC-A"]:
-    for slot in (1, 2):
-        ws.append([f"{locus} Haplotype {slot}", None, None, "stale"])
-ws.append(["Comments", "Subtotal", "# Obs.", None])
-ws.append(["Genotype", "Total", "# Obs.", "AnimalA"])
-ws.append(["MHC-A alleles", None, None, None])
-ws.append(["01_M1_A_marker", 100, 1, 100])
-ws.append(["02_M2_A_marker", 3, 1, 3])
-wb.save(sys.argv[1])
-"""#
-
     private static let dumpScientificFilteredWorkbookScript = #"""
-import json
-import sys
-import glob
+import json,sys
 from openpyxl import load_workbook
-
-wb = load_workbook(sys.argv[1], data_only=False)
-calls = wb["Haplotype Calls"]
-matrix = wb["Genotype Matrix"]
-metadata = wb["Export Metadata"]
-p=json.load(open(glob.glob(sys.argv[1]+'.inputs-*/presentation-payload.json')[0]))
+wb=load_workbook(sys.argv[1], data_only=False)
+receipt=json.load(open(sys.argv[1]+'.provenance.json'))
+p=json.load(open(receipt['snapshot']['path']))
+calls=wb['Haplotype Calls']
+matrix=wb['Genotype Matrix - Filtered']
 headers={c.value:c.column for c in calls[1]}
-call_fields=['Sample','Locus','Effective H1','Effective H2','H1 status','H2 status','H1 source','H2 source','Pipeline H1','Pipeline H2']
-evidence={row[0].value:row for row in matrix if row[0].value in {r['id'] for r in p['rows']}}
-assert len(evidence)==len(p['rows'])
-for r in p['rows']: assert evidence[r['id']][2].value==r['displayName']
-out = {
-    "sheets": wb.sheetnames,
-    "call": [str(calls.cell(2, headers[field]).value or "") for field in call_fields],
-    "matrixRows": [
-        [r['target']['genotype'],evidence[r['id']][1].value,r['target'].get('stableClusterID') or '',str(evidence[r['id']][3].value)]
-        for r in p['rows']
-    ],
-    "metadata": {
-        str(metadata.cell(row, 1).value or ""): str(metadata.cell(row, 2).value or "")
-        for row in range(2, metadata.max_row + 1)
-    },
-}
-print(json.dumps(out, sort_keys=True))
+fields=['Sample','Locus','Effective H1','Effective H2','H1 status','H2 status','H1 source','H2 source','Pipeline H1','Pipeline H2']
+evidence={r[0].value:r for r in matrix if r[0].value in {x['id'] for x in p['filteredMatrix']['rows']}}
+assert len(evidence)==len(p['filteredMatrix']['rows'])
+for r in p['filteredMatrix']['rows']: assert evidence[r['id']][2].value==r['displayName']
+bands=[[r[3].value for r in wb[n] if r[2].value in ('H1','H2')] for n in ['Genotype Matrix - All','Genotype Matrix - Filtered']]
+all_ids={r['id'] for r in p['allMatrix']['rows']}
+out=dict(sheets=wb.sheetnames,call=[str(calls.cell(2,headers[f]).value or '') for f in fields],
+ matrixRows=[[r['target']['genotype'],evidence[r['id']][1].value,r['target'].get('stableClusterID') or '',str(evidence[r['id']][3].value)] for r in p['filteredMatrix']['rows']],
+ allRows=sum(r[0].value in all_ids for r in wb['Genotype Matrix - All']),bands=bands,
+ metadata={str(r[0].value or ''):str(r[1].value or '') for r in wb['Export Metadata']},
+ formulaCount=sum(c.data_type=='f' for s in wb for row in s for c in row))
+print(json.dumps(out))
 """#
 }
 

@@ -235,6 +235,14 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         emitChange()
     }
 
+    /// Settle a pending keystroke using the existing search route and cancel
+    /// its delayed selector so the captured view is not recomputed afterward.
+    func settleSearchForExport(committedState: FilterState) {
+        let current = FilterState(searchText: currentSearchText, activePills: activePills)
+        guard current != committedState else { return }
+        emitChange()
+    }
+
     func restoreStateWithoutEmitting(_ state: FilterState) {
         NSObject.cancelPreviousPerformRequests(
             withTarget: self,

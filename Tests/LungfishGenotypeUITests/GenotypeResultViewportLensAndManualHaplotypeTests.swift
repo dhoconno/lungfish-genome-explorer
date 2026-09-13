@@ -795,7 +795,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             )
             XCTAssertEqual(
                 workbookActions,
-                [.markDirty],
+                [],
                 kind.rawValue
             )
             let persisted = try ONTGenotypeResultBundleData
@@ -937,7 +937,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             )
             XCTAssertEqual(
                 workbookActions,
-                [.markDirty],
+                [],
                 kind.rawValue
             )
             let persisted = try ONTGenotypeResultBundleData
@@ -3099,7 +3099,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     }
 
 
-    func testManualHaplotypeSaveMarksWorkbookDirtyOnceWithoutProjectionRebuild() throws {
+    func testManualHaplotypeSavePreservesNativeBandsWithoutWorkbookRegenerationOrProjectionRebuild() throws {
         let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeSaveProjection")
         defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
@@ -3177,11 +3177,11 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
         XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError)
         XCTAssertFalse(controller.testingManualHaplotypeEditorIsDirty)
-        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertTrue(controller.testingCurrentWorkbookRequiresFullUpdate)
+        XCTAssertFalse(controller.testingCurrentWorkbookNeedsRefresh)
+        XCTAssertFalse(controller.testingCurrentWorkbookRequiresFullUpdate)
         XCTAssertEqual(
             controller.testingManualHaplotypeWorkbookDirtyMarkCount,
-            1
+            0
         )
         XCTAssertEqual(
             matrix.testingManualHaplotypeBandValues(sample: "AnimalA").first,
@@ -3196,7 +3196,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             ["AnimalA"]
         )
         XCTAssertEqual(annotationSidecarChangedCount, 1)
-        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
         XCTAssertEqual(controller.testingMatrixPartialReloadCount, 0)
         let performance =
@@ -3310,7 +3310,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
         )
         XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
         XCTAssertEqual(controller.testingMatrixPartialReloadCount, 0)
-        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertTrue(workbookActions.isEmpty)
         XCTAssertEqual(annotationSidecarChangedCount, 1)
 
         let persisted = try GenotypeAnnotationSidecar.decode(

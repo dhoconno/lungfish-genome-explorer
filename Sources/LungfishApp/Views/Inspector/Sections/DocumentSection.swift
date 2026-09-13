@@ -665,24 +665,13 @@ public struct DocumentSection: View {
                         userInfo: userInfo
                     )
                 },
-                onCurrentWorkbookUpdateRequested: {
+                onExcelExportRequested: {
                     var userInfo: [AnyHashable: Any] = [:]
                     if let scope = genotypeResultDocument.windowStateScope {
                         userInfo[NotificationUserInfoKey.windowStateScope] = scope
                     }
                     NotificationCenter.default.post(
-                        name: .genotypeResultCurrentWorkbookUpdateRequested,
-                        object: nil,
-                        userInfo: userInfo
-                    )
-                },
-                onCurrentWorkbookReviewRequested: {
-                    var userInfo: [AnyHashable: Any] = [:]
-                    if let scope = genotypeResultDocument.windowStateScope {
-                        userInfo[NotificationUserInfoKey.windowStateScope] = scope
-                    }
-                    NotificationCenter.default.post(
-                        name: .genotypeResultCurrentWorkbookReviewRequested,
+                        name: .genotypeResultExcelExportRequested,
                         object: nil,
                         userInfo: userInfo
                     )

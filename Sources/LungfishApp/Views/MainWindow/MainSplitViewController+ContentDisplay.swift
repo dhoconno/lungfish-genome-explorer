@@ -382,9 +382,6 @@ extension MainSplitViewController {
                     self?.inspectorController.genotypeResultDisplaySectionViewModel
                         .updateMHCCandidatePersistenceWarning(warning)
                 }
-                controller.onCurrentWorkbookSyncRequested = { [weak self] request in
-                    self?.routeGenotypeCurrentWorkbookRequest(request)
-                }
                 controller.onAIHaplotypingRequested = { [weak self, weak controller] bundleURL, request in
                     guard let self else { return }
                     guard self.canWriteProjectOutputs(workflowName: request.mode.displayName) else { return }
@@ -445,31 +442,23 @@ extension MainSplitViewController {
                     else {
                         return
                     }
-                    do {
-                        let settled = try inspectorController
-                            .genotypeResultDisplaySectionViewModel
-                            .prepareNumericFiltersForExport()
-                        guard self.viewerController.genotypeResultViewController === controller else { return }
-                        guard let controller, let bundleURL = controller.representedBundleURL else { return }
-                        controller.presentExcelExportDialog(
-                            expectedDisplayState: settled,
-                            allowsEditableWorkbook: self.mayUpdateGenotypeCurrentWorkbook(
-                                bundleURL: bundleURL, isReadOnly: controller.currentResultBundleIsReadOnly
-                            )
-                        )
-                    } catch {
-                        NSApp.presentError(error)
-                    }
+                    guard let controller else { return }
+                    controller.presentExcelExportPanel(
+                        expectedDisplayState: inspectorController.genotypeResultDisplaySectionViewModel.displayState,
+                        settleDisplayState: {
+                            try self.inspectorController.genotypeResultDisplaySectionViewModel.prepareNumericFiltersForExport()
+                        },
+                        originStillCurrent: { [weak self, weak controller] in
+                            guard let self, let controller else { return false }
+                            return self.viewerController.genotypeResultViewController === controller
+                        }
+                    )
                 }
-                controller.onExcelReviewRequested = { [weak self, weak controller] in
-                    guard let self, let controller else { return }
-                    self.routeGenotypeExcelReviewRequest(controller)
-                }
-                controller.onFilteredWorkbookExportEvent = { [weak self, weak controller] event in
+                controller.onExcelExportEvent = { [weak self, weak controller] event in
                     guard let self,
                           self.viewerController.genotypeResultViewController === controller
                     else { return }
-                    self.inspectorController.recordGenotypeFilteredExport(event)
+                    self.inspectorController.recordGenotypeExcelExport(event)
                 }
                 inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
                     controller?.applyHighlight(request)
@@ -477,7 +466,6 @@ extension MainSplitViewController {
                 controller.notifyDisplayStateIfAvailable()
                 controller.notifySelectionStateIfAvailable()
                 controller.notifyMatrixVisibilityCapabilityIfAvailable()
-                controller.requestCurrentWorkbookRegistration()
             } catch is CancellationError {
                 return
             } catch {
@@ -794,7 +782,6 @@ extension MainSplitViewController {
     func prepareGenotypeResultViewForRemoval(
         _ controller: GenotypeResultViewController
     ) {
-        controller.requestCurrentWorkbookSyncForBundleSwitch()
         guard controller.hasDeferredMatrixAnnotationMutations else { return }
         let identifier = ObjectIdentifier(controller)
         retainedDeferredGenotypeResultControllers[identifier] = controller

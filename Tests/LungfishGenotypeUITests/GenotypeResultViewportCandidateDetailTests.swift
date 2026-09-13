@@ -2144,6 +2144,35 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     }
 
 
+    func testAllExcelCaptureIncludesHiddenCandidatesAndKnownRowsWithCustomCandidateTint() throws {
+        let candidate = makeCandidate(id: "hidden-candidate", name: "hidden-candidate", classification: .novel,
+            support: .singleton, samples: ["AnimalA"])
+        let result = makeCandidateResult(calls: [makeCall(sample: "AnimalA", genotype: "KNOWN", reads: 9)],
+            candidates: [candidate], observations: [makeCandidateObservation(cluster: candidate.stableClusterID, sample: "AnimalA", reads: 3)])
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: result)
+        var state = GenotypeResultDisplayState()
+        var settings = ONTMHCCandidateDisplaySettings.default
+        settings.tints[.singletonNovel] = AnnotationColor(red: 1, green: 0, blue: 0)
+        state.mhcCandidateDisplaySettings = settings
+        matrix.applyDisplayState(state)
+        let before = matrix.exportSnapshot(bundleURL: result.bundleURL, analysisName: "Tint", lens: "matrix")
+        let capturedTint = try XCTUnwrap(exportedStyle(before, genotype: "hidden-candidate", sample: nil)["fillHex"] as? String)
+        let nativeTint = try XCTUnwrap(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "hidden-candidate"), column: .alleleName))
+        XCTAssertEqual(nativeTint.redComponent, 1, accuracy: 0.000001)
+        XCTAssertEqual(nativeTint.greenComponent, 0, accuracy: 0.000001)
+        XCTAssertEqual(nativeTint.blueComponent, 0, accuracy: 0.000001)
+        settings.showKnown = false
+        settings.showSingletonCandidates = false
+        state.mhcCandidateDisplaySettings = settings
+        matrix.applyDisplayState(state)
+        XCTAssertTrue(matrix.testingVisibleRows.isEmpty)
+        let all = matrix.exportSnapshot(bundleURL: result.bundleURL, analysisName: "Tint", lens: "matrix", unfiltered: true)
+        XCTAssertEqual(Set(all.rows.map(\.genotype)), ["KNOWN", "hidden-candidate"])
+        XCTAssertEqual(try exportedStyle(all, genotype: "hidden-candidate", sample: nil)["fillHex"] as? String, capturedTint)
+        XCTAssertTrue(matrix.testingVisibleRows.isEmpty)
+    }
+
     func testMHCCandidateTintsAreExactAndOnlyColorAlleleNameCells() throws {
         let categories: [(ONTMHCCandidateTintCategory, ONTMHCCandidateClassification, ONTMHCCandidateSupportClass, String)] = [
             (.sharedNovel, .novel, .shared, "shared-nov"),

@@ -11,12 +11,6 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
     case csv
     case tsv
     case excel
-    /// Samples-across / alleles-down pivot, in the collaborator template
-    /// layout. Unlike the other formats this routes to
-    /// `genotype export-pivot-xlsx` and carries the viewport's Min Reads and
-    /// Min Percent thresholds, so the exported pivot already has background
-    /// suppressed rather than needing it stripped by hand in Excel.
-    case pivotExcel
 
     var id: String { rawValue }
 
@@ -25,7 +19,6 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
         case .csv: return "CSV"
         case .tsv: return "TSV"
         case .excel: return "Excel"
-        case .pivotExcel: return "Excel (pivot)"
         }
     }
 
@@ -33,37 +26,21 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
         switch self {
         case .csv: return "csv"
         case .tsv: return "tsv"
-        case .excel, .pivotExcel: return "xlsx"
+        case .excel: return "xlsx"
         }
     }
 
     /// Value passed to `genotype export --export-format`.
-    ///
-    /// `pivotExcel` uses its own subcommand, so it has no `--export-format`
-    /// value of its own; it reports `xlsx` for provenance readability.
     var cliValue: String {
         switch self {
         case .csv: return "csv"
         case .tsv: return "tsv"
-        case .excel, .pivotExcel: return "xlsx"
+        case .excel: return "xlsx"
         }
     }
 
-    /// Whether the format is produced by `genotype export-pivot-xlsx` rather
-    /// than the projection-driven `genotype export`.
-    var usesPivotSubcommand: Bool { self == .pivotExcel }
-
-    /// `workflowName` recorded in the export's provenance envelope.
-    var provenanceWorkflowName: String {
-        usesPivotSubcommand ? "genotype.export.pivot-xlsx" : "lungfish genotype export"
-    }
-
-    /// `toolName` recorded in the export's provenance envelope.
-    var provenanceToolName: String {
-        usesPivotSubcommand
-            ? "lungfish genotype export-pivot-xlsx"
-            : CLICommandIdentity.executableName
-    }
+    var provenanceWorkflowName: String { "lungfish genotype export" }
+    var provenanceToolName: String { CLICommandIdentity.executableName }
 
     var contentType: UTType {
         switch self {
@@ -71,7 +48,7 @@ enum GenotypeViewportExportFormat: String, CaseIterable, Identifiable, Sendable 
             return .commaSeparatedText
         case .tsv:
             return UTType(filenameExtension: "tsv") ?? .plainText
-        case .excel, .pivotExcel:
+        case .excel:
             return UTType(filenameExtension: "xlsx") ?? .data
         }
     }
@@ -94,16 +71,8 @@ struct DefaultGenotypeViewportExportRunner: GenotypeViewportExportRunning {
     }
 }
 
-/// Exports the rendered genotype matrix view by shelling out to
-/// `lungfish-cli genotype export --view-projection <json>`.
-///
-/// The viewport's colored matrix is serialized into a ``GenotypeViewProjection``
-/// (the contract `LungfishIO` defines and the CLI deserializes), written to a
-/// durable sidecar beside the export, and handed to the canonical CLI exporter.
-/// This export deliberately reuses CLI-authored provenance (`toolName ==
-/// "lungfish-cli"`) because the output must be replayable from the recorded
-/// argv.
-/// Uses the same CLI-backed export pattern as the 12S amplicon export path.
+/// Publishes the frozen scientific XLSX capture through the shared export owner.
+/// CSV/TSV retain the established CLI projection/provenance contract.
 struct GenotypeViewportExportService {
     private let runner: GenotypeViewportExportRunning
     private let fileManager: FileManager
@@ -116,11 +85,58 @@ struct GenotypeViewportExportService {
         self.fileManager = fileManager
     }
 
+    /// XLSX has one publication owner: the shared scientific export service.
+    /// Its receipt and replay directory witness the retained native capture.
+    func exportExcel(
+        snapshot: GenotypeViewportExportSnapshot,
+        to outputURL: URL,
+        pythonExecutableURL: URL? = nil,
+        replacingExisting: Bool = true
+    ) async throws -> GenotypeViewportExportResult {
+        guard let data = snapshot.excelSnapshotData else {
+            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("Excel requires a frozen native scientific capture")
+        }
+        let capture = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+        let python: URL
+        if let pythonExecutableURL { python = pythonExecutableURL }
+        else { python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl") }
+        guard let replayExecutable = LungfishCLIRunner.findCLI() else {
+            throw LungfishCLIRunner.RunError.cliNotFound
+        }
+        let output = outputURL.standardizedFileURL
+        let options = snapshot.filters.merging([
+            "sourceBundle": snapshot.bundleURL.path,
+            "analysis": snapshot.analysisName,
+            "lens": snapshot.lens,
+            "output": output.path,
+            "captureAuthority": "retained native result, annotations, analysis, definition and viewport projections",
+            "filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy,
+            "replacingExisting": String(replacingExisting),
+        ]) { _, resolved in resolved }
+        let result = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: replayExecutable).export(
+            snapshot: capture, outputURL: output,
+            provenance: .init(workflowName: "genotype.export.excel", toolVersion: LungfishAppVersion.short,
+                argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path],
+                options: options, defaults: ["worksheets": "all and current filtered view", "format": "xlsx"],
+                runtimeContext: ["entryPoint": "Inspector Export to Excel", "condaEnvironment": "openpyxl", "python": python.path]),
+            replacingExisting: replacingExisting)
+        // The shared owner has committed both files. Do not layer a GUI
+        // restore over its receipt or overwrite a concurrent publication.
+        guard fileManager.fileExists(atPath: result.outputURL.path),
+              fileManager.fileExists(atPath: result.receiptURL.path) else {
+            throw GenotypeViewportExportError.missingProvenance(result.receiptURL.path)
+        }
+        return .init(outputURL: result.outputURL, provenanceURL: result.receiptURL)
+    }
+
     func export(
         snapshot: GenotypeViewportExportSnapshot,
         format: GenotypeViewportExportFormat,
         to outputURL: URL
     ) throws -> GenotypeViewportExportResult {
+        guard format == .csv || format == .tsv else {
+            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("Use the immutable Excel capture export")
+        }
         try fileManager.createDirectory(
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -139,53 +155,31 @@ struct GenotypeViewportExportService {
             ? snapshot.annotationSidecarURL
             : capturedAnnotationURL
 
-        var arguments: [String]
-        if format.usesPivotSubcommand {
-            arguments = [
-                "genotype", "export-pivot-xlsx",
-                "--bundle", snapshot.bundleURL.path,
-                "--output", standardizedOutputURL.path,
-                "--view-projection", projectionURL.path,
-            ]
-            if let annotationSidecarURL = effectiveAnnotationURL {
-                arguments += ["--annotations", annotationSidecarURL.path]
-            }
-            if let minReads = minimumReads(from: snapshot.filters) {
-                arguments += ["--min-reads", String(minReads)]
-            }
-            if let percentFilter = activePercentFilter(from: snapshot.filters) {
-                arguments += ["--min-percent", String(percentFilter.minimum)]
-                if let basis = percentFilter.basis {
-                    arguments += ["--percent-basis", basis]
-                }
-            }
-        } else {
-            arguments = [
-                "genotype", "export",
-                "--bundle", snapshot.bundleURL.path,
-                "--export-format", format.cliValue,
-                "--output", standardizedOutputURL.path,
-                "--lens", snapshot.lens,
-                "--view-projection", projectionURL.path,
-            ]
-            for sample in snapshot.sampleNames {
-                arguments += ["--sample", sample]
-            }
-            if let minReads = minimumReads(from: snapshot.filters) {
-                arguments += ["--min-reads", String(minReads)]
-            }
-            if let filterText = filterText(from: snapshot.filters) {
-                arguments += ["--filter", filterText]
-            }
-            if let definitionID = snapshot.filters["activeHaplotypeDefinitionSetID"],
-               !definitionID.isEmpty {
-                arguments += ["--active-haplotype-definition", definitionID]
-            }
-            if let annotationSidecarURL = effectiveAnnotationURL {
-                arguments += ["--annotations", annotationSidecarURL.path]
-            }
-            arguments.append("--force")
+        var arguments = [
+            "genotype", "export",
+            "--bundle", snapshot.bundleURL.path,
+            "--export-format", format.cliValue,
+            "--output", standardizedOutputURL.path,
+            "--lens", snapshot.lens,
+            "--view-projection", projectionURL.path,
+        ]
+        for sample in snapshot.sampleNames {
+            arguments += ["--sample", sample]
         }
+        if let minReads = minimumReads(from: snapshot.filters) {
+            arguments += ["--min-reads", String(minReads)]
+        }
+        if let filterText = filterText(from: snapshot.filters) {
+            arguments += ["--filter", filterText]
+        }
+        if let definitionID = snapshot.filters["activeHaplotypeDefinitionSetID"],
+           !definitionID.isEmpty {
+            arguments += ["--active-haplotype-definition", definitionID]
+        }
+        if let annotationSidecarURL = effectiveAnnotationURL {
+            arguments += ["--annotations", annotationSidecarURL.path]
+        }
+        arguments.append("--force")
 
         let rollbackSnapshot = try GenotypeViewportExportRollbackSnapshot(
             urls: [standardizedOutputURL, provenanceURL, projectionURL]
@@ -279,47 +273,6 @@ struct GenotypeViewportExportService {
             if let raw = filters[key], let value = Int(raw), value > 0 {
                 return value
             }
-        }
-        return nil
-    }
-
-    private func percentBasis(displayName name: String?) -> String? {
-        switch name {
-        case ONTGenotypeSupportDenominator.viewedLocus.displayName: return "viewed-locus"
-        case ONTGenotypeSupportDenominator.sampleRetained.displayName: return "sample-retained"
-        default: return nil
-        }
-    }
-
-    /// Resolves the active threshold and denominator as one inseparable value.
-    /// Matrix filtering takes precedence because it is independently active.
-    /// The row-support threshold only filters the projection while low-support
-    /// rows are hidden; a positive configured value alone is not active.
-    private func activePercentFilter(
-        from filters: [String: String]
-    ) -> (minimum: Double, basis: String?)? {
-        if let raw = filters["matrixMinimumPercent"],
-           let value = Double(raw),
-           value > 0 {
-            return (
-                value,
-                percentBasis(displayName: filters["matrixPercentDenominator"])
-            )
-        }
-        if filters["hideLowSupport"] == "true",
-           let raw = filters["minimumSupportPercent"],
-           let value = Double(raw),
-           value > 0 {
-            return (
-                value,
-                percentBasis(displayName: filters["supportDenominator"])
-            )
-        }
-        for key in ["minimumPercent", "minPercent"] {
-            guard let raw = filters[key],
-                  let value = Double(raw),
-                  value > 0 else { continue }
-            return (value, nil)
         }
         return nil
     }

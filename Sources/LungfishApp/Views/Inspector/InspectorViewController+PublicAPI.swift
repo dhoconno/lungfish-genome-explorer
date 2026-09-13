@@ -498,10 +498,9 @@ extension InspectorViewController {
             auditEntries: sidecar.auditLog,
             haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
             haplotypeDefinitionsFolderURL: genotypeHaplotypeDefinitionsFolderURL(result),
-            currentWorkbookUpdate: genotypeCurrentWorkbookUpdateState(result: result, sidecar: sidecar),
-            latestFilteredExport: genotypeFilteredExportSession.presentation,
-            filteredExportStatus: genotypeFilteredExportSession.statusText,
-            isFilteredExporting: genotypeFilteredExportSession.isExporting
+            lastExcelExport: genotypeExcelExportSession.presentation,
+            excelExportStatus: genotypeExcelExportSession.statusText,
+            isExcelExporting: genotypeExcelExportSession.isExporting
         )
         // Mirror the current display-state knobs into the document state so
         // Inspector controls render with the right values when the section appears.
@@ -575,21 +574,21 @@ extension InspectorViewController {
         }
     }
 
-    func recordGenotypeFilteredExport(_ event: GenotypeFilteredExportEvent) {
+    func recordGenotypeExcelExport(_ event: GenotypeExcelExportEvent) {
         switch event {
         case .started:
-            genotypeFilteredExportSession.beginExport()
+            genotypeExcelExportSession.beginExport()
         case .succeeded(let url):
-            genotypeFilteredExportSession.recordSuccessfulExport(url)
+            genotypeExcelExportSession.recordSuccessfulExport(url)
         case .failed(let message):
-            genotypeFilteredExportSession.recordFailedExport(message)
+            genotypeExcelExportSession.recordFailedExport(message)
         }
         guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(
             state.replacing(
-                latestFilteredExport: genotypeFilteredExportSession.presentation,
-                filteredExportStatus: genotypeFilteredExportSession.statusText,
-                isFilteredExporting: genotypeFilteredExportSession.isExporting
+                lastExcelExport: genotypeExcelExportSession.presentation,
+                excelExportStatus: genotypeExcelExportSession.statusText,
+                isExcelExporting: genotypeExcelExportSession.isExporting
             )
         )
     }
@@ -691,14 +690,6 @@ extension InspectorViewController {
                 nextState.smartCohorts = []
             }
             nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
-            if let currentWorkbookUpdate = nextState.currentWorkbookUpdate {
-                nextState.currentWorkbookUpdate = GenotypeResultCurrentWorkbookUpdateState(
-                    manualChangeCount: genotypeWorkbookChangeCount(sidecar),
-                    statusText: currentWorkbookUpdate.statusText,
-                    isEnabled: currentWorkbookUpdate.isEnabled,
-                    requiresReview: currentWorkbookUpdate.requiresReview
-                )
-            }
             var displayState = viewModel.genotypeResultDisplaySectionViewModel.displayState
             displayState.genotypeLocusDisplayOrder = sidecar.settings.genotypeLocusDisplayOrder
             if viewModel.genotypeResultDisplaySectionViewModel.mhcCandidateControlsAvailable {

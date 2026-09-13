@@ -94,7 +94,7 @@ w.save(p)
             reopened.testingApplyDisplayState(.init(summaryViewMode: .matrix, matrixMinimumReads: 0))
             let snapshot = try XCTUnwrap(reopened.testingCurrentExportSnapshot())
             let output = root.appendingPathComponent("filtered-\(phase).xlsx")
-            _ = try GenotypeViewportExportService(runner: ExactZeroExportRunner(cli: cli)).export(snapshot: snapshot, format: .pivotExcel, to: output)
+            _ = try GenotypeViewportExportService(runner: ExactZeroExportRunner(cli: cli)).export(snapshot: snapshot, format: .excel, to: output)
             try runPython(python, code: #"""
 import sys,json,base64,glob,os,hashlib
 from openpyxl import load_workbook

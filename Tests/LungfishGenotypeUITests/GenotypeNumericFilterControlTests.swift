@@ -3,9 +3,47 @@ import SwiftUI
 import XCTest
 @testable import LungfishGenotypeUI
 import LungfishKit
+import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeNumericFilterControlTests: XCTestCase {
+    func testHostedLastNumericKeystrokeIsSettledBeforeExcelSavePanel() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelNativeNumeric")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: GenotypeTestFixtures.makeResult(bundleURL: root, calls: [
+            GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 9),
+            GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "Mafa-A1*002:01", reads: 1)
+        ], kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue))
+        let viewModel = makeViewModel(scheduler: HostedNumericFilterScheduler())
+        viewModel.update(isAvailable: true, state: controller.testingDisplayState)
+        viewModel.onDisplayStateChanged = { controller.applyDisplayState($0) }
+        let host = hostSection(viewModel)
+        defer { host.window.orderOut(nil) }
+        controller.view.frame = NSRect(x: 430, y: 0, width: 900, height: 700)
+        host.view.addSubview(controller.view)
+        let field = try nativeTextField("Min reads", in: host)
+        _ = try replaceText("5", in: field, host: host)
+        var captured: GenotypeWorkbookPresentation.Snapshot?
+        var panels = 0
+        controller.excelSavePanelPresenter = { _, _, completion in
+            panels += 1
+            do {
+                let snapshot = try controller.captureExcelExportSnapshot()
+                captured = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
+            } catch { XCTFail(error.localizedDescription) }
+            completion(nil)
+        }
+        controller.presentExcelExportPanel(expectedDisplayState: viewModel.displayState,
+            settleDisplayState: { try viewModel.prepareNumericFiltersForExport() })
+        XCTAssertEqual(panels, 1)
+        XCTAssertEqual(viewModel.displayState.matrixMinimumReads, 5)
+        XCTAssertEqual(captured?.filteredMatrix.rows.map(\.target.genotype), ["Mafa-A1*001:01"])
+        XCTAssertEqual(captured?.allMatrix.rows.count, 2)
+    }
+
     func testHostedFieldsRouteReturnTabAndEscapeToTheSelectedDraft() throws {
         let scheduler = HostedNumericFilterScheduler()
         let viewModel = makeViewModel(scheduler: scheduler)

@@ -71,10 +71,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
         XCTAssertEqual(workbookScheduler.scheduledCount, 0)
-        XCTAssertEqual(
-            controller.testingCurrentWorkbookUpdateStatus,
-            "Pending edits — current.xlsx does not include the latest LGE review state."
-        )
+        XCTAssertNil(controller.testingCurrentWorkbookUpdateStatus)
         XCTAssertTrue(surfacedErrors.isEmpty)
         persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
@@ -94,6 +91,37 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         )
     }
 
+
+    func testExcelCaptureWaitsForPendingNativeAnnotationPersistenceBeforeOpeningPanel() throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelPendingNative")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
+        controller.matrixAnnotationRetryScheduler = scheduler
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: root, samples: [], calls: [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SUPPORTED", reads: 9)
+        ]))
+        let target = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: "01_Mafa_A1_SUPPORTED", sample: "AnimalA")
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: root)
+        defer { publicationLock.release() }
+        controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "pending native note")))
+        XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 1)
+        var panels = 0
+        var failures = 0
+        controller.excelSavePanelPresenter = { _, _, completion in panels += 1; completion(nil) }
+        controller.onExcelExportEvent = { if case .failed = $0 { failures += 1 } }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        XCTAssertEqual(panels, 0)
+        XCTAssertEqual(failures, 1)
+        publicationLock.release()
+        scheduler.fireScheduledActions()
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        XCTAssertEqual(panels, 1)
+        let capture = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
+            from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData))
+        XCTAssertEqual(capture.allMatrix.rows[0].cells[0].comment, "pending native note")
+    }
 
     func testConfigureWaitsForDeferredMutationAndThenAppliesNewBundleContext() throws {
         let root = try TestTempDirectory.make(prefix: "MatrixDeferredConfigure")
@@ -271,101 +299,6 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         }
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
         XCTAssertEqual(controller.testingCurrentWorkbookUpdateStatus, underlyingStatus)
-    }
-
-
-    func testCurrentWorkbookUIRequestRetainsFullSemanticSnapshotForAnnotationOnlyUpdate() throws {
-        let root = try TestTempDirectory.make(prefix: "CurrentWorkbookUISnapshot")
-        defer { TestTempDirectory.cleanup(root) }
-        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let analysis = makeWeakSupportAnalysis(
-            h1: "M1",
-            h2: "M3",
-            h1Allele: "01_Mafa_B_M1",
-            h2Allele: "02_Mafa_B_M3"
-        )
-        let controller = GenotypeResultViewController()
-        var requests: [GenotypeCurrentWorkbookUIRequest] = []
-        controller.onCurrentWorkbookSyncRequested = { requests.append($0) }
-        _ = controller.view
-        controller.configure(result: makeResult(
-            bundleURL: bundleURL,
-            samples: [],
-            calls: [],
-            haplotypeAnalysis: analysis
-        ))
-
-        controller.testingRequestCurrentWorkbookUpdateAndView()
-
-        let request = try XCTUnwrap(requests.last)
-        XCTAssertEqual(request.action, .synchronize(.updateAndView))
-        XCTAssertTrue(request.openAfterSuccess)
-        XCTAssertTrue(request.snapshot.annotationOnly)
-        XCTAssertFalse(request.snapshot.calls.isEmpty)
-        XCTAssertFalse(request.snapshot.includedLoci.isEmpty)
-        XCTAssertEqual(request.snapshot.bundleURL, bundleURL.standardizedFileURL)
-        XCTAssertEqual(
-            request.snapshot.annotationSidecarURL,
-            bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-                .standardizedFileURL
-        )
-    }
-
-
-    func testCurrentWorkbookSnapshotEncodingFailurePropagatesWithoutEmptySidecarFallback() throws {
-        let sidecar = GenotypeAnnotationSidecar.empty(
-            generatedAt: "2026-07-24T00:00:00Z"
-        )
-
-        XCTAssertThrowsError(
-            try GenotypeCurrentWorkbookUISnapshot.encodingAnnotationSidecar(
-                bundleURL: URL(fileURLWithPath: "/tmp/encoding-failure.lungfishgenotype"),
-                calls: [],
-                includedLoci: [],
-                annotationSidecar: sidecar,
-                annotationSidecarURL: URL(fileURLWithPath: "/tmp/annotations.json"),
-                candidateArtifacts: nil,
-                annotationOnly: true,
-                isReadOnly: false,
-                encoder: { _ in throw WorkbookSnapshotEncodingTestError.injected }
-            )
-        ) { error in
-            XCTAssertEqual(error as? WorkbookSnapshotEncodingTestError, .injected)
-        }
-    }
-
-
-    func testCurrentWorkbookPresentationMapsPhasesAndReadOnlyAvailability() throws {
-        let controller = GenotypeResultViewController()
-        _ = controller.view
-
-        controller.testingApplyCurrentWorkbookSyncPhase(.current, isReadOnly: true)
-        XCTAssertEqual(controller.testingCurrentWorkbookActionTitle, "Update and View Current Excel Version")
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateButtonEnabled)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Current") == true)
-
-        controller.testingApplyCurrentWorkbookSyncPhase(.dirty, isReadOnly: true)
-        XCTAssertFalse(controller.testingCurrentWorkbookUpdateButtonEnabled)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Pending edits") == true)
-
-        controller.testingApplyCurrentWorkbookSyncPhase(.updating, isReadOnly: false)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateButtonEnabled)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Updating") == true)
-
-        controller.testingApplyCurrentWorkbookSyncPhase(.dirtyWhileUpdating, isReadOnly: false)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains(
-            "Pending edits while updating"
-        ) == true)
-        controller.testingApplyCurrentWorkbookSyncPhase(
-            .dirtyWhileUpdating,
-            isReadOnly: true
-        )
-        XCTAssertFalse(controller.testingCurrentWorkbookUpdateButtonEnabled)
-
-        controller.testingApplyCurrentWorkbookSyncPhase(.failed("boom"), isReadOnly: false)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Failed") == true)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("boom") == true)
     }
 
 
@@ -684,75 +617,6 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
         XCTAssertEqual(controller.testingMatrixPartialReloadCount, 2)
         XCTAssertEqual(controller.testingMatrixPartialReloadedCellCount, 2)
-    }
-
-
-    func testWorkbookUpdateFailurePreservesPublishedSidecarAndExposesRetryWarning() throws {
-        struct WorkbookFailure: Error {}
-
-        let root = try TestTempDirectory.make(prefix: "MatrixWorkbookRetry")
-        defer { TestTempDirectory.cleanup(root) }
-        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
-        controller.matrixWorkbookUpdateScheduler = scheduler
-        controller.onCurrentWorkbookSyncRequested = { _ in }
-        _ = controller.view
-        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
-        controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "durable")))
-        let published = try Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
-
-        controller.applyCurrentWorkbookUpdateFailed(WorkbookFailure())
-
-        XCTAssertEqual(
-            try Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)),
-            published
-        )
-        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateStatus?.contains("Failed") == true)
-    }
-
-
-    func testWorkbookFailureAfterRemovingFinalAnnotationLeavesEnabledRetryThatInvokesUpdate() throws {
-        struct WorkbookFailure: Error {}
-
-        let root = try TestTempDirectory.make(prefix: "MatrixWorkbookFinalRemovalRetry")
-        defer { TestTempDirectory.cleanup(root) }
-        let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-        let target = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
-        let scheduler = MatrixWorkbookUpdateSchedulerSpy()
-        let controller = GenotypeResultViewController()
-        controller.matrixWorkbookUpdateScheduler = scheduler
-        var workbookUpdateCount = 0
-        controller.onCurrentWorkbookSyncRequested = { request in
-            if case .synchronize = request.action {
-                workbookUpdateCount += 1
-            }
-        }
-        _ = controller.view
-        let result = makeResult(bundleURL: bundleURL, samples: [], calls: [])
-        controller.configure(result: result)
-
-        controller.editMatrixComment(.init(
-            targets: [target],
-            intent: .upsert(body: "temporary")
-        ))
-        controller.testingRequestCurrentWorkbookUpdateAndView()
-        XCTAssertEqual(workbookUpdateCount, 1)
-        controller.applyCurrentWorkbookUpdateCompleted(result: result)
-
-        controller.editMatrixComment(.init(targets: [target], intent: .remove))
-        controller.testingRequestCurrentWorkbookUpdateAndView()
-        XCTAssertEqual(workbookUpdateCount, 2)
-        controller.applyCurrentWorkbookUpdateFailed(WorkbookFailure())
-
-        XCTAssertTrue(controller.testingCurrentWorkbookNeedsRefresh)
-        XCTAssertTrue(controller.testingCurrentWorkbookUpdateButtonEnabled)
-        controller.testingRequestCurrentWorkbookUpdateAndView()
-        XCTAssertEqual(workbookUpdateCount, 3)
     }
 
 

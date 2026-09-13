@@ -24,6 +24,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         case windowClose
         case appQuit
         case eligibilityChange
+        case export
     }
 
     private let hasUnsavedChanges: @MainActor () -> Bool

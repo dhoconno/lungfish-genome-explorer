@@ -257,7 +257,6 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             "no viewport bound, so no export can be offered"
         )
 
-        viewModel.onFilteredPivotExportRequested = {}
         let bound = try GenotypeResultDisplaySection(viewModel: viewModel).inspect()
         XCTAssertThrowsError(
             try bound.find(viewWithAccessibilityIdentifier: "genotype-inspector-export"),
@@ -265,25 +264,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         )
     }
 
-    func testExcelExportChoiceDefaultsToFilteredAndUsesApprovedCopy() {
-        let model = GenotypeExcelExportChoiceModel()
 
-        XCTAssertEqual(model.role, .filteredView)
-        XCTAssertEqual(model.primaryActionTitle, "Export…")
-        XCTAssertEqual(
-            GenotypeExcelExportRole.filteredView.explanation,
-            "Share what you see in LGE, with the current filters, haplotype calls, and annotations. Changes in this file do not return to LGE."
-        )
-        XCTAssertEqual(
-            GenotypeExcelExportRole.editableWorkbook.explanation,
-            "Work with all evidence in Excel, including reads hidden by LGE filters. Supported edits can be reviewed and imported back into LGE."
-        )
-
-        model.role = .editableWorkbook
-        XCTAssertEqual(model.primaryActionTitle, "Open in Excel")
-    }
-
-    func testDocumentExcelSectionHasOneExportButtonAndContextualReviewAction() throws {
+    func testDocumentExcelSectionHasOneExportButtonWithoutReviewOrSyncControls() throws {
         var update = GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: false)
         update.statusText = "Localized workbook status"
         let state = GenotypeResultDocumentState(
@@ -291,20 +273,16 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
             artifactRows: [], currentWorkbookUpdate: update
         )
         var exportCalls = 0
-        var reviewCalls = 0
         let view = GenotypeResultDocumentSection(
             state: state,
-            onCurrentWorkbookUpdateRequested: { exportCalls += 1 },
-            onCurrentWorkbookReviewRequested: { reviewCalls += 1 }
+            onExcelExportRequested: { exportCalls += 1 }
         )
         let inspected = try view.inspect()
 
         let export = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-to-excel")
         try export.button().tap()
-        let review = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes")
-        try review.button().tap()
+        XCTAssertThrowsError(try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes"))
         XCTAssertEqual(exportCalls, 1)
-        XCTAssertEqual(reviewCalls, 1)
         XCTAssertEqual(
             inspected.findAll(ViewType.Button.self).filter {
                 (try? $0.labelView().text().string()) == "Export to Excel…"
@@ -317,7 +295,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let first = URL(fileURLWithPath: "/tmp/first.xlsx")
         let second = URL(fileURLWithPath: "/tmp/second.xlsx")
         var existing = Set([first.standardizedFileURL.path])
-        let session = GenotypeFilteredExportSessionState {
+        let session = GenotypeExcelExportSessionState {
             existing.contains($0.standardizedFileURL.path)
         }
 
@@ -330,7 +308,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(session.isExporting)
         session.recordFailedExport("disk full")
         XCTAssertEqual(session.presentation?.url, first.standardizedFileURL)
-        XCTAssertEqual(session.statusText, "Filtered export failed — disk full")
+        XCTAssertEqual(session.statusText, "Excel export failed — disk full")
         XCTAssertFalse(session.isExporting)
 
         session.recordCancelledOrFailedExport()
@@ -341,7 +319,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertFalse(session.presentation?.isAvailable == true)
         XCTAssertEqual(
             session.presentation?.unavailableReason,
-            "The last filtered export is no longer available at its saved location."
+            "The last Excel export is no longer available at its saved location."
         )
 
         existing.removeAll()
@@ -349,103 +327,40 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertNil(session.presentation)
     }
 
-    func testReadOnlyExcelReviewExplainsUnavailabilityAndKeepsFilteredExportEnabled() throws {
+    func testReadOnlySourceKeepsOneExcelExportEnabled() throws {
         let state = GenotypeResultDocumentState(
             title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
             currentWorkbookUpdate: GenotypeCurrentWorkbookUIPhase.reviewRequired.presentation(isReadOnly: true)
         )
         var exports = 0
         let inspected = try GenotypeResultDocumentSection(
-            state: state, onCurrentWorkbookUpdateRequested: { exports += 1 }
+            state: state, onExcelExportRequested: { exports += 1 }
         ).inspect()
-        let reason = "Editing and review are unavailable: a writable result and project write ownership are required. Filtered export is still available."
-        let review = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes").button()
-        XCTAssertTrue(try review.isDisabled())
-        XCTAssertEqual(try review.help().string(), reason)
-        _ = try inspected.find(text: reason)
+        XCTAssertThrowsError(try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-review-excel-changes"))
         let export = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-export-to-excel").button()
-        XCTAssertFalse(try export.isDisabled())
+        XCTAssertFalse(export.isDisabled())
         try export.tap()
         XCTAssertEqual(exports, 1)
     }
 
     func testMissingLastFilteredExportRendersDisabledActionableLink() throws {
         let missing = URL(fileURLWithPath: "/tmp/deleted-filtered.xlsx")
-        let latest = GenotypeFilteredExportPresentation(
+        let latest = GenotypeExcelExportPresentation(
             url: missing,
             isAvailable: false,
-            unavailableReason: "The last filtered export is no longer available at its saved location."
+            unavailableReason: "The last Excel export is no longer available at its saved location."
         )
         let state = GenotypeResultDocumentState(
             title: "Synthetic", sampleIds: [], summaryRows: [], qcRows: [], artifactRows: [],
             currentWorkbookUpdate: GenotypeCurrentWorkbookUIPhase.current.presentation(isReadOnly: false),
-            latestFilteredExport: latest,
-            filteredExportStatus: "Filtered export failed — disk full"
+            lastExcelExport: latest,
+            excelExportStatus: "Excel export failed — disk full"
         )
         let inspected = try GenotypeResultDocumentSection(state: state).inspect()
-        let link = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-last-filtered-export")
+        let link = try inspected.find(viewWithAccessibilityIdentifier: "genotype-inspector-last-excel-export")
         XCTAssertTrue(try link.button().isDisabled())
-        _ = try inspected.find(text: "The last filtered export is no longer available at its saved location.")
-        _ = try inspected.find(text: "Filtered export failed — disk full")
-    }
-
-    func testExcelReviewPresenterShowsDistinctIdentitiesBeforeAfterAndScrollableLargeContent() {
-        let rows = [
-            GenotypeExcelReviewRow(kind: "Call", identity: "S1 • A • H1", before: "old-1", after: "new-1"),
-            GenotypeExcelReviewRow(kind: "Call", identity: "S1 • A • H2", before: "old-2", after: "Clear"),
-            GenotypeExcelReviewRow(kind: "Review", identity: "Matrix cell • S1 • A • allele-7", before: "Unreviewed", after: "false-positive"),
-            GenotypeExcelReviewRow(kind: "Comment", identity: "Matrix row • A • allele-7", before: "prior", after: "new note"),
-        ] + (0..<40).map {
-            GenotypeExcelReviewRow(kind: "Comment", identity: "Matrix column • S\($0)", before: "None", after: "note \($0)")
-        }
-
-        let scroll = GenotypeExcelReviewPresenter.makeScrollView(rows: rows)
-        let labels = (scroll.documentView as? NSStackView)?.arrangedSubviews
-            .compactMap { ($0 as? NSTextField)?.stringValue } ?? []
-
-        XCTAssertTrue(scroll.hasVerticalScroller)
-        XCTAssertEqual(labels.count, rows.count)
-        XCTAssertTrue(labels.contains("Call — S1 • A • H1\nold-1 → new-1"))
-        XCTAssertTrue(labels.contains("Call — S1 • A • H2\nold-2 → Clear"))
-        XCTAssertGreaterThan(scroll.documentView?.fittingSize.height ?? 0, scroll.frame.height)
-    }
-
-    func testExcelReviewPresenterMapsActualChangesAndDoesNotTruncateMultilineComments() {
-        let longBefore = (1...8).map { "before line \($0)" }.joined(separator: "\n")
-        let longAfter = (1...8).map { "after line \($0)" }.joined(separator: "\n")
-        let changes: [GenotypeEditableWorkbookService.Change] = [
-            .init(kind: .call, target: nil, sample: "S1", locus: "A", slot: .h1,
-                  baseline: "base", before: "old", value: nil, passedUniqueReads: nil),
-            .init(kind: .comment,
-                  target: .cell(locus: "A", genotype: "allele-7", sample: "S1", stableClusterID: "cluster-9"),
-                  sample: "S1", locus: "A", slot: nil, baseline: nil,
-                  before: longBefore, value: longAfter, passedUniqueReads: nil),
-        ]
-        let rows = changes.map(GenotypeExcelReviewRow.init(change:))
-        XCTAssertEqual(rows[0].identity, "S1 • A • H1")
-        XCTAssertEqual(rows[0].after, "Clear")
-        XCTAssertEqual(rows[1].identity, "Matrix cell • S1 • A • allele-7 • cluster-9")
-
-        let scroll = GenotypeExcelReviewPresenter.makeScrollView(rows: rows)
-        let labels = try! XCTUnwrap(scroll.documentView as? NSStackView).arrangedSubviews
-            .compactMap { $0 as? NSTextField }
-        XCTAssertEqual(labels[1].maximumNumberOfLines, 0)
-        XCTAssertTrue(labels[1].stringValue.contains("before line 8"))
-        XCTAssertTrue(labels[1].stringValue.contains("after line 8"))
-    }
-
-    func testFilteredPivotExportMainSplitWiringUsesActiveControllerAndInspectorCleanup() {
-        let mainSplitSource = combinedMainSplitViewControllerSource()
-        let inspectorSource = combinedInspectorViewControllerSource()
-
-        // source-text: same seam as the visibility wiring test above.
-        XCTAssertTrue(mainSplitSource.contains("controller.onExcelExportRequested ="))
-        XCTAssertTrue(mainSplitSource.contains(
-            ".prepareNumericFiltersForExport()"
-        ))
-        XCTAssertTrue(inspectorSource.contains(
-            "onFilteredPivotExportRequested = nil"
-        ))
+        _ = try inspected.find(text: "The last Excel export is no longer available at its saved location.")
+        _ = try inspected.find(text: "Excel export failed — disk full")
     }
 
     func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
@@ -1193,7 +1108,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
         let mixed = GenotypeMatrixReviewCapability.evaluate(
             selection: [first, second],
-            evidence: .init([first: 9]),
+            evidence: .init([first: 9, second: 0]),
             reviews: [],
             comments: [],
             isWritable: true
@@ -1211,7 +1126,7 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
         let unsupported = GenotypeMatrixReviewCapability.evaluate(
             selection: [first, second],
-            evidence: .init(),
+            evidence: .init([first: 0, second: 0]),
             reviews: [],
             comments: [],
             isWritable: true
@@ -1222,9 +1137,18 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(viewModel.matrixFalseNegativeAvailability.isEnabled)
         XCTAssertEqual(viewModel.matrixCurrentReviewSummary, "None")
 
+        let missingEvidence = GenotypeMatrixReviewCapability.evaluate(
+            selection: [first, second], evidence: .init([first: 9]),
+            reviews: [], comments: [], isWritable: true
+        )
+        viewModel.updateMatrixReviewCapability(missingEvidence)
+        XCTAssertEqual(missingEvidence.support.unknownCount, 1)
+        XCTAssertFalse(viewModel.matrixFalsePositiveAvailability.isEnabled)
+        XCTAssertFalse(viewModel.matrixFalseNegativeAvailability.isEnabled)
+
         let mixedReviews = GenotypeMatrixReviewCapability.evaluate(
             selection: [first, second],
-            evidence: .init([first: 9, second: 4]),
+            evidence: .init([first: 9, second: 0]),
             reviews: [
                 .init(
                     target: first,
@@ -1704,6 +1628,8 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         let view = GenotypeMatrixAnnotationSection(viewModel: viewModel)
         let inspected = try view.inspect()
 
+        _ = try inspected.find(text: "Edits are saved in LGE. Export again to create an updated Excel snapshot.")
+        XCTAssertThrowsError(try inspected.find(text: "Edits are saved to annotations.json and synced to current.xlsx."))
         _ = try inspected.find(text: "Appearance")
         _ = try inspected.find(button: "False Positive")
         _ = try inspected.find(button: "False Negative")

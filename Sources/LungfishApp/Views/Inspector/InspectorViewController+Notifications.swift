@@ -116,7 +116,7 @@ extension InspectorViewController {
         viewModel.documentSectionViewModel.updateAssemblyDocument(nil)
         viewModel.documentSectionViewModel.updateViralReconDocument(nil)
         loadedGenotypeResult = nil
-        genotypeFilteredExportSession.clear()
+        genotypeExcelExportSession.clear()
         viewModel.documentSectionViewModel.navigateToSourceData = nil
         viewModel.provenanceSectionViewModel.clear()
 
@@ -135,7 +135,6 @@ extension InspectorViewController {
         viewModel.genotypeResultDisplaySectionViewModel.onMatrixCommentRequested = nil
         viewModel.genotypeResultDisplaySectionViewModel.onSupportSelectionPreviewChanged = nil
         viewModel.genotypeResultDisplaySectionViewModel.onMatrixVisibilityCommandRequested = nil
-        viewModel.genotypeResultDisplaySectionViewModel.onFilteredPivotExportRequested = nil
         viewModel.selectionSectionViewModel.onGenotypeHighlightRequested = nil
 
         // Clear FASTQ metadata section

@@ -137,7 +137,7 @@ enum GenotypeThreeSheetCohortAcceptance {
         XCTAssertTrue(definition.hasPrefix(root.path + "/"))
         XCTAssertFalse(snapshot.rows.isEmpty)
         let output = root.appendingPathComponent("filtered-\(label).xlsx")
-        _ = try exporter.export(snapshot: snapshot, format: .pivotExcel, to: output)
+        _ = try exporter.export(snapshot: snapshot, format: .excel, to: output)
         let current = try ONTGenotypeResultBundle.currentWorkbookURL(for: bundle)
         try FileManager.default.copyItem(at: current, to: root.appendingPathComponent("current-\(label).xlsx"))
         let expected = root.appendingPathComponent("calls-\(label).json")

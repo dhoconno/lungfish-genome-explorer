@@ -138,28 +138,83 @@ final class MappingViewportRoutingTests: XCTestCase {
         }
     }
 
-    func testExcelExportDialogReflectsProjectWriteOwnershipAndDeniedOpenIsActionable() async throws {
-        let root = try TestTempDirectory.make(prefix: "ExcelDenied")
+    private func makeOneWayExcelFixture(root: URL) async throws -> (MainSplitViewController, GenotypeResultViewController) {
+        let bundle = try makeGenotypeResultBundle(root: root, name: "one-way", haplotypeAnalysisPath: nil)
+        let split = MainSplitViewController()
+        _ = split.view
+        await split.testingDisplayGenotypeResultBundleAndWait(bundle)
+        return (split, try XCTUnwrap(split.viewerController.genotypeResultViewController))
+    }
+
+    func testInspectorExcelExportRejectsStaleControllerAndDelayedPanelAfterViewerSwitch() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelInspectorOrigin")
         defer { TestTempDirectory.cleanup(root) }
-        let (split, controller, _, _) = try await makeExcelReviewFixture(root: root)
+        let (split, controller) = try await makeOneWayExcelFixture(root: root)
+        let action = try XCTUnwrap(controller.onExcelExportRequested)
+        var save: ((URL?) -> Void)?
+        var panels = 0
+        var exports = 0
+        controller.excelSavePanelPresenter = { _, _, completion in panels += 1; save = completion }
+        controller.viewportExportRunner = { _, _, _ in exports += 1 }
+        action()
+        XCTAssertEqual(panels, 1)
+        split.viewerController.hideGenotypeResultView()
+        action()
+        try XCTUnwrap(save)(root.appendingPathComponent("stale.xlsx"))
+        await Task.yield()
+        XCTAssertEqual(panels, 1)
+        XCTAssertEqual(exports, 0)
+        XCTAssertNil(split.inspectorController.genotypeExcelExportSession.presentation)
+    }
+
+    func testInspectorExcelAsyncCompletionCannotRestoreLastSuccessAfterContextReset() async throws {
+        for fails in [false, true] {
+            let root = try TestTempDirectory.make(prefix: "ExcelInspectorCompletion")
+            defer { TestTempDirectory.cleanup(root) }
+            let (split, controller) = try await makeOneWayExcelFixture(root: root)
+            let prior = root.appendingPathComponent("prior.xlsx")
+            split.inspectorController.recordGenotypeExcelExport(.succeeded(prior))
+            XCTAssertEqual(split.inspectorController.genotypeExcelExportSession.presentation?.url, prior)
+            let gate = ExcelAwaitGate()
+            let lateEvent = expectation(description: "No stale export completion event")
+            lateEvent.isInverted = true
+            let routedEvent = controller.onExcelExportEvent
+            controller.onExcelExportEvent = { event in
+                if case .started = event {} else { lateEvent.fulfill() }
+                routedEvent?(event)
+            }
+            controller.excelSavePanelPresenter = { _, _, completion in completion(root.appendingPathComponent("late.xlsx")) }
+            controller.viewportExportRunner = { _, _, _ in
+                try await gate.wait()
+                if fails { throw NSError(domain: "Delayed export failed", code: 1) }
+            }
+            controller.onExcelExportRequested?()
+            let started = await eventually { gate.count == 1 }
+            XCTAssertTrue(started)
+            split.viewerController.hideGenotypeResultView()
+            split.inspectorController.clearSelection()
+            XCTAssertNil(split.inspectorController.genotypeExcelExportSession.presentation)
+            gate.release()
+            await fulfillment(of: [lateEvent], timeout: 0.15)
+            XCTAssertNil(split.inspectorController.genotypeExcelExportSession.presentation)
+            XCTAssertNil(split.inspectorController.genotypeExcelExportSession.statusText)
+        }
+    }
+
+    func testInspectorExcelExportRemainsAvailableWithoutProjectWriteOwnership() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExcelReadableSource")
+        defer { TestTempDirectory.cleanup(root) }
+        let (split, controller) = try await makeOneWayExcelFixture(root: root)
         split.genotypeCurrentWorkbookProjectWriteAuthorizationProvider = { false }
         var presented = 0
-        controller.excelChoicePresenter = { alert, _, completion in
+        controller.excelSavePanelPresenter = { panel, _, completion in
             presented += 1
-            let buttons = (alert.accessoryView as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton }
-            XCTAssertEqual(buttons?.last?.isEnabled, false)
-            completion(.alertSecondButtonReturn)
+            XCTAssertEqual(panel.prompt, "Export")
+            XCTAssertTrue((panel.accessoryView as? NSTextField)?.stringValue.contains("Filtering does not remove data from the All worksheet.") == true)
+            completion(nil)
         }
         controller.onExcelExportRequested?()
         XCTAssertEqual(presented, 1)
-        var snapshot: GenotypeCurrentWorkbookUISnapshot?
-        controller.onCurrentWorkbookSyncRequested = { snapshot = $0.snapshot }
-        controller.requestCurrentWorkbookRegistration()
-        var errors: [String] = []
-        split.genotypeExcelErrorPresenter = { errors.append($0.localizedDescription) }
-        await split.routeGenotypeCurrentWorkbookRequest(.init(snapshot: try XCTUnwrap(snapshot), action: .openEditable)).value
-        XCTAssertEqual(errors.count, 1)
-        XCTAssertTrue(errors.first?.contains("write ownership") == true)
     }
 
     func testExcelReviewAcceptanceSavesRefreshesAndRegeneratesIncludingZeroChange() async throws {

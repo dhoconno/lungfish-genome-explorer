@@ -9,6 +9,26 @@ import LungfishTestSupport
 /// and `ViralDetectionTableView.setFilterText(_:debounce:)` already do.
 final class GenotypeMatrixFilterDebounceTests: XCTestCase {
     @MainActor
+    func testImmediateExportSettlesNativeSearchAndCancelsDelayedRecompute() async throws {
+        let matrix = GenotypeComparisonMatrixView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
+        let window = NSWindow(contentRect: matrix.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = matrix
+        matrix.configure(result: makeResult(calls: [
+            makeCall(sample: "AnimalA", genotype: "Mafa-A1*001:01", reads: 12),
+            makeCall(sample: "AnimalA", genotype: "Mafa-B1*003:01", reads: 5),
+        ]))
+        matrix.testingResetProjectionPerformanceCounters()
+        XCTAssertTrue(matrix.testingPerformNativeFilterAction(text: "Mafa-A", selectedRange: NSRange(location: 6, length: 0), in: window))
+        let snapshot = matrix.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/search.lungfishgenotype"), analysisName: "Search", lens: "matrix")
+        XCTAssertEqual(snapshot.rows.map(\.genotype), ["Mafa-A1*001:01"])
+        XCTAssertEqual(snapshot.filters["searchText"], "Mafa-A")
+        XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 1)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(matrix.testingApplyFilterAndSortInvocationCount, 1)
+        XCTAssertEqual(matrix.testingFilterModelText, "Mafa-A")
+    }
+
+    @MainActor
     func testRapidSuccessiveFilterKeystrokesCoalesceToOneRecompute() throws {
         let matrix = GenotypeComparisonMatrixView(
             frame: NSRect(x: 0, y: 0, width: 900, height: 500)

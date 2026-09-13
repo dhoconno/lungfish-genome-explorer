@@ -1826,7 +1826,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testSuccessfulMatrixAnnotationBurstMarksDirtyWithoutLegacyAutoPublication() throws {
+    func testSuccessfulMatrixAnnotationBurstPersistsNativeReviewWithoutWorkbookRegeneration() throws {
         let root = try TestTempDirectory.make(prefix: "MatrixWorkbookCoalesce")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1853,10 +1853,13 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "reviewed")))
 
         XCTAssertEqual(scheduler.scheduledCount, 0)
-        XCTAssertEqual(requests.map(\.action), [.markDirty, .markDirty])
-        XCTAssertTrue(requests.allSatisfy(\.snapshot.annotationOnly))
+        XCTAssertTrue(requests.isEmpty)
+        let persisted = try GenotypeAnnotationSidecar.decode(Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)))
+        XCTAssertEqual(persisted.matrixReviews.first?.target, target)
+        XCTAssertEqual(persisted.matrixReviews.first?.disposition, .falsePositive)
+        XCTAssertEqual(persisted.resolvedMatrixComments[target]?.body, "reviewed")
         scheduler.fireScheduledActions()
-        XCTAssertEqual(requests.map(\.action), [.markDirty, .markDirty])
+        XCTAssertTrue(requests.isEmpty)
     }
 
 }
