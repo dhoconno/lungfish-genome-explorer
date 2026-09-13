@@ -136,8 +136,8 @@ def main(selected: Path) -> None:
     selected_source.write_text(
         f">fixture-reference\n{sequence}\n>fixture-variant\n{variant(sequence)}\n"
     )
-    for source, seed in zip(empty_sources, [2201, 2202]):
-        source.write_text(f">{source.stem}\n{random_dna(seed, 180)}\n")
+    for source, seed, length in zip(empty_sources, [2201, 2202], [180, 183]):
+        source.write_text(f">{source.stem}\n{random_dna(seed, length)}\n")
     try:
         capabilities.write_text(json.dumps(capabilities_document(), sort_keys=True) + "\n")
         generate(selected, [selected_source], caps=False, kind="selected multi-member primer clouds")

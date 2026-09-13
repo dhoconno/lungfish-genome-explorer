@@ -196,9 +196,15 @@ enum PrimalScheme3CoverageContract {
             throw invalid("Catalogue source mapping is not a strict input-to-target bijection.")
         }
         for candidate in candidates {
+            let forwardIDs = try strings(candidate, "forward_oligo_ids")
+            let reverseIDs = try strings(candidate, "reverse_oligo_ids")
+            let forwardSequences = forwardIDs.compactMap { oligoSequences[$0] }
+            let reverseSequences = reverseIDs.compactMap { oligoSequences[$0] }
             guard targetIDs.contains(try string(candidate, "target_id")),
-                  Set(try strings(candidate, "forward_oligo_ids")).isSubset(of: oligoIDs),
-                  Set(try strings(candidate, "reverse_oligo_ids")).isSubset(of: oligoIDs) else {
+                  Set(forwardIDs).count == forwardIDs.count, Set(reverseIDs).count == reverseIDs.count,
+                  Set(forwardSequences).count == forwardSequences.count,
+                  Set(reverseSequences).count == reverseSequences.count,
+                  Set(forwardIDs).isSubset(of: oligoIDs), Set(reverseIDs).isSubset(of: oligoIDs) else {
                 throw invalid("Catalogue candidate references an unknown target or oligo.")
             }
             _ = try interval(candidate["full_interval"], "candidate full interval")
@@ -234,6 +240,8 @@ enum PrimalScheme3CoverageContract {
         guard equalJSON(assignments, try objectArray(validation["assignments"], "validation assignments")) else {
             throw invalid("Optimizer and independent validation assignments differ.")
         }
+        try validateTargetMetadata(optimizer: optimizer, validation: validation, targets: targets,
+                                   candidates: candidates, assignments: assignments, options: options)
         try validatePublication(try object(optimizer["publication"], "publication"), assignments: assignments,
                                 targets: targets, candidates: candidates, candidateIDs: candidateIDs,
                                 oligoSequences: oligoSequences, output: output, poolCount: options.poolCount)
@@ -297,7 +305,22 @@ enum PrimalScheme3CoverageContract {
     }
 
     static func equalJSON(_ lhs: Any, _ rhs: Any) -> Bool {
-        (lhs as AnyObject).isEqual(rhs)
+        if lhs is NSNull || rhs is NSNull { return lhs is NSNull && rhs is NSNull }
+        if let left = lhs as? NSNumber, let right = rhs as? NSNumber {
+            let leftIsBoolean = CFGetTypeID(left) == CFBooleanGetTypeID()
+            let rightIsBoolean = CFGetTypeID(right) == CFBooleanGetTypeID()
+            guard leftIsBoolean == rightIsBoolean else { return false }
+            return leftIsBoolean ? left.boolValue == right.boolValue : left.compare(right) == .orderedSame
+        }
+        if let left = lhs as? String, let right = rhs as? String { return left == right }
+        if let left = lhs as? [Any], let right = rhs as? [Any] {
+            return left.count == right.count && zip(left, right).allSatisfy { equalJSON($0, $1) }
+        }
+        if let left = lhs as? [String: Any], let right = rhs as? [String: Any] {
+            guard Set(left.keys) == Set(right.keys) else { return false }
+            return left.allSatisfy { key, value in right[key].map { equalJSON(value, $0) } == true }
+        }
+        return false
     }
 
     static func safeRelativePath(_ value: Any?, _ label: String) throws -> String {
@@ -410,6 +433,12 @@ enum PrimalScheme3CoverageContract {
 
     private static func validateValidation(_ validation: [String: Any], options: PrimalScheme3DesignOptions,
                                            profile: [String: Any], digest: String) throws {
+        let expectedKeys: Set<String> = ["allowed_secondary_products", "assignments", "catalog_semantic_digest",
+            "counters", "coverage_target", "limitations", "metric", "per_target", "profile", "schemaVersion",
+            "support_diagnostics", "valid", "violations"]
+        guard Set(validation.keys) == expectedKeys else {
+            throw invalid("Independent validation keys are incomplete or unexpected.")
+        }
         try expect(try string(validation, "schemaVersion"), validationSchema, "validation schema")
         guard try bool(validation, "valid"), let violations = validation["violations"] as? [Any], violations.isEmpty else {
             throw invalid("Independent panel validation failed or contains violations.")
@@ -423,6 +452,170 @@ enum PrimalScheme3CoverageContract {
               validation["counters"] is [String: Any], validation["limitations"] is [Any] else {
             throw invalid("Independent validation records are incomplete or malformed.")
         }
+    }
+
+    private static func validateTargetMetadata(optimizer: [String: Any], validation: [String: Any],
+                                               targets: [[String: Any]], candidates: [[String: Any]],
+                                               assignments: [[String: Any]], options: PrimalScheme3DesignOptions) throws {
+        let targetByID = Dictionary(uniqueKeysWithValues: try targets.map { (try string($0, "id"), $0) })
+        let candidateByID = Dictionary(uniqueKeysWithValues: try candidates.map { (try string($0, "id"), $0) })
+        let targetIDs = Set(targetByID.keys)
+        let validationSummaries = try object(validation["per_target"], "validation per_target")
+        let optimizerSummaries = try object(optimizer["per_target"], "optimizer per_target")
+        guard Set(validationSummaries.keys) == targetIDs, Set(optimizerSummaries.keys) == targetIDs else {
+            throw invalid("Validation and optimizer target summaries do not exactly match catalogue targets.")
+        }
+
+        var selectedByTarget: [String: [[String: Any]]] = Dictionary(uniqueKeysWithValues: targetIDs.map { ($0, []) })
+        var selectedIDs: [String] = []
+        for assignment in assignments {
+            guard Set(assignment.keys) == ["candidate_id", "pool"] else {
+                throw invalid("Optimizer assignment keys are incomplete or unexpected.")
+            }
+            let candidateID = try nonemptyString(assignment, "candidate_id")
+            guard let candidate = candidateByID[candidateID] else {
+                throw invalid("Optimizer assignment references an unknown candidate.")
+            }
+            let targetID = try string(candidate, "target_id")
+            selectedByTarget[targetID, default: []].append(candidate)
+            selectedIDs.append(candidateID)
+        }
+        guard Set(selectedIDs).count == selectedIDs.count else {
+            throw invalid("Optimizer assignments contain duplicate candidates.")
+        }
+
+        let support = try object(validation["support_diagnostics"], "validation support_diagnostics")
+        guard Set(support.keys) == Set(selectedIDs) else {
+            throw invalid("Validation support diagnostics do not exactly match selected candidates.")
+        }
+        for candidateID in selectedIDs {
+            guard let candidate = candidateByID[candidateID] else { throw invalid("Selected candidate is missing.") }
+            let diagnostic = try object(support[candidateID], "support diagnostic")
+            let supportKeys: Set<String> = ["joint_rows", "row_product_spans", "unknown_rows"]
+            guard Set(diagnostic.keys) == supportKeys else {
+                throw invalid("Validation support diagnostic keys are incomplete or unexpected.")
+            }
+            try validateCandidateSupport(candidate, target: try object(targetByID[try string(candidate, "target_id")], "support target"))
+            guard supportKeys.allSatisfy({ key in
+                guard let expected = candidate[key], let actual = diagnostic[key] else { return false }
+                return equalJSON(actual, expected)
+            }) else {
+                throw invalid("Validation support diagnostic differs from the selected catalogue candidate.")
+            }
+        }
+
+        let validationKeys: Set<String> = ["coverage_fraction", "full", "interior", "normalized_shortfall",
+            "reference_length", "selected_count", "shortfall", "target_met"]
+        let optimizerKeys: Set<String> = ["coverage_fraction", "covered_bases", "intervals", "normalized_shortfall",
+            "reference_length", "selected_count"]
+        for targetID in targetIDs {
+            let target = try object(targetByID[targetID], "catalogue target")
+            let referenceLength = try integer(target, "reference_length", minimum: 1)
+            let validationSummary = try object(validationSummaries[targetID], "validation target summary")
+            let optimizerSummary = try object(optimizerSummaries[targetID], "optimizer target summary")
+            guard Set(validationSummary.keys) == validationKeys, Set(optimizerSummary.keys) == optimizerKeys else {
+                throw invalid("Validation or optimizer target summary keys are incomplete or unexpected.")
+            }
+            let selected = selectedByTarget[targetID] ?? []
+            let fullIntervals = try mergedIntervals(selected.map { try interval($0["full_interval"], "selected full interval") },
+                                                    referenceLength: referenceLength)
+            let interiorIntervals = try mergedIntervals(selected.map { try interval($0["interior_interval"], "selected interior interval") },
+                                                        referenceLength: referenceLength)
+            let full = try object(validationSummary["full"], "validation full metric")
+            let interior = try object(validationSummary["interior"], "validation interior metric")
+            try validateMetricSummary(full, expectedIntervals: fullIntervals, referenceLength: referenceLength,
+                                      label: "validation full metric")
+            try validateMetricSummary(interior, expectedIntervals: interiorIntervals, referenceLength: referenceLength,
+                                      label: "validation interior metric")
+            let active = options.coverageMetric == .fullSpan ? full : interior
+            let activeFraction = try number(active, "fraction")
+            let shortfall = max(0, options.coverageTarget - activeFraction)
+            let normalizedShortfall = options.coverageTarget > 0 ? shortfall / options.coverageTarget : 0
+            guard try integer(validationSummary, "reference_length", minimum: 1) == referenceLength,
+                  try integer(validationSummary, "selected_count", minimum: 0) == selected.count,
+                  approximatelyEqual(try number(validationSummary, "coverage_fraction"), activeFraction),
+                  approximatelyEqual(try number(validationSummary, "shortfall"), shortfall),
+                  approximatelyEqual(try number(validationSummary, "normalized_shortfall"), normalizedShortfall),
+                  try bool(validationSummary, "target_met") == (activeFraction >= options.coverageTarget) else {
+                throw invalid("Validation target summary is inconsistent with selected catalogue intervals.")
+            }
+            guard try integer(optimizerSummary, "reference_length", minimum: 1) == referenceLength,
+                  try integer(optimizerSummary, "selected_count", minimum: 0) == selected.count,
+                  try integer(optimizerSummary, "covered_bases", minimum: 0) == (try integer(active, "covered_bases", minimum: 0)),
+                  try intervalList(optimizerSummary["intervals"], "optimizer target intervals") ==
+                    intervalList(active["intervals"], "validation active intervals"),
+                  approximatelyEqual(try number(optimizerSummary, "coverage_fraction"), activeFraction),
+                  approximatelyEqual(try number(optimizerSummary, "normalized_shortfall"), normalizedShortfall) else {
+                throw invalid("Optimizer target summary is inconsistent with independent validation.")
+            }
+        }
+    }
+
+    private static func validateCandidateSupport(_ candidate: [String: Any], target: [String: Any]) throws {
+        let knownRows = Set(try stringArray(target["row_ids"], "catalogue target row identifiers"))
+        let jointRows = try stringArray(candidate["joint_rows"], "candidate joint rows")
+        let unknownRows = try stringArray(candidate["unknown_rows"], "candidate unknown rows")
+        guard Set(jointRows).count == jointRows.count, Set(unknownRows).count == unknownRows.count,
+              Set(jointRows).isSubset(of: knownRows), Set(unknownRows).isSubset(of: knownRows),
+              let spans = candidate["row_product_spans"] as? [[Any]] else {
+            throw invalid("Catalogue candidate support metadata is malformed.")
+        }
+        for span in spans {
+            guard span.count == 3, let row = span[0] as? String, knownRows.contains(row),
+                  let start = strictInteger(span[1]), let end = strictInteger(span[2]), start >= 0, end > start else {
+                throw invalid("Catalogue candidate row-product span is malformed.")
+            }
+        }
+    }
+
+    private static func validateMetricSummary(_ summary: [String: Any], expectedIntervals: [[Int]],
+                                              referenceLength: Int, label: String) throws {
+        guard Set(summary.keys) == ["covered_bases", "fraction", "intervals"] else {
+            throw invalid("\(label) keys are incomplete or unexpected.")
+        }
+        let covered = expectedIntervals.reduce(0) { $0 + $1[1] - $1[0] }
+        let fraction = Double(covered) / Double(referenceLength)
+        guard try intervalList(summary["intervals"], "\(label) intervals") == expectedIntervals,
+              try integer(summary, "covered_bases", minimum: 0) == covered,
+              approximatelyEqual(try number(summary, "fraction"), fraction) else {
+            throw invalid("\(label) is inconsistent with selected catalogue intervals.")
+        }
+    }
+
+    private static func mergedIntervals(_ intervals: [[Int]], referenceLength: Int) throws -> [[Int]] {
+        guard intervals.allSatisfy({ $0.count == 2 && $0[0] >= 0 && $0[1] <= referenceLength && $0[1] > $0[0] }) else {
+            throw invalid("A selected candidate interval exceeds its catalogue reference.")
+        }
+        var merged: [[Int]] = []
+        for current in intervals.sorted(by: { $0[0] == $1[0] ? $0[1] < $1[1] : $0[0] < $1[0] }) {
+            if let last = merged.last, current[0] <= last[1] {
+                merged[merged.count - 1][1] = max(last[1], current[1])
+            } else { merged.append(current) }
+        }
+        return merged
+    }
+
+    private static func intervalList(_ value: Any?, _ label: String) throws -> [[Int]] {
+        guard let values = value as? [[Any]] else { throw invalid("\(label) is missing or malformed.") }
+        return try values.map { try interval($0, label) }
+    }
+
+    private static func stringArray(_ value: Any?, _ label: String) throws -> [String] {
+        guard let values = value as? [String], values.allSatisfy({ !$0.isEmpty }) else {
+            throw invalid("\(label) is missing or malformed.")
+        }
+        return values
+    }
+
+    private static func strictInteger(_ value: Any) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite, number.doubleValue.rounded() == number.doubleValue,
+              number.doubleValue >= Double(Int.min), number.doubleValue <= Double(Int.max) else { return nil }
+        return number.intValue
+    }
+
+    private static func approximatelyEqual(_ lhs: Double, _ rhs: Double) -> Bool {
+        abs(lhs - rhs) <= 1e-12
     }
 
     private static func validatePublication(_ publication: [String: Any], assignments: [[String: Any]],
@@ -454,7 +647,7 @@ enum PrimalScheme3CoverageContract {
             _ = try containedFile(output, artifacts[key], "publication \(key)")
         }
         let candidateByID = Dictionary(uniqueKeysWithValues: try candidates.map { (try string($0, "id"), $0) })
-        let references = try Primer3InputLoader.readAlignedRows(at: output.appendingPathComponent("reference.fasta"))
+        let references = try referenceRecords(output.appendingPathComponent("reference.fasta"))
         let referenceSequences = Dictionary(uniqueKeysWithValues: references.map { ($0.title, $0.sequence) })
         guard referenceSequences.keys.sorted() == targetMap.values.sorted() else {
             throw invalid("Published reference FASTA does not match targetToReference.")
@@ -471,11 +664,11 @@ enum PrimalScheme3CoverageContract {
         let primerBED = try bedRecords(output.appendingPathComponent("primer.bed"))
         let expectedPrimerRows = try selected.reduce(into: 0) { count, candidateID in
             guard let candidate = candidateByID[candidateID] else { throw invalid("Selected candidate is absent from the catalogue.") }
-            count += Set(try strings(candidate, "forward_oligo_ids")).count
-            count += Set(try strings(candidate, "reverse_oligo_ids")).count
+            count += try strings(candidate, "forward_oligo_ids").count
+            count += try strings(candidate, "reverse_oligo_ids").count
         }
         guard fullBED.count == selected.count, trimmedBED.count == selected.count,
-              primerBED.count == expectedPrimerRows else {
+              primerBED.count == expectedPrimerRows, Set(primerBED.map(\.name)).count == primerBED.count else {
             throw invalid("Published BED row counts do not match the selected assignments.")
         }
         for candidateID in selected {
@@ -485,15 +678,27 @@ enum PrimalScheme3CoverageContract {
             }
             let fullInterval = try interval(candidate["full_interval"], "full")
             let interiorInterval = try interval(candidate["interior_interval"], "interior")
-            let forwardSequences = Set(try strings(candidate, "forward_oligo_ids").compactMap { oligoSequences[$0] })
-            let reverseSequences = Set(try strings(candidate, "reverse_oligo_ids").compactMap { oligoSequences[$0] })
-            let candidatePrimers = primerBED.filter { $0.name.hasPrefix(name + "_") && $0.reference == reference && $0.pool == pool + 1 }
+            let forwardIDs = try strings(candidate, "forward_oligo_ids")
+            let reverseIDs = try strings(candidate, "reverse_oligo_ids")
+            var expectedPrimers: [BEDRecord] = []
+            for (index, oligoID) in forwardIDs.enumerated() {
+                guard let sequence = oligoSequences[oligoID] else { throw invalid("Selected forward oligo is absent from the catalogue.") }
+                expectedPrimers.append(.init(reference: reference, name: "\(name)_LEFT_\(index + 1)",
+                    start: interiorInterval[0] - sequence.count, end: interiorInterval[0], pool: pool + 1,
+                    strand: "+", sequence: sequence))
+            }
+            for (index, oligoID) in reverseIDs.enumerated() {
+                guard let sequence = oligoSequences[oligoID] else { throw invalid("Selected reverse oligo is absent from the catalogue.") }
+                expectedPrimers.append(.init(reference: reference, name: "\(name)_RIGHT_\(index + 1)",
+                    start: interiorInterval[1], end: interiorInterval[1] + sequence.count, pool: pool + 1,
+                    strand: "-", sequence: sequence))
+            }
+            let candidatePrimers = primerBED.filter { $0.name.hasPrefix(name + "_") }
             guard fullBED.contains(where: { $0.name == name && $0.reference == reference && [$0.start, $0.end] == fullInterval && $0.pool == pool + 1 }),
                   trimmedBED.contains(where: { $0.name == name && $0.reference == reference && [$0.start, $0.end] == interiorInterval && $0.pool == pool + 1 }),
-                  candidatePrimers.filter({ $0.name.contains("_LEFT_") && $0.sequence.map(forwardSequences.contains) == true }).count == forwardSequences.count,
-                  candidatePrimers.filter({ $0.name.contains("_RIGHT_") && $0.sequence.map(reverseSequences.contains) == true }).count == reverseSequences.count,
-                  candidatePrimers.count == forwardSequences.count + reverseSequences.count else {
-                throw invalid("Published BED identity, coordinates, or pool numbering differs from assignments.")
+                  candidatePrimers.count == expectedPrimers.count,
+                  Set(candidatePrimers) == Set(expectedPrimers) else {
+                throw invalid("Published primer BED identity, coordinates, strand, sequence, or pool differs from the catalogue.")
             }
         }
     }
@@ -576,9 +781,49 @@ enum PrimalScheme3CoverageContract {
         try expect(try number(budgets, "timeLimit"), options.optimizerTimeLimit, "scientific time limit")
     }
 
-    private struct BEDRecord {
+    private struct ReferenceRecord {
+        let title: String, sequence: String
+    }
+
+    private static func referenceRecords(_ url: URL) throws -> [ReferenceRecord] {
+        let text: String
+        do { text = try String(contentsOf: url, encoding: .utf8) }
+        catch { throw invalid("Published reference FASTA is missing or unreadable.") }
+        var records: [ReferenceRecord] = [], title: String?, sequence = ""
+        func appendRecord() throws {
+            guard let title, !title.isEmpty, !sequence.isEmpty else {
+                throw invalid("Published reference FASTA contains an empty identifier or sequence.")
+            }
+            records.append(.init(title: title, sequence: sequence))
+        }
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix(">") {
+                if title != nil { try appendRecord() }
+                title = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                sequence = ""
+            } else {
+                guard title != nil, !line.isEmpty else { throw invalid("Published reference FASTA is malformed.") }
+                sequence += line.uppercased()
+            }
+        }
+        if title != nil { try appendRecord() }
+        guard !records.isEmpty else { throw invalid("Published reference FASTA is empty.") }
+        let identifiers = records.map(\.title)
+        guard Set(identifiers).count == identifiers.count else {
+            throw invalid("Published reference FASTA contains duplicate identifiers.")
+        }
+        let allowed = CharacterSet(charactersIn: "ACGTRYSWKMBDHVN")
+        guard records.allSatisfy({ $0.sequence.unicodeScalars.allSatisfy(allowed.contains) }) else {
+            throw invalid("Published reference FASTA contains unsupported sequence symbols.")
+        }
+        return records
+    }
+
+    private struct BEDRecord: Hashable {
         let reference: String, name: String
         let start: Int, end: Int, pool: Int
+        let strand: String?
         let sequence: String?
     }
 
@@ -588,7 +833,8 @@ enum PrimalScheme3CoverageContract {
             guard fields.count >= 5, let start = Int(fields[1]), let end = Int(fields[2]), let pool = Int(fields[4]),
                   start >= 0, end > start, pool > 0 else { throw invalid("A published BED row is malformed.") }
             return .init(reference: String(fields[0]), name: String(fields[3]), start: start, end: end,
-                         pool: pool, sequence: fields.count > 6 ? String(fields[6]) : nil)
+                         pool: pool, strand: fields.count > 5 ? String(fields[5]) : nil,
+                         sequence: fields.count > 6 ? String(fields[6]) : nil)
         }
     }
 

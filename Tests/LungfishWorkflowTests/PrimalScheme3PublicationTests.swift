@@ -98,9 +98,15 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     let mutations = ["config-version", "config-seed", "config-coverage", "config-budget",
       "config-profile", "optimizer-algorithm", "validation-invalid", "validation-missing",
       "catalog-hash", "bed-pool", "provenance-source", "provenance-output",
-      "provenance-input-swap", "catalog-duplicate-source-index", "catalog-fractional-source-index"]
+      "provenance-input-swap", "catalog-duplicate-source-index", "catalog-fractional-source-index",
+      "reference-duplicate-id", "primer-duplicate-member", "primer-shifted-footprint",
+      "primer-flipped-strand", "nested-options-type", "nested-profile-type",
+      "validation-missing-target", "validation-reference-length", "validation-metric",
+      "validation-support-missing", "optimizer-target-summary"]
     for mutation in mutations {
-      let usesEmpty = mutation == "provenance-input-swap" || mutation.hasPrefix("catalog-") && mutation.hasSuffix("source-index")
+      let usesEmpty = mutation == "provenance-input-swap" || mutation == "reference-duplicate-id" ||
+        mutation == "validation-missing-target" || mutation == "validation-reference-length" ||
+        mutation.hasPrefix("catalog-") && mutation.hasSuffix("source-index")
       let fixture = usesEmpty
         ? try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeEmpty",
             storedInputs: ["work/0000-fixture-empty-a.fasta", "work/0001-fixture-empty-b.fasta"])
@@ -119,10 +125,29 @@ final class PrimalScheme3PublicationTests: XCTestCase {
         XCTAssertTrue(error.localizedDescription.contains("PrimalScheme3-LGE"), error.localizedDescription)
         if mutation.hasPrefix("catalog-") && mutation.hasSuffix("source-index") {
           XCTAssertTrue(error.localizedDescription.contains("source mapping"), error.localizedDescription)
+        } else if mutation == "reference-duplicate-id" {
+          XCTAssertTrue(error.localizedDescription.lowercased().contains("duplicate"), error.localizedDescription)
+        } else if mutation.hasPrefix("primer-") {
+          XCTAssertTrue(error.localizedDescription.contains("Published primer"), error.localizedDescription)
+        } else if mutation.hasPrefix("nested-") {
+          XCTAssertTrue(error.localizedDescription.contains("profile") ||
+            error.localizedDescription.contains("options"), error.localizedDescription)
+        } else if ["validation-missing-target", "validation-reference-length", "validation-metric",
+                   "validation-support-missing", "optimizer-target-summary"].contains(mutation) {
+          XCTAssertTrue(error.localizedDescription.lowercased().contains("target") ||
+            error.localizedDescription.lowercased().contains("support"), error.localizedDescription)
         }
       }
       XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
     }
+  }
+
+  func testCoverageJSONEqualityPreservesNumericTypesAndIntegerPrecision() {
+    XCTAssertTrue(PrimalScheme3CoverageContract.equalJSON(51, 51.0))
+    XCTAssertFalse(PrimalScheme3CoverageContract.equalJSON(true, 1))
+    XCTAssertFalse(PrimalScheme3CoverageContract.equalJSON(
+      NSNumber(value: Int64(9_007_199_254_740_992)),
+      NSNumber(value: Int64(9_007_199_254_740_993))))
   }
 
   func testRuntimeIsPreparedBeforeSnapshotsAndLeasedEnvironmentReachesRunner() async throws {
@@ -437,6 +462,15 @@ final class PrimalScheme3PublicationTests: XCTestCase {
       let bed = output.appendingPathComponent("amplicon.bed")
       let changed = try String(contentsOf: bed, encoding: .utf8).replacingOccurrences(of: "\t1\n", with: "\t9\n")
       try Data(changed.utf8).write(to: bed)
+      try refreshProvenanceDescriptors(output, paths: ["amplicon.bed"])
+    } else if mutation == "reference-duplicate-id" {
+      try mutateDuplicateReferenceID(output)
+    } else if mutation?.hasPrefix("primer-") == true {
+      try mutatePrimerBED(output, mutation: try XCTUnwrap(mutation))
+    } else if mutation?.hasPrefix("nested-") == true {
+      try mutateNestedTypes(output, profile: mutation == "nested-profile-type")
+    } else if mutation?.hasPrefix("validation-") == true || mutation == "optimizer-target-summary" {
+      try mutateTargetMetadata(output, mutation: try XCTUnwrap(mutation))
     }
     let capabilities = try Data(contentsOf: nativeCoverageFixtureURL.deletingLastPathComponent()
       .appendingPathComponent("PrimalScheme3CoverageCapabilities.json"))
@@ -505,6 +539,132 @@ final class PrimalScheme3PublicationTests: XCTestCase {
         }
       }
       $0["outputs"] = outputs
+    }
+  }
+
+  private static func mutateDuplicateReferenceID(_ output: URL) throws {
+    let url = output.appendingPathComponent("reference.fasta")
+    var lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+    let headers = lines.indices.filter { lines[$0].hasPrefix(">") }
+    guard headers.count == 2 else { throw CocoaError(.fileReadCorruptFile) }
+    lines[headers[1]] = lines[headers[0]]
+    try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    try refreshProvenanceDescriptors(output, paths: ["reference.fasta"])
+  }
+
+  private static func mutatePrimerBED(_ output: URL, mutation: String) throws {
+    let url = output.appendingPathComponent("primer.bed")
+    var lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+    let records = lines.indices.filter { !lines[$0].hasPrefix("#") }
+    guard records.count >= 2 else { throw CocoaError(.fileReadCorruptFile) }
+    var first = lines[records[0]].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    var second = lines[records[1]].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    if mutation == "primer-duplicate-member" {
+      second[6] = first[6]
+      second[1] = String(try XCTUnwrap(Int(second[2])) - first[6].count)
+      lines[records[1]] = second.joined(separator: "\t")
+    } else if mutation == "primer-shifted-footprint" {
+      first[1] = String(try XCTUnwrap(Int(first[1])) + 1)
+      first[2] = String(try XCTUnwrap(Int(first[2])) + 1)
+      lines[records[0]] = first.joined(separator: "\t")
+    } else if mutation == "primer-flipped-strand" {
+      first[5] = "-"
+      lines[records[0]] = first.joined(separator: "\t")
+    }
+    try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    try refreshProvenanceDescriptors(output, paths: ["primer.bed"])
+  }
+
+  private static func mutateNestedTypes(_ output: URL, profile: Bool) throws {
+    let field = profile ? "profile" : "options"
+    try mutateJSON(output.appendingPathComponent("config.json")) {
+      var integration = try XCTUnwrap($0["panel_optimizer"] as? [String: Any])
+      var nested = try XCTUnwrap(integration[field] as? [String: Any])
+      if profile { nested["mismatch_fuzzy"] = 1 } else { nested["seed"] = false }
+      integration[field] = nested; $0["panel_optimizer"] = integration
+    }
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) {
+      var nested = try XCTUnwrap($0[field] as? [String: Any])
+      if profile { nested["mismatch_fuzzy"] = 1 } else { nested["seed"] = false }
+      $0[field] = nested
+      if profile {
+        var validation = try XCTUnwrap($0["validation"] as? [String: Any])
+        validation["profile"] = nested; $0["validation"] = validation
+      }
+    }
+    if profile {
+      try mutateJSON(output.appendingPathComponent("panel-validation.json")) {
+        var nested = try XCTUnwrap($0["profile"] as? [String: Any])
+        nested["mismatch_fuzzy"] = 1; $0["profile"] = nested
+      }
+    }
+    try refreshProvenanceDescriptors(output,
+      paths: profile ? ["config.json", "panel-optimizer.json", "panel-validation.json"] : ["config.json", "panel-optimizer.json"],
+      synchronizeConfiguration: true, synchronizeScientificProfile: profile)
+  }
+
+  private static func mutateTargetMetadata(_ output: URL, mutation: String) throws {
+    let validationURL = output.appendingPathComponent("panel-validation.json")
+    var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: validationURL)) as? [String: Any])
+    var perTarget = try XCTUnwrap(validation["per_target"] as? [String: [String: Any]])
+    if mutation == "validation-missing-target" {
+      perTarget.removeValue(forKey: try XCTUnwrap(perTarget.keys.sorted().first))
+      validation["per_target"] = perTarget
+    } else if mutation == "validation-reference-length" {
+      let key = try XCTUnwrap(perTarget.keys.sorted().first)
+      var summary = try XCTUnwrap(perTarget[key])
+      summary["reference_length"] = (try XCTUnwrap(summary["reference_length"] as? Int)) + 1
+      perTarget[key] = summary
+      validation["per_target"] = perTarget
+    } else if mutation == "validation-metric" {
+      let key = try XCTUnwrap(perTarget.keys.sorted().first)
+      perTarget[key]?["coverage_fraction"] = 0.5
+      validation["per_target"] = perTarget
+    } else if mutation == "validation-support-missing" {
+      var support = try XCTUnwrap(validation["support_diagnostics"] as? [String: Any])
+      support.removeValue(forKey: try XCTUnwrap(support.keys.sorted().first))
+      validation["support_diagnostics"] = support
+    }
+    try writeJSON(validation, to: validationURL)
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) {
+      if mutation == "optimizer-target-summary" {
+        var summaries = try XCTUnwrap($0["per_target"] as? [String: [String: Any]])
+        let key = try XCTUnwrap(summaries.keys.sorted().first)
+        var summary = try XCTUnwrap(summaries[key])
+        summary["covered_bases"] = (try XCTUnwrap(summary["covered_bases"] as? Int)) + 1
+        summaries[key] = summary
+        $0["per_target"] = summaries
+      } else {
+        $0["validation"] = validation
+      }
+    }
+    try refreshProvenanceDescriptors(output, paths: ["panel-validation.json", "panel-optimizer.json"])
+  }
+
+  private static func refreshProvenanceDescriptors(_ output: URL, paths: Set<String>,
+                                                   synchronizeConfiguration: Bool = false,
+                                                   synchronizeScientificProfile: Bool = false) throws {
+    try mutateJSON(output.appendingPathComponent("panel-provenance.json")) {
+      if synchronizeConfiguration {
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(
+          with: Data(contentsOf: output.appendingPathComponent("config.json"))) as? [String: Any])
+        $0["resolvedOptions"] = config
+        if synchronizeScientificProfile {
+          let integration = try XCTUnwrap(config["panel_optimizer"] as? [String: Any])
+          var scientific = try XCTUnwrap($0["scientific"] as? [String: Any])
+          scientific["profile"] = integration["profile"]
+          $0["scientific"] = scientific
+        }
+      }
+      var descriptors = try XCTUnwrap($0["outputs"] as? [[String: Any]])
+      for index in descriptors.indices {
+        let path = try XCTUnwrap(descriptors[index]["path"] as? String)
+        guard paths.contains(path) else { continue }
+        let file = output.appendingPathComponent(path)
+        descriptors[index]["sha256"] = try ProvenanceFileHasher.sha256(of: file)
+        descriptors[index]["size"] = Int(try ProvenanceFileHasher.fileSize(of: file))
+      }
+      $0["outputs"] = descriptors
     }
   }
 
