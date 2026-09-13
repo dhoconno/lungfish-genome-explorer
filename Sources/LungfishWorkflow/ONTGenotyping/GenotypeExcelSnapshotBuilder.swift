@@ -115,8 +115,8 @@ public enum GenotypeExcelSnapshotBuilder {
                 // fallback labels only, never raw identity or captured viewport labels.
                 let label: String
                 if row.population == .known,
-                   let field = effectiveReferenceMetadata?.alleleFieldKey,
-                   let value = effectiveReferenceMetadata?.recordsBySequenceName[row.genotype]?[field],
+                   let field = result.referenceMetadata?.alleleFieldKey,
+                   let value = result.referenceMetadata?.recordsBySequenceName[row.genotype]?[field],
                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     label = value
                 } else {
@@ -358,7 +358,10 @@ public enum GenotypeExcelSnapshotBuilder {
                         return .init(key: column.key, text: scientific.genotype)
                     case .referenceMetadata:
                         let sourceKey = column.sourceKey ?? ""
-                        let value = effectiveReferenceMetadata?.recordsBySequenceName[scientific.genotype]?[sourceKey] ?? ""
+                        var value = effectiveReferenceMetadata?.recordsBySequenceName[scientific.genotype]?[sourceKey] ?? ""
+                        if value.isEmpty, sourceKey == effectiveReferenceMetadata?.alleleFieldKey {
+                            value = scientific.genotype
+                        }
                         return .init(key: column.key, text: value)
                     case .stableClusterID:
                         return .init(key: column.key, text: scientific.stable ?? "")

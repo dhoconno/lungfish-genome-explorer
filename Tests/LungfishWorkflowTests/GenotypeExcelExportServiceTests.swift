@@ -570,6 +570,73 @@ print(json.dumps(result))
         try assertBands(replayed)
     }
 
+    func testLegacyEmbeddedMHCNoProjectionSnapshotStillValidatesAndReplays() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lge-legacy-embedded-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let genotype = "MCM_MHC_MiSeq_0099|source_loci=MHC-A|alleles=Mafa-A1_002:01,Mafa-A1_003:01"
+        let result = GenotypeTestFixtures.makeResult(calls: [
+            GenotypeTestFixtures.makeCall(sample: "S1", genotype: genotype, reads: 4),
+        ], referenceMetadata: nil)
+        let captured = try GenotypeExcelSnapshotBuilder.capture(
+            result: result,
+            sidecar: .empty(generatedAt: timestamp),
+            allProjection: nil,
+            filteredProjection: nil,
+            generatedAt: timestamp,
+            authority: .init(analysis: nil)
+        )
+        func legacyMatrix(_ matrix: GenotypeWorkbookPresentation.Matrix) -> GenotypeWorkbookPresentation.Matrix {
+            .init(
+                samples: matrix.samples,
+                loci: matrix.loci,
+                rows: matrix.rows.map { row in
+                    .init(
+                        id: row.id,
+                        target: row.target,
+                        displayName: genotype,
+                        comment: row.comment,
+                        fillHex: row.fillHex,
+                        cells: row.cells,
+                        style: row.style,
+                        columnValues: nil
+                    )
+                },
+                columns: nil
+            )
+        }
+        let historical = GenotypeWorkbookPresentation.Snapshot(
+            schemaVersion: 3,
+            generatedAt: captured.generatedAt,
+            sourceRevision: captured.sourceRevision,
+            allMatrix: legacyMatrix(captured.allMatrix),
+            filteredMatrix: legacyMatrix(captured.filteredMatrix),
+            calls: captured.calls,
+            colors: captured.colors,
+            hasHaplotypeContent: captured.hasHaplotypeContent,
+            metadata: captured.metadata,
+            capturedScientificInputs: captured.capturedScientificInputs
+        )
+        XCTAssertEqual(historical.allMatrix.rows.first?.displayName, genotype)
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(historical))
+
+        let output = root.appendingPathComponent("legacy.xlsx")
+        let exported = try await GenotypeExcelExportService(
+            pythonExecutableURL: python,
+            replayExecutableURL: cli
+        ).export(
+            snapshot: historical,
+            outputURL: output,
+            provenance: .init(toolVersion: "test", argv: ["test"])
+        )
+        let replayed = root.appendingPathComponent("legacy-replayed.xlsx")
+        XCTAssertEqual(try runCommand(["/bin/sh", exported.replayScriptURL.path, replayed.path]), 0)
+        XCTAssertEqual(try inspect(replayed)["sheets"] as? [String], [
+            "Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata",
+        ])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replayed.appendingPathExtension("provenance.json").path))
+    }
+
     func testTypedAndLegacyMiSeqCaptureIgnoreLegacyManualAssignments() throws {
         let analysis = GenotypeHaplotypeAnalysis(assayID: "MHC-exon2-miSeq", definitionSetID: "fixture",
             definitionSetName: "fixture", speciesName: "fixture", samples: [.init(sample: "S1", calls: [

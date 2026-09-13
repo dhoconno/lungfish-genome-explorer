@@ -130,8 +130,31 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(generic.exportSnapshot(bundleURL: URL(fileURLWithPath: "/tmp/generic.lungfishgenotype"),
             analysisName: "generic", lens: "genotype").matrixColumns.map(\.title), ["Genotype", "Total Reads"])
 
-        let embedded = "MCM_MHC_MiSeq_0099|source_loci=MHC-A|alleles=Mafa-A1_002:01,Mafa-A1_003:01"
         let alleleKey = "feature.allele"
+        let ordinaryMetadata = ONTGenotypeReferenceMetadata(
+            fields: [.init(key: alleleKey, displayTitle: "Allele", valueType: "text",
+                sourceCategory: "feature", preferredOrder: 0)],
+            recordsBySequenceName: ["REF-EMPTY": [alleleKey: ""]],
+            alleleFieldKey: alleleKey
+        )
+        let ordinaryController = GenotypeResultViewController()
+        _ = ordinaryController.view
+        ordinaryController.configure(result: makeResult(samples: [], calls: [
+            makeCall(sample: "S1", genotype: "REF-EMPTY", reads: 4),
+            makeCall(sample: "S1", genotype: "REF-MISSING", reads: 3),
+        ], referenceMetadata: ordinaryMetadata))
+        let ordinaryData = try XCTUnwrap(ordinaryController.captureExcelExportSnapshot().excelSnapshotData)
+        let ordinarySnapshot = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: ordinaryData)
+        XCTAssertEqual(ordinarySnapshot.allMatrix.columns?.map(\.title), ["Allele", "Total Reads"])
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: ordinarySnapshot.allMatrix.rows.map {
+            ($0.target.genotype, $0.columnValues?.first?.text)
+        }).compactMapValues { $0 }, [
+            "REF-EMPTY": "REF-EMPTY",
+            "REF-MISSING": "REF-MISSING",
+        ])
+        XCTAssertNoThrow(try GenotypeExcelSnapshotBuilder.validate(ordinarySnapshot))
+
+        let embedded = "MCM_MHC_MiSeq_0099|source_loci=MHC-A|alleles=Mafa-A1_002:01,Mafa-A1_003:01"
         let embeddedMetadata = ONTGenotypeReferenceMetadata(
             fields: [.init(key: alleleKey, displayTitle: "Allele", valueType: "text",
                 sourceCategory: "feature", preferredOrder: 0)],
