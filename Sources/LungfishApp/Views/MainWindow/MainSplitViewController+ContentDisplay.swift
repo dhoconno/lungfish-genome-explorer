@@ -82,6 +82,11 @@ extension MainSplitViewController {
             return
         }
 
+        if item.type == .primerAnalysisBundle, let url = item.url {
+            displayPrimerAnalysisBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         if item.type == .genotypeResultBundle, let url = item.url {
             displayGenotypeResultBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
@@ -170,6 +175,8 @@ extension MainSplitViewController {
                 displayMappingAnalysisFromSidebar(at: url)
             case .viralRecon:
                 displayViralReconAnalysisFromSidebar(at: url)
+            case .primerOrder:
+                displayPrimerOrderFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             case .unknown:
                 mainSplitLogger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
                 inspectorController.clearSelection()

@@ -395,6 +395,7 @@ let package = Package(
                 .copy("Resources/HelpBook/Lungfish.help"),
                 .copy("Resources/Images"),
                 .copy("Resources/PrimerSchemes"),
+                .copy("Resources/PrimerOrdering"),
             ]
         ),
         .testTarget(

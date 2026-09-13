@@ -123,6 +123,11 @@ public protocol PluginPackStatusProviding: Sendable {
         reinstall: Bool,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws
+    func install(
+        pack: PluginPack,
+        requirementIDs: Set<String>,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws
 }
 
 public extension PluginPackStatusProviding {
@@ -136,12 +141,24 @@ public extension PluginPackStatusProviding {
         guard let pack = PluginPack.builtInPack(id: packID) else { return nil }
         return await status(for: pack)
     }
+
+    /// Providers must opt into scoped recovery; a whole-pack fallback could
+    /// replace unrelated environments while preparing a single workflow.
+    func install(
+        pack: PluginPack,
+        requirementIDs: Set<String>,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        throw PluginPackStatusServiceError.selectedRequirementInstallUnsupported
+    }
 }
 
 public enum PluginPackStatusServiceError: Swift.Error, LocalizedError, Equatable {
     case storageUnavailable(URL)
     case smokeTestFailed(requirement: String, reason: String)
     case verificationFailed(requirementID: String, reason: String)
+    case invalidRequirementSelection(packID: String, requirementIDs: [String])
+    case selectedRequirementInstallUnsupported
 
     public var errorDescription: String? {
         switch self {
@@ -151,6 +168,12 @@ public enum PluginPackStatusServiceError: Swift.Error, LocalizedError, Equatable
             return "\(requirement) failed its verification check: \(reason)"
         case .verificationFailed(_, let reason):
             return reason
+        case .invalidRequirementSelection(let packID, let requirementIDs):
+            return requirementIDs.isEmpty
+                ? "Select at least one tool requirement from \(packID)."
+                : "Unknown tool requirements in \(packID): \(requirementIDs.joined(separator: ", "))."
+        case .selectedRequirementInstallUnsupported:
+            return "This plugin provider does not support installing selected tool requirements."
         }
     }
 }
@@ -225,6 +248,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         _ environmentURL: URL,
         _ progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> Void
+    public typealias PythonRuntimeInstallAction = @Sendable (
+        _ requirement: PackToolRequirement,
+        _ environmentURL: URL,
+        _ progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> Void
     public typealias StorageAvailability = @Sendable () -> ManagedStorageAvailability
 
     public static let shared = PluginPackStatusService(condaManager: .shared)
@@ -238,6 +266,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     private let databaseInstallAction: DatabaseInstallAction
     private let databaseInstalledCheck: DatabaseInstalledCheck
     private let sourceOverlayInstallAction: SourceOverlayInstallAction
+    private let pythonRuntimeInstallAction: PythonRuntimeInstallAction
     private let storageAvailability: StorageAvailability
     private let cacheLifetime: TimeInterval
     private let persistedSnapshotsURL: URL
@@ -254,6 +283,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         databaseInstallAction: DatabaseInstallAction? = nil,
         databaseInstalledCheck: DatabaseInstalledCheck? = nil,
         sourceOverlayInstallAction: SourceOverlayInstallAction? = nil,
+        pythonRuntimeInstallAction: PythonRuntimeInstallAction? = nil,
         storageAvailability: StorageAvailability? = nil,
         cacheLifetime: TimeInterval = 300
     ) {
@@ -274,6 +304,14 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             progress?(0, "Preparing \(requirement.displayName) source…")
             _ = try await ManagedToolSourceInstaller().install(sourceOverlay: sourceOverlay, environmentURL: environmentURL)
             progress?(1, "Prepared \(requirement.displayName) source")
+        }
+        self.pythonRuntimeInstallAction = pythonRuntimeInstallAction ?? { requirement, environmentURL, progress in
+            guard let runtime = requirement.pythonRuntime,
+                  let executable = requirement.executables.first else { return }
+            progress?(0, "Installing \(requirement.displayName) Python runtime…")
+            _ = try await ManagedPythonRuntimeInstaller().install(
+                spec: runtime, environmentURL: environmentURL, executableName: executable)
+            progress?(1, "Installed \(requirement.displayName) Python runtime")
         }
         self.storageAvailability = storageAvailability ?? {
             DatabaseRegistry.managedStorageAvailability()
@@ -432,18 +470,46 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         reinstall: Bool,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {
+        try await install(pack: pack, reinstall: reinstall, requirementIDs: nil, progress: progress)
+    }
+
+    /// Repairs only the requested requirements, preserving the original pack
+    /// identity and truthful status of every requirement in the status cache.
+    public func install(
+        pack: PluginPack,
+        requirementIDs: Set<String>,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        let unknownIDs = requirementIDs.subtracting(Set(pack.toolRequirements.map(\.id)))
+        guard !requirementIDs.isEmpty, unknownIDs.isEmpty else {
+            throw PluginPackStatusServiceError.invalidRequirementSelection(
+                packID: pack.id, requirementIDs: unknownIDs.sorted())
+        }
+        try await install(pack: pack, reinstall: false, requirementIDs: requirementIDs, progress: progress)
+    }
+
+    private func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        requirementIDs: Set<String>?,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
         if case .unavailable(let unavailableRoot) = storageAvailability() {
             throw PluginPackStatusServiceError.storageUnavailable(unavailableRoot)
         }
 
-        let installTargets = await plannedInstallTargets(for: pack, requestedReinstall: reinstall)
+        let readyMessage = requirementIDs.map { ids in
+            pack.toolRequirements.filter { ids.contains($0.id) }.map(\.displayName).joined(separator: ", ") + " ready"
+        } ?? "\(pack.name) ready"
+        let installTargets = await plannedInstallTargets(
+            for: pack, requestedReinstall: reinstall, requirementIDs: requirementIDs)
         guard !installTargets.isEmpty else {
             progress?(PluginPackInstallProgress(
                 requirementID: nil,
                 requirementDisplayName: nil,
                 overallFraction: 1.0,
                 itemFraction: 1.0,
-                message: "\(pack.name) ready"
+                message: readyMessage
             ))
             return
         }
@@ -541,6 +607,19 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                         ))
                     }
                 }
+                if requirement.pythonRuntime != nil {
+                    let environmentURL = await condaManager.environmentURL(named: requirement.environment)
+                    try await pythonRuntimeInstallAction(requirement, environmentURL) { fraction, message in
+                        let itemFraction = 0.75 + (0.25 * fraction)
+                        progress?(PluginPackInstallProgress(
+                            requirementID: requirement.id,
+                            requirementDisplayName: requirement.displayName,
+                            overallFraction: base + (itemFraction / Double(totalSteps)),
+                            itemFraction: itemFraction,
+                            message: message
+                        ))
+                    }
+                }
             }
             try Task.checkCancellation()
             await runPostInstallHooks(
@@ -550,17 +629,32 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             try Task.checkCancellation()
             await invalidateVisibleStatusesCache()
             let verifiedStatus = await computeStatus(for: pack)
-            guard verifiedStatus.state == .ready else {
-                let failedRequirement = verifiedStatus.toolStatuses.first(where: { !$0.isReady })
+            try Task.checkCancellation()
+            let verificationStatuses = verifiedStatus.toolStatuses.filter {
+                requirementIDs?.contains($0.requirement.id) ?? true
+            }
+            let requirementsReady: Bool
+            if let requirementIDs {
+                let bootstrapReady = await bootstrapIsReady()
+                requirementsReady = bootstrapReady && verificationStatuses.count == requirementIDs.count
+                    && verificationStatuses.allSatisfy(\.isReady)
+            } else {
+                requirementsReady = verifiedStatus.state == .ready
+            }
+            guard requirementsReady else {
+                let failedRequirement = verificationStatuses.first(where: { !$0.isReady })
                 throw PluginPackStatusServiceError.verificationFailed(
                     requirementID: failedRequirement?.requirement.id ?? pack.id,
                     reason: failedRequirement?.smokeTestFailure
                         ?? failedRequirement?.missingExecutables.first.map { "Missing executable: \($0)" }
-                        ?? verifiedStatus.failureMessage
-                        ?? "\(pack.name) did not become ready after installation."
+                        ?? (requirementIDs == nil ? verifiedStatus.failureMessage : nil)
+                        ?? (requirementIDs == nil
+                            ? "\(pack.name) did not become ready after installation."
+                            : "Selected tools in \(pack.name) did not become ready after installation.")
                 )
             }
             let verifiedFingerprint = await currentFingerprint(for: pack)
+            try Task.checkCancellation()
             storePackStatus(
                 verifiedStatus,
                 fingerprint: verifiedFingerprint,
@@ -572,7 +666,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 requirementDisplayName: nil,
                 overallFraction: 1.0,
                 itemFraction: 1.0,
-                message: "\(pack.name) ready"
+                message: readyMessage
             ))
         } catch {
             await rollbackAttemptedCondaEnvironments(
@@ -738,10 +832,13 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
 
     private func plannedInstallTargets(
         for pack: PluginPack,
-        requestedReinstall: Bool
+        requestedReinstall: Bool,
+        requirementIDs: Set<String>? = nil
     ) async -> [PlannedInstallTarget] {
         let knownStatus: PluginPackStatus
-        if let cachedStatus = cachedPackStatuses[pack.id]?.status {
+        if requirementIDs != nil {
+            knownStatus = await status(for: pack)
+        } else if let cachedStatus = cachedPackStatuses[pack.id]?.status {
             knownStatus = cachedStatus
         } else {
             knownStatus = await computeStatus(for: pack)
@@ -749,6 +846,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let toolStatuses = Dictionary(uniqueKeysWithValues: knownStatus.toolStatuses.map { ($0.requirement.id, $0) })
 
         return pack.toolRequirements.compactMap { requirement in
+            guard requirementIDs?.contains(requirement.id) ?? true else { return nil }
             guard let toolStatus = toolStatuses[requirement.id] else {
                 return PlannedInstallTarget(requirement: requirement, reinstall: requestedReinstall)
             }
@@ -1034,6 +1132,16 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                     }
                 }
             }
+            if let runtime = requirement.pythonRuntime {
+                let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(
+                    for: runtime, environmentURL: envURL)
+                components.append(fingerprintComponent(for: receiptURL))
+                if let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL) {
+                    for file in receipt.downloadedWheels + receipt.installedFiles + [receipt.requirements] {
+                        components.append(fingerprintComponent(for: envURL.appendingPathComponent(file.relativePath)))
+                    }
+                }
+            }
 
             for executableURL in monitoredExecutableURLs(for: requirement, envURL: envURL) {
                 components.append(fingerprintComponent(for: executableURL))
@@ -1131,13 +1239,19 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 runRuntimeProbes: bootstrapReady
             )
             : nil
+        let pythonRuntimeFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+            ? pythonRuntimeFailure(for: requirement, envURL: envURL)
+            : nil
         let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+            && pythonRuntimeFailure == nil
             ? packageMetadataFailure(for: requirement, envURL: envURL)
             : nil
 
         let smokeTestFailure: String?
         if let sourceOverlayFailure {
             smokeTestFailure = sourceOverlayFailure
+        } else if let pythonRuntimeFailure {
+            smokeTestFailure = pythonRuntimeFailure
         } else if let packageMetadataFailure {
             smokeTestFailure = packageMetadataFailure
         } else if missingExecutables.isEmpty && bootstrapReady, let smokeTest = requirement.smokeTest {
@@ -1162,7 +1276,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         for requirement: PackToolRequirement,
         envURL: URL
     ) -> String? {
-        guard requirement.sourceOverlay == nil, let requiredVersion = requirement.version else { return nil }
+        guard requirement.sourceOverlay == nil, requirement.pythonRuntime == nil,
+              let requiredVersion = requirement.version else { return nil }
         let requiredPackageNames = Set(requiredPackageNames(for: requirement))
         guard !requiredPackageNames.isEmpty else { return nil }
 
@@ -1187,6 +1302,19 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
 
+        return nil
+    }
+
+    private func pythonRuntimeFailure(
+        for requirement: PackToolRequirement,
+        envURL: URL
+    ) -> String? {
+        guard let runtime = requirement.pythonRuntime else { return nil }
+        let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(for: runtime, environmentURL: envURL)
+        guard let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL),
+              receipt.validates(spec: runtime, environmentURL: envURL) else {
+            return "Managed \(requirement.displayName) Python runtime receipt is missing or does not match version \(runtime.version)"
+        }
         return nil
     }
 

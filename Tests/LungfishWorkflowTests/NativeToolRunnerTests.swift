@@ -9,6 +9,26 @@ import LungfishTestSupport
 
 final class NativeToolRunnerTests: XCTestCase {
 
+    func testCancellationDuringProcessLaunchTerminatesNewChildPromptly() async throws {
+        let runner = NativeToolRunner(processLauncher: { process in
+            withUnsafeCurrentTask { $0?.cancel() }
+            try process.run()
+        })
+        let started = Date()
+        let task = Task {
+            try await runner.runProcess(executableURL: URL(fileURLWithPath: "/bin/sleep"),
+                arguments: ["2"], timeout: 10)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Startup cancellation must throw CancellationError")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1,
+            "Cancellation before PID assignment must be reapplied after launch")
+    }
+
     // MARK: - Tool Discovery Tests
 
     func testToolsDirectoryDiscoveryIsOnlyRequiredWhenBundledToolsRemain() async {

@@ -94,6 +94,7 @@ final class ProjectDeletionPlanner {
         "lungfishref",
         "lungfishtree",
         "lungfishprimers",
+        "lungfishprimeranalysis",
         "lungfishtax",
     ]
 

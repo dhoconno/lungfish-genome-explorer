@@ -44,6 +44,20 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertEqual(result.featureCount, 1)
     }
 
+    func testExplicitInvocationIsPreservedInAnnotationImportProvenance() async throws {
+        let bundleURL = try makeBundle(named: "ExactInvocation")
+        let bedURL = tempRoot.appendingPathComponent("features.bed")
+        try "chr1\t1\t12\tprimer\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
+        let argv = ["/Applications/Lungfish.app/Contents/MacOS/Lungfish", "--example-argument", "literal value"]
+        _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: bedURL, bundleURL: bundleURL, trackID: "primers", invocationArgv: argv)
+        let url = bundleURL.appendingPathComponent("annotations/primers-import-provenance.json")
+        let data = try Data(contentsOf: url)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let entries = try XCTUnwrap(object?["entries"] as? [[String: Any]])
+        XCTAssertEqual(entries.last?["argv"] as? [String], argv)
+    }
+
     func testAttachesGFFAsAnnotationTrackToExistingBundle() async throws {
         let bundleURL = try makeBundle(named: "M1")
         let gffURL = tempRoot.appendingPathComponent("M1.gff")

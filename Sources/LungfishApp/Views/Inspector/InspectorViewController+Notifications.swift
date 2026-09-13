@@ -67,6 +67,7 @@ extension InspectorViewController {
     /// Resets the sidebar item display, annotation selection, variant details, document
     /// metadata, and read selection to their default empty states.
     private func clearTransientSelectionState() {
+        clearPrimerAnalysisDocument()
         activeContentSelectionIdentity = nil
         selectedFASTQMetadataTargetBundleURLs = []
         // Clear sidebar selection display
@@ -421,6 +422,17 @@ extension InspectorViewController {
         sidebarType: SidebarItemType?,
         displayName: String?
     ) {
+        // Analysis provenance comes from the native loader after integrity validation.
+        // Preserve that verified record for this selection; never invoke legacy repair.
+        if sidebarType == .primerAnalysisBundle || url?.pathExtension.lowercased() == "lungfishprimeranalysis"
+            || (sidebarType == .analysisResult && url.map { AnalysesFolder.readAnalysisMetadata(from: $0)?.tool == "primer-order" } == true) {
+            if viewModel.primerAnalysisDocument?.bundleURL != url?.standardizedFileURL {
+                clearPrimerAnalysisDocument()
+                viewModel.provenanceSectionViewModel.clear()
+            }
+            return
+        }
+        clearPrimerAnalysisDocument()
         viewModel.provenanceSectionViewModel.load(
             item: ProvenanceInspectableItem(
                 url: url,

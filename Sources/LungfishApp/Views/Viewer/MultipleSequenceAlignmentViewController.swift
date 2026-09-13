@@ -387,6 +387,11 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private let canvasContainer = NSView()
     private let cornerHeaderView = MSAAlignmentCornerHeaderView()
     private let rowGutterView = MSAAlignmentRowGutterView()
+    private var inspectionPrimerTrack: MSAReadOnlyPrimerTrack?
+    private let primerLabelView = MSAComparisonLabelView()
+    private let primerHeaderView = MSAAlignmentMatrixView()
+    private var primerHeaderHeight: NSLayoutConstraint?
+    private var primerLabelHeight: NSLayoutConstraint?
     private let comparisonLabelView = MSAComparisonLabelView()
     private let comparisonHeaderView = MSAAlignmentMatrixView()
     private let columnHeaderView = MSAAlignmentColumnHeaderView()
@@ -445,6 +450,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         guard canCommit() else { return false }
         let parsedRows = try Self.parseAlignedFASTA(primaryAlignmentText)
 
+        inspectionPrimerTrack = nil
         bundleURL = url
         bundle = loaded
         alignmentRows = parsedRows
@@ -477,6 +483,62 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         scrollSelectionIntoView()
         notifySelectionStateIfAvailable()
         return true
+    }
+
+    /// Displays a stored scientific snapshot with transient, read-only overlays.
+    /// No bundle URL is retained: annotation mutations and scientific exports are unavailable.
+    func displayReadOnlyAlignment(
+        fasta: String,
+        annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord]
+    ) throws {
+        _ = view
+        let parsedRows = try Self.parseAlignedFASTA(fasta)
+        inspectionPrimerTrack = nil
+        bundleURL = nil
+        bundle = nil
+        onAddAnnotationRequested = nil
+        onProjectAnnotationRequested = nil
+        onInferTreeRequested = nil
+        alignmentRows = parsedRows
+        rowIDsByIndex = parsedRows.indices.map { "inspection-row-\($0)" }
+        coordinateMapsByRowID = [:]
+        columnSummaries = Self.computeColumnSummaries(for: parsedRows)
+        annotationStore = .init(sourceAnnotations: annotations)
+        refreshAnnotationTracks()
+        displayedColumns = Array(0..<columnSummaries.count)
+        selectedRowIndex = parsedRows.isEmpty ? nil : 0
+        selectedAlignmentColumn = displayedColumns.first
+        selectedRowIndices = selectedRowIndex.map { IndexSet(integer: $0) } ?? []
+        rowSelectionAnchor = selectedRowIndex
+        isWholeRowSelection = false
+        selectedAlignmentColumnRange = selectedAlignmentColumn.map { $0...$0 }
+        selectionAnchor = selectedRowIndex.flatMap { row in selectedAlignmentColumn.map { (row, $0) } }
+        colorScheme = .nucleotide
+        numberingMode = .alignmentColumns
+        consensusDisplayOptions = MSAConsensusDisplayOptions()
+        referenceRowID = rowIDsByIndex.first
+        residueIdentityDisplayMode = .letters
+        colorSchemeControl.selectedSegment = colorScheme.rawValue
+        siteModeControl.selectedSegment = 0
+        searchField.stringValue = ""
+        configureCanvasViews()
+        zoomToFit()
+        refreshAnnotationDrawer()
+        updateVariableSiteButtonAvailability()
+    }
+
+    func applyReadOnlyPrimerTrack(_ track: MSAReadOnlyPrimerTrack?) {
+        guard bundleURL == nil else { return }
+        inspectionPrimerTrack = track
+        configureCanvasViews()
+    }
+
+    /// Focuses a transient inspection overlay without mutating a stored annotation.
+    func focusReadOnlyAnnotation(id: String) {
+        guard bundleURL == nil,
+              let annotation = annotationStore.allAnnotations.first(where: { $0.id == id }) else { return }
+        selectAnnotation(annotation, zoom: true)
+        centerAnnotation(annotation)
     }
 
     @objc private func siteModeChanged(_ sender: NSSegmentedControl) {
@@ -564,6 +626,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     func applyReferenceRowID(_ rowID: String?) {
+        guard inspectionPrimerTrack == nil else { return }
         if let rowID, rowIDsByIndex.contains(rowID) {
             referenceRowID = rowID
         } else {
@@ -574,6 +637,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     func applyResidueIdentityDisplayMode(_ mode: MSAResidueIdentityDisplayMode) {
+        guard inspectionPrimerTrack == nil else { return }
         residueIdentityDisplayMode = mode
         configureCanvasViews()
     }
@@ -733,6 +797,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentScrollView.translatesAutoresizingMaskIntoConstraints = false
         comparisonLabelView.translatesAutoresizingMaskIntoConstraints = false
         comparisonHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        primerLabelView.translatesAutoresizingMaskIntoConstraints = false
+        primerHeaderView.translatesAutoresizingMaskIntoConstraints = false
         // macOS 14+ no longer clips draw(_:) to bounds, and these views open by
         // filling their dirty rect, which can extend across the whole canvas.
         // Without clipping, a view drawn later (the pinned comparison row and
@@ -741,10 +807,13 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         // in Preview 2026.9.12.
         for chromeView in [
             cornerHeaderView, columnHeaderView, overviewSignalView, rowGutterView,
-            comparisonLabelView, comparisonHeaderView, alignmentMatrixView, gutterResizeHandleView,
+            primerLabelView, primerHeaderView, comparisonLabelView, comparisonHeaderView, alignmentMatrixView, gutterResizeHandleView,
         ] as [NSView] {
             chromeView.clipsToBounds = true
         }
+        primerHeaderView.isComparisonHeader = true
+        primerHeaderView.setAccessibilityIdentifier("msaPrimerHeader")
+        primerLabelView.setAccessibilityIdentifier("msaPrimerLabel")
         comparisonHeaderView.isComparisonHeader = true
         comparisonHeaderView.setAccessibilityIdentifier("msaComparisonHeader")
         comparisonHeaderView.setAccessibilityElement(true)
@@ -754,6 +823,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             self?.alignmentScrollView.scrollWheel(with: event)
         }
         rowGutterView.onScrollWheel = forwardScroll
+        primerLabelView.onScrollWheel = forwardScroll
+        primerHeaderView.onScrollWheel = forwardScroll
         comparisonLabelView.onScrollWheel = forwardScroll
         comparisonHeaderView.onScrollWheel = forwardScroll
         alignmentMatrixView.onScrollWheel = forwardScroll
@@ -840,6 +911,12 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         canvasContainer.addSubview(columnHeaderView)
         canvasContainer.addSubview(overviewSignalView)
         canvasContainer.addSubview(rowGutterView)
+        canvasContainer.addSubview(primerLabelView)
+        canvasContainer.addSubview(primerHeaderView)
+        primerHeaderHeight = primerHeaderView.heightAnchor.constraint(equalToConstant: 0)
+        primerLabelHeight = primerLabelView.heightAnchor.constraint(equalToConstant: 0)
+        primerHeaderHeight?.isActive = true
+        primerLabelHeight?.isActive = true
         canvasContainer.addSubview(comparisonLabelView)
         canvasContainer.addSubview(comparisonHeaderView)
         canvasContainer.addSubview(alignmentScrollView)
@@ -869,11 +946,17 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             overviewSignalView.trailingAnchor.constraint(equalTo: canvasContainer.trailingAnchor),
             overviewSignalView.heightAnchor.constraint(equalToConstant: overviewHeight),
 
-            comparisonLabelView.topAnchor.constraint(equalTo: cornerHeaderView.bottomAnchor),
+            primerLabelView.topAnchor.constraint(equalTo: cornerHeaderView.bottomAnchor),
+            primerLabelView.leadingAnchor.constraint(equalTo: canvasContainer.leadingAnchor),
+            primerLabelView.trailingAnchor.constraint(equalTo: rowGutterView.trailingAnchor),
+            primerHeaderView.topAnchor.constraint(equalTo: overviewSignalView.bottomAnchor),
+            primerHeaderView.leadingAnchor.constraint(equalTo: alignmentScrollView.contentView.leadingAnchor),
+            primerHeaderView.trailingAnchor.constraint(equalTo: alignmentScrollView.contentView.trailingAnchor),
+            comparisonLabelView.topAnchor.constraint(equalTo: primerLabelView.bottomAnchor),
             comparisonLabelView.leadingAnchor.constraint(equalTo: canvasContainer.leadingAnchor),
             comparisonLabelView.trailingAnchor.constraint(equalTo: rowGutterView.trailingAnchor),
             comparisonLabelView.heightAnchor.constraint(equalToConstant: MSAAlignmentCanvasMetrics.consensusRowHeight),
-            comparisonHeaderView.topAnchor.constraint(equalTo: overviewSignalView.bottomAnchor),
+            comparisonHeaderView.topAnchor.constraint(equalTo: primerHeaderView.bottomAnchor),
             comparisonHeaderView.leadingAnchor.constraint(equalTo: alignmentScrollView.contentView.leadingAnchor),
             comparisonHeaderView.trailingAnchor.constraint(equalTo: alignmentScrollView.contentView.trailingAnchor),
             comparisonHeaderView.heightAnchor.constraint(equalToConstant: MSAAlignmentCanvasMetrics.consensusRowHeight),
@@ -949,6 +1032,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         rowGutterView.verticalOffset = origin.y
         rowGutterView.horizontalOffset = origin.x
         columnHeaderView.horizontalOffset = origin.x
+        primerHeaderView.setBoundsOrigin(NSPoint(x: origin.x, y: 0))
+        primerHeaderView.needsDisplay = true
         comparisonHeaderView.setBoundsOrigin(NSPoint(x: origin.x, y: 0))
         comparisonHeaderView.needsDisplay = true
         rowGutterView.needsDisplay = true
@@ -956,9 +1041,22 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     private func configureCanvasViews() {
-        rowGutterView.referenceRowIndex = residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex() : nil
+        primerHeaderHeight?.constant = inspectionPrimerTrack == nil ? 0 : MSAAlignmentCanvasMetrics.consensusRowHeight
+        primerLabelHeight?.constant = primerHeaderHeight?.constant ?? 0
+        primerLabelView.title = inspectionPrimerTrack?.label ?? ""
+        primerLabelView.toolTip = inspectionPrimerTrack?.label
+        primerHeaderView.setAccessibilityLabel(inspectionPrimerTrack?.label ?? "Primer")
+        let primerResidues: [Character] = inspectionPrimerTrack.map { track in
+            (0..<columnSummaries.count).map { track.alignedBases[$0] ?? " " }
+        } ?? []
+        primerHeaderView.configure(rows: alignmentRows, columnSummaries: columnSummaries,
+            consensusResidues: primerResidues, referenceRowIndex: nil, residueIdentityDisplayMode: .letters,
+            displayedColumns: displayedColumns, annotationTracks: [], columnWidth: alignmentColumnWidth, colorScheme: colorScheme)
+        alignmentMatrixView.inspectionPrimerTrack = inspectionPrimerTrack
+
+        rowGutterView.referenceRowIndex = inspectionPrimerTrack == nil && residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex() : nil
         let consensusResidues = displayedConsensusResidues()
-        let comparisonRow = residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex().flatMap { alignmentRows[safe: $0] } : nil
+        let comparisonRow = inspectionPrimerTrack == nil && residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex().flatMap { alignmentRows[safe: $0] } : nil
         let comparisonResidues = comparisonRow?.sequence ?? consensusResidues
         let comparisonTitle = comparisonRow.map { "Reference · \($0.name)" } ?? "Consensus"
         comparisonLabelView.title = comparisonTitle
@@ -1283,7 +1381,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private func applySelectionToCanvasViews() {
         rowGutterView.selectedRowIndex = selectedRowIndex
         rowGutterView.selectedRowIndices = selectedRowIndices
-        rowGutterView.referenceRowIndex = residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex() : nil
+        rowGutterView.referenceRowIndex = inspectionPrimerTrack == nil && residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex() : nil
         columnHeaderView.selectedAlignmentColumn = isWholeRowSelection ? nil : selectedAlignmentColumn
         columnHeaderView.selectedAlignmentColumnRange = selectedAlignmentColumnRange
         comparisonHeaderView.selectedAlignmentColumn = isWholeRowSelection ? nil : selectedAlignmentColumn
@@ -1391,6 +1489,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         guard let residue = alignmentRows[safe: rowIndex]?.sequence[safe: alignmentColumn] else {
             return nil
         }
+        if let inspectionPrimerTrack { return inspectionPrimerTrack.displayedResidue(residue, column: alignmentColumn) }
         switch residueIdentityDisplayMode {
         case .letters:
             return residue
@@ -1644,10 +1743,11 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         menu.addItem(exportAlignmentItem)
         let referenceItem = NSMenuItem(title: "Use as Reference", action: #selector(useSelectedRowAsReference(_:)), keyEquivalent: "")
         referenceItem.target = self
-        referenceItem.isEnabled = (contextReferenceRowIndex ?? selectedRowIndex) != nil
+        referenceItem.isEnabled = inspectionPrimerTrack == nil && (contextReferenceRowIndex ?? selectedRowIndex) != nil
         menu.addItem(referenceItem)
         let consensusItem = NSMenuItem(title: "Use Consensus", action: #selector(useConsensusAsReference(_:)), keyEquivalent: "")
         consensusItem.target = self
+        consensusItem.isEnabled = inspectionPrimerTrack == nil
         menu.addItem(consensusItem)
         menu.addItem(.separator())
 
@@ -1666,6 +1766,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         addAnnotationItem.target = self
+        addAnnotationItem.isEnabled = bundle != nil
         menu.addItem(addAnnotationItem)
         let applyAnnotationItem = NSMenuItem(
             title: "Apply Annotation to Selected Rows",
@@ -1673,7 +1774,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             keyEquivalent: ""
         )
         applyAnnotationItem.target = self
-        applyAnnotationItem.isEnabled = selectedRowIndices.count > 1 && !selectedAnnotations().isEmpty
+        applyAnnotationItem.isEnabled = bundle != nil && selectedRowIndices.count > 1 && !selectedAnnotations().isEmpty
         menu.addItem(applyAnnotationItem)
         return menu
     }
@@ -1683,11 +1784,13 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         let item = NSMenuItem(title: "Use Consensus", action: #selector(useConsensusAsReference(_:)), keyEquivalent: "")
         item.target = self
         item.state = residueIdentityDisplayMode == .dotsToConsensus ? .on : .off
+        item.isEnabled = inspectionPrimerTrack == nil
         menu.addItem(item)
         return menu
     }
 
     @objc private func useConsensusAsReference(_ sender: Any?) {
+        guard inspectionPrimerTrack == nil else { return }
         referenceRowID = nil
         residueIdentityDisplayMode = .dotsToConsensus
         configureCanvasViews()
@@ -1696,6 +1799,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     }
 
     @objc private func useSelectedRowAsReference(_ sender: Any?) {
+        guard inspectionPrimerTrack == nil else { return }
         guard let row = contextReferenceRowIndex ?? selectedRowIndex,
               let rowID = rowIDsByIndex[safe: row] else { return }
         applyReferenceRowID(rowID)
@@ -2482,6 +2586,17 @@ extension MultipleSequenceAlignmentViewController {
         return String(alignmentRows[row].sequence[column])
     }
 
+    var testingReferenceActionsEnabled: Bool {
+        selectionContextMenu().items.filter { ["Use as Reference", "Use Consensus"].contains($0.title) }.allSatisfy(\.isEnabled)
+    }
+
+    var testingReferenceGutterMarker: Int? { rowGutterView.referenceRowIndex }
+
+    func testingInvokeReferenceActions() {
+        useSelectedRowAsReference(nil)
+        useConsensusAsReference(nil)
+    }
+
     var testingSelectionContextMenuTitles: [String] {
         selectionContextMenu().items.map(\.title).filter { !$0.isEmpty }
     }
@@ -2530,6 +2645,9 @@ extension MultipleSequenceAlignmentViewController {
             let markers = displayedColumns.prefix(columnCount).map { alignmentColumn -> String in
                 guard let residue = alignmentRows[safe: rowIndex]?.sequence[safe: alignmentColumn] else {
                     return "."
+                }
+                if let inspectionPrimerTrack {
+                    return inspectionPrimerTrack.isDefiniteMismatch(residue, column: alignmentColumn) ? "!" : "."
                 }
                 let target: Character?
                 switch residueIdentityDisplayMode {
@@ -2757,7 +2875,7 @@ private final class MSAComparisonLabelView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.controlBackgroundColor.setFill()
         dirtyRect.fill()
-        drawText(title + " ▾", in: bounds.insetBy(dx: 8, dy: 5), color: .labelColor,
+        drawText(title + (menuProvider == nil ? "" : " ▾"), in: bounds.insetBy(dx: 8, dy: 5), color: .labelColor,
                  font: .systemFont(ofSize: 12, weight: .semibold), lineBreakMode: .byTruncatingMiddle)
         NSColor.separatorColor.setStroke()
         NSBezierPath.strokeLine(from: NSPoint(x: 0, y: bounds.maxY - 0.5), to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
@@ -3240,6 +3358,7 @@ private final class MSAAlignmentOverlayView: NSButton {
 private final class MSAAlignmentMatrixView: NSView {
     var isComparisonHeader = false
     var onScrollWheel: ((NSEvent) -> Void)?
+    var inspectionPrimerTrack: MSAReadOnlyPrimerTrack?
     var comparisonMenuProvider: (() -> NSMenu?)?
     override func scrollWheel(with event: NSEvent) { onScrollWheel?(event) }
     var onWholeRowSelection: ((Int, NSEvent.ModifierFlags) -> Void)?
@@ -3474,7 +3593,7 @@ private final class MSAAlignmentMatrixView: NSView {
         guard !columnRange.isEmpty else { return }
         for displayColumn in columnRange {
             let alignmentColumn = displayedColumns[displayColumn]
-            guard let residue = consensusResidues[safe: alignmentColumn] else { continue }
+            guard let residue = consensusResidues[safe: alignmentColumn], residue != " " else { continue }
             let x = CGFloat(displayColumn) * columnWidth
             if selectedAlignmentColumnRange?.contains(alignmentColumn) == true || selectedAlignmentColumn == alignmentColumn {
                 NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
@@ -3634,6 +3753,7 @@ private final class MSAAlignmentMatrixView: NSView {
         rowIndex: Int,
         alignmentColumn: Int
     ) -> Bool {
+        if let inspectionPrimerTrack { return inspectionPrimerTrack.isDefiniteMismatch(residue, column: alignmentColumn) }
         let target: Character?
         switch residueIdentityDisplayMode {
         case .dotsToReference:
@@ -3655,6 +3775,7 @@ private final class MSAAlignmentMatrixView: NSView {
         rowIndex: Int,
         alignmentColumn: Int
     ) -> Character {
+        if let inspectionPrimerTrack { return inspectionPrimerTrack.displayedResidue(residue, column: alignmentColumn) }
         switch residueIdentityDisplayMode {
         case .letters:
             return residue

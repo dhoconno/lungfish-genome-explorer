@@ -859,9 +859,6 @@ public struct ProvenanceWriter: Sendable {
                     + ".provenance-directory-\(UUID().uuidString)",
                 isDirectory: true
             )
-        defer {
-            try? FileManager.default.removeItem(at: temporaryDirectory)
-        }
         let creationResult = temporaryDirectory.path.withCString {
             Darwin.mkdir($0, mode_t(0o777))
         }
@@ -880,13 +877,35 @@ public struct ProvenanceWriter: Sendable {
                 replacingExisting: false
             )
             return
-        } catch let error as ProvenanceWriterError {
-            if case .exclusivePublicationFailed(_, let code) = error,
+        } catch {
+            if let publicationError = error as? ProvenanceWriterError,
+               case .exclusivePublicationFailed(_, let code) = publicationError,
                code == EEXIST,
                Self.isDirectoryFollowingSymbolicLinks(directory) {
+                try Self.removeEmptyDirectoryIfPresent(temporaryDirectory)
                 return
             }
+            do {
+                try Self.removeEmptyDirectoryIfPresent(temporaryDirectory)
+            } catch let cleanupError {
+                throw ProvenanceWriterError.exclusivePublicationRollbackFailed(
+                    originalError: error.localizedDescription,
+                    cleanupErrors: [cleanupError.localizedDescription],
+                    preservedQuarantinePaths: [temporaryDirectory.path]
+                )
+            }
             throw error
+        }
+    }
+
+    private static func removeEmptyDirectoryIfPresent(_ directory: URL) throws {
+        let result = directory.path.withCString { Darwin.rmdir($0) }
+        let code = errno
+        guard result == 0 || code == ENOENT else {
+            throw ProvenanceWriterError.directoryPreparationFailed(
+                path: directory.path,
+                code: code
+            )
         }
     }
 

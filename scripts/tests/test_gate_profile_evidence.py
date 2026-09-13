@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import copy
+import hashlib
 import unittest
 from unittest.mock import patch
 import subprocess
@@ -160,6 +161,10 @@ class DependencyEvidenceTests(unittest.TestCase):
             with self.assertRaises(gate.EvidenceError):
                 gate.create_manifest(path.parent, source, 'stable', results, dependency, self.contract('manifest', root))
             dependency.write_bytes((ROOT / dependency.relative_to(root)).read_bytes())
+            for tool in json.loads(dependency.read_text()).get("packTools", []):
+                if runtime := tool.get("pythonRuntime"):
+                    resource = runtime["requirementsResource"]
+                    (dependency.parent / resource).write_bytes((ROOT / dependency.relative_to(root).parent / resource).read_bytes())
             path, digest = gate.create_manifest(path.parent, source, 'stable', results, dependency, self.contract('manifest', root))
             value = json.loads(path.read_text())
             value['dependencySourcePath'] = str(root / 'unrelated.json')
@@ -172,6 +177,61 @@ class DependencyEvidenceTests(unittest.TestCase):
             dependency.write_text(json.dumps(changed))
             with self.assertRaises(gate.EvidenceError):
                 gate.verify_manifest(path, digest, source, 'stable', self.contract('manifest', root))
+
+    def test_python_runtime_requires_pinned_base_and_hash_bound_requirements(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            dependency = root / gate.MANAGED_LOCK_RELATIVE
+            dependency.parent.mkdir(parents=True)
+            requirements = dependency.parent / 'example-requirements.txt'
+            requirements.write_text('example==1.2.3 --hash=sha256:' + 'a' * 64 + '\n')
+            runtime = dict(distributionName='example', version='1.2.3', pythonABI='cp312',
+                           platform='osx-arm64', basePackageSpecs=['conda-forge::python=3.12.11=build0'],
+                           requirementsResource=requirements.name,
+                           requirementsSHA256=hashlib.sha256(requirements.read_bytes()).hexdigest())
+            tool = dict(id='example', version='1.2.3', environment='example',
+                        packageSpec=runtime['basePackageSpecs'][0], executables=['example'], pythonRuntime=runtime)
+            data = dict(packID='fixture', version='1', dependencySet='fixture', tools=[tool])
+            dependency.write_text(json.dumps(data))
+            gate.canonical_dependency_manifest(self.contract('manifest', root))
+            cases = [('version', '9.9'), ('basePackageSpecs', ['python']),
+                     ('requirementsResource', '../outside.txt'), ('requirementsSHA256', 'b' * 64),
+                     ('pythonABI', 'cp311')]
+            for field, value in cases:
+                invalid = copy.deepcopy(data)
+                invalid['tools'][0]['pythonRuntime'][field] = value
+                dependency.write_text(json.dumps(invalid))
+                with self.subTest(field=field), self.assertRaises(gate.EvidenceError):
+                    gate.canonical_dependency_manifest(self.contract('manifest', root))
+            dependency.write_text(json.dumps(data))
+            requirements.write_text('mutated')
+            with self.assertRaises(gate.EvidenceError):
+                gate.canonical_dependency_manifest(self.contract('manifest', root))
+
+    def test_python_release_wheel_requires_public_immutable_artifact_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            dependency = root / gate.MANAGED_LOCK_RELATIVE
+            dependency.parent.mkdir(parents=True)
+            requirements = dependency.parent / 'example.txt'
+            requirements.write_text('example==1.2.3 --hash=sha256:' + 'a' * 64 + '\n')
+            source = dict(url='https://github.com/example/custom/releases/download/v1.2.3/example-1.2.3-py3-none-any.whl',
+                          sha256='a' * 64, sourceRevision='b' * 40, upstreamRevision='c' * 40)
+            runtime = dict(distributionName='example', version='1.2.3', pythonABI='cp312',
+                           platform='osx-arm64', basePackageSpecs=['conda-forge::python=3.12.11=build0'],
+                           requirementsResource=requirements.name,
+                           requirementsSHA256=hashlib.sha256(requirements.read_bytes()).hexdigest(),
+                           releaseWheelSource=source)
+            tool = dict(version='1.2.3', packageSpec=runtime['basePackageSpecs'][0], pythonRuntime=runtime)
+            gate.validate_python_runtime_pin(tool, root, dependency)
+            for field, value in [('sourceRevision', 'main'), ('sha256', 'invalid'),
+                                 ('upstreamRevision', ''), ('url', 'http://github.com/example/custom/releases/download/v1.2.3/example.whl'),
+                                 ('url', 'https://example.com/example.whl'),
+                                 ('url', source['url'] + '?token=secret')]:
+                invalid = copy.deepcopy(tool)
+                invalid['pythonRuntime']['releaseWheelSource'][field] = value
+                with self.subTest(field=field, value=value), self.assertRaises(gate.EvidenceError):
+                    gate.validate_python_runtime_pin(invalid, root, dependency)
 
     def test_typed_manifest_creation_and_policy_mismatch(self):
         with tempfile.TemporaryDirectory() as temp:

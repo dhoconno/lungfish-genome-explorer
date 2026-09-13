@@ -157,6 +157,7 @@ struct ProvenanceCoverageMonitor {
              .multipleSequenceAlignmentBundle,
              .phylogeneticTreeBundle,
              .fastqBundle,
+             .primerAnalysisBundle,
              .primerSchemeBundle,
              .genotypeResultBundle,
              .twelveSAmpliconResultBundle,
@@ -370,6 +371,13 @@ struct ProvenanceSource: Identifiable {
     var id: String
     var name: String
     var item: ProvenanceInspectableItem
+    /// Already validated by an immutable native bundle loader; never run legacy discovery.
+    var verifiedRecord: VerifiedProvenanceRecord? = nil
+}
+
+struct VerifiedProvenanceRecord {
+    let envelope: ProvenanceEnvelope
+    let sidecarURL: URL
 }
 
 @Observable
@@ -401,9 +409,39 @@ final class ProvenanceInspectorViewModel {
     func selectSource(id: String) {
         guard let source = sources.first(where: { $0.id == id }) else { return }
         let availableSources = sources
-        load(item: source.item)
+        if let record = source.verifiedRecord {
+            presentVerified(item: source.item, record: record)
+        } else {
+            load(item: source.item)
+        }
         sources = availableSources
         selectedSourceID = id
+    }
+
+    /// Presents native bundle provenance using the same Inspector UI and export actions,
+    /// without searching for, repairing, or rewriting scientific data on disk.
+    func configureVerifiedSources(_ records: [ProvenanceSource]) {
+        guard let source = records.first, let record = source.verifiedRecord else { return }
+        presentVerified(item: source.item, record: record)
+        sources = records
+        selectedSourceID = source.id
+    }
+
+    private func presentVerified(item: ProvenanceInspectableItem, record: VerifiedProvenanceRecord) {
+        clear()
+        currentItem = item
+        apply(LookupOutcome(
+            audit: .init(status: .present, requirement: .required("Verified scientific bundle"),
+                         sidecarURL: record.sidecarURL, messages: []),
+            resolvedEnvelope: record.envelope, resolvedSidecarURL: record.sidecarURL), item: item)
+    }
+
+    func presentUnavailableVerifiedRecord(item: ProvenanceInspectableItem, message: String) {
+        clear()
+        currentItem = item
+        audit = .init(status: .invalid, requirement: .required("Scientific bundle"),
+                      sidecarURL: nil, messages: [message])
+        buildMissingState(item: item)
     }
     var audit: ProvenanceAuditResult = .notRequired
     var summary = ProvenanceRunSummary()

@@ -252,6 +252,7 @@ final class DocumentManagerTests: XCTestCase {
             .lungfishMultipleSequenceAlignmentBundle,
             .lungfishPhylogeneticTreeBundle,
             .lungfishMHCReferenceBundle,
+            .lungfishPrimerAnalysisBundle,
         ]
         let actualCases = Set(AppDocumentType.allCases)
         XCTAssertEqual(actualCases, expectedCases, "DocumentType should have exactly the expected cases")

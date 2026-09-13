@@ -111,10 +111,11 @@ final class CondaManagerTests: XCTestCase {
 
     func testBuiltInPacksExist() {
         XCTAssertFalse(PluginPack.builtIn.isEmpty)
-        XCTAssertEqual(PluginPack.builtIn.count, 18, "Should include the required setup pack plus 17 optional packs")
+        XCTAssertEqual(PluginPack.builtIn.count, 19, "Should include the required setup pack plus 18 optional packs")
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "full-length-mhc-genotyping",
+            "pcr-primer-design",
             "variant-calling",
             "assembly",
             "multiple-sequence-alignment",

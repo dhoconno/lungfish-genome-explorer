@@ -119,6 +119,41 @@ public final class CondaRootMutationLock: @unchecked Sendable {
         close(fd)
     }
 
+    /// Wait without blocking a cooperative executor or deferring cancellation
+    /// until another process releases its lock.
+    fileprivate static func acquireCancellable(
+        root: URL, waitMessageWriter: @Sendable (String) -> Void
+    ) async throws -> CondaRootMutationLock {
+        try Task.checkCancellation()
+        let root = root.standardizedFileURL
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        guard rootIsWritable(root) else { throw CondaRootMutationLockError.readOnlyRoot }
+        let path = root.appendingPathComponent(filename).path
+        let fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        guard fd >= 0 else { throw CondaRootMutationLockError.openFailed(path: path, errno: errno) }
+        do {
+            var reportedWait = false
+            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                let code = errno
+                guard code == EWOULDBLOCK || code == EAGAIN || code == EINTR else {
+                    throw CondaRootMutationLockError.lockFailed(path: path, errno: code)
+                }
+                if !reportedWait { waitMessageWriter("Waiting for the managed tool to become available…"); reportedWait = true }
+                try await Task.sleep(for: .milliseconds(100))
+                try Task.checkCancellation()
+            }
+            try Task.checkCancellation()
+            ftruncate(fd, 0)
+            let pidLine = "\(getpid())\n"
+            _ = pidLine.withCString { write(fd, $0, strlen($0)) }
+            fsync(fd)
+            return CondaRootMutationLock(fd: fd)
+        } catch {
+            close(fd)
+            throw error
+        }
+    }
+
     private static func rootIsWritable(_ root: URL) -> Bool {
         access(root.path, W_OK) == 0
     }
@@ -180,6 +215,19 @@ public final class CondaEnvironmentMutationLock: @unchecked Sendable {
         rootLock.release()
     }
 
+    /// Scientific execution holds this environment-only lease until completion.
+    /// Installers use the same lock path, so repair cannot replace a live runtime.
+    public static func acquireCancellable(
+        root: URL,
+        environment: String,
+        waitMessageWriter: @escaping @Sendable (String) -> Void = CondaRootMutationLock.writeWaitMessageToStderr
+    ) async throws -> CondaEnvironmentMutationLock {
+        let lockRoot = root.standardizedFileURL
+            .appendingPathComponent(".environment-mutation-locks", isDirectory: true)
+            .appendingPathComponent(lockDirectoryName(for: environment), isDirectory: true)
+        return try await CondaEnvironmentMutationLock(rootLock: .acquireCancellable(root: lockRoot, waitMessageWriter: waitMessageWriter))
+    }
+
     private static func lockDirectoryName(for environment: String) -> String {
         let encoded = environment.utf8.map { String(format: "%02x", $0) }.joined()
         return encoded.isEmpty ? "empty" : encoded
@@ -217,9 +265,8 @@ public final class CondaEnvironmentMutationTransaction: @unchecked Sendable {
         release()
     }
 
-    /// Acquires a shared lease for the supplied environments. `flock` waits
-    /// synchronously, so each wait is moved off the cooperative executor while
-    /// preserving the lock ordering described above.
+    /// Acquires leases in a consistent order. Waiting for another operation
+    /// remains cancellable, including when a scientific run owns an environment.
     public static func acquire(
         root: URL,
         environments: [String]
@@ -231,20 +278,15 @@ public final class CondaEnvironmentMutationTransaction: @unchecked Sendable {
         do {
             for environment in resolvedEnvironments {
                 try Task.checkCancellation()
-                let lock = try await Task.detached(priority: .utility) {
-                    try CondaEnvironmentMutationLock.acquire(
-                        root: resolvedRoot,
-                        environment: environment
-                    )
-                }.value
+                let lock = try await CondaEnvironmentMutationLock.acquireCancellable(
+                    root: resolvedRoot, environment: environment)
                 environmentLocks.append(lock)
                 try Task.checkCancellation()
             }
 
             // This must remain after every per-environment lock acquisition.
-            let rootLock = try await Task.detached(priority: .utility) {
-                try CondaRootMutationLock.acquire(root: resolvedRoot)
-            }.value
+            let rootLock = try await CondaRootMutationLock.acquireCancellable(
+                root: resolvedRoot, waitMessageWriter: CondaRootMutationLock.writeWaitMessageToStderr)
             return CondaEnvironmentMutationTransaction(
                 root: resolvedRoot,
                 environments: resolvedEnvironments,

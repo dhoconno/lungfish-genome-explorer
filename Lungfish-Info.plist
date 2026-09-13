@@ -66,6 +66,18 @@
     <!-- Document Types -->
     <key>CFBundleDocumentTypes</key>
     <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Lungfish Primer Analysis</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.lungfish.primer-analysis</string>
+            </array>
+        </dict>
         <!-- FASTA -->
         <dict>
             <key>CFBundleTypeName</key>
@@ -214,6 +226,24 @@
     <!-- Exported Type Declarations (Custom UTIs) -->
     <key>UTExportedTypeDeclarations</key>
     <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.lungfish.primer-analysis</string>
+            <key>UTTypeDescription</key>
+            <string>Lungfish Primer Analysis Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.directory</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>lungfishprimeranalysis</string>
+                </array>
+            </dict>
+        </dict>
         <!-- FASTA -->
         <dict>
             <key>UTTypeIdentifier</key>

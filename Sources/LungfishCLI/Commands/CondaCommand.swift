@@ -189,6 +189,9 @@ extension CondaCommand {
                             print("")
                             print(formatter.error("Tool pack '\(pack.name)' failed verification: \(reason)"))
                             throw CLIExitCode.dependency.exitCode
+                        case .invalidRequirementSelection, .selectedRequirementInstallUnsupported:
+                            print(formatter.error(error.localizedDescription))
+                            throw CLIExitCode.dependency.exitCode
                         }
                     } catch {
                         print("")

@@ -4,6 +4,19 @@ import XCTest
 
 @MainActor
 final class ToolsMenuStructureTests: XCTestCase {
+    func testPrimerDesignSubmenuRoutesDirectlyToEachEngine() throws {
+        _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
+        let item = try XCTUnwrap(toolsMenu.items.first { $0.title == "PCR primer design" })
+        XCTAssertEqual(item.identifier?.rawValue, "tools-pcr-primer-design")
+        XCTAssertNotEqual(item.action, #selector(ToolsMenuActions.showPCRPrimerDesign(_:)))
+        let submenu = try XCTUnwrap(item.submenu)
+        XCTAssertEqual(submenu.items.map(\.title), ["Primer3…", "PrimalScheme3-LGE (custom fork)…"])
+        XCTAssertEqual(submenu.items.compactMap { $0.representedObject as? PrimerDesignEngine }, [.primer3, .primalScheme])
+        XCTAssertTrue(submenu.items.allSatisfy { $0.action == #selector(ToolsMenuActions.showPCRPrimerDesign(_:)) })
+    }
+
     func testGenotypingCategoryExists() {
         XCTAssertTrue(FASTQOperationCategoryID.allCases.contains(.genotyping))
         XCTAssertEqual(FASTQOperationCategoryID.genotyping.title, "GENOTYPING")

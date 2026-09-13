@@ -30,6 +30,7 @@ enum AppFilePanelFactory {
             "fastq",
             "gz",
             FASTQBundle.directoryExtension,
+            "lungfishprimeranalysis",
             "gb",
             "gbk",
             "gff",

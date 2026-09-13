@@ -27,7 +27,8 @@ final class SidebarBundleCapabilityTests: XCTestCase {
 
     /// Every bundle kind must offer the four actions that are kind-agnostic
     /// in their handlers: Open Bundle, Show Package Contents, Get Bundle
-    /// Info, Show in Inspector. (Merge/export capability varies and is
+    /// Info. The read-only primer analysis viewer owns its provenance display;
+    /// other bundles also offer Show in Inspector. (Merge/export capability varies and is
     /// covered by dedicated tests below.)
     func testEveryBundleKindOffersBaselineActions() {
         let bundleKinds = SidebarItemType.allBundleKindsForTesting
@@ -38,7 +39,8 @@ final class SidebarBundleCapabilityTests: XCTestCase {
             XCTAssertTrue(capabilities.canOpen, "\(kind) must support Open Bundle")
             XCTAssertTrue(capabilities.canShowPackageContents, "\(kind) must support Show Package Contents")
             XCTAssertTrue(capabilities.canGetBundleInfo, "\(kind) must support Get Bundle Info")
-            XCTAssertTrue(capabilities.canShowInInspector, "\(kind) must support Show in Inspector")
+            XCTAssertEqual(capabilities.canShowInInspector, kind != .primerAnalysisBundle,
+                           "Primer analysis provenance belongs to its read-only viewer")
         }
     }
 

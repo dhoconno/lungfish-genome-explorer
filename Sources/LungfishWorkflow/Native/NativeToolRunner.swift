@@ -631,6 +631,8 @@ public actor NativeToolRunner {
     /// Default timeout for tool execution (5 minutes).
     private let defaultTimeout: TimeInterval = 300
 
+    private var processLauncher: @Sendable (Process) throws -> Void = { try $0.run() }
+
     /// Bundled tool versions, loaded from tool-versions.json at launch.
     public static let bundledVersions: [String: String] = {
         if let manifest = loadBundledToolManifest() {
@@ -670,6 +672,13 @@ public actor NativeToolRunner {
     ) {
         self.toolsDirectory = toolsDirectory
         self.homeDirectory = homeDirectory
+    }
+
+    /// Allows deterministic verification of cancellation during process startup.
+    init(processLauncher: @escaping @Sendable (Process) throws -> Void) {
+        self.toolsDirectory = nil
+        self.homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        self.processLauncher = processLauncher
     }
     
     // MARK: - Tool Discovery
@@ -994,8 +1003,13 @@ public actor NativeToolRunner {
                     if cancellationState.isCancelled {
                         throw CancellationError()
                     }
-                    try process.run()
+                    try processLauncher(process)
                     pipeDrain.start()
+                    // Cancellation can arrive before Process.run assigns a PID.
+                    // Reapply it now that the newly launched child can be stopped.
+                    if cancellationState.isCancelled {
+                        terminateProcessTree(rootProcess: process)
+                    }
                 } catch is CancellationError {
                     if cancellationState.didTimeOut {
                         finish(.failure(NativeToolError.timeout(name, actualTimeout)))

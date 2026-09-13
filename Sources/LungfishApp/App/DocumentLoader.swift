@@ -194,6 +194,9 @@ public enum DocumentLoader {
         case .lungfishPhylogeneticTreeBundle:
             throw DocumentLoadError.unsupportedFormat("Use the tree bundle viewer for .lungfishtree bundles")
 
+        case .lungfishPrimerAnalysisBundle:
+            throw DocumentLoadError.unsupportedFormat("Use the primer analysis viewer for .lungfishprimeranalysis bundles")
+
         case .lungfishMHCReferenceBundle:
             throw DocumentLoadError.unsupportedFormat("Use the MHC reference bundle viewer for .lungfishmhcref bundles")
         }

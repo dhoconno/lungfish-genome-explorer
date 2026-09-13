@@ -218,6 +218,9 @@ public class ViewerViewController: NSViewController {
     /// Shared reference bundle viewport (shown for direct `.lungfishref` bundle opens)
     var referenceBundleViewportController: ReferenceBundleViewportController?
 
+    /// Read-only saved primer analysis viewport.
+    var primerAnalysisViewController: NSViewController?
+
     /// Native MHC amplicon reference bundle viewport.
     var mhcReferenceBundleViewController: NSHostingController<MHCReferenceBundleViewport>?
 
@@ -282,6 +285,8 @@ public class ViewerViewController: NSViewController {
     /// `.viewportContentModeDidChange` so the inspector and toolbar can adapt.
     public var contentMode: ViewportContentMode = .empty {
         didSet {
+            // Every content installation, including the same mode, dismisses saved analysis results.
+            hidePrimerAnalysisView()
             guard contentMode != oldValue else { return }
             guard publishesGlobalViewportNotifications else { return }
             NotificationCenter.default.post(
@@ -3188,6 +3193,8 @@ public class ViewerViewController: NSViewController {
             showNoSequenceSelected()
             return
         }
+
+        hidePrimerAnalysisView()
 
         // Hide any dataset-specific views that may be covering the viewer
         hideFASTQDatasetView()

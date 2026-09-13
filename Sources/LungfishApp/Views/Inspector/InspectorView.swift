@@ -75,7 +75,7 @@ public struct InspectorView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch viewModel.selectedTab {
-        case .bundle, .selectedItem, .annotations, .view, .analysis, .fastqMetadata, .resultSummary, .twelveSDetail, .provenance:
+        case .bundle, .selectedItem, .annotations, .view, .analysis, .fastqMetadata, .resultSummary, .twelveSDetail, .files, .provenance:
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     tabScrollContent
@@ -106,15 +106,19 @@ public struct InspectorView: View {
     private var tabScrollContent: some View {
         switch viewModel.selectedTab {
         case .bundle:
-            DocumentSection(viewModel: viewModel.documentSectionViewModel)
-            if viewModel.readStyleSectionViewModel.hasAlignmentTracks {
-                Divider()
-                AlignmentBundleSection(viewModel: viewModel.readStyleSectionViewModel)
-            }
-            // Show FASTQ metadata in Document tab when in FASTQ mode
-            if viewModel.contentMode == .fastq {
-                FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
-                FASTQPBAAArtifactsSection(viewModel: viewModel.fastqPBAAArtifactsSectionViewModel)
+            if let document = viewModel.primerAnalysisDocument {
+                PrimerAnalysisInspectorBundleSection(document: document)
+            } else {
+                DocumentSection(viewModel: viewModel.documentSectionViewModel)
+                if viewModel.readStyleSectionViewModel.hasAlignmentTracks {
+                    Divider()
+                    AlignmentBundleSection(viewModel: viewModel.readStyleSectionViewModel)
+                }
+                // Show FASTQ metadata in Document tab when in FASTQ mode
+                if viewModel.contentMode == .fastq {
+                    FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
+                    FASTQPBAAArtifactsSection(viewModel: viewModel.fastqPBAAArtifactsSectionViewModel)
+                }
             }
 
         case .selectedItem:
@@ -138,7 +142,12 @@ public struct InspectorView: View {
             }
 
         case .view:
-            InspectorReadStyleSection(viewModel: viewModel)
+            if viewModel.primerAnalysisDocument != nil,
+               let session = viewModel.primerAnalysisDisplaySession, session.isAvailable {
+                PrimerAnalysisDisplaySection(session: session)
+            } else {
+                InspectorReadStyleSection(viewModel: viewModel)
+            }
 
         case .analysis:
             InspectorAnalysisWorkflowSection(viewModel: viewModel)
@@ -158,6 +167,11 @@ public struct InspectorView: View {
 
         case .provenance:
             ProvenanceSection(viewModel: viewModel.provenanceSectionViewModel)
+
+        case .files:
+            if let document = viewModel.primerAnalysisDocument {
+                PrimerAnalysisInspectorFilesSection(document: document)
+            }
 
         case .ai:
             EmptyView()
@@ -220,6 +234,7 @@ extension InspectorTab {
         case .fastqMetadata: return "tag"
         case .resultSummary: return "chart.bar"
         case .twelveSDetail: return "list.bullet.rectangle"
+        case .files: return "doc.on.doc"
         case .provenance: return "point.3.connected.trianglepath.dotted"
         }
     }
@@ -236,6 +251,7 @@ extension InspectorTab {
         case .fastqMetadata: return "Sample Metadata"
         case .resultSummary: return "Summary"
         case .twelveSDetail: return "Detail"
+        case .files: return "Files"
         case .provenance: return "Provenance"
         }
     }
@@ -1355,6 +1371,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .multipleSequenceAlignmentBundle: return "Multiple Sequence Alignment"
         case .phylogeneticTreeBundle: return "Phylogenetic Tree"
         case .fastqBundle: return "FASTQ Bundle"
+        case .primerAnalysisBundle: return "Primer Analysis"
         case .primerSchemeBundle: return "Primer Scheme"
         case .genotypeResultBundle: return "ONT Genotyping Result"
         case .twelveSAmpliconResultBundle: return "12S Amplicon Result"
