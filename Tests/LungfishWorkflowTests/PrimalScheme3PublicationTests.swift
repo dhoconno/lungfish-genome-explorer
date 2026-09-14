@@ -5,6 +5,196 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimalScheme3PublicationTests: XCTestCase {
+  func testCoverageRequiresExplicitExecutableBeforeRuntimePreparation() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let recorder = CommandRecorder()
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      await recorder.append(command.arguments)
+      return try Self.nativeFixture(command)
+    }, runtimePreparer: { _ in
+      XCTFail("Coverage must not prepare the managed lge.2 runtime")
+      throw CocoaError(.fileReadUnknown)
+    })
+    do {
+      _ = try await pipeline.run(request: coverageRequest(fixture, executableURL: nil))
+      XCTFail("Coverage without an explicit executable must fail")
+    } catch {
+      XCTAssertTrue(error.localizedDescription.contains("--primalscheme3-path /path/to/primalscheme3"), error.localizedDescription)
+    }
+    let recordedCommands = await recorder.commands
+    XCTAssertTrue(recordedCommands.isEmpty)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+  }
+
+  func testCoverageRequiresValidCapabilityEvidenceFromInjectedRunner() async throws {
+    for evidence in [nil, Data("{}".utf8)] {
+      let fixture = try fixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+        var execution = try Self.nativeFixture(command, version: PrimalScheme3DesignPipeline.coverageToolVersion)
+        execution.capabilitiesJSON = evidence
+        return execution
+      })
+      do {
+        _ = try await pipeline.run(request: coverageRequest(fixture, executableURL: URL(fileURLWithPath: "/fixture/lge3")))
+        XCTFail("Coverage without valid capability evidence must fail")
+      } catch {
+        XCTAssertTrue(error.localizedDescription.lowercased().contains("capabilit") ||
+                      error.localizedDescription.lowercased().contains("schema"), error.localizedDescription)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    }
+  }
+
+  func testExplicitVerifiedLGE3CanRunLegacyWithoutCoverageFlags() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      XCTAssertFalse(command.arguments.contains("--selection-algorithm"))
+      XCTAssertFalse(command.arguments.contains("--coverage-metric"))
+      return try Self.nativeFixture(command, version: PrimalScheme3DesignPipeline.coverageToolVersion)
+    })
+    let original = try request(fixture, grouping: .combined)
+    let request = PrimalScheme3DesignRequest(inputURLs: original.inputURLs,
+      destinationURL: original.destinationURL, options: original.options, grouping: original.grouping,
+      invocation: original.invocation, executableURL: URL(fileURLWithPath: "/fixture/lge3"),
+      expectedInputChecksums: original.expectedInputChecksums)
+    _ = try await pipeline.run(request: request)
+  }
+
+  func testCoverageNativeContractPublishesAndRetainsLGE3Evidence() async throws {
+    let fixture = try coverageFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      try Self.coverageNativeFixture(command)
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let output = try await pipeline.run(request: coverageRequest(fixture,
+      executableURL: URL(fileURLWithPath: "/fixture/lge3")))
+    let bundle = try PrimerAnalysisBundle.load(from: output)
+    let result = try XCTUnwrap(bundle.manifest.results.first)
+    XCTAssertTrue(result.artifactPaths.contains { $0.hasSuffix("candidate-catalog.json.gz") })
+    let execution = try XCTUnwrap(bundle.manifest.artifacts.first { $0.role == "toolProvenance" })
+    let envelope = try ProvenanceEnvelopeReader.decodeCanonical(
+      Data(contentsOf: bundle.artifactURL(forRelativePath: execution.relativePath)))
+    XCTAssertEqual(envelope.toolVersion, PrimalScheme3DesignPipeline.coverageToolVersion)
+    XCTAssertTrue(bundle.manifest.artifacts.contains { $0.relativePath.hasSuffix("capabilities.json") })
+  }
+
+  func testCoverageNativeContractAcceptsIndependentlyValidatedEmptyPanel() async throws {
+    let fixture = try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeEmpty",
+      storedInputs: ["work/0000-fixture-empty-a.fasta", "work/0001-fixture-empty-b.fasta"])
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      try Self.coverageNativeFixture(command, fixtureName: "PrimalScheme3CoverageNativeEmpty")
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let request = try coverageRequest(fixture, executableURL: URL(fileURLWithPath: "/fixture/lge3"),
+      maxAmplicons: 0, maxAmpliconsPerMSA: 0)
+    let output = try await pipeline.run(request: request)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+  }
+
+  func testCoverageNativeContractPreservesFreshUncertaintyOnJointRow() async throws {
+    let fixture = try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeUncertain",
+      storedInputs: ["work/0000-fixture-uncertain.fasta"])
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      try Self.coverageNativeFixture(command, fixtureName: "PrimalScheme3CoverageNativeUncertain")
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let request = try coverageRequest(fixture, executableURL: URL(fileURLWithPath: "/fixture/lge3"),
+      misprimingProductSize: 199)
+    let output = try await pipeline.run(request: request)
+    let bundle = try PrimerAnalysisBundle.load(from: output)
+    let artifact = try XCTUnwrap(bundle.manifest.artifacts.first {
+      $0.relativePath.hasSuffix("panel-validation.json")
+    })
+    let validation = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: Data(contentsOf: bundle.artifactURL(forRelativePath: artifact.relativePath))) as? [String: Any])
+    let support = try XCTUnwrap(validation["support_diagnostics"] as? [String: [String: Any]])
+    let diagnostic = try XCTUnwrap(support.values.first)
+    let joint = Set(try XCTUnwrap(diagnostic["joint_rows"] as? [String]))
+    let unknown = Set(try XCTUnwrap(diagnostic["unknown_rows"] as? [String]))
+    XCTAssertFalse(joint.intersection(unknown).isEmpty)
+  }
+
+  func testCoverageFreshSupportMutationsFailAtomically() async throws {
+    for mutation in ["support-unknown-row", "support-duplicate-unknown", "support-malformed-span",
+                     "support-mismatched-joint", "support-mismatched-product"] {
+      let fixture = try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeUncertain",
+        storedInputs: ["work/0000-fixture-uncertain.fasta"])
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+        try Self.coverageNativeFixture(command, mutation: mutation,
+          fixtureName: "PrimalScheme3CoverageNativeUncertain")
+      })
+      do {
+        _ = try await pipeline.run(request: coverageRequest(fixture,
+          executableURL: URL(fileURLWithPath: "/fixture/lge3"), misprimingProductSize: 199))
+        XCTFail("Coverage mutation \(mutation) must not publish")
+      } catch {
+        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme3-LGE"), error.localizedDescription)
+        XCTAssertTrue(error.localizedDescription.lowercased().contains("support"), error.localizedDescription)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    }
+  }
+
+  func testCoverageNativeContractMutationsFailAtomically() async throws {
+    let mutations = ["config-version", "config-seed", "config-coverage", "config-budget",
+      "config-profile", "optimizer-algorithm", "validation-invalid", "validation-missing",
+      "catalog-hash", "bed-pool", "provenance-source", "provenance-output",
+      "provenance-input-swap", "catalog-duplicate-source-index", "catalog-fractional-source-index",
+      "reference-duplicate-id", "primer-duplicate-member", "primer-shifted-footprint",
+      "primer-flipped-strand", "nested-options-type", "nested-profile-type",
+      "validation-missing-target", "validation-reference-length", "validation-metric",
+      "validation-support-missing", "optimizer-target-summary"]
+    for mutation in mutations {
+      let usesEmpty = mutation == "provenance-input-swap" || mutation == "reference-duplicate-id" ||
+        mutation == "validation-missing-target" || mutation == "validation-reference-length" ||
+        mutation.hasPrefix("catalog-") && mutation.hasSuffix("source-index")
+      let fixture = usesEmpty
+        ? try coverageFixture(nativeDirectory: "PrimalScheme3CoverageNativeEmpty",
+            storedInputs: ["work/0000-fixture-empty-a.fasta", "work/0001-fixture-empty-b.fasta"])
+        : try coverageFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+        try Self.coverageNativeFixture(command, mutation: mutation,
+          fixtureName: usesEmpty ? "PrimalScheme3CoverageNativeEmpty" : "PrimalScheme3CoverageNative")
+      })
+      do {
+        _ = try await pipeline.run(request: coverageRequest(fixture,
+          executableURL: URL(fileURLWithPath: "/fixture/lge3"),
+          maxAmplicons: usesEmpty ? 0 : nil, maxAmpliconsPerMSA: usesEmpty ? 0 : nil))
+        XCTFail("Coverage mutation \(mutation) must not publish")
+      } catch {
+        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme3-LGE"), error.localizedDescription)
+        if mutation.hasPrefix("catalog-") && mutation.hasSuffix("source-index") {
+          XCTAssertTrue(error.localizedDescription.contains("source mapping"), error.localizedDescription)
+        } else if mutation == "reference-duplicate-id" {
+          XCTAssertTrue(error.localizedDescription.lowercased().contains("duplicate"), error.localizedDescription)
+        } else if mutation.hasPrefix("primer-") {
+          XCTAssertTrue(error.localizedDescription.contains("Published primer"), error.localizedDescription)
+        } else if mutation.hasPrefix("nested-") {
+          XCTAssertTrue(error.localizedDescription.contains("profile") ||
+            error.localizedDescription.contains("options"), error.localizedDescription)
+        } else if ["validation-missing-target", "validation-reference-length", "validation-metric",
+                   "validation-support-missing", "optimizer-target-summary"].contains(mutation) {
+          XCTAssertTrue(error.localizedDescription.lowercased().contains("target") ||
+            error.localizedDescription.lowercased().contains("support"), error.localizedDescription)
+        }
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    }
+  }
+
+  func testCoverageJSONEqualityPreservesNumericTypesAndIntegerPrecision() {
+    XCTAssertTrue(PrimalScheme3CoverageContract.equalJSON(51, 51.0))
+    XCTAssertFalse(PrimalScheme3CoverageContract.equalJSON(true, 1))
+    XCTAssertFalse(PrimalScheme3CoverageContract.equalJSON(
+      NSNumber(value: Int64(9_007_199_254_740_992)),
+      NSNumber(value: Int64(9_007_199_254_740_993))))
+  }
+
   func testRuntimeIsPreparedBeforeSnapshotsAndLeasedEnvironmentReachesRunner() async throws {
     let fixture = try fixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -190,6 +380,22 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     return Fixture(root: root, inputs: inputs, destination: root.appendingPathComponent("result.lungfishprimeranalysis"))
   }
 
+  private func coverageFixture(nativeDirectory: String = "PrimalScheme3CoverageNative",
+                               storedInputs: [String] = ["work/0000-fixture-source.fasta"]) throws -> Fixture {
+    let physical = try XCTUnwrap(realpath(FileManager.default.temporaryDirectory.path, nil))
+    defer { free(physical) }
+    let root = URL(fileURLWithPath: String(cString: physical)).appendingPathComponent(UUID().uuidString)
+    let inputs = try storedInputs.enumerated().map { index, storedInput in
+      let parent = root.appendingPathComponent("coverage-source-\(index)")
+      try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+      let file = parent.appendingPathComponent("target.fasta")
+      let storedFixture = Self.nativeCoverageFixtureURL(named: nativeDirectory).appendingPathComponent(storedInput)
+      try FileManager.default.copyItem(at: storedFixture, to: file)
+      return file
+    }
+    return Fixture(root: root, inputs: inputs, destination: root.appendingPathComponent("coverage.lungfishprimeranalysis"))
+  }
+
   private func request(_ fixture: Fixture, grouping: PrimerAnalysisGrouping) throws -> PrimalScheme3DesignRequest {
     .init(inputURLs: fixture.inputs, destinationURL: fixture.destination,
       options: .init(ampliconSize: 400, poolCount: 2), grouping: grouping,
@@ -197,11 +403,25 @@ final class PrimalScheme3PublicationTests: XCTestCase {
       expectedInputChecksums: Dictionary(uniqueKeysWithValues: try fixture.inputs.map { ($0, try Primer3InputLoader.fingerprint($0)) }))
   }
 
-  private static func nativeFixture(_ command: PrimalScheme3Command, exitStatus: Int32 = 0, policy: String = "observed-only", workers: Int = 1) throws -> PrimalScheme3Execution {
+  private func coverageRequest(_ fixture: Fixture, executableURL: URL?,
+                               maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil,
+                               misprimingProductSize: Int? = nil) throws -> PrimalScheme3DesignRequest {
+    .init(inputURLs: fixture.inputs, destinationURL: fixture.destination,
+      options: .init(ampliconSize: 200, poolCount: 2, coreCount: 1,
+        maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA,
+        ampliconSizeMinimum: 150, ampliconSizeMaximum: 280, selectionAlgorithm: .coverage,
+        optimizerStarts: 1, optimizerRepairRounds: 0, optimizerTimeLimit: 5,
+        misprimingProductSize: misprimingProductSize), grouping: .combined,
+      invocation: .init(argv: CommandLine.arguments, callerVersion: "test", explicitOptions: [:], runtimeIdentity: .init()),
+      executableURL: executableURL,
+      expectedInputChecksums: Dictionary(uniqueKeysWithValues: try fixture.inputs.map { ($0, try Primer3InputLoader.fingerprint($0)) }))
+  }
+
+  private static func nativeFixture(_ command: PrimalScheme3Command, exitStatus: Int32 = 0, policy: String = "observed-only", workers: Int = 1, version: String = PrimalScheme3DesignPipeline.toolVersion) throws -> PrimalScheme3Execution {
     guard let outputIndex = command.arguments.firstIndex(of: "--output") else { throw CocoaError(.fileReadUnknown) }
     let output = URL(fileURLWithPath: command.arguments[outputIndex + 1])
     try FileManager.default.createDirectory(at: output.appendingPathComponent("nested"), withIntermediateDirectories: true)
-    let config: [String: Any] = ["mode": "equal", "amplicon_size": 400, "n_pools": 2,
+    let config: [String: Any] = ["version": version, "mode": "equal", "amplicon_size": 400, "n_pools": 2,
       "amplicon_size_min": 360, "amplicon_size_max": 440, "amplicon_size_metric": "legacy-pairing",
       "terminal_gap_policy": policy, "discovery_core_count": workers, "discovery_backend": policy == "legacy" ? "rust-legacy" : "python-observed-only"]
     try JSONSerialization.data(withJSONObject: config).write(to: output.appendingPathComponent("config.json"))
@@ -209,8 +429,326 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     try Data(">fixture\nACGT\n".utf8).write(to: output.appendingPathComponent("reference.fasta"))
     try Data([0, 1, 255]).write(to: output.appendingPathComponent("nested/extra.dat"))
     return .init(argv: ["/fixture/primalscheme3"] + command.arguments, stdout: "fixture output",
-      stderr: exitStatus == 0 ? "" : "fixture failure", exitStatus: exitStatus, version: PrimalScheme3DesignPipeline.toolVersion,
+      stderr: exitStatus == 0 ? "" : "fixture failure", exitStatus: exitStatus, version: version,
       runtime: .init(executablePath: "/fixture/primalscheme3"), startedAt: Date(), endedAt: Date())
+  }
+
+  private static func nativeCoverageFixtureURL(named name: String = "PrimalScheme3CoverageNative") -> URL {
+    Bundle.module.resourceURL!.appendingPathComponent(name, isDirectory: true)
+  }
+
+  private static func coverageNativeFixture(_ command: PrimalScheme3Command,
+                                            mutation: String? = nil,
+                                            fixtureName: String = "PrimalScheme3CoverageNative") throws -> PrimalScheme3Execution {
+    guard let outputIndex = command.arguments.firstIndex(of: "--output") else { throw CocoaError(.fileReadUnknown) }
+    let output = URL(fileURLWithPath: command.arguments[outputIndex + 1])
+    let nativeCoverageFixtureURL = nativeCoverageFixtureURL(named: fixtureName)
+    try FileManager.default.copyItem(at: nativeCoverageFixtureURL, to: output)
+    let fixtureInputs = try FileManager.default.contentsOfDirectory(
+      at: nativeCoverageFixtureURL.appendingPathComponent("work"), includingPropertiesForKeys: nil)
+      .filter { $0.lastPathComponent.hasPrefix("000") && $0.pathExtension == "fasta" }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    let msaArguments = command.arguments.enumerated().compactMap {
+      $0.element == "--msa" && $0.offset + 1 < command.arguments.count ? command.arguments[$0.offset + 1] : nil
+    }
+    guard fixtureInputs.count == msaArguments.count else { throw CocoaError(.fileReadCorruptFile) }
+    for (source, destination) in zip(fixtureInputs, msaArguments.map(URL.init(fileURLWithPath:))) {
+      try Data(contentsOf: source).write(to: destination)
+    }
+    let provenanceURL = output.appendingPathComponent("panel-provenance.json")
+    var provenance = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: provenanceURL)) as? [String: Any])
+    provenance["command"] = ["argv": ["/fixture/lge3"] + command.arguments,
+      "shell": (["/fixture/lge3"] + command.arguments).joined(separator: " "),
+      "workingDirectory": command.workingDirectory.path]
+    var inputs = try XCTUnwrap(provenance["inputs"] as? [[String: Any]])
+    for index in inputs.indices where index < msaArguments.count { inputs[index]["sourcePath"] = msaArguments[index] }
+    provenance["inputs"] = inputs
+    if mutation == "provenance-source" {
+      var source = try XCTUnwrap(provenance["source"] as? [String: Any]); source["gitCommit"] = "different"
+      provenance["source"] = source
+    } else if mutation == "provenance-output" {
+      var outputs = try XCTUnwrap(provenance["outputs"] as? [[String: Any]])
+      outputs[0]["sha256"] = String(repeating: "0", count: 64); provenance["outputs"] = outputs
+    } else if mutation == "provenance-input-swap" {
+      guard inputs.count == 2 else { throw CocoaError(.fileReadCorruptFile) }
+      let keys = ["storedPath", "sha256", "size", "sourceAtStartSha256", "sourceAtStartSize",
+                  "sourceAtEndSha256", "sourceAtEndSize"]
+      for key in keys { (inputs[0][key], inputs[1][key]) = (inputs[1][key], inputs[0][key]) }
+      provenance["inputs"] = inputs
+    }
+    try writeJSON(provenance, to: provenanceURL)
+    if mutation?.hasPrefix("config-") == true {
+      try mutateJSON(output.appendingPathComponent("config.json")) {
+        switch mutation {
+        case "config-version": $0["version"] = "3.3.0+lge.2"
+        case "config-seed": $0["optimizer_seed"] = 99
+        case "config-coverage": $0["coverage_target"] = 0.8
+        case "config-budget": $0["optimizer_time_limit"] = 99.0
+        case "config-profile":
+          var integration = try XCTUnwrap($0["panel_optimizer"] as? [String: Any])
+          var profile = try XCTUnwrap(integration["profile"] as? [String: Any])
+          profile["name"] = "wrong"; integration["profile"] = profile; $0["panel_optimizer"] = integration
+        default: break
+        }
+      }
+    } else if mutation == "optimizer-algorithm" {
+      try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) { $0["algorithm"] = "wrong" }
+    } else if mutation == "validation-invalid" {
+      try mutateJSON(output.appendingPathComponent("panel-validation.json")) {
+        $0["valid"] = false; $0["violations"] = ["fixture failure"]
+      }
+    } else if mutation == "catalog-hash" {
+      try Data("changed".utf8).write(to: output.appendingPathComponent("candidate-catalog.json.gz"))
+    } else if mutation == "catalog-duplicate-source-index" {
+      try mutateCatalogSourceIndex(output, value: 0)
+    } else if mutation == "catalog-fractional-source-index" {
+      try mutateCatalogSourceIndex(output, value: 0.5)
+    } else if mutation == "validation-missing" {
+      try FileManager.default.removeItem(at: output.appendingPathComponent("panel-validation.json"))
+    } else if mutation == "bed-pool" {
+      let bed = output.appendingPathComponent("amplicon.bed")
+      let changed = try String(contentsOf: bed, encoding: .utf8).replacingOccurrences(of: "\t1\n", with: "\t9\n")
+      try Data(changed.utf8).write(to: bed)
+      try refreshProvenanceDescriptors(output, paths: ["amplicon.bed"])
+    } else if mutation == "reference-duplicate-id" {
+      try mutateDuplicateReferenceID(output)
+    } else if mutation?.hasPrefix("primer-") == true {
+      try mutatePrimerBED(output, mutation: try XCTUnwrap(mutation))
+    } else if mutation?.hasPrefix("nested-") == true {
+      try mutateNestedTypes(output, profile: mutation == "nested-profile-type")
+    } else if mutation?.hasPrefix("validation-") == true || mutation == "optimizer-target-summary" {
+      try mutateTargetMetadata(output, mutation: try XCTUnwrap(mutation))
+    } else if mutation?.hasPrefix("support-") == true {
+      try mutateSupportDiagnostics(output, mutation: try XCTUnwrap(mutation))
+    }
+    let capabilities = try Data(contentsOf: nativeCoverageFixtureURL.deletingLastPathComponent()
+      .appendingPathComponent("PrimalScheme3CoverageCapabilities.json"))
+    return .init(argv: ["/fixture/lge3"] + command.arguments, stdout: "reviewed native fixture", stderr: "",
+      exitStatus: 0, version: PrimalScheme3DesignPipeline.coverageToolVersion,
+      runtime: .init(executablePath: "/fixture/lge3"), startedAt: Date(), endedAt: Date(),
+      runtimeEvidence: ["capabilities.json": capabilities], capabilitiesJSON: capabilities)
+  }
+
+  private static func mutateJSON(_ url: URL, _ body: (inout [String: Any]) throws -> Void) throws {
+    var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    try body(&object)
+    try writeJSON(object, to: url)
+  }
+
+  private static func mutateCatalogSourceIndex(_ output: URL, value: Any) throws {
+    let catalogURL = output.appendingPathComponent("candidate-catalog.json.gz")
+    let text = try GzipInputStream(url: catalogURL).readAllSync()
+    var catalog = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+    var targets = try XCTUnwrap(catalog["targets"] as? [[String: Any]])
+    var metadata = try XCTUnwrap(catalog["metadata"] as? [String: Any])
+    var mapping = try XCTUnwrap(metadata["source_mapping"] as? [[Any]])
+    guard targets.count == 2, mapping.count == 2 else { throw CocoaError(.fileReadCorruptFile) }
+    targets[1]["source_msa_index"] = value
+    mapping[1][0] = value
+    catalog["targets"] = targets
+    metadata["source_mapping"] = mapping
+    catalog["metadata"] = metadata
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = ["-n", "-c"]
+    let input = Pipe(), result = Pipe()
+    process.standardInput = input; process.standardOutput = result
+    try process.run()
+    input.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: catalog, options: [.sortedKeys]))
+    try input.fileHandleForWriting.close()
+    let compressed = result.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { throw CocoaError(.fileWriteUnknown) }
+    try compressed.write(to: catalogURL)
+    let hash = try ProvenanceFileHasher.sha256(of: catalogURL)
+    let size = Int(try ProvenanceFileHasher.fileSize(of: catalogURL))
+    var descriptor: [String: Any] = [:]
+    try mutateJSON(output.appendingPathComponent("config.json")) {
+      var integration = try XCTUnwrap($0["panel_optimizer"] as? [String: Any])
+      descriptor = try XCTUnwrap(integration["catalog"] as? [String: Any])
+      descriptor["fileSha256"] = hash; descriptor["fileSize"] = size
+      integration["catalog"] = descriptor; $0["panel_optimizer"] = integration
+    }
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) {
+      $0["catalog"] = descriptor
+    }
+    let config = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: Data(contentsOf: output.appendingPathComponent("config.json"))) as? [String: Any])
+    try mutateJSON(output.appendingPathComponent("panel-provenance.json")) {
+      $0["resolvedOptions"] = config
+      var scientific = try XCTUnwrap($0["scientific"] as? [String: Any])
+      scientific["catalogFileSha256"] = hash; $0["scientific"] = scientific
+      var outputs = try XCTUnwrap($0["outputs"] as? [[String: Any]])
+      for index in outputs.indices {
+        let path = try XCTUnwrap(outputs[index]["path"] as? String)
+        if ["candidate-catalog.json.gz", "config.json", "panel-optimizer.json"].contains(path) {
+          let file = output.appendingPathComponent(path)
+          outputs[index]["sha256"] = try ProvenanceFileHasher.sha256(of: file)
+          outputs[index]["size"] = Int(try ProvenanceFileHasher.fileSize(of: file))
+        }
+      }
+      $0["outputs"] = outputs
+    }
+  }
+
+  private static func mutateDuplicateReferenceID(_ output: URL) throws {
+    let url = output.appendingPathComponent("reference.fasta")
+    var lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+    let headers = lines.indices.filter { lines[$0].hasPrefix(">") }
+    guard headers.count == 2 else { throw CocoaError(.fileReadCorruptFile) }
+    lines[headers[1]] = lines[headers[0]]
+    try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    try refreshProvenanceDescriptors(output, paths: ["reference.fasta"])
+  }
+
+  private static func mutatePrimerBED(_ output: URL, mutation: String) throws {
+    let url = output.appendingPathComponent("primer.bed")
+    var lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+    let records = lines.indices.filter { !lines[$0].hasPrefix("#") }
+    guard records.count >= 2 else { throw CocoaError(.fileReadCorruptFile) }
+    var first = lines[records[0]].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    var second = lines[records[1]].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    if mutation == "primer-duplicate-member" {
+      second[6] = first[6]
+      second[1] = String(try XCTUnwrap(Int(second[2])) - first[6].count)
+      lines[records[1]] = second.joined(separator: "\t")
+    } else if mutation == "primer-shifted-footprint" {
+      first[1] = String(try XCTUnwrap(Int(first[1])) + 1)
+      first[2] = String(try XCTUnwrap(Int(first[2])) + 1)
+      lines[records[0]] = first.joined(separator: "\t")
+    } else if mutation == "primer-flipped-strand" {
+      first[5] = "-"
+      lines[records[0]] = first.joined(separator: "\t")
+    }
+    try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    try refreshProvenanceDescriptors(output, paths: ["primer.bed"])
+  }
+
+  private static func mutateNestedTypes(_ output: URL, profile: Bool) throws {
+    let field = profile ? "profile" : "options"
+    try mutateJSON(output.appendingPathComponent("config.json")) {
+      var integration = try XCTUnwrap($0["panel_optimizer"] as? [String: Any])
+      var nested = try XCTUnwrap(integration[field] as? [String: Any])
+      if profile { nested["mismatch_fuzzy"] = 1 } else { nested["seed"] = false }
+      integration[field] = nested; $0["panel_optimizer"] = integration
+    }
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) {
+      var nested = try XCTUnwrap($0[field] as? [String: Any])
+      if profile { nested["mismatch_fuzzy"] = 1 } else { nested["seed"] = false }
+      $0[field] = nested
+      if profile {
+        var validation = try XCTUnwrap($0["validation"] as? [String: Any])
+        validation["profile"] = nested; $0["validation"] = validation
+      }
+    }
+    if profile {
+      try mutateJSON(output.appendingPathComponent("panel-validation.json")) {
+        var nested = try XCTUnwrap($0["profile"] as? [String: Any])
+        nested["mismatch_fuzzy"] = 1; $0["profile"] = nested
+      }
+    }
+    try refreshProvenanceDescriptors(output,
+      paths: profile ? ["config.json", "panel-optimizer.json", "panel-validation.json"] : ["config.json", "panel-optimizer.json"],
+      synchronizeConfiguration: true, synchronizeScientificProfile: profile)
+  }
+
+  private static func mutateTargetMetadata(_ output: URL, mutation: String) throws {
+    let validationURL = output.appendingPathComponent("panel-validation.json")
+    var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: validationURL)) as? [String: Any])
+    var perTarget = try XCTUnwrap(validation["per_target"] as? [String: [String: Any]])
+    if mutation == "validation-missing-target" {
+      perTarget.removeValue(forKey: try XCTUnwrap(perTarget.keys.sorted().first))
+      validation["per_target"] = perTarget
+    } else if mutation == "validation-reference-length" {
+      let key = try XCTUnwrap(perTarget.keys.sorted().first)
+      var summary = try XCTUnwrap(perTarget[key])
+      summary["reference_length"] = (try XCTUnwrap(summary["reference_length"] as? Int)) + 1
+      perTarget[key] = summary
+      validation["per_target"] = perTarget
+    } else if mutation == "validation-metric" {
+      let key = try XCTUnwrap(perTarget.keys.sorted().first)
+      perTarget[key]?["coverage_fraction"] = 0.5
+      validation["per_target"] = perTarget
+    } else if mutation == "validation-support-missing" {
+      var support = try XCTUnwrap(validation["support_diagnostics"] as? [String: Any])
+      support.removeValue(forKey: try XCTUnwrap(support.keys.sorted().first))
+      validation["support_diagnostics"] = support
+    }
+    try writeJSON(validation, to: validationURL)
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) {
+      if mutation == "optimizer-target-summary" {
+        var summaries = try XCTUnwrap($0["per_target"] as? [String: [String: Any]])
+        let key = try XCTUnwrap(summaries.keys.sorted().first)
+        var summary = try XCTUnwrap(summaries[key])
+        summary["covered_bases"] = (try XCTUnwrap(summary["covered_bases"] as? Int)) + 1
+        summaries[key] = summary
+        $0["per_target"] = summaries
+      } else {
+        $0["validation"] = validation
+      }
+    }
+    try refreshProvenanceDescriptors(output, paths: ["panel-validation.json", "panel-optimizer.json"])
+  }
+
+  private static func mutateSupportDiagnostics(_ output: URL, mutation: String) throws {
+    let validationURL = output.appendingPathComponent("panel-validation.json")
+    var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: validationURL)) as? [String: Any])
+    var support = try XCTUnwrap(validation["support_diagnostics"] as? [String: [String: Any]])
+    let candidateID = try XCTUnwrap(support.keys.first)
+    var diagnostic = try XCTUnwrap(support[candidateID])
+    if mutation == "support-unknown-row" {
+      var unknown = try XCTUnwrap(diagnostic["unknown_rows"] as? [String])
+      unknown.append("row-not-in-target"); diagnostic["unknown_rows"] = unknown
+    } else if mutation == "support-duplicate-unknown" {
+      var unknown = try XCTUnwrap(diagnostic["unknown_rows"] as? [String])
+      unknown.append(try XCTUnwrap(unknown.first)); diagnostic["unknown_rows"] = unknown
+    } else if mutation == "support-malformed-span" {
+      var spans = try XCTUnwrap(diagnostic["row_product_spans"] as? [[Any]])
+      spans[0][1] = false; diagnostic["row_product_spans"] = spans
+    } else if mutation == "support-mismatched-joint" {
+      var joint = try XCTUnwrap(diagnostic["joint_rows"] as? [String])
+      joint.removeLast(); diagnostic["joint_rows"] = joint
+    } else if mutation == "support-mismatched-product" {
+      var spans = try XCTUnwrap(diagnostic["row_product_spans"] as? [[Any]])
+      spans[0][1] = (try XCTUnwrap(spans[0][1] as? Int)) + 1
+      diagnostic["row_product_spans"] = spans
+    }
+    support[candidateID] = diagnostic
+    validation["support_diagnostics"] = support
+    try writeJSON(validation, to: validationURL)
+    try mutateJSON(output.appendingPathComponent("panel-optimizer.json")) { $0["validation"] = validation }
+    try refreshProvenanceDescriptors(output, paths: ["panel-validation.json", "panel-optimizer.json"])
+  }
+
+  private static func refreshProvenanceDescriptors(_ output: URL, paths: Set<String>,
+                                                   synchronizeConfiguration: Bool = false,
+                                                   synchronizeScientificProfile: Bool = false) throws {
+    try mutateJSON(output.appendingPathComponent("panel-provenance.json")) {
+      if synchronizeConfiguration {
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(
+          with: Data(contentsOf: output.appendingPathComponent("config.json"))) as? [String: Any])
+        $0["resolvedOptions"] = config
+        if synchronizeScientificProfile {
+          let integration = try XCTUnwrap(config["panel_optimizer"] as? [String: Any])
+          var scientific = try XCTUnwrap($0["scientific"] as? [String: Any])
+          scientific["profile"] = integration["profile"]
+          $0["scientific"] = scientific
+        }
+      }
+      var descriptors = try XCTUnwrap($0["outputs"] as? [[String: Any]])
+      for index in descriptors.indices {
+        let path = try XCTUnwrap(descriptors[index]["path"] as? String)
+        guard paths.contains(path) else { continue }
+        let file = output.appendingPathComponent(path)
+        descriptors[index]["sha256"] = try ProvenanceFileHasher.sha256(of: file)
+        descriptors[index]["size"] = Int(try ProvenanceFileHasher.fileSize(of: file))
+      }
+      $0["outputs"] = descriptors
+    }
+  }
+
+  private static func writeJSON(_ object: Any, to url: URL) throws {
+    try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]).write(to: url)
   }
 
   private actor CommandRecorder {

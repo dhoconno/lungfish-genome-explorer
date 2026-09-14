@@ -44,13 +44,25 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
     func testLegacyOptionsDecodeWithoutNewFieldsAndSingleExplicitBoundResolvesOther() throws {
         let original = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2)
         var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
-        payload.removeValue(forKey: "requestedAmpliconSizeMinimum")
-        payload.removeValue(forKey: "requestedAmpliconSizeMaximum")
+        for key in ["requestedAmpliconSizeMinimum", "requestedAmpliconSizeMaximum", "selectionAlgorithm",
+                    "coverageMetric", "coverageTarget", "optimizerSeed", "optimizerStarts",
+                    "optimizerRepairRounds", "optimizerTimeLimit", "requestedMisprimingProductSize"] {
+            payload.removeValue(forKey: key)
+        }
         let decoded = try JSONDecoder().decode(PrimalScheme3DesignOptions.self,
             from: JSONSerialization.data(withJSONObject: payload))
         XCTAssertEqual(decoded.ampliconSizeMinimum, 180)
         XCTAssertEqual(decoded.ampliconSizeMaximum, 220)
         XCTAssertEqual(decoded.ampliconSizeMetric, "legacy-pairing")
+        XCTAssertEqual(decoded.selectionAlgorithm, .legacy)
+        XCTAssertEqual(decoded.coverageMetric, .fullSpan)
+        XCTAssertEqual(decoded.coverageTarget, 0.90)
+        XCTAssertEqual(decoded.optimizerSeed, 0)
+        XCTAssertEqual(decoded.optimizerStarts, 4)
+        XCTAssertEqual(decoded.optimizerRepairRounds, 2)
+        XCTAssertEqual(decoded.optimizerTimeLimit, 120)
+        XCTAssertNil(decoded.requestedMisprimingProductSize)
+        XCTAssertEqual(decoded.misprimingProductSize, 0)
         let lower = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150)
         XCTAssertEqual(lower.ampliconSizeMaximum, 220)
         XCTAssertEqual(lower.ampliconSizeMetric, "reference-span")
@@ -115,6 +127,93 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(arguments, ["panel-create", "--mode", "equal", "--msa", inputs[0].path, "--msa", inputs[1].path,
             "--output", "/test/output", "--amplicon-size", "400", "--n-pools", "2",
             "--min-base-freq", "0.0", "--mapping", "first", "--no-high-gc", "--ncores", String(PrimalScheme3DesignOptions.defaultCoreCount), "--terminal-gap-policy", "observed-only", "--dimer-score", "-26.0", "--use-matchdb", "--offline-plots"])
+        XCTAssertFalse(arguments.contains("--selection-algorithm"))
+        XCTAssertFalse(arguments.contains("--mispriming-product-size"))
+    }
+
+    func testCoverageArgumentsForwardResolvedSelectorContract() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta"), URL(fileURLWithPath: "/test/b.fasta")]
+        let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 3,
+            terminalGapPolicy: .legacy, dimerScore: -27.5, panelMode: .equal,
+            maxAmplicons: 0, maxAmpliconsPerMSA: 4, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, coverageMetric: .primerTrimmed,
+            coverageTarget: 0.8, optimizerSeed: -7, optimizerStarts: 5,
+            optimizerRepairRounds: 0, optimizerTimeLimit: 3.5)
+        let args = try PrimalScheme3DesignPipeline.arguments(inputs: inputs,
+            output: URL(fileURLWithPath: "/test/output"), grouping: .combined, options: options)
+        for (flag, value) in [
+            ("--selection-algorithm", "coverage"), ("--amplicon-size-min", "150"),
+            ("--amplicon-size-max", "220"), ("--coverage-metric", "primer-trimmed"),
+            ("--coverage-target", "0.8"), ("--optimizer-seed", "-7"),
+            ("--optimizer-starts", "5"), ("--optimizer-repair-rounds", "0"),
+            ("--optimizer-time-limit", "3.5"), ("--mispriming-product-size", "2000"),
+            ("--max-amplicons", "0"), ("--max-amplicons-msa", "4")
+        ] {
+            let index = try XCTUnwrap(args.firstIndex(of: flag), flag)
+            XCTAssertEqual(args[index + 1], value, flag)
+        }
+        XCTAssertEqual(options.provenanceOptions["selectionAlgorithm"], .string("coverage"))
+        XCTAssertEqual(options.provenanceOptions["misprimingProductSize"], .integer(2000))
+        XCTAssertEqual(options.provenanceOptions["requestedMisprimingProductSize"], .null)
+    }
+
+    func testCoverageRequiresCombinedEqualExplicitBoundsAndValidSelectorNumbers() {
+        let input = [URL(fileURLWithPath: "/test/input.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        func rejected(_ options: PrimalScheme3DesignOptions, grouping: PrimerAnalysisGrouping = .combined,
+                      file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
+                grouping: grouping, options: options), file: file, line: line)
+        }
+        rejected(.init(ampliconSize: 200, poolCount: 2, selectionAlgorithm: .coverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage), grouping: .independent)
+        rejected(.init(ampliconSize: 200, poolCount: 2, panelMode: .entropy,
+            ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, useMatchDB: false,
+            ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, coverageTarget: .nan))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, coverageTarget: 1.01))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, optimizerStarts: 0))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, optimizerRepairRounds: -1))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, optimizerTimeLimit: .infinity))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, optimizerTimeLimit: 0))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, misprimingProductSize: 0))
+        rejected(.init(ampliconSize: 200, poolCount: 2, maxAmplicons: -1,
+            ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, maxAmpliconsPerMSA: -1,
+            ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
+        XCTAssertNoThrow(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
+            grouping: .combined, options: .init(ampliconSize: 200, poolCount: 2,
+                maxAmplicons: 0, maxAmpliconsPerMSA: 0, ampliconSizeMinimum: 150,
+                selectionAlgorithm: .coverage)))
+    }
+
+    func testLegacyRejectsNondefaultSelectorSettingsButAcceptsExplicitZeroProductSize() throws {
+        let input = [URL(fileURLWithPath: "/test/input.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let accepted = try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
+            grouping: .combined, options: .init(ampliconSize: 200, poolCount: 2,
+                misprimingProductSize: 0))
+        XCTAssertFalse(accepted.contains("--mispriming-product-size"))
+        for options in [
+            PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, coverageTarget: 0.8),
+            .init(ampliconSize: 200, poolCount: 2, optimizerSeed: 1),
+            .init(ampliconSize: 200, poolCount: 2, optimizerStarts: 5),
+            .init(ampliconSize: 200, poolCount: 2, optimizerRepairRounds: 3),
+            .init(ampliconSize: 200, poolCount: 2, optimizerTimeLimit: 121),
+            .init(ampliconSize: 200, poolCount: 2, misprimingProductSize: 1)
+        ] {
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.arguments(inputs: input,
+                output: output, grouping: .combined, options: options))
+        }
     }
 
     func testAdvancedOptionsRespectVerifiedSubcommandCapabilities() throws {

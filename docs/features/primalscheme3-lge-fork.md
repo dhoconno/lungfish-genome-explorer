@@ -12,6 +12,16 @@ Upstream's actual CLI uses Rust-backed discovery, which the Python patch alone w
 
 The validation scope is human/macaque MHC and synthetic software fixtures. Computational success does not establish assay performance or biological full-gene boundaries.
 
+## Coverage panel selection
+
+The CLI can opt into the lge.3 bounded coverage selector with `--selection-algorithm coverage`. Coverage is limited to combined whole-MSA equal panels with first-row mapping, supplied-MSA specificity, and at least one explicit amplicon bound. If one bound is omitted, LGE resolves it from the nominal target and forwards both bounds. The selector also accepts `--coverage-metric`, `--coverage-target`, `--optimizer-seed`, `--optimizer-starts`, `--optimizer-repair-rounds`, `--optimizer-time-limit`, and `--mispriming-product-size`.
+
+Coverage currently requires an explicit local executable through `--primalscheme3-path`. LGE probes it once with `--capabilities-json` and requires the exact `3.3.0+lge.3` source, runtime, schema, profile, and supported-scope contract before scientific execution. The managed installation remains lge.2, and legacy invocations preserve their existing arguments. A verified explicit lge.3 executable may also run the legacy selector without coverage flags.
+
+Before publication, LGE checks the resolved native configuration, compressed candidate catalogue and hashes, optimizer metadata, independent validation, selected candidate and target mappings, BED coordinates and pool numbering, durable input copies, all native output hashes, and source/runtime identity from probe through completion. Coverage below the requested objective and valid empty panels remain publishable when the independent validator reports success. Native validation completes before the existing atomic bundle writer runs, so rejected output cannot appear at the requested destination.
+
+The September 2026 implementation decisions, full nine-locus benchmark, exact coverage metrics, resource measurements, limitations, provenance audit and retained review record are in the [coverage panel optimizer delivery report](../reports/2026-09-13-coverage-panel-optimizer/report.md).
+
 ## Installation, provenance and distribution
 
 The optional PCR Primer Design pack installs an exact release wheel inside a managed conda environment. Its dependency requirements and wheel have SHA-256 pins. Runtime receipts retain fork and upstream source revisions, release-asset URL, downloaded and installed file inventories, exact installation commands, runtime identity and probe results. Source code and packaged release artifacts are available on GitHub for other users; installing LGE is not required to obtain the fork.
