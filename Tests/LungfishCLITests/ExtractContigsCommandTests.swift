@@ -101,6 +101,32 @@ final class ExtractContigsCommandTests: XCTestCase {
         )
     }
 
+    func testRunReadsGzippedContigsFile() async throws {
+        let fixture = try makeAssemblyFixture()
+        let compressedURL = fixture.root.appendingPathComponent("contigs.fasta.gz")
+        try gzip(fixture.root.appendingPathComponent("contigs.fasta"), to: compressedURL)
+        let outputURL = fixture.root.appendingPathComponent("subset-from-gzip.fa")
+
+        let command = try ExtractContigsSubcommand.parse([
+            "--contigs", compressedURL.path,
+            "--contig", "beta",
+            "--output", outputURL.path,
+            "--line-width", "4",
+        ])
+
+        try await command.run()
+
+        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertEqual(
+            output,
+            ">beta secondary contig\nACGT\nAC\n"
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: compressedURL.appendingPathExtension("fai").path),
+            "Compressed inputs must not receive an index containing compressed byte offsets"
+        )
+    }
+
     func testRunPreservesMixedInlineAndFileSelectionOrder() async throws {
         let fixture = try makeAssemblyFixture()
         let listURL = fixture.root.appendingPathComponent("mixed.txt")
@@ -253,5 +279,30 @@ final class ExtractContigsCommandTests: XCTestCase {
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func gzip(_ inputURL: URL, to outputURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", inputURL.path]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        let compressed = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let message = String(
+                data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? "gzip failed"
+            throw NSError(domain: "ExtractContigsCommandTests", code: Int(process.terminationStatus), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        try compressed.write(to: outputURL, options: .atomic)
     }
 }

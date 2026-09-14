@@ -139,6 +139,11 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         contentMode = .genomics
         currentBundleDataProvider = context.provider
         currentBundleURL = context.url
+        // Keep the legacy controller-level bundle reference in sync with the
+        // newer display-context state. Sequence extraction still uses this
+        // property, while the reference viewport path primarily populates
+        // `currentBundleURL` and `viewerView.currentReferenceBundle`.
+        currentReferenceBundle = context.bundle
         currentBundleViewState = context.viewState
         currentBundleDisplayName = context.manifest.name
         applyBundleHorizontalScrollDirectionPreference()
@@ -663,6 +668,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleViewState = nil
         currentBundleURL = nil
         currentBundleDisplayName = nil
+        currentReferenceBundle = nil
         viewerView.horizontalScrollDirectionOverride = nil
         viewerView.clearReferenceBundle()
         removeChromosomeNavigator()

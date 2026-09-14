@@ -37,7 +37,7 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertThrowsError(try PrimerDesignCommand.parseIndexedPath("/tmp/mhc.fa@-1", option: "--fasta-record"))
     }
 
-    func testPrimalSchemeRequiresNativeMSABundleInputsAtCLIBoundary() throws {
+    func testPrimalSchemeAcceptsNativeAndRawAlignedFASTAInputsAtCLIBoundary() throws {
         let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
             "--msa", "/tmp/mhc-class-i.lungfishmsa",
             "--output", "/tmp/scheme.lungfishprimeranalysis",
@@ -48,6 +48,11 @@ final class PrimerDesignCommandTests: XCTestCase {
         let legacy = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
             "--output", "/tmp/out.lungfishprimeranalysis", "--terminal-gap-policy", "legacy"])
         XCTAssertEqual(legacy.terminalGapPolicy, "legacy")
-        XCTAssertThrowsError(try command.validatedInputURLs(paths: ["/tmp/raw-aligned.fasta"]))
+        XCTAssertEqual(
+            try command.validatedInputURLs(paths: ["/tmp/raw-aligned.fasta", "/tmp/raw-aligned.fas"])
+                .map(\ .lastPathComponent),
+            ["raw-aligned.fasta", "raw-aligned.fas"]
+        )
+        XCTAssertThrowsError(try command.validatedInputURLs(paths: ["/tmp/proteins.faa"]))
     }
 }

@@ -138,6 +138,16 @@ public struct PrimalScheme3DesignPipeline: Sendable {
     public static let toolVersion = "3.3.0+lge.2"
     public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
     public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
+    /// Raw nucleotide FASTA suffixes accepted as one-row or already-aligned inputs.
+    /// Protein FASTA and compressed FASTA are intentionally excluded because the
+    /// custom fork consumes an uncompressed DNA alignment.
+    public static let supportedRawFASTAExtensions: Set<String> = ["fa", "fasta", "fna", "ffn", "frn", "fas"]
+
+    public static func supportsInput(at url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == MultipleSequenceAlignmentBundle.directoryExtension || supportedRawFASTAExtensions.contains(ext)
+    }
+
     typealias Runner = @Sendable (PrimalScheme3Command) async throws -> PrimalScheme3Execution
     private let runner: Runner
     private let writer: PrimerAnalysisBundleWriter
@@ -232,6 +242,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let alignedURL: URL
         let paths: [String]
         let fingerprint: String
+        let consumedFingerprint: String
+        let uracilCount: Int
+        let unknownBaseCount: Int
         let referenceName: String
         let rowMappingPath: String
     }
@@ -269,7 +282,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             }
             let id = UUID()
             let prefix = "source-inputs/\(id.uuidString)"
-            let native = url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension
+            let native = Primer3InputLoader.isAlignmentBundle(url)
             let snapshot = scratch.appendingPathComponent(prefix).appendingPathComponent(
                 native ? "source.lungfishmsa" : "source.fasta")
             try Self.copySource(url, to: snapshot)
@@ -277,33 +290,40 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 throw PrimalScheme3DesignError.invalidRequest("An input changed while its snapshot was being captured.")
             }
             let sourceAligned = native ? snapshot.appendingPathComponent("alignment/primary.aligned.fasta") : snapshot
-            let rows = try Primer3InputLoader.readAlignedRows(at: sourceAligned)
+            let rows = try Primer3InputLoader.readAlignedRows(at: sourceAligned, allowingRNAU: true)
             if native {
                 try Primer3InputLoader.validateAlignedRows(rows, bundle: MultipleSequenceAlignmentBundle.load(from: snapshot))
             }
-            let lengths = Set(rows.map { $0.sequence.count })
-            guard !rows.isEmpty, lengths.count == 1, lengths.first != 0,
-                  Set(rows.map(\.title)).count == rows.count,
-                  rows.allSatisfy({ $0.sequence.uppercased().allSatisfy { "ACGTRYSWKMBDHVN-".contains($0) } }) else {
+            let normalized = Primer3InputLoader.normalizeForPrimalScheme(rows)
+            let normalizedRows = normalized.rows
+            let uracilCount = normalized.uracilCount
+            let unknownBaseCount = normalized.unknownBaseCount
+            let lengths = Set(normalizedRows.map { $0.sequence.count })
+            guard !normalizedRows.isEmpty, lengths.count == 1, lengths.first != 0,
+                  Set(normalizedRows.map(\.title)).count == normalizedRows.count,
+                  normalizedRows.allSatisfy({ $0.sequence.uppercased().allSatisfy { "ACGTRYSWKMBDHVN-".contains($0) } }) else {
                 throw PrimalScheme3DesignError.invalidRequest("Each input must contain aligned, nonempty DNA rows with distinct FASTA identifiers. No alignment or record selection is inferred.")
             }
             let files = try Self.regularFiles(in: snapshot)
             let aligned = scratch.appendingPathComponent("inputs/\(id.uuidString).fasta")
             try FileManager.default.createDirectory(at: aligned.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let normalizedNames = rows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" }
-            let consumedFASTA = rows.enumerated().map { index, row in
+            let normalizedNames = normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" }
+            let consumedFASTA = normalizedRows.enumerated().map { index, row in
                 ">\(normalizedNames[index])\n\(row.sequence)\n"
             }.joined()
             try Data(consumedFASTA.utf8).write(to: aligned, options: .withoutOverwriting)
             let mappingPath = "inputs/\(id.uuidString)-row-map.json"
             let mappingURL = scratch.appendingPathComponent(mappingPath)
             let mapping: [String: Any] = ["schemaVersion": 1, "inputID": id.uuidString,
-                "transformation": "FASTA headers replaced; sequence symbols and row order preserved",
-                "rows": rows.enumerated().map { index, row in
+                "transformation": "FASTA headers replaced; U/u normalized to T; N/n treated as missing alignment gaps; row order preserved",
+                "uracilCount": uracilCount,
+                "unknownBaseCount": unknownBaseCount,
+                "rows": normalizedRows.enumerated().map { index, row in
                     ["rowIndex": index, "originalHeader": row.title, "normalizedHeader": normalizedNames[index]] as [String: Any]
                 }]
             try JSONSerialization.data(withJSONObject: mapping, options: [.prettyPrinted, .sortedKeys])
                 .write(to: mappingURL, options: .withoutOverwriting)
+            let consumedFingerprint = try Primer3InputLoader.fingerprint(aligned)
             let paths = files.map { Self.relative($0, to: scratch) } + [Self.relative(aligned, to: scratch), mappingPath]
             for file in files {
                 artifacts.append(.init(sourceURL: file, relativePath: Self.relative(file, to: scratch),
@@ -312,7 +332,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             artifacts.append(.init(sourceURL: aligned, relativePath: Self.relative(aligned, to: scratch), role: "input", format: "fasta"))
             artifacts.append(.init(sourceURL: mappingURL, relativePath: mappingPath, role: "input", format: "json"))
             inputs.append(Input(id: id, originalURL: url, snapshotURL: snapshot, alignedURL: aligned,
-                                paths: paths, fingerprint: expected, referenceName: normalizedNames[0],
+                                paths: paths, fingerprint: expected, consumedFingerprint: consumedFingerprint,
+                                uracilCount: uracilCount, unknownBaseCount: unknownBaseCount,
+                                referenceName: normalizedNames[0],
                                 rowMappingPath: mappingPath))
         }
         let analysisID = UUID(), runID = UUID()
@@ -384,9 +406,13 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                          "executableSHA256": executed.executableSHA256.map(ParameterValue.string) ?? .string("injected-test-runner"),
                          "sourceInputs": .array(group.map { .dictionary([
                             "inputID": .string($0.id.uuidString), "sourcePath": .string($0.originalURL.path),
+                            "sourceSnapshotRelativePath": .string(Self.relative($0.snapshotURL, to: scratch)),
                             "consumedRelativePath": .string(Self.relative($0.alignedURL, to: scratch)),
                             "inspectionSHA256": .string($0.fingerprint),
-                            "preprocessing": .string("FASTA-header-normalization-only; bases-and-row-order-preserved"),
+                            "consumedSHA256": .string($0.consumedFingerprint),
+                            "uracilCount": .integer($0.uracilCount),
+                            "unknownBaseCount": .integer($0.unknownBaseCount),
+                            "preprocessing": .string("FASTA-header-normalization; U-to-T DNA normalization; N-to-gap missing-coverage normalization; row-order-preserved"),
                             "rowMappingRelativePath": .string($0.rowMappingPath),
                             "referenceName": .string($0.referenceName)
                          ]) })])

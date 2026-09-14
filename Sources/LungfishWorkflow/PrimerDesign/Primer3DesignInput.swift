@@ -35,10 +35,20 @@ struct Primer3AlignedRow: Sendable {
     let sequence: String
 }
 
+struct Primer3AlignedNormalization: Sendable {
+    let rows: [Primer3AlignedRow]
+    let uracilCount: Int
+    let unknownBaseCount: Int
+}
+
 enum Primer3InputLoader {
+    static func isAlignmentBundle(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension
+            || FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path)
+    }
+
     static func inspect(_ url: URL) throws -> Primer3DesignInputSummary {
-        if url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension
-            || FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path) {
+        if isAlignmentBundle(url) {
             let bundle = try MultipleSequenceAlignmentBundle.load(from: url)
             return Primer3DesignInputSummary(url: url, isAlignment: true, recordTitles: bundle.rows.map(\.displayName), checksumSHA256: try fingerprint(url))
         }
@@ -54,8 +64,7 @@ enum Primer3InputLoader {
     static func fingerprint(_ url: URL) throws -> String {
         var hasher = SHA256()
         let urls: [URL]
-        if url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension
-            || FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path) {
+        if isAlignmentBundle(url) {
             urls = ["manifest.json", "metadata/rows.json", "alignment/primary.aligned.fasta"].map { url.appendingPathComponent($0) }
         } else { urls = [url] }
         for file in urls {
@@ -90,13 +99,14 @@ enum Primer3InputLoader {
         }
     }
 
-    static func readAlignedRows(at url: URL) throws -> [Primer3AlignedRow] {
+    static func readAlignedRows(at url: URL, allowingRNAU: Bool = false) throws -> [Primer3AlignedRow] {
         guard let text = String(data: try Data(contentsOf: url), encoding: .utf8) else { throw Primer3DesignError.invalidRequest("aligned FASTA is not UTF-8") }
         var rows: [Primer3AlignedRow] = [], title: String?, chunks: [String] = []
+        let allowedSymbols = allowingRNAU ? "ACGTRYSWKMBDHVNU-." : "ACGTRYSWKMBDHVN-."
         func finish() throws {
             guard let currentTitle = title else { return }
             let sequence = chunks.joined()
-            guard !sequence.isEmpty, sequence.uppercased().allSatisfy({ "ACGTRYSWKMBDHVN-.".contains($0) }) else { throw Primer3DesignError.invalidRequest("aligned FASTA row \(currentTitle) is empty or contains unsupported symbols") }
+            guard !sequence.isEmpty, sequence.uppercased().allSatisfy({ allowedSymbols.contains($0) }) else { throw Primer3DesignError.invalidRequest("aligned FASTA row \(currentTitle) is empty or contains unsupported symbols") }
             rows.append(.init(title: currentTitle, sequence: sequence))
         }
         for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
@@ -115,6 +125,34 @@ enum Primer3InputLoader {
         try finish()
         guard !rows.isEmpty, Set(rows.map { $0.sequence.count }).count == 1 else { throw Primer3DesignError.invalidRequest("aligned FASTA rows must be nonempty and equal width") }
         return rows
+    }
+
+    /// Normalizes symbols that the PrimalScheme runtime cannot safely digest.
+    ///
+    /// `N` is an unknown/missing base in an alignment, so it is represented as
+    /// an alignment gap for the runtime. This prevents the native k-mer
+    /// digester from treating an unknown symbol as a concrete base while still
+    /// preserving the column as missing coverage. RNA uracils are converted to
+    /// DNA thymidines at the same execution boundary.
+    static func normalizeForPrimalScheme(_ rows: [Primer3AlignedRow]) -> Primer3AlignedNormalization {
+        var uracilCount = 0
+        var unknownBaseCount = 0
+        let normalized = rows.map { row in
+            let sequence = String(row.sequence.map { character in
+                switch character {
+                case "U", "u":
+                    uracilCount += 1
+                    return "T"
+                case "N", "n":
+                    unknownBaseCount += 1
+                    return "-"
+                default:
+                    return character
+                }
+            })
+            return Primer3AlignedRow(title: row.title, sequence: sequence)
+        }
+        return Primer3AlignedNormalization(rows: normalized, uracilCount: uracilCount, unknownBaseCount: unknownBaseCount)
     }
 
     static func validateAlignedRows(_ alignedRows: [Primer3AlignedRow], bundle: MultipleSequenceAlignmentBundle) throws {

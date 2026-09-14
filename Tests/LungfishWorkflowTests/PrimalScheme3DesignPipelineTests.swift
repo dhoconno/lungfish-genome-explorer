@@ -4,6 +4,28 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimalScheme3DesignPipelineTests: XCTestCase {
+    func testPrimalSchemeInputTreatsUnknownBasesAsMissingCoverage() {
+        let result = Primer3InputLoader.normalizeForPrimalScheme([
+            Primer3AlignedRow(title: "reference", sequence: "ACN-Uu"),
+            Primer3AlignedRow(title: "sample", sequence: "AC--TT")
+        ])
+
+        XCTAssertEqual(result.rows.map(\.sequence), ["AC--TT", "AC--TT"])
+        XCTAssertEqual(result.uracilCount, 2)
+        XCTAssertEqual(result.unknownBaseCount, 1)
+    }
+
+    func testSupportedInputsIncludeRawNucleotideFASTAAndNativeMSA() {
+        for extensionName in ["fa", "fasta", "fna", "ffn", "frn", "fas", "lungfishmsa"] {
+            XCTAssertTrue(
+                PrimalScheme3DesignPipeline.supportsInput(at: URL(fileURLWithPath: "/input/reference.\(extensionName)")),
+                extensionName
+            )
+        }
+        XCTAssertFalse(PrimalScheme3DesignPipeline.supportsInput(at: URL(fileURLWithPath: "/input/proteins.faa")))
+        XCTAssertFalse(PrimalScheme3DesignPipeline.supportsInput(at: URL(fileURLWithPath: "/input/reference.fa.gz")))
+    }
+
     func testExplicitAmpliconBoundsReachBothCommandsAndProvenance() throws {
         let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2,
             ampliconSizeMinimum: 150, ampliconSizeMaximum: 250)

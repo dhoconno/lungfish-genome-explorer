@@ -36,6 +36,30 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(state.inputURLs, [second])
   }
 
+  func testSingleSequenceFASTAEnablesPrimalSchemeRunAfterInspection() async throws {
+    let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: project) }
+
+    let fasta = project.appendingPathComponent("reference.fas")
+    let sequence = String(repeating: "ACGT", count: 150)
+    try Data(">reference\n\(sequence)\n".utf8).write(to: fasta)
+
+    let state = PrimerDesignDialogState(projectURL: project)
+    state.engine = .primalScheme
+    state.analysisName = "single-sequence-primal"
+    state.addInputs([fasta])
+    XCTAssertFalse(state.isRunEnabled)
+
+    await state.inspectInputs()
+
+    XCTAssertEqual(state.inputSummaries[fasta]?.recordTitles, ["reference"])
+    XCTAssertEqual(state.inputSummaries[fasta]?.isAlignment, false)
+    XCTAssertNil(state.inputReadinessMessage)
+    XCTAssertNil(state.validationMessage)
+    XCTAssertTrue(state.isRunEnabled)
+  }
+
   func testDestinationRequiresProjectAndRejectsTraversalAndCollisions() throws {
     let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)

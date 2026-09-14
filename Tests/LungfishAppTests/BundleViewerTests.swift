@@ -1041,6 +1041,20 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertNil(embeddedViewer.referenceBundleViewportController)
     }
 
+    func testBrowseModeSequenceDetailKeepsReferenceBundleForSequenceExtraction() throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundle(chromosomes: ["chr1", "chr2"])
+
+        try vc.displayBundle(at: bundleURL, mode: .browse)
+        let viewport = try XCTUnwrap(vc.referenceBundleViewportController)
+        let embeddedViewer = try XCTUnwrap(viewport.children.compactMap { $0 as? ViewerViewController }.first)
+
+        XCTAssertEqual(embeddedViewer.currentBundleURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(embeddedViewer.viewerView.currentReferenceBundle?.url, bundleURL.standardizedFileURL)
+        XCTAssertEqual(embeddedViewer.currentReferenceBundle?.url, bundleURL.standardizedFileURL)
+    }
+
     func testBrowseModeSelectionUpdatesEmbeddedSequenceDetailViewer() throws {
         let vc = ViewerViewController()
         _ = vc.view

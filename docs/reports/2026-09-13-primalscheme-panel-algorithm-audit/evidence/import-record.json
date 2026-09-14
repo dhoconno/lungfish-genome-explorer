@@ -1,0 +1,33 @@
+{
+  "workflow": "algorithm-review-evidence-copy",
+  "version": 1,
+  "createdAt": "2026-09-13T18:19:40.546413+00:00",
+  "files": [
+    {
+      "sourcePath": "/private/tmp/primalscheme-selection-audit/counterexample.py",
+      "storedPath": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/evidence/selection-counterexample.py",
+      "sha256": "c819acb15170e7e973730d47d306ea666e3546a3e0d9cd0734f8171ab058232e",
+      "sizeBytes": 6346
+    },
+    {
+      "sourcePath": "/private/tmp/primalscheme-selection-audit/parent-verification.json",
+      "storedPath": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/evidence/selection-counterexample.json",
+      "sha256": "fca328bf072c003d2ace4d9773c09c0047eabf09a277af73b3144d00d5d19221",
+      "sizeBytes": 2475
+    },
+    {
+      "sourcePath": "/private/tmp/primalscheme3-nativehash-probe.py",
+      "storedPath": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/evidence/nativehash-probe.py",
+      "sha256": "ef14b12a6b0943a97002fbd600ea0928616f5ace80936334952c5d16c1d7f4b4",
+      "sizeBytes": 94
+    },
+    {
+      "sourcePath": "/private/tmp/primalscheme3-scaling-audit-probe.md",
+      "storedPath": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/evidence/nativehash-review.md",
+      "sha256": "32462611a15d32e4384e72ce4044630aaa3de6286e85d63dbf291d65bf40e18d",
+      "sizeBytes": 2374
+    }
+  ],
+  "operation": "byte-for-byte copies using shutil.copy2; original source paths remain in embedded provenance",
+  "exitStatus": 0
+}

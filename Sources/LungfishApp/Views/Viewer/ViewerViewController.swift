@@ -1613,6 +1613,13 @@ public class ViewerViewController: NSViewController {
                 suggestedName: Self.bundleName(for: selectedSequences)
             )
         }
+        controller.onExtractSequenceWithAnnotationsRequested = { [weak self] selectedSequences, annotationsByRecord in
+            self?.presentFASTASequenceExtractionDialog(
+                records: selectedSequences.map(Self.fastaRecord(for:)),
+                suggestedName: Self.bundleName(for: selectedSequences),
+                annotationsByRecord: annotationsByRecord
+            )
+        }
         controller.onExportRequested = { [weak self] selectedSequences in
             self?.exportFASTARecords(
                 selectedSequences.map(Self.fastaRecord(for:)),
@@ -1623,6 +1630,13 @@ public class ViewerViewController: NSViewController {
             self?.createReferenceBundle(
                 from: selectedSequences.map(Self.fastaRecord(for:)),
                 suggestedName: Self.bundleName(for: selectedSequences)
+            )
+        }
+        controller.onCreateBundleWithAnnotationsRequested = { [weak self] selectedSequences, annotationsByRecord in
+            self?.createReferenceBundle(
+                from: selectedSequences.map(Self.fastaRecord(for:)),
+                suggestedName: Self.bundleName(for: selectedSequences),
+                annotationsByRecord: annotationsByRecord
             )
         }
         controller.onAlignWithMAFFTRequested = { [weak self] selectedSequences in
@@ -3659,7 +3673,10 @@ public class ViewerViewController: NSViewController {
     }
     
     /// The currently displayed reference bundle, if any.
-    public private(set) var currentReferenceBundle: LungfishIO.ReferenceBundle?
+    // `internal(set)` lets the modern bundle-display extension keep this
+    // legacy controller-level mirror synchronized while preserving a
+    // read-only public API for callers outside the app target.
+    public internal(set) var currentReferenceBundle: LungfishIO.ReferenceBundle?
 
     // MARK: - Public API
 

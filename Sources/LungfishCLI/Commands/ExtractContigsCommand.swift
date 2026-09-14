@@ -75,6 +75,11 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     func run() async throws {
         let startedAt = Date()
         let source = try await loadSource()
+        defer {
+            if let temporaryDirectory = source.temporaryDirectory {
+                try? FileManager.default.removeItem(at: temporaryDirectory)
+            }
+        }
         let selectedContigs = try requestedContigs()
         _ = try await source.catalog.selectionSummary(for: selectedContigs)
 
@@ -427,40 +432,89 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
         if let assemblyPath {
             let assemblyURL = URL(fileURLWithPath: assemblyPath)
             let result = try AssemblyResult.load(from: assemblyURL)
-            let catalog = try await AssemblyContigCatalog(result: result)
-            return SourceAssembly(
-                result: result,
-                catalog: catalog,
-                sourceURL: assemblyURL,
-                sourceName: assemblyURL.lastPathComponent
-            )
+            let prepared = try prepareFASTA(at: result.contigsPath, contextURL: assemblyURL)
+            do {
+                let catalogResult = result.replacingContigsPath(with: prepared.url)
+                let catalog = try await AssemblyContigCatalog(result: catalogResult)
+                return SourceAssembly(
+                    result: result,
+                    catalog: catalog,
+                    sourceURL: assemblyURL,
+                    sourceName: assemblyURL.lastPathComponent,
+                    temporaryDirectory: prepared.temporaryDirectory
+                )
+            } catch {
+                if let temporaryDirectory = prepared.temporaryDirectory {
+                    try? FileManager.default.removeItem(at: temporaryDirectory)
+                }
+                throw error
+            }
         }
 
         let contigsURL = URL(fileURLWithPath: contigsPath ?? "")
-        if !FileManager.default.fileExists(atPath: contigsURL.appendingPathExtension("fai").path) {
-            try FASTAIndexBuilder.buildAndWrite(for: contigsURL)
+        let prepared = try prepareFASTA(at: contigsURL, contextURL: contigsURL)
+        do {
+            if !FileManager.default.fileExists(atPath: prepared.url.appendingPathExtension("fai").path) {
+                try FASTAIndexBuilder.buildAndWrite(for: prepared.url)
+            }
+            let statistics = try AssemblyStatisticsCalculator.compute(from: prepared.url)
+            let result = AssemblyResult(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                contigsPath: prepared.url,
+                graphPath: nil,
+                logPath: nil,
+                assemblerVersion: nil,
+                commandLine: "extract contigs",
+                outputDirectory: contigsURL.deletingLastPathComponent(),
+                statistics: statistics,
+                wallTimeSeconds: 0
+            )
+            let catalog = try await AssemblyContigCatalog(result: result)
+            return SourceAssembly(
+                result: nil,
+                catalog: catalog,
+                sourceURL: contigsURL,
+                sourceName: contigsURL.deletingPathExtension().lastPathComponent,
+                temporaryDirectory: prepared.temporaryDirectory
+            )
+        } catch {
+            if let temporaryDirectory = prepared.temporaryDirectory {
+                try? FileManager.default.removeItem(at: temporaryDirectory)
+            }
+            throw error
         }
-        let statistics = try AssemblyStatisticsCalculator.compute(from: contigsURL)
-        let result = AssemblyResult(
-            tool: .spades,
-            readType: .illuminaShortReads,
-            contigsPath: contigsURL,
-            graphPath: nil,
-            logPath: nil,
-            assemblerVersion: nil,
-            commandLine: "extract contigs",
-            outputDirectory: contigsURL.deletingLastPathComponent(),
-            statistics: statistics,
-            wallTimeSeconds: 0
-        )
-        let catalog = try await AssemblyContigCatalog(result: result)
-        return SourceAssembly(
-            result: nil,
-            catalog: catalog,
-            sourceURL: contigsURL,
-            sourceName: contigsURL.deletingPathExtension().lastPathComponent
-        )
     }
+
+    private func prepareFASTA(at url: URL, contextURL: URL) throws -> PreparedFASTA {
+        guard url.pathExtension.lowercased() == "gz" else {
+            return PreparedFASTA(url: url, temporaryDirectory: nil)
+        }
+
+        let temporaryDirectory = try ProjectTempDirectory.createFromContext(
+            prefix: "extract-contigs-fasta-",
+            contextURL: contextURL
+        )
+        let plainURL = temporaryDirectory.appendingPathComponent("contigs.fa")
+
+        do {
+            let reader = try FASTAReader(url: url)
+            let writer = FASTAWriter(url: plainURL)
+            try reader.forEachSequenceSync { sequence in
+                try writer.append(sequence)
+            }
+            try FASTAIndexBuilder.buildAndWrite(for: plainURL)
+            return PreparedFASTA(url: plainURL, temporaryDirectory: temporaryDirectory)
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+            throw error
+        }
+    }
+}
+
+private struct PreparedFASTA {
+    let url: URL
+    let temporaryDirectory: URL?
 }
 
 private struct SourceAssembly {
@@ -468,4 +522,25 @@ private struct SourceAssembly {
     let catalog: AssemblyContigCatalog
     let sourceURL: URL
     let sourceName: String
+    let temporaryDirectory: URL?
+}
+
+private extension AssemblyResult {
+    func replacingContigsPath(with path: URL) -> AssemblyResult {
+        AssemblyResult(
+            tool: tool,
+            readType: readType,
+            outcome: outcome,
+            contigsPath: path,
+            graphPath: graphPath,
+            logPath: logPath,
+            assemblerVersion: assemblerVersion,
+            commandLine: commandLine,
+            outputDirectory: outputDirectory,
+            statistics: statistics,
+            wallTimeSeconds: wallTimeSeconds,
+            scaffoldsPath: scaffoldsPath,
+            paramsPath: paramsPath
+        )
+    }
 }

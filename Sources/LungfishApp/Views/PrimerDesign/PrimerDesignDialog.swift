@@ -24,7 +24,7 @@ struct PrimerDesignDialog: View {
       },
       selectedToolID: state.engine.rawValue,
       statusText: state.errorMessage ?? state.validationMessage ?? state.inputReadinessMessage ?? "Ready. Progress will appear in Operations.",
-      isRunEnabled: !state.isRunning && state.validationMessage == nil && state.inputReadinessMessage == nil,
+      isRunEnabled: state.isRunEnabled,
       primaryActionTitle: "Run", accessibilityNamespace: "primer-design",
       onSelectTool: { if let engine = PrimerDesignEngine(rawValue: $0) { state.engine = engine } },
       onCancel: onClose, onRun: onRun

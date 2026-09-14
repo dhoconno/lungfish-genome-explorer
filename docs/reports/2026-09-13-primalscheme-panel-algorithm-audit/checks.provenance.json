@@ -1,0 +1,78 @@
+{
+  "workflowName": "lge.primalscheme.algorithm-audit.synthetic-checks",
+  "workflowVersion": "1",
+  "argv": [
+    "/Users/dho/.lungfish/conda/envs/primalscheme3/bin/python",
+    "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/checks.py"
+  ],
+  "reproducibleCommand": "/Users/dho/.lungfish/conda/envs/primalscheme3/bin/python /Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/checks.py",
+  "runtime": {
+    "python": "3.12.11 | packaged by conda-forge | (main, Jun  4 2025, 14:38:53) [Clang 18.1.8 ]",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "executable": "/Users/dho/.lungfish/conda/envs/primalscheme3/bin/python"
+  },
+  "inputs": [
+    {
+      "path": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/checks.py",
+      "sizeBytes": 3493,
+      "sha256": "34bdb13d46b4538920d2e3f5cc5b464fc1b7449de7d609bd43132e95ac318615"
+    },
+    {
+      "path": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/evidence/nativehash-probe.py",
+      "sizeBytes": 94,
+      "sha256": "ef14b12a6b0943a97002fbd600ea0928616f5ace80936334952c5d16c1d7f4b4"
+    },
+    {
+      "path": "/Users/dho/.lungfish/conda/envs/primalscheme3/lib/python3.12/site-packages/primalscheme3/lge-build.json",
+      "sizeBytes": 582,
+      "sha256": "3f7cee921d6098504343e82fc4444ffdbbf6156e8be1d0209aaf438fd5b23ac4"
+    },
+    {
+      "path": "/Users/dho/.lungfish/conda/envs/primalscheme3/lib/python3.12/site-packages/primalscheme3/core/config.py",
+      "sizeBytes": 10072,
+      "sha256": "b0a785e8f30724554d270c18ccc23a0d0ee79328f47a43af79a2cfe792c4d101"
+    },
+    {
+      "path": "/Users/dho/.lungfish/conda/envs/primalscheme3/lib/python3.12/site-packages/primalscheme3/core/mismatches.py",
+      "sizeBytes": 11390,
+      "sha256": "d460beed6a9e5426d6d6fcac996a6bab29c45e602da9dfcb6b9d4ed1ac2fb519"
+    },
+    {
+      "path": "/Users/dho/.lungfish/conda/envs/primalscheme3/lib/python3.12/site-packages/primalscheme3/core/multiplex.py",
+      "sizeBytes": 16695,
+      "sha256": "56edfbf31b97385c189fa6bc2c1baa0af4611e5a719f468ea17cb026ef845f31"
+    }
+  ],
+  "options": {
+    "matchdbEnabled": true,
+    "defaultProductLimit": 0,
+    "distance100RejectedAtLimit0": false,
+    "distance100RejectedAtLimit2000": true,
+    "coverageAfterRemovingOverlappingOtherPoolCandidate": {
+      "actual": 20,
+      "expected": 40
+    },
+    "identicalNativePrimerObjectHashesAcrossFiveProcesses": [
+      "273790999",
+      "272080919",
+      "269770775",
+      "273549335",
+      "273598487"
+    ]
+  },
+  "environment": {
+    "MPLCONFIGDIR": "/private/tmp/primalscheme-selection-audit/matplotlib"
+  },
+  "outputs": [
+    {
+      "path": "/Users/dho/Documents/lungfish-genome-explorer/docs/reports/2026-09-13-primalscheme-panel-algorithm-audit/checks.json",
+      "sizeBytes": 388,
+      "sha256": "ac34af04bbe6d0e30a157aa966fd1ec6dc6bdc928661075c1c005bfaa6ceaa90"
+    }
+  ],
+  "stderr": "",
+  "exitStatus": 0,
+  "startedAt": "2026-09-13T18:19:40.758324+00:00",
+  "endedAt": "2026-09-13T18:19:41.292854+00:00",
+  "wallTimeSeconds": 0.534542125184089
+}

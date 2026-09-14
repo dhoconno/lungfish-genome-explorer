@@ -1,0 +1,1248 @@
+{
+  "engineBuild": {
+    "buildPython": "3.12.11",
+    "buildTools": {
+      "hatchling": "1.27.0",
+      "packaging": "26.3",
+      "pathspec": "1.1.1",
+      "pluggy": "1.6.0",
+      "trove-classifiers": "2026.6.1.19"
+    },
+    "distribution": "primalscheme3",
+    "schemaVersion": 1,
+    "sourceCommit": "00eaa252446f01cabfeae71e10306a68cdb941d6",
+    "sourceDateEpoch": 1789240650,
+    "sourceRepository": "https://github.com/dhoconno/primalscheme3-lge",
+    "upstreamCommit": "dd13ec5cb1cf375f052640355c73101c0c4bf839",
+    "upstreamRepository": "https://github.com/artic-network/primalscheme3",
+    "version": "3.3.0+lge.2"
+  },
+  "runs": {
+    "wide-original": {
+      "status": "verified",
+      "bundle": "/Users/dho/Desktop/sandbox/HLA-coverage-benchmark-2026-09-13/primalscheme-200bp-150-280bp/HLA-combined-200bp.lungfishprimeranalysis",
+      "rows": [
+        {
+          "msa": "A.lungfishmsa",
+          "inputAlignmentSHA256": "b2e0922ec6a9565a0bf0337525ad0b70760d83f4d4ac499fb75ec6c4274b2c54",
+          "referenceLength": 1098,
+          "amplicons": 5,
+          "candidateCount": 1848,
+          "coveredBases": 989,
+          "coveragePercent": 90.0728597449909,
+          "primerTrimmedCoveredBases": 897,
+          "primerTrimmedCoveragePercent": 81.69398907103825,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              80,
+              600
+            ],
+            [
+              628,
+              1097
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              105,
+              578
+            ],
+            [
+              649,
+              1073
+            ]
+          ]
+        },
+        {
+          "msa": "B.lungfishmsa",
+          "inputAlignmentSHA256": "af2e19ff78c46139bd80b4bbb653352099dae0dd419df50fe816bb46af119ba8",
+          "referenceLength": 1089,
+          "amplicons": 6,
+          "candidateCount": 2656,
+          "coveredBases": 993,
+          "coveragePercent": 91.18457300275482,
+          "primerTrimmedCoveredBases": 910,
+          "primerTrimmedCoveragePercent": 83.56290174471992,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              73,
+              609
+            ],
+            [
+              624,
+              1081
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              95,
+              589
+            ],
+            [
+              644,
+              1060
+            ]
+          ]
+        },
+        {
+          "msa": "C.lungfishmsa",
+          "inputAlignmentSHA256": "7926684d576bbb872640e56a38b3dddccf7ee3840aed0fa1fb6d55824616208d",
+          "referenceLength": 1101,
+          "amplicons": 5,
+          "candidateCount": 1354,
+          "coveredBases": 935,
+          "coveragePercent": 84.9227974568574,
+          "primerTrimmedCoveredBases": 875,
+          "primerTrimmedCoveragePercent": 79.47320617620345,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              89,
+              1024
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              112,
+              620
+            ],
+            [
+              635,
+              1002
+            ]
+          ]
+        },
+        {
+          "msa": "DPA1.lungfishmsa",
+          "inputAlignmentSHA256": "cdd88d3d4ae797993c56e6f8eba47ff9b829acd37a8949f6154c9642870438fd",
+          "referenceLength": 783,
+          "amplicons": 4,
+          "candidateCount": 10802,
+          "coveredBases": 753,
+          "coveragePercent": 96.16858237547893,
+          "primerTrimmedCoveredBases": 711,
+          "primerTrimmedCoveragePercent": 90.80459770114942,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              754
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              732
+            ]
+          ]
+        },
+        {
+          "msa": "DPB1.lungfishmsa",
+          "inputAlignmentSHA256": "11c6ff722f4acc9957596271cc5ece69ea73ad0655b147b15317e51115489464",
+          "referenceLength": 777,
+          "amplicons": 5,
+          "candidateCount": 3331,
+          "coveredBases": 736,
+          "coveragePercent": 94.72329472329473,
+          "primerTrimmedCoveredBases": 693,
+          "primerTrimmedCoveragePercent": 89.1891891891892,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              39,
+              775
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              59,
+              752
+            ]
+          ]
+        },
+        {
+          "msa": "DQA1.lungfishmsa",
+          "inputAlignmentSHA256": "d1f2368957d23b4b5a6dc8f454bb858c9b9c3b675d4c359f845ff2e3dc57c5fc",
+          "referenceLength": 768,
+          "amplicons": 5,
+          "candidateCount": 19066,
+          "coveredBases": 748,
+          "coveragePercent": 97.39583333333333,
+          "primerTrimmedCoveredBases": 704,
+          "primerTrimmedCoveragePercent": 91.66666666666667,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              750
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              729
+            ]
+          ]
+        },
+        {
+          "msa": "DQB1.lungfishmsa",
+          "inputAlignmentSHA256": "df727466b1ad3a4120bf8cd83b11cfe189d7233c5d2af12f58b83ad756dce2e7",
+          "referenceLength": 786,
+          "amplicons": 5,
+          "candidateCount": 2529,
+          "coveredBases": 777,
+          "coveragePercent": 98.85496183206106,
+          "primerTrimmedCoveredBases": 735,
+          "primerTrimmedCoveragePercent": 93.5114503816794,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              779
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              24,
+              759
+            ]
+          ]
+        },
+        {
+          "msa": "DRB1.lungfishmsa",
+          "inputAlignmentSHA256": "2206591e33071f961d81e1ee0a454b94dcc0380ca4d218c94f4f9487f5f673f0",
+          "referenceLength": 801,
+          "amplicons": 4,
+          "candidateCount": 6272,
+          "coveredBases": 794,
+          "coveragePercent": 99.12609238451935,
+          "primerTrimmedCoveredBases": 752,
+          "primerTrimmedCoveragePercent": 93.88264669163546,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              795
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              773
+            ]
+          ]
+        },
+        {
+          "msa": "E.lungfishmsa",
+          "inputAlignmentSHA256": "37a9e09ef694c77c2abe86aec922a086d5cbb4fe3c3d6883b99d4ad69b88e5d3",
+          "referenceLength": 1077,
+          "amplicons": 5,
+          "candidateCount": 3111,
+          "coveredBases": 833,
+          "coveragePercent": 77.34447539461468,
+          "primerTrimmedCoveredBases": 786,
+          "primerTrimmedCoveragePercent": 72.98050139275766,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              835
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              27,
+              813
+            ]
+          ]
+        }
+      ],
+      "candidateCount": 50969,
+      "amplicons": 44,
+      "poolCount": 2,
+      "highGC": false,
+      "bounds": [
+        150,
+        280
+      ],
+      "sizingMetric": "reference-span",
+      "useMatchDB": true,
+      "mismatchProductSize": 0,
+      "verifiedArtifacts": 172,
+      "nativeWallTimeSeconds": 27.33989906311035
+    },
+    "wide-three-pools": {
+      "status": "verified",
+      "bundle": "/Users/dho/Desktop/sandbox/HLA-coverage-benchmark-2026-09-13/primalscheme-coverage-optimization/three-pools/HLA-combined-200bp.lungfishprimeranalysis",
+      "rows": [
+        {
+          "msa": "A.lungfishmsa",
+          "inputAlignmentSHA256": "b2e0922ec6a9565a0bf0337525ad0b70760d83f4d4ac499fb75ec6c4274b2c54",
+          "referenceLength": 1098,
+          "amplicons": 6,
+          "candidateCount": 1848,
+          "coveredBases": 1020,
+          "coveragePercent": 92.89617486338798,
+          "primerTrimmedCoveredBases": 957,
+          "primerTrimmedCoveragePercent": 87.1584699453552,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              77,
+              1097
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              102,
+              635
+            ],
+            [
+              649,
+              1073
+            ]
+          ]
+        },
+        {
+          "msa": "B.lungfishmsa",
+          "inputAlignmentSHA256": "af2e19ff78c46139bd80b4bbb653352099dae0dd419df50fe816bb46af119ba8",
+          "referenceLength": 1089,
+          "amplicons": 7,
+          "candidateCount": 2656,
+          "coveredBases": 1008,
+          "coveragePercent": 92.56198347107438,
+          "primerTrimmedCoveredBases": 948,
+          "primerTrimmedCoveragePercent": 87.05234159779614,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              73,
+              1081
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              95,
+              423
+            ],
+            [
+              440,
+              1060
+            ]
+          ]
+        },
+        {
+          "msa": "C.lungfishmsa",
+          "inputAlignmentSHA256": "7926684d576bbb872640e56a38b3dddccf7ee3840aed0fa1fb6d55824616208d",
+          "referenceLength": 1101,
+          "amplicons": 8,
+          "candidateCount": 1354,
+          "coveredBases": 1027,
+          "coveragePercent": 93.2788374205268,
+          "primerTrimmedCoveredBases": 971,
+          "primerTrimmedCoveragePercent": 88.19255222524977,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              70,
+              1097
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              92,
+              624
+            ],
+            [
+              635,
+              1074
+            ]
+          ]
+        },
+        {
+          "msa": "DPA1.lungfishmsa",
+          "inputAlignmentSHA256": "cdd88d3d4ae797993c56e6f8eba47ff9b829acd37a8949f6154c9642870438fd",
+          "referenceLength": 783,
+          "amplicons": 5,
+          "candidateCount": 10802,
+          "coveredBases": 753,
+          "coveragePercent": 96.16858237547893,
+          "primerTrimmedCoveredBases": 713,
+          "primerTrimmedCoveragePercent": 91.06002554278416,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              754
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              734
+            ]
+          ]
+        },
+        {
+          "msa": "DPB1.lungfishmsa",
+          "inputAlignmentSHA256": "11c6ff722f4acc9957596271cc5ece69ea73ad0655b147b15317e51115489464",
+          "referenceLength": 777,
+          "amplicons": 5,
+          "candidateCount": 3331,
+          "coveredBases": 736,
+          "coveragePercent": 94.72329472329473,
+          "primerTrimmedCoveredBases": 693,
+          "primerTrimmedCoveragePercent": 89.1891891891892,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              39,
+              775
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              59,
+              752
+            ]
+          ]
+        },
+        {
+          "msa": "DQA1.lungfishmsa",
+          "inputAlignmentSHA256": "d1f2368957d23b4b5a6dc8f454bb858c9b9c3b675d4c359f845ff2e3dc57c5fc",
+          "referenceLength": 768,
+          "amplicons": 5,
+          "candidateCount": 19066,
+          "coveredBases": 751,
+          "coveragePercent": 97.78645833333333,
+          "primerTrimmedCoveredBases": 707,
+          "primerTrimmedCoveragePercent": 92.05729166666667,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              753
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              732
+            ]
+          ]
+        },
+        {
+          "msa": "DQB1.lungfishmsa",
+          "inputAlignmentSHA256": "df727466b1ad3a4120bf8cd83b11cfe189d7233c5d2af12f58b83ad756dce2e7",
+          "referenceLength": 786,
+          "amplicons": 5,
+          "candidateCount": 2529,
+          "coveredBases": 776,
+          "coveragePercent": 98.72773536895674,
+          "primerTrimmedCoveredBases": 734,
+          "primerTrimmedCoveragePercent": 93.38422391857506,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              3,
+              779
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              759
+            ]
+          ]
+        },
+        {
+          "msa": "DRB1.lungfishmsa",
+          "inputAlignmentSHA256": "2206591e33071f961d81e1ee0a454b94dcc0380ca4d218c94f4f9487f5f673f0",
+          "referenceLength": 801,
+          "amplicons": 4,
+          "candidateCount": 6272,
+          "coveredBases": 794,
+          "coveragePercent": 99.12609238451935,
+          "primerTrimmedCoveredBases": 752,
+          "primerTrimmedCoveragePercent": 93.88264669163546,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              795
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              773
+            ]
+          ]
+        },
+        {
+          "msa": "E.lungfishmsa",
+          "inputAlignmentSHA256": "37a9e09ef694c77c2abe86aec922a086d5cbb4fe3c3d6883b99d4ad69b88e5d3",
+          "referenceLength": 1077,
+          "amplicons": 6,
+          "candidateCount": 3111,
+          "coveredBases": 1044,
+          "coveragePercent": 96.93593314763231,
+          "primerTrimmedCoveredBases": 1000,
+          "primerTrimmedCoveragePercent": 92.85051067780873,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              1045
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              1025
+            ]
+          ]
+        }
+      ],
+      "candidateCount": 50969,
+      "amplicons": 51,
+      "poolCount": 3,
+      "highGC": false,
+      "bounds": [
+        150,
+        280
+      ],
+      "sizingMetric": "reference-span",
+      "useMatchDB": true,
+      "mismatchProductSize": 0,
+      "verifiedArtifacts": 172,
+      "nativeWallTimeSeconds": 27.649473071098328
+    },
+    "wide-high-gc": {
+      "status": "verified",
+      "bundle": "/Users/dho/Desktop/sandbox/HLA-coverage-benchmark-2026-09-13/primalscheme-coverage-optimization/high-gc-two-pools/HLA-combined-200bp.lungfishprimeranalysis",
+      "rows": [
+        {
+          "msa": "A.lungfishmsa",
+          "inputAlignmentSHA256": "b2e0922ec6a9565a0bf0337525ad0b70760d83f4d4ac499fb75ec6c4274b2c54",
+          "referenceLength": 1098,
+          "amplicons": 5,
+          "candidateCount": 15111,
+          "coveredBases": 1078,
+          "coveragePercent": 98.17850637522768,
+          "primerTrimmedCoveredBases": 1033,
+          "primerTrimmedCoveragePercent": 94.08014571948998,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              19,
+              1097
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              40,
+              1073
+            ]
+          ]
+        },
+        {
+          "msa": "B.lungfishmsa",
+          "inputAlignmentSHA256": "af2e19ff78c46139bd80b4bbb653352099dae0dd419df50fe816bb46af119ba8",
+          "referenceLength": 1089,
+          "amplicons": 6,
+          "candidateCount": 17878,
+          "coveredBases": 1040,
+          "coveragePercent": 95.50045913682277,
+          "primerTrimmedCoveredBases": 1006,
+          "primerTrimmedCoveragePercent": 92.3783287419651,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              21,
+              1061
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              38,
+              1044
+            ]
+          ]
+        },
+        {
+          "msa": "C.lungfishmsa",
+          "inputAlignmentSHA256": "7926684d576bbb872640e56a38b3dddccf7ee3840aed0fa1fb6d55824616208d",
+          "referenceLength": 1101,
+          "amplicons": 6,
+          "candidateCount": 13769,
+          "coveredBases": 1079,
+          "coveragePercent": 98.00181653042688,
+          "primerTrimmedCoveredBases": 1037,
+          "primerTrimmedCoveragePercent": 94.18710263396912,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              18,
+              1097
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              37,
+              1074
+            ]
+          ]
+        },
+        {
+          "msa": "DPA1.lungfishmsa",
+          "inputAlignmentSHA256": "cdd88d3d4ae797993c56e6f8eba47ff9b829acd37a8949f6154c9642870438fd",
+          "referenceLength": 783,
+          "amplicons": 4,
+          "candidateCount": 22179,
+          "coveredBases": 759,
+          "coveragePercent": 96.93486590038314,
+          "primerTrimmedCoveredBases": 721,
+          "primerTrimmedCoveragePercent": 92.08173690932311,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              760
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              742
+            ]
+          ]
+        },
+        {
+          "msa": "DPB1.lungfishmsa",
+          "inputAlignmentSHA256": "11c6ff722f4acc9957596271cc5ece69ea73ad0655b147b15317e51115489464",
+          "referenceLength": 777,
+          "amplicons": 5,
+          "candidateCount": 13895,
+          "coveredBases": 732,
+          "coveragePercent": 94.2084942084942,
+          "primerTrimmedCoveredBases": 689,
+          "primerTrimmedCoveragePercent": 88.67438867438868,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              43,
+              775
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              63,
+              752
+            ]
+          ]
+        },
+        {
+          "msa": "DQA1.lungfishmsa",
+          "inputAlignmentSHA256": "d1f2368957d23b4b5a6dc8f454bb858c9b9c3b675d4c359f845ff2e3dc57c5fc",
+          "referenceLength": 768,
+          "amplicons": 5,
+          "candidateCount": 26962,
+          "coveredBases": 765,
+          "coveragePercent": 99.609375,
+          "primerTrimmedCoveredBases": 722,
+          "primerTrimmedCoveragePercent": 94.01041666666667,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              767
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              747
+            ]
+          ]
+        },
+        {
+          "msa": "DQB1.lungfishmsa",
+          "inputAlignmentSHA256": "df727466b1ad3a4120bf8cd83b11cfe189d7233c5d2af12f58b83ad756dce2e7",
+          "referenceLength": 786,
+          "amplicons": 5,
+          "candidateCount": 14181,
+          "coveredBases": 782,
+          "coveragePercent": 99.4910941475827,
+          "primerTrimmedCoveredBases": 741,
+          "primerTrimmedCoveragePercent": 94.27480916030534,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              784
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              24,
+              765
+            ]
+          ]
+        },
+        {
+          "msa": "DRB1.lungfishmsa",
+          "inputAlignmentSHA256": "2206591e33071f961d81e1ee0a454b94dcc0380ca4d218c94f4f9487f5f673f0",
+          "referenceLength": 801,
+          "amplicons": 5,
+          "candidateCount": 19776,
+          "coveredBases": 794,
+          "coveragePercent": 99.12609238451935,
+          "primerTrimmedCoveredBases": 752,
+          "primerTrimmedCoveragePercent": 93.88264669163546,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              795
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              773
+            ]
+          ]
+        },
+        {
+          "msa": "E.lungfishmsa",
+          "inputAlignmentSHA256": "37a9e09ef694c77c2abe86aec922a086d5cbb4fe3c3d6883b99d4ad69b88e5d3",
+          "referenceLength": 1077,
+          "amplicons": 6,
+          "candidateCount": 21261,
+          "coveredBases": 1071,
+          "coveragePercent": 99.44289693593315,
+          "primerTrimmedCoveredBases": 1027,
+          "primerTrimmedCoveragePercent": 95.35747446610957,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              1072
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              1052
+            ]
+          ]
+        }
+      ],
+      "candidateCount": 165012,
+      "amplicons": 47,
+      "poolCount": 2,
+      "highGC": true,
+      "bounds": [
+        150,
+        280
+      ],
+      "sizingMetric": "reference-span",
+      "useMatchDB": true,
+      "mismatchProductSize": 0,
+      "verifiedArtifacts": 172,
+      "nativeWallTimeSeconds": 32.73277401924133
+    },
+    "wide-reversed": {
+      "status": "verified",
+      "bundle": "/Users/dho/Documents/lungfish-genome-explorer/outputs/primalscheme-panel-audit-2026-09-13/wide-reversed-managed/HLA.lungfishprimeranalysis",
+      "rows": [
+        {
+          "msa": "A.lungfishmsa",
+          "inputAlignmentSHA256": "b2e0922ec6a9565a0bf0337525ad0b70760d83f4d4ac499fb75ec6c4274b2c54",
+          "referenceLength": 1098,
+          "amplicons": 5,
+          "candidateCount": 1848,
+          "coveredBases": 903,
+          "coveragePercent": 82.24043715846994,
+          "primerTrimmedCoveredBases": 812,
+          "primerTrimmedCoveragePercent": 73.95264116575592,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              80,
+              514
+            ],
+            [
+              628,
+              1097
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              105,
+              493
+            ],
+            [
+              649,
+              1073
+            ]
+          ]
+        },
+        {
+          "msa": "B.lungfishmsa",
+          "inputAlignmentSHA256": "af2e19ff78c46139bd80b4bbb653352099dae0dd419df50fe816bb46af119ba8",
+          "referenceLength": 1089,
+          "amplicons": 5,
+          "candidateCount": 2656,
+          "coveredBases": 884,
+          "coveragePercent": 81.17539026629936,
+          "primerTrimmedCoveredBases": 798,
+          "primerTrimmedCoveragePercent": 73.27823691460055,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              73,
+              609
+            ],
+            [
+              691,
+              1039
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              96,
+              589
+            ],
+            [
+              712,
+              1017
+            ]
+          ]
+        },
+        {
+          "msa": "C.lungfishmsa",
+          "inputAlignmentSHA256": "7926684d576bbb872640e56a38b3dddccf7ee3840aed0fa1fb6d55824616208d",
+          "referenceLength": 1101,
+          "amplicons": 5,
+          "candidateCount": 1354,
+          "coveredBases": 935,
+          "coveragePercent": 84.9227974568574,
+          "primerTrimmedCoveredBases": 876,
+          "primerTrimmedCoveragePercent": 79.56403269754769,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              89,
+              1024
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              112,
+              626
+            ],
+            [
+              640,
+              1002
+            ]
+          ]
+        },
+        {
+          "msa": "DPA1.lungfishmsa",
+          "inputAlignmentSHA256": "cdd88d3d4ae797993c56e6f8eba47ff9b829acd37a8949f6154c9642870438fd",
+          "referenceLength": 783,
+          "amplicons": 4,
+          "candidateCount": 10802,
+          "coveredBases": 753,
+          "coveragePercent": 96.16858237547893,
+          "primerTrimmedCoveredBases": 711,
+          "primerTrimmedCoveragePercent": 90.80459770114942,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              754
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              732
+            ]
+          ]
+        },
+        {
+          "msa": "DPB1.lungfishmsa",
+          "inputAlignmentSHA256": "11c6ff722f4acc9957596271cc5ece69ea73ad0655b147b15317e51115489464",
+          "referenceLength": 777,
+          "amplicons": 5,
+          "candidateCount": 3331,
+          "coveredBases": 736,
+          "coveragePercent": 94.72329472329473,
+          "primerTrimmedCoveredBases": 693,
+          "primerTrimmedCoveragePercent": 89.1891891891892,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              39,
+              775
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              59,
+              752
+            ]
+          ]
+        },
+        {
+          "msa": "DQA1.lungfishmsa",
+          "inputAlignmentSHA256": "d1f2368957d23b4b5a6dc8f454bb858c9b9c3b675d4c359f845ff2e3dc57c5fc",
+          "referenceLength": 768,
+          "amplicons": 5,
+          "candidateCount": 19066,
+          "coveredBases": 751,
+          "coveragePercent": 97.78645833333333,
+          "primerTrimmedCoveredBases": 707,
+          "primerTrimmedCoveragePercent": 92.05729166666667,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              753
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              25,
+              732
+            ]
+          ]
+        },
+        {
+          "msa": "DQB1.lungfishmsa",
+          "inputAlignmentSHA256": "df727466b1ad3a4120bf8cd83b11cfe189d7233c5d2af12f58b83ad756dce2e7",
+          "referenceLength": 786,
+          "amplicons": 5,
+          "candidateCount": 2529,
+          "coveredBases": 777,
+          "coveragePercent": 98.85496183206106,
+          "primerTrimmedCoveredBases": 735,
+          "primerTrimmedCoveragePercent": 93.5114503816794,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              779
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              24,
+              759
+            ]
+          ]
+        },
+        {
+          "msa": "DRB1.lungfishmsa",
+          "inputAlignmentSHA256": "2206591e33071f961d81e1ee0a454b94dcc0380ca4d218c94f4f9487f5f673f0",
+          "referenceLength": 801,
+          "amplicons": 4,
+          "candidateCount": 6272,
+          "coveredBases": 794,
+          "coveragePercent": 99.12609238451935,
+          "primerTrimmedCoveredBases": 752,
+          "primerTrimmedCoveragePercent": 93.88264669163546,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              1,
+              795
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              21,
+              773
+            ]
+          ]
+        },
+        {
+          "msa": "E.lungfishmsa",
+          "inputAlignmentSHA256": "37a9e09ef694c77c2abe86aec922a086d5cbb4fe3c3d6883b99d4ad69b88e5d3",
+          "referenceLength": 1077,
+          "amplicons": 5,
+          "candidateCount": 3111,
+          "coveredBases": 1043,
+          "coveragePercent": 96.8430826369545,
+          "primerTrimmedCoveredBases": 998,
+          "primerTrimmedCoveragePercent": 92.66480965645312,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              2,
+              1045
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              27,
+              1025
+            ]
+          ]
+        }
+      ],
+      "candidateCount": 50969,
+      "amplicons": 43,
+      "poolCount": 2,
+      "highGC": false,
+      "bounds": [
+        150,
+        280
+      ],
+      "sizingMetric": "reference-span",
+      "useMatchDB": true,
+      "mismatchProductSize": 0,
+      "verifiedArtifacts": 172,
+      "nativeWallTimeSeconds": 33.88943898677826
+    },
+    "narrow-explicit": {
+      "status": "verified",
+      "bundle": "/Users/dho/Documents/lungfish-genome-explorer/outputs/primalscheme-panel-audit-2026-09-13/narrow-explicit-managed/HLA.lungfishprimeranalysis",
+      "rows": [
+        {
+          "msa": "A.lungfishmsa",
+          "inputAlignmentSHA256": "b2e0922ec6a9565a0bf0337525ad0b70760d83f4d4ac499fb75ec6c4274b2c54",
+          "referenceLength": 1098,
+          "amplicons": 5,
+          "candidateCount": 928,
+          "coveredBases": 741,
+          "coveragePercent": 67.48633879781421,
+          "primerTrimmedCoveredBases": 632,
+          "primerTrimmedCoveragePercent": 57.5591985428051,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              77,
+              293
+            ],
+            [
+              319,
+              844
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              102,
+              273
+            ],
+            [
+              341,
+              627
+            ],
+            [
+              647,
+              822
+            ]
+          ]
+        },
+        {
+          "msa": "B.lungfishmsa",
+          "inputAlignmentSHA256": "af2e19ff78c46139bd80b4bbb653352099dae0dd419df50fe816bb46af119ba8",
+          "referenceLength": 1089,
+          "amplicons": 6,
+          "candidateCount": 1178,
+          "coveredBases": 933,
+          "coveragePercent": 85.67493112947659,
+          "primerTrimmedCoveredBases": 860,
+          "primerTrimmedCoveragePercent": 78.97153351698806,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              73,
+              1006
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              95,
+              261
+            ],
+            [
+              264,
+              436
+            ],
+            [
+              443,
+              589
+            ],
+            [
+              608,
+              984
+            ]
+          ]
+        },
+        {
+          "msa": "C.lungfishmsa",
+          "inputAlignmentSHA256": "7926684d576bbb872640e56a38b3dddccf7ee3840aed0fa1fb6d55824616208d",
+          "referenceLength": 1101,
+          "amplicons": 5,
+          "candidateCount": 801,
+          "coveredBases": 941,
+          "coveragePercent": 85.4677565849228,
+          "primerTrimmedCoveredBases": 865,
+          "primerTrimmedCoveragePercent": 78.56494096276113,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              70,
+              1011
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              92,
+              261
+            ],
+            [
+              264,
+              436
+            ],
+            [
+              440,
+              617
+            ],
+            [
+              640,
+              987
+            ]
+          ]
+        },
+        {
+          "msa": "DPA1.lungfishmsa",
+          "inputAlignmentSHA256": "cdd88d3d4ae797993c56e6f8eba47ff9b829acd37a8949f6154c9642870438fd",
+          "referenceLength": 783,
+          "amplicons": 5,
+          "candidateCount": 2859,
+          "coveredBases": 726,
+          "coveragePercent": 92.72030651340997,
+          "primerTrimmedCoveredBases": 682,
+          "primerTrimmedCoveragePercent": 87.10089399744572,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              28,
+              754
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              50,
+              732
+            ]
+          ]
+        },
+        {
+          "msa": "DPB1.lungfishmsa",
+          "inputAlignmentSHA256": "11c6ff722f4acc9957596271cc5ece69ea73ad0655b147b15317e51115489464",
+          "referenceLength": 777,
+          "amplicons": 4,
+          "candidateCount": 946,
+          "coveredBases": 603,
+          "coveragePercent": 77.60617760617761,
+          "primerTrimmedCoveredBases": 558,
+          "primerTrimmedCoveragePercent": 71.81467181467181,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              164,
+              767
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              187,
+              745
+            ]
+          ]
+        },
+        {
+          "msa": "DQA1.lungfishmsa",
+          "inputAlignmentSHA256": "d1f2368957d23b4b5a6dc8f454bb858c9b9c3b675d4c359f845ff2e3dc57c5fc",
+          "referenceLength": 768,
+          "amplicons": 5,
+          "candidateCount": 6181,
+          "coveredBases": 749,
+          "coveragePercent": 97.52604166666667,
+          "primerTrimmedCoveredBases": 706,
+          "primerTrimmedCoveragePercent": 91.92708333333333,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              4,
+              753
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              26,
+              732
+            ]
+          ]
+        },
+        {
+          "msa": "DQB1.lungfishmsa",
+          "inputAlignmentSHA256": "df727466b1ad3a4120bf8cd83b11cfe189d7233c5d2af12f58b83ad756dce2e7",
+          "referenceLength": 786,
+          "amplicons": 5,
+          "candidateCount": 809,
+          "coveredBases": 644,
+          "coveragePercent": 81.93384223918575,
+          "primerTrimmedCoveredBases": 603,
+          "primerTrimmedCoveragePercent": 76.7175572519084,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              100,
+              744
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              121,
+              724
+            ]
+          ]
+        },
+        {
+          "msa": "DRB1.lungfishmsa",
+          "inputAlignmentSHA256": "2206591e33071f961d81e1ee0a454b94dcc0380ca4d218c94f4f9487f5f673f0",
+          "referenceLength": 801,
+          "amplicons": 5,
+          "candidateCount": 1563,
+          "coveredBases": 703,
+          "coveragePercent": 87.76529338327092,
+          "primerTrimmedCoveredBases": 661,
+          "primerTrimmedCoveragePercent": 82.52184769038702,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              90,
+              793
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              110,
+              771
+            ]
+          ]
+        },
+        {
+          "msa": "E.lungfishmsa",
+          "inputAlignmentSHA256": "37a9e09ef694c77c2abe86aec922a086d5cbb4fe3c3d6883b99d4ad69b88e5d3",
+          "referenceLength": 1077,
+          "amplicons": 5,
+          "candidateCount": 1111,
+          "coveredBases": 793,
+          "coveragePercent": 73.63045496750232,
+          "primerTrimmedCoveredBases": 707,
+          "primerTrimmedCoveragePercent": 65.64531104921078,
+          "fullIntervals0BasedHalfOpen": [
+            [
+              64,
+              593
+            ],
+            [
+              779,
+              1043
+            ]
+          ],
+          "trimmedIntervals0BasedHalfOpen": [
+            [
+              88,
+              571
+            ],
+            [
+              799,
+              1023
+            ]
+          ]
+        }
+      ],
+      "candidateCount": 16376,
+      "amplicons": 45,
+      "poolCount": 2,
+      "highGC": false,
+      "bounds": [
+        180,
+        220
+      ],
+      "sizingMetric": "reference-span",
+      "useMatchDB": true,
+      "mismatchProductSize": 0,
+      "verifiedArtifacts": 172,
+      "nativeWallTimeSeconds": 27.075309991836548
+    }
+  }
+}

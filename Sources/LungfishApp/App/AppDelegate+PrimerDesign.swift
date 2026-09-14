@@ -1,5 +1,6 @@
 import AppKit
 import LungfishKit
+import LungfishWorkflow
 
 extension AppDelegate {
   @objc func showPCRPrimerDesign(_ sender: Any?) {
@@ -22,9 +23,7 @@ extension AppDelegate {
     }
     guard canRun() else { return }
     let selected = controller.mainSplitViewController?.sidebarController?.selectedFileURLs() ?? []
-    let supported = selected.filter {
-      ["fa", "fasta", "fna", "ffn", "lungfishmsa"].contains($0.pathExtension.lowercased())
-    }
+    let supported = selected.filter { PrimalScheme3DesignPipeline.supportsInput(at: $0) }
     PrimerDesignDialogPresenter.present(from: window, projectURL: projectURL, inputURLs: supported,
       engine: (sender as? NSMenuItem)?.representedObject as? PrimerDesignEngine ?? .primer3,
       canRun: canRun,

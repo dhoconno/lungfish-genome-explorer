@@ -59,6 +59,12 @@ public final class FASTACollectionViewController: NSViewController,
     public var onExtractSequenceRequested: (([LungfishCore.Sequence]) -> Void)? {
         didSet { refreshContextMenu() }
     }
+    /// Invoked for extraction actions when the selected sequences have source
+    /// annotations available (for example, records loaded from GenBank).
+    public var onExtractSequenceWithAnnotationsRequested:
+        (([LungfishCore.Sequence], [String: [SequenceAnnotation]]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
     public var onBlastRequested: (([LungfishCore.Sequence]) -> Void)? {
         didSet { refreshContextMenu() }
     }
@@ -66,6 +72,12 @@ public final class FASTACollectionViewController: NSViewController,
         didSet { refreshContextMenu() }
     }
     public var onCreateBundleRequested: (([LungfishCore.Sequence]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
+    /// Invoked for bundle creation actions when the selected sequences have
+    /// source annotations available (for example, records loaded from GenBank).
+    public var onCreateBundleWithAnnotationsRequested:
+        (([LungfishCore.Sequence], [String: [SequenceAnnotation]]) -> Void)? {
         didSet { refreshContextMenu() }
     }
     public var onRunOperationRequested: (([LungfishCore.Sequence]) -> Void)? {
@@ -477,9 +489,14 @@ public final class FASTACollectionViewController: NSViewController,
         let rebuiltMenu = FASTASequenceActionMenuBuilder.buildMenu(
             selectionCount: tableView.numberOfSelectedRows,
             handlers: FASTASequenceActionHandlers(
-                onExtractSequence: onExtractSequenceRequested == nil ? nil : { [weak self] in
+                onExtractSequence: onExtractSequenceRequested == nil && onExtractSequenceWithAnnotationsRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
-                    self.onExtractSequenceRequested?(self.selectedSequences())
+                    let selected = self.selectedSequences()
+                    if let handler = self.onExtractSequenceWithAnnotationsRequested {
+                        handler(selected, self.selectedAnnotations(for: selected))
+                    } else {
+                        self.onExtractSequenceRequested?(selected)
+                    }
                 },
                 onBlast: onBlastRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
@@ -498,9 +515,14 @@ public final class FASTACollectionViewController: NSViewController,
                     guard let self else { return }
                     self.onExportRequested?(self.selectedSequences())
                 },
-                onCreateBundle: onCreateBundleRequested == nil ? nil : { [weak self] in
+                onCreateBundle: onCreateBundleRequested == nil && onCreateBundleWithAnnotationsRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
-                    self.onCreateBundleRequested?(self.selectedSequences())
+                    let selected = self.selectedSequences()
+                    if let handler = self.onCreateBundleWithAnnotationsRequested {
+                        handler(selected, self.selectedAnnotations(for: selected))
+                    } else {
+                        self.onCreateBundleRequested?(selected)
+                    }
                 },
                 onAlignWithMAFFT: onAlignWithMAFFTRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
@@ -537,6 +559,13 @@ public final class FASTACollectionViewController: NSViewController,
             guard row >= 0, row < displayedSequences.count else { return nil }
             return displayedSequences[row]
         }
+    }
+
+    private func selectedAnnotations(
+        for selectedSequences: [LungfishCore.Sequence]
+    ) -> [String: [SequenceAnnotation]] {
+        let selectedNames = Set(selectedSequences.map(\.name))
+        return annotationsBySequence.filter { selectedNames.contains($0.key) }
     }
 
     private func restoreSelection(for sequenceIDs: Set<UUID>) {

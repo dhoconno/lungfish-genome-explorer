@@ -84,6 +84,10 @@ final class PrimerDesignDialogState {
   var errorMessage: String?
   var isRunning = false
 
+  var isRunEnabled: Bool {
+    !isRunning && validationMessage == nil && inputReadinessMessage == nil
+  }
+
   init(projectURL: URL? = nil) { self.projectURL = projectURL?.resolvingSymlinksInPath().standardizedFileURL }
 
   /// GUI outputs are always direct children of the originating project's Analyses folder.

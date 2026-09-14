@@ -1,0 +1,80 @@
+{
+  "provenance": {
+    "exact_command": "/usr/bin/env MPLCONFIGDIR=/private/tmp/primalscheme-selection-audit/matplotlib /Users/dho/.lungfish/conda/envs/primalscheme3/bin/python /private/tmp/primalscheme-selection-audit/counterexample.py",
+    "exit_status": 0,
+    "primalscheme3_source_commit": "00eaa252446f01cabfeae71e10306a68cdb941d6",
+    "primalscheme3_source_hashes_sha256": {
+      "core/classes.py": "d3b03111ff558416c07eada55d98e5b5000eb4575cdb957be09868399bbcc83f",
+      "core/config.py": "b0a785e8f30724554d270c18ccc23a0d0ee79328f47a43af79a2cfe792c4d101",
+      "core/digestion.py": "9eb560fabe96fcbfa9c76a36a3beefb4b39dd988a3d59a37356d668cb93ff242",
+      "core/mismatches.py": "d460beed6a9e5426d6d6fcac996a6bab29c45e602da9dfcb6b9d4ed1ac2fb519",
+      "core/msa.py": "e4ac128cd0e3004cb4629fdc8b96be04f8ff5a062b7e355a288a59333f567f41",
+      "core/multiplex.py": "56edfbf31b97385c189fa6bc2c1baa0af4611e5a719f468ea17cb026ef845f31",
+      "lge-build.json": "3f7cee921d6098504343e82fc4444ffdbbf6156e8be1d0209aaf438fd5b23ac4",
+      "panel/panel_classes.py": "56051647a017eb00383abaf6e5d97323b052238172f85bb12dd7dd172247164f",
+      "panel/panel_main.py": "f0a5c7205df625bd7f11caf2a4fcefb918f58aee205d7aea8354eb01a016847e"
+    },
+    "primalscheme3_version": "3.3.0+lge.2",
+    "python": "3.12.11",
+    "python_executable": "/Users/dho/.lungfish/conda/envs/primalscheme3/bin/python",
+    "script_sha256": "c819acb15170e7e973730d47d306ea666e3546a3e0d9cd0734f8171ab058232e",
+    "wall_time_seconds": 0.378674,
+    "working_directory": "/Users/dho/Documents/lungfish-genome-explorer"
+  },
+  "results": [
+    {
+      "coverage": {
+        "A": 100,
+        "B": 0
+      },
+      "input_order": [
+        "A",
+        "B"
+      ],
+      "selected": [
+        "A_greedy"
+      ],
+      "total_covered_positions": 100
+    },
+    {
+      "coverage": {
+        "A": 90,
+        "B": 100
+      },
+      "input_order": [
+        "B",
+        "A"
+      ],
+      "selected": [
+        "B_only",
+        "A_compatible"
+      ],
+      "total_covered_positions": 190
+    }
+  ],
+  "synthetic_model": {
+    "candidate_intervals": {
+      "A_compatible": [
+        0,
+        90
+      ],
+      "A_greedy": [
+        0,
+        100
+      ],
+      "B_only": [
+        0,
+        100
+      ]
+    },
+    "dna_sequences_used": false,
+    "pools": 1,
+    "stubbed_chemistry_conflicts": [
+      [
+        "A_greedy",
+        "B_only"
+      ]
+    ],
+    "target_positions_per_msa": 100
+  }
+}

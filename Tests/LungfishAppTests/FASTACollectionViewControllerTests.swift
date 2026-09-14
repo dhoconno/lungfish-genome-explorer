@@ -223,6 +223,39 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.lastString, "AACCGGTT\nATATAT")
     }
 
+    func testAnnotatedContextActionsForwardAnnotationsForSelectedSequences() throws {
+        let vc = FASTACollectionViewController()
+        var extracted: (names: [String], annotations: [String: [String]])?
+        var bundled: (names: [String], annotations: [String: [String]])?
+        vc.onExtractSequenceWithAnnotationsRequested = { sequences, annotations in
+            extracted = (sequences.map(\.name), annotations.mapValues { $0.map(\.name) })
+        }
+        vc.onCreateBundleWithAnnotationsRequested = { sequences, annotations in
+            bundled = (sequences.map(\.name), annotations.mapValues { $0.map(\.name) })
+        }
+        _ = vc.view
+        vc.configure(
+            sequences: [
+                try makeSequence(name: "seq1", bases: "AACCGGTT"),
+                try makeSequence(name: "seq2", bases: "ATATAT")
+            ],
+            annotations: [
+                SequenceAnnotation(type: .gene, name: "gene1", chromosome: "seq1", start: 1, end: 4),
+                SequenceAnnotation(type: .gene, name: "gene2", chromosome: "seq2", start: 0, end: 3)
+            ],
+            sourceNames: [:]
+        )
+
+        vc.testSelectRows([1])
+        vc.testInvokeContextMenuItem(titled: "Extract Sequence…")
+        vc.testInvokeContextMenuItem(titled: "Extract to New Bundle…")
+
+        XCTAssertEqual(extracted?.names, ["seq2"])
+        XCTAssertEqual(extracted?.annotations, ["seq2": ["gene2"]])
+        XCTAssertEqual(bundled?.names, ["seq2"])
+        XCTAssertEqual(bundled?.annotations, ["seq2": ["gene2"]])
+    }
+
     func testContextMenuReconcilesClickedRowAndKeepsCurrentSelectionWithoutOne() throws {
         let vc = FASTACollectionViewController()
         var capturedNames: [String] = []

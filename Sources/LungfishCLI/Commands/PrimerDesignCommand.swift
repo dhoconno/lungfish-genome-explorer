@@ -92,8 +92,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
     }
 
     struct PrimalScheme3Subcommand: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run the PrimalScheme3-LGE custom fork on explicit native MSA bundles")
-        @Option(name: .customLong("msa"), help: "Native .lungfishmsa input. Repeatable; raw aligned FASTA must first be imported with an alignment workflow.") var msaPaths: [String] = []
+        static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run the PrimalScheme3-LGE custom fork on native MSAs or raw aligned FASTA")
+        @Option(name: .customLong("msa"), help: "Native .lungfishmsa or raw aligned nucleotide FASTA input. Repeatable; one-row FASTA is valid.") var msaPaths: [String] = []
         @Option(name: .customLong("output")) var outputPath: String
         @Option(name: .customLong("grouping"), help: "independent or combined") var grouping = "independent"
         @Option(name: .customLong("primalscheme3-path")) var executablePath: String?
@@ -123,7 +123,9 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             guard !paths.isEmpty else { throw ValidationError("Provide at least one --msa input.") }
             return try paths.map { path in
                 let url = URL(fileURLWithPath: path)
-                guard url.pathExtension.lowercased() == "lungfishmsa" else { throw ValidationError("--msa accepts only native .lungfishmsa bundles; import raw alignments first.") }
+                guard PrimalScheme3DesignPipeline.supportsInput(at: url) else {
+                    throw ValidationError("--msa accepts native .lungfishmsa or raw aligned nucleotide FASTA (.fa, .fasta, .fna, .ffn, .frn, .fas) inputs.")
+                }
                 return url
             }
         }
