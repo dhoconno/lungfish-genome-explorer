@@ -369,6 +369,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let consumedFingerprint: String
         let uracilCount: Int
         let unknownBaseCount: Int
+        let preprocessing: String
         let referenceName: String
         let rowMappingPath: String
     }
@@ -454,6 +455,10 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let aligned = scratch.appendingPathComponent("inputs/\(id.uuidString).fasta")
             try FileManager.default.createDirectory(at: aligned.deletingLastPathComponent(), withIntermediateDirectories: true)
             let normalizedNames = normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" }
+            let decompression = sourceAligned.pathExtension.lowercased() == "gz"
+                ? "gzip-decompression-to-UTF8-FASTA; " : ""
+            let preprocessing = decompression
+                + "FASTA-header-normalization; U-to-T DNA normalization; N-to-gap missing-coverage normalization; row-order-preserved"
             let consumedFASTA = normalizedRows.enumerated().map { index, row in
                 ">\(normalizedNames[index])\n\(row.sequence)\n"
             }.joined()
@@ -461,7 +466,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let mappingPath = "inputs/\(id.uuidString)-row-map.json"
             let mappingURL = scratch.appendingPathComponent(mappingPath)
             let mapping: [String: Any] = ["schemaVersion": 1, "inputID": id.uuidString,
-                "transformation": "FASTA headers replaced; U/u normalized to T; N/n treated as missing alignment gaps; row order preserved",
+                "transformation": (sourceAligned.pathExtension.lowercased() == "gz" ? "gzip decompressed to UTF-8 FASTA; " : "")
+                    + "FASTA headers replaced; U/u normalized to T; N/n treated as missing alignment gaps; row order preserved",
                 "uracilCount": uracilCount,
                 "unknownBaseCount": unknownBaseCount,
                 "rows": normalizedRows.enumerated().map { index, row in
@@ -480,6 +486,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             inputs.append(Input(id: id, originalURL: url, snapshotURL: snapshot, alignedURL: aligned,
                                 paths: paths, fingerprint: expected, consumedFingerprint: consumedFingerprint,
                                 uracilCount: uracilCount, unknownBaseCount: unknownBaseCount,
+                                preprocessing: preprocessing,
                                 referenceName: normalizedNames[0],
                                 rowMappingPath: mappingPath))
         }
@@ -577,7 +584,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                             "consumedSHA256": .string($0.consumedFingerprint),
                             "uracilCount": .integer($0.uracilCount),
                             "unknownBaseCount": .integer($0.unknownBaseCount),
-                            "preprocessing": .string("FASTA-header-normalization; U-to-T DNA normalization; N-to-gap missing-coverage normalization; row-order-preserved"),
+                            "preprocessing": .string($0.preprocessing),
                             "rowMappingRelativePath": .string($0.rowMappingPath),
                             "referenceName": .string($0.referenceName)
                          ]) })])

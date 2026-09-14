@@ -48,6 +48,58 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     })
   }
 
+  func testCompressedSingleSequenceReferenceIsMaterializedAsUTF8AndPreservedWithProvenance() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let input = root.appendingPathComponent("compressed.lungfishref", isDirectory: true)
+    let fasta = input.appendingPathComponent("genome/sequence.fa.gz")
+    try FileManager.default.createDirectory(at: fasta.deletingLastPathComponent(), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try Self.writeGzip(">synthetic_reference Original Case\nacguNACGT\n", to: fasta)
+    try BundleManifest(name: "Compressed synthetic reference", identifier: "org.lungfish.tests.compressed",
+      source: SourceInfo(organism: "Synthetic construct", assembly: "test-v1"),
+      genome: GenomeInfo(path: "genome/sequence.fa.gz", indexPath: "genome/sequence.fa.gz.fai", totalLength: 9,
+        chromosomes: [ChromosomeInfo(name: "synthetic_reference", length: 9, offset: 35,
+          lineBases: 9, lineWidth: 10)])).save(to: input)
+    let destination = root.appendingPathComponent("result.lungfishprimeranalysis")
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      let msaIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--msa"))
+      let consumedURL = URL(fileURLWithPath: command.arguments[msaIndex + 1])
+      XCTAssertEqual(try String(contentsOf: consumedURL, encoding: .utf8)
+        .split(whereSeparator: \.isNewline).last, "acgT-ACGT")
+      return try Self.nativeFixture(command)
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let request = PrimalScheme3DesignRequest(inputURLs: [input], destinationURL: destination,
+      options: .init(ampliconSize: 400, poolCount: 2), grouping: .independent,
+      invocation: .init(argv: ["lungfish", "primer", "design", input.path], callerVersion: "test",
+        explicitOptions: [:], runtimeIdentity: .init()),
+      expectedInputChecksums: [input: try Primer3InputLoader.fingerprint(input)])
+
+    let output = try await pipeline.run(request: request)
+    let bundle = try PrimerAnalysisBundle.load(from: output)
+    let sourceArtifact = try XCTUnwrap(bundle.manifest.artifacts.first {
+      $0.relativePath.hasSuffix("source.lungfishref/genome/sequence.fa.gz")
+    })
+    XCTAssertEqual(try Data(contentsOf: bundle.artifactURL(forRelativePath: sourceArtifact.relativePath)),
+      try Data(contentsOf: fasta))
+    let inputManifest = try XCTUnwrap(bundle.manifest.inputs.first)
+    let consumedPath = try XCTUnwrap(inputManifest.artifactPaths.first { $0.hasSuffix(".fasta") })
+    let consumedURL = try bundle.artifactURL(forRelativePath: consumedPath)
+    XCTAssertEqual(try String(contentsOf: consumedURL, encoding: .utf8)
+      .split(whereSeparator: \.isNewline).last, "acgT-ACGT")
+    let mapPath = try XCTUnwrap(inputManifest.artifactPaths.first { $0.hasSuffix("-row-map.json") })
+    let mapping = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: Data(contentsOf: bundle.artifactURL(forRelativePath: mapPath))) as? [String: Any])
+    XCTAssertEqual((mapping["rows"] as? [[String: Any]])?.first?["originalHeader"] as? String,
+      "synthetic_reference Original Case")
+    XCTAssertTrue((mapping["transformation"] as? String)?.contains("gzip decompressed") == true)
+    let provenanceArtifact = try XCTUnwrap(bundle.manifest.artifacts.first { $0.role == "toolProvenance" })
+    let provenance = try ProvenanceEnvelopeReader.decodeCanonical(
+      Data(contentsOf: bundle.artifactURL(forRelativePath: provenanceArtifact.relativePath)))
+    let sourceInputs = try XCTUnwrap(provenance.options.resolvedDefaults["sourceInputs"])
+    XCTAssertTrue(String(describing: sourceInputs).contains("gzip-decompression-to-UTF8-FASTA"))
+    XCTAssertTrue(provenance.files.contains { $0.path == consumedURL.path })
+  }
+
   func testCoverageRequiresExplicitExecutableBeforeRuntimePreparation() async throws {
     let fixture = try fixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -474,6 +526,27 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     return .init(argv: ["/fixture/primalscheme3"] + command.arguments, stdout: "fixture output",
       stderr: exitStatus == 0 ? "" : "fixture failure", exitStatus: exitStatus, version: version,
       runtime: .init(executablePath: "/fixture/primalscheme3"), startedAt: Date(), endedAt: Date())
+  }
+
+  private static func writeGzip(_ text: String, to output: URL) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = ["-n", "-c"]
+    let input = Pipe(), result = Pipe(), errors = Pipe()
+    process.standardInput = input
+    process.standardOutput = result
+    process.standardError = errors
+    try process.run()
+    input.fileHandleForWriting.write(Data(text.utf8))
+    try input.fileHandleForWriting.close()
+    let compressed = result.fileHandleForReading.readDataToEndOfFile()
+    let stderr = errors.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+      throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey:
+        String(data: stderr, encoding: .utf8) ?? "gzip failed"])
+    }
+    try compressed.write(to: output)
   }
 
   private static func nativeCoverageFixtureURL(named name: String = "PrimalScheme3CoverageNative") -> URL {

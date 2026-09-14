@@ -3,6 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 public enum LungfishAppVersion {
-    public static let short = "2026.9.25"
+    public static let short = "2026.9.26"
     public static let cliToolVersion = "lungfish-cli \(short)"
 }

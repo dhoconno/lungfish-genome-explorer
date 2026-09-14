@@ -141,7 +141,15 @@ enum Primer3InputLoader {
     }
 
     static func readAlignedRows(at url: URL, allowingRNAU: Bool = false) throws -> [Primer3AlignedRow] {
-        guard let text = String(data: try Data(contentsOf: url), encoding: .utf8) else { throw Primer3DesignError.invalidRequest("aligned FASTA is not UTF-8") }
+        let text: String
+        if url.pathExtension.lowercased() == "gz" {
+            text = try GzipInputStream(url: url).readAllSync()
+        } else {
+            guard let decoded = String(data: try Data(contentsOf: url), encoding: .utf8) else {
+                throw Primer3DesignError.invalidRequest("aligned FASTA is not UTF-8")
+            }
+            text = decoded
+        }
         var rows: [Primer3AlignedRow] = [], title: String?, chunks: [String] = []
         let allowedSymbols = allowingRNAU ? "ACGTRYSWKMBDHVNU-." : "ACGTRYSWKMBDHVN-."
         func finish() throws {
