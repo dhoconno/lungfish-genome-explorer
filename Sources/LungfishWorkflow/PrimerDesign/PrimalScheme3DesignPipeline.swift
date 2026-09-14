@@ -186,8 +186,8 @@ public enum PrimalScheme3DesignError: Error, LocalizedError, Sendable {
     case executionFailed(Int32, String)
     public var errorDescription: String? {
         switch self {
-        case .invalidRequest(let reason): return "PrimalScheme3-LGE (custom fork): \(reason)"
-        case .executionFailed(let code, let detail): return "PrimalScheme3-LGE custom fork exited with status \(code): \(detail)"
+        case .invalidRequest(let reason): return "PrimalScheme: \(reason)"
+        case .executionFailed(let code, let detail): return "PrimalScheme exited with status \(code): \(detail)"
         }
     }
 }
@@ -227,7 +227,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
 
     public static func supportsInput(at url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
-        return ext == MultipleSequenceAlignmentBundle.directoryExtension || supportedRawFASTAExtensions.contains(ext)
+        return ext == MultipleSequenceAlignmentBundle.directoryExtension || ext == "lungfishref"
+            || supportedRawFASTAExtensions.contains(ext)
     }
 
     typealias Runner = @Sendable (PrimalScheme3Command) async throws -> PrimalScheme3Execution
@@ -351,6 +352,13 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
     }
 
+    static func validateReferenceBundleRows(_ rows: [Primer3AlignedRow]) throws {
+        guard rows.count == 1 else {
+            throw PrimalScheme3DesignError.invalidRequest(
+                ".lungfishref input must contain exactly one sequence. Import multiple sequences as an explicit alignment first.")
+        }
+    }
+
     private struct Input: Sendable {
         let id: UUID
         let originalURL: URL
@@ -369,7 +377,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                             progress: (@Sendable (Double, String) -> Void)?) async throws -> URL {
         try Task.checkCancellation()
         guard !request.inputURLs.isEmpty, Set(request.inputURLs).count == request.inputURLs.count else {
-            throw PrimalScheme3DesignError.invalidRequest("Select distinct alignment inputs.")
+            throw PrimalScheme3DesignError.invalidRequest("Select distinct sequence or alignment inputs.")
         }
         guard request.destinationURL.pathExtension.lowercased() == "lungfishprimeranalysis" else {
             throw PrimalScheme3DesignError.invalidRequest("The destination must be a .lungfishprimeranalysis bundle.")
@@ -386,7 +394,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
         defer { runtimeLease?.release() }
-        progress?(0.05, "Validating alignment inputs")
+        progress?(0.05, "Validating sequence or alignment inputs")
         let scratch = destination.deletingLastPathComponent().appendingPathComponent(
             ".primalscheme3-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
@@ -395,7 +403,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         var inputs: [Input] = []
         for (inputIndex, url) in request.inputURLs.enumerated() {
             try Task.checkCancellation()
-            progress?(0.05 + 0.15 * Double(inputIndex) / Double(request.inputURLs.count), "Preparing alignment \(inputIndex + 1)/\(request.inputURLs.count)")
+            progress?(0.05 + 0.15 * Double(inputIndex) / Double(request.inputURLs.count), "Preparing input \(inputIndex + 1)/\(request.inputURLs.count)")
             guard let expected = request.expectedInputChecksums[url], expected.count == 64,
                   expected == (try Primer3InputLoader.fingerprint(url)) else {
                 throw PrimalScheme3DesignError.invalidRequest("An input changed after inspection or has no inspection checksum: \(url.lastPathComponent)")
@@ -403,16 +411,34 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let id = UUID()
             let prefix = "source-inputs/\(id.uuidString)"
             let native = Primer3InputLoader.isAlignmentBundle(url)
+            let referenceBundle = Primer3InputLoader.isReferenceBundle(url)
             let snapshot = scratch.appendingPathComponent(prefix).appendingPathComponent(
-                native ? "source.lungfishmsa" : "source.fasta")
+                native ? "source.lungfishmsa" : referenceBundle ? "source.lungfishref" : "source.fasta")
             try Self.copySource(url, to: snapshot)
             guard try Primer3InputLoader.fingerprint(snapshot) == expected else {
                 throw PrimalScheme3DesignError.invalidRequest("An input changed while its snapshot was being captured.")
             }
-            let sourceAligned = native ? snapshot.appendingPathComponent("alignment/primary.aligned.fasta") : snapshot
+            let sourceAligned: URL
+            if native {
+                sourceAligned = snapshot.appendingPathComponent("alignment/primary.aligned.fasta")
+            } else if referenceBundle {
+                guard let originalFASTA = SequenceInputResolver.resolvePrimarySequenceURL(for: url) else {
+                    throw PrimalScheme3DesignError.invalidRequest("Reference bundle has no readable primary FASTA.")
+                }
+                guard Primer3InputLoader.isContained(originalFASTA.resolvingSymlinksInPath(),
+                                                      in: url.resolvingSymlinksInPath()) else {
+                    throw PrimalScheme3DesignError.invalidRequest(
+                        "Reference bundle primary FASTA must be stored inside the bundle for primer design.")
+                }
+                sourceAligned = snapshot.appendingPathComponent(Self.relative(originalFASTA, to: url))
+            } else {
+                sourceAligned = snapshot
+            }
             let rows = try Primer3InputLoader.readAlignedRows(at: sourceAligned, allowingRNAU: true)
             if native {
                 try Primer3InputLoader.validateAlignedRows(rows, bundle: MultipleSequenceAlignmentBundle.load(from: snapshot))
+            } else if referenceBundle {
+                try Self.validateReferenceBundleRows(rows)
             }
             let normalized = Primer3InputLoader.normalizeForPrimalScheme(rows)
             let normalizedRows = normalized.rows
@@ -462,7 +488,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         var results: [PrimerAnalysisResult] = []
         for (index, group) in groups.enumerated() {
             try Task.checkCancellation()
-            progress?(0.2 + 0.7 * Double(index) / Double(groups.count), "Running PrimalScheme3-LGE custom fork (\(index + 1)/\(groups.count))")
+            progress?(0.2 + 0.7 * Double(index) / Double(groups.count), "Running PrimalScheme (\(index + 1)/\(groups.count))")
             let resultID = UUID()
             let output = scratch.appendingPathComponent("native/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -637,7 +663,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let bundle = try writer.write(.init(analysisID: analysisID, runID: runID, grouping: request.grouping,
             inputs: inputs.map { .init(id: $0.id, label: $0.originalURL.lastPathComponent, artifactPaths: $0.paths) },
             results: results, artifacts: artifacts, destinationURL: destination, invocation: request.invocation))
-        progress?(1, "Saved PrimalScheme3-LGE custom fork analysis")
+        progress?(1, "Saved PrimalScheme analysis")
         return bundle.url
     }
 
@@ -727,7 +753,11 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         return URL(fileURLWithPath: String(cString: resolved), isDirectory: true).appendingPathComponent(url.lastPathComponent)
     }
 
-    private static func relative(_ url: URL, to root: URL) -> String { String(url.path.dropFirst(root.path.count + 1)) }
+    private static func relative(_ url: URL, to root: URL) -> String {
+        let components = url.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let rootComponents = root.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        return components.dropFirst(rootComponents.count).joined(separator: "/")
+    }
 
     private static func regularFiles(in url: URL) throws -> [URL] {
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey])

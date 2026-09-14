@@ -1,6 +1,6 @@
 # PCR Primer Design
 
-PCR Primer Design is an optional tool pack for sequence-based primer design. Install it from **Tools → Plugin Manager**, then choose **Tools → PCR primer design → Primer3…** or **PrimalScheme3-LGE (custom fork)…** to open that designer directly. The pack contains Primer3 and **PrimalScheme3-LGE (custom fork)** in separate managed environments. The custom fork uses a pinned Python wheel set inside its conda environment. It is distinct from upstream PrimalScheme3 and the older Bioconda `primalscheme` package. Its public source is [dhoconno/primalscheme3-lge](https://github.com/dhoconno/primalscheme3-lge).
+PCR Primer Design is an optional tool pack for sequence-based primer design. Install it from **Tools → Plugin Manager**, then choose **Tools → PCR primer design → Primer3…** or **PrimalScheme…** to open that designer directly. The pack contains Primer3 and **PrimalScheme** in separate managed environments. The custom fork uses a pinned Python wheel set inside its conda environment. It is distinct from upstream PrimalScheme3 and the older Bioconda `primalscheme` package. Its public source is [dhoconno/primalscheme3-lge](https://github.com/dhoconno/primalscheme3-lge).
 
 ## Inputs
 

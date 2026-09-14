@@ -5,7 +5,7 @@ import LungfishWorkflow
 
 enum PrimerDesignEngine: String, CaseIterable, Identifiable {
   case primer3 = "Primer3"
-  case primalScheme = "PrimalScheme3-LGE (custom fork)"
+  case primalScheme = "PrimalScheme"
   var id: String { rawValue }
 }
 

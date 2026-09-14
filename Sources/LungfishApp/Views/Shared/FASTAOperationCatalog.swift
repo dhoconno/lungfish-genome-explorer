@@ -32,6 +32,7 @@ enum FASTAOperationCatalog {
         suggestedName: String,
         projectURL: URL?,
         durableSourceURLs: [URL] = [],
+        originalSequenceIdentifiers: [String]? = nil,
         makeTemporaryRoot: () throws -> URL = {
             try TempFileManager.shared.createRegisteredTempDirectory(prefix: "lungfish-fasta-ops-")
         }
@@ -90,6 +91,7 @@ enum FASTAOperationCatalog {
                 payloadURL: fastaURL,
                 normalizedFASTA: normalizedFASTA,
                 durableSourceURLs: durableSourceURLs,
+                originalSequenceIdentifiers: originalSequenceIdentifiers,
                 startedAt: startedAt
             )
             return bundleURL
@@ -135,27 +137,41 @@ enum FASTAOperationCatalog {
         payloadURL: URL,
         normalizedFASTA: String,
         durableSourceURLs: [URL],
+        originalSequenceIdentifiers: [String]?,
         startedAt: Date
     ) throws {
         let completedAt = Date()
-        let identifiers = selectedIdentifiers(in: normalizedFASTA)
+        let exportedIdentifiers = selectedIdentifiers(in: normalizedFASTA)
+        let originalIdentifiers = originalSequenceIdentifiers?.count == exportedIdentifiers.count
+            ? originalSequenceIdentifiers!
+            : exportedIdentifiers
         // The GUI writes this short-lived selection in process. Record that
         // truthfully, while retaining a real CLI command for durable replay.
         let argv = ["Lungfish Genome Explorer", "fasta-selection-materialization"]
             + durableSourceURLs.flatMap { ["--source", $0.standardizedFileURL.path] }
-            + identifiers.flatMap { ["--sequence-id", $0] }
+            + zip(originalIdentifiers, exportedIdentifiers).flatMap {
+                ["--sequence-id", $0.0, "--exported-sequence-id", $0.1]
+            }
             + ["--output", payloadURL.path]
-        let durableReplayArgv: [String]? = durableSourceURLs.count == 1 ? durableSourceURLs.first.map { sourceURL in
+        let hasUniqueOriginalIdentifiers = Set(originalIdentifiers).count == originalIdentifiers.count
+        let durableReplayArgv: [String]? = durableSourceURLs.count == 1 && hasUniqueOriginalIdentifiers ? durableSourceURLs.first.map { sourceURL in
             ["lungfish-cli", "extract", "contigs", "--contigs", sourceURL.standardizedFileURL.path]
-                + identifiers.flatMap { ["--contig", $0] }
+                + originalIdentifiers.flatMap { ["--contig", $0] }
                 + ["--output", payloadURL.path]
         } : nil
         let output = try ProvenanceFileDescriptor.file(url: payloadURL, format: .fasta, role: .output)
         let inputs = try durableSourceURLs.map(durableInputDescriptor)
+        let identifierMapping = zip(originalIdentifiers, exportedIdentifiers).map { original, exported in
+            ParameterValue.dictionary([
+                "original": .string(original),
+                "exported": .string(exported),
+            ])
+        }
         let resolved: [String: ParameterValue] = [
             "recordCount": .integer(recordCount(in: normalizedFASTA)),
             "baseCount": .integer(Int(baseCount(in: normalizedFASTA))),
             "normalization": .string("LF line endings; one trailing newline per record"),
+            "sequenceIdentifierMapping": .array(identifierMapping),
         ]
         let version = WorkflowRun.currentAppVersion
         let step = ProvenanceStep(
@@ -183,8 +199,10 @@ enum FASTAOperationCatalog {
             durableReplayArgv: durableReplayArgv,
             options: ProvenanceOptions(
                 explicit: [
-                    "selectedSequenceIDs": .array(identifiers.map(ParameterValue.string)),
-                    "selectedSequenceCount": .integer(identifiers.count),
+                    "selectedSequenceIDs": .array(originalIdentifiers.map(ParameterValue.string)),
+                    "exportedSequenceIDs": .array(exportedIdentifiers.map(ParameterValue.string)),
+                    "sequenceIdentifierMapping": .array(identifierMapping),
+                    "selectedSequenceCount": .integer(originalIdentifiers.count),
                     "durableSourcePaths": .array(durableSourceURLs.map { .file($0) }),
                 ],
                 defaults: ["lineEnding": .string("LF")],
@@ -245,5 +263,45 @@ enum FASTAOperationCatalog {
             guard line.hasPrefix(">") else { return nil }
             return line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
         }
+    }
+
+    /// Makes record identifiers safe for a reference bundle, whose FASTA index and
+    /// chromosome manifest require one unambiguous identifier per sequence.
+    static func referenceBundleRecords(from records: [String]) -> [String] {
+        var usedIdentifiers: Set<String> = []
+
+        return records.map { record in
+            let normalized = normalizeRecord(record)
+            guard normalized.hasPrefix(">"),
+                  let headerEnd = normalized.firstIndex(of: "\n") else {
+                return normalized
+            }
+
+            let header = normalized[normalized.index(after: normalized.startIndex)..<headerEnd]
+            guard let identifierEnd = header.firstIndex(where: \.isWhitespace) else {
+                let identifier = String(header)
+                let uniqueIdentifier = nextAvailableIdentifier(identifier, used: &usedIdentifiers)
+                return ">\(uniqueIdentifier)" + String(normalized[headerEnd...])
+            }
+
+            let identifier = String(header[..<identifierEnd])
+            let description = header[identifierEnd...]
+            let uniqueIdentifier = nextAvailableIdentifier(identifier, used: &usedIdentifiers)
+            return ">\(uniqueIdentifier)\(description)" + String(normalized[headerEnd...])
+        }
+    }
+
+    private static func nextAvailableIdentifier(
+        _ identifier: String,
+        used: inout Set<String>
+    ) -> String {
+        var candidate = identifier
+        var suffix = 2
+        while used.contains(candidate) {
+            candidate = "\(identifier)_\(suffix)"
+            suffix += 1
+        }
+        used.insert(candidate)
+        return candidate
     }
 }

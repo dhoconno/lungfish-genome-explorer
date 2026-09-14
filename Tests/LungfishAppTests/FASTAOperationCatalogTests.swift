@@ -6,6 +6,66 @@ import XCTest
 
 @MainActor
 final class FASTAOperationCatalogTests: XCTestCase {
+    func testReferenceBundleRecordsDisambiguateDuplicateIdentifiersAndRecordMapping() throws {
+        let records = FASTAOperationCatalog.referenceBundleRecords(
+            from: [
+                ">chr1 first source\nAACCGG\n",
+                ">chr1 second source\nTTAA\n",
+                ">chr1_2 existing suffix\nCCCC\n",
+            ]
+        )
+
+        XCTAssertEqual(
+            records,
+            [
+                ">chr1 first source\nAACCGG\n",
+                ">chr1_2 second source\nTTAA\n",
+                ">chr1_2_2 existing suffix\nCCCC\n",
+            ]
+        )
+        XCTAssertEqual(
+            FASTAOperationCatalog.selectedIdentifiers(in: records.joined()),
+            ["chr1", "chr1_2", "chr1_2_2"]
+        )
+
+        let bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: records,
+            suggestedName: "duplicate chromosomes",
+            projectURL: nil,
+            originalSequenceIdentifiers: ["chr1", "chr1", "chr1_2"]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(
+            envelope.options.explicit["sequenceIdentifierMapping"],
+            .array([
+                .dictionary(["original": .string("chr1"), "exported": .string("chr1")]),
+                .dictionary(["original": .string("chr1"), "exported": .string("chr1_2")]),
+                .dictionary(["original": .string("chr1_2"), "exported": .string("chr1_2_2")]),
+            ])
+        )
+        XCTAssertNil(envelope.steps.first?.durableReplayArgv)
+
+        let finalBundleURL = try makeReferenceBundle(
+            named: "duplicate-chromosome-export",
+            fastaFilename: "genome/sequence.fa"
+        )
+        let finalPayloadURL = finalBundleURL.appendingPathComponent("genome/sequence.fa")
+        try records.joined().write(to: finalPayloadURL, atomically: true, encoding: .utf8)
+        try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
+            sourceURL: bundleURL.appendingPathComponent("selection.fasta"),
+            referenceBundleURL: finalBundleURL
+        )
+
+        let finalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: finalBundleURL))
+        XCTAssertEqual(
+            finalEnvelope.options.explicit["sequenceIdentifierMapping"],
+            envelope.options.explicit["sequenceIdentifierMapping"]
+        )
+        XCTAssertEqual(finalEnvelope.output?.path, finalPayloadURL.path)
+        XCTAssertEqual(finalEnvelope.output?.originPath, bundleURL.appendingPathComponent("selection.fasta").path)
+    }
+
     func testCatalogOnlyReturnsFASTACompatibleOperations() {
         let ids = Set(FASTAOperationCatalog.availableOperationKinds().map(\.rawValue))
 
@@ -137,8 +197,8 @@ final class FASTAOperationCatalogTests: XCTestCase {
             [
                 "Lungfish Genome Explorer", "fasta-selection-materialization",
                 "--source", durableSource.path,
-                "--sequence-id", "second",
-                "--sequence-id", "first",
+                "--sequence-id", "second", "--exported-sequence-id", "second",
+                "--sequence-id", "first", "--exported-sequence-id", "first",
                 "--output", payloadURL.path,
             ]
         )

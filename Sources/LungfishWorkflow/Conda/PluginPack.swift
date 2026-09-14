@@ -575,7 +575,7 @@ public extension PluginPack {
         PluginPack(
             id: "pcr-primer-design",
             name: "PCR Primer Design",
-            description: "Independent Primer3 design and managed PrimalScheme3-LGE tiled-amplicon runtime.",
+            description: "Independent Primer3 design and managed PrimalScheme tiled-amplicon runtime.",
             sfSymbol: "lines.measurement.horizontal",
             packages: ["primer3", "primalscheme3"],
             category: "Specialized Workflows",
@@ -599,7 +599,7 @@ public extension PluginPack {
                     ManagedToolLock.bundled,
                     packID: "pcr-primer-design",
                     id: "primalscheme3",
-                    displayName: "PrimalScheme3-LGE (custom fork)",
+                    displayName: "PrimalScheme",
                     executables: ["primalscheme3"],
                     smokeTest: .command(
                         executable: "primalscheme3",

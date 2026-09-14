@@ -12,7 +12,7 @@ final class ToolsMenuStructureTests: XCTestCase {
         XCTAssertEqual(item.identifier?.rawValue, "tools-pcr-primer-design")
         XCTAssertNotEqual(item.action, #selector(ToolsMenuActions.showPCRPrimerDesign(_:)))
         let submenu = try XCTUnwrap(item.submenu)
-        XCTAssertEqual(submenu.items.map(\.title), ["Primer3…", "PrimalScheme3-LGE (custom fork)…"])
+        XCTAssertEqual(submenu.items.map(\.title), ["Primer3…", "PrimalScheme…"])
         XCTAssertEqual(submenu.items.compactMap { $0.representedObject as? PrimerDesignEngine }, [.primer3, .primalScheme])
         XCTAssertTrue(submenu.items.allSatisfy { $0.action == #selector(ToolsMenuActions.showPCRPrimerDesign(_:)) })
     }

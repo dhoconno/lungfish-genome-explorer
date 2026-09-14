@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
@@ -15,8 +16,8 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(result.unknownBaseCount, 1)
     }
 
-    func testSupportedInputsIncludeRawNucleotideFASTAAndNativeMSA() {
-        for extensionName in ["fa", "fasta", "fna", "ffn", "frn", "fas", "lungfishmsa"] {
+    func testSupportedInputsIncludeRawNucleotideFASTAAndNativeBundles() {
+        for extensionName in ["fa", "fasta", "fna", "ffn", "frn", "fas", "lungfishmsa", "lungfishref"] {
             XCTAssertTrue(
                 PrimalScheme3DesignPipeline.supportsInput(at: URL(fileURLWithPath: "/input/reference.\(extensionName)")),
                 extensionName
@@ -24,6 +25,41 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         }
         XCTAssertFalse(PrimalScheme3DesignPipeline.supportsInput(at: URL(fileURLWithPath: "/input/proteins.faa")))
         XCTAssertFalse(PrimalScheme3DesignPipeline.supportsInput(at: URL(fileURLWithPath: "/input/reference.fa.gz")))
+    }
+
+    func testSingleSequenceReferenceBundleInspectsAsOneFASTARecord() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimalSchemeReferenceInput-\(UUID().uuidString)", isDirectory: true)
+        let bundle = root.appendingPathComponent("synthetic.lungfishref", isDirectory: true)
+        let genome = bundle.appendingPathComponent("genome/sequence.fa")
+        try FileManager.default.createDirectory(at: genome.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data(">synthetic_reference\nACGTACGTACGT\n".utf8).write(to: genome)
+        let manifest = BundleManifest(
+            name: "Synthetic reference",
+            identifier: "org.lungfish.tests.synthetic-reference",
+            source: SourceInfo(organism: "Synthetic construct", assembly: "test-v1"),
+            genome: GenomeInfo(path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai",
+                totalLength: 12, chromosomes: [
+                    ChromosomeInfo(name: "synthetic_reference", length: 12, offset: 21, lineBases: 12, lineWidth: 13)
+                ]))
+        try manifest.save(to: bundle)
+
+        let summary = try await Primer3DesignPipeline.inspectInput(at: bundle)
+
+        XCTAssertFalse(summary.isAlignment)
+        XCTAssertEqual(summary.recordTitles, ["synthetic_reference"])
+        XCTAssertEqual(summary.checksumSHA256, try Primer3InputLoader.fingerprint(bundle))
+    }
+
+    func testReferenceBundleDoesNotInferAlignmentFromMultipleSequences() {
+        XCTAssertThrowsError(try PrimalScheme3DesignPipeline.validateReferenceBundleRows([
+            Primer3AlignedRow(title: "synthetic_a", sequence: "ACGT"),
+            Primer3AlignedRow(title: "synthetic_b", sequence: "TGCA")
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("exactly one sequence"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("explicit alignment"), error.localizedDescription)
+        }
     }
 
     func testExplicitAmpliconBoundsReachBothCommandsAndProvenance() throws {

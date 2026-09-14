@@ -412,7 +412,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertTrue(pack.isActive)
         XCTAssertEqual(pack.packages, ["primer3", "primalscheme3"])
         XCTAssertTrue(pack.description.contains("Primer3"))
-        XCTAssertTrue(pack.description.contains("PrimalScheme3"))
+        XCTAssertTrue(pack.description.contains("PrimalScheme"))
 
         let requirement = try XCTUnwrap(pack.toolRequirements.first { $0.id == "primer3" })
         XCTAssertEqual(pack.toolRequirements.count, 2)
@@ -468,7 +468,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(requirement.pythonRuntime, runtime)
         XCTAssertEqual(requirement.installPackages, runtime.basePackageSpecs)
         XCTAssertEqual(requirement.executables, ["primalscheme3"])
-        XCTAssertEqual(requirement.displayName, "PrimalScheme3-LGE (custom fork)")
+        XCTAssertEqual(requirement.displayName, "PrimalScheme")
         XCTAssertEqual(requirement.version, "3.3.0+lge.2")
         XCTAssertEqual(requirement.license, "GPL-3.0")
         XCTAssertEqual(requirement.smokeTest?.arguments, ["--version"])

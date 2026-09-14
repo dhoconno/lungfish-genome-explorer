@@ -242,7 +242,8 @@ extension AppDelegate {
         _ url: URL,
         routeContext: OperationRouteContext? = nil,
         durableProvenanceInputFiles: [URL]? = nil,
-        preferredBundleName: String? = nil
+        preferredBundleName: String? = nil,
+        rehydrateSourceProvenance: Bool = false
     ) {
         guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
               let sidebarController = controller.mainSplitViewController?.sidebarController,
@@ -314,6 +315,17 @@ extension AppDelegate {
                                 detail: message
                             )
                         }
+                    }
+                }
+                if rehydrateSourceProvenance {
+                    do {
+                        try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
+                            sourceURL: url,
+                            referenceBundleURL: result.bundleURL
+                        )
+                    } catch {
+                        try? FileManager.default.removeItem(at: result.bundleURL)
+                        throw error
                     }
                 }
 

@@ -92,8 +92,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
     }
 
     struct PrimalScheme3Subcommand: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run the PrimalScheme3-LGE custom fork on native MSAs or raw aligned FASTA")
-        @Option(name: .customLong("msa"), help: "Native .lungfishmsa or raw aligned nucleotide FASTA input. Repeatable; one-row FASTA is valid.") var msaPaths: [String] = []
+        static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run PrimalScheme on nucleotide sequences or alignments")
+        @Option(name: .customLong("msa"), help: "Native .lungfishmsa, .lungfishref, or raw aligned nucleotide FASTA input. Repeatable; a single sequence is valid.") var msaPaths: [String] = []
         @Option(name: .customLong("output")) var outputPath: String
         @Option(name: .customLong("grouping"), help: "independent or combined") var grouping = "independent"
         @Option(name: .customLong("primalscheme3-path")) var executablePath: String?
@@ -125,14 +125,14 @@ struct PrimerDesignCommand: AsyncParsableCommand {
 
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
-            print("PrimalScheme3-LGE custom fork analysis written to \(output.path)")
+            print("PrimalScheme analysis written to \(output.path)")
         }
         func validatedInputURLs(paths: [String]) throws -> [URL] {
             guard !paths.isEmpty else { throw ValidationError("Provide at least one --msa input.") }
             return try paths.map { path in
                 let url = URL(fileURLWithPath: path)
                 guard PrimalScheme3DesignPipeline.supportsInput(at: url) else {
-                    throw ValidationError("--msa accepts native .lungfishmsa or raw aligned nucleotide FASTA (.fa, .fasta, .fna, .ffn, .frn, .fas) inputs.")
+                    throw ValidationError("--msa accepts native .lungfishmsa, .lungfishref, or raw aligned nucleotide FASTA (.fa, .fasta, .fna, .ffn, .frn, .fas) inputs.")
                 }
                 return url
             }

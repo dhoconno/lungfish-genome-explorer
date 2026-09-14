@@ -316,7 +316,8 @@ public struct Primer3DesignPipeline: Sendable {
         let root = scratch.appendingPathComponent(rootRelative, isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         var sourceFiles: [(URL, String)] = []
-        if template.sourceKind == .fasta {
+        let sourceIsDirectory = try Self.fileType(at: template.sourceURL) == .typeDirectory
+        if template.sourceKind == .fasta && !sourceIsDirectory {
             guard try Self.fileType(at: template.sourceURL) == .typeRegular else {
                 throw Primer3DesignError.invalidRequest("FASTA source must be a regular file: \(template.sourceURL.path)")
             }
@@ -333,7 +334,8 @@ public struct Primer3DesignPipeline: Sendable {
             artifacts.append(.init(sourceURL: destination, relativePath: relative, role: "input", format: Self.snapshotFormat(for: suffix)))
             paths.append(relative)
         }
-        let snapshotRoot = template.sourceKind == .fasta ? root.appendingPathComponent(template.sourceURL.lastPathComponent) : root
+        let snapshotRoot = template.sourceKind == .fasta && !sourceIsDirectory
+            ? root.appendingPathComponent(template.sourceURL.lastPathComponent) : root
         let snapshotToken = try Primer3InputLoader.fingerprint(snapshotRoot)
         let sourceToken = try Primer3InputLoader.fingerprint(template.sourceURL)
         guard snapshotToken == sourceToken else { throw Primer3DesignError.inputChanged(template.sourceURL.path) }

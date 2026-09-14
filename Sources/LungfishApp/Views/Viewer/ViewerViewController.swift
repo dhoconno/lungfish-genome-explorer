@@ -2382,10 +2382,13 @@ public class ViewerViewController: NSViewController {
         let projectURL = projectURLForDerivedReferenceBundle()
         guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Reference bundle creation") else { return }
         let durableSources = fastaExportSourceURLs()
-        let selectedIDs = FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: ""))
+        let referenceBundleRecords = FASTAOperationCatalog.referenceBundleRecords(from: records)
+        let originalSelectedIDs = FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: ""))
+        let selectedIDs = FASTAOperationCatalog.selectedIdentifiers(in: referenceBundleRecords.joined(separator: ""))
         if let projectURL,
            durableSources.count == 1,
            FASTAOperationCatalog.inputSequenceFormat(for: durableSources[0]) == .fasta,
+           Set(originalSelectedIDs).count == originalSelectedIDs.count,
            selectedIDs.count == records.count {
             createReferenceBundleDirectlyFromDurableFASTA(
                 sourceURL: durableSources[0],
@@ -2398,10 +2401,11 @@ public class ViewerViewController: NSViewController {
         let stagedBundleURL: URL
         do {
             stagedBundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
-                fastaRecords: records,
+                fastaRecords: referenceBundleRecords,
                 suggestedName: suggestedName,
                 projectURL: projectURL,
-                durableSourceURLs: fastaExportSourceURLs()
+                durableSourceURLs: fastaExportSourceURLs(),
+                originalSequenceIdentifiers: originalSelectedIDs
             )
         } catch {
             presentBlockingAlert(title: "Reference Bundle Creation Failed", message: error.localizedDescription)
@@ -2412,7 +2416,8 @@ public class ViewerViewController: NSViewController {
             sourceURL,
             routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope),
             durableProvenanceInputFiles: fastaExportSourceURLs(),
-            preferredBundleName: suggestedName
+            preferredBundleName: suggestedName,
+            rehydrateSourceProvenance: true
         )
     }
 

@@ -44,7 +44,18 @@ struct Primer3AlignedNormalization: Sendable {
 enum Primer3InputLoader {
     static func isAlignmentBundle(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension
-            || FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path)
+            || (FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path)
+                && FileManager.default.fileExists(atPath: url.appendingPathComponent("metadata/rows.json").path)
+                && FileManager.default.fileExists(atPath: url.appendingPathComponent("alignment/primary.aligned.fasta").path))
+    }
+
+    static func isReferenceBundle(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "lungfishref"
+            && SequenceInputResolver.inputSequenceFormat(for: url) == .fasta
+    }
+
+    static func fastaURL(for url: URL) -> URL? {
+        isReferenceBundle(url) ? SequenceInputResolver.resolvePrimarySequenceURL(for: url) : url
     }
 
     static func inspect(_ url: URL) throws -> Primer3DesignInputSummary {
@@ -52,7 +63,10 @@ enum Primer3InputLoader {
             let bundle = try MultipleSequenceAlignmentBundle.load(from: url)
             return Primer3DesignInputSummary(url: url, isAlignment: true, recordTitles: bundle.rows.map(\.displayName), checksumSHA256: try fingerprint(url))
         }
-        let records = try FASTAReader(url: url).readHeadersSync()
+        guard let fastaURL = fastaURL(for: url) else {
+            throw Primer3DesignError.invalidRequest("reference bundle has no readable primary FASTA")
+        }
+        let records = try FASTAReader(url: fastaURL).readHeadersSync()
         return Primer3DesignInputSummary(
             url: url,
             isAlignment: false,
@@ -66,6 +80,12 @@ enum Primer3InputLoader {
         let urls: [URL]
         if isAlignmentBundle(url) {
             urls = ["manifest.json", "metadata/rows.json", "alignment/primary.aligned.fasta"].map { url.appendingPathComponent($0) }
+        } else if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            var files = try regularFiles(in: url)
+            if isReferenceBundle(url), let fastaURL = fastaURL(for: url), !isContained(fastaURL, in: url) {
+                files.append(fastaURL)
+            }
+            urls = files
         } else { urls = [url] }
         for file in urls {
             let data = try Data(contentsOf: file)
@@ -78,10 +98,31 @@ enum Primer3InputLoader {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    private static func regularFiles(in root: URL) throws -> [URL] {
+        let values = try root.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isSymbolicLink != true else {
+            throw Primer3DesignError.invalidRequest("sequence input contains a symbolic link")
+        }
+        if values.isRegularFile == true { return [root] }
+        guard values.isDirectory == true else {
+            throw Primer3DesignError.invalidRequest("sequence input contains an unsupported file type")
+        }
+        return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .flatMap { try regularFiles(in: $0) }
+    }
+
+    static func isContained(_ candidate: URL, in directory: URL) -> Bool {
+        candidate.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path + "/")
+    }
+
     static func prepare(_ selection: Primer3TemplateSelection) throws -> Primer3PreparedTemplate {
         switch selection {
         case .fastaRecord(let url, let index):
-            let records = try FASTAReader(url: url).readAllSync(alphabet: .dna)
+            guard let fastaURL = fastaURL(for: url) else {
+                throw Primer3DesignError.invalidRequest("reference bundle has no readable primary FASTA")
+            }
+            let records = try FASTAReader(url: fastaURL).readAllSync(alphabet: .dna)
             guard records.indices.contains(index) else { throw Primer3DesignError.invalidRequest("FASTA record index \(index) is out of bounds for \(url.path)") }
             let record = records[index]
             return Primer3PreparedTemplate(inputID: UUID(), resultID: UUID(), title: record.name, sequence: record.asString().uppercased(), sourceURL: url, sourceIndex: index, sourceRecordID: record.name, sourceKind: .fasta, bindingSitePolicy: .templateOnly, alignmentToTemplate: nil, excludedRegions: [])

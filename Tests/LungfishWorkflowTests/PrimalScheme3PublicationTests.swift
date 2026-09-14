@@ -1,10 +1,53 @@
 import Darwin
 import Foundation
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimalScheme3PublicationTests: XCTestCase {
+  func testSingleSequenceReferenceBundleIsConsumedAsOneRowAndPreservedWithProvenance() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let input = root.appendingPathComponent("synthetic.lungfishref", isDirectory: true)
+    let fasta = input.appendingPathComponent("genome/sequence.fa")
+    try FileManager.default.createDirectory(at: fasta.deletingLastPathComponent(), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try Data(">synthetic_reference\nACGTACGTACGT\n".utf8).write(to: fasta)
+    try BundleManifest(name: "Synthetic reference", identifier: "org.lungfish.tests.synthetic",
+      source: SourceInfo(organism: "Synthetic construct", assembly: "test-v1"),
+      genome: GenomeInfo(path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 12,
+        chromosomes: [ChromosomeInfo(name: "synthetic_reference", length: 12, offset: 21,
+          lineBases: 12, lineWidth: 13)])).save(to: input)
+    let destination = root.appendingPathComponent("result.lungfishprimeranalysis")
+    let pipeline = PrimalScheme3DesignPipeline(runner: { command in
+      let msaIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--msa"))
+      let consumed = try String(contentsOfFile: command.arguments[msaIndex + 1], encoding: .utf8)
+      XCTAssertEqual(consumed.split(whereSeparator: \.isNewline).last, "ACGTACGTACGT")
+      return try Self.nativeFixture(command)
+    }, writer: PrimerAnalysisBundleWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)))
+    let request = PrimalScheme3DesignRequest(inputURLs: [input], destinationURL: destination,
+      options: .init(ampliconSize: 400, poolCount: 2), grouping: .independent,
+      invocation: .init(argv: ["lungfish", "primer", "design", input.path], callerVersion: "test",
+        explicitOptions: [:], runtimeIdentity: .init()),
+      expectedInputChecksums: [input: try Primer3InputLoader.fingerprint(input)])
+
+    let output = try await pipeline.run(request: request)
+    let bundle = try PrimerAnalysisBundle.load(from: output)
+    XCTAssertTrue(bundle.manifest.artifacts.contains { $0.relativePath.hasSuffix("source.lungfishref/manifest.json") })
+    XCTAssertTrue(bundle.manifest.artifacts.contains { $0.relativePath.hasSuffix("source.lungfishref/genome/sequence.fa") })
+    let provenanceArtifact = try XCTUnwrap(bundle.manifest.artifacts.first { $0.role == "toolProvenance" })
+    let provenance = try ProvenanceEnvelopeReader.decodeCanonical(
+      Data(contentsOf: bundle.artifactURL(forRelativePath: provenanceArtifact.relativePath)))
+    XCTAssertEqual(provenance.exitStatus, 0)
+    XCTAssertNotNil(provenance.wallTimeSeconds)
+    XCTAssertTrue(provenance.argv.contains("--msa"))
+    let inputFiles = provenance.files.filter { $0.role == .input }
+    XCTAssertFalse(inputFiles.isEmpty)
+    XCTAssertTrue(inputFiles.allSatisfy {
+      !$0.path.isEmpty && ($0.checksumSHA256?.isEmpty == false) && ($0.fileSize ?? 0) > 0
+    })
+  }
+
   func testCoverageRequiresExplicitExecutableBeforeRuntimePreparation() async throws {
     let fixture = try fixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -132,7 +175,7 @@ final class PrimalScheme3PublicationTests: XCTestCase {
           executableURL: URL(fileURLWithPath: "/fixture/lge3"), misprimingProductSize: 199))
         XCTFail("Coverage mutation \(mutation) must not publish")
       } catch {
-        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme3-LGE"), error.localizedDescription)
+        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme:"), error.localizedDescription)
         XCTAssertTrue(error.localizedDescription.lowercased().contains("support"), error.localizedDescription)
       }
       XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
@@ -167,7 +210,7 @@ final class PrimalScheme3PublicationTests: XCTestCase {
           maxAmplicons: usesEmpty ? 0 : nil, maxAmpliconsPerMSA: usesEmpty ? 0 : nil))
         XCTFail("Coverage mutation \(mutation) must not publish")
       } catch {
-        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme3-LGE"), error.localizedDescription)
+        XCTAssertTrue(error.localizedDescription.contains("PrimalScheme:"), error.localizedDescription)
         if mutation.hasPrefix("catalog-") && mutation.hasSuffix("source-index") {
           XCTAssertTrue(error.localizedDescription.contains("source mapping"), error.localizedDescription)
         } else if mutation == "reference-duplicate-id" {
