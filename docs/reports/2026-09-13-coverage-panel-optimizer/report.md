@@ -33,12 +33,14 @@ The durable native behavior and command examples are in the fork's
 ## Resolved coverage contract
 
 Coverage supports fresh linear combined whole-MSA equal panels, first-reference
-mapping, explicit resolved reference-span bounds, two or more configured pools,
-observed-only terminal gaps, MatchDB enabled, and the `panel-v1` profile. Defaults
-are full-span metric, coverage target 0.9, seed 0, four starts, two repair rounds,
-120 search seconds, and a 2,000-base inclusive specificity product bound. Search
-time excludes discovery, final validation, LGE publication and bundle loading.
-Count caps default to unlimited; high-GC defaults false.
+mapping, explicit resolved reference-span bounds, one or more configured pools,
+either `legacy` or `observed-only` terminal gaps, MatchDB enabled, and the `panel-v1`
+profile. The native CLI defaults to two pools and `legacy`; the LGE frontend defaults
+to two pools and `observed-only`. Defaults are full-span metric, coverage target 0.9,
+seed 0, four starts, two repair rounds, 120 search seconds, and a 2,000-base inclusive
+specificity product bound. Search time excludes discovery, final validation, LGE
+publication and bundle loading. Count caps default to unlimited; high-GC defaults
+false. All three HLA benchmark runs used two pools and `observed-only`.
 
 Full-span and primer-trimmed coverage use literal zero-based half-open interval
 unions divided by the ungapped first-reference length. The requested minimum and
@@ -200,9 +202,10 @@ roots are ignored and immutable; each runner refuses an existing destination.
 
 ## Review record and accepted rulings
 
-The `reviews/` directory contains durable copies of the specificity review and every
-Task 1–5 implementation/fix review plus the Task 6 utility pre-review. The final
-whole-branch review remains pending at the time this report is committed.
+The `reviews/` directory contains durable copies of the specificity review, every
+Task 1–5 implementation/fix review, the Task 6 utility pre-review, the Task 6 review
+and the initial whole-branch review. The scoped documentation fix and final branch
+approval remain pending at the time this paragraph is committed.
 
 The following eight ledger rulings are preserved verbatim, including their costs:
 
