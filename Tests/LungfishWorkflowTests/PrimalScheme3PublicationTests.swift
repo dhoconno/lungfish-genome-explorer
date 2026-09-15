@@ -550,7 +550,11 @@ final class PrimalScheme3PublicationTests: XCTestCase {
   }
 
   private static func nativeCoverageFixtureURL(named name: String = "PrimalScheme3CoverageNative") -> URL {
-    Bundle.module.resourceURL!.appendingPathComponent(name, isDirectory: true)
+    let root = Bundle.module.resourceURL!
+    let copiedResources = root.appendingPathComponent("Resources", isDirectory: true)
+      .appendingPathComponent(name, isDirectory: true)
+    if FileManager.default.fileExists(atPath: copiedResources.path) { return copiedResources }
+    return root.appendingPathComponent(name, isDirectory: true)
   }
 
   private static func coverageNativeFixture(_ command: PrimalScheme3Command,
