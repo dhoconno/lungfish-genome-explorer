@@ -41,6 +41,11 @@ struct Primer3AlignedNormalization: Sendable {
     let unknownBaseCount: Int
 }
 
+enum PrimalScheme3AmbiguityPolicy: Sendable {
+    case missingCoverage
+    case preserve
+}
+
 enum Primer3InputLoader {
     static func isAlignmentBundle(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension
@@ -183,7 +188,10 @@ enum Primer3InputLoader {
     /// digester from treating an unknown symbol as a concrete base while still
     /// preserving the column as missing coverage. RNA uracils are converted to
     /// DNA thymidines at the same execution boundary.
-    static func normalizeForPrimalScheme(_ rows: [Primer3AlignedRow]) -> Primer3AlignedNormalization {
+    static func normalizeForPrimalScheme(
+        _ rows: [Primer3AlignedRow],
+        ambiguityPolicy: PrimalScheme3AmbiguityPolicy = .missingCoverage
+    ) -> Primer3AlignedNormalization {
         var uracilCount = 0
         var unknownBaseCount = 0
         let normalized = rows.map { row in
@@ -194,7 +202,7 @@ enum Primer3InputLoader {
                     return "T"
                 case "N", "n":
                     unknownBaseCount += 1
-                    return "-"
+                    return ambiguityPolicy == .preserve ? character : "-"
                 default:
                     return character
                 }

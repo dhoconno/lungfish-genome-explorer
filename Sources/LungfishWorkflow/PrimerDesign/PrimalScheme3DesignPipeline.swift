@@ -18,11 +18,13 @@ public enum PrimalScheme3PanelMode: String, Codable, CaseIterable, Sendable {
 
 public enum PrimalScheme3SelectionAlgorithm: String, Codable, CaseIterable, Sendable {
     case legacy, coverage
+    case alleleCoverage = "allele-coverage"
 }
 
 public enum PrimalScheme3CoverageMetric: String, Codable, CaseIterable, Sendable {
     case fullSpan = "full-span"
     case primerTrimmed = "primer-trimmed"
+    case observedAllelePrimerTrimmed = "observed-allele-primer-trimmed"
 }
 
 public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
@@ -55,9 +57,10 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public let optimizerStarts: Int
     public let optimizerRepairRounds: Int
     public let optimizerTimeLimit: Double
+    public let alleleOptions: PrimalScheme3AlleleOptions
     public let requestedMisprimingProductSize: Int?
     public var misprimingProductSize: Int {
-        requestedMisprimingProductSize ?? (selectionAlgorithm == .coverage ? 2_000 : 0)
+        requestedMisprimingProductSize ?? (selectionAlgorithm == .legacy ? 0 : 2_000)
     }
     public init(ampliconSize: Int, poolCount: Int, minOverlap: Int = 10,
                 minimumBaseFrequency: Double = 0, highGC: Bool = false, coreCount: Int = PrimalScheme3DesignOptions.defaultCoreCount,
@@ -68,11 +71,12 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
                 maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil,
                 ampliconSizeMinimum: Int? = nil, ampliconSizeMaximum: Int? = nil,
                 selectionAlgorithm: PrimalScheme3SelectionAlgorithm = .legacy,
-                coverageMetric: PrimalScheme3CoverageMetric = .fullSpan,
-                coverageTarget: Double = 0.90, optimizerSeed: Int = 0,
+                coverageMetric: PrimalScheme3CoverageMetric? = nil,
+                coverageTarget: Double? = nil, optimizerSeed: Int = 0,
                 optimizerStarts: Int = 4, optimizerRepairRounds: Int = 2,
                 optimizerTimeLimit: Double = 120,
-                misprimingProductSize: Int? = nil) {
+                misprimingProductSize: Int? = nil,
+                alleleOptions: PrimalScheme3AlleleOptions = .init()) {
         self.requestedAmpliconSizeMinimum = ampliconSizeMinimum
         self.requestedAmpliconSizeMaximum = ampliconSizeMaximum
         self.dimerScore = dimerScore
@@ -90,13 +94,14 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         self.coreCount = coreCount
         self.terminalGapPolicy = terminalGapPolicy
         self.selectionAlgorithm = selectionAlgorithm
-        self.coverageMetric = coverageMetric
-        self.coverageTarget = coverageTarget
+        self.coverageMetric = coverageMetric ?? (selectionAlgorithm == .alleleCoverage ? .observedAllelePrimerTrimmed : .fullSpan)
+        self.coverageTarget = coverageTarget ?? (selectionAlgorithm == .alleleCoverage ? 0.95 : 0.90)
         self.optimizerSeed = optimizerSeed
         self.optimizerStarts = optimizerStarts
         self.optimizerRepairRounds = optimizerRepairRounds
         self.optimizerTimeLimit = optimizerTimeLimit
         self.requestedMisprimingProductSize = misprimingProductSize
+        self.alleleOptions = alleleOptions
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -105,6 +110,7 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         case poolCount, minOverlap, minimumBaseFrequency, highGC, coreCount, terminalGapPolicy
         case selectionAlgorithm, coverageMetric, coverageTarget, optimizerSeed, optimizerStarts
         case optimizerRepairRounds, optimizerTimeLimit, requestedMisprimingProductSize
+        case alleleOptions
     }
 
     public init(from decoder: Decoder) throws {
@@ -127,13 +133,14 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
             ampliconSizeMinimum: try values.decodeIfPresent(Int.self, forKey: .requestedAmpliconSizeMinimum),
             ampliconSizeMaximum: try values.decodeIfPresent(Int.self, forKey: .requestedAmpliconSizeMaximum),
             selectionAlgorithm: try values.decodeIfPresent(PrimalScheme3SelectionAlgorithm.self, forKey: .selectionAlgorithm) ?? .legacy,
-            coverageMetric: try values.decodeIfPresent(PrimalScheme3CoverageMetric.self, forKey: .coverageMetric) ?? .fullSpan,
-            coverageTarget: try values.decodeIfPresent(Double.self, forKey: .coverageTarget) ?? 0.90,
+            coverageMetric: try values.decodeIfPresent(PrimalScheme3CoverageMetric.self, forKey: .coverageMetric),
+            coverageTarget: try values.decodeIfPresent(Double.self, forKey: .coverageTarget),
             optimizerSeed: try values.decodeIfPresent(Int.self, forKey: .optimizerSeed) ?? 0,
             optimizerStarts: try values.decodeIfPresent(Int.self, forKey: .optimizerStarts) ?? 4,
             optimizerRepairRounds: try values.decodeIfPresent(Int.self, forKey: .optimizerRepairRounds) ?? 2,
             optimizerTimeLimit: try values.decodeIfPresent(Double.self, forKey: .optimizerTimeLimit) ?? 120,
-            misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize))
+            misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize),
+            alleleOptions: try values.decodeIfPresent(PrimalScheme3AlleleOptions.self, forKey: .alleleOptions) ?? .init())
     }
 
     public var provenanceOptions: [String: ParameterValue] {
@@ -155,7 +162,9 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
          "optimizerRepairRounds": .integer(optimizerRepairRounds),
          "optimizerTimeLimit": .number(optimizerTimeLimit),
          "requestedMisprimingProductSize": requestedMisprimingProductSize.map(ParameterValue.integer) ?? .null,
-         "misprimingProductSize": .integer(misprimingProductSize)]
+         "misprimingProductSize": .integer(misprimingProductSize),
+         "alleleOptions": .dictionary(alleleOptions.resolvedProvenanceOptions),
+         "alleleRequestedOptions": .dictionary(alleleOptions.requestedProvenanceOptions)]
     }
 }
 
@@ -272,8 +281,12 @@ public struct PrimalScheme3DesignPipeline: Sendable {
               options.ampliconSize <= options.ampliconSizeMaximum else {
             throw PrimalScheme3DesignError.invalidRequest("Amplicon bounds must be positive, with minimum ≤ target ≤ maximum.")
         }
+        if options.selectionAlgorithm != .alleleCoverage,
+           !options.alleleOptions.requestedOptionNames.isEmpty {
+            throw PrimalScheme3DesignError.invalidRequest("Allele controls require --selection-algorithm allele-coverage.")
+        }
         let validCap: (Int?) -> Bool = { value in
-            value.map { options.selectionAlgorithm == .coverage ? $0 >= 0 : $0 > 0 } ?? true
+            value.map { options.selectionAlgorithm == .legacy ? $0 > 0 : $0 >= 0 } ?? true
         }
         guard options.dimerScore.isFinite, validCap(options.maxAmplicons), validCap(options.maxAmpliconsPerMSA),
               grouping != .combined || (!options.backtrack && !options.ignoreN),
@@ -296,6 +309,20 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                   options.misprimingProductSize > 0 else {
                 throw PrimalScheme3DesignError.invalidRequest("Coverage selection requires a combined equal panel, supplied-MSA specificity, an explicit amplicon bound, finite selector settings, positive starts/time/product size, and nonnegative repair rounds.")
             }
+            if options.selectionAlgorithm == .coverage {
+                guard [.fullSpan, .primerTrimmed].contains(options.coverageMetric) else {
+                    throw PrimalScheme3DesignError.invalidRequest("Historical coverage selection supports only full-span or primer-trimmed metrics.")
+                }
+            } else {
+                try options.alleleOptions.validate()
+                guard options.coverageMetric == .observedAllelePrimerTrimmed,
+                      options.terminalGapPolicy == .observedOnly, options.dimerScore == -26,
+                      !options.highGC, !options.backtrack, !options.ignoreN,
+                      options.requestedAmpliconSizeMinimum != nil,
+                      options.requestedAmpliconSizeMaximum != nil else {
+                    throw PrimalScheme3DesignError.invalidRequest("Allele coverage requires the observed-allele metric, observed-only linear combined/equal scope, strict -26 dimer cutoff, no legacy high-GC toggle, and both explicit size bounds.")
+                }
+            }
         }
         var args = [grouping == .combined ? "panel-create" : "scheme-create"]
         // Stock panel-create defaults to region-only, which requires a BED file.
@@ -317,8 +344,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             if let count = options.maxAmplicons { args += ["--max-amplicons", String(count)] }
             if let count = options.maxAmpliconsPerMSA { args += ["--max-amplicons-msa", String(count)] }
         }
-        if options.selectionAlgorithm == .coverage {
-            args += ["--selection-algorithm", "coverage",
+        if options.selectionAlgorithm != .legacy {
+            args += ["--selection-algorithm", options.selectionAlgorithm.rawValue,
                      "--coverage-metric", options.coverageMetric.rawValue,
                      "--coverage-target", String(options.coverageTarget),
                      "--optimizer-seed", String(options.optimizerSeed),
@@ -326,11 +353,14 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                      "--optimizer-repair-rounds", String(options.optimizerRepairRounds),
                      "--optimizer-time-limit", String(options.optimizerTimeLimit),
                      "--mispriming-product-size", String(options.misprimingProductSize)]
-            if options.requestedAmpliconSizeMinimum == nil {
+            if options.selectionAlgorithm == .coverage, options.requestedAmpliconSizeMinimum == nil {
                 args += ["--amplicon-size-min", String(options.ampliconSizeMinimum)]
             }
-            if options.requestedAmpliconSizeMaximum == nil {
+            if options.selectionAlgorithm == .coverage, options.requestedAmpliconSizeMaximum == nil {
                 args += ["--amplicon-size-max", String(options.ampliconSizeMaximum)]
+            }
+            if options.selectionAlgorithm == .alleleCoverage {
+                options.alleleOptions.appendRequestedArguments(to: &args)
             }
         }
         return args
@@ -389,9 +419,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         _ = try Self.arguments(inputs: [request.inputURLs[0]], output: destination,
                                grouping: request.grouping, options: request.options)
-        if request.options.selectionAlgorithm == .coverage, request.executableURL == nil {
+        if request.options.selectionAlgorithm != .legacy, request.executableURL == nil {
             throw PrimalScheme3DesignError.invalidRequest(
-                "Coverage selection requires an explicit verified lge.3 executable: --primalscheme3-path /path/to/primalscheme3")
+                "Coverage selection requires an explicit verified native executable: --primalscheme3-path /path/to/primalscheme3")
         }
         let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
         defer { runtimeLease?.release() }
@@ -441,7 +471,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             } else if referenceBundle {
                 try Self.validateReferenceBundleRows(rows)
             }
-            let normalized = Primer3InputLoader.normalizeForPrimalScheme(rows)
+            let preservesAmbiguity = request.options.selectionAlgorithm == .alleleCoverage
+            let normalized = Primer3InputLoader.normalizeForPrimalScheme(
+                rows, ambiguityPolicy: preservesAmbiguity ? .preserve : .missingCoverage)
             let normalizedRows = normalized.rows
             let uracilCount = normalized.uracilCount
             let unknownBaseCount = normalized.unknownBaseCount
@@ -457,8 +489,11 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let normalizedNames = normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" }
             let decompression = sourceAligned.pathExtension.lowercased() == "gz"
                 ? "gzip-decompression-to-UTF8-FASTA; " : ""
+            let ambiguityTransform = preservesAmbiguity
+                ? "N/IUPAC ambiguity preserved for exact support and specificity"
+                : "N-to-gap missing-coverage normalization"
             let preprocessing = decompression
-                + "FASTA-header-normalization; U-to-T DNA normalization; N-to-gap missing-coverage normalization; row-order-preserved"
+                + "FASTA-header-normalization; U-to-T DNA normalization; \(ambiguityTransform); row-order-preserved"
             let consumedFASTA = normalizedRows.enumerated().map { index, row in
                 ">\(normalizedNames[index])\n\(row.sequence)\n"
             }.joined()
@@ -467,7 +502,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let mappingURL = scratch.appendingPathComponent(mappingPath)
             let mapping: [String: Any] = ["schemaVersion": 1, "inputID": id.uuidString,
                 "transformation": (sourceAligned.pathExtension.lowercased() == "gz" ? "gzip decompressed to UTF-8 FASTA; " : "")
-                    + "FASTA headers replaced; U/u normalized to T; N/n treated as missing alignment gaps; row order preserved",
+                    + "FASTA headers replaced; U/u normalized to T; "
+                    + (preservesAmbiguity ? "N/IUPAC ambiguity preserved; " : "N/n treated as missing alignment gaps; ")
+                    + "row order preserved",
                 "uracilCount": uracilCount,
                 "unknownBaseCount": unknownBaseCount,
                 "rows": normalizedRows.enumerated().map { index, row in
