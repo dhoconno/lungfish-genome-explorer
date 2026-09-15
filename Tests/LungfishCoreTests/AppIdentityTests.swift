@@ -33,7 +33,7 @@ struct AppIdentityTests {
         #expect(identity == .stable)
         #expect(identity.previewCaveat == nil)
         #expect(identity.applicationSupportDirectoryName == "Lungfish")
-        #expect(identity.managedStorageDirectoryName == ".lungfish")
+        #expect(identity.managedStorageDirectoryName == ".lungfish-stable")
         #expect(identity.keychainService == "com.lungfish.secrets")
     }
 

@@ -34,7 +34,7 @@ jobs:
     # Automatic narrow Swift compilation/behavior plus script contracts.
     # Full app and dependency conformance remain separate release/dispatch gates.
     name: Fast gate
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 10
 
     steps:
@@ -100,18 +100,18 @@ jobs:
 
   build-smoke:
     name: Portable Debug diagnostic
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'portable-debug' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Build and check the portable Debug app in one native graph
+      - name: Build and check the portable Debug app in one Swift Build graph
         run: python3 scripts/release/release.py debug --portable --jobs 4
 
   full:
     name: Headless or extended diagnostic
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 120
     if: ${{ github.event_name == 'workflow_dispatch' && (inputs.diagnostic == 'headless' || inputs.diagnostic == 'extended') }}
     steps:
@@ -138,9 +138,11 @@ jobs:
 
   toolset-conformance:
     name: Toolset conformance
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 120
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'tool-conformance' }}
+    env:
+      LUNGFISH_STORAGE_ROOT: ${{ runner.temp }}/lungfish-storage
 
     steps:
       - name: Check out repository
@@ -155,7 +157,15 @@ jobs:
         run: swift package resolve
 
       - name: Build CLI
-        run: swift build --product lungfish-cli
+        run: |
+          SWIFTPM_OPTIONS="$(python3 scripts/release/swiftpm_build.py)"
+          SWIFT_BUILD_ARGS=()
+          while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"
+          swift build "${SWIFT_BUILD_ARGS[@]}" --product lungfish-cli
+          bin_path="$(swift build "${SWIFT_BUILD_ARGS[@]}" --product lungfish-cli --show-bin-path)"
+          LUNGFISH_CLI="${bin_path}/lungfish-cli"
+          test -x "$LUNGFISH_CLI"
+          echo "LUNGFISH_CLI=$LUNGFISH_CLI" >> "$GITHUB_ENV"
 
       - name: Compute manifest hash
         id: manifest
@@ -165,24 +175,25 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            ~/.lungfish/conda
-            ~/.lungfish/databases/kraken2/viral
-            ~/.lungfish/databases/metagenomics-db-registry.json
-            ~/.lungfish/dependency-receipt.json
+            ${{ env.LUNGFISH_STORAGE_ROOT }}/conda
+            ${{ env.LUNGFISH_STORAGE_ROOT }}/databases/kraken2/viral
+            ${{ env.LUNGFISH_STORAGE_ROOT }}/databases/metagenomics-db-registry.json
+            ${{ env.LUNGFISH_STORAGE_ROOT }}/dependency-receipt.json
           key: lungfish-tools-${{ runner.os }}-${{ steps.manifest.outputs.hash }}
 
       - name: Provision required tools
-        run: .build/debug/lungfish-cli tools update --apply --yes --required-only
+        run: '"$LUNGFISH_CLI" tools update --apply --yes --required-only'
 
       - name: Verify dependency receipt
         run: |
           python3 - <<'PYTHON'
           import hashlib
           import json
+          import os
           from pathlib import Path
 
           manifest = json.loads(Path("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json").read_text())
-          receipt_path = Path.home() / ".lungfish" / "dependency-receipt.json"
+          receipt_path = Path(os.environ["LUNGFISH_STORAGE_ROOT"]) / "dependency-receipt.json"
           receipt = json.loads(receipt_path.read_text())
           # Swift JSONEncoder escapes forward slashes by default. Reproduce the
           # app's sorted-key encoding so this independently checks manifestHash.
@@ -217,25 +228,25 @@ jobs:
 
       - name: Provision conformance packs
         run: |
-          .build/debug/lungfish-cli conda install --pack read-mapping
-          .build/debug/lungfish-cli conda install --pack assembly
-          .build/debug/lungfish-cli conda install --pack phylogenetics
-          .build/debug/lungfish-cli conda install --pack multiple-sequence-alignment
-          .build/debug/lungfish-cli conda install --pack metagenomics
-          .build/debug/lungfish-cli conda install --pack full-length-mhc-genotyping
+          "$LUNGFISH_CLI" conda install --pack read-mapping
+          "$LUNGFISH_CLI" conda install --pack assembly
+          "$LUNGFISH_CLI" conda install --pack phylogenetics
+          "$LUNGFISH_CLI" conda install --pack multiple-sequence-alignment
+          "$LUNGFISH_CLI" conda install --pack metagenomics
+          "$LUNGFISH_CLI" conda install --pack full-length-mhc-genotyping
           # ivar and lofreq, needed by ReadsToVariantsEndToEndTests and
           # BAMPrimerTrimSubcommandTests, which the conformance filter runs.
-          .build/debug/lungfish-cli conda install --pack variant-calling
+          "$LUNGFISH_CLI" conda install --pack variant-calling
 
       - name: Provision Kraken2 viral DB
-        run: .build/debug/lungfish-cli conda db download Viral
+        run: '"$LUNGFISH_CLI" conda db download Viral'
 
       - name: Provision managed databases
         # RecipeIntegrationTests and FASTQBatchImporterRecipeIntegrationTests
         # need the Deacon panhuman host-depletion index, which is a managedData
         # entry rather than a Kraken2 catalog database, so `db download` does
         # not cover it.
-        run: .build/debug/lungfish-cli conda db install-managed deacon-panhuman
+        run: '"$LUNGFISH_CLI" conda db install-managed deacon-panhuman'
 
       - name: Install python dependencies for parity tests
         # IVarConverterViralReconParityTests runs ivar_variants_to_vcf.py via
@@ -262,6 +273,8 @@ jobs:
           .ci-python/bin/python scripts/test.py run --profile tool-conformance --require-tools --evidence-dir .build/tool-conformance-evidence
 
       - name: Golden diff
+        env:
+          LUNGFISH_CONDA_ROOT: ${{ env.LUNGFISH_STORAGE_ROOT }}/conda
         run: |
           dependency_set="$(python3 -c 'import json;print(json.load(open("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"))["dependencySet"])')"
           bash scripts/deps/regenerate-goldens.sh --set "$dependency_set" --out .build/goldens

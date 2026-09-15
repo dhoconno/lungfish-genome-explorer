@@ -20,6 +20,21 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         async throws
     {
         let python = try XCTUnwrap(managedOpenpyxlPythonURL())
+        let resolvedCLI = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+            ),
+            "Inject the swiftbuild lungfish-cli path or build it beside the test bundle"
+        )
+        let originalCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        XCTAssertEqual(setenv("LUNGFISH_CLI_PATH", resolvedCLI.path, 1), 0)
+        defer {
+            if let originalCLIPath {
+                setenv("LUNGFISH_CLI_PATH", originalCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+        }
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = root.appendingPathComponent(
@@ -189,7 +204,6 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(descriptor["sha256"] as? String, try ProvenanceFileHasher.sha256(of: outputURL))
         XCTAssertEqual(descriptor["sizeBytes"] as? Int, try Data(contentsOf: outputURL).count)
         XCTAssertTrue((receipt["durableReplayArgv"] as? [String])?.contains("--snapshot") == true)
-        let resolvedCLI = try XCTUnwrap(LungfishCLIRunner.findCLI())
         XCTAssertEqual((receipt["durableReplayArgv"] as? [String])?.first, resolvedCLI.standardizedFileURL.path)
         let stored = try XCTUnwrap(receipt["snapshot"] as? [String: Any])
         let storedURL = URL(fileURLWithPath: try XCTUnwrap(stored["path"] as? String))

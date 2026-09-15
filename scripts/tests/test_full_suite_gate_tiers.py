@@ -15,7 +15,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.release.swiftpm_build import build_options
+
 ROOT = Path(__file__).resolve().parents[2]
+FIXTURE_SDK_PATH = "/Applications/Xcode Fixture.app/SDKs/MacOSX27.0.sdk"
 
 
 def _gate_text() -> str:
@@ -138,11 +141,19 @@ class GateBehaviorTests(unittest.TestCase):
             helper = ROOT / "scripts/release/gate_evidence.py"
             if helper.exists():
                 shutil.copy2(helper, root / "scripts/release/gate_evidence.py")
+            shutil.copy2(ROOT / "scripts/release/swiftpm_build.py", root / "scripts/release/swiftpm_build.py")
             bin_dir = root / "bin"
             bin_dir.mkdir()
             swift = bin_dir / "swift"
             swift.write_text("#!" + sys.executable + "\n" + FAKE_SWIFT)
             swift.chmod(0o755)
+            xcrun = bin_dir / "xcrun"
+            xcrun.write_text(
+                "#!/bin/sh\n"
+                "if [ \"${GATE_SCENARIO:-}\" = sdk_failure ]; then exit 1; fi\n"
+                f"printf '%s\\n' '{FIXTURE_SDK_PATH}'\n"
+            )
+            xcrun.chmod(0o755)
             sleep = bin_dir / "sleep"
             sleep.write_text("#!/bin/sh\nexit 0\n")
             sleep.chmod(0o755)
@@ -176,6 +187,24 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertTrue(evidence["authorized"])
         self.assertTrue(evidence["runtime"]["swiftVersion"].startswith("Apple Swift"))
 
+    def test_all_swiftpm_gate_commands_pin_and_record_swiftbuild_sdk(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        commands = evidence["discovery"] + evidence["attempts"]
+        self.assertGreaterEqual(len(commands), 3)
+        self.assertEqual(evidence["runtime"]["sdkPath"], FIXTURE_SDK_PATH)
+        self.assertEqual(
+            evidence["sdkCommand"]["argv"],
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        )
+        self.assertEqual(evidence["sdkCommand"]["exitStatus"], 0)
+        expected_prefix = ["swift", "test", "--skip-update", *build_options(FIXTURE_SDK_PATH)]
+        for command in commands:
+            with self.subTest(argv=command["argv"]):
+                self.assertEqual(command["argv"][:len(expected_prefix)], expected_prefix)
+                self.assertEqual(command["argv"].count("--build-system"), 1)
+                self.assertEqual(command["argv"].count(FIXTURE_SDK_PATH), 1)
+
     def test_mixed_harnesses_both_complete(self):
         result, evidence = self.run_gate("mixed")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -192,7 +221,8 @@ class GateBehaviorTests(unittest.TestCase):
                  ("one", ["--filter", "DoesNotExist"]), ("swift_partial", []),
                  ("build_failure", []), ("bad_xml", ["--parallel", "--filter", "ExampleTests"]),
                  ("parallel_empty_child", ["--parallel", "--filter", "ExampleTests"]),
-                 ("source_changed", []), ("swift_extra", []), ("swift_run_issue", [])]
+                 ("source_changed", []), ("swift_extra", []), ("swift_run_issue", []),
+                 ("sdk_failure", [])]
         for scenario, options in cases:
             with self.subTest(scenario=scenario):
                 result, evidence = self.run_gate(scenario, *options)
@@ -223,7 +253,7 @@ def event(kind, **kw):
 test_id = "LungfishIntegrationTests.MixedTests/testB()/Fixture.swift:1:1"
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
 if args == ["--version"]:
-    print("Apple Swift version 6.2.4 (fixture)")
+    print("Apple Swift version 6.4 (fixture)")
     sys.exit(0)
 if "list" in args:
     if scenario == "build_failure":

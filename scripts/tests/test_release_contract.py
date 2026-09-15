@@ -57,11 +57,11 @@ EXPECTED_BUILD_PROFILES = {
 }
 
 EXPECTED_TOOLCHAIN = {
-    "xcodeMinimum": "26.4.1",
-    "xcodeMaximumExclusive": "27.0",
-    "swiftMinimum": "6.2",
+    "xcodeMinimum": "27.0",
+    "xcodeMaximumExclusive": "28.0",
+    "swiftMinimum": "6.4",
     "swiftMaximumExclusive": "7.0",
-    "sdkMajor": 26,
+    "sdkMajor": 27,
     "deploymentTarget": "26.0",
     "architecture": "arm64",
     "minimumFreeDiskGiB": 20,

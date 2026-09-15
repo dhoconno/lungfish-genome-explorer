@@ -6,6 +6,7 @@ import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from scripts.release.debug_artifact import DebugArtifactError, check_app, check_metadata, embedded_identity
 from scripts.release.release_identity import identity_plist, apply_app_identity
@@ -65,9 +66,14 @@ class DebugArtifactTests(unittest.TestCase):
             self.assertEqual(Path(argv[0]), app / 'Contents/MacOS/lungfish-cli')
             self.assertLessEqual(options['timeout'], 45)
             self.assertNotEqual(options['env']['HOME'], os.environ.get('HOME'))
+            for key in ('PACKAGE_RESOURCE_BUNDLE_PATH', 'PACKAGE_RESOURCE_BUNDLE_URL', 'DYLD_LIBRARY_PATH'):
+                self.assertTrue(key not in options['env'], key)
             output = '1.2.3\n' if argv[1:] == ['--version'] else 'debug-resource-smoke-ok\n'
             return SimpleNamespace(returncode=0, stdout=output)
-        check_app(app, selected, runner=runner)
+        with patch.dict(os.environ, {'PACKAGE_RESOURCE_BUNDLE_PATH': '/stale/resources',
+                                     'PACKAGE_RESOURCE_BUNDLE_URL': '/stale/resources',
+                                     'DYLD_LIBRARY_PATH': '/stale/libraries'}):
+            check_app(app, selected, runner=runner)
         self.assertEqual([args[1:] for args, _ in calls], [['--version'], ['debug', 'resource-smoke']])
         self.assertFalse(any('relocat' in str(path) for path in self.root.iterdir()))
 
@@ -121,6 +127,67 @@ class DebugArtifactTests(unittest.TestCase):
             result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--jobs', value], capture_output=True, text=True)
             self.assertEqual(result.returncode, 64)
             self.assertIn('positive integer', result.stderr)
+
+    def test_debug_build_selects_engine_matching_packaged_product_layout(self):
+        import json
+        import shutil
+        import subprocess
+        import sys
+        source = Path(__file__).resolve().parents[2]
+        root = self.root / 'checkout'
+        for relative in ('scripts/build-app.sh', 'config/release-contract.json',
+                         'Lungfish.xcodeproj/project.pbxproj'):
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / relative, target)
+        release = root / 'scripts/release'
+        release.mkdir()
+        for name in ('release_contract.py', 'release_identity.py', 'release_xcode.py', 'debug_artifact.py', 'swiftpm_build.py'):
+            shutil.copy2(source / 'scripts/release' / name, release / name)
+        developer = self.root / 'Xcode.app/Contents/Developer'
+        (developer / 'usr/bin').mkdir(parents=True)
+        xcodebuild = developer / 'usr/bin/xcodebuild'
+        xcodebuild.write_text('#!/bin/sh\nexit 0\n')
+        xcodebuild.chmod(0o755)
+        stub_dir = self.root / 'bin'
+        stub_dir.mkdir()
+        recorded = self.root / 'compiler-argv.json'
+        sdk = self.root / 'SDK with spaces/MacOSX27.0.sdk'
+        sdk.mkdir(parents=True)
+        xcrun = stub_dir / 'xcrun'
+        xcrun.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                         f'if sys.argv[1:] == ["--sdk", "macosx", "--show-sdk-path"]: print({str(sdk)!r}); sys.exit(0)\n'
+                         f'open({str(recorded)!r}, "w").write(json.dumps(sys.argv[1:]))\n'
+                         'sys.exit(79)\n')
+        xcrun.chmod(0o755)
+        result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--jobs', '3'],
+                                env={**os.environ, 'PATH': str(stub_dir) + os.pathsep + os.environ['PATH'],
+                                     'DEVELOPER_DIR': str(developer), 'LUNGFISH_RELEASE_PYTHON': sys.executable},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 79, result.stdout + result.stderr)
+        argv = json.loads(recorded.read_text())
+        self.assertEqual(argv[:2], ['swift', 'build'])
+        self.assertIn('--build-system', argv)
+        self.assertEqual(argv[argv.index('--build-system') + 1], 'swiftbuild')
+        self.assertEqual(argv[argv.index('--jobs') + 1], '3')
+
+        # A stale native product must never substitute for the selected engine.
+        stale = root / '.build/arm64-apple-macosx/debug/Lungfish'
+        stale.parent.mkdir(parents=True)
+        stale.write_text('stale native product')
+        selected_bin = root / 'custom products/Debug'
+        xcrun.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                         f'if sys.argv[1:] == ["--sdk", "macosx", "--show-sdk-path"]: print({str(sdk)!r}); sys.exit(0)\n'
+                         f'open({str(recorded)!r}, "w").write(json.dumps(sys.argv[1:]))\n'
+                         f'print({str(selected_bin)!r})\n')
+        result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--skip-build', '--jobs', '3'],
+                                env={**os.environ, 'PATH': str(stub_dir) + os.pathsep + os.environ['PATH'],
+                                     'DEVELOPER_DIR': str(developer), 'LUNGFISH_RELEASE_PYTHON': sys.executable},
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(selected_bin / 'Lungfish'), result.stdout + result.stderr)
+        query = json.loads(recorded.read_text())
+        self.assertEqual(query, [*argv, '--show-bin-path'])
 
 
 if __name__ == '__main__':

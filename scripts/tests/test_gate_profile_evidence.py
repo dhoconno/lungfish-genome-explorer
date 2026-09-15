@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from types import SimpleNamespace
-from scripts.tests.gate_fixtures import make_gate_fixture
+from scripts.tests.gate_fixtures import FIXTURE_SDK_PATH, make_gate_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('profile_evidence', ROOT / 'scripts/release/gate_evidence.py')
@@ -102,13 +102,71 @@ while True: time.sleep(.01)
             path = make_gate_fixture(Path(temp) / 'gates', source, legacy=True)
             manifest = json.loads(path.read_text())
             baseline = json.loads((path.parent / manifest['results'][1]['path']).read_text())
-            for location in ('authoritative', 'discovery', 'identity'):
+            for location in ('authoritative', 'discovery', 'identity', 'sdk'):
                 value = copy.deepcopy(baseline)
                 command = dict(intervention='terminated-unreaped-xctest-parent', exitStatus=0)
                 if location == 'authoritative': value['attempts'][0].update(command)
                 elif location == 'discovery': value['discovery'] = [command]
-                else: value['identityCommand'] = command
+                elif location == 'identity': value['identityCommand'] = command
+                else: value['sdkCommand'].update(command)
                 with self.subTest(location=location), self.assertRaises(gate.EvidenceError):
+                    gate.validate_result(value, source)
+
+    def test_replayed_swift_gate_requires_selected_sdk_and_swiftbuild_in_every_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = dict(clean=True, commit='fixture')
+            path = make_gate_fixture(Path(temp) / 'gates', source, legacy=True)
+            manifest = json.loads(path.read_text())
+            baseline = json.loads((path.parent / manifest['results'][1]['path']).read_text())
+            baseline['discovery'] = [
+                {'argv': ['swift', 'test', '--skip-update', *gate.build_options(FIXTURE_SDK_PATH), 'list'],
+                 'exitStatus': 0, 'intervention': None}
+            ]
+            gate.validate_result(baseline, source)
+            for argv in (
+                ['swift', 'test', 'list'],
+                ['swift', 'test', '--build-system', 'native', 'list'],
+                ['swift', 'test', '--build-system', 'swiftbuild', '--build-system', 'swiftbuild', 'list'],
+                ['swift', 'test', '--skip-update', *gate.build_options('/SDKs/MacOSX26.0.sdk'), 'list'],
+                ['swift', 'test', '--skip-update', *gate.build_options(FIXTURE_SDK_PATH)[:-2], 'list'],
+            ):
+                value = copy.deepcopy(baseline)
+                value['discovery'][0]['argv'] = argv
+                with self.subTest(argv=argv), self.assertRaisesRegex(
+                    gate.EvidenceError, 'SwiftPM|SDK'
+                ):
+                    gate.validate_result(value, source)
+            for mutation in ('missing-command', 'wrong-command', 'relative-runtime-path'):
+                value = copy.deepcopy(baseline)
+                if mutation == 'missing-command':
+                    value.pop('sdkCommand')
+                elif mutation == 'wrong-command':
+                    value['sdkCommand']['argv'] = ['xcrun', '--show-sdk-path']
+                else:
+                    value['runtime']['sdkPath'] = 'SDKs/MacOSX27.0.sdk'
+                with self.subTest(mutation=mutation), self.assertRaisesRegex(
+                    gate.EvidenceError, 'SDK'
+                ):
+                    gate.validate_result(value, source)
+            valid_argv = baseline['discovery'][0]['argv']
+            override_tails = (
+                ['-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
+                 '-Xswiftc', '-Xclang-linker', '-Xswiftc', '/other/MacOSX.sdk'],
+                ['--sdk', '/other/MacOSX.sdk'],
+                ['--swift-sdk', 'other-sdk'],
+                ['--toolset', '/other/toolset.json'],
+                ['--triple', 'x86_64-apple-macosx27.0'],
+                ['--arch', 'x86_64'],
+                ['-Xlinker', '-syslibroot'],
+                ['-Xcc', '-isysroot'],
+                ['--build-system=native'],
+            )
+            for tail in override_tails:
+                value = copy.deepcopy(baseline)
+                value['discovery'][0]['argv'] = [*valid_argv, *tail]
+                with self.subTest(tail=tail), self.assertRaisesRegex(
+                    gate.EvidenceError, 'SwiftPM'
+                ):
                     gate.validate_result(value, source)
 
 
@@ -125,6 +183,34 @@ class DependencyEvidenceTests(unittest.TestCase):
             gate.verify_manifest(path, digest, source, 'stable', self.contract('installed'))
             with self.assertRaises(gate.EvidenceError):
                 gate.verify_manifest(path, digest, source, 'stable', self.contract('manifest'))
+
+    def test_manifest_binds_sdk_stdout_record_and_contents_to_runtime_path(self):
+        for mutation in ('missing-record', 'mismatched-output'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp:
+                source = dict(clean=True, commit='fixture')
+                path = make_gate_fixture(Path(temp) / 'gates', source, legacy=True)
+                root = path.parent
+                manifest = json.loads(path.read_text())
+                result_path = root / manifest['results'][1]['path']
+                result = json.loads(result_path.read_text())
+                sdk_log = result_path.parent / 'sdk-path.log'
+                if mutation == 'missing-record':
+                    result['sdkCommand']['files'] = []
+                else:
+                    sdk_log.write_text('/other/MacOSX27.0.sdk\n')
+                    result['sdkCommand']['files'] = [gate.file_record(sdk_log, result_path.parent)]
+                result_path.write_bytes(gate.canonical(result))
+
+                replacements = {
+                    result_path.relative_to(root).as_posix(): gate.file_record(result_path, root),
+                    sdk_log.relative_to(root).as_posix(): gate.file_record(sdk_log, root),
+                }
+                manifest['results'][1] = replacements[result_path.relative_to(root).as_posix()]
+                manifest['files'] = [replacements.get(record['path'], record) for record in manifest['files']]
+                path.write_bytes(gate.canonical(manifest))
+                digest = gate.file_record(path, root)['sha256']
+                with self.assertRaisesRegex(gate.EvidenceError, 'SDK.*stdout'):
+                    gate.verify_manifest(path, digest, source, 'stable', self.contract('installed'))
 
     def test_creation_rejects_receipt_relabel_or_same_bytes_wrong_source(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -499,9 +499,9 @@ final class MarkdupCommandTests: XCTestCase {
 
     private func cliBinaryURL() throws -> URL {
         guard let binary = CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         ) else {
-            throw XCTSkip("CLI binary not built at expected path — run `swift build --product lungfish-cli` first")
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
         return binary
     }

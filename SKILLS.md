@@ -36,7 +36,7 @@ publication. See `docs/release/dependency-sweep.md` for dependency maintenance.
 
 Run `python3 scripts/release/release.py debug` for incremental local development.
 The coordinator selects supported Xcode and assembles the GUI and CLI from one
-native build graph. The default performs cheap bundle/CLI checks; add
+Swift Build graph. The default performs cheap bundle/CLI checks; add
 `--portable` for the full relocation and self-containment diagnostic. `--jobs N`
 bounds build parallelism. Neither option runs the unit or UI suites.
 

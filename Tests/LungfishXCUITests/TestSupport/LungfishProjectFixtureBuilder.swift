@@ -496,7 +496,7 @@ enum LungfishProjectFixtureBuilder {
                 domain: "LungfishProjectFixtureBuilder",
                 code: 1,
                 userInfo: [
-                    NSLocalizedDescriptionKey: "lungfish-cli is not available from SwiftPM's active binary path."
+                    NSLocalizedDescriptionKey: "lungfish-cli is not available from the injected UI test environment."
                 ]
             )
         }

@@ -5,6 +5,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishWorkflow
 
@@ -13,7 +14,7 @@ import LungfishIO
 /// scheme. Asserts the runner emits the expected event sequence and that the
 /// bundle ends up with the new alignment track + sidecar after the operation
 /// completes. Skips when ivar/samtools are missing or the CLI binary is not
-/// findable through SwiftPM's active binary path.
+/// available from the test runner or current test build products.
 final class PrimerTrimGUIIntegrationTests: XCTestCase {
     private var tempDir: URL!
     private var originalCLIPath: String?
@@ -35,8 +36,6 @@ final class PrimerTrimGUIIntegrationTests: XCTestCase {
     }
 
     func testRunnerSpawnsCLIAndAdoptsTrack() async throws {
-        // Locate the locally-built lungfish-cli binary by walking up from
-        // #filePath to the repo root, then asking SwiftPM for its bin path.
         let cliBinary = try locateCLIBinary()
         setenv("LUNGFISH_CLI_PATH", cliBinary.path, 1)
 
@@ -112,54 +111,13 @@ final class PrimerTrimGUIIntegrationTests: XCTestCase {
         let schemeURL: URL
     }
 
-    /// Walks up from `#filePath` to find `Tests/`, then locates the locally-built
-    /// `lungfish-cli` in SwiftPM's active binary directory.
     private func locateCLIBinary() throws -> URL {
-        let testsDir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // PrimerTrim/
-            .deletingLastPathComponent()  // LungfishIntegrationTests/
-            .deletingLastPathComponent()  // Tests/
-        let repoRoot = testsDir.deletingLastPathComponent()
-        let binPath = try swiftPMBinPath(packageRoot: repoRoot)
-        let cliBinary = binPath.appendingPathComponent("lungfish-cli")
-        guard FileManager.default.isExecutableFile(atPath: cliBinary.path) else {
-            throw XCTSkip("lungfish-cli binary not found at \(cliBinary.path) — run `swift build --product lungfish-cli` first")
+        guard let cliBinary = CLITestBinaryResolver.cliBinaryURL(
+            buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        ) else {
+            throw XCTSkip("Inject the resolved swiftbuild lungfish-cli path or build it beside the test bundle")
         }
         return cliBinary
-    }
-
-    private func swiftPMBinPath(packageRoot: URL) throws -> URL {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "swift",
-            "build",
-            "--package-path", packageRoot.path,
-            "--show-bin-path",
-        ]
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            throw XCTSkip("Could not resolve SwiftPM binary path: \(stderrText)")
-        }
-        guard let path = stdoutText
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .last?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !path.isEmpty
-        else {
-            throw XCTSkip("SwiftPM did not print a binary path: \(stderrText)")
-        }
-        return URL(fileURLWithPath: path, isDirectory: true)
     }
 
     private func makeFixture() throws -> Fixture {

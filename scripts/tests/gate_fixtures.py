@@ -7,6 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
+from swiftpm_build import build_options
+
+
+FIXTURE_SDK_PATH = "/Applications/Xcode Fixture.app/SDKs/MacOSX27.0.sdk"
+
 
 def write_json(path, value):
     path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
@@ -29,7 +35,8 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
         dependency_policy = contract["gates"].get("dependencyPolicy", "installed")
         if modules is None:
             modules = contract["gates"]["focusedReleaseTests"]
-    runtime = {"pythonExecutable": "/fixture/python3", "pythonVersion": "3.13 fixture", "swiftVersion": "Swift version 6.2 fixture"}
+    runtime = {"pythonExecutable": "/fixture/python3", "pythonVersion": "3.13 fixture",
+               "swiftVersion": "Swift version 6.4 fixture", "sdkPath": FIXTURE_SDK_PATH}
     def result(kind, options):
         return {"schemaVersion": 1, "kind": kind, "source": source, "runtime": runtime,
                 "argv": ["fixture-gate"], "startedAt": "2026-09-05T00:00:00+00:00", "endedAt": "2026-09-05T00:00:01+00:00",
@@ -46,6 +53,7 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
         tier = step["tier"]
         target = directory / str(index)
         target.mkdir()
+        (target / "sdk-path.log").write_text(FIXTURE_SDK_PATH + "\n")
         (target / "runner.log").write_text("Test Case '-[Fixture.ExampleTests testA]' passed (0.1 seconds).\nTest Suite 'All tests' passed\nExecuted 1 test, with 0 failures\n")
         flag = "--tier" if tier in {"smoke", "unit", "integration", "conformance", "full"} else "--profile"
         command = ["/bin/bash", str(Path(__file__).resolve().parents[1] / "full-suite-gate.sh"), "--describe-selection", flag, tier]
@@ -53,11 +61,15 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
             command.append("--require-tools")
         options = json.loads(subprocess.check_output(command, env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable}))
         swift = result("swift", options)
+        swift["sdkCommand"] = {"argv": ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+                               "exitStatus": 0, "intervention": None,
+                               "files": [record(target / "sdk-path.log", target)]}
         harness = {"selected": 1, "executed": 1, "skipped": 0, "failures": 0, "completed": True,
                    "selectedTests": ["Fixture.ExampleTests/testA"], "completedTests": ["Fixture.ExampleTests/testA"],
                    "failedTests": [], "skippedTests": [], "missingTests": [], "unexpectedTests": []}
         swift["attempts"] = [{"role": "authoritative", "exitStatus": 0, "passed": True, "errors": [],
-                               "argv": ["swift", "test"], "harnesses": {"xctest": harness},
+                               "argv": ["swift", "test", "--skip-update", *build_options(FIXTURE_SDK_PATH)],
+                               "harnesses": {"xctest": harness},
                                "files": [record(target / "runner.log", target)]}]
         write_json(target / "gate.result.json", swift)
         paths.append(target / "gate.result.json")

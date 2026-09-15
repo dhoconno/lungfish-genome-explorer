@@ -9,10 +9,10 @@ import LungfishWorkflow
 
 final class ImportFastqE2ETests: XCTestCase {
 
-    /// Find the CLI binary in SwiftPM's active build products directory.
+    /// Find the CLI binary injected by the test runner or beside this test bundle.
     private var cliBinaryPath: URL? {
         CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         )
     }
 
@@ -31,7 +31,7 @@ final class ImportFastqE2ETests: XCTestCase {
     /// Run the CLI binary with given arguments and capture exit code + output.
     private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {
         guard let binary = cliBinaryPath else {
-            throw XCTSkip("CLI binary not built at expected path — run `swift build --product lungfish-cli` first")
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
         let process = Process()
         process.executableURL = binary

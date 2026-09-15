@@ -1,6 +1,6 @@
 # Lungfish Genome Explorer
 
-[![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org)
+[![Swift 6.4](https://img.shields.io/badge/Swift-6.4-orange.svg)](https://swift.org)
 [![CI](https://github.com/dhoconno/lungfish-genome-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/dhoconno/lungfish-genome-explorer/actions/workflows/ci.yml)
 [![macOS 26+](https://img.shields.io/badge/macOS-26_Tahoe+-blue.svg)](https://www.apple.com/macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

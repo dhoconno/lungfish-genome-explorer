@@ -76,10 +76,10 @@ class ReleaseDoctorFixture:
             "LUNGFISH_RELEASE_SCRATCH_ROOT": str(self.scratch),
             "LUNGFISH_RELEASE_CACHE_ROOT": str(self.cache_root),
             "LUNGFISH_SPARKLE_TOOLS_DIR": str(self.sparkle),
-            "STUB_XCODE_VERSION": "26.4.1",
-            "STUB_SWIFT_VERSION": "6.2.3",
-            "STUB_SDK_VERSION": "26.1",
-            "STUB_SDK_BUILD": "25A123",
+            "STUB_XCODE_VERSION": "27.0",
+            "STUB_SWIFT_VERSION": "6.4",
+            "STUB_SDK_VERSION": "27.0",
+            "STUB_SDK_BUILD": "26A425",
             "STUB_FIRST_LAUNCH_OK": "1",
             "STUB_ARCH": "arm64",
             "STUB_DEPLOYMENT_TARGET": "26.0",
@@ -119,7 +119,7 @@ class ReleaseDoctorFixture:
             textwrap.dedent(
                 """
                 if [[ " $* " == *" -version "* ]]; then
-                  printf 'Xcode %s\\nBuild version 17F80\\n' "$STUB_XCODE_VERSION"
+                  printf 'Xcode %s\\nBuild version 27A266a\\n' "$STUB_XCODE_VERSION"
                 elif [[ " $* " == *" -checkFirstLaunchStatus "* ]]; then
                   [ "$STUB_FIRST_LAUNCH_OK" = 1 ]
                 elif [[ " $* " == *" -showBuildSettings "* ]]; then
@@ -460,11 +460,13 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assert_failure("Xcode selection")
 
     def test_rejects_xcode_outside_contract_range(self):
-        env = {**self.fx.env, "STUB_XCODE_VERSION": "27.0"}
-        self.assert_failure("Xcode version", env=env)
+        for version in ("26.4.1", "28.0"):
+            with self.subTest(version=version):
+                env = {**self.fx.env, "STUB_XCODE_VERSION": version}
+                self.assert_failure("Xcode version", env=env)
 
     def test_accepts_later_compatible_xcode_patch(self):
-        env = {**self.fx.env, "STUB_XCODE_VERSION": "26.6"}
+        env = {**self.fx.env, "STUB_XCODE_VERSION": "27.9"}
 
         result = self.fx.run_doctor(env=env)
 
@@ -485,8 +487,10 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assert_failure("cache fingerprint", extra=tuple(args))
 
     def test_rejects_swift_outside_contract_range(self):
-        env = {**self.fx.env, "STUB_SWIFT_VERSION": "7.0"}
-        self.assert_failure("Swift version", env=env)
+        for version in ("6.3.9", "7.0"):
+            with self.subTest(version=version):
+                env = {**self.fx.env, "STUB_SWIFT_VERSION": version}
+                self.assert_failure("Swift version", env=env)
 
     def test_accepts_later_compatible_swift_minor(self):
         env = {**self.fx.env, "STUB_SWIFT_VERSION": "6.99.4"}
@@ -497,8 +501,10 @@ class ReleaseDoctorTests(unittest.TestCase):
         self.assertIn("PASS Swift version", result.stdout)
 
     def test_rejects_sdk_major_mismatch(self):
-        env = {**self.fx.env, "STUB_SDK_VERSION": "25.4"}
-        self.assert_failure("macOS SDK", env=env)
+        for version in ("26.4", "28.0"):
+            with self.subTest(version=version):
+                env = {**self.fx.env, "STUB_SDK_VERSION": version}
+                self.assert_failure("macOS SDK", env=env)
 
     def test_rejects_non_arm64_host(self):
         env = {**self.fx.env, "STUB_ARCH": "x86_64"}
@@ -1624,7 +1630,7 @@ class NightlyReleaseProfileTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             args = json.loads(captured.read_text(encoding="utf-8"))
-            self.assertIn("--profile", args)
+            self.assertEqual(args, [str(ROOT / "scripts/release/nightly_prerelease_release.py"), "--repo", str(ROOT)])
             self.assertNotIn("resolve-sparkle-tools.sh", " ".join(args))
             self.assertNotIn(str(scratch), " ".join(args))
 
@@ -1677,7 +1683,8 @@ class NightlyReleaseProfileTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             args = json.loads(captured.read_text(encoding="utf-8"))
             self.assertFalse(sentinel.exists())
-            self.assertIn(str(home / ".config/lungfish/release.json"), args)
+            self.assertEqual(args, [str(ROOT / "scripts/release/nightly_prerelease_release.py"), "--repo", str(ROOT)])
+            self.assertNotIn(str(home / ".config/lungfish/release.json"), args)
             self.assertNotIn("environment-notary", args)
             self.assertNotIn("LUNGFISH_SIGNING_IDENTITY", " ".join(args))
 

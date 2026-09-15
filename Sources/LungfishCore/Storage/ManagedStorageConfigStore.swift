@@ -113,14 +113,13 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         currentLocation(environment: environmentProvider())
     }
 
-    /// Upstream CLIs use Stable identity, so Debug GUI launches must pass their
-    /// resolved storage explicitly, including when compatibility requires isolation.
+    /// Upstream CLIs may use Stable identity. Every GUI channel passes its
+    /// resolved storage explicitly so child workflows use the same dependencies.
     public func subprocessEnvironment() -> [String: String] {
         subprocessEnvironment(environment: environmentProvider())
     }
 
     public func subprocessEnvironment(environment: [String: String]) -> [String: String] {
-        guard appIdentity.isDebug else { return environment }
         var result = environment
         result["LUNGFISH_STORAGE_ROOT"] = currentLocation(environment: environment).rootURL.path
         result["LUNGFISH_CONDA_ROOT"] = currentCondaRootURL(environment: environment).path

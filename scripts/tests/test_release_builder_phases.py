@@ -298,7 +298,7 @@ class ReleaseBuilderFixture:
             #!/bin/bash
             set -eu
             if [ "${1:-}" = -version ]; then
-                printf 'Xcode 26.4.1\nBuild version 17F90\n'
+                printf 'Xcode 27.0\nBuild version 27A266a\n'
                 exit 0
             fi
             if [ -n "${BUILDER_EXPECT_DEVELOPER_DIR:-}" ] \
@@ -347,14 +347,14 @@ class ReleaseBuilderFixture:
             #!/bin/bash
             set -eu
             if [ "${1:-}" = swift ] && [ "${2:-}" = --version ]; then
-                echo 'Apple Swift version 6.2 (swiftlang-test)'
+                echo 'Apple Swift version 6.4 (swiftlang-test)'
                 exit 0
             fi
             if [ "${1:-}" = --sdk ]; then
                 if [ "${3:-}" = --show-sdk-build-version ]; then
-                    echo '25A100'
+                    echo '26A425'
                 else
-                    echo '26.0'
+                    echo '27.0'
                 fi
                 exit 0
             fi
@@ -691,6 +691,16 @@ class ReleaseBuilderFixture:
             if path.name == "signing_pipeline.py":
                 # Fake DMGs carry their mount contents in a sidecar. Preserve it
                 # when the real pipeline copies the notarized DMG into place.
+                temporary_copy = "shutil.copyfile(temporary_dmg, paths['dmgInput'])"
+                if text.count(temporary_copy) != 1:
+                    raise AssertionError("fixture no longer matches the temporary DMG copy")
+                text = text.replace(
+                    temporary_copy,
+                    temporary_copy + "\n"
+                    "                    fixture_sidecar = Path(str(paths['dmgInput']) + '.fixture-app')\n"
+                    "                    if fixture_sidecar.exists(): shutil.rmtree(fixture_sidecar)\n"
+                    "                    shutil.copytree(str(temporary_dmg) + '.fixture-app', fixture_sidecar, symlinks=True)",
+                )
                 text = text.replace(
                     "shutil.copyfile(paths['dmgInput'], dmg)",
                     "shutil.copyfile(paths['dmgInput'], dmg)\n"

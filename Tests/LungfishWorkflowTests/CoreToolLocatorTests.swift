@@ -8,7 +8,7 @@ import LungfishCore
 
 final class CoreToolLocatorTests: XCTestCase {
 
-    func testManagedExecutableURLUsesLungfishCondaRoot() {
+    func testManagedExecutableURLUsesStableCondaRoot() {
         let home = URL(fileURLWithPath: "/tmp/lungfish-home", isDirectory: true)
         let url = CoreToolLocator.executableURL(
             environment: "bbtools",
@@ -18,22 +18,22 @@ final class CoreToolLocatorTests: XCTestCase {
 
         XCTAssertEqual(
             url.path,
-            "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/bin/clumpify.sh"
+            "/tmp/lungfish-home/.lungfish-stable/conda/envs/bbtools/bin/clumpify.sh"
         )
     }
 
-    func testBBToolsEnvironmentUsesManagedJava() {
+    func testBBToolsEnvironmentUsesStableManagedJava() {
         let home = URL(fileURLWithPath: "/tmp/lungfish-home", isDirectory: true)
         let env = CoreToolLocator.bbToolsEnvironment(
             homeDirectory: home,
             existingPath: "/usr/bin:/bin"
         )
 
-        XCTAssertEqual(env["JAVA_HOME"], "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/lib/jvm")
-        XCTAssertEqual(env["BBMAP_JAVA"], "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/lib/jvm/bin/java")
+        XCTAssertEqual(env["JAVA_HOME"], "/tmp/lungfish-home/.lungfish-stable/conda/envs/bbtools/lib/jvm")
+        XCTAssertEqual(env["BBMAP_JAVA"], "/tmp/lungfish-home/.lungfish-stable/conda/envs/bbtools/lib/jvm/bin/java")
         XCTAssertEqual(
             env["PATH"],
-            "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/lib/jvm/bin:/tmp/lungfish-home/.lungfish/conda/envs/bbtools/bin:/usr/bin:/bin"
+            "/tmp/lungfish-home/.lungfish-stable/conda/envs/bbtools/lib/jvm/bin:/tmp/lungfish-home/.lungfish-stable/conda/envs/bbtools/bin:/usr/bin:/bin"
         )
     }
 

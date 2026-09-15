@@ -12,10 +12,13 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"] ??
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
     }
-    private var cli: URL {
-        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_CLI"] ??
-            URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent(".build/debug/lungfish-cli").path)
+    private func cli() throws -> URL {
+        try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+            ),
+            "Inject the swiftbuild lungfish-cli path or build it beside the test bundle"
+        )
     }
 
     func testMatrixCommentsAreExactUserNotesAndReviewsRemainPureFormatting() async throws {
@@ -66,7 +69,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         )
         let annotatedOutput = root.appendingPathComponent("annotated.xlsx")
         let annotatedExport = try await GenotypeExcelExportService(
-            pythonExecutableURL: python, replayExecutableURL: cli
+            pythonExecutableURL: python, replayExecutableURL: try cli()
         ).export(
             snapshot: annotatedSnapshot, outputURL: annotatedOutput,
             provenance: .init(toolVersion: "test", argv: ["test"])
@@ -90,7 +93,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         )
         let plainOutput = root.appendingPathComponent("plain.xlsx")
         _ = try await GenotypeExcelExportService(
-            pythonExecutableURL: python, replayExecutableURL: cli
+            pythonExecutableURL: python, replayExecutableURL: try cli()
         ).export(
             snapshot: plainSnapshot, outputURL: plainOutput,
             provenance: .init(toolVersion: "test", argv: ["test"])
@@ -116,7 +119,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
             allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil),
             filter: .init(matrixMinimumReads: 5))
         let output = root.appendingPathComponent("report.xlsx")
-        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(snapshot: snapshot,
+        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(snapshot: snapshot,
             outputURL: output, provenance: .init(toolVersion: "test-version", argv: ["lungfish-cli", "genotype", "export-xlsx"],
                 options: ["output": output.path], defaults: ["minimumReads": "0"],
                 runtimeContext: ["condaEnvironment": "openpyxl"], inputs: [.init(path: input.path, data: inputBytes)]))
@@ -283,7 +286,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
             GenotypeTestFixtures.makeCall(sample: "Animal A", genotype: "Mafa-A*001", reads: 9)
         ]), sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
             generatedAt: timestamp, authority: .init(analysis: nil))
-        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
             provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "fastq", "genotype", "--output-dir", source.path]))
         let snapshotBytes = try Data(contentsOf: exported.snapshotURL)
@@ -325,7 +328,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
             GenotypeTestFixtures.makeCall(sample: "Animal A", genotype: "Mafa-A*001", reads: 9)
         ]), sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
             generatedAt: timestamp, authority: .init(analysis: nil))
-        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
             provenance: .init(toolVersion: "test", argv: ["historical", source.path]))
         for mutation in ["escape", "symlink", "hash", "different-request", "missing-request", "different-snapshot", "different-output"] {
@@ -381,7 +384,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
         let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: []),
             sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
             generatedAt: timestamp, authority: .init(analysis: nil))
-        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
             provenance: .init(toolVersion: "test", argv: ["historical", source.path]))
         XCTAssertNoThrow(try GenotypeExcelExportService.relocateReports(in: source,
@@ -396,7 +399,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
         for options in [[], ["--bundle", "bundle", "--snapshot", "snapshot"],
                         ["--snapshot", "snapshot"], ["--snapshot", "snapshot", "--python", python.path],
                         ["--bundle", "bundle", "--provenance-request", "request"]] {
-            XCTAssertNotEqual(try runCommand([cli.path, "genotype", "export-xlsx", "--output", output.path] + options), 0)
+            XCTAssertNotEqual(try runCommand([cli().path, "genotype", "export-xlsx", "--output", output.path] + options), 0)
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         }
     }
@@ -555,7 +558,7 @@ print(json.dumps(result))
         XCTAssertThrowsError(try capture(["MHC-B", "MHC-B"]))
         XCTAssertThrowsError(try capture(["MHC-unknown"]))
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-band-scope-\(UUID().uuidString).xlsx")
-        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
+        let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]))
         func assertBands(_ url: URL) throws {
             let bands = try XCTUnwrap(try inspect(url)["bands"] as? [String: [[String: String]]])
@@ -623,7 +626,7 @@ print(json.dumps(result))
         let output = root.appendingPathComponent("legacy.xlsx")
         let exported = try await GenotypeExcelExportService(
             pythonExecutableURL: python,
-            replayExecutableURL: cli
+            replayExecutableURL: try cli()
         ).export(
             snapshot: historical,
             outputURL: output,

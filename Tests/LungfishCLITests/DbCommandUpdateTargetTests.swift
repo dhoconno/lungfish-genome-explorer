@@ -28,7 +28,6 @@ final class DbCommandUpdateTargetTests: XCTestCase {
     private var cliBinaryURL: URL? {
         let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         return CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
             buildProductsDirectory: buildProductsDirectory
         )
     }
@@ -240,7 +239,7 @@ final class DbCommandUpdateTargetTests: XCTestCase {
     ) throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let binary = try XCTUnwrap(
             cliBinaryURL,
-            "CLI binary not built at expected path - run `swift build --product lungfish-cli` before these process tests"
+            "Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle"
         )
 
         let process = Process()

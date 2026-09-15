@@ -31,13 +31,18 @@ echo "[debug] profile: $IMPORT_PROFILE"
 echo "[debug] debug-log: $DEBUG_LOG"
 echo "[debug] event-log: $EVENT_LOG"
 
-BINARY_PATH="${REPO_ROOT}/.build/debug/Lungfish"
+SWIFTPM_OPTIONS="$(python3 "$REPO_ROOT/scripts/release/swiftpm_build.py")"
+SWIFT_BUILD_ARGS=()
+while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"
+
+BINARY_PATH="$(swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "$REPO_ROOT" --product Lungfish --show-bin-path)/Lungfish"
 if [[ ! -x "$BINARY_PATH" ]]; then
   echo "[debug] building Lungfish CLI binary..."
-  (
-    cd "$REPO_ROOT"
-    swift build --product Lungfish >/dev/null
-  )
+  swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "$REPO_ROOT" --product Lungfish >/dev/null
+fi
+if [[ ! -x "$BINARY_PATH" ]]; then
+  echo "error: resolved Lungfish path is not executable after build: $BINARY_PATH" >&2
+  exit 1
 fi
 
 tail -n +1 -f "$DEBUG_LOG" &

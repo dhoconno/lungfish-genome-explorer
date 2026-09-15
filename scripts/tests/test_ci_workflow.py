@@ -51,6 +51,15 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(sum("release.py debug --portable --jobs 4" in run for run in runs), 1)
         self.assertFalse(any("swift build" in run or "xcodebuild" in run for run in runs))
         self.assertIn("inputs.diagnostic == 'portable-debug'", job["if"])
+        coordinator = next(
+            step
+            for step in job["steps"]
+            if "release.py debug --portable --jobs 4" in step.get("run", "")
+        )
+        self.assertEqual(
+            coordinator["name"],
+            "Build and check the portable Debug app in one Swift Build graph",
+        )
 
     def test_automatic_gate_is_compact_and_needs_no_managed_environment(self):
         job = yaml_load(ROOT / ".github/workflows/ci.yml")["jobs"]["fast"]
@@ -169,6 +178,14 @@ class CIWorkflowTests(unittest.TestCase):
         steps = " ".join(step.get("run", "") for step in job["steps"])
         self.assertIn("scripts/deps/diff_goldens.py", steps)
         self.assertIn("scripts/deps/regenerate-goldens.sh", steps)
+        golden = next(
+            step for step in job["steps"] if step.get("name") == "Golden diff"
+        )
+        self.assertEqual(
+            golden["env"]["LUNGFISH_CONDA_ROOT"],
+            "${{ env.LUNGFISH_STORAGE_ROOT }}/conda",
+        )
+        self.assertNotIn("LUNGFISH_CONDA_ROOT", job["env"])
 
     def test_toolset_conformance_caches_managed_tools_by_manifest_hash(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -180,8 +197,82 @@ class CIWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(len(cache_steps), 1)
         cache_step = cache_steps[0]
-        self.assertIn("~/.lungfish/conda", cache_step["with"]["path"])
+        self.assertEqual(
+            cache_step["with"]["path"].splitlines(),
+            [
+                "${{ env.LUNGFISH_STORAGE_ROOT }}/conda",
+                "${{ env.LUNGFISH_STORAGE_ROOT }}/databases/kraken2/viral",
+                "${{ env.LUNGFISH_STORAGE_ROOT }}/databases/metagenomics-db-registry.json",
+                "${{ env.LUNGFISH_STORAGE_ROOT }}/dependency-receipt.json",
+            ],
+        )
         self.assertIn("manifest.outputs.hash", cache_step["with"]["key"])
+
+    def test_toolset_conformance_uses_one_isolated_storage_root(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        self.assertEqual(
+            job["env"]["LUNGFISH_STORAGE_ROOT"],
+            "${{ runner.temp }}/lungfish-storage",
+        )
+        serialized = yaml.safe_dump(job)
+        self.assertNotIn("~/.lungfish", serialized)
+        receipt_step = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Verify dependency receipt"
+        )
+        self.assertIn(
+            'Path(os.environ["LUNGFISH_STORAGE_ROOT"]) / "dependency-receipt.json"',
+            receipt_step["run"],
+        )
+
+    def test_toolset_cli_build_exports_the_resolved_swiftbuild_product(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        job = wf["jobs"]["toolset-conformance"]
+        build = next(
+            step for step in job["steps"] if step.get("name") == "Build CLI"
+        )
+        self.assertIn(
+            'SWIFTPM_OPTIONS="$(python3 scripts/release/swiftpm_build.py)"',
+            build["run"],
+        )
+        self.assertIn(
+            'while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"',
+            build["run"],
+        )
+        swift_commands = [
+            line.strip()
+            for line in build["run"].splitlines()
+            if "swift build" in line
+        ]
+        self.assertEqual(
+            swift_commands,
+            [
+                'swift build "${SWIFT_BUILD_ARGS[@]}" --product lungfish-cli',
+                'bin_path="$(swift build "${SWIFT_BUILD_ARGS[@]}" --product lungfish-cli --show-bin-path)"',
+            ],
+        )
+        self.assertIn('LUNGFISH_CLI=', build["run"])
+        self.assertIn('>> "$GITHUB_ENV"', build["run"])
+
+        build_index = job["steps"].index(build)
+        subsequent_commands = "\n".join(
+            step.get("run", "") for step in job["steps"][build_index + 1 :]
+        )
+        self.assertNotIn(".build/debug/lungfish-cli", subsequent_commands)
+        cli_invocations = [
+            line.strip()
+            for line in subsequent_commands.splitlines()
+            if "tools update" in line
+            or "conda install --pack" in line
+            or "conda db" in line
+        ]
+        self.assertGreater(len(cli_invocations), 0)
+        self.assertTrue(
+            all(command.startswith('"$LUNGFISH_CLI" ') for command in cli_invocations),
+            cli_invocations,
+        )
 
     def test_toolset_conformance_verifies_the_reconciled_dependency_receipt(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -193,6 +284,7 @@ class CIWorkflowTests(unittest.TestCase):
         )
         script = receipt_step.get("run", "")
         self.assertIn("dependency-receipt.json", script)
+        self.assertIn('os.environ["LUNGFISH_STORAGE_ROOT"]', script)
         self.assertIn(
             'receipt.get("dependencySet") != manifest.get("dependencySet")', script
         )
@@ -243,6 +335,13 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertNotIn("xcode-select -s", self.workflow)
         self.assertNotIn("Xcode_26.4.1", self.workflow)
+
+    def test_every_ci_job_uses_the_xcode_27_arm64_runner(self):
+        wf = yaml_load(ROOT / ".github/workflows/ci.yml")
+        for job_name, job in wf["jobs"].items():
+            with self.subTest(job=job_name):
+                self.assertEqual(job["runs-on"], "xcode-27")
+        self.assertNotIn("runs-on: macos-26", self.workflow)
 
     def test_github_actions_is_read_only_advisory_and_never_publishes(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")

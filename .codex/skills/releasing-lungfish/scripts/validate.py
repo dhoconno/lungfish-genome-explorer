@@ -321,17 +321,17 @@ def validate_contract(repo_root: Path, errors: list[str]) -> dict[str, object]:
         )
     toolchain = contract.get("toolchain")
     expected_toolchain = {
-        "xcodeMinimum": "26.4.1",
-        "xcodeMaximumExclusive": "27.0",
-        "swiftMinimum": "6.2",
+        "xcodeMinimum": "27.0",
+        "xcodeMaximumExclusive": "28.0",
+        "swiftMinimum": "6.4",
         "swiftMaximumExclusive": "7.0",
-        "sdkMajor": 26,
+        "sdkMajor": 27,
         "deploymentTarget": "26.0",
         "architecture": "arm64",
         "minimumFreeDiskGiB": 20,
     }
     if toolchain != expected_toolchain:
-        errors.append("Release contract toolchain must be Xcode >=26.4.1,<27, Swift >=6.2,<7, SDK 26, deployment 26.0, arm64, and 20 GiB")
+        errors.append("Release contract toolchain must be Xcode >=27.0,<28, Swift >=6.4,<7, SDK 27, deployment 26.0, arm64, and 20 GiB")
     return contract
 
 

@@ -142,7 +142,7 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
-    @Test("Debug build-app uses the shared Xcode resolver and selected Swift")
+    @Test("Debug build-app uses the shared Xcode and SwiftPM resolvers")
     func buildAppScriptUsesSharedXcodeResolver() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
@@ -154,8 +154,38 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("export DEVELOPER_DIR"))
         #expect(script.contains(#"RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}""#))
         #expect(script.contains(#"PROFILE_CONTRACT_OUTPUT="$("$RELEASE_PYTHON" "$RELEASE_CONTRACT_SCRIPT" shell-profile --profile debug)""#))
-        #expect(script.contains("xcrun swift build --configuration debug --arch arm64"))
+        #expect(script.contains("scripts/release/swiftpm_build.py"))
+        #expect(script.contains("SWIFT_BUILD_ARGS=()"))
+        #expect(script.contains("SWIFT_BUILD_ARGS+=(--configuration debug --arch arm64"))
+        #expect(script.contains(#"xcrun swift build "${SWIFT_BUILD_ARGS[@]}""#))
+        #expect(script.contains(#"BUILD_DIR="$(xcrun swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)""#))
+        #expect(script.contains(#"BUILD_DIR="$PROJECT_ROOT/.build/"#) == false)
         #expect(script.contains("swift build -c release") == false)
+    }
+
+    @Test("Project Swift configurations pass the selected SDK to link-only jobs")
+    func projectSwiftConfigurationsPassSelectedSDKToLinker() throws {
+        let project = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let expectedFlags = """
+        OTHER_SWIFT_FLAGS = (
+        \t\t\t\t\t"$(inherited)",
+        \t\t\t\t\t"-Xclang-linker",
+        \t\t\t\t\t"-isysroot",
+        \t\t\t\t\t"-Xclang-linker",
+        \t\t\t\t\t"$(SDKROOT)",
+        \t\t\t\t);
+        """
+
+        for configuration in [
+            "F1E2D3C4B5A6978877665560 /* Debug */",
+            "F1E2D3C4B5A6978877665561 /* Release */",
+        ] {
+            let block = try Self.buildConfigurationBlock(named: configuration, in: project)
+            #expect(block.contains(expectedFlags))
+        }
     }
 
     @Test("Fallback build-app script uses the Xcode app bundle identifiers")
@@ -190,7 +220,8 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(script.contains("--configuration"))
         #expect(script.contains("APP_DIR=\"$PROJECT_ROOT/build/Debug/$APP_BUNDLE_FILENAME\""))
-        #expect(script.contains("xcrun swift build --configuration debug --arch arm64"))
+        #expect(script.contains("SWIFT_BUILD_ARGS+=(--configuration debug --arch arm64"))
+        #expect(script.contains(#"xcrun swift build "${SWIFT_BUILD_ARGS[@]}""#))
         #expect(script.contains("LungfishReleaseChannel -string \"$RELEASE_CHANNEL\""))
     }
 
@@ -396,19 +427,27 @@ struct ReleaseBuildConfigurationTests {
         #expect(locatorSource.contains("--show-bin-path"))
     }
 
-    @Test("CLI subprocess tests resolve binaries through SwiftPM bin path")
-    func cliSubprocessTestsResolveBinariesThroughSwiftPMBinPath() throws {
+    @Test("CLI subprocess tests avoid hardcoded SwiftPM product paths")
+    func cliSubprocessTestsAvoidHardcodedSwiftPMProductPaths() throws {
         let repositoryRoot = Self.repositoryRoot()
         let sources = [
+            "Tests/Support/LungfishTestSupport/CLITestBinaryResolver.swift",
             "Tests/LungfishCLITests/ApplicationExportImportE2ETests.swift",
             "Tests/LungfishCLITests/CLIExitCodeProcessTests.swift",
             "Tests/LungfishCLITests/ExtractContigsCommandTests.swift",
             "Tests/LungfishCLITests/ImportFastqE2ETests.swift",
             "Tests/LungfishCLITests/ImportMSATreeE2ETests.swift",
             "Tests/LungfishCLITests/MarkdupCommandTests.swift",
+            "Tests/LungfishAppTests/GenotypeExactZeroWorkbookAcceptanceTests.swift",
+            "Tests/LungfishAppTests/GenotypeThreeSheetCohortAcceptance.swift",
+            "Tests/LungfishAppTests/GenotypeUnifiedExcelAcceptanceTests.swift",
+            "Tests/LungfishGenotypeUITests/GenotypeExcelDialogBehaviorTests.swift",
             "Tests/LungfishIntegrationTests/CLIBAMFilteringIntegrationTests.swift",
+            "Tests/LungfishIntegrationTests/PrimerTrim/PrimerTrimGUIIntegrationTests.swift",
+            "Tests/LungfishWorkflowTests/GenotypeExcelExportServiceTests.swift",
             "Tests/LungfishXCUITests/TestSupport/AssemblyRobot.swift",
             "Tests/LungfishXCUITests/TestSupport/BundleBrowserRobot.swift",
+            "Tests/LungfishXCUITests/TestSupport/LungfishFixtureCatalog.swift",
             "Tests/LungfishXCUITests/TestSupport/LungfishProjectFixtureBuilder.swift",
             "Tests/LungfishXCUITests/TestSupport/MappingRobot.swift",
         ]
@@ -425,17 +464,22 @@ struct ReleaseBuildConfigurationTests {
         }
     }
 
-    @Test("Primer-trim GUI integration locates CLI through SwiftPM bin path")
-    func primerTrimGUIIntegrationLocatesCLIThroughSwiftPMBinPath() throws {
-        let source = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("Tests/LungfishIntegrationTests/PrimerTrim/PrimerTrimGUIIntegrationTests.swift"),
-            encoding: .utf8
-        )
-
-        #expect(source.contains("--show-bin-path"))
-        #expect(source.contains(".build/release/lungfish-cli") == false)
-        #expect(source.contains(".build/debug/lungfish-cli") == false)
+    @Test("Test runtime CLI helpers never invoke SwiftPM")
+    func testRuntimeCLIHelpersNeverInvokeSwiftPM() throws {
+        let repositoryRoot = Self.repositoryRoot()
+        for relativePath in [
+            "Tests/Support/LungfishTestSupport/CLITestBinaryResolver.swift",
+            "Tests/LungfishIntegrationTests/PrimerTrim/PrimerTrimGUIIntegrationTests.swift",
+            "Tests/LungfishXCUITests/TestSupport/LungfishFixtureCatalog.swift",
+            "Tests/LungfishAppTests/ViralReconWorkflowExecutionServiceTests.swift",
+        ] {
+            let source = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            #expect(source.contains("--show-bin-path") == false)
+            #expect(source.contains("\"swift\"") == false)
+        }
     }
 
     @Test("Bundled tool manifest keeps only micromamba")

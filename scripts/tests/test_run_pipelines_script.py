@@ -1,11 +1,10 @@
 """Tests for scripts/deps/run-pipelines.sh (tier 3 manual pipeline runner).
 
-These tests only exercise argument parsing (``--help``, unknown arguments,
-missing required arguments) and the presence/shape of the companion recipe
-manifest. Full execution fetches live SRA reads and runs TaxTriage/EsViritu,
-which needs network access and multi-GB databases, so it is deliberately not
-exercised here; see docs/release/dependency-sweep.md for the manual sweep
-procedure.
+These tests exercise argument parsing, CLI path resolution with a fake Swift
+driver, and the presence/shape of the companion recipe manifest. Full execution
+fetches live SRA reads and runs TaxTriage/EsViritu, which needs network access
+and multi-GB databases, so it is deliberately not exercised here; see
+docs/release/dependency-sweep.md for the manual sweep procedure.
 """
 
 import json
@@ -77,6 +76,118 @@ class RunPipelinesScriptTests(unittest.TestCase):
     def test_default_database_discovery_uses_installer_directory_names(self):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("for candidate in kraken2-viral kraken2-standard-16", source)
+
+
+class CLIBinaryResolutionTests(unittest.TestCase):
+    def run_dry_with_fake_swift(self, extra_args=(), cli_environment=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture_root = pathlib.Path(temporary)
+            command_bin = fixture_root / "bin"
+            command_bin.mkdir()
+            swiftbuild_bin = fixture_root / "swiftbuild-products"
+            invocation_log = fixture_root / "swift-invocations"
+            xcrun_log = fixture_root / "xcrun-invocations"
+            sdk_path = fixture_root / "MacOSX27.0.sdk"
+            sdk_path.mkdir()
+            swift = command_bin / "swift"
+            swift.write_text(
+                "#!/bin/bash\n"
+                "set -eu\n"
+                "printf '%s\\n' \"$*\" >> \"$SWIFT_INVOCATION_LOG\"\n"
+                "if [[ \" $* \" == *\" --show-bin-path \"* ]]; then\n"
+                "  printf '%s\\n' \"$SWIFTBUILD_BIN\"\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 97\n",
+                encoding="utf-8",
+            )
+            swift.chmod(0o755)
+            xcrun = command_bin / "xcrun"
+            xcrun.write_text(
+                "#!/bin/bash\n"
+                "set -eu\n"
+                "printf '%s\\n' \"$*\" >> \"$XCRUN_INVOCATION_LOG\"\n"
+                "printf '%s\\n' \"$FIXTURE_SDK_PATH\"\n",
+                encoding="utf-8",
+            )
+            xcrun.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment.pop("LUNGFISH_CLI_BIN", None)
+            environment["PATH"] = f"{command_bin}{os.pathsep}{environment['PATH']}"
+            environment["SWIFT_INVOCATION_LOG"] = str(invocation_log)
+            environment["XCRUN_INVOCATION_LOG"] = str(xcrun_log)
+            environment["SWIFTBUILD_BIN"] = str(swiftbuild_bin)
+            environment["FIXTURE_SDK_PATH"] = str(sdk_path)
+            if cli_environment is not None:
+                environment["LUNGFISH_CLI_BIN"] = cli_environment
+
+            out = fixture_root / "out"
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(SCRIPT),
+                    "--which",
+                    "all",
+                    "--out",
+                    str(out),
+                    "--dry-run",
+                    *extra_args,
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=environment,
+            )
+            invocations = (
+                invocation_log.read_text(encoding="utf-8").splitlines()
+                if invocation_log.exists()
+                else []
+            )
+            xcrun_invocations = (
+                xcrun_log.read_text(encoding="utf-8").splitlines()
+                if xcrun_log.exists()
+                else []
+            )
+            return result, invocations, xcrun_invocations, swiftbuild_bin, sdk_path
+
+    def test_default_cli_uses_swiftbuild_show_bin_path_without_building(self):
+        result, invocations, xcrun_invocations, swiftbuild_bin, sdk_path = (
+            self.run_dry_with_fake_swift()
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            invocations,
+            [
+                "build --build-system swiftbuild "
+                f"-Xswiftc -Xclang-linker -Xswiftc -isysroot "
+                f"-Xswiftc -Xclang-linker -Xswiftc {sdk_path} "
+                f"--package-path {ROOT} --product lungfish-cli --show-bin-path"
+            ],
+        )
+        self.assertEqual(xcrun_invocations, ["--sdk macosx --show-sdk-path"])
+        self.assertIn(f"cli={swiftbuild_bin}/lungfish-cli", result.stdout)
+
+    def test_cli_environment_avoids_swift_discovery(self):
+        result, invocations, xcrun_invocations, _, _ = self.run_dry_with_fake_swift(
+            cli_environment="/fixture/environment/lungfish-cli"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(invocations, [])
+        self.assertEqual(xcrun_invocations, [])
+        self.assertIn("cli=/fixture/environment/lungfish-cli", result.stdout)
+
+    def test_cli_flag_wins_over_environment_and_avoids_swift_discovery(self):
+        result, invocations, xcrun_invocations, _, _ = self.run_dry_with_fake_swift(
+            ["--cli", "/fixture/flag/lungfish-cli"],
+            cli_environment="/fixture/environment/lungfish-cli",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(invocations, [])
+        self.assertEqual(xcrun_invocations, [])
+        self.assertIn("cli=/fixture/flag/lungfish-cli", result.stdout)
+        self.assertNotIn("/fixture/environment/lungfish-cli", result.stdout)
 
 
 class CollectAndExitPathTests(unittest.TestCase):
@@ -255,6 +366,7 @@ class StorageRootTests(unittest.TestCase):
         # checks the default path pass for the wrong reason.
         merged.pop("LUNGFISH_STORAGE_ROOT", None)
         merged.pop("LUNGFISH_CONDA_ROOT", None)
+        merged["LUNGFISH_CLI_BIN"] = "/fixture/lungfish-cli"
         if env:
             merged.update(env)
         with tempfile.TemporaryDirectory() as out:
@@ -333,6 +445,7 @@ class StorageRootTests(unittest.TestCase):
         )
         self.assertIsNotNone(runner, "run-pipelines.sh invocation not found in verify.sh")
         self.assertIn("--root", runner.group(1))
+        self.assertIn("--cli", runner.group(1))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ databases. Everything past the dry-run exit is covered by actually running a
 sweep, not by unit tests.
 """
 
+import json
 import os
 import pathlib
 import re
@@ -26,7 +27,7 @@ MANIFEST = ROOT / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-t
 TIMEOUT_SECONDS = 60
 
 
-def run_verify(args):
+def run_verify(args, env=None):
     return subprocess.run(
         ["/bin/bash", str(VERIFY), *args],
         text=True,
@@ -35,6 +36,7 @@ def run_verify(args):
         check=False,
         timeout=TIMEOUT_SECONDS,
         cwd=str(ROOT),
+        env=env,
     )
 
 
@@ -87,6 +89,26 @@ class DryRunTests(unittest.TestCase):
         self.assertNotIn("Building lungfish-cli", combined)
         self.assertNotIn("Provisioning", combined)
 
+    def test_dry_run_does_not_resolve_the_swiftpm_sdk(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            command_bin = pathlib.Path(temporary) / "bin"
+            command_bin.mkdir()
+            marker = pathlib.Path(temporary) / "xcrun-ran"
+            xcrun = command_bin / "xcrun"
+            xcrun.write_text(
+                f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\nexit 97\n",
+                encoding="utf-8",
+            )
+            xcrun.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{command_bin}{os.pathsep}{environment['PATH']}"
+            result = run_verify(
+                ["--dry-run", "--root", "/tmp/lungfish-verify-test"],
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
     def test_tier_defaults_to_one(self):
         result = run_verify(["--dry-run", "--root", "/tmp/lungfish-verify-test"])
         self.assertIn("tier=1", result.stdout)
@@ -134,6 +156,37 @@ class ArgumentGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
         self.assertIn("must not be the real managed storage root", result.stderr)
 
+    def test_protected_root_failure_does_not_resolve_the_swiftpm_sdk(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            command_bin = pathlib.Path(temporary) / "bin"
+            command_bin.mkdir()
+            marker = pathlib.Path(temporary) / "xcrun-ran"
+            xcrun = command_bin / "xcrun"
+            xcrun.write_text(
+                f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\nexit 97\n",
+                encoding="utf-8",
+            )
+            xcrun.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{command_bin}{os.pathsep}{environment['PATH']}"
+            result = run_verify(
+                ["--root", str(pathlib.Path.home() / ".lungfish")],
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_root_may_not_be_any_named_managed_storage_root(self):
+        # Preview, Stable, and Debug are real managed roots too. Use --dry-run
+        # so this regression test never provisions or mutates any root.
+        for name in (".lungfish-preview", ".lungfish-stable", ".lungfish-debug"):
+            with self.subTest(name=name):
+                result = run_verify(
+                    ["--tier", "1", "--dry-run", "--root", str(pathlib.Path.home() / name)]
+                )
+                self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+                self.assertIn("must not be the real managed storage root", result.stderr)
+
 
 class FilterSyncTests(unittest.TestCase):
     def test_tier1_provisions_an_isolated_parity_python_environment(self):
@@ -165,25 +218,32 @@ class FilterSyncTests(unittest.TestCase):
             tier1.group(1),
         )
 
-    def test_tier1_default_filter_matches_the_ci_job_filter(self):
-        """verify.sh tier 1 and the CI conformance job must run the same suites.
+    def test_tier1_include_tokens_are_retained_in_the_ci_catalog(self):
+        """Retain include tokens; CI separately excludes GUI suites.
 
-        If they drift, a local sweep can pass while CI fails (or the reverse),
-        and the sweep's "tier 1 is green" claim stops meaning what it says.
+        This checks catalog vocabulary, not identical execution coverage: local
+        tier 1 can select app tests that headless CI deliberately excludes.
         """
         script = VERIFY.read_text(encoding="utf-8")
         script_filter = re.search(
             r"^default_tier1_filter='([^']*)'", script, re.MULTILINE
         )
         self.assertIsNotNone(script_filter, "default_tier1_filter not found in verify.sh")
-
         workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-        ci_filter = re.search(
-            r"full-suite-gate\.sh --require-tools --filter '([^']*)'", workflow
+        self.assertIn("scripts/test.py run --profile tool-conformance --require-tools", workflow)
+        catalog = json.loads((ROOT / "config/test-catalog.json").read_text())
+        profile = catalog["profiles"]["tool-conformance"]
+        self.assertTrue(profile["requireTools"])
+        collections = {item["id"]: item for item in catalog["collections"]}
+        covered = set()
+        for name in profile["collections"]:
+            covered.update(collections[name].get("include", "").split("|"))
+        self.assertLessEqual(set(script_filter.group(1).split("|")), covered)
+        conformance = collections["tool-conformance"]
+        self.assertRegex(
+            "LungfishAppTests.FASTQOperationRoundTripTests/testExample",
+            conformance["exclude"],
         )
-        self.assertIsNotNone(ci_filter, "conformance filter not found in ci.yml")
-
-        self.assertEqual(script_filter.group(1), ci_filter.group(1))
 
     def test_conformance_packs_match_the_ci_job(self):
         script = VERIFY.read_text(encoding="utf-8")
@@ -215,6 +275,10 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             resolver.parent.mkdir(parents=True)
             shutil.copy2(VERIFY, verify)
             shutil.copy2(ROOT / "scripts" / "release" / "release_xcode.py", resolver)
+            shutil.copy2(
+                ROOT / "scripts" / "release" / "swiftpm_build.py",
+                resolver.parent / "swiftpm_build.py",
+            )
 
             manifest = repo / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
             manifest.parent.mkdir(parents=True)
@@ -230,6 +294,14 @@ class Tier1FailurePropagationTests(unittest.TestCase):
 
             command_bin = root / "bin"
             command_bin.mkdir()
+            sdk_path = root / "MacOSX27.0.sdk"
+            sdk_path.mkdir()
+            xcrun = command_bin / "xcrun"
+            xcrun.write_text(
+                f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(str(sdk_path))}\n",
+                encoding="utf-8",
+            )
+            xcrun.chmod(0o755)
             captured = root / "captured-developer-dir"
             swift = command_bin / "swift"
             swift.write_text(
@@ -278,6 +350,10 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             resolver.parent.mkdir(parents=True)
             shutil.copy2(VERIFY, verify)
             shutil.copy2(ROOT / "scripts" / "release" / "release_xcode.py", resolver)
+            shutil.copy2(
+                ROOT / "scripts" / "release" / "swiftpm_build.py",
+                resolver.parent / "swiftpm_build.py",
+            )
             verify.chmod(0o755)
 
             manifest = repo / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools" / "third-party-tools-lock.json"
@@ -286,6 +362,8 @@ class Tier1FailurePropagationTests(unittest.TestCase):
 
             command_bin = root / "bin"
             command_bin.mkdir()
+            sdk_path = root / "MacOSX27.0.sdk"
+            sdk_path.mkdir()
             gate_marker = root / "suite-gate-ran"
             preflight_marker = root / "parity-preflight-ran"
 
@@ -294,8 +372,16 @@ class Tier1FailurePropagationTests(unittest.TestCase):
                 command.write_text("#!/bin/bash\nset -eu\n" + body, encoding="utf-8")
                 command.chmod(0o755)
 
-            write_command("swift", "exit 0\n")
-            cli = repo / ".build" / "debug" / "lungfish-cli"
+            swiftbuild_bin = root / "swiftbuild-bin"
+            write_command(
+                "swift",
+                "if [[ \" $* \" == *\" --show-bin-path \"* ]]; then\n"
+                f"  printf '%s\\n' {shlex.quote(str(swiftbuild_bin))}\n"
+                "fi\n"
+                "exit 0\n",
+            )
+            write_command("xcrun", f"printf '%s\\n' {shlex.quote(str(sdk_path))}\n")
+            cli = swiftbuild_bin / "lungfish-cli"
             cli.parent.mkdir(parents=True)
             cli.write_text(
                 "#!/bin/bash\n"

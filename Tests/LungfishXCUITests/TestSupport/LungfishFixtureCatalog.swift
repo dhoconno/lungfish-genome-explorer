@@ -25,52 +25,14 @@ enum LungfishFixtureCatalog {
     static let assemblyUI = fixturesRoot.appendingPathComponent("assembly-ui", isDirectory: true)
 
     static var cliBinaryURL: URL? {
-        var candidates: [URL] = []
-        if let environmentPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"], !environmentPath.isEmpty {
-            candidates.append(URL(fileURLWithPath: environmentPath))
-        }
-        if let environmentPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_BINARY"], !environmentPath.isEmpty {
-            candidates.append(URL(fileURLWithPath: environmentPath))
-        }
-        if let binPath = swiftPMBinPath(packageRoot: repoRoot) {
-            candidates.append(binPath.appendingPathComponent("lungfish-cli"))
-        }
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
-    }
-
-    private static func swiftPMBinPath(packageRoot: URL) -> URL? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "swift",
-            "build",
-            "--package-path", packageRoot.path,
-            "--show-bin-path",
-        ]
-
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                return nil
+        let environment = ProcessInfo.processInfo.environment
+        for key in ["LUNGFISH_TEST_CLI", "LUNGFISH_CLI", "LUNGFISH_CLI_PATH", "LUNGFISH_CLI_BINARY"] {
+            guard let environmentPath = environment[key], !environmentPath.isEmpty else {
+                continue
             }
-            let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            guard let path = stdoutText
-                .split(whereSeparator: \.isNewline)
-                .map(String.init)
-                .last?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                !path.isEmpty
-            else {
-                return nil
-            }
-            return URL(fileURLWithPath: path, isDirectory: true)
-        } catch {
-            return nil
+            let binary = URL(fileURLWithPath: environmentPath)
+            return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
         }
+        return nil
     }
 }

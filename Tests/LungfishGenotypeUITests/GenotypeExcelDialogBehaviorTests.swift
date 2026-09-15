@@ -12,10 +12,13 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
     }
-    private var cli: URL {
-        URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_CLI"]
-            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent().appendingPathComponent(".build/debug/lungfish-cli").path)
+    private func cli() throws -> URL {
+        try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+            ),
+            "Inject the swiftbuild lungfish-cli path or build it beside the test bundle"
+        )
     }
 
     func testExcelCaptureFreezesOrderedNativeMetadataColumnsAndFullRosterTotals() async throws {
@@ -214,7 +217,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         let output = root.appendingPathComponent("effective-allele.xlsx")
         let exported = try await GenotypeExcelExportService(
             pythonExecutableURL: openpyxlPython,
-            replayExecutableURL: cli
+            replayExecutableURL: try cli()
         ).export(
             snapshot: snapshot,
             outputURL: output,

@@ -89,7 +89,7 @@ final class ImportMSATreeE2ETests: XCTestCase {
 
     private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {
         guard let binary = cliBinaryPath else {
-            throw XCTSkip("CLI binary not built at expected path - run `swift build --product lungfish-cli` first")
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
         let process = Process()
         process.executableURL = binary
@@ -106,7 +106,9 @@ final class ImportMSATreeE2ETests: XCTestCase {
     }
 
     private var cliBinaryPath: URL? {
-        CLITestBinaryResolver.cliBinaryURL(repoRoot: repoRoot)
+        CLITestBinaryResolver.cliBinaryURL(
+            buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        )
     }
 
     private func makeWorkspace() throws -> URL {

@@ -50,7 +50,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 
-cli_bin="${LUNGFISH_CLI_BIN:-${repo_root}/.build/debug/lungfish-cli}"
+cli_bin="${LUNGFISH_CLI_BIN:-}"
 goldens_manifest="${script_dir}/pipeline-goldens.json"
 diff_script="${script_dir}/diff_goldens.py"
 
@@ -85,7 +85,8 @@ Required:
 
 Options:
   --accession <SRR...>    SRA accession to fetch (default: SRR35517702)
-  --cli <path>            path to lungfish-cli (default: .build/debug/lungfish-cli)
+  --cli <path>            path to lungfish-cli (default: $LUNGFISH_CLI_BIN,
+                          else the SwiftPM swiftbuild product directory)
   --root <dir>            managed storage root the CLI resolves tools and
                           databases from (default: $LUNGFISH_STORAGE_ROOT, else
                           the CLI's own default of ~/.lungfish)
@@ -188,6 +189,18 @@ case "${which_target}" in
         ;;
 esac
 
+# Keep explicit selection precedence: --cli overrides LUNGFISH_CLI_BIN, and
+# only an invocation with neither resolves the shared SwiftPM engine/linker
+# options and asks that configuration where it stores products. --show-bin-path
+# resolves the directory without compiling the package, so dry-run remains a
+# no-build operation.
+if [[ -z "${cli_bin}" ]]; then
+    SWIFTPM_OPTIONS="$(python3 "${repo_root}/scripts/release/swiftpm_build.py")"
+    SWIFT_BUILD_ARGS=()
+    while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"
+    cli_bin="$(swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "${repo_root}" --product lungfish-cli --show-bin-path)/lungfish-cli"
+fi
+
 # Export the storage root so every `lungfish-cli` invocation below resolves its
 # tools and databases from the same root the rest of the sweep provisioned. The
 # CLI reads LUNGFISH_STORAGE_ROOT from its environment, so exporting it once here
@@ -276,6 +289,12 @@ if [[ ${dry_run} -eq 1 ]]; then
         echo "  ${cli_bin} esviritu detect --input ${r1_sub} ${r2_sub} --paired --sample ${accession} --output ${out_dir}/esviritu"
     fi
     exit 0
+fi
+
+if [[ ! -x "${cli_bin}" ]]; then
+    echo "lungfish-cli is not executable: ${cli_bin}" >&2
+    echo "build lungfish-cli with the repository's shared SwiftPM options first" >&2
+    exit 66
 fi
 
 # Checked AFTER the --dry-run return, unlike verify.sh's real-root guard. That guard

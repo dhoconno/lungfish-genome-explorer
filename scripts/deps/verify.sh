@@ -35,7 +35,7 @@
 #   64  bad arguments
 #   65  the dependency plan was not empty after provisioning
 #
-# NEVER point --root at the real ~/.lungfish: provisioning reinstalls
+# NEVER point --root at a real managed storage root: provisioning reinstalls
 # environments to match the manifest, which would rewrite the developer's root.
 
 set -euo pipefail
@@ -156,17 +156,26 @@ echo "verify: set=${dependency_set} manifest=${manifest_hash} root=${storage_roo
 # reaches for to see what a command would do, so it is exactly where a bad --root
 # should be caught; returning 0 first meant the rehearsal blessed a plan the real
 # run would refuse.
-real_root="$(cd "${HOME}" && pwd)/.lungfish"
+home_root="$(cd "${HOME}" && pwd)"
+managed_roots=(
+    "${home_root}/.lungfish"
+    "${home_root}/.lungfish-preview"
+    "${home_root}/.lungfish-stable"
+    "${home_root}/.lungfish-debug"
+)
 resolved_root="${storage_root}"
 case "${resolved_root}" in
     "~"/*) resolved_root="${HOME}/${resolved_root#\~/}" ;;
 esac
-if [[ "$(python3 -c 'import os,sys; print(os.path.realpath(os.path.expanduser(sys.argv[1])))' "${resolved_root}")" \
-      == "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${real_root}")" ]]; then
-    echo "error: --root must not be the real managed storage root (${real_root})" >&2
-    echo "       verify.sh reinstalls environments to match the manifest." >&2
-    exit 64
-fi
+resolved_root="$(python3 -c 'import os,sys; print(os.path.realpath(os.path.expanduser(sys.argv[1])))' "${resolved_root}")"
+for managed_root in "${managed_roots[@]}"; do
+    canonical_managed_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${managed_root}")"
+    if [[ "${resolved_root}" == "${canonical_managed_root}" ]]; then
+        echo "error: --root must not be the real managed storage root (${managed_root})" >&2
+        echo "       verify.sh reinstalls environments to match the manifest." >&2
+        exit 64
+    fi
+done
 
 if [[ ${dry_run} -eq 1 ]]; then
     exit 0
@@ -177,6 +186,14 @@ fi
 # Tools, whose Swift can be older than the package's tools version.
 DEVELOPER_DIR="$(python3 "${repo_root}/scripts/release/release_xcode.py")"
 export DEVELOPER_DIR
+
+# Capture the shared engine and linker SDK arguments only after argument/root
+# guards and --dry-run have exited. A plain string would lose the selected SDK
+# path when it contains spaces; read the newline-delimited CLI output into an
+# array and pass that exact array to the build and product-path lookup.
+SWIFTPM_OPTIONS="$(python3 "${repo_root}/scripts/release/swiftpm_build.py")"
+SWIFT_BUILD_ARGS=()
+while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"
 
 mkdir -p "${storage_root}"
 # Fully resolve the root (symlinks included) so registry rewriting compares like
@@ -324,8 +341,12 @@ if [[ -n "${seed_from}" ]]; then
 fi
 
 echo "==> Building lungfish-cli"
-swift build --product lungfish-cli >/dev/null
-cli="${repo_root}/.build/debug/lungfish-cli"
+swift build "${SWIFT_BUILD_ARGS[@]}" --product lungfish-cli >/dev/null
+cli="$(swift build "${SWIFT_BUILD_ARGS[@]}" --product lungfish-cli --show-bin-path)/lungfish-cli"
+if [[ ! -x "${cli}" ]]; then
+    echo "error: resolved lungfish-cli path is not executable: ${cli}" >&2
+    exit 1
+fi
 
 echo "==> Provisioning ${storage_root} from ${manifest}"
 # Idempotent: the reconciler compares the receipt and the installed conda-meta
@@ -479,6 +500,7 @@ run_tier3() {
     bash scripts/deps/run-pipelines.sh \
         --which all \
         --out ".build/pipelines-${dependency_set}" \
+        --cli "${cli}" \
         --root "${storage_root}"
 }
 

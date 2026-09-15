@@ -3,9 +3,12 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
+
+private final class GenotypeThreeSheetCohortAcceptanceBundleMarker {}
 
 /// Opt-in, whole-project acceptance: only disposable clones reach loaders and writers.
 @MainActor
@@ -54,8 +57,13 @@ enum GenotypeThreeSheetCohortAcceptance {
         try FileManager.default.copyItem(at: source, to: copy)
         let bundle = copy.appendingPathComponent(String(input.path.dropFirst(source.path.count + 1)))
         let python = URL(fileURLWithPath: env["LUNGFISH_TEST_PYTHON"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
-        let workspace = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let cli = workspace.appendingPathComponent(".build/debug/lungfish-cli")
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: GenotypeThreeSheetCohortAcceptanceBundleMarker.self)
+                    .bundleURL.deletingLastPathComponent()
+            ),
+            "Inject the swiftbuild lungfish-cli path or build it beside the test bundle"
+        )
         let version = try LungfishCLIRunner.run(arguments: ["--version"], executableURL: cli)
         XCTAssertEqual(version.status, 0)
         try JSONSerialization.data(withJSONObject: ["executable": cli.path, "version": version.stdout,

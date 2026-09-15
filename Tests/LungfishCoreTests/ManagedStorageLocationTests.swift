@@ -2,13 +2,15 @@ import XCTest
 @testable import LungfishCore
 
 final class ManagedStorageLocationTests: XCTestCase {
-    func testDefaultLocationUsesDotLungfishRoot() {
+    func testDefaultLocationsSeparateStableAndPreserveChannelRoots() {
         let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
-        let location = ManagedStorageLocation.defaultLocation(homeDirectory: home)
-
-        XCTAssertEqual(location.rootURL.path, "/Users/tester/.lungfish")
-        XCTAssertEqual(location.condaRootURL.path, "/Users/tester/.lungfish/conda")
-        XCTAssertEqual(location.databaseRootURL.path, "/Users/tester/.lungfish/databases")
+        for (identity, directory) in [(LungfishAppIdentity.stable, ".lungfish-stable"),
+                                       (.preview, ".lungfish"), (.debug, ".lungfish-debug")] {
+            let location = ManagedStorageLocation.defaultLocation(homeDirectory: home, appIdentity: identity)
+            XCTAssertEqual(location.rootURL.path, "/Users/tester/\(directory)")
+            XCTAssertEqual(location.condaRootURL.path, "/Users/tester/\(directory)/conda")
+            XCTAssertEqual(location.databaseRootURL.path, "/Users/tester/\(directory)/databases")
+        }
     }
 
     func testValidationRejectsResolvedPathsContainingSpaces() {

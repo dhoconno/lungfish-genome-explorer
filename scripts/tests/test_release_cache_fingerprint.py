@@ -32,14 +32,14 @@ def fixture_fields() -> dict[str, object]:
     return {
         "repository": "github.com/example/lungfish",
         "repository_key": "a" * 64,
-        "xcode_version": "26.6",
-        "xcode_build": "17G80",
+        "xcode_version": "27.0",
+        "xcode_build": "27A266a",
         "swift_identity": (
-            "Apple Swift version 6.2.3 (swiftlang-6.2.3.1 clang-1700.0.10.1)\n"
+            "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\n"
             "Target: arm64-apple-macosx26.0"
         ),
-        "sdk_version": "26.4",
-        "sdk_build": "25E5200",
+        "sdk_version": "27.0",
+        "sdk_build": "26A425",
         "architecture": "arm64",
         "deployment_target": "26.0",
         "configuration": "Release",
@@ -103,14 +103,14 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
                 },
                 "toolchain": {
                     "architecture": "arm64",
-                    "sdk": {"build": "25E5200", "version": "26.4"},
+                    "sdk": {"build": "26A425", "version": "27.0"},
                     "swift": {
                         "identity": swift_identity,
                         "identitySha256": helper.sha256_bytes(
                             str(swift_identity).encode("utf-8")
                         ),
                     },
-                    "xcode": {"build": "17G80", "version": "26.6"},
+                    "xcode": {"build": "27A266a", "version": "27.0"},
                 },
                 "build": {
                     "configuration": "Release",
@@ -147,14 +147,14 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
         baseline_fields = fixture_fields()
         baseline = helper.fingerprint(helper.build_fingerprint_document(**baseline_fields))
         mutations = {
-            "compatible Xcode version": ("xcode_version", "26.4.1"),
-            "Xcode build": ("xcode_build", "17F80"),
+            "compatible Xcode version": ("xcode_version", "27.1"),
+            "Xcode build": ("xcode_build", "27A300"),
             "Swift identity": (
                 "swift_identity",
-                "Apple Swift version 6.2.4 (swiftlang-next)\nTarget: arm64-apple-macosx26.0",
+                "Apple Swift version 6.4.1 (swiftlang-next)\nTarget: arm64-apple-macosx26.0",
             ),
-            "SDK version": ("sdk_version", "26.5"),
-            "SDK build": ("sdk_build", "25F10"),
+            "SDK version": ("sdk_version", "27.1"),
+            "SDK build": ("sdk_build", "26B10"),
             "lock": ("package_resolved_sha256", "2" * 64),
             "configuration": ("configuration", "Debug"),
             "architecture": ("architecture", "x86_64"),
@@ -228,17 +228,17 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
     def test_collection_hashes_the_explicit_release_recipe_without_paths(self):
         helper = load_helper()
         responses = {
-            ("xcodebuild", "-version"): "Xcode 26.6\nBuild version 17G80\n",
+            ("xcodebuild", "-version"): "Xcode 27.0\nBuild version 27A266a\n",
             ("xcrun", "swift", "--version"): str(
                 fixture_fields()["swift_identity"]
             ),
-            ("xcrun", "--sdk", "macosx", "--show-sdk-version"): "26.4\n",
+            ("xcrun", "--sdk", "macosx", "--show-sdk-version"): "27.0\n",
             (
                 "xcrun",
                 "--sdk",
                 "macosx",
                 "--show-sdk-build-version",
-            ): "25E5200\n",
+            ): "26A425\n",
             ("uname", "-m"): "arm64\n",
         }
 
@@ -317,7 +317,7 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
         helper = load_helper()
         first_document = helper.build_fingerprint_document(**fixture_fields())
         changed_fields = fixture_fields()
-        changed_fields["xcode_version"] = "26.4.1"
+        changed_fields["xcode_version"] = "27.1"
         second_document = helper.build_fingerprint_document(**changed_fields)
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve() / "lungfish-release-cache"

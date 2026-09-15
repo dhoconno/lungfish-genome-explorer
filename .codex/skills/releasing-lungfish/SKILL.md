@@ -88,7 +88,7 @@ releases`. Git tags, GitHub release state, and committed notes are the ledger.
 
 Run `python3 scripts/release/release.py debug` for incremental local development.
 The coordinator selects supported Xcode and assembles the GUI and CLI from one
-native build graph. The default performs cheap bundle/CLI checks; add
+Swift Build graph. The default performs cheap bundle/CLI checks; add
 `--portable` for the full relocation and self-containment diagnostic. `--jobs N`
 bounds build parallelism. Neither option runs the unit or UI suites.
 
@@ -108,12 +108,21 @@ has no updater or publication path, and must never be tagged or uploaded as a re
 
 ## Release machine bootstrap and Doctor
 
-Provision full Xcode `>=26.4.1,<27` with first launch and license complete,
+Provision full Xcode `>=27.0,<28` with first launch and license complete,
 Git, Bash, ripgrep, Python 3.11+, and authenticated `gh` for the selected repository.
 The release runtime uses only the Python standard library. The contract requires
-Swift `>=6.2,<7`, macOS SDK 26, deployment target 26.0, arm64, and 20 GiB free on
+Swift `>=6.4,<7`, macOS SDK 27, deployment target 26.0, arm64, and 20 GiB free on
 cache and output volumes. The coordinator selects supported Xcode; do not use a
 manual `xcode-select` workaround.
+
+The supported compiler is Xcode 27 / Swift 6.4 with SDK 27; the app still targets
+macOS 26.0. SwiftPM Debug builds and test gates explicitly use `--build-system
+swiftbuild`, the supported Swift Build engine. Packaging and helper scripts ask
+that same engine and configuration for `--show-bin-path`; they never reuse an
+inferred native-engine product path. Release app compilation continues through
+`xcodebuild` with the macOS 27 SDK and the same macOS 26 deployment target.
+A compiler/SDK upgrade creates a new cache fingerprint and requires fresh gate
+and candidate evidence; old Xcode 26 receipts do not validate an Xcode 27 build.
 
 For a fork, first set its origin and run `configure-fork` with its own product name,
 reverse-DNS namespace, Sparkle public key and public URLs. Review and commit the

@@ -80,7 +80,7 @@ final class GenotypeUnifiedExcelAcceptanceTests: XCTestCase {
             GenotypeWorkbookPresentation.Snapshot.self,
             from: XCTUnwrap(controller.captureExcelExportSnapshot().excelSnapshotData)
         )
-        let exported = try await export(snapshot, to: output, replay: cliURL())
+        let exported = try await export(snapshot, to: output, replay: try cliURL())
         try verifyNativeFilteredArtifact(
             exported.outputURL,
             snapshotURL: exported.snapshotURL,
@@ -164,7 +164,7 @@ final class GenotypeUnifiedExcelAcceptanceTests: XCTestCase {
         XCTAssertEqual(snapshot.calls.first { $0.sampleID == samples[0] }?.h2.effective, "M1A")
         XCTAssertEqual(snapshot.calls.first { $0.sampleID == samples[1] }?.h1.status, "noHaplotype")
 
-        let exported = try await export(snapshot, to: output, replay: cliURL())
+        let exported = try await export(snapshot, to: output, replay: try cliURL())
         try verifyMiSeqArtifact(exported.outputURL, snapshotURL: exported.snapshotURL)
         try verifyReceipt(exported.receiptURL, output: exported.outputURL, expectedMinimumReads: "5")
         print("TASK6_FOUR_SHEET=\(output.path)")
@@ -185,7 +185,7 @@ final class GenotypeUnifiedExcelAcceptanceTests: XCTestCase {
         XCTAssertFalse(snapshot.hasHaplotypeContent)
         XCTAssertTrue(snapshot.calls.isEmpty)
         XCTAssertTrue(snapshot.allMatrix.loci.isEmpty)
-        let exported = try await export(snapshot, to: output, replay: cliURL())
+        let exported = try await export(snapshot, to: output, replay: try cliURL())
         try FileManager.default.removeItem(at: source)
         let replayed = root.appendingPathComponent("replayed-after-source-removal.xlsx")
         XCTAssertEqual(try run(["/bin/sh", exported.replayScriptURL.path, replayed.path]), 0)
@@ -240,7 +240,7 @@ for left,right in zip(books[0],books[1]):
         XCTAssertEqual(call.h2.effective, "-")
         XCTAssertEqual(call.h2.status, "noHaplotype")
         XCTAssertTrue(snapshot.hasHaplotypeContent)
-        _ = try await export(snapshot, to: output, replay: cliURL())
+        _ = try await export(snapshot, to: output, replay: try cliURL())
         try runPython(#"""
 import sys
 from openpyxl import load_workbook
@@ -418,9 +418,13 @@ assert native['rows'][1]['cells'][1]['displayText']=='—'
             .appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3")
     }
 
-    private func cliURL() -> URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent(".build/debug/lungfish-cli")
+    private func cliURL() throws -> URL {
+        try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+            ),
+            "Inject the swiftbuild lungfish-cli path or build it beside the test bundle"
+        )
     }
 
     private func runPython(_ script: String, _ arguments: [String]) throws {

@@ -856,41 +856,30 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(result.didStreamOutput)
     }
 
-    func testConcreteRunnerUsesWorktreeCLIWhenNoExplicitExecutableIsProvided() async throws {
-        let originalWorkingDirectory = FileManager.default.currentDirectoryPath
+    func testConcreteRunnerUsesEnvironmentCLIWhenNoExplicitExecutableIsProvided() async throws {
         let originalCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
         defer {
-            FileManager.default.changeCurrentDirectoryPath(originalWorkingDirectory)
             if let originalCLIPath {
                 setenv("LUNGFISH_CLI_PATH", originalCLIPath, 1)
             } else {
                 unsetenv("LUNGFISH_CLI_PATH")
             }
         }
-        unsetenv("LUNGFISH_CLI_PATH")
-
         let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("viral-recon-worktree-cli-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("viral-recon-environment-cli-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: temp) }
-        let packageRoot = temp.appendingPathComponent("repo", isDirectory: true)
-        let sourceSubdirectory = packageRoot.appendingPathComponent("Sources/LungfishApp", isDirectory: true)
         let workingDirectory = temp.appendingPathComponent("run", isDirectory: true)
-        try FileManager.default.createDirectory(at: sourceSubdirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        try Data("// swift-tools-version: 6.2\n".utf8)
-            .write(to: packageRoot.appendingPathComponent("Package.swift"))
-        let cliDirectory = try swiftPMBinPath(packageRoot: packageRoot)
-        try FileManager.default.createDirectory(at: cliDirectory, withIntermediateDirectories: true)
 
-        let fakeCLI = cliDirectory.appendingPathComponent("lungfish-cli")
+        let fakeCLI = temp.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
-        printf 'worktree-cli:%s\\n' "$*"
+        printf 'environment-cli:%s\\n' "$*"
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+        XCTAssertEqual(setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1), 0)
 
-        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(sourceSubdirectory.path))
         let runner = ProcessViralReconWorkflowProcessRunner()
 
         let result = try await runner.runLungfishCLI(
@@ -900,7 +889,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.exitCode, 0)
-        XCTAssertTrue(result.standardOutput.contains("worktree-cli:--version"))
+        XCTAssertTrue(result.standardOutput.contains("environment-cli:--version"))
         XCTAssertEqual(result.standardError, "")
     }
 
@@ -999,25 +988,6 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(cancelBody.contains("requestProcessTreeTermination(gracePeriod: 0)"))
     }
 
-    private func swiftPMBinPath(packageRoot: URL) throws -> URL {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "swift",
-            "build",
-            "--package-path", packageRoot.path,
-            "--show-bin-path",
-        ]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0)
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return URL(fileURLWithPath: try XCTUnwrap(output), isDirectory: true)
-    }
 }
 
 private func writeGzipFixture(_ content: String, to gzipURL: URL) throws {

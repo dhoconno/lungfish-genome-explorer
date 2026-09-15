@@ -69,8 +69,12 @@ elif [ "${#POSITIONAL_ARGS[@]}" -gt 0 ]; then
   done
 fi
 
+SWIFTPM_OPTIONS="$(python3 "$ROOT_DIR/scripts/release/swiftpm_build.py")"
+SWIFT_BUILD_ARGS=()
+while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"
+
 if [ "${LUNGFISH_XCUI_SKIP_CLI_BUILD:-0}" != "1" ]; then
-  swift build --package-path "$ROOT_DIR" --product lungfish-cli
+  swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "$ROOT_DIR" --product lungfish-cli
 fi
 
 # Resolve the lungfish-cli binary path once, here, from the same SwiftPM
@@ -82,10 +86,10 @@ fi
 # session, and can race the `.build/.lock` SwiftPM holds during the build
 # step above. Resolving it here and threading it through the xctestrun's
 # test-host EnvironmentVariables is the robust fix.
-LUNGFISH_CLI_BIN_PATH="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/lungfish-cli"
+LUNGFISH_CLI_BIN_PATH="$(swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "$ROOT_DIR" --product lungfish-cli --show-bin-path)/lungfish-cli"
 if [ ! -x "$LUNGFISH_CLI_BIN_PATH" ]; then
-  echo "warning: resolved lungfish-cli path is not executable: $LUNGFISH_CLI_BIN_PATH" >&2
-  LUNGFISH_CLI_BIN_PATH=""
+  echo "error: resolved lungfish-cli path is not executable: $LUNGFISH_CLI_BIN_PATH" >&2
+  exit 1
 fi
 
 BUILD_FOR_TESTING_CMD=(
@@ -135,10 +139,8 @@ fi
 # (e.g. LungfishProjectFixtureBuilder.makeAlignmentTreeBundleProject, which
 # shells out to lungfish-cli directly to author .lungfishmsa/.lungfishtree
 # fixtures) resolve the binary deterministically instead of re-deriving it.
-if [ -n "$LUNGFISH_CLI_BIN_PATH" ]; then
-  /usr/libexec/PlistBuddy -c "Delete :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_CLI_PATH" "$PATCHED_XCTESTRUN_FILE" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_CLI_PATH string $LUNGFISH_CLI_BIN_PATH" "$PATCHED_XCTESTRUN_FILE"
-fi
+/usr/libexec/PlistBuddy -c "Delete :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_CLI_PATH" "$PATCHED_XCTESTRUN_FILE" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Add :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_CLI_PATH string $LUNGFISH_CLI_BIN_PATH" "$PATCHED_XCTESTRUN_FILE"
 
 TEST_WITHOUT_BUILDING_CMD=(
   xcodebuild

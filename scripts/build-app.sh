@@ -169,7 +169,6 @@ if [ -n "$LOG_DIR" ]; then
     echo "Writing build log to $LOG_FILE"
 fi
 
-BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/debug"
 APP_DIR="$PROJECT_ROOT/build/Debug/$APP_BUNDLE_FILENAME"
 BUILD_LABEL="debug"
 
@@ -194,7 +193,12 @@ fi
 # link input also lets a copied fork CLI retain its isolated runtime identity.
 cd "$PROJECT_ROOT"
 CLI_IDENTITY_PLIST="$("$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" prepare-identity --root "$PROJECT_ROOT")"
-SWIFT_BUILD_ARGS=(--configuration debug --arch arm64
+# Select the supported Swift Build engine and ask that same configuration for
+# its products. Never infer a path from a different engine's old cache.
+SWIFT_BUILD_ARGS=()
+SWIFTPM_OPTIONS="$("$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/swiftpm_build.py")"
+while IFS= read -r option; do SWIFT_BUILD_ARGS+=("$option"); done <<< "$SWIFTPM_OPTIONS"
+SWIFT_BUILD_ARGS+=(--configuration debug --arch arm64
     -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$CLI_IDENTITY_PLIST")
 if [ -n "$JOBS" ]; then
     SWIFT_BUILD_ARGS+=(--jobs "$JOBS")
@@ -205,6 +209,7 @@ else
     echo -e "${GREEN}Building Apple Silicon ${BUILD_LABEL} executable...${NC}"
     xcrun swift build "${SWIFT_BUILD_ARGS[@]}"
 fi
+BUILD_DIR="$(xcrun swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)"
 
 if [ ! -f "$BUILD_DIR/Lungfish" ]; then
     echo -e "${RED}Error: executable not found at $BUILD_DIR/Lungfish${NC}"

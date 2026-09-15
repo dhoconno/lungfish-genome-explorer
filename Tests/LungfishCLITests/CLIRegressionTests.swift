@@ -254,7 +254,6 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
 
         let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         guard let executableURL = CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
             buildProductsDirectory: buildProductsDirectory
         ) else {
             throw XCTSkip("lungfish-cli executable is unavailable")
@@ -311,7 +310,6 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         let outputDirectory = tempDir.appendingPathComponent("classification", isDirectory: true)
         let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         guard let executableURL = CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
             buildProductsDirectory: buildProductsDirectory
         ) else {
             throw XCTSkip("lungfish-cli executable is unavailable")

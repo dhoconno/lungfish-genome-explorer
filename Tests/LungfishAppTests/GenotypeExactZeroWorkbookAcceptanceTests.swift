@@ -14,8 +14,6 @@ final class GenotypeExactZeroWorkbookAcceptanceTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         print("Exact-zero QA retained fixture: \(root.path)")
         let python = URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
-        let workspace = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let cli = workspace.appendingPathComponent(".build/debug/lungfish-cli")
         let raw = Data("sample,genotype,passed_alignments,passed_unique_reads\nScientific-S,01_Mafa_A1_Zero,0,0\n".utf8)
         try raw.write(to: root.appendingPathComponent("calls.csv"))
         try Data("sample,passed_alignments,passed_unique_reads\nScientific-S,0,0\n".utf8).write(to: root.appendingPathComponent("samples.csv"))
@@ -55,7 +53,7 @@ final class GenotypeExactZeroWorkbookAcceptanceTests: XCTestCase {
             let output = root.appendingPathComponent("report-\(phase).xlsx")
             let exported = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: snapshot,
                 outputURL: output, provenance: .init(workflowName: "exact-zero-native-review", toolVersion: "test",
-                    argv: [cli.path, "genotype", "export"], options: ["phase": phase], defaults: [:], runtimeContext: [:], inputs: []))
+                    argv: ["lungfish-cli", "genotype", "export"], options: ["phase": phase], defaults: [:], runtimeContext: [:], inputs: []))
             XCTAssertTrue(FileManager.default.fileExists(atPath: exported.receiptURL.path))
             try runPython(python, code: #"""
 import sys

@@ -304,7 +304,7 @@ final class ApplicationExportImportE2ETests: XCTestCase {
 
     private var cliBinaryPath: URL? {
         CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         )
     }
 

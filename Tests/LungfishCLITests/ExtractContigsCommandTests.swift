@@ -10,7 +10,7 @@ import LungfishWorkflow
 final class ExtractContigsCommandTests: XCTestCase {
     private var cliBinaryPath: URL? {
         CLITestBinaryResolver.cliBinaryURL(
-            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         )
     }
 

@@ -60,7 +60,9 @@ public struct LungfishAppIdentity: Equatable, Sendable {
 
     public var isFork: Bool { runtimeNamespace != nil }
     public var effectiveRuntimeNamespace: String? { runtimeNamespace.map { "\($0).\(releaseChannel.rawValue)" } }
-    public var allowsUpstreamLegacyMigration: Bool { !isFork && !isDebug }
+    // The historical root belongs to Preview (and compatible Debug launches).
+    // Stable must not silently adopt its config or legacy database preference.
+    public var allowsUpstreamLegacyMigration: Bool { !isFork && isPreview }
     public var isDebug: Bool { releaseChannel == .debug }
     public var isPreview: Bool { releaseChannel == .preview }
     public var previewCaveat: String? { isPreview ? Self.previewCaveatText : nil }
@@ -100,8 +102,8 @@ public struct LungfishAppIdentity: Equatable, Sendable {
         effectiveRuntimeNamespace.map { "\($0).containers" } ?? (isDebug ? "com.lungfish.debug.containers" : "com.lungfish.containers")
     }
     public var temporaryDirectoryName: String { cacheDirectoryName }
-    public var managedStorageConfigDirectoryName: String { effectiveRuntimeNamespace ?? (isDebug ? "lungfish-debug" : "lungfish") }
-    public var managedStorageDirectoryName: String { effectiveRuntimeNamespace.map { ".\($0)" } ?? (isDebug ? ".lungfish-debug" : ".lungfish") }
+    public var managedStorageConfigDirectoryName: String { effectiveRuntimeNamespace ?? (isDebug ? "lungfish-debug" : (isPreview ? "lungfish" : "lungfish-stable")) }
+    public var managedStorageDirectoryName: String { effectiveRuntimeNamespace.map { ".\($0)" } ?? (isDebug ? ".lungfish-debug" : (isPreview ? ".lungfish" : ".lungfish-stable")) }
     public var keychainService: String { effectiveRuntimeNamespace.map { "\($0).secrets" } ?? (isDebug ? "com.lungfish.secrets.debug" : "com.lungfish.secrets") }
 
     public func nextflowHomeURL(homeDirectory: URL) -> URL {

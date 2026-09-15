@@ -3,6 +3,12 @@
 
 set -euo pipefail
 
+# Resource and loader overrides must not make an incomplete app appear portable.
+unset PACKAGE_RESOURCE_BUNDLE_PATH PACKAGE_RESOURCE_BUNDLE_URL
+for loader_override in ${!DYLD_@}; do
+    unset "$loader_override"
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RELEASE_PYTHON="${LUNGFISH_RELEASE_PYTHON:-python3}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One fail-closed result model for local gates and candidate-bound evidence.
 
-SwiftPM 6.2 emits XCTest xUnit only for --parallel. Serial runs therefore
+SwiftPM emits XCTest xUnit only for --parallel. Serial runs therefore
 require each discovered case's explicit terminal record and the outer suite's
 completion summary. Swift Testing uses its ABI v0 JSON event stream in both
 modes. Unknown/missing output never implies success.
@@ -24,6 +24,11 @@ import sys
 import time
 import unittest
 import xml.etree.ElementTree as ET
+
+RELEASE_DIR = Path(__file__).resolve().parent
+if str(RELEASE_DIR) not in sys.path:
+    sys.path.insert(0, str(RELEASE_DIR))
+from swiftpm_build import build_options
 
 
 class EvidenceError(ValueError):
@@ -301,29 +306,39 @@ def run_swift_gate(args):
     version = command_record(["swift", "--version"], root, directory, "swift-version")
     runtime["swiftVersion"] = (directory / "swift-version.log").read_text().strip()
     runtime["swiftExecutable"] = shutil.which("swift")
-    common = ["swift", "test", "--skip-update"]
-    if "Swift version 6.2.4" in runtime["swiftVersion"]:
-        common += ["-Xswiftc", "-Xfrontend", "-Xswiftc", "-disable-round-trip-debug-types"]
+    sdk = command_record(["xcrun", "--sdk", "macosx", "--show-sdk-path"], root, directory, "sdk-path", split=True)
+    sdk_path = (directory / "sdk-path.log").read_text().strip()
+    runtime["sdkPath"] = sdk_path
     discoveries, attempts, errors = [], [], []
     selection = {"xctest": [], "swift-testing": []}
-    first = command_record([*common, "list", "--disable-swift-testing"], root, directory, "discover-xctest", split=True)
-    discoveries.append(first)
-    second = command_record([*common, "list", "--skip-build", "--disable-xctest", "--event-stream-output-path", str(directory / "discovered-swift-testing.jsonl"), "--event-stream-version", "0"], root, directory, "discover-swift-testing", split=True)
-    discoveries.append(second)
     try:
-        if any(d["exitStatus"] or d.get("intervention") is not None for d in [version, *discoveries]):
-            raise EvidenceError("tool identity or test discovery failed")
-        xctests = (directory / "discover-xctest.log").read_text().splitlines()
-        if any(not re.fullmatch(r"[^\s/]+/[^\s]+", t) for t in xctests):
-            raise EvidenceError("malformed XCTest discovery")
-        if profile:
-            audit(catalog, xctests + sorted(swift_tests(events(directory / "discovered-swift-testing.jsonl"))))
-        selection["xctest"] = selected(xctests, args.filter, args.skip)
-        selection["swift-testing"] = selected(swift_tests(events(directory / "discovered-swift-testing.jsonl")), args.filter, args.skip)
-        if not any(selection.values()):
-            raise EvidenceError("empty test selection")
-    except ValueError as error:
+        if sdk["exitStatus"] or sdk.get("intervention") is not None:
+            raise EvidenceError("macOS SDK selection failed")
+        options = build_options(sdk_path)
+        if os.path.normpath(sdk_path) != sdk_path:
+            raise EvidenceError("selected macOS SDK path is not canonical")
+    except (OSError, TypeError, ValueError) as error:
         errors.append(str(error))
+    if not errors:
+        common = ["swift", "test", "--skip-update", *options]
+        first = command_record([*common, "list", "--disable-swift-testing"], root, directory, "discover-xctest", split=True)
+        discoveries.append(first)
+        second = command_record([*common, "list", "--skip-build", "--disable-xctest", "--event-stream-output-path", str(directory / "discovered-swift-testing.jsonl"), "--event-stream-version", "0"], root, directory, "discover-swift-testing", split=True)
+        discoveries.append(second)
+        try:
+            if any(d["exitStatus"] or d.get("intervention") is not None for d in [version, *discoveries]):
+                raise EvidenceError("tool identity or test discovery failed")
+            xctests = (directory / "discover-xctest.log").read_text().splitlines()
+            if any(not re.fullmatch(r"[^\s/]+/[^\s]+", t) for t in xctests):
+                raise EvidenceError("malformed XCTest discovery")
+            if profile:
+                audit(catalog, xctests + sorted(swift_tests(events(directory / "discovered-swift-testing.jsonl"))))
+            selection["xctest"] = selected(xctests, args.filter, args.skip)
+            selection["swift-testing"] = selected(swift_tests(events(directory / "discovered-swift-testing.jsonl")), args.filter, args.skip)
+            if not any(selection.values()):
+                raise EvidenceError("empty test selection")
+        except (EvidenceError, ValueError) as error:
+            errors.append(str(error))
     discovered = directory / "discovered-swift-testing.jsonl"
     if discovered.exists():
         second["files"].append(file_record(discovered, directory))
@@ -361,7 +376,7 @@ def run_swift_gate(args):
     result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,
               "argv": args.gate_argv[1:] if args.gate_argv[:1] == ["--"] else args.gate_argv, "startedAt": started, "endedAt": now(),
               "options": {"tier": args.tier, "filter": args.filter, "skip": args.skip, "parallel": args.parallel, "requireTools": args.require_tools},
-              "identityCommand": version, "discovery": discoveries, "attempts": attempts,
+              "identityCommand": version, "sdkCommand": sdk, "discovery": discoveries, "attempts": attempts,
               "errors": errors, "authorized": bool(attempts) and attempts[0]["passed"] and not errors}
     if profile:
         result["options"].update(profile=profile, workers=args.workers)
@@ -420,7 +435,42 @@ def validate_result(result, source):
         if result.get("exitStatus") != 0 or result.get("selected", 0) <= 0 or result.get("selected") != result.get("executed", 0) + result.get("skipped", 0) or result.get("completed") is not True:
             raise EvidenceError("Python gate did not complete its selection")
     elif result.get("kind") == "swift":
-        commands = [result.get("identityCommand", {})] + result.get("discovery", []) + result.get("attempts", [])
+        sdk = result.get("sdkCommand", {})
+        if (sdk.get("argv") != ["xcrun", "--sdk", "macosx", "--show-sdk-path"]
+                or sdk.get("exitStatus") != 0 or sdk.get("intervention") is not None):
+            raise EvidenceError("SDK selection command did not pass")
+        sdk_path = result.get("runtime", {}).get("sdkPath")
+        try:
+            expected_options = build_options(sdk_path)
+            if os.path.normpath(sdk_path) != sdk_path:
+                raise ValueError("selected macOS SDK path is not canonical")
+        except (OSError, TypeError, ValueError) as error:
+            raise EvidenceError("SDK path identity is invalid") from error
+        expected_prefix = ["swift", "test", "--skip-update", *expected_options]
+        forbidden_overrides = {
+            "--sdk", "--swift-sdk", "--experimental-swift-sdk", "--toolset",
+            "--triple", "--arch", "--destination", "-Xlinker", "-Xcc",
+        }
+        forbidden_equals = (*forbidden_overrides, "--build-system", "-Xswiftc")
+        swiftpm_commands = result.get("discovery", []) + result.get("attempts", [])
+        for command in swiftpm_commands:
+            argv = command.get("argv")
+            tail = argv[len(expected_prefix):] if isinstance(argv, list) else []
+            if (
+                not isinstance(argv, list)
+                or argv[:len(expected_prefix)] != expected_prefix
+                or argv.count("--build-system") != 1
+                or argv.count("-Xswiftc") != 4
+                or argv.count(sdk_path) != 1
+                or any(
+                    not isinstance(argument, str)
+                    or argument in forbidden_overrides
+                    or any(argument.startswith(option + "=") for option in forbidden_equals)
+                    for argument in tail
+                )
+            ):
+                raise EvidenceError("SwiftPM gate did not use the selected SDK and swiftbuild options")
+        commands = [result.get("identityCommand", {}), sdk] + swiftpm_commands
         if any(command.get("intervention") is not None for command in commands):
             raise EvidenceError("gate required watchdog intervention")
         attempts = result.get("attempts", [])
@@ -444,9 +494,29 @@ def validate_result(result, source):
 def result_files(result):
     records = list(result.get("files", []))
     records += result.get("identityCommand", {}).get("files", [])
+    records += result.get("sdkCommand", {}).get("files", [])
     for command in result.get("discovery", []) + result.get("attempts", []):
         records += command.get("files", [])
     return records
+
+
+def verify_sdk_stdout(result, result_path):
+    if result.get("kind") != "swift":
+        return
+    records = result.get("sdkCommand", {}).get("files")
+    stdout = [record for record in records if isinstance(record, dict) and record.get("path") == "sdk-path.log"] if isinstance(records, list) else []
+    if len(stdout) != 1:
+        raise EvidenceError("SDK command stdout record is missing or duplicated")
+    directory = result_path.parent
+    path = directory / "sdk-path.log"
+    try:
+        if file_record(path, directory) != stdout[0]:
+            raise EvidenceError("SDK command stdout record differs from retained bytes")
+        output = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise EvidenceError("SDK command stdout is unreadable") from error
+    if output != result.get("runtime", {}).get("sdkPath", "") + "\n":
+        raise EvidenceError("SDK command stdout differs from runtime SDK path")
 
 
 def canonical_profile_options(profile, require_tools=False):
@@ -598,6 +668,7 @@ def verify_manifest(path, digest, source, channel, contract):
             relative = (result_path.parent / item["path"]).relative_to(root).as_posix()
             if files.get(relative) != {**item, "path": relative}:
                 raise EvidenceError("gate log is not bound to manifest")
+        verify_sdk_stdout(result, result_path)
         results.append(result)
     expected = [("python-unittest", {"modules": list(contract.gates.focusedReleaseTests)})]
     expected += [("swift", canonical_tier_options(step.tier, step.requireTools)) for step in contract.gates.for_channel(channel)]

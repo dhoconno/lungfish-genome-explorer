@@ -132,6 +132,9 @@ def check_app(app: Path, contract, runner=subprocess.run):
             (root / name).mkdir()
         environment = {**os.environ, 'HOME': str(root / 'home'), 'CFFIXED_USER_HOME': str(root / 'home'),
                        'TMPDIR': str(root / 'tmp'), 'LUNGFISH_STORAGE_ROOT': str(root / 'storage')}
+        for key in list(environment):
+            if key.startswith('DYLD_') or key in ('PACKAGE_RESOURCE_BUNDLE_PATH', 'PACKAGE_RESOURCE_BUNDLE_URL'):
+                environment.pop(key)
         for arguments, expected in [(['--version'], version), (['debug', 'resource-smoke'], 'debug-resource-smoke-ok')]:
             result = runner([str(cli), *arguments], cwd=root, env=environment, capture_output=True,
                             text=True, timeout=45, check=False)
