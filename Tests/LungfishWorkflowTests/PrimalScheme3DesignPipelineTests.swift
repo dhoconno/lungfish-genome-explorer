@@ -280,10 +280,20 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
             selectionAlgorithm: .alleleCoverage,
             alleleOptions: .init(variantSelection: "full-cloud", subsetBeamWidth: 8)))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .alleleCoverage, coverageTarget: 0))
         XCTAssertNoThrow(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
             grouping: .combined, options: .init(ampliconSize: 200, poolCount: 2,
                 ampliconSizeMinimum: 150, ampliconSizeMaximum: 250,
                 selectionAlgorithm: .alleleCoverage)))
+    }
+
+    func testAlleleSalvageDefaultsFollowRequestedMaximumStageAndStrictTierIsAllowedWhenOff() throws {
+        let bounded = PrimalScheme3AlleleOptions(salvage: "bounded", salvageMaxStages: 1)
+        XCTAssertEqual(bounded.salvageThresholds, [-28])
+        XCTAssertNoThrow(try bounded.validate())
+        let strict = PrimalScheme3AlleleOptions(salvage: "off", primaryTier: "strict")
+        XCTAssertNoThrow(try strict.validate())
     }
 
     func testCoverageRequiresCombinedEqualExplicitBoundsAndValidSelectorNumbers() {

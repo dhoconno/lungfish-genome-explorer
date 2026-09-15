@@ -81,8 +81,9 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         self.subsetExpansionLimit = subsetExpansionLimit ?? 256
         self.exchangeWidth = exchangeWidth ?? 2
         self.salvage = salvage ?? "off"
-        self.salvageThresholds = salvageThresholds ?? [-28, -30, -32]
         self.salvageMaxStages = salvageMaxStages ?? 3
+        self.salvageThresholds = salvageThresholds
+            ?? Array([-28, -30, -32].prefix(max(0, min(3, self.salvageMaxStages))))
         self.salvageMaxEdgesPerPool = salvageMaxEdgesPerPool ?? 8
         self.salvageMaxOligosPerPool = salvageMaxOligosPerPool ?? 4
         self.salvageTimeLimit = salvageTimeLimit ?? 60
@@ -179,7 +180,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
             prior = threshold
         }
         let salvageControls = ["salvageThresholds", "salvageMaxStages", "salvageMaxEdgesPerPool",
-                               "salvageMaxOligosPerPool", "salvageTimeLimit", "primaryTier"]
+                               "salvageMaxOligosPerPool", "salvageTimeLimit"]
         if salvage == "off", salvageControls.contains(where: requestedOptionNames.contains) {
             throw PrimalScheme3DesignError.invalidRequest("Salvage controls require --salvage bounded.")
         }

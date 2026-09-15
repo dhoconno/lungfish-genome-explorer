@@ -316,6 +316,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             } else {
                 try options.alleleOptions.validate()
                 guard options.coverageMetric == .observedAllelePrimerTrimmed,
+                      options.coverageTarget > 0,
                       options.terminalGapPolicy == .observedOnly, options.dimerScore == -26,
                       !options.highGC, !options.backtrack, !options.ignoreN,
                       options.requestedAmpliconSizeMinimum != nil,
