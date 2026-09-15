@@ -405,6 +405,17 @@ final class PrimalScheme3PublicationTests: XCTestCase {
       XCTFail("Expected failed execution")
     } catch { XCTAssertTrue(error.localizedDescription.contains("status 1"), error.localizedDescription) }
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    let failures = try FileManager.default.contentsOfDirectory(at: fixture.destination.deletingLastPathComponent(),
+      includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(fixture.destination.lastPathComponent + ".failure") }
+    XCTAssertEqual(failures.count, 2)
+    for failure in failures {
+      let receipt = failure.appendingPathComponent("failure-provenance.json")
+      let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any])
+      XCTAssertTrue(["failed", "cancelled"].contains(object["status"] as? String))
+      XCTAssertFalse(try XCTUnwrap(object["argv"] as? [String]).isEmpty)
+      XCTAssertNotNil(object["wallTimeSeconds"] as? Double)
+      XCTAssertNotNil(object["retainedFiles"] as? [[String: Any]])
+    }
   }
 
   func testWrongNativePolicyCannotPublishAsMissingAware() async throws {

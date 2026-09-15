@@ -274,6 +274,9 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
             ampliconSizeMinimum: 150, selectionAlgorithm: .alleleCoverage))
         rejected(.init(ampliconSize: 200, poolCount: 2, dimerScore: -28,
             ampliconSizeMinimum: 150, selectionAlgorithm: .alleleCoverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, minOverlap: 50,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 250,
+            selectionAlgorithm: .alleleCoverage))
         rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
             selectionAlgorithm: .alleleCoverage,
             alleleOptions: .init(salvage: "off", salvageMaxStages: 2)))

@@ -222,11 +222,14 @@ struct PrimalScheme3Execution: Sendable {
     var executableSHA256: String? = nil
     var runtimeEvidence: [String: Data] = [:]
     var capabilitiesJSON: Data? = nil
+    var auditValidationJSON: Data? = nil
+    var auditProvenanceJSON: Data? = nil
 }
 
 public struct PrimalScheme3DesignPipeline: Sendable {
     public static let toolVersion = "3.3.0+lge.2"
     public static let coverageToolVersion = "3.3.0+lge.3"
+    public static let alleleToolVersion = "3.3.0+lge.4"
     public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
     public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
     /// Raw nucleotide FASTA suffixes accepted as one-row or already-aligned inputs.
@@ -427,10 +430,12 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
         defer { runtimeLease?.release() }
         progress?(0.05, "Validating sequence or alignment inputs")
+        let workflowStartedAt = Date()
         let scratch = destination.deletingLastPathComponent().appendingPathComponent(
             ".primalscheme3-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: scratch) }
+        do {
         var artifacts: [PrimerAnalysisSourceArtifact] = []
         var inputs: [Input] = []
         for (inputIndex, url) in request.inputURLs.enumerated() {
@@ -544,21 +549,40 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                                                   selectionAlgorithm: request.options.selectionAlgorithm,
                                                   terminalGapPolicy: request.options.terminalGapPolicy,
                                                   managedEnvironmentURL: runtimeLease?.environmentURL))
+            let attemptLogs = scratch.appendingPathComponent("logs/\(resultID.uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: attemptLogs, withIntermediateDirectories: true)
+            let runtimeData = try JSONEncoder().encode(executed.runtime)
+            let attempt: [String: Any] = [
+                "argv": executed.argv, "stdout": executed.stdout, "stderr": executed.stderr,
+                "exitStatus": executed.exitStatus, "toolVersion": executed.version,
+                "startedAt": ISO8601DateFormatter().string(from: executed.startedAt),
+                "endedAt": ISO8601DateFormatter().string(from: executed.endedAt),
+                "runtime": try JSONSerialization.jsonObject(with: runtimeData)
+            ]
+            try JSONSerialization.data(withJSONObject: attempt, options: [.prettyPrinted, .sortedKeys])
+                .write(to: attemptLogs.appendingPathComponent("native-execution-attempt.json"),
+                       options: .withoutOverwriting)
             try Task.checkCancellation()
             guard executed.exitStatus == 0 else {
                 throw PrimalScheme3DesignError.executionFailed(executed.exitStatus, executed.stderr)
             }
-            let supportedVersion = request.options.selectionAlgorithm == .coverage
-                ? executed.version == Self.coverageToolVersion
-                : [Self.toolVersion, Self.coverageToolVersion].contains(executed.version)
+            let supportedVersion: Bool
+            switch request.options.selectionAlgorithm {
+            case .coverage: supportedVersion = executed.version == Self.coverageToolVersion
+            case .alleleCoverage: supportedVersion = executed.version == Self.alleleToolVersion
+            case .legacy: supportedVersion = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion].contains(executed.version)
+            }
             guard supportedVersion, !executed.argv.isEmpty else {
                 throw PrimalScheme3DesignError.invalidRequest("The executed tool did not report the verified PrimalScheme3-LGE custom fork identity.")
             }
-            let capabilities = request.options.selectionAlgorithm == .coverage
+            let capabilityData = executed.capabilitiesJSON
+            let coverageCapabilities = request.options.selectionAlgorithm == .coverage
                 ? try PrimalScheme3CoverageContract.validateCapabilities(
-                    executed.capabilitiesJSON ?? { throw PrimalScheme3DesignError.invalidRequest("Coverage capability evidence is missing from the executable probe.") }(),
-                    terminalPolicy: request.options.terminalGapPolicy)
-                : nil
+                    capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Coverage capability evidence is missing from the executable probe.") }(),
+                    terminalPolicy: request.options.terminalGapPolicy) : nil
+            let alleleCapabilities = request.options.selectionAlgorithm == .alleleCoverage
+                ? try PrimalScheme3AlleleContract.validateCapabilities(
+                    capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }()) : nil
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
@@ -586,10 +610,17 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                   FileManager.default.fileExists(atPath: output.appendingPathComponent("reference.fasta").path) else {
                 throw PrimalScheme3DesignError.invalidRequest("Native primer.bed or reference.fasta output is missing.")
             }
-            if let capabilities {
+            if let capabilities = coverageCapabilities {
                 try PrimalScheme3CoverageContract.validateNativeOutput(
                     at: output, configuration: configuration, capabilities: capabilities,
                     options: request.options, inputCount: group.count, executedArgv: executed.argv)
+            }
+            if let capabilities = alleleCapabilities {
+                try PrimalScheme3AlleleContract.validateNativeOutput(
+                    at: output, configuration: configuration, capabilities: capabilities,
+                    options: request.options, inputCount: group.count, executedArgv: executed.argv,
+                    auditValidation: executed.auditValidationJSON,
+                    auditProvenance: executed.auditProvenanceJSON)
             }
             let files = try Self.regularFiles(in: output)
             var resultPaths: [String] = []
@@ -673,7 +704,10 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             // LGE derives the ordering worksheet; it is not an engine-native output.
             let orderStarted = Date()
             let bedURL = output.appendingPathComponent("primer.bed")
-            let orderURL = output.appendingPathComponent(PrimalSchemeOrderSheet.filename)
+            let orderURL = request.options.selectionAlgorithm == .alleleCoverage
+                ? scratch.appendingPathComponent("derived/\(resultID.uuidString)/\(PrimalSchemeOrderSheet.filename)")
+                : output.appendingPathComponent(PrimalSchemeOrderSheet.filename)
+            try FileManager.default.createDirectory(at: orderURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try PrimalSchemeOrderSheet.csv(fromBED: Data(contentsOf: bedURL))
                 .write(to: orderURL, options: .withoutOverwriting)
             let orderPath = Self.relative(orderURL, to: scratch)
@@ -710,6 +744,17 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             results: results, artifacts: artifacts, destinationURL: destination, invocation: request.invocation))
         progress?(1, "Saved PrimalScheme analysis")
         return bundle.url
+        } catch {
+            do {
+                try Self.retainFailureArtifact(scratch: scratch, destination: destination,
+                    request: request, startedAt: workflowStartedAt, error: error)
+                try? FileManager.default.removeItem(at: scratch)
+            } catch let retentionError {
+                throw PrimalScheme3DesignError.invalidRequest(
+                    "\(error.localizedDescription) Failure evidence could not be retained: \(retentionError.localizedDescription)")
+            }
+            throw error
+        }
     }
 
     private static func execute(_ command: PrimalScheme3Command) async throws -> PrimalScheme3Execution {
@@ -744,21 +789,27 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         let executableHash = try ProvenanceFileHasher.sha256(of: executable)
         let native = NativeToolRunner()
-        let probeArguments = command.selectionAlgorithm == .coverage ? ["--capabilities-json"] : ["--version"]
+        let probeArguments = command.selectionAlgorithm == .legacy ? ["--version"] : ["--capabilities-json"]
         let probe = try await native.runProcess(executableURL: executable, arguments: probeArguments,
                                                 workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
         let capabilitiesJSON: Data?
         let executedVersion: String
-        if command.selectionAlgorithm == .coverage {
+        if command.selectionAlgorithm != .legacy {
             guard probe.exitCode == 0, let data = probe.stdout.data(using: .utf8) else {
-                throw PrimalScheme3DesignError.invalidRequest("Coverage requires a verified PrimalScheme3-LGE lge.3 executable. Pass --primalscheme3-path /path/to/primalscheme3.")
+                throw PrimalScheme3DesignError.invalidRequest("Coverage selection requires a verified PrimalScheme3-LGE executable. Pass --primalscheme3-path /path/to/primalscheme3.")
             }
-            _ = try PrimalScheme3CoverageContract.validateCapabilities(data, terminalPolicy: command.terminalGapPolicy)
+            if command.selectionAlgorithm == .coverage {
+                _ = try PrimalScheme3CoverageContract.validateCapabilities(data, terminalPolicy: command.terminalGapPolicy)
+                executedVersion = Self.coverageToolVersion
+            } else {
+                _ = try PrimalScheme3AlleleContract.validateCapabilities(data)
+                executedVersion = Self.alleleToolVersion
+            }
             capabilitiesJSON = data
-            executedVersion = Self.coverageToolVersion
         } else {
             let reported = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            let accepted = [Self.toolVersion, Self.coverageToolVersion].first { reported == "PrimalScheme3-LGE version: \($0)" }
+            let accepted = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion]
+                .first { reported == "PrimalScheme3-LGE version: \($0)" }
             guard probe.exitCode == 0, let accepted else {
                 throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2 or lge.3; stock PrimalScheme3 is not interchangeable with this fork.")
             }
@@ -768,7 +819,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             capabilitiesJSON = nil
             executedVersion = accepted
         }
-        runtimeEvidence[command.selectionAlgorithm == .coverage ? "capabilities-probe.json" : "version-probe.json"] = try JSONSerialization.data(withJSONObject: [
+        runtimeEvidence[command.selectionAlgorithm == .legacy ? "version-probe.json" : "capabilities-probe.json"] = try JSONSerialization.data(withJSONObject: [
             "argv": probe.arguments, "stdout": probe.stdout, "stderr": probe.stderr, "exitStatus": probe.exitCode
         ], options: [.prettyPrinted, .sortedKeys])
         if let capabilitiesJSON { runtimeEvidence["capabilities.json"] = capabilitiesJSON }
@@ -776,6 +827,32 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         let start = Date()
         let result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
             workingDirectory: command.workingDirectory, environment: environment, timeout: 86400, toolName: Self.toolDisplayName)
+        var auditValidationJSON: Data?
+        var auditProvenanceJSON: Data?
+        if command.selectionAlgorithm == .alleleCoverage, result.exitCode == 0 {
+            guard let outputIndex = command.arguments.firstIndex(of: "--output"), outputIndex + 1 < command.arguments.count else {
+                throw PrimalScheme3DesignError.invalidRequest("The native allele command has no output path to audit.")
+            }
+            let nativeOutput = URL(fileURLWithPath: command.arguments[outputIndex + 1])
+            let auditParent = command.workingDirectory.appendingPathComponent("native-audit", isDirectory: true)
+            try FileManager.default.createDirectory(at: auditParent, withIntermediateDirectories: true)
+            let auditOutput = auditParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let audit = try await native.runProcess(executableURL: executable,
+                arguments: ["panel-audit", "--bundle", nativeOutput.path, "--output", auditOutput.path],
+                workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                toolName: "\(Self.toolDisplayName) panel-audit")
+            guard audit.exitCode == 0 else {
+                throw PrimalScheme3DesignError.executionFailed(audit.exitCode, audit.stderr)
+            }
+            auditValidationJSON = try Data(contentsOf: auditOutput.appendingPathComponent("validation.json"))
+            auditProvenanceJSON = try Data(contentsOf: auditOutput.appendingPathComponent("provenance.json"))
+            runtimeEvidence["panel-audit-validation.json"] = auditValidationJSON
+            runtimeEvidence["panel-audit-provenance.json"] = auditProvenanceJSON
+            runtimeEvidence["panel-audit-execution.json"] = try JSONSerialization.data(withJSONObject: [
+                "argv": audit.arguments, "stdout": audit.stdout, "stderr": audit.stderr,
+                "exitStatus": audit.exitCode
+            ], options: [.prettyPrinted, .sortedKeys])
+        }
         guard try ProvenanceFileHasher.sha256(of: executable) == executableHash else {
             throw PrimalScheme3DesignError.invalidRequest("The executable changed during the run.")
         }
@@ -784,7 +861,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                      condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
                      pluginPack: prefix == nil ? nil : "pcr-primer-design", dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet),
                      startedAt: start, endedAt: Date(), executableSHA256: executableHash,
-                     runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON)
+                     runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON,
+                     auditValidationJSON: auditValidationJSON, auditProvenanceJSON: auditProvenanceJSON)
     }
 
     private static func physicalParent(_ url: URL) throws -> URL {
@@ -822,6 +900,50 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let target = directory ? destination.appendingPathComponent(relative(file, to: source)) : destination
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: file, to: target)
+        }
+    }
+
+    private static func retainFailureArtifact(scratch: URL, destination: URL,
+                                              request: PrimalScheme3DesignRequest,
+                                              startedAt: Date, error: Error) throws {
+        guard FileManager.default.fileExists(atPath: scratch.path) else { return }
+        let parent = destination.deletingLastPathComponent()
+        var failure = parent.appendingPathComponent(destination.lastPathComponent + ".failure", isDirectory: true)
+        if FileManager.default.fileExists(atPath: failure.path) {
+            failure = parent.appendingPathComponent(destination.lastPathComponent + ".failure-" + UUID().uuidString,
+                                                     isDirectory: true)
+        }
+        let staging = parent.appendingPathComponent("." + failure.lastPathComponent + ".staging-" + UUID().uuidString,
+                                                   isDirectory: true)
+        try FileManager.default.copyItem(at: scratch, to: staging)
+        do {
+            let finishedAt = Date()
+            let files = try regularFiles(in: staging).map { file -> [String: Any] in
+                ["path": relative(file, to: staging), "sha256": try ProvenanceFileHasher.sha256(of: file),
+                 "size": try ProvenanceFileHasher.fileSize(of: file)]
+            }
+            let optionsData = try JSONEncoder().encode(request.options.provenanceOptions)
+            let options = try JSONSerialization.jsonObject(with: optionsData)
+            let runtimeData = try JSONEncoder().encode(request.invocation.runtimeIdentity)
+            let runtime = try JSONSerialization.jsonObject(with: runtimeData)
+            let record: [String: Any] = [
+                "schemaVersion": 1, "workflow": "lungfish.primalscheme3.design",
+                "workflowVersion": "1", "status": error is CancellationError ? "cancelled" : "failed",
+                "exitStatus": NSNull(), "argv": request.invocation.argv,
+                "reproducibleCommand": request.invocation.argv.map(shellEscape).joined(separator: " "),
+                "startedAt": ISO8601DateFormatter().string(from: startedAt),
+                "endedAt": ISO8601DateFormatter().string(from: finishedAt),
+                "wallTimeSeconds": finishedAt.timeIntervalSince(startedAt),
+                "stderr": error.localizedDescription, "runtime": runtime, "resolvedOptions": options,
+                "requestedDestination": destination.path, "failureArtifact": failure.path,
+                "retainedFiles": files
+            ]
+            try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
+                .write(to: staging.appendingPathComponent("failure-provenance.json"), options: .withoutOverwriting)
+            try FileManager.default.moveItem(at: staging, to: failure)
+        } catch {
+            try? FileManager.default.removeItem(at: staging)
+            throw error
         }
     }
 

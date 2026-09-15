@@ -101,7 +101,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum reference amplicon span, including primer sites. Supplying either bound enables reference-span sizing.") var ampliconSizeMinimum: Int?
         @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum reference amplicon span, including primer sites.") var ampliconSizeMaximum: Int?
         @Option(name: .customLong("pool-count")) var poolCount = 2
-        @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent designs; combined designs require the default 10.") var minOverlap = 10
+        @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent legacy designs; combined designs require the default 10.") var minOverlap = 10
         @Option(name: .customLong("minimum-base-frequency")) var minimumBaseFrequency = 0.0
         @Flag(name: .customLong("high-gc")) var highGC = false
         @Option(name: .customLong("core-count"), help: "CPU workers for custom Python or legacy Rust discovery.") var coreCount = PrimalScheme3DesignOptions.defaultCoreCount
