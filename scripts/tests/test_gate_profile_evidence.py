@@ -44,6 +44,7 @@ class ProfileEvidenceTests(unittest.TestCase):
 class CompletionAccountingTests(unittest.TestCase):
     def analyze_swift(self, kinds):
         identifier = 'ExampleTests.Suite/testFunction()/Tests.swift:1:1'
+        canonical_identifier = 'ExampleTests.Suite/testFunction()'
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'runner.log').write_text('')
@@ -57,7 +58,125 @@ class CompletionAccountingTests(unittest.TestCase):
                     records.append(dict(version=0, kind='event', payload=dict(kind='testStarted', testID='ExampleTests.Suite')))
             (root / 'swift-testing.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
             command = dict(exitStatus=0, files=[gate.file_record(root / 'runner.log', root)])
-            return gate.analyze_attempt(root, command, {'xctest': [], 'swift-testing': [identifier]}, False, False)
+            return gate.analyze_attempt(root, command, {'xctest': [], 'swift-testing': [canonical_identifier]}, False, False)
+
+    def analyze_swift_records(self, records, selection):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'runner.log').write_text('')
+            (root / 'swift-testing.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
+            command = dict(exitStatus=0, files=[gate.file_record(root / 'runner.log', root)])
+            return gate.analyze_attempt(root, command, {'xctest': [], 'swift-testing': selection}, False, False)
+
+    def test_multiple_swift_testing_product_sessions_are_complete_but_malformed_sessions_fail(self):
+        first = 'ExampleTests.First/testOne()/First.swift:1:1'
+        second = 'ExampleTests.Second/testTwo()/Second.swift:2:2'
+        metadata = lambda test: dict(version=0, kind='test', payload=dict(id=test, kind='function'))
+        event = lambda kind, test=None: dict(version=0, kind='event', payload={
+            'kind': kind, **({'testID': test} if test else {})})
+        valid = [
+            metadata(first), event('runStarted'), event('testStarted', first),
+            event('testEnded', first), event('runEnded'),
+            event('runStarted'), event('runEnded'),
+            metadata(second), event('runStarted'), event('testStarted', second),
+            event('testEnded', second), event('runEnded'),
+        ]
+        selection = ['ExampleTests.First/testOne()', 'ExampleTests.Second/testTwo()']
+        self.assertTrue(self.analyze_swift_records(valid, selection)['passed'])
+        suite_skipped = [
+            dict(version=0, kind='test', payload=dict(id='ExampleTests.First', kind='suite')),
+            dict(version=0, kind='test', payload=dict(id='ExampleTests.Second', kind='suite')),
+            event('runStarted'), event('testSkipped', 'ExampleTests.First'),
+            event('testSkipped', 'ExampleTests.Second'), event('runEnded'),
+        ]
+        skipped = self.analyze_swift_records(suite_skipped, selection)
+        self.assertTrue(skipped['passed'])
+        self.assertEqual(skipped['harnesses']['swift-testing']['skipped'], 2)
+        malformed = {
+            'overlap': [event('runStarted'), event('runStarted'), event('runEnded'), event('runEnded')],
+            'orphan': [event('runEnded')],
+            'unfinished': [event('runStarted')],
+            'unfinished-function': [
+                metadata(first), event('runStarted'), event('testStarted', first), event('runEnded'),
+            ],
+            'duplicate-global-function': [
+                metadata(first), event('runStarted'), event('testStarted', first),
+                event('testEnded', first), event('runEnded'), event('runStarted'),
+                event('testStarted', first), event('testEnded', first), event('runEnded'),
+            ],
+            'duplicate-metadata': [
+                metadata(first), metadata(first), event('runStarted'), event('runEnded'),
+            ],
+            'ambiguous-canonical': [
+                metadata(first), metadata('ExampleTests.First/testOne()/Other.swift:9:9'),
+                event('runStarted'), event('runEnded'),
+            ],
+        }
+        for name, events in malformed.items():
+            chosen = ['ExampleTests.First/testOne()'] if name in {
+                'unfinished-function', 'duplicate-global-function', 'duplicate-metadata',
+                'ambiguous-canonical',
+            } else []
+            with self.subTest(name=name):
+                self.assertFalse(self.analyze_swift_records(events, chosen)['passed'])
+        outside_session = {
+            'suite': [
+                dict(version=0, kind='test', payload=dict(id='ExampleTests.First', kind='suite')),
+                event('testStarted', 'ExampleTests.First'), event('runStarted'), event('runEnded'),
+            ],
+            'parameterized-child': [
+                metadata(first), event('testStarted', first + '/Case 1'),
+                event('runStarted'), event('testStarted', first), event('testEnded', first),
+                event('runEnded'),
+            ],
+        }
+        for name, events in outside_session.items():
+            chosen = ['ExampleTests.First/testOne()'] if name == 'parameterized-child' else []
+            with self.subTest(outside=name):
+                result = self.analyze_swift_records(events, chosen)
+                self.assertFalse(result['passed'])
+                self.assertTrue(any('outside a run' in error for error in result['errors']))
+
+    def test_swift_testing_stdout_discovery_is_strict_and_reconciles_event_ids(self):
+        identifier = 'ExampleTests.Suite/NestedSuite/testFunction(argument:)'
+        runtime_identifier = identifier + '/Tests.swift:12:3'
+        warning = ('objc[123]: Class Duplicate is implemented in both /System/A (0x1a) and '
+                   '/System/B (0x2b). This may cause spurious casting failures and mysterious '
+                   'crashes. One of the duplicates must be removed or renamed.')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            log = root / 'discover.log'
+            stream = root / 'discover.jsonl'
+            log.write_text(warning + '\n' + identifier + '\n')
+            stream.write_text('')
+            self.assertEqual(gate.discovered_swift_tests(log, stream), {identifier})
+            stream.write_text(json.dumps({
+                'version': 0, 'kind': 'test',
+                'payload': {'id': runtime_identifier, 'kind': 'function'},
+            }) + '\n')
+            self.assertEqual(gate.discovered_swift_tests(log, stream), {identifier})
+            for bad_log, bad_runtime in (
+                ('arbitrary output\n' + identifier + '\n', runtime_identifier),
+                (identifier + '\n' + identifier + '\n', runtime_identifier),
+                (identifier + '\n', 'ExampleTests.Other/testOther()/Other.swift:1:1'),
+            ):
+                log.write_text(bad_log)
+                stream.write_text(json.dumps({
+                    'version': 0, 'kind': 'test',
+                    'payload': {'id': bad_runtime, 'kind': 'function'},
+                }) + '\n')
+                with self.subTest(log=bad_log, runtime=bad_runtime), self.assertRaises(gate.EvidenceError):
+                    gate.discovered_swift_tests(log, stream)
+            log.write_text(identifier + '\n')
+            stream.write_text(''.join(json.dumps({
+                'version': 0, 'kind': 'test',
+                'payload': {'id': runtime, 'kind': 'function'},
+            }) + '\n' for runtime in (
+                runtime_identifier,
+                identifier + '/Other.swift:99:1',
+            )))
+            with self.assertRaisesRegex(gate.EvidenceError, 'ambiguous'):
+                gate.discovered_swift_tests(log, stream)
 
     def test_swift_ended_without_started_and_duplicate_function_events_fail(self):
         cases = [('runStarted', 'testEnded', 'runEnded'),

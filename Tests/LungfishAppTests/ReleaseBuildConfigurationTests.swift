@@ -676,52 +676,55 @@ struct ReleaseBuildConfigurationTests {
         )
     }
 
-    @Test("Embed lungfish-cli phase signs CLI with hardened runtime")
-    func embedLungfishCLIPhaseSignsCLIWithHardenedRuntime() throws {
+    @Test("Native CLI embed preserves release signing requirements")
+    func nativeCLIEmbedPreservesReleaseSigningRequirements() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let project = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let releaseScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+        let signingPipeline = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/signing_pipeline.py"),
             encoding: .utf8
         )
 
         #expect(project.contains("Embed lungfish-cli"))
-        #expect(project.contains("EXPANDED_CODE_SIGN_IDENTITY"))
-        #expect(project.contains("codesign --force --sign"))
-        #expect(project.contains("--options runtime"))
-        #expect(project.contains("lungfish-cli.entitlements"))
+        #expect(project.contains("CodeSignOnCopy"))
+        #expect(project.contains(#"CODE_SIGN_ENTITLEMENTS = "lungfish-cli.entitlements";"#))
+        #expect(releaseScript.contains(#"--entitlements "$PROJECT_ROOT/lungfish-cli.entitlements""#))
+        #expect(signingPipeline.contains("if runtime: argv += ['--options', 'runtime']"))
+        #expect(signingPipeline.contains("sign(app / 'Contents/MacOS/lungfish-cli', entitlement=True)"))
     }
 
-    @Test("Embed lungfish-cli phase always refreshes bundled CLI")
-    func embedLungfishCLIPhaseAlwaysRefreshesBundledCLI() throws {
+    @Test("App target rebuilds and embeds the native CLI product")
+    func appTargetRebuildsAndEmbedsNativeCLIProduct() throws {
         let project = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
             encoding: .utf8
         )
 
-        let embedBlock = try Self.buildPhaseBlock(
-            named: "F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */",
-            in: project
-        )
-        #expect(embedBlock.contains("alwaysOutOfDate = 1;"))
-        #expect(embedBlock.contains("--product lungfish-cli"))
-        #expect(embedBlock.contains(".build/xcode-cli"))
-        #expect(embedBlock.contains("install -m 755"))
+        #expect(project.contains("A1C11A000000000000000005 = {isa = PBXBuildFile; fileRef = A1C11A000000000000000006; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };"))
+        #expect(project.contains("A1C11A000000000000000006 = {isa = PBXFileReference; explicitFileType = compiled.mach-o.executable; includeInIndex = 0; path = \"lungfish-cli\"; sourceTree = BUILT_PRODUCTS_DIR; };"))
+        #expect(project.contains("A1C11A00000000000000000C = {isa = PBXTargetDependency; target = A1C11A000000000000000009; targetProxy = A1C11A00000000000000000B; };"))
+        #expect(project.contains("files = (A1C11A000000000000000005, );"))
     }
 
-    @Test("Embed lungfish-cli phase supports scripted release skip override")
-    func embedLungfishCLIPhaseSupportsScriptedReleaseSkipOverride() throws {
+    @Test("Native CLI embed no longer uses a scripted skip gate")
+    func nativeCLIEmbedNoLongerUsesScriptedSkipGate() throws {
         let project = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
             encoding: .utf8
         )
 
-        let embedBlock = try Self.buildPhaseBlock(
-            named: "F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */",
-            in: project
-        )
-        #expect(embedBlock.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI"))
+        #expect(project.contains("F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */ = {"))
+        #expect(project.contains("isa = PBXCopyFilesBuildPhase;"))
+        #expect(project.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI") == false)
     }
 
     @Test("Xcode project compiles every checked-in XCUITest file reference")
@@ -875,28 +878,41 @@ struct ReleaseBuildConfigurationTests {
 
     @Test("Notarized DMG release script archives signs notarizes and staples")
     func notarizedDMGReleaseScriptArchivesSignsNotarizesAndStaples() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let script = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+        let signingPipeline = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/signing_pipeline.py"),
+            encoding: .utf8
+        )
+        let durableNotary = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/durable_notary.py"),
             encoding: .utf8
         )
 
         #expect(script.contains("xcodebuild -project Lungfish.xcodeproj"))
-        #expect(script.contains("--product lungfish-cli"))
         #expect(script.contains("Contents/MacOS/lungfish-cli"))
         #expect(script.contains("WORKFLOW_TOOLS_DIR"))
-        #expect(script.contains("notarytool submit"))
-        #expect(script.contains("stapler staple"))
-        #expect(script.contains("hdiutil create"))
+        #expect(script.contains("scripts/release/signing_pipeline.py"))
+        #expect(signingPipeline.contains("'/usr/bin/codesign'"))
+        #expect(signingPipeline.contains("'stapler', 'staple'"))
+        #expect(signingPipeline.contains("'/usr/bin/hdiutil', 'create'"))
+        #expect(durableNotary.contains("'notarytool', 'submit'"))
         #expect(script.contains("DMG_PATH"))
         #expect(script.contains("release-metadata.txt"))
     }
 
-    @Test("Notarized DMG release script installs app icon before signing and DMG staging")
-    func notarizedDMGReleaseScriptInstallsAppIconBeforeSigningAndDMGStaging() throws {
+    @Test("Notarized DMG release script installs app icon before delegated signing and DMG staging")
+    func notarizedDMGReleaseScriptInstallsAppIconBeforeDelegatedSigningAndDMGStaging() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let script = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+        let signingPipeline = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/signing_pipeline.py"),
             encoding: .utf8
         )
 
@@ -906,48 +922,34 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains(#"Set :CFBundleIconFile AppIcon"#))
         #expect(script.contains(#"Set :CFBundleIconName AppIcon"#))
 
-        let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let installIndex = lines.firstIndex(where: {
-            $0.contains(#"/usr/bin/install -m 644 "$APP_ICON_SOURCE" "$APP_ICON_DEST""#)
-        }) else {
-            Issue.record("expected AppIcon.icns installation in release script")
+        guard let installCall = script.range(of: "    install_app_icon\n"),
+              let signingPipelineCall = script.range(of: #"scripts/release/signing_pipeline.py"#)
+        else {
+            Issue.record("expected icon installation before the delegated signing pipeline")
             return
         }
 
-        guard let firstCodesignIndex = lines.firstIndex(where: {
-            $0.contains(#"/usr/bin/codesign --force --sign "$SIGNING_IDENTITY""#)
-        }) else {
-            Issue.record("expected codesign invocation in release script")
-            return
-        }
-
-        guard let dmgStageIndex = lines.firstIndex(where: {
-            $0.contains(#"/usr/bin/ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}""#)
-        }) else {
-            Issue.record("expected DMG staging copy in release script")
-            return
-        }
-
-        #expect(installIndex < firstCodesignIndex)
-        #expect(installIndex < dmgStageIndex)
+        #expect(installCall.lowerBound < signingPipelineCall.lowerBound)
+        #expect(signingPipeline.contains("'copy-unsigned-app'"))
+        #expect(signingPipeline.contains("'stage-dmg-app'"))
     }
 
     @Test("Notarized DMG release script signs outer app with app entitlements")
     func notarizedDMGReleaseScriptSignsOuterAppWithAppEntitlements() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let script = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+        let signingPipeline = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/signing_pipeline.py"),
             encoding: .utf8
         )
 
-        guard let appSigningBlock = Self.commandBlock(containing: #""$APP_PATH""#, in: script) else {
-            Issue.record("expected outer app codesign block in release script")
-            return
-        }
-
-        #expect(appSigningBlock.contains(#"--entitlements "${PROJECT_ROOT}/lungfish-cli.entitlements""#))
-        #expect(appSigningBlock.contains("--generate-entitlement-der"))
-        #expect(appSigningBlock.contains(#""$APP_PATH""#))
+        #expect(script.contains(#"--entitlements "$PROJECT_ROOT/lungfish-cli.entitlements""#))
+        #expect(signingPipeline.contains("if entitlement: argv += ['--entitlements', str(entitlements)]"))
+        #expect(signingPipeline.contains("'--generate-entitlement-der'"))
+        #expect(signingPipeline.contains("sign(app, entitlement=True)"))
     }
 
     @Test("Shared Info.plist declares Lungfish workflow bundle type")
@@ -1069,16 +1071,21 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("DMG_PATH=$(relative_to_project_root \"$DMG_PATH\")"))
     }
 
-    @Test("Notarized DMG release script disables duplicate Xcode CLI embed and sanitize phases")
-    func notarizedDMGReleaseScriptDisablesDuplicateXcodeCLIEmbedAndSanitizePhases() throws {
+    @Test("Notarized DMG release script disables duplicate Xcode sanitization after native CLI embed")
+    func notarizedDMGReleaseScriptDisablesDuplicateXcodeSanitizationAfterNativeCLIEmbed() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let script = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
             encoding: .utf8
         )
 
-        #expect(script.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1"))
         #expect(script.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1"))
+        #expect(script.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI") == false)
+        #expect(project.contains("A1C11A00000000000000000C /* LungfishCLIExecutable */"))
     }
 
     @Test("Notarized DMG release script sanitizes embedded CLI before signing")
@@ -1095,16 +1102,16 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("--adhoc-seal"))
         let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
         guard let sanitizeIndex = lines.firstIndex(where: { $0.contains(sanitizeMarker) }),
-              let codesignIndex = lines.enumerated().first(where: { index, line in
+              let signingPipelineIndex = lines.enumerated().first(where: { index, line in
                   index > sanitizeIndex
-                      && line.contains(#"/usr/bin/codesign --force --sign "$SIGNING_IDENTITY""#)
+                      && line.contains("scripts/release/signing_pipeline.py")
               })?.offset
         else {
-            Issue.record("expected CLI sanitizer to run before CLI codesign")
+            Issue.record("expected CLI sanitizer to run before the signing pipeline")
             return
         }
 
-        #expect(sanitizeIndex < codesignIndex)
+        #expect(sanitizeIndex < signingPipelineIndex)
     }
 
     @Test("Notarized DMG release script no longer removes aligns_to")
@@ -1130,16 +1137,16 @@ struct ReleaseBuildConfigurationTests {
         let scanMarker = #"scripts/smoke-test-release-tools.sh "$APP_PATH" \"#
         let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
         guard let scanIndex = lines.firstIndex(where: { $0.contains(scanMarker) }),
-              let codesignIndex = lines.enumerated().first(where: { _, line in
-                  line.contains(#"/usr/bin/codesign --force --sign "$SIGNING_IDENTITY""#)
+              let signingPipelineIndex = lines.enumerated().first(where: { _, line in
+                  line.contains("scripts/release/signing_pipeline.py")
               })?.offset
         else {
-            Issue.record("expected pre-sign portability scan before first codesign")
+            Issue.record("expected portability scan before the signing pipeline")
             return
         }
 
         #expect(script.contains("--portability-only"))
-        #expect(scanIndex < codesignIndex)
+        #expect(scanIndex < signingPipelineIndex)
     }
 
     @Test("Notarized DMG release script omits JRE launcher entitlements")
@@ -1273,40 +1280,50 @@ struct ReleaseBuildConfigurationTests {
         #expect(entries.contains { $0.hasPrefix("openpyxl==") })
     }
 
-    @Test("CI fast gate runs scientific CLI provenance coverage")
-    func ciFastGateRunsScientificCLIProvenanceCoverage() throws {
-        let workflow = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent(".github/workflows/ci.yml"),
+    @Test("Canonical Swift smoke tier runs scientific CLI provenance coverage")
+    func canonicalSwiftSmokeTierRunsScientificCLIProvenanceCoverage() throws {
+        let gate = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent("scripts/full-suite-gate.sh"),
             encoding: .utf8
         )
 
-        #expect(workflow.contains("ScientificCLIProvenanceCoverageTests"))
+        #expect(gate.contains("SMOKE_FILTER="))
+        #expect(gate.contains("LungfishCLITests\\.ScientificCLIProvenanceCoverageTests"))
+        #expect(gate.contains(#"smoke)        FILTER="$SMOKE_FILTER" ;;"#))
     }
 
-    @Test("CI fast gate runs native scientific provenance policy coverage")
-    func ciFastGateRunsNativeScientificProvenancePolicyCoverage() throws {
-        let workflow = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent(".github/workflows/ci.yml"),
+    @Test("Canonical Swift smoke tier runs native scientific provenance policy coverage")
+    func canonicalSwiftSmokeTierRunsNativeScientificProvenancePolicyCoverage() throws {
+        let gate = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent("scripts/full-suite-gate.sh"),
             encoding: .utf8
         )
 
-        #expect(workflow.contains("ScientificProvenancePolicyTests"))
+        #expect(gate.contains("SMOKE_FILTER="))
+        #expect(gate.contains("LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)"))
+        #expect(gate.contains(#"smoke)        FILTER="$SMOKE_FILTER" ;;"#))
     }
 
-    @Test("CI fast gate builds the Xcode project path used for release packaging")
-    func ciFastGateBuildsXcodeProjectPathUsedForReleasePackaging() throws {
+    @Test("CI fast gate runs bounded Swift behavior with compiler failure control and retained evidence")
+    func ciFastGateRunsBoundedSwiftBehaviorWithCompilerFailureControlAndRetainedEvidence() throws {
+        let repositoryRoot = Self.repositoryRoot()
         let workflow = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent(".github/workflows/ci.yml"),
+            contentsOf: repositoryRoot.appendingPathComponent(".github/workflows/ci.yml"),
+            encoding: .utf8
+        )
+        let smoke = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/ci-swift-smoke.py"),
             encoding: .utf8
         )
 
-        #expect(workflow.contains("xcodebuild -project Lungfish.xcodeproj -scheme Lungfish"))
-        #expect(workflow.contains("CODE_SIGNING_ALLOWED=NO"))
-        #expect(workflow.contains("LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1"))
-        #expect(workflow.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1"))
+        #expect(workflow.contains("scripts/ci-swift-smoke.py --compile-error-control --output .build/ci-swift-smoke"))
+        #expect(workflow.contains("name: automatic-swift-evidence"))
+        #expect(workflow.contains("path: .build/ci-swift-smoke"))
+        #expect(smoke.contains("Sources/LungfishCore/Models/SequenceLengthStatistics.swift"))
+        #expect(smoke.contains("DeliberateCompilerError.swift"))
+        #expect(smoke.contains("negative[\"exitStatus\"] <= 0"))
+        #expect(smoke.contains(#"command([str(binary)], "behavior")"#))
+        #expect(smoke.contains(#"report["executedChecks"]"#))
     }
 
     @Test("Release authority files are tracked")
@@ -1583,33 +1600,6 @@ struct ReleaseBuildConfigurationTests {
             files.append(String(path.dropFirst(repositoryPath.count)))
         }
         return files.sorted()
-    }
-
-    private static func commandBlock(containing marker: String, in script: String) -> String? {
-        let lines = script.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        var index = lines.startIndex
-        while index < lines.endIndex {
-            let line = lines[index]
-            guard line.contains("/usr/bin/codesign ") else {
-                index = lines.index(after: index)
-                continue
-            }
-
-            var block = [line]
-            var cursor = index
-            while lines[cursor].trimmingCharacters(in: .whitespaces).hasSuffix("\\") {
-                cursor = lines.index(after: cursor)
-                guard cursor < lines.endIndex else { break }
-                block.append(lines[cursor])
-            }
-
-            let joined = block.joined(separator: "\n")
-            if joined.contains(marker) {
-                return joined
-            }
-            index = lines.index(after: cursor)
-        }
-        return nil
     }
 
     private static func makeExecutable(_ url: URL) throws {

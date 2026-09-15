@@ -158,7 +158,51 @@ def swift_tests(records):
     tests = [r["payload"].get("id") for r in records if r["kind"] == "test" and r["payload"].get("kind") == "function"]
     if any(not isinstance(test, str) or not test for test in tests):
         raise EvidenceError("Swift Testing function identity is malformed")
+    if len(tests) != len(set(tests)):
+        raise EvidenceError("duplicate Swift Testing function metadata")
     return set(tests)
+
+
+SWIFT_TEST_NAME = re.compile(r"^[^\s/]+(?:/[^\s/]+)+\([^/\r\n]*\)$")
+SWIFT_SOURCE_LOCATION = re.compile(r"/[^/\r\n]+\.swift:[1-9][0-9]*:[1-9][0-9]*$")
+OBJC_DUPLICATE_CLASS = re.compile(
+    r"objc\[[0-9]+\]: Class \S+ is implemented in both .+ \(0x[0-9a-fA-F]+\) and .+ "
+    r"\(0x[0-9a-fA-F]+\)\. This may cause spurious casting failures and mysterious crashes\. "
+    r"One of the duplicates must be removed or renamed\."
+)
+
+
+def canonical_swift_test(test):
+    if not isinstance(test, str):
+        raise EvidenceError("Swift Testing function identity is malformed")
+    location = SWIFT_SOURCE_LOCATION.search(test)
+    canonical = test[:location.start()] if location else test
+    if SWIFT_TEST_NAME.fullmatch(canonical) is None:
+        raise EvidenceError("Swift Testing function identity is malformed")
+    return canonical
+
+
+def discovered_swift_tests(log_path, event_path):
+    try:
+        lines = Path(log_path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise EvidenceError("missing or malformed Swift Testing discovery output") from error
+    discovered = []
+    for line in lines:
+        if SWIFT_TEST_NAME.fullmatch(line):
+            discovered.append(line)
+        elif OBJC_DUPLICATE_CLASS.fullmatch(line) is None:
+            raise EvidenceError("unrecognized Swift Testing discovery output")
+    if len(discovered) != len(set(discovered)):
+        raise EvidenceError("duplicate Swift Testing discovery identifier")
+    event_runtime = swift_tests(events(event_path))
+    event_canonical = [canonical_swift_test(test) for test in event_runtime]
+    if len(event_canonical) != len(set(event_canonical)):
+        raise EvidenceError("Swift Testing discovery runtime identity is ambiguous")
+    event_discovery = set(event_canonical)
+    if event_discovery and event_discovery != set(discovered):
+        raise EvidenceError("Swift Testing discovery outputs disagree")
+    return set(discovered)
 
 
 def selected(tests, include, exclude):
@@ -223,9 +267,25 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
     completion = False
     try:
         records = events(directory / "swift-testing.jsonl")
-        functions = swift_tests(records) | set(selection["swift-testing"])
-        started = set()
-        terminals = set()
+        function_ids = swift_tests(records)
+        runtime_to_canonical = {}
+        canonical_to_runtime = {}
+        for runtime_test in function_ids:
+            canonical_test = canonical_swift_test(runtime_test)
+            if canonical_test in canonical_to_runtime and canonical_to_runtime[canonical_test] != runtime_test:
+                raise EvidenceError("Swift Testing runtime identity is ambiguous")
+            runtime_to_canonical[runtime_test] = canonical_test
+            canonical_to_runtime[canonical_test] = runtime_test
+        selected_functions = set(selection["swift-testing"])
+        unexpected_metadata = set(canonical_to_runtime) - selected_functions
+        if unexpected_metadata:
+            errors.append("Swift Testing executed unexpected functions")
+        suite_ids = {r["payload"].get("id") for r in records
+                     if r["kind"] == "test" and r["payload"].get("kind") == "suite"
+                     and isinstance(r["payload"].get("id"), str)}
+        started, terminals = set(), set()
+        active = False
+        session_started, session_terminals = set(), set()
         run_starts = run_ends = 0
         for r in records:
             if r["kind"] != "event":
@@ -233,38 +293,67 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
             payload = r["payload"]
             kind, test = payload.get("kind"), payload.get("testID")
             if kind == "runStarted":
+                if active:
+                    errors.append("overlapping Swift Testing runs")
+                else:
+                    active = True
+                    session_started, session_terminals = set(), set()
                 run_starts += 1
             elif kind == "runEnded":
+                if not active:
+                    errors.append("Swift Testing run ended without starting")
+                else:
+                    if session_started - session_terminals:
+                        errors.append("Swift Testing run ended with unfinished functions")
+                    active = False
                 run_ends += 1
-            elif kind == "testStarted" and test in functions:
-                if test in started:
-                    errors.append("duplicate Swift Testing function start")
-                if run_starts != 1 or run_ends:
-                    errors.append("Swift Testing function started outside its run")
-                started.add(test)
-            elif kind == "testEnded" and test in functions:
-                if test not in started:
-                    errors.append("Swift Testing function ended without starting")
-                if test in terminals:
-                    errors.append("duplicate Swift Testing function terminal")
-                if run_starts != 1 or run_ends:
-                    errors.append("Swift Testing function ended outside its run")
-                terminals.add(test)
-                completed.add(test)
-            elif kind == "testSkipped":
-                if test in functions:
-                    if test in terminals:
+            elif kind in ("testStarted", "testEnded", "testSkipped"):
+                if not active:
+                    errors.append("Swift Testing function event occurred outside a run")
+                canonical_test = runtime_to_canonical.get(test)
+                if canonical_test is None:
+                    if kind == "testSkipped" and test in suite_ids:
+                        descendants = {selected for selected in selected_functions
+                                       if selected == test or selected.startswith(str(test) + "/")}
+                        if descendants & terminals:
+                            errors.append("duplicate Swift Testing function terminal")
+                        terminals.update(descendants)
+                        session_terminals.update(descendants)
+                        skipped.update(descendants)
+                        continue
+                    if test in suite_ids or any(isinstance(test, str) and test.startswith(runtime + "/") for runtime in function_ids):
+                        continue
+                    errors.append("Swift Testing event has no function or suite metadata")
+                    continue
+                if kind == "testStarted":
+                    if canonical_test in started:
+                        errors.append("duplicate Swift Testing function start")
+                    started.add(canonical_test)
+                    session_started.add(canonical_test)
+                else:
+                    if canonical_test in terminals:
                         errors.append("duplicate Swift Testing function terminal")
-                    terminals.add(test)
-                # A skipped suite covers its selected descendant functions.
-                skipped.update(t for t in selection["swift-testing"] if t == test or t.startswith(str(test) + "/"))
+                    if kind == "testEnded" and canonical_test not in started:
+                        errors.append("Swift Testing function ended without starting")
+                    terminals.add(canonical_test)
+                    session_terminals.add(canonical_test)
+                    if kind == "testEnded":
+                        completed.add(canonical_test)
+                    else:
+                        skipped.add(canonical_test)
             elif kind == "issueRecorded":
+                if not active:
+                    errors.append("Swift Testing issue occurred outside a run")
                 issue = payload.get("issue", {})
                 if not issue.get("isKnown", False) and issue.get("isFailure", issue.get("severity") != "warning"):
-                    failed.add(test or "<run>")
-        completion = run_starts == 1 and run_ends == 1 and not (started - completed - skipped)
-        if started - set(selection["swift-testing"]):
-            errors.append("Swift Testing executed unexpected functions")
+                    failed.add(runtime_to_canonical.get(test, test or "<run>"))
+            elif kind not in (None,):
+                # Other ABI-v0 events are retained but do not change function
+                # completion accounting.
+                continue
+        if active:
+            errors.append("Swift Testing run did not end")
+        completion = run_starts > 0 and run_starts == run_ends and not active and not (started - terminals)
     except EvidenceError as error:
         if selection["swift-testing"] or (directory / "swift-testing.jsonl").exists():
             errors.append(str(error))
@@ -332,9 +421,13 @@ def run_swift_gate(args):
             if any(not re.fullmatch(r"[^\s/]+/[^\s]+", t) for t in xctests):
                 raise EvidenceError("malformed XCTest discovery")
             if profile:
-                audit(catalog, xctests + sorted(swift_tests(events(directory / "discovered-swift-testing.jsonl"))))
+                audit(catalog, xctests + sorted(discovered_swift_tests(
+                    directory / "discover-swift-testing.log",
+                    directory / "discovered-swift-testing.jsonl")))
             selection["xctest"] = selected(xctests, args.filter, args.skip)
-            selection["swift-testing"] = selected(swift_tests(events(directory / "discovered-swift-testing.jsonl")), args.filter, args.skip)
+            selection["swift-testing"] = selected(discovered_swift_tests(
+                directory / "discover-swift-testing.log",
+                directory / "discovered-swift-testing.jsonl"), args.filter, args.skip)
             if not any(selection.values()):
                 raise EvidenceError("empty test selection")
         except (EvidenceError, ValueError) as error:

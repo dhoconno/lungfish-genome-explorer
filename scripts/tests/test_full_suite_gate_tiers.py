@@ -265,6 +265,8 @@ if "list" in args:
         if scenario == "missing_case":
             print("LungfishCoreTests.ExampleTests/testMissing")
     else:
+        if scenario in ("mixed", "swift_partial"):
+            print(test_id.rsplit("/", 1)[0])
         events([metadata] if scenario in ("mixed", "swift_partial") else [])
     sys.exit(0)
 if scenario == "empty":
