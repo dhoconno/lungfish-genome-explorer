@@ -75,6 +75,8 @@ The new mode defaults to `--candidate-profiles union`; `normal` and `high-gc` ar
 
 Do not validate union candidates against a synthetic envelope of all profile limits. Each selected oligo must pass at least one complete declared profile. An oligo may have multiple accepting profiles.
 
+Default enumeration uses `first-compatible-length/row-anchor-v1`: examine lengths within each complete profile in increasing order, retain assessed failures, stop that row/anchor/profile after the first complete individual chemistry pass, and explicitly report unexamined longer lengths. Self dimers are deferred to stage selection. `--discovery-length-mode all` permits exhaustive profile lengths; default is `first-compatible`. Other rows remain independent. The choice controls enumeration, not retrospective deletion of generated candidates.
+
 ### 5.2 Retain variants before cloud rejection
 
 Introduce a variant-preserving discovery path. Current whole-cloud thermo failure, cloud dimer failure, F×R pair dimer failure and longest-member remapping rejection must not erase individually usable members in this path.
@@ -216,6 +218,8 @@ New native mode uses `panel-create --mode equal --selection-algorithm allele-cov
 - `--subset-beam-width 16`, `--subset-expansion-limit 256`, `--exchange-width 2`.
 - `--primary-tier strict|salvage-1|salvage-2|salvage-3` (strict).
 - `--salvage off|bounded` (off); repeated `--salvage-threshold`; `--salvage-max-edges-per-pool 8`; `--salvage-max-oligos-per-pool 4`; `--salvage-time-limit 60`.
+
+Preset and advanced-control policy: expose a named versioned `--preset allele-balanced-v1` for the documented defaults, and allow explicit CLI overrides for target coverage, pool/amplicon bounds and caps, candidate profiles, minimum base frequency, seed/starts/repair rounds, time and deterministic work budgets, subset beam/expansion/exchange limits, specificity terminal k/product bound/secondary-product policy, and salvage ladder/exposure/time/primary tier. Preset values resolve first, explicit options second; provenance records both requested and resolved settings. Reject ignored or incompatible options, including unsupported chemistry overrides. CLI help explains scientific versus compute-cost controls and experimental salvage limits. Do not invent additional presets without benchmark evidence. The strict threshold remains fixed; advanced dimer relaxation uses the recorded salvage controls.
 
 Native CLI and Lungfish CLI must resolve identical scientific settings. Lungfish preserves its existing flag spelling (`--pool-count`, `--core-count`, `--minimum-base-frequency`) and explicitly translates to native flags. Reject incompatible legacy flags. No implicit fallback to managed lge.2 when an explicit new-contract executable is required.
 
