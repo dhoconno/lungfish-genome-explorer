@@ -87,7 +87,7 @@ final class DatabaseSearchXCUITests: XCTestCase {
         robot.bulkSelectionButton.click()
         robot.waitForBulkSelectionLabel("Select all")
         robot.waitForStatusText("Ready")
-        XCTAssertEqual(robot.primaryActionButton.label, "Search")
+        robot.waitForPrimaryActionLabel("Search")
     }
 
     @MainActor
@@ -107,6 +107,6 @@ final class DatabaseSearchXCUITests: XCTestCase {
         robot.bulkSelectionButton.click()
         robot.waitForBulkSelectionLabel("Select all")
         robot.waitForStatusText("Ready")
-        XCTAssertEqual(robot.primaryActionButton.label, "Search")
+        robot.waitForPrimaryActionLabel("Search")
     }
 }
