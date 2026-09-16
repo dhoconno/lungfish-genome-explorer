@@ -1,0 +1,16 @@
+{
+  "status": "terminated_after_graceful_interrupt_timeout",
+  "pid": 24757,
+  "parent_pid": 24746,
+  "source_commit": "7ca64e68690f6e4db5b91f54bfe8a4847c402a62",
+  "output": "/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-union-subsets-02",
+  "signals": [
+    {"signal": "SIGINT", "sent_at": "2026-09-16T11:10:03-05:00", "grace_seconds": 60, "result": "still_running"},
+    {"signal": "SIGTERM", "sent_at": "2026-09-16T11:10:53-05:00", "result": "process_absent_after_5_seconds"}
+  ],
+  "argv": "primalscheme3 panel-create --msa x11 original primary.aligned.fasta inputs --output mhc-union-subsets-02 --mode equal --selection-algorithm allele-coverage --preset allele-balanced-v1 --amplicon-size 200 --amplicon-size-min 150 --amplicon-size-max 250 --n-pools 2 --ncores 4 --min-base-freq 0 --mapping first --terminal-gap-policy observed-only --optimizer-seed 0 --optimizer-starts 4 --optimizer-repair-rounds 2 --optimizer-time-limit 120 --salvage bounded --salvage-time-limit 60 --primary-tier strict --offline-plots",
+  "final_observed_history_sqlite_bytes": 51080085504,
+  "final_observed_history_journal_bytes": 10080624,
+  "root_completion_receipt_observed": false,
+  "provenance_note": "No output or database was deleted, copied, mutated, audited, or restarted. SIGTERM was user-authorized after SIGINT failed to terminate within the bounded grace period."
+}

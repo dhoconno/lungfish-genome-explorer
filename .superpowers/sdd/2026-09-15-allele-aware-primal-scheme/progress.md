@@ -358,6 +358,10 @@ Heartbeat09:04:30Z verifiedsamecoldPID24757/argv. Historygrewfrom50659807232to50
 
 The original frozen-source full11 cold job `mhc-union-subsets-02` (source `7ca64e68690f6e4db5b91f54bfe8a4847c402a62`, old short-120s/default intended + secondary policies) remains active under the original native process; no root completion receipt exists and matrix12 gates have not started. Its finalized strict-stage files at `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-union-subsets-02/stages/strict/stage.json` and `validation.json` were observed at `2026-09-16 06:03:35 -0500`. `validation.json` reports `valid: true`, mean coverage `11.89410429%`, worst target `0`, and no target at the 95% goal. This is stage-only evidence from the old run, not the matrix12 narrow-hour arm, which has not run; the overall native writer remains active.
 
+## Full11 cancellation and runtime diagnosis (Luna, 2026-09-16)
+
+User-authorized cancellation sent SIGINT to native PID 24757 at 11:10:03 -0500; it remained present for 50 seconds, then SIGTERM at 11:10:53 -0500 terminated it within approximately 5 seconds. The hot SQLite journal and all output remain preserved; no native completion receipt exists. Strict and salvage-1 stages were valid but both remained at 11.89410429% mean coverage. Diagnosis and ranked measurement/fix proposals are in `task-cancelled-mhc-runtime-diagnosis.md`; this interrupted v1 run is ineligible for matrix12 audit/cache gates.
+
 ## User cost and stopping policy update (2026-09-16 morning)
 
 User explicitly requests GPT-5.6 Luna for simple job running/benchmarking and simple implementation; reserve Astra sparingly for oversight and consequential algorithm-plan changes. User is away another hour and authorizes autonomous continuation. User accepts stopping below95% when performance plateaus; do not endlessly chase the aspiration. New bounded agent luna_benchmark_runner (GPT-5.6 Luna, low effort) owns routine statecheck→completedcoldverification→preparedmatrix12gates and writes task-luna-benchmark-status.md. Root must not duplicate routine monitoring/benchmark work.
