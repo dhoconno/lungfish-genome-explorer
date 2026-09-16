@@ -318,3 +318,12 @@ Rootread exact ordered3argv and26options, capabilities/kernel/source identities;
 
 
 Final native integrationdelta7fd2906→236e74a approved in native-final-delta-review.md, no newloadbearingfinding. Crossmodulecertificate→rawaudit/cacheidentity/workoptions/progress/labels/historychecked; reviewerexplicitlyreliesonindependentscopedreviews forowncomponents. No newscience/testorliveDBread. Rootreadreport and confirmedupcomingLGEcombinedinputorder isrequest.inputURLs.enumerated→inputs→[inputs], notsorted; original11nativecacheorderpreservablethroughproductionCLI.
+
+
+## Cold checkpoint cost assessment
+
+Bounded readonlyindexedmonitoring verifiedfamilyassembly DQB→DRB→E byjoininglatestfamilygeometry siteID toitsfirstrow-enumeration evidence usingentity_records_lookup+recordsIDindex (LIMIT8,2sdeadline; nolargescan). At02:18lastcommitted24561000/~47.181GiBhistory; later8h40nativealiveCPU11.4%RSS8.78GBsnapshotnotpeak. 1sOSsample/tmp/mhc-cold-checkpoint-sample-01.txt showsSQLiteBtreepread dominance; cannotattributeentireruntime or specificSQLbyOSstackalone.
+
+Astraread-onlyassessment task-full-prefix-checkpoint-assessment.md: currentprefix closure joins logicallyredundantonlyundertrustedvalidatedsinglewriterinvariants; naivecountsequality skips realcorruption rejection, reproducedintinyv1+v2temporaryDBs. RootRuling: defer guardedwriterfastpath (unownedmutation/data_version/total_changes/transaction/failuretrust handling) until separatelyimplemented/reviewedifneeded; no current/frozen codechange. Cost: keepcheckpoint overheadinthiscoldsource; correctnesscontractpreserved. Existingv2integerstorage+64MiBimprovementsalreadyinmatrix11, notanunmeasuredpromiseaboutwholeMHCspeed.
+
+Rootverified selected03bade7c full2569:2815 has5distinctsupportedclasses inretainedselected-configurations.json.gz. Addedpublicexactfive-of-sixexample; otheromittedvarianttesttrialsunchanged.
