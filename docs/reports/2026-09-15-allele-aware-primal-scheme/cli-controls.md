@@ -21,6 +21,8 @@ Repeat `--msa` for each target. Output must be a new directory. Supply the origi
 |---|---|---|
 | `--candidate-profiles` | `union` | `normal` or `high-gc` restricts discovery; union retains profile provenance for shared candidates. |
 | `--variant-selection` | `subsets` | Allows compatible variants to preserve a partially supported amplicon. `full-cloud` requires every eligible variant in a family and is useful as a comparison. |
+| `--coverage-metric` | `observed-allele-primer-trimmed` | Fixed in allele-aware mode. It measures observed concrete bases inside same-row, exact-primer-supported interiors after primer trimming. |
+| `--allele-weighting` | `distinct-observed` | Fixed in allele-aware mode. Duplicate rows remain provenance aliases and do not receive extra objective weight. |
 | `--phase-scheduling` | `serial` | `reserved` gives the initial seed, construction and repair phases 20%, 40% and 40% shares of the remaining optimizer budget, then divides each repair reservation 20%, 20% and 60% among preparation, cleanup and exchange. |
 | `--intended-product-policy` | `exact-supported` | `concrete-designated-sites` permits a nonexact product only when both concrete primer sites are certified on one supplied row for the same designated configuration. Such products receive zero coverage credit. |
 | `--coverage-target` | `0.95` | Changes the objective's deficit penalty; it is an aspiration, not a requirement that discards lower-coverage panels. |
@@ -32,8 +34,9 @@ Repeat `--msa` for each target. Output must be a new directory. Supply the origi
 | `--mispriming-product-size` | `2000` | Upper product length screened on supplied rows; positive inclusive bound. This mode does not permit disabling screening with zero. |
 | `--secondary-product-policy` | `ordered-disjoint-intended-sites` | Keeps the exact ordered-disjoint rule. `reject-secondary-products/v1` rejects secondary products. `ordered-disjoint-concrete-designated-sites/v1` can allow a nonexact secondary product only with a complete four-site certificate. |
 | `--max-amplicons`, `--max-amplicons-msa` | Uncapped | Limits physical design size; caps may reduce achievable coverage. |
+| `--dimer-score` | `-26` | Fixed for the strict allele-aware tier. A different value is rejected; use the explicitly labeled salvage ladder for bounded experimental relaxation. |
 
-The strict dimer cutoff remains −26. The score is the native numerical score, not free energy or a probability. Chemistry is defined by complete versioned profiles; ad hoc temperature/salt overrides are not silently accepted. Both profiles use the same modeled temperature window. That compatibility does not establish laboratory performance.
+The strict dimer cutoff remains −26. The score is the native numerical score, not free energy or a probability. Chemistry is defined by complete versioned profiles; ad hoc temperature/salt overrides are not silently accepted. Both profiles use the same modeled temperature window. That compatibility does not establish laboratory performance. The legacy `--high-gc` switch is not the dual-profile union; select `--candidate-profiles union` instead. Allele-aware mode also fixes observed-only terminal gaps, equal combined-panel weighting and supplied-MSA specificity screening, so legacy switches that would change those semantics are rejected.
 
 ## Search effort
 
@@ -75,7 +78,7 @@ Advanced deterministic work limits are also exposed:
 
 ## Optional salvage
 
-Salvage is off by default. Enable `--salvage bounded`. The default exploratory ladder is −28, −30, −32, with at most 8 violating physical dimer edges and 4 incident oligo species per pool, measured cumulatively relative to strict −26. Each tier starts from an accepted incumbent and is freshly audited.
+Salvage is off by default. Enable `--salvage bounded`. The default exploratory ladder is −28, −30, −32, with at most 8 violating physical dimer edges and 4 incident oligo species per pool, measured cumulatively relative to strict −26. Each tier starts from an accepted incumbent and is freshly audited. Salvage relaxes only the labeled dimer policy; chemistry, specificity, reference-span geometry, overlap, coverage metric and uncertainty handling remain unchanged.
 
 Controls: repeatable `--salvage-threshold`, `--salvage-max-stages` (up to 3), `--salvage-max-edges-per-pool`, `--salvage-max-oligos-per-pool`, and `--salvage-time-limit` (60 seconds per tier). Thresholds must be finite and strictly decreasing from −26. These are bounded experimental policies, not validated destructive-dimer cutoffs. Tighten exposure caps to restrict how many already selected oligos are put at additional modeled risk.
 

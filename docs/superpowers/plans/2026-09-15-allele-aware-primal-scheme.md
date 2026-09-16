@@ -80,6 +80,8 @@ run_salvage(catalog: VariantCatalog, strict: AlleleSearchResult, profile: Allele
 
 Existing search interfaces need not be renamed; the new entry point may delegate to the existing generic engine. Never change old dataclass meanings in place. Astra may refine signatures at the Task 2 gate, updating all consumers and this plan together.
 
+Checklist status below reflects retained implementation reports, focused or full-suite verification, and independent reviews. A checked item that explicitly calls for a failing pre-implementation test has recorded RED evidence in its task report; later passing coverage alone is not treated as proof of that history. Task 9, the full-MHC Task 10 wrapper rerun, and Task 11 remain open for the full 11-target scientific matrix, final preset/default decisions, the CLI acceptance packet, user review, and any later GUI plan.
+
 ## Task 1: Freeze the benchmark inputs and establish valid controls
 
 **Owner:** Sol; Astra reviews fixture identity and controls.
@@ -88,10 +90,10 @@ Existing search interfaces need not be renamed; the new entry point may delegate
 
 **Consumes:** Original saved MHC bundles. **Produces:** immutable local snapshot, source-row label map and hash manifest; runner options `--fixture-root`, `--native-executable`, `--output`, `--matrix`.
 
-- [ ] Read manifests and verify all selected input/artifact hashes before copying; identify the 11 target inputs by manifest labels, not guessed UUID order.
-- [ ] Add tests that an existing output is refused, a mismatched input checksum aborts before scientific execution, duplicate labels retain source occurrence IDs, and a failed subprocess records status/stderr.
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_allele_benchmark.py -q`; confirm the new requirements fail before implementation.
-- [ ] Implement snapshot verification and subprocess execution using argument arrays. Required receipt shape:
+- [x] Read manifests and verify all selected input/artifact hashes before copying; identify the 11 target inputs by manifest labels, not guessed UUID order.
+- [x] Add tests that an existing output is refused, a mismatched input checksum aborts before scientific execution, duplicate labels retain source occurrence IDs, and a failed subprocess records status/stderr.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_allele_benchmark.py -q`; confirm the new requirements fail before implementation.
+- [x] Implement snapshot verification and subprocess execution using argument arrays. Required receipt shape:
 
 ```python
 receipt = {"argv": argv, "resolvedOptions": resolved, "inputArtifacts": inputs,
@@ -100,8 +102,8 @@ receipt = {"argv": argv, "resolvedOptions": resolved, "inputArtifacts": inputs,
            "wallTimeSeconds": elapsed, "stderrPath": stderr_path}
 ```
 
-- [ ] Add baseline matrix entries for historical independent/combined lge.2 artifacts and existing lge.3 execution. Re-score historical outputs under the new profile later; do not treat different specificity settings as a controlled comparison.
-- [ ] Run tests, inspect a non-scientific fake-process receipt, and commit only script/tests/docs. The real snapshots go to a new local directory beneath `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/` with refusal to overwrite.
+- [x] Add baseline matrix entries for historical independent/combined lge.2 artifacts and existing lge.3 execution. Re-score historical outputs under the new profile later; do not treat different specificity settings as a controlled comparison.
+- [x] Run tests, inspect a non-scientific fake-process receipt, and commit only script/tests/docs. The real snapshots go to a new local directory beneath `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/` with refusal to overwrite.
 
 ## Task 2: Immutable allele/configuration records and literal coverage oracle
 
@@ -121,10 +123,10 @@ def test_unobserved_is_not_complete():
     assert literal_coverage(set(), []) is None
 ```
 
-- [ ] Add failing production tests for duplicate observation invariance, differing masks remaining distinct, allele insertions absent from the reference, overlapping interval unions, unsupported classes and zero-observation targets.
-- [ ] Define a two-class support fixture: F supports class A only, R supports class B only. Require zero supported products, then add an R variant supporting A and require coverage for A only.
-- [ ] Add a hand-calculated row combining a reference insertion, internal deletion, internal N and terminal missing padding; verify both observed-mask and interior coordinates. Test exact full-primer support separately from substitution-tolerant screening, split-family assignments across pools, and all-unassessable outcomes.
-- [ ] Add explicit objective tests:
+- [x] Add failing production tests for duplicate observation invariance, differing masks remaining distinct, allele insertions absent from the reference, overlapping interval unions, unsupported classes and zero-observation targets.
+- [x] Define a two-class support fixture: F supports class A only, R supports class B only. Require zero supported products, then add an R variant supporting A and require coverage for A only.
+- [x] Add a hand-calculated row combining a reference insertion, internal deletion, internal N and terminal missing padding; verify both observed-mask and interior coordinates. Test exact full-primer support separately from substitution-tolerant screening, split-family assignments across pools, and all-unassessable outcomes.
+- [x] Add explicit objective tests:
 
 ```python
 def test_partial_coverage_improves_soft_objective():
@@ -132,10 +134,10 @@ def test_partial_coverage_improves_soft_objective():
     assert coverage_utility((0.96, 0.80)) > coverage_utility((0.95, 0.80))
 ```
 
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_allele_coverage.py -q` to establish failures, implement the formula and row-specific footprints, then rerun.
-- [ ] Implement stable canonical observation/site/configuration IDs and JSON round trips; test paths and duplicate aliases do not alter semantic IDs, while changed selected variants do.
-- [ ] Freeze `AssessmentRecord`, `DecisionEvent` and `StageSnapshot` schemas from spec §5.4; create `coverage_history.py` and `tests/lge/test_coverage_history.py`. Test lineage and round trips, per-pool/per-profile concurrent statuses, short-circuited checks explicitly unperformed, and feasible-but-not-selected distinct from rejected. Establish serialization/query interfaces before Tasks 3–8 consume them.
-- [ ] Astra independent review approves denominator, unknown-state semantics, identity and new-vs-historical metric distinction. Commit this contract before dependent work.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_allele_coverage.py -q` to establish failures, implement the formula and row-specific footprints, then rerun.
+- [x] Implement stable canonical observation/site/configuration IDs and JSON round trips; test paths and duplicate aliases do not alter semantic IDs, while changed selected variants do.
+- [x] Freeze `AssessmentRecord`, `DecisionEvent` and `StageSnapshot` schemas from spec §5.4; create `coverage_history.py` and `tests/lge/test_coverage_history.py`. Test lineage and round trips, per-pool/per-profile concurrent statuses, short-circuited checks explicitly unperformed, and feasible-but-not-selected distinct from rejected. Establish serialization/query interfaces before Tasks 3–8 consume them.
+- [x] Astra independent review approves denominator, unknown-state semantics, identity and new-vs-historical metric distinction. Commit this contract before dependent work.
 
 ## Task 3: Variant-preserving dual-profile discovery
 
@@ -143,8 +145,8 @@ def test_partial_coverage_improves_soft_objective():
 
 **Consumes:** Task 2 site/support records. **Produces:** `build_variant_catalog`, full per-oligo profiles/reasons and candidate families.
 
-- [ ] Add synthetic fixtures for a cloud with one chemistry-failing member and two passing members; a cloud-internal dimer that can be removed; a long out-of-bounds member with shorter valid members; disjoint profile-only candidates; and shared candidates accepted by both profiles.
-- [ ] Require these assertions on a fixture-specific catalog:
+- [x] Add synthetic fixtures for a cloud with one chemistry-failing member and two passing members; a cloud-internal dimer that can be removed; a long out-of-bounds member with shorter valid members; disjoint profile-only candidates; and shared candidates accepted by both profiles.
+- [x] Require these assertions on a fixture-specific catalog:
 
 ```python
 assert normal_only_site in union.site_by_id
@@ -154,11 +156,11 @@ assert invalid_member not in union.selectable_site_ids
 assert useful_sibling in union.selectable_site_ids
 ```
 
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_variant_discovery.py -q`; verify cloud-level rejection causes the expected failures before implementing the new route.
-- [ ] Extract per-variant digestion evidence without altering legacy functions' behavior; defer distinct-member dimer gates, retain self-dimer scores for stage policy, and reject chemistry independently per oligo.
-- [ ] Emit history before each discovery filter can discard an entity. Preserve rejected generated sites, deduplication aliases and all measurements actually evaluated; record enumeration boundaries without materializing the full combinatorial pair/subset space.
-- [ ] Build hybrid anchor families across accepting profiles. Reject only families for which no selected geometry can satisfy bounds. Test exact-size recomputation after removing a longest member.
-- [ ] Test fixed-work/profile-union scientific identity across worker counts. Run existing discovery/coverage catalog tests and commit after Astra review.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_variant_discovery.py -q`; verify cloud-level rejection causes the expected failures before implementing the new route.
+- [x] Extract per-variant digestion evidence without altering legacy functions' behavior; defer distinct-member dimer gates, retain self-dimer scores for stage policy, and reject chemistry independently per oligo.
+- [x] Emit history before each discovery filter can discard an entity. Preserve rejected generated sites, deduplication aliases and all measurements actually evaluated; record enumeration boundaries without materializing the full combinatorial pair/subset space.
+- [x] Build hybrid anchor families across accepting profiles. Reject only families for which no selected geometry can satisfy bounds. Test exact-size recomputation after removing a longest member.
+- [x] Test fixed-work/profile-union scientific identity across worker counts. Run existing discovery/coverage catalog tests and commit after Astra review.
 
 ## Task 4: Selected-subset geometry and support
 
@@ -168,13 +170,13 @@ assert useful_sibling in union.selectable_site_ids
 
 **Consumes:** Variant catalog and binding support. **Produces:** `make_configuration`, `propose_configurations`, ledger records.
 
-- [ ] Add a three-RIGHT fixture with a conflicting third member. The selected two-member subset must remain eligible when it supports only two of three classes; assert the third class loses coverage and the first two retain theirs.
-- [ ] Add a subset with no common supported class; it must be ineligible even with nonempty F and R lists.
-- [ ] Test selected IDs, recomputed full envelope, row interiors, retained profile memberships and removal reasons. No cached support from the full family is allowed.
-- [ ] Implement lazy witnesses/minimal-support proposals, deterministic beam width 16 and expansion limit 256. Retain alternatives with distinct future-conflict signatures even if current coverage is equal.
-- [ ] Verify bounded proposal count and explicit truncation diagnostics on a synthetic large family; never enumerate a whole power set for the real panel.
-- [ ] Link each proposed subset to its parent, exact removed/added sites, triggering witnesses and support/coverage changes; emit explicit not-explored states for materialized configurations omitted by work limits.
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_coverage_variants.py tests/lge/test_allele_coverage.py -q`, review and commit.
+- [x] Add a three-RIGHT fixture with a conflicting third member. The selected two-member subset must remain eligible when it supports only two of three classes; assert the third class loses coverage and the first two retain theirs.
+- [x] Add a subset with no common supported class; it must be ineligible even with nonempty F and R lists.
+- [x] Test selected IDs, recomputed full envelope, row interiors, retained profile memberships and removal reasons. No cached support from the full family is allowed.
+- [x] Implement lazy witnesses/minimal-support proposals, deterministic beam width 16 and expansion limit 256. Retain alternatives with distinct future-conflict signatures even if current coverage is equal.
+- [x] Verify bounded proposal count and explicit truncation diagnostics on a synthetic large family; never enumerate a whole power set for the real panel.
+- [x] Link each proposed subset to its parent, exact removed/added sites, triggering witnesses and support/coverage changes; emit explicit not-explored states for materialized configurations omitted by work limits.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_coverage_variants.py tests/lge/test_allele_coverage.py -q`, review and commit.
 
 ## Task 5: Common specificity and fresh scientific validation
 
@@ -184,14 +186,14 @@ assert useful_sibling in union.selectable_site_ids
 
 **Consumes:** Exact selected configurations. **Produces:** `AlleleConstraintProfile`, `validate_allele_assignments`, detailed conflict witnesses and numeric dimer scores.
 
-- [ ] Freeze selected-sites-v2: common terminal seed 17, one substitution and no indel matching, positive inclusive D=2000, full-row footprints, selected-site exemptions, no cross-row products. Preserve old profiles unchanged.
-- [ ] Write boundary tests for D, zero rejection, exact -26 equality, both orientation scores against the native numerical/boolean kernel at boundaries, F/F and R/R interactions, and self dimers.
-- [ ] Add pair-local product-certificate tests: adding/removing/repooling C cannot change A/B verdict; endpoint membership alone is insufficient; ordered-disjoint certified secondary products are reported with zero coverage credit; ambiguous/incomplete potential products conservatively block when not ruled out.
-- [ ] Test removing a selected variant removes its intended-site exemption; identical physical sequences at different selected sites retain every valid intended site.
-- [ ] Test a normal-profile oligo rejected by high-GC constraints still passes its complete accepting normal profile. Do not use a merged rectangular GC/length range.
-- [ ] Test tampered support, omitted selected variants, incorrect observed denominators, outside-reference selected geometry and false profile membership all fail fresh validation.
-- [ ] Implement an independently rebuilt selected configuration for validation rather than consuming optimizer support caches. Keep valid partial and empty results publishable.
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_allele_validation.py tests/lge/test_coverage_validation.py -q`; Astra reviews implications of stricter specificity before search benchmarks.
+- [x] Freeze selected-sites-v2: common terminal seed 17, one substitution and no indel matching, positive inclusive D=2000, full-row footprints, selected-site exemptions, no cross-row products. Preserve old profiles unchanged.
+- [x] Write boundary tests for D, zero rejection, exact -26 equality, both orientation scores against the native numerical/boolean kernel at boundaries, F/F and R/R interactions, and self dimers.
+- [x] Add pair-local product-certificate tests: adding/removing/repooling C cannot change A/B verdict; endpoint membership alone is insufficient; ordered-disjoint certified secondary products are reported with zero coverage credit; ambiguous/incomplete potential products conservatively block when not ruled out.
+- [x] Test removing a selected variant removes its intended-site exemption; identical physical sequences at different selected sites retain every valid intended site.
+- [x] Test a normal-profile oligo rejected by high-GC constraints still passes its complete accepting normal profile. Do not use a merged rectangular GC/length range.
+- [x] Test tampered support, omitted selected variants, incorrect observed denominators, outside-reference selected geometry and false profile membership all fail fresh validation.
+- [x] Implement an independently rebuilt selected configuration for validation rather than consuming optimizer support caches. Keep valid partial and empty results publishable.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_allele_validation.py tests/lge/test_coverage_validation.py -q`; Astra reviews implications of stricter specificity before search benchmarks.
 
 ## Task 6: Strict coverage search with variant-aware exchanges
 
@@ -199,9 +201,9 @@ assert useful_sibling in union.selectable_site_ids
 
 **Consumes:** catalog, configuration proposals, common oracle/profile. **Produces:** `search_allele_assignments`, validated incumbent and complete work/stop metadata.
 
-- [ ] Build a tiny exhaustive test oracle over predeclared configurations/pool placements. Enumerate all subsets and pool assignments, reject declared edges, and score literal per-class base sets independently of production `_State`.
-- [ ] Add a counterexample where dropping one RIGHT variant recovers coverage; another where moving/deleting a blocker and adding two configurations beats greedy selection; and a case where partial allele support beats leaving a region empty.
-- [ ] Require the heuristic to match the exhaustive optimum on the declared tiny fixtures, not on arbitrary real panels:
+- [x] Build a tiny exhaustive test oracle over predeclared configurations/pool placements. Enumerate all subsets and pool assignments, reject declared edges, and score literal per-class base sets independently of production `_State`.
+- [x] Add a counterexample where dropping one RIGHT variant recovers coverage; another where moving/deleting a blocker and adding two configurations beats greedy selection; and a case where partial allele support beats leaving a region empty.
+- [x] Require the heuristic to match the exhaustive optimum on the declared tiny fixtures, not on arbitrary real panels:
 
 ```python
 assert heuristic.objective == exhaustive.objective
@@ -209,11 +211,11 @@ assert heuristic.validation.valid
 assert heuristic.coverage.per_class["unsupported"].covered_bases == 0
 ```
 
-- [ ] Extend existing state with per-class interval contribution accounting and reference-counted removal. Implement add/drop/variant swap/pool move/up-to-two-configuration exchange neighborhoods; retain best incumbent throughout.
-- [ ] Include feasible normal/full-cloud starts; add a regression that supplying optional candidates does not erase a better seeded incumbent under the same metric/profile.
-- [ ] Test fixed-work reproducibility, cancellation/time exhaustion with best valid incumbent, explicit unsearched-family counters and no overclaim of optimality.
-- [ ] Record proposal/selection/replacement/move decisions and stage snapshots. Test that a Pool 1 conflict does not globally reject the primer, that changing blocker membership invalidates contextual verdicts, and that unchanged numerical measurements can be reused under matching dependency keys.
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_allele_search.py tests/lge/test_coverage_search.py -q`; obtain independent Astra review and commit.
+- [x] Extend existing state with per-class interval contribution accounting and reference-counted removal. Implement add/drop/variant swap/pool move/up-to-two-configuration exchange neighborhoods; retain best incumbent throughout.
+- [x] Include feasible normal/full-cloud starts; add a regression that supplying optional candidates does not erase a better seeded incumbent under the same metric/profile.
+- [x] Test fixed-work reproducibility, cancellation/time exhaustion with best valid incumbent, explicit unsearched-family counters and no overclaim of optimality.
+- [x] Record proposal/selection/replacement/move decisions and stage snapshots. Test that a Pool 1 conflict does not globally reject the primer, that changing blocker membership invalidates contextual verdicts, and that unchanged numerical measurements can be reused under matching dependency keys.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_allele_search.py tests/lge/test_coverage_search.py -q`; obtain independent Astra review and commit.
 
 ## Task 7: Bounded salvage and strict-baseline preservation
 
@@ -223,13 +225,13 @@ assert heuristic.coverage.per_class["unsupported"].covered_bases == 0
 
 **Consumes:** completed validated strict result. **Produces:** `StagePolicy`, `run_salvage` and strict/tier comparison.
 
-- [ ] Add tests that salvage off performs no relaxation, increasing/nonfinite thresholds fail, and equality to an active cutoff rejects.
-- [ ] Use a fixture where two rescues individually fit against strict baseline but conflict with each other; reject or prune their combination unless all current tier limits permit it.
-- [ ] Implement the explicit research ladder (-28,-30,-32), max 8 violating unordered physical edges and max 4 incident physical oligo/pool instances per pool, 60 seconds per tier plus fixed subset bounds. Count self edges and shared species consistently.
-- [ ] Require cumulative exposure accounting relative to -26; do not reset edge budget at each tier. Record removed/moved/added variants and gains/losses for every target/class.
-- [ ] Consume prior history to reconsider dimer-blocked entities at each tier. Test strict rejection remains in history after salvage acceptance, a changed threshold recomputes its verdict, and chemistry failures cannot become salvage-eligible through a stale status.
-- [ ] Test chemistry/specificity/size/overlap cannot be relaxed, invalid tiers cannot overwrite strict output, and a later tier does not masquerade as a strict result.
-- [ ] Run `.venv/bin/python -m pytest tests/lge/test_coverage_salvage.py -q`; review the limits as engineering constraints, not biological safety guarantees; commit.
+- [x] Add tests that salvage off performs no relaxation, increasing/nonfinite thresholds fail, and equality to an active cutoff rejects.
+- [x] Use a fixture where two rescues individually fit against strict baseline but conflict with each other; reject or prune their combination unless all current tier limits permit it.
+- [x] Implement the explicit research ladder (-28,-30,-32), max 8 violating unordered physical edges and max 4 incident physical oligo/pool instances per pool, 60 seconds per tier plus fixed subset bounds. Count self edges and shared species consistently.
+- [x] Require cumulative exposure accounting relative to -26; do not reset edge budget at each tier. Record removed/moved/added variants and gains/losses for every target/class.
+- [x] Consume prior history to reconsider dimer-blocked entities at each tier. Test strict rejection remains in history after salvage acceptance, a changed threshold recomputes its verdict, and chemistry failures cannot become salvage-eligible through a stale status.
+- [x] Test chemistry/specificity/size/overlap cannot be relaxed, invalid tiers cannot overwrite strict output, and a later tier does not masquerade as a strict result.
+- [x] Run `.venv/bin/python -m pytest tests/lge/test_coverage_salvage.py -q`; review the limits as engineering constraints, not biological safety guarantees; commit.
 
 ## Task 8: Native CLI, v2 artifacts and independent output auditor
 
@@ -239,12 +241,12 @@ assert heuristic.coverage.per_class["unsupported"].covered_bases == 0
 
 **Consumes:** new catalog/search/stages. **Produces:** explicit local new-contract executable, capability schemas, strict/tier selected BEDs and provenance.
 
-- [ ] Add failing CLI tests for incompatible flags (`--high-gc` with new mode, zero specificity distance, unsupported metric, non--26 strict threshold, unavailable primary tier), new resolved defaults, and untouched historical argv.
-- [ ] Export detached native objects containing selected variants only. Test removed variants do not appear in BED, FASTA, order sheets or selected coverage; parent provenance remains available.
-- [ ] Include authoritative input copies, catalog/ledger hashes, stage IDs, objective/metric versions and final-byte output descriptors. Hash runtime kernels and source identity. Record discovery, search, validation and total times separately.
-- [ ] Publish complete histories for generated rejected/unselected entities plus evidence and snapshot hashes. Add native query support by entity/region/pool/stage with lineage and non-evaluation reasons. Test restart/reload, failed-stage tails, corrupted evidence references, and an original-family-to-pruned-subset-to-salvage query without rerunning discovery. Include history storage/time in benchmarks; deduplicate repeated evidence without dropping decisions.
-- [ ] Build saved-output auditor that reads selected oligos plus durable original rows and recomputes support/interiors literally without optimizer caches. Independently enumerate selected oligo interactions; reuse native numerical kernel but not cached decisions.
-- [ ] Test corruption, relocation, cancellation and below-goal publication, then run:
+- [x] Add failing CLI tests for incompatible flags (`--high-gc` with new mode, zero specificity distance, unsupported metric, non--26 strict threshold, unavailable primary tier), new resolved defaults, and untouched historical argv.
+- [x] Export detached native objects containing selected variants only. Test removed variants do not appear in BED, FASTA, order sheets or selected coverage; parent provenance remains available.
+- [x] Include authoritative input copies, catalog/ledger hashes, stage IDs, objective/metric versions and final-byte output descriptors. Hash runtime kernels and source identity. Record discovery, search, validation and total times separately.
+- [x] Publish complete histories for generated rejected/unselected entities plus evidence and snapshot hashes. Add native query support by entity/region/pool/stage with lineage and non-evaluation reasons. Test restart/reload, failed-stage tails, corrupted evidence references, and an original-family-to-pruned-subset-to-salvage query without rerunning discovery. Include history storage/time in benchmarks; deduplicate repeated evidence without dropping decisions.
+- [x] Build saved-output auditor that reads selected oligos plus durable original rows and recomputes support/interiors literally without optimizer caches. Independently enumerate selected oligo interactions; reuse native numerical kernel but not cached decisions.
+- [x] Test corruption, relocation, cancellation and below-goal publication, then run:
 
 ```sh
 .venv/bin/python -m pytest tests/lge/test_coverage_cli.py tests/lge/test_coverage_publication.py tests/lge/test_allele_publication.py -q
@@ -252,7 +254,7 @@ assert heuristic.coverage.per_class["unsupported"].covered_bases == 0
 .venv/bin/primalscheme3 --capabilities-json
 ```
 
-- [ ] Reserve/verify lge.4 identity, update native design documentation, obtain independent Astra review and commit. Do not publish a package or replace managed installation.
+- [x] Reserve/verify lge.4 identity, update native design documentation, obtain independent Astra review and commit. Do not publish a package or replace managed installation.
 
 ## Task 9: Native CLI MHC experiments and scientific review
 
@@ -288,14 +290,14 @@ The runner derives repeated `--msa` paths from the verified snapshot manifest; n
 
 **Files:** Modify `Sources/LungfishCLI/Commands/PrimerDesignCommand.swift`, `PrimerAnalysisCommand.swift`; `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift`, `PrimalScheme3CoverageContract.swift`; modify `PrimerAnalysisBundleWriter.swift` only if new artifacts require publication support. Extend the coverage fixture generator and workflow/CLI tests. No `Sources/LungfishApp` changes.
 
-- [ ] Add new selector/options/capability version with explicit local executable requirement. Default union/allele metric only for the new mode; preserve legacy/coverage defaults and stored semantics.
-- [ ] Extend `Tests/LungfishWorkflowTests/Resources/PrimalScheme3CoverageFixtureGenerator.py` with synthetic v2 records; keep v1 fixtures and readers.
-- [ ] Add tests for false subset IDs, changed selected oligos, duplicate-row overweighting, wrong denominators, strict/salvage mismatch, missing ledger, tampered hashes and stale staging paths. Require rejection before destination publication.
-- [ ] Require CLI inspect to report metric ID, target mean, class deficits, observed denominators, profile and strict/salvage tier. Do not rely on existing GUI coverage labels for the new objective.
-- [ ] Preserve all native history/evidence artifacts through wrapper publication and relocation, and expose primer/pair/region histories through CLI inspection. Verify status/evidence queries agree before and after bundle publication.
-- [ ] Default primary output to strict; validate explicit `--primary-tier` selection against completed validated tiers, and test unavailable/failed-tier rejection.
-- [ ] Implement explicit native argv translation, v2 validation and durable artifact rehydration. Check native/source identity from capability probe through completion.
-- [ ] Run:
+- [x] Add new selector/options/capability version with explicit local executable requirement. Default union/allele metric only for the new mode; preserve legacy/coverage defaults and stored semantics.
+- [x] Extend `Tests/LungfishWorkflowTests/Resources/PrimalScheme3CoverageFixtureGenerator.py` with synthetic v2 records; keep v1 fixtures and readers.
+- [x] Add tests for false subset IDs, changed selected oligos, duplicate-row overweighting, wrong denominators, strict/salvage mismatch, missing ledger, tampered hashes and stale staging paths. Require rejection before destination publication.
+- [x] Require CLI inspect to report metric ID, target mean, class deficits, observed denominators, profile and strict/salvage tier. Do not rely on existing GUI coverage labels for the new objective.
+- [x] Preserve all native history/evidence artifacts through wrapper publication and relocation, and expose primer/pair/region histories through CLI inspection. Verify status/evidence queries agree before and after bundle publication.
+- [x] Default primary output to strict; validate explicit `--primary-tier` selection against completed validated tiers, and test unavailable/failed-tier rejection.
+- [x] Implement explicit native argv translation, v2 validation and durable artifact rehydration. Check native/source identity from capability probe through completion.
+- [x] Run:
 
 ```sh
 swift test --skip-update --filter 'PrimalScheme3DesignPipelineTests|PrimalScheme3PublicationTests|PrimerDesignCommandTests|PrimerAnalysisBundleWriterTests|PrimerAnalysisBundleTests|PrimalSchemeOrderSheetTests'
@@ -303,7 +305,7 @@ swift test --skip-update --filter 'ScientificProvenancePolicyTests|ScientificCLI
 ```
 
 - [ ] Re-run selected MHC strict/salvage experiments through `lungfish-cli primers design primalscheme3` using repeated snapshot `--msa` arguments, `--grouping combined`, explicit `--primalscheme3-path`, `--amplicon-size 200 --amplicon-size-min 150 --amplicon-size-max 250 --pool-count 2` and all resolved new settings. Confirm the isolated build advertises the new contract in its help/capability output before running.
-- [ ] Compare native semantic artifacts and Lungfish published artifacts, relocate/reopen a copy using CLI inspection, verify hashes and final payload paths, and obtain Astra review.
+- [x] Compare native semantic artifacts and Lungfish published artifacts, relocate/reopen a copy using CLI inspection, verify hashes and final payload paths, and obtain Astra review.
 
 ## Task 11: CLI acceptance packet and GUI hold point
 
@@ -323,16 +325,16 @@ Each task: establish a meaningful failing test, implement, run focused checks, i
 
 ## 4. Acceptance checklist
 
-- [ ] Union discovery retains usable variants lost by whole-cloud filters.
-- [ ] Oligo subsets can preserve partial observed-allele coverage without false joint support.
-- [ ] Duplicate observations do not change objective weight.
-- [ ] Actual row interiors and observed insertions determine the new metric.
-- [ ] Full-cloud legacy/reference metrics remain historically correct and readable.
-- [ ] Selected-site specificity and physical-pool interactions are consistently evaluated.
-- [ ] Strict search is bounded, reproducible under completed fixed work, and incumbent-preserving.
-- [ ] Salvage is opt-in, cumulative-budgeted, independently validated and honestly labeled.
-- [ ] Native and wrapper outputs have complete provenance and durable paths.
-- [ ] Every generated entity has queryable stage history; partial evaluation, contextual rejection, pruning and reconsideration remain distinguishable and reusable without stale verdicts.
+- [x] Union discovery retains usable variants lost by whole-cloud filters.
+- [x] Oligo subsets can preserve partial observed-allele coverage without false joint support.
+- [x] Duplicate observations do not change objective weight.
+- [x] Actual row interiors and observed insertions determine the new metric.
+- [x] Full-cloud legacy/reference metrics remain historically correct and readable.
+- [x] Selected-site specificity and physical-pool interactions are consistently evaluated.
+- [x] Strict search is bounded, reproducible under completed fixed work, and incumbent-preserving.
+- [x] Salvage is opt-in, cumulative-budgeted, independently validated and honestly labeled.
+- [x] Native and wrapper outputs have complete provenance and durable paths.
+- [x] Every generated entity has queryable stage history; partial evaluation, contextual rejection, pruning and reconsideration remain distinguishable and reusable without stale verdicts.
 - [ ] CLI MHC results include per-target/class gains and losses and user-reviewed limits.
 - [ ] No GUI implementation occurs before explicit CLI acceptance.
 
@@ -364,7 +366,7 @@ Deficit-aware family ordering, periodic new-family access and independent seed c
 Matched cached scheduling and intended-policy controls are complete. Serial remains the default; broader intended screening did not improve the short or ten-minute heuristic result with the old exact secondary certificate. A complete four-site optional secondary certificate is independently reviewed and implemented; its new MHC diagnostic is underway. The existing exact secondary default remains unchanged pending evaluation. Progress logging and failure receipts are implemented and reviewed; the integrated native suite passes 794 tests.
 
 - [x] Implement/review optional concrete secondary certificates without adding coverage credit or exempting actual off-site/uncertain products.
-- [ ] Finish LGE concrete-secondary bridge review and real native certificate smoke.
+- [x] Finish LGE concrete-secondary bridge review and real native certificate smoke.
 - [ ] Evaluate concrete-secondary policy on the original MHC inputs before a default decision.
 - [ ] Implement/review bounded state-local gain memoization supported by the exact-score ranking replay, then measure a real search; do not substitute component timing for full-run performance.
 - [ ] Run longer quality evaluation with recorded progress and coordinated work caps, preserving the full multi-MSA acceptance gate.
