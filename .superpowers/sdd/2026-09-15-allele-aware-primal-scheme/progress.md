@@ -229,3 +229,7 @@
 ## Search effort integrated verification
 
 Frozen native matrix10 (`158a4a3`) full suite: 854 passed, one warning, 193.08 seconds, exit 0 (`/tmp/allele-native-suite-matrix10.log`). LGE after effort bridge and decoder tests: 157 focused tests, 7 environment skips, 150 passed, no failures, exit 0 (`/tmp/allele-lge-effort-final-focused.log`). Astra approved bridge267778174; real matrix10 smoke retained successful design/inspect/history/audit and old-native explicit-quality failure receipt. Hour matrix09 run remains provisional. Regional A1 394:644 diagnostic launched read-only against completed secondary07 with 16 bounded alternative insertion tests.
+
+## Regional diagnostic complete
+
+Frozen matrix10 script against completed secondary07, region BED394:644,16alternatives: exit0,1098.4653s; freshinputauditvalid, original/source/runtimeunchanged. Sixclasses each200/250=80%.989historicalrecords matched903uniqueconfigs;16unarypass,32insertions alloverlap/31specificity/15dimer+strict-exposure.887configs untested; nofeasibleceiling claim. Nearbyselectedfamilies allretaineligiblevariants. Publicreportupdated with interpretation andreceiptlinks.
