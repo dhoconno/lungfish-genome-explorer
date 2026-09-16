@@ -1,11 +1,11 @@
 # Allele-aware PrimalScheme CLI controls
 
-Development CLI; MHC evaluation is still in progress. Use the isolated native executable. The managed LGE runtime has not been replaced. Current integration verification is pinned to the frozen `matrix11` native source at revision `236e74a`; substitute the absolute path to that checkout's own `.venv/bin/primalscheme3` in the commands below.
+Development CLI; MHC evaluation is still in progress. Use the isolated native executable. The managed LGE runtime has not been replaced. The latest reviewed native build is frozen as `matrix12` at revision `74102b8`; substitute its absolute `.venv/bin/primalscheme3` path below. Production LGE integration was verified with matrix11; matrix12 changes only v2 history query execution, with unchanged CLI and scientific settings.
 
 ## Starting point
 
 ```sh
-/absolute/path/to/frozen-matrix11/.venv/bin/primalscheme3 panel-create \
+/absolute/path/to/frozen-matrix12/.venv/bin/primalscheme3 panel-create \
   --msa /absolute/path/target-a.fasta --msa /absolute/path/target-b.fasta \
   --output /absolute/path/new-panel \
   --selection-algorithm allele-coverage --preset allele-balanced-v1 \
@@ -116,7 +116,7 @@ The Lungfish wrapper writes a relocatable `.lungfishprimeranalysis` bundle and k
   --msa /absolute/path/target-b.fasta \
   --output /absolute/path/new-analysis.lungfishprimeranalysis \
   --grouping combined \
-  --primalscheme3-path /absolute/path/to/frozen-matrix11/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix12/.venv/bin/primalscheme3 \
   --selection-algorithm allele-coverage \
   --preset allele-balanced-v1 \
   --candidate-profiles union \
@@ -164,14 +164,14 @@ Pass that UUID explicitly when querying retained decision history or re-running 
 /absolute/path/to/lungfish-cli primers analysis history \
   /absolute/path/analysis.lungfishprimeranalysis \
   --result-id 00000000-0000-0000-0000-000000000000 \
-  --primalscheme3-path /absolute/path/to/frozen-matrix11/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix12/.venv/bin/primalscheme3 \
   --output /absolute/path/new-history-query \
   --target TARGET_ID --region 394:644 --stage strict --limit 100
 
 /absolute/path/to/lungfish-cli primers analysis audit \
   /absolute/path/analysis.lungfishprimeranalysis \
   --result-id 00000000-0000-0000-0000-000000000000 \
-  --primalscheme3-path /absolute/path/to/frozen-matrix11/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix12/.venv/bin/primalscheme3 \
   --output /absolute/path/new-audit
 ```
 
