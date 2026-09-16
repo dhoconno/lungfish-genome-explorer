@@ -233,3 +233,11 @@ Frozen native matrix10 (`158a4a3`) full suite: 854 passed, one warning, 193.08 s
 ## Regional diagnostic complete
 
 Frozen matrix10 script against completed secondary07, region BED394:644,16alternatives: exit0,1098.4653s; freshinputauditvalid, original/source/runtimeunchanged. Sixclasses each200/250=80%.989historicalrecords matched903uniqueconfigs;16unarypass,32insertions alloverlap/31specificity/15dimer+strict-exposure.887configs untested; nofeasibleceiling claim. Nearbyselectedfamilies allretaineligiblevariants. Publicreportupdated with interpretation andreceiptlinks.
+
+## Matched hour-budget search control launched
+
+`mamu-a1-cached-narrow09-3600-01` started with frozen01cafef/matrix09 via reviewed immutable v5runner; originalA1/cache and bothconcretepolicies unchanged, strict−26/salvageoff/serial,3600seconds with4starts/2repair/2048attempts/16families. Comparator is active quality09hour with8/3/8192/32; same scientific inputs/source/globalbudget, different4workcontrols and wrapperv4/v5. Native selector options and identities will be compared after audits. Shared-machine concurrency prevents isolatedspeedclaims. This is one practical preset-control experiment, not an unrestricted matrix. WrapperPID20736/session18177. Atquality2900s provisional87.28117%; finalauditpending.
+
+## A1 finite-catalog availability complete
+
+Approvedexternal87b9c63c/testse19ccfd0 pinnedunchanged inoptimistic-catalog-coverage-frozen01; rootcompleted07run session36467 exit0 in76.4996s. All143297families/10191eligiblesites/6classes/859782familyclasschecks complete; independentselected86.719047% reconstructed andcontained. Singletonandallsubsetrelaxation97.2349276% (classes96.8633–97.9500), onlyterminalgaps. Nojointfeasibilityclaim. Oneactualsubset2164:2413 selects2/3F4/5Rstillall6classes;85:315supports3classes,217:399supports5. Input/source/runtime unchanged. Publicreportupdated.
