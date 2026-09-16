@@ -982,6 +982,36 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Set of selected records (for multi-select)
     @Published var selectedRecords: Set<SearchResultRecord> = []
 
+    var bulkSelectionActionTitle: String? {
+        if !selectedRecords.isEmpty {
+            return "Deselect all"
+        }
+        return filteredResults.isEmpty ? nil : "Select all"
+    }
+
+    var isBulkSelectionActionEnabled: Bool {
+        bulkSelectionActionTitle != nil && !isSearching && !isDownloading
+    }
+
+    func selectAllVisibleResults() {
+        selectedRecords.formUnion(filteredResults)
+        selectedRecord = selectedRecords.first
+    }
+
+    func deselectAllResults() {
+        selectedRecords.removeAll()
+        selectedRecord = nil
+    }
+
+    func performBulkSelectionAction() {
+        guard isBulkSelectionActionEnabled else { return }
+        if selectedRecords.isEmpty {
+            selectAllVisibleResults()
+        } else {
+            deselectAllResults()
+        }
+    }
+
     /// Current search phase (for progress tracking)
     @Published var searchPhase: SearchPhase = .idle
 
