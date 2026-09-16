@@ -48,7 +48,21 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
         XCTAssertTrue(output.contains("Results: 1"))
         XCTAssertTrue(output.contains("Integrity verified"))
         XCTAssertTrue(output.contains("Metric: observed-allele-primer-trimmed/v1"))
-        XCTAssertTrue(output.contains("distinct classes 1"))
+        XCTAssertTrue(output.contains("distinct classes 2"))
+        XCTAssertTrue(output.contains("Class allele-a (aliases: row-a, row-a-duplicate): covered 90/100; fraction 0.9000; deficit 0.0500; dropout no"))
+        XCTAssertTrue(output.contains("Class allele-b: covered 100/100; fraction 1.0000; deficit 0.0000; dropout no"))
+        XCTAssertTrue(output.contains("target-1: mean 0.9500; assessable classes 2; unassessable classes 0; covered 190/200; deficit 0.0000; dropout no"))
+    }
+
+    func testSummaryKeepsUnassessableTierTargetAndClassVisible() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try fixture(in: root, unassessable: true)
+        let output = try PrimerAnalysisInspectCommand.parse([bundle.url.path]).inspectionOutput()
+
+        XCTAssertTrue(output.contains("Tier strict: mean unavailable; distinct classes 1; goal 0.9500"))
+        XCTAssertTrue(output.contains("target-1: mean unavailable; assessable classes 0; unassessable classes 1; covered 0/0; deficit unavailable; dropout unavailable"))
+        XCTAssertTrue(output.contains("Class allele-unavailable (aliases: row-unknown): covered 0/0; fraction unavailable; deficit unavailable; dropout unavailable"))
     }
 
     func testInspectionPolicyDoesNotRequireWritingProvenance() throws {
@@ -75,23 +89,48 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
         XCTAssertNoThrow(try PrimerAnalysisHistoryCommand.parse([
             "input.lungfishprimeranalysis", "--result-id", UUID().uuidString,
             "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/history", "--stage", "strict"]))
+        XCTAssertThrowsError(try PrimerAnalysisHistoryCommand.parse([
+            "input.lungfishprimeranalysis", "--result-id", UUID().uuidString,
+            "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/history",
+            "--stage", "strict", "--pool", "0"]))
+        XCTAssertThrowsError(try PrimerAnalysisHistoryCommand.parse([
+            "input.lungfishprimeranalysis", "--result-id", UUID().uuidString,
+            "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/history",
+            "--stage", "strict", "--limit", "1001"]))
         XCTAssertNoThrow(try PrimerAnalysisAuditCommand.parse([
             "input.lungfishprimeranalysis", "--result-id", UUID().uuidString,
             "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/audit"]))
     }
 
-    private func fixture(in root: URL) throws -> PrimerAnalysisBundle {
+    private func fixture(in root: URL, unassessable: Bool = false) throws -> PrimerAnalysisBundle {
         let source = root.appendingPathComponent("source.txt")
         let output = root.appendingPathComponent("result.txt")
         try Data("opaque source\n".utf8).write(to: source)
         let resultID = UUID()
         let nativePath = "native/\(resultID.uuidString)/panel-optimizer.json"
+        let coverage: [String: Any]
+        if unassessable {
+            coverage = ["mean_coverage": NSNull(), "goal": 0.95,
+                "targets": [["target_id": "target-1", "fraction": NSNull(),
+                    "assessable_classes": 0, "unassessable_classes": 1]],
+                "classes": [["target_id": "target-1", "allele_id": "allele-unavailable",
+                    "aliases": ["row-unknown"], "covered_count": 0, "observed_count": 0,
+                    "fraction": NSNull()]]]
+        } else {
+            coverage = ["mean_coverage": 0.95, "goal": 0.95,
+                "targets": [["target_id": "target-1", "fraction": 0.95,
+                    "assessable_classes": 2, "unassessable_classes": 0]],
+                "classes": [
+                    ["target_id": "target-1", "allele_id": "allele-a",
+                     "aliases": ["row-a", "row-a-duplicate"], "covered_count": 90,
+                     "observed_count": 100, "fraction": 0.90],
+                    ["target_id": "target-1", "allele_id": "allele-b", "covered_count": 100,
+                     "observed_count": 100, "fraction": 1.0]
+                ]]
+        }
         let optimizer: [String: Any] = ["schemaVersion": "primalscheme3.panel-optimizer/v2",
           "metric": "observed-allele-primer-trimmed/v1", "primaryTier": "strict",
-          "profile": ["name": "allele-panel-v1"], "stages": [["stage_id": "strict",
-            "coverage": ["mean_coverage": 0.75, "goal": 0.95,
-              "targets": [["target_id": "target-1", "fraction": 0.75]],
-              "classes": [["target_id": "target-1", "observed_count": 100]]]]]]
+          "profile": ["name": "allele-panel-v1"], "stages": [["stage_id": "strict", "coverage": coverage]]]
         try JSONSerialization.data(withJSONObject: optimizer).write(to: output)
         let inputID = UUID()
         return try PrimerAnalysisBundleWriter().write(.init(

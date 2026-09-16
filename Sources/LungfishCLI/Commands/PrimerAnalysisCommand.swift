@@ -70,22 +70,60 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
             for stage in stages {
                 guard let stageID = stage["stage_id"] as? String,
                       let coverage = stage["coverage"] as? [String: Any],
-                      let mean = (coverage["mean_coverage"] as? NSNumber)?.doubleValue,
                       let goal = (coverage["goal"] as? NSNumber)?.doubleValue,
                       let targets = coverage["targets"] as? [[String: Any]],
                       let classes = coverage["classes"] as? [[String: Any]] else { continue }
-                lines.append(String(format: "Tier %@: mean %.4f; distinct classes %d", stageID, mean, classes.count))
+                let mean = (coverage["mean_coverage"] as? NSNumber)?.doubleValue
+                lines.append("Tier \(stageID): mean \(fraction(mean)); distinct classes \(classes.count); goal \(fraction(goal))")
                 for target in targets {
-                    guard let id = target["target_id"] as? String,
-                          let fraction = (target["fraction"] as? NSNumber)?.doubleValue else { continue }
+                    guard let id = target["target_id"] as? String else { continue }
+                    let targetFraction = (target["fraction"] as? NSNumber)?.doubleValue
                     let targetClasses = classes.filter { $0["target_id"] as? String == id }
-                    let denominator = targetClasses.reduce(0) { $0 + (($1["observed_count"] as? NSNumber)?.intValue ?? 0) }
-                    lines.append(String(format: "  %@: mean %.4f; denominator %d; deficit %.4f",
-                                        id, fraction, denominator, max(0, goal - fraction)))
+                    let assessable = (target["assessable_classes"] as? NSNumber)?.intValue
+                        ?? targetClasses.filter { ($0["fraction"] as? NSNumber) != nil }.count
+                    let unassessable = (target["unassessable_classes"] as? NSNumber)?.intValue
+                        ?? max(0, targetClasses.count - assessable)
+                    let targetCovered = targetClasses.reduce(0) { $0 + (($1["covered_count"] as? NSNumber)?.intValue ?? 0) }
+                    let targetObserved = targetClasses.reduce(0) { $0 + (($1["observed_count"] as? NSNumber)?.intValue ?? 0) }
+                    let targetDropout = targetFraction == nil || targetObserved == 0
+                        ? "unavailable" : (targetCovered == 0 ? "yes" : "no")
+                    lines.append("  \(id): mean \(fraction(targetFraction)); assessable classes \(assessable); "
+                        + "unassessable classes \(unassessable); covered \(targetCovered)/\(targetObserved); "
+                        + "deficit \(deficit(targetFraction, goal: goal)); dropout \(targetDropout)")
+                    for observation in targetClasses {
+                        let identity = (observation["allele_id"] as? String) ?? "unknown-class"
+                        let aliases = stringArray(observation["aliases"])
+                            ?? stringArray(observation["row_ids"])
+                            ?? stringArray(observation["source_labels"])
+                        let aliasText = aliases.map { $0.isEmpty ? "" : " (aliases: \($0.joined(separator: ", ")))" } ?? ""
+                        let covered = (observation["covered_count"] as? NSNumber)?.intValue
+                        let observed = (observation["observed_count"] as? NSNumber)?.intValue
+                        let classFraction = (observation["fraction"] as? NSNumber)?.doubleValue
+                        let counts = covered.flatMap { c in observed.map { "\(c)/\($0)" } } ?? "unavailable"
+                        let dropout: String
+                        if classFraction == nil || observed == nil || observed == 0 { dropout = "unavailable" }
+                        else { dropout = covered == 0 ? "yes" : "no" }
+                        lines.append("    Class \(identity)\(aliasText): covered \(counts); fraction \(fraction(classFraction)); "
+                            + "deficit \(deficit(classFraction, goal: goal)); dropout \(dropout)")
+                    }
                 }
             }
         }
         return lines.isEmpty ? "" : lines.joined(separator: "\n")
+    }
+
+    private static func fraction(_ value: Double?) -> String {
+        value.map { String(format: "%.4f", $0) } ?? "unavailable"
+    }
+
+    private static func deficit(_ value: Double?, goal: Double) -> String {
+        value.map { String(format: "%.4f", max(0, goal - $0)) } ?? "unavailable"
+    }
+
+    private static func stringArray(_ value: Any?) -> [String]? {
+        if let strings = value as? [String] { return strings }
+        if let string = value as? String { return [string] }
+        return nil
     }
 }
 
@@ -97,15 +135,18 @@ struct PrimerAnalysisHistoryCommand: AsyncParsableCommand {
     @Option(name: .customLong("primalscheme3-path")) var executablePath: String
     @Option(name: .customLong("output")) var outputPath: String
     @Option var entity: String?; @Option var target: String?; @Option var region: String?
-    @Option var pool: Int?; @Option var stage: String?; @Option var profile: String?
-    @Flag var lineage = false; @Option var limit = 100; @Option var offset = 0
+    @Option(help: "One-based pool number.") var pool: Int?
+    @Option var stage: String?; @Option var profile: String?
+    @Flag var lineage = false
+    @Option(help: "Maximum rows to return (1...1000).") var limit = 100
+    @Option var offset = 0
     func validate() throws {
         guard UUID(uuidString: resultID) != nil else { throw ValidationError("--result-id must be a UUID.") }
         guard entity != nil || target != nil || region != nil || stage != nil else {
             throw ValidationError("History requires --entity, --target, --region, or --stage.")
         }
-        guard limit > 0, offset >= 0, pool.map({ $0 >= 0 }) ?? true else {
-            throw ValidationError("History limit must be positive and offset/pool nonnegative.")
+        guard (1...1000).contains(limit), offset >= 0, pool.map({ $0 >= 1 }) ?? true else {
+            throw ValidationError("History limit must be 1...1000, offset nonnegative, and pool one-based.")
         }
     }
     mutating func run() async throws {
