@@ -63,6 +63,18 @@ Native code is frozen at `7ca64e68690f6e4db5b91f54bfe8a4847c402a62` in an isolat
 
 Run directory: `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-union-subsets-02`. Final metrics and audit results are pending; no improvement claim is made from discovery alone.
 
+## Engineering verification
+
+The native implementation and LGE CLI integration have passed independent Astra reviews. The frozen native evaluation revision is `c6aa554e92050794ef6781ed5fd23ab32629c777` in `allele-aware-primal-matrix-02`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics and measured storage improvements.
+
+- Native full suite: **687 passed**, one upstream Kaleido deprecation warning, 178.48 seconds.
+- LGE focused checks after a fresh build: **87 passed** (78 XCTest and 9 Swift Testing).
+- Real fresh and cached designs passed LGE publication and independent native audits.
+- A cached-result bundle passed inspection, history and fresh audit after relocation while its original synthetic input, cache and prior bundles were temporarily unavailable. Originals were restored unchanged. [Relocation receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-wrapper-relocation-01/provenance.json).
+- Three current-binary failure-path checks retained byte-verified wrapper and native provenance.
+
+These checks establish engineering behavior, not improved MHC coverage. GUI and managed-runtime changes remain deferred.
+
 ## Interpretation limits
 
 - Dimer scores and exposure caps are computational screening policies, not calibrated probabilities of amplification failure or validated destructive thresholds.
