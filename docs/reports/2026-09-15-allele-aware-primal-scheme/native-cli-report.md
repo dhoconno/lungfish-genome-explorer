@@ -127,6 +127,18 @@ These results support testing replacements or shifts of existing amplicons. They
 
 The source panel passed a fresh scientific audit before these checks. The diagnostic completed in 1,098.47 seconds with unchanged source/runtime/input identities. [Full regional report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-region394-644-secondary07-01/diagnostic.json) and [reproducibility receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-region394-644-secondary07-01/provenance.json).
 
+## Why the independent A1 panel fails against added MHC targets
+
+A separate controlled diagnostic held the audited 18-amplicon A1 panel, its 96 selected oligo species and both pool assignments fixed. It added the original other ten MSA sequence backgrounds, **without adding any primers from those targets**. The baseline reproduced the saved A1 specificity audit exactly; all A1 evidence and support remained unchanged.
+
+Under the current supplied-row specificity rule, **all 18 individual configurations** acquire a rejection, and **62 of 72 same-pool configuration pairs** acquire a rejection. The 6,687 recorded predicted products are on Mamu-A2 (3,422), Mamu-A4 (2,839), Mamu-B (274) and Mamu-E (152). These are screening witnesses, not probabilities or a count of primer removals required for a new design.
+
+Of the 1,609 individual-configuration witnesses, **1,416 are 150–250 bp**, 56 are 251–500 bp and 137 are 501–2,000 bp. Therefore merely shortening the maximum screened product length does not remove this class of conflict. Seventeen of the 18 configurations have at least one added product with both 17-base terminal seeds matching exactly. All witnesses have concrete sequence footprints; neither that fact nor an exact terminal match establishes exact full-primer binding or experimental amplification.
+
+This isolates an important distinction: an independently designed panel can fail the combined screening rule because its primers bind other supplied MHC targets, even before dimer interactions with additional primers exist. It does **not** establish how much this gate limits the eventual optimized 11-target scheme. Current intended-product certificates are tied to declared target/site roles. Treating any product on a supplied target as desirable would waive that distinction without evidence; no such relaxation has been made. Deliberate amplification shared across targets would require an explicit, validated representation of those intended sites and products.
+
+The complete 90-context check finished in 5.73 seconds including preparation, with unchanged input/source/runtime identities and exact baseline parity. [Screen summary](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-fixed-panel-original11-background-01/summary.json), [screen receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-fixed-panel-original11-background-01/provenance.json), and [per-amplicon intervals and product-length analysis](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-fixed-panel-original11-analysis-01/report.md).
+
 ## Engineering verification
 
 The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `158a4a3` in `allele-aware-primal-matrix10`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).

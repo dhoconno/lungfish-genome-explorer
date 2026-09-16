@@ -248,3 +248,13 @@ Approvedexternal87b9c63c/testse19ccfd0 pinnedunchanged inoptimistic-catalog-cove
 Quality09 session31220 completed all statuses0, fresh raw audit valid, all identities unchanged. Mean87.28117183%/18amps, range83.08167467–90.13203614%; +.56212469pp vs08 but fourclasses lose .6826–2.4207pp and two gain4.0837/4.5865pp. Native3981.0563s, audit146.2695s, outer4140.1413s, nativepeak5666750464B. Search3611.4206s, onecompletedstart/twoacceptedrepairs/439searchedfamilies/20503materializedconfigs; lastgain2750.654s. Descriptive08→09 comparison completed with receipts; fivework/timecontrols pluscompression sourcechange so noisolatedspeedclaim. Narrow09 samehour/source/science stillactive; at1671s provisional88.1221%, nofinalclaim.
 
 Full11 indexed bounded inspection identified current cold-discovery target04673… as Mamu-DRB (source9), backed by separately parsed original inventory. External fixed-panel backgroundscreen ready for independent Astra review; no real screening run yet. Native additive label map Solactive; discoveryidentity unchanged requirement retained.
+
+
+## Fixed-panel background experiment launched
+
+Astra approved external background_screen.py af76991b/testse84f022f after11passingtests and mandatorysourcebindings/existingoutputfailureguards. Root froze byteidentical script/tests in fixed-panel-background-screen-frozen01 and launched original11 vsfixed completed07A1, explicitcooperative1800s, session45958/outputmamu-a1-fixed-panel-original11-background-01. Componentonly specificity experiment, no additionaltargetprimers, discovery, optimizer or combinedcoverageclaim. Original11cold26388 and narrowerhour18177 remainactive.
+
+
+## Fixed-panel added-background screen complete
+
+Session45958 exit0, complete90contexts (18unary72samepoolpairs), exactsavedA1baselineparity,80newfailedcontexts(40eachpool),6687concrete witnesses: A2 3422,A4 2839,B274,E152. Noother-targetexemptions; unchangedA1evidence/support checked. Allinput/source/runtime identitiesunchanged, sourceparitytrue,5.7263swall/2.3815sscreen,376061952BpeakRSS. Frozenaf76991b, outputmamu-a1-fixed-panel-original11-background-01. Addedbackground aloneinvalidatesthisfixedpanel undercurrentrule; doesNOTprove dominance inoptimizedfull11oractualPCRproducts. Astrareviewinginterpretation/subsetderivingunarycounts/lengthbinswithreceipts; nodefaultrelaxation.
