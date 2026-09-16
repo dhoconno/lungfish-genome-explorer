@@ -594,7 +594,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 ? try PrimalScheme3AlleleContract.validateCapabilities(
                     capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }(),
                     requestedPhaseScheduling: request.options.alleleOptions.requestedPhaseScheduling,
-                    requestedIntendedProductPolicy: request.options.alleleOptions.requestedIntendedProductPolicy) : nil
+                    requestedIntendedProductPolicy: request.options.alleleOptions.requestedIntendedProductPolicy,
+                    requestedSecondaryProductPolicy: request.options.alleleOptions.requestedOptionNames.contains("secondaryProductPolicy")
+                        ? request.options.alleleOptions.secondaryProductPolicy : nil) : nil
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
@@ -868,9 +870,21 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 } else {
                     requestedIntendedPolicy = nil
                 }
+                let requestedSecondaryPolicy: PrimalScheme3SecondaryProductPolicy?
+                if let index = command.arguments.firstIndex(of: "--secondary-product-policy"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3SecondaryProductPolicy(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest(
+                            "Secondary product policy is outside the supported lge.4 contract.")
+                    }
+                    requestedSecondaryPolicy = value
+                } else {
+                    requestedSecondaryPolicy = nil
+                }
                 _ = try PrimalScheme3AlleleContract.validateCapabilities(
                     data, requestedPhaseScheduling: requestedScheduling,
-                    requestedIntendedProductPolicy: requestedIntendedPolicy)
+                    requestedIntendedProductPolicy: requestedIntendedPolicy,
+                    requestedSecondaryProductPolicy: requestedSecondaryPolicy)
                 executedVersion = Self.alleleToolVersion
             }
             capabilitiesJSON = data

@@ -131,7 +131,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("allele-weighting")) var alleleWeighting: String?
         @Option(name: .customLong("discovery-length-mode")) var discoveryLengthMode: String?
         @Option(name: .customLong("specificity-terminal-k")) var specificityTerminalK: Int?
-        @Option(name: .customLong("secondary-product-policy")) var secondaryProductPolicy: String?
+        @Option(name: .customLong("secondary-product-policy"), help: "Secondary product policy: ordered-disjoint-intended-sites, reject-secondary-products/v1, or ordered-disjoint-concrete-designated-sites/v1.") var secondaryProductPolicy: String?
         @Option(name: .customLong("subset-beam-width")) var subsetBeamWidth: Int?
         @Option(name: .customLong("subset-expansion-limit")) var subsetExpansionLimit: Int?
         @Option(name: .customLong("exchange-width")) var exchangeWidth: Int?
@@ -205,6 +205,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             } else {
                 resolvedIntendedProductPolicy = nil
             }
+            let resolvedSecondaryProductPolicy: PrimalScheme3SecondaryProductPolicy?
+            if let secondaryProductPolicy {
+                guard let value = PrimalScheme3SecondaryProductPolicy(rawValue: secondaryProductPolicy) else {
+                    throw ValidationError("--secondary-product-policy must be ordered-disjoint-intended-sites, reject-secondary-products/v1, or ordered-disjoint-concrete-designated-sites/v1.")
+                }
+                resolvedSecondaryProductPolicy = value
+            } else {
+                resolvedSecondaryProductPolicy = nil
+            }
             let alleleOptions = PrimalScheme3AlleleOptions(
                 preset: preset, candidateProfiles: candidateProfiles,
                 reuseDiscovery: reuseDiscovery.map(URL.init(fileURLWithPath:)),
@@ -212,7 +221,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 intendedProductPolicy: resolvedIntendedProductPolicy,
                 alleleWeighting: alleleWeighting,
                 discoveryLengthMode: discoveryLengthMode, specificityTerminalK: specificityTerminalK,
-                secondaryProductPolicy: secondaryProductPolicy, subsetBeamWidth: subsetBeamWidth,
+                secondaryProductPolicy: resolvedSecondaryProductPolicy, subsetBeamWidth: subsetBeamWidth,
                 subsetExpansionLimit: subsetExpansionLimit, exchangeWidth: exchangeWidth,
                 salvage: salvage, salvageThresholds: salvageThresholds.isEmpty ? nil : salvageThresholds,
                 salvageMaxStages: salvageMaxStages, salvageMaxEdgesPerPool: salvageMaxEdgesPerPool,

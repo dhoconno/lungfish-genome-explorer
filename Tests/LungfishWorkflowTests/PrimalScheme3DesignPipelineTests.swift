@@ -212,7 +212,7 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
             phaseScheduling: .reserved,
             intendedProductPolicy: .concreteDesignatedSites,
             alleleWeighting: "distinct-observed", discoveryLengthMode: "all", specificityTerminalK: 19,
-            secondaryProductPolicy: "reject-secondary-products/v1", subsetBeamWidth: 8,
+            secondaryProductPolicy: .rejectSecondaryProducts, subsetBeamWidth: 8,
             subsetExpansionLimit: 100, exchangeWidth: 1, salvage: "bounded",
             salvageThresholds: [-28, -31], salvageMaxStages: 2,
             salvageMaxEdgesPerPool: 5, salvageMaxOligosPerPool: 3,
@@ -293,6 +293,28 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         let explicitExact = PrimalScheme3AlleleOptions(intendedProductPolicy: .exactSupported)
         XCTAssertEqual(Array(try base(explicitExact).suffix(2)), ["--intended-product-policy", "exact-supported"])
         XCTAssertEqual(explicitExact.requestedProvenanceOptions["intendedProductPolicy"], .string("exact-supported"))
+    }
+
+    func testAlleleSecondaryProductPolicyDefaultsToExactButOnlyExplicitOverrideReachesNativeArguments() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let base: (PrimalScheme3AlleleOptions) throws -> [String] = { allele in
+            try PrimalScheme3DesignPipeline.arguments(inputs: inputs, output: output, grouping: .combined,
+                options: .init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+                    ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage, alleleOptions: allele))
+        }
+        let defaults = PrimalScheme3AlleleOptions()
+        XCTAssertEqual(defaults.secondaryProductPolicy, .orderedDisjointIntendedSites)
+        XCTAssertFalse(try base(defaults).contains("--secondary-product-policy"))
+        let explicitConcrete = PrimalScheme3AlleleOptions(
+            secondaryProductPolicy: .orderedDisjointConcreteDesignatedSites)
+        XCTAssertEqual(Array(try base(explicitConcrete).suffix(2)), [
+            "--secondary-product-policy", "ordered-disjoint-concrete-designated-sites/v1"
+        ])
+        XCTAssertEqual(explicitConcrete.requestedProvenanceOptions["secondaryProductPolicy"],
+                       .string("ordered-disjoint-concrete-designated-sites/v1"))
+        let encoded = try JSONEncoder().encode(explicitConcrete)
+        XCTAssertEqual(try JSONDecoder().decode(PrimalScheme3AlleleOptions.self, from: encoded), explicitConcrete)
     }
 
     func testAlleleCoverageRejectsUnsupportedScopeAndInvalidAdvancedControls() {

@@ -102,6 +102,7 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.reuseDiscovery, "/tmp/cache")
         XCTAssertEqual(command.phaseScheduling, "reserved")
         XCTAssertEqual(command.intendedProductPolicy, "concrete-designated-sites")
+        XCTAssertEqual(command.secondaryProductPolicy, "reject-secondary-products/v1")
         XCTAssertEqual(command.salvageThresholds, [-28, -31])
         XCTAssertEqual(command.primaryTier, "salvage-2")
         XCTAssertEqual(command.workFamiliesPerRefresh, 7)

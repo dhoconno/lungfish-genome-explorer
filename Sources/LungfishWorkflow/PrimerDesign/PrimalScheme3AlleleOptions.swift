@@ -9,6 +9,12 @@ public enum PrimalScheme3IntendedProductPolicy: String, Codable, CaseIterable, S
     case concreteDesignatedSites = "concrete-designated-sites"
 }
 
+public enum PrimalScheme3SecondaryProductPolicy: String, Codable, CaseIterable, Sendable {
+    case orderedDisjointIntendedSites = "ordered-disjoint-intended-sites"
+    case rejectSecondaryProducts = "reject-secondary-products/v1"
+    case orderedDisjointConcreteDesignatedSites = "ordered-disjoint-concrete-designated-sites/v1"
+}
+
 public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public static let presetName = "allele-balanced-v1"
     public static let workDefaults: [String: Int] = [
@@ -35,7 +41,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public let alleleWeighting: String
     public let discoveryLengthMode: String
     public let specificityTerminalK: Int
-    public let secondaryProductPolicy: String
+    public let secondaryProductPolicy: PrimalScheme3SecondaryProductPolicy
     public let subsetBeamWidth: Int
     public let subsetExpansionLimit: Int
     public let exchangeWidth: Int
@@ -66,7 +72,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         alleleWeighting: String? = nil,
         discoveryLengthMode: String? = nil,
         specificityTerminalK: Int? = nil,
-        secondaryProductPolicy: String? = nil,
+        secondaryProductPolicy: PrimalScheme3SecondaryProductPolicy? = nil,
         subsetBeamWidth: Int? = nil,
         subsetExpansionLimit: Int? = nil,
         exchangeWidth: Int? = nil,
@@ -95,7 +101,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         self.alleleWeighting = alleleWeighting ?? "distinct-observed"
         self.discoveryLengthMode = discoveryLengthMode ?? "first-compatible"
         self.specificityTerminalK = specificityTerminalK ?? 17
-        self.secondaryProductPolicy = secondaryProductPolicy ?? "ordered-disjoint-intended-sites"
+        self.secondaryProductPolicy = secondaryProductPolicy ?? .orderedDisjointIntendedSites
         self.subsetBeamWidth = subsetBeamWidth ?? 16
         self.subsetExpansionLimit = subsetExpansionLimit ?? 256
         self.exchangeWidth = exchangeWidth ?? 2
@@ -151,7 +157,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
             "alleleWeighting": .string(alleleWeighting),
             "discoveryLengthMode": .string(discoveryLengthMode),
             "specificityTerminalK": .integer(specificityTerminalK),
-            "secondaryProductPolicy": .string(secondaryProductPolicy),
+            "secondaryProductPolicy": .string(secondaryProductPolicy.rawValue),
             "subsetBeamWidth": .integer(subsetBeamWidth), "subsetExpansionLimit": .integer(subsetExpansionLimit),
             "exchangeWidth": .integer(exchangeWidth), "salvage": .string(salvage),
             "salvageThresholds": .array(salvageThresholds.map(ParameterValue.number)),
@@ -180,7 +186,6 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
               ["subsets", "full-cloud"].contains(variantSelection),
               alleleWeighting == "distinct-observed",
               ["first-compatible", "all"].contains(discoveryLengthMode),
-              ["ordered-disjoint-intended-sites", "reject-secondary-products/v1"].contains(secondaryProductPolicy),
               ["off", "bounded"].contains(salvage), specificityTerminalK > 0,
               subsetBeamWidth > 0, subsetExpansionLimit > 0, (0...2).contains(exchangeWidth),
               (1...3).contains(salvageMaxStages), salvageMaxEdgesPerPool >= 0,
@@ -232,7 +237,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         append("alleleWeighting", "--allele-weighting", alleleWeighting)
         append("discoveryLengthMode", "--discovery-length-mode", discoveryLengthMode)
         append("specificityTerminalK", "--specificity-terminal-k", String(specificityTerminalK))
-        append("secondaryProductPolicy", "--secondary-product-policy", secondaryProductPolicy)
+        append("secondaryProductPolicy", "--secondary-product-policy", secondaryProductPolicy.rawValue)
         append("subsetBeamWidth", "--subset-beam-width", String(subsetBeamWidth))
         append("subsetExpansionLimit", "--subset-expansion-limit", String(subsetExpansionLimit))
         append("exchangeWidth", "--exchange-width", String(exchangeWidth))
