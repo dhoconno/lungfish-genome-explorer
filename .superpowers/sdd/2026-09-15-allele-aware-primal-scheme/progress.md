@@ -352,3 +352,10 @@ At~03:12local coldnative24757/session26388 remainsrunning9h22m, SQLitewaits/no s
 ## Discovery checkpoint completed (04:05–04:06 local)
 
 Heartbeat09:04:30Z verifiedsamecoldPID24757/argv. Historygrewfrom50659807232to50960502784bytes; initialboundedreadonlymetadataquerydeferredwithdatabase-locked duringwrite, connectionclosed; no write/mutation. After55swaitsession26388stillrunning, indexedmode=ro query confirmedcommitted snapshot(stage_id=discovery,ordinal0,position24561230). Latestcommittedrecordassessment stage=strict position24592230. Nativeelapsed10h16m59s, RSS12966640KiBsnapshotnotpeak;504GiBdiskfree. Thusdiscoverycheckpointfinished andstrictselectionhasstarted; no panelcompletion/audit/cachegateclaim. Continueexistingcoldthroughremainingcheckpoints; matrix12follow-oncommandsstillunexecuted.
+
+
+## User cost and stopping policy update (2026-09-16 morning)
+
+User explicitly requests GPT-5.6 Luna for simple job running/benchmarking and simple implementation; reserve Astra sparingly for oversight and consequential algorithm-plan changes. User is away another hour and authorizes autonomous continuation. User accepts stopping below95% when performance plateaus; do not endlessly chase the aspiration. New bounded agent luna_benchmark_runner (GPT-5.6 Luna, low effort) owns routine statecheck→completedcoldverification→preparedmatrix12gates and writes task-luna-benchmark-status.md. Root must not duplicate routine monitoring/benchmark work.
+
+Updated existing heartbeat to30minutes (from10) and explicit Luna delegation policy to reduce Astra usage; same thread/gates preserved. Afterfirstcombinedcachedbaseline, require a concrete hypothesis/plausible useful gain for any extraarm; no exhaustiveoptional14armmatrix. A1narrowhour89.5027% remains bestcompleted, notwholepanelclaim. Stoppingforplateau stillrequires truthfulper-target/per-allele comparison, limitations and appropriateCLIverification; 95% isnotacceptancegate.
