@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import signal
 import shutil
 import subprocess
 import sys
@@ -27,7 +28,11 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def run_arm(python: Path, output: Path, mode: str, *, execute: bool) -> dict:
+def output_bytes(path: Path) -> int:
+    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file()) if path.exists() else 0
+
+
+def run_arm(python: Path, output: Path, *, execute: bool) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         raise FileExistsError(output)
@@ -38,16 +43,25 @@ def run_arm(python: Path, output: Path, mode: str, *, execute: bool) -> dict:
             "--ncores", "1", "--min-base-freq", "0", "--mapping", "first",
             "--terminal-gap-policy", "observed-only", "--optimizer-seed", "0",
             "--optimizer-starts", "1", "--optimizer-repair-rounds", "0",
-            "--optimizer-time-limit", "5", "--salvage", "off",
-            "--discovery-history", mode, "--offline-plots"]
+            "--optimizer-time-limit", "30", "--salvage", "off",
+            "--discovery-history", "compact", "--offline-plots"]
     started = time.time()
-    receipt = {"argv": argv, "mode": mode, "status": "planned", "started_unix": started}
+    target_identity = {"python": str(python), "version": subprocess.check_output([str(python), "--version"], text=True).strip()}
+    receipt = {"argv": argv, "mode": "compact", "status": "planned", "started_unix": started,
+               "target_runtime": target_identity}
     if execute:
-        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout_path, stderr_path = output.parent / "stdout.log", output.parent / "stderr.log"
+        with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
+            proc = subprocess.Popen(argv, stdout=stdout, stderr=stderr, text=True, start_new_session=True)
+            receipt["pid"] = proc.pid
+            (output.parent / "receipt-start.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
         peak_rss = 0
         while proc.poll() is None:
             if time.time() - started > WALL_LIMIT:
-                proc.kill()
+                os.killpg(proc.pid, signal.SIGINT)
+                time.sleep(2)
+                if proc.poll() is None:
+                    os.killpg(proc.pid, signal.SIGTERM)
                 receipt["status"] = "wall-time-limit"
                 break
             try:
@@ -55,18 +69,24 @@ def run_arm(python: Path, output: Path, mode: str, *, execute: bool) -> dict:
                 peak_rss = max(peak_rss, rss)
             except (subprocess.CalledProcessError, ValueError):
                 pass
-            if output.exists() and shutil.disk_usage(output.parent).used > DISK_LIMIT:
-                proc.kill()
+            if output_bytes(output) > DISK_LIMIT:
+                os.killpg(proc.pid, signal.SIGINT)
+                time.sleep(2)
+                if proc.poll() is None:
+                    os.killpg(proc.pid, signal.SIGTERM)
                 receipt["status"] = "disk-limit"
                 break
             time.sleep(0.25)
-        stdout, stderr = proc.communicate()
-        receipt.update(status=receipt.get("status", "success" if proc.returncode == 0 else "failed"),
-                       exit_status=proc.returncode, stdout=stdout, stderr=stderr, peak_rss_bytes=peak_rss)
+        proc.wait()
+        if receipt["status"] == "planned":
+            receipt["status"] = "success" if proc.returncode == 0 else "failed"
+        receipt.update(exit_status=proc.returncode, stdout_path=str(stdout_path), stderr_path=str(stderr_path),
+                       peak_rss_bytes=peak_rss, output_bytes=output_bytes(output))
+    target_platform = subprocess.check_output([str(python), "-c", "import platform; print(platform.platform())"], text=True).strip()
     receipt.update(finished_unix=time.time(), wall_seconds=time.time() - started,
                    input={"path": str(A1), "size": A1.stat().st_size, "sha256": sha256(A1)},
-                   source_runtime={"python": str(python), "version": platform.python_version(),
-                                   "platform": platform.platform()})
+                   source_runtime={"python": str(python), "version": target_identity["version"],
+                                   "platform": target_platform})
     return receipt
 
 
@@ -81,8 +101,7 @@ def main() -> None:
     args.output_root.mkdir(parents=True, exist_ok=True)
     result = {"tool": "selective-history-a1-harness", "argv": sys.argv,
               "limits": {"wall_seconds": WALL_LIMIT, "disk_bytes": DISK_LIMIT},
-              "arms": [run_arm(args.python, args.output_root / mode, mode, execute=args.execute)
-                       for mode in ("compact", "full")]}
+              "arms": [run_arm(args.python, args.output_root / "compact", execute=args.execute)]}
     (args.output_root / "harness-provenance.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, indent=2, sort_keys=True))
 
