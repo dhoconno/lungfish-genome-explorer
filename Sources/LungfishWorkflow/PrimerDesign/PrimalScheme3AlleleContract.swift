@@ -6,6 +6,7 @@ import LungfishIO
 struct PrimalScheme3AlleleCapabilities: @unchecked Sendable {
     let source: [String: Any]
     let runtime: [String: Any]
+    let phaseSchedulingPolicies: [String: [String: Any]]?
 }
 
 enum PrimalScheme3AlleleContract {
@@ -17,7 +18,9 @@ enum PrimalScheme3AlleleContract {
     static let optimizerSchema = "primalscheme3.panel-optimizer/v2"
     static let integrationSchema = "primalscheme3.panel-native-integration/v2"
 
-    static func validateCapabilities(_ data: Data) throws -> PrimalScheme3AlleleCapabilities {
+    static func validateCapabilities(_ data: Data,
+                                     requestedPhaseScheduling: PrimalScheme3PhaseScheduling? = nil) throws
+        -> PrimalScheme3AlleleCapabilities {
         let root = try object(JSONSerialization.jsonObject(with: data), "capabilities")
         try expect(string(root, "schemaVersion"), "primalscheme3.capabilities/v1", "capabilities schema")
         try expect(string(root, "tool"), "primalscheme3", "capability tool")
@@ -45,6 +48,23 @@ enum PrimalScheme3AlleleContract {
               try strings(scope, "terminalGapPolicies") == ["observed-only"] else {
             throw invalid("The executable's allele-coverage scope is unsupported.")
         }
+        let phaseSchedulingPolicies: [String: [String: Any]]?
+        if let advertised = allele["phaseScheduling"] {
+            let serial = schedulingPolicy(.serial)
+            let reserved = schedulingPolicy(.reserved)
+            let expected: [String: Any] = [
+                "default": "serial", "policies": ["serial": serial, "reserved": reserved]
+            ]
+            guard equalJSON(advertised, expected) else {
+                throw invalid("The executable advertises an unsupported phase-scheduling contract.")
+            }
+            phaseSchedulingPolicies = ["serial": serial, "reserved": reserved]
+        } else {
+            phaseSchedulingPolicies = nil
+        }
+        if requestedPhaseScheduling != nil, phaseSchedulingPolicies == nil {
+            throw invalid("The executable does not advertise the explicitly requested phase-scheduling policy.")
+        }
         let source = try object(root["source"], "capability source")
         let runtime = try object(root["runtime"], "capability runtime")
         let sourceFiles = try objectArray(source["files"], "capability source files")
@@ -67,7 +87,7 @@ enum PrimalScheme3AlleleContract {
               nativeKernels.allSatisfy(nativeKernelIdentityValid) else {
             throw invalid("Capability source or runtime identity is incomplete.")
         }
-        return .init(source: source, runtime: runtime)
+        return .init(source: source, runtime: runtime, phaseSchedulingPolicies: phaseSchedulingPolicies)
     }
 
     static func validateNativeOutput(at output: URL, configuration: [String: Any],
@@ -98,7 +118,8 @@ enum PrimalScheme3AlleleContract {
         try expect(string(profile, "name"), "allele-panel-v1", "integration profile")
         try expect(string(profile, "specificity_revision"), "selected-sites-v2", "integration specificity")
         let resolved = try object(integration["options"], "resolved allele options")
-        try validateResolved(resolved, options: options)
+        try validateResolved(resolved, options: options,
+                             supportsPhaseScheduling: capabilities.phaseSchedulingPolicies != nil)
         guard let encoded = configuration["allele_options_json"] as? String,
               let encodedData = encoded.data(using: .utf8),
               equalJSON(try JSONSerialization.jsonObject(with: encodedData), resolved) else {
@@ -125,10 +146,55 @@ enum PrimalScheme3AlleleContract {
         let stages = try objectArray(optimizer["stages"], "optimizer stages")
         guard !stages.isEmpty else { throw invalid("The optimizer has no published tier.") }
         var publishedStageIDs = Set<String>()
+        let selectedSchedulingPolicy = capabilities.phaseSchedulingPolicies?[options.alleleOptions.phaseScheduling.rawValue]
         for stage in stages {
             let stagePath = try safeRelative(string(stage, "path"))
             guard publishedStageIDs.insert(try string(stage, "stage_id")).inserted else {
                 throw invalid("The optimizer publishes duplicate tier identifiers.")
+            }
+            if let selectedSchedulingPolicy {
+                let stageOptimizer = try object(stage["optimizer"], "stage optimizer")
+                guard equalJSON(stageOptimizer["scheduling_policy"], selectedSchedulingPolicy) else {
+                    throw invalid("The stage optimizer scheduling policy differs from the selected capability descriptor.")
+                }
+                let objectiveTerms = try strings(stageOptimizer, "objective_terms")
+                guard objectiveTerms.count > 1, objectiveTerms.last == "canonical-assignments" else {
+                    throw invalid("The stage optimizer objective terms are malformed.")
+                }
+                let progress = try objectArray(stageOptimizer["phase_progress"], "optimizer phase progress")
+                guard !progress.isEmpty else { throw invalid("The stage optimizer phase progress is empty.") }
+                for entry in progress {
+                    let phase = try string(entry, "phase")
+                    let outcome = try string(entry, "outcome")
+                    let outcomes: Set<String> = ["work-cap", "exhausted", "no-eligible-work", "completed",
+                                                 "phase-time-limit", "time-limit", "cancelled", "failed"]
+                    guard validPhaseName(phase), outcomes.contains(outcome),
+                          try number(entry, "started_seconds") >= 0,
+                          try number(entry, "elapsed_seconds") >= 0,
+                          try number(entry, "local_overshoot_seconds") >= 0 else {
+                        throw invalid("The stage optimizer phase progress is malformed.")
+                    }
+                    if options.alleleOptions.phaseScheduling == .serial {
+                        guard entry["local_budget_seconds"] is NSNull else {
+                            throw invalid("Serial phase progress must not claim a local reservation budget.")
+                        }
+                    } else if try number(entry, "local_budget_seconds") < 0 {
+                        throw invalid("The stage optimizer phase budget is malformed.")
+                    }
+                    let before = try numbers(entry, "objective_before")
+                    let after = try numbers(entry, "objective_after")
+                    guard before.count == objectiveTerms.count - 1, after.count == before.count,
+                          before.allSatisfy(\.isFinite), after.allSatisfy(\.isFinite),
+                          try integer(entry, "repairs_accepted_delta") >= 0 else {
+                        throw invalid("The stage optimizer phase objective evidence is malformed.")
+                    }
+                    for key in ["work_delta", "proposal_work_delta", "family_cursors_before", "family_cursors"] {
+                        let counters = try object(entry[key], "optimizer phase \(key)")
+                        guard counters.values.allSatisfy(nonnegativeInteger) else {
+                            throw invalid("The stage optimizer phase \(key) is malformed.")
+                        }
+                    }
+                }
             }
             for required in ["catalog.json.gz", "ledger.json.gz", "authoritative-targets.json.gz",
                              "assignments.json", "coverage.json", "validation.json", "stage.json"] {
@@ -218,7 +284,8 @@ enum PrimalScheme3AlleleContract {
         }
     }
 
-    private static func validateResolved(_ value: [String: Any], options: PrimalScheme3DesignOptions) throws {
+    private static func validateResolved(_ value: [String: Any], options: PrimalScheme3DesignOptions,
+                                         supportsPhaseScheduling: Bool) throws {
         let allele = options.alleleOptions
         let expectedStrings = ["preset": allele.preset, "candidate_profiles": allele.candidateProfiles,
             "variant_selection": allele.variantSelection, "allele_weighting": allele.alleleWeighting,
@@ -226,6 +293,11 @@ enum PrimalScheme3AlleleContract {
             "secondary_product_policy": allele.secondaryProductPolicy, "salvage": allele.salvage,
             "primary_tier": allele.primaryTier, "coverage_metric": options.coverageMetric.rawValue]
         for (key, expected) in expectedStrings { try expect(string(value, key), expected, key) }
+        if supportsPhaseScheduling {
+            try expect(string(value, "phase_scheduling"), allele.phaseScheduling.rawValue, "phase scheduling")
+        } else if allele.requestedOptionNames.contains("phaseScheduling") {
+            throw invalid("The explicitly requested phase-scheduling policy was not advertised by the executable.")
+        }
         let expectedIntegers = ["specificity_terminal_k": allele.specificityTerminalK,
             "subset_beam_width": allele.subsetBeamWidth, "subset_expansion_limit": allele.subsetExpansionLimit,
             "exchange_width": allele.exchangeWidth, "salvage_max_stages": allele.salvageMaxStages,
@@ -271,6 +343,7 @@ enum PrimalScheme3AlleleContract {
         let names = [
             "preset": "preset", "candidateProfiles": "candidate_profiles", "reuseDiscovery": "reuse_discovery",
             "variantSelection": "variant_selection", "alleleWeighting": "allele_weighting",
+            "phaseScheduling": "phase_scheduling",
             "discoveryLengthMode": "discovery_length_mode", "specificityTerminalK": "specificity_terminal_k",
             "secondaryProductPolicy": "secondary_product_policy", "subsetBeamWidth": "subset_beam_width",
             "subsetExpansionLimit": "subset_expansion_limit", "exchangeWidth": "exchange_width",
@@ -437,6 +510,40 @@ enum PrimalScheme3AlleleContract {
             return false
         }
         return files.allSatisfy(descriptorIdentityValid)
+    }
+
+    private static func validPhaseName(_ value: String) -> Bool {
+        if value == "seed:full" || value == "seed:normal" { return true }
+        let pieces = value.split(separator: "/", omittingEmptySubsequences: false)
+        if pieces.count == 1 {
+            let construction = pieces[0].split(separator: ":", omittingEmptySubsequences: false)
+            return construction.count == 2 && construction[0] == "construction"
+                && Int(construction[1]).map { $0 >= 0 } == true
+        }
+        guard pieces.count == 2,
+              ["preparation", "cleanup", "exchange"].contains(String(pieces[1])) else { return false }
+        let repair = pieces[0].split(separator: ":", omittingEmptySubsequences: false)
+        return repair.count == 3 && repair[0] == "repair"
+            && Int(repair[1]).map { $0 >= 0 } == true && Int(repair[2]).map { $0 >= 0 } == true
+    }
+
+    private static func nonnegativeInteger(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return false }
+        return number.doubleValue.isFinite && number.doubleValue >= 0
+            && number.doubleValue.rounded() == number.doubleValue
+    }
+
+    private static func schedulingPolicy(_ policy: PrimalScheme3PhaseScheduling) -> [String: Any] {
+        switch policy {
+        case .serial:
+            return ["id": "serial/v1"]
+        case .reserved:
+            return [
+                "id": "initial-phase-reservations/v1",
+                "initial_weights": ["seeds": 0.2, "construction": 0.4, "repair": 0.4],
+                "repair_weights": ["preparation": 0.2, "cleanup": 0.2, "exchange": 0.6]
+            ]
+        }
     }
 
     private static func expect<T: Equatable>(_ actual: T, _ expected: T, _ label: String) throws {

@@ -23,6 +23,94 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             JSONSerialization.data(withJSONObject: root)))
     }
 
+    func testExplicitPhaseSchedulingRequiresFrozenCapabilityDescriptor() throws {
+        let legacy = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateCapabilities(legacy.capabilities))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedPhaseScheduling: .serial))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedPhaseScheduling: .reserved))
+
+        let current = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true)
+        defer { try? FileManager.default.removeItem(at: current.root) }
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateCapabilities(
+            current.capabilities, requestedPhaseScheduling: .reserved))
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: current.capabilities) as? [String: Any])
+        var allele = try XCTUnwrap(root["alleleCoverage"] as? [String: Any])
+        var phase = try XCTUnwrap(allele["phaseScheduling"] as? [String: Any])
+        var policies = try XCTUnwrap(phase["policies"] as? [String: Any])
+        var reserved = try XCTUnwrap(policies["reserved"] as? [String: Any])
+        reserved["initial_weights"] = ["seeds": 0.3, "construction": 0.3, "repair": 0.4]
+        policies["reserved"] = reserved; phase["policies"] = policies
+        allele["phaseScheduling"] = phase; root["alleleCoverage"] = allele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: root), requestedPhaseScheduling: .reserved))
+
+        let currentDefault = try Self.makeFixture(advertisePhaseScheduling: true)
+        defer { try? FileManager.default.removeItem(at: currentDefault.root) }
+        let defaultCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(currentDefault.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: currentDefault.output, configuration: currentDefault.configuration,
+            capabilities: defaultCapabilities, options: currentDefault.options, inputCount: 1,
+            executedArgv: currentDefault.argv, auditValidation: currentDefault.auditValidation,
+            auditProvenance: currentDefault.auditProvenance,
+            auditExecutedArgv: currentDefault.auditArgv, auditExitStatus: 0))
+    }
+
+    func testSchedulingPolicyAndProgressAreBoundToSelectedCapabilityDescriptor() throws {
+        let fixture = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedPhaseScheduling: .reserved)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        let optimizerURL = fixture.output.appendingPathComponent("panel-optimizer.json")
+        var optimizer = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: optimizerURL)) as? [String: Any])
+        var stages = try XCTUnwrap(optimizer["stages"] as? [[String: Any]])
+        var stageOptimizer = try XCTUnwrap(stages[0]["optimizer"] as? [String: Any])
+        stageOptimizer["scheduling_policy"] = ["id": "serial/v1"]
+        stages[0]["optimizer"] = stageOptimizer; optimizer["stages"] = stages
+        try Self.writeJSON(optimizer, to: optimizerURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("scheduling policy"))
+            }
+        stageOptimizer["scheduling_policy"] = Self.reservedSchedulingPolicy()
+        let validStageOptimizer = stageOptimizer
+        stageOptimizer.removeValue(forKey: "phase_progress")
+        stages[0]["optimizer"] = stageOptimizer; optimizer["stages"] = stages
+        try Self.writeJSON(optimizer, to: optimizerURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("phase progress"))
+            }
+
+        var malformedProgress = validStageOptimizer
+        var progress = try XCTUnwrap(malformedProgress["phase_progress"] as? [[String: Any]])
+        progress[0].removeValue(forKey: "objective_after")
+        malformedProgress["phase_progress"] = progress
+        stages[0]["optimizer"] = malformedProgress; optimizer["stages"] = stages
+        try Self.writeJSON(optimizer, to: optimizerURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("objective_after"))
+            }
+    }
+
     func testAuditReceiptBindsEveryNativeByteAndRejectsMutationOrMissingEvidence() throws {
         let fixture = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -87,7 +175,8 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         let auditArgv: [String]
     }
 
-    private static func makeFixture() throws -> Fixture {
+    private static func makeFixture(phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
+                                    advertisePhaseScheduling: Bool = false) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let output = root.appendingPathComponent("native", isDirectory: true)
         let stage = output.appendingPathComponent("stages/strict", isDirectory: true)
@@ -102,8 +191,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         try Data("sqlite-fixture".utf8).write(to: history)
         let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, coreCount: 1,
             ampliconSizeMinimum: 150, ampliconSizeMaximum: 280,
-            selectionAlgorithm: .alleleCoverage)
-        let resolved = resolvedOptions(options)
+            selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(phaseScheduling: phaseScheduling))
+        let resolved = resolvedOptions(options, includePhaseScheduling: advertisePhaseScheduling)
         let profile: [String: Any] = ["name": "allele-panel-v1", "specificity_revision": "selected-sites-v2"]
         let integration: [String: Any] = [
             "schemaVersion": "primalscheme3.panel-native-integration/v2",
@@ -126,13 +216,35 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "panel_optimizer": integration
         ]
         try writeJSON(configuration, to: output.appendingPathComponent("config.json"))
+        var stageOptimizer: [String: Any] = [:]
+        if advertisePhaseScheduling {
+            stageOptimizer = [
+                "scheduling_policy": phaseScheduling == .reserved ? reservedSchedulingPolicy() : serialSchedulingPolicy(),
+                "objective_terms": [
+                    "negative-mean-utility", "negative-mean-coverage", "negative-worst-coverage",
+                    "violating-edges", "incident-species", "sequence-pool-instances", "assignments",
+                    "pool-burden-range", "size-deviation", "canonical-assignments"
+                ],
+                "phase_progress": [[
+                    "phase": "construction:0", "outcome": "completed",
+                    "started_seconds": 0.0,
+                    "local_budget_seconds": phaseScheduling == .reserved ? 10.0 : NSNull(),
+                    "elapsed_seconds": 0.1, "local_overshoot_seconds": 0.0,
+                    "objective_before": Array(repeating: 0.0, count: 9),
+                    "objective_after": Array(repeating: 0.0, count: 9),
+                    "repairs_accepted_delta": 0,
+                    "work_delta": [:], "proposal_work_delta": [:],
+                    "family_cursors_before": [:], "family_cursors": [:]
+                ]]
+            ]
+        }
         let optimizer: [String: Any] = [
             "schemaVersion": "primalscheme3.panel-optimizer/v2", "algorithm": "bounded-allele-coverage/v1",
             "metric": "observed-allele-primer-trimmed/v1", "primaryTier": "strict", "profile": profile,
             "options": resolved, "publication": [:], "timings": [:],
             "history": ["path": "history/history.sqlite", "configurationLedger": "configuration-ledger.json.gz", "counts": [:]],
             "stages": [["path": "stages/strict", "stage_id": "strict", "assignments": [],
-                        "coverage": [:], "optimizer": [:], "validationValid": true]]
+                        "coverage": [:], "optimizer": stageOptimizer, "validationValid": true]]
         ]
         try writeJSON(optimizer, to: output.appendingPathComponent("panel-optimizer.json"))
         try writeJSON(["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true],
@@ -163,23 +275,28 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "declaredRuntimeDependencies": [["distribution": "primer3-py", "version": "2.2.0"]],
             "nativeKernels": [["distribution": "primer3-py", "package": "primer3", "version": "2.2.0",
                 "files": [["path": "/fixture/primer3.so", "sha256": digest, "size": 1]]]]]
+        var alleleCapability: [String: Any] = [
+            "sourceContractVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
+            "algorithm": "bounded-allele-coverage/v1", "metric": "observed-allele-primer-trimmed/v1",
+            "preset": "allele-balanced-v1", "catalogSchemaVersion": "primalscheme3.variant-catalog/v2",
+            "configurationLedgerSchemaVersion": "primalscheme3.configuration-ledger/v2",
+            "validationSchemaVersion": "primalscheme3.allele-panel-validation/v2",
+            "profile": ["name": "allele-panel-v1", "specificityRevision": "selected-sites-v2"],
+            "supportedScope": ["mode": "equal", "mapping": "first", "ampliconSizeMetric": "reference-span",
+                "freshDesign": true, "linear": true, "suppliedMsaSpecificity": true,
+                "terminalGapPolicies": ["observed-only"]]
+        ]
+        if advertisePhaseScheduling {
+            alleleCapability["phaseScheduling"] = phaseSchedulingCapability()
+        }
         let capabilitiesObject: [String: Any] = [
             "schemaVersion": "primalscheme3.capabilities/v1", "tool": "primalscheme3",
             "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
             "selectionAlgorithms": ["legacy", "coverage", "allele-coverage"],
-            "alleleCoverage": [
-                "sourceContractVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
-                "algorithm": "bounded-allele-coverage/v1", "metric": "observed-allele-primer-trimmed/v1",
-                "preset": "allele-balanced-v1", "catalogSchemaVersion": "primalscheme3.variant-catalog/v2",
-                "configurationLedgerSchemaVersion": "primalscheme3.configuration-ledger/v2",
-                "validationSchemaVersion": "primalscheme3.allele-panel-validation/v2",
-                "profile": ["name": "allele-panel-v1", "specificityRevision": "selected-sites-v2"],
-                "supportedScope": ["mode": "equal", "mapping": "first", "ampliconSizeMetric": "reference-span",
-                    "freshDesign": true, "linear": true, "suppliedMsaSpecificity": true,
-                    "terminalGapPolicies": ["observed-only"]]
-            ], "source": identitySource, "runtime": identityRuntime
+            "alleleCoverage": alleleCapability, "source": identitySource, "runtime": identityRuntime
         ]
-        let argv = ["/fixture/primalscheme3", "panel-create", "--msa", source.path, "--output", output.path]
+        var argv = ["/fixture/primalscheme3", "panel-create", "--msa", source.path, "--output", output.path]
+        if let phaseScheduling { argv += ["--phase-scheduling", phaseScheduling.rawValue] }
         let nativeBeforeProvenance = try regularFiles(output)
         let nativeOutputs = try nativeBeforeProvenance.map { try descriptor($0, relativeTo: output) }
         let inputDescriptor: [String: Any] = [
@@ -222,9 +339,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
                      auditProvenance: try JSONSerialization.data(withJSONObject: audit), auditArgv: auditArgv)
     }
 
-    private static func resolvedOptions(_ options: PrimalScheme3DesignOptions) -> [String: Any] {
+    private static func resolvedOptions(_ options: PrimalScheme3DesignOptions,
+                                        includePhaseScheduling: Bool = false) -> [String: Any] {
         let a = options.alleleOptions
-        return [
+        var requested: [String: Any] = [:]
+        if a.requestedOptionNames.contains("phaseScheduling") {
+            requested["phase_scheduling"] = a.phaseScheduling.rawValue
+        }
+        var result: [String: Any] = [
             "preset": a.preset, "candidate_profiles": a.candidateProfiles, "variant_selection": a.variantSelection,
             "allele_weighting": a.alleleWeighting, "discovery_length_mode": a.discoveryLengthMode,
             "specificity_terminal_k": a.specificityTerminalK, "secondary_product_policy": a.secondaryProductPolicy,
@@ -233,7 +355,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "salvage_max_stages": a.salvageMaxStages, "salvage_max_edges_per_pool": a.salvageMaxEdgesPerPool,
             "salvage_max_oligos_per_pool": a.salvageMaxOligosPerPool, "salvage_time_limit": a.salvageTimeLimit,
             "primary_tier": a.primaryTier, "coverage_metric": options.coverageMetric.rawValue,
-            "coverage_target": options.coverageTarget, "requested_options": [:],
+            "coverage_target": options.coverageTarget, "requested_options": requested,
             "amplicon_size": options.ampliconSize, "amplicon_size_min": options.ampliconSizeMinimum,
             "amplicon_size_max": options.ampliconSizeMaximum, "n_pools": options.poolCount,
             "ncores": options.coreCount, "optimizer_seed": options.optimizerSeed,
@@ -251,6 +373,21 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "work_cleanup_moves_per_round": a.workCleanupMovesPerRound,
             "work_families_per_refresh": a.workFamiliesPerRefresh
         ]
+        if includePhaseScheduling || a.requestedOptionNames.contains("phaseScheduling") {
+            result["phase_scheduling"] = a.phaseScheduling.rawValue
+        }
+        return result
+    }
+
+    private static func serialSchedulingPolicy() -> [String: Any] { ["id": "serial/v1"] }
+    private static func reservedSchedulingPolicy() -> [String: Any] {
+        ["id": "initial-phase-reservations/v1",
+         "initial_weights": ["seeds": 0.2, "construction": 0.4, "repair": 0.4],
+         "repair_weights": ["preparation": 0.2, "cleanup": 0.2, "exchange": 0.6]]
+    }
+    private static func phaseSchedulingCapability() -> [String: Any] {
+        ["default": "serial",
+         "policies": ["serial": serialSchedulingPolicy(), "reserved": reservedSchedulingPolicy()]]
     }
 
     private static func writeJSON(_ object: Any, to url: URL) throws {

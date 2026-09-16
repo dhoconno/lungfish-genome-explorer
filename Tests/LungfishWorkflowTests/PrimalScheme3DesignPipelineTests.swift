@@ -209,6 +209,7 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         let allele = PrimalScheme3AlleleOptions(
             preset: "allele-balanced-v1", candidateProfiles: "normal",
             reuseDiscovery: URL(fileURLWithPath: "/cache"), variantSelection: "subsets",
+            phaseScheduling: .reserved,
             alleleWeighting: "distinct-observed", discoveryLengthMode: "all", specificityTerminalK: 19,
             secondaryProductPolicy: "reject-secondary-products/v1", subsetBeamWidth: 8,
             subsetExpansionLimit: 100, exchangeWidth: 1, salvage: "bounded",
@@ -233,6 +234,7 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
             ("--coverage-metric", "observed-allele-primer-trimmed"),
             ("--coverage-target", "0.95"), ("--candidate-profiles", "normal"),
             ("--reuse-discovery", "/cache"), ("--variant-selection", "subsets"),
+            ("--phase-scheduling", "reserved"),
             ("--allele-weighting", "distinct-observed"), ("--discovery-length-mode", "all"),
             ("--specificity-terminal-k", "19"),
             ("--secondary-product-policy", "reject-secondary-products/v1"),
@@ -257,6 +259,22 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(options.coverageTarget, 0.95)
         XCTAssertEqual(options.provenanceOptions["alleleOptions"], .dictionary(allele.resolvedProvenanceOptions))
         XCTAssertEqual(options.provenanceOptions["alleleRequestedOptions"], .dictionary(allele.requestedProvenanceOptions))
+    }
+
+    func testAllelePhaseSchedulingDefaultsToSerialButOnlyExplicitOverrideReachesNativeArguments() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let base: (PrimalScheme3AlleleOptions) throws -> [String] = { allele in
+            try PrimalScheme3DesignPipeline.arguments(inputs: inputs, output: output, grouping: .combined,
+                options: .init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+                    ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage, alleleOptions: allele))
+        }
+        let defaults = PrimalScheme3AlleleOptions()
+        XCTAssertEqual(defaults.phaseScheduling, .serial)
+        XCTAssertFalse(try base(defaults).contains("--phase-scheduling"))
+        let explicitSerial = PrimalScheme3AlleleOptions(phaseScheduling: .serial)
+        XCTAssertEqual(Array(try base(explicitSerial).suffix(2)), ["--phase-scheduling", "serial"])
+        XCTAssertEqual(explicitSerial.requestedProvenanceOptions["phaseScheduling"], .string("serial"))
     }
 
     func testAlleleCoverageRejectsUnsupportedScopeAndInvalidAdvancedControls() {

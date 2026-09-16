@@ -126,6 +126,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("candidate-profiles")) var candidateProfiles: String?
         @Option(name: .customLong("reuse-discovery")) var reuseDiscovery: String?
         @Option(name: .customLong("variant-selection")) var variantSelection: String?
+        @Option(name: .customLong("phase-scheduling"), help: "Optimizer phase policy: serial or reserved.") var phaseScheduling: String?
         @Option(name: .customLong("allele-weighting")) var alleleWeighting: String?
         @Option(name: .customLong("discovery-length-mode")) var discoveryLengthMode: String?
         @Option(name: .customLong("specificity-terminal-k")) var specificityTerminalK: Int?
@@ -185,10 +186,20 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             guard let resolvedCoverageMetric = PrimalScheme3CoverageMetric(rawValue: metricName) else {
                 throw ValidationError("--coverage-metric must be full-span, primer-trimmed, or observed-allele-primer-trimmed.")
             }
+            let resolvedPhaseScheduling: PrimalScheme3PhaseScheduling?
+            if let phaseScheduling {
+                guard let value = PrimalScheme3PhaseScheduling(rawValue: phaseScheduling) else {
+                    throw ValidationError("--phase-scheduling must be serial or reserved.")
+                }
+                resolvedPhaseScheduling = value
+            } else {
+                resolvedPhaseScheduling = nil
+            }
             let alleleOptions = PrimalScheme3AlleleOptions(
                 preset: preset, candidateProfiles: candidateProfiles,
                 reuseDiscovery: reuseDiscovery.map(URL.init(fileURLWithPath:)),
-                variantSelection: variantSelection, alleleWeighting: alleleWeighting,
+                variantSelection: variantSelection, phaseScheduling: resolvedPhaseScheduling,
+                alleleWeighting: alleleWeighting,
                 discoveryLengthMode: discoveryLengthMode, specificityTerminalK: specificityTerminalK,
                 secondaryProductPolicy: secondaryProductPolicy, subsetBeamWidth: subsetBeamWidth,
                 subsetExpansionLimit: subsetExpansionLimit, exchangeWidth: exchangeWidth,

@@ -1,5 +1,9 @@
 import Foundation
 
+public enum PrimalScheme3PhaseScheduling: String, Codable, CaseIterable, Sendable {
+    case serial, reserved
+}
+
 public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public static let presetName = "allele-balanced-v1"
     public static let workDefaults: [String: Int] = [
@@ -17,6 +21,8 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public let candidateProfiles: String
     public let reuseDiscovery: URL?
     public let variantSelection: String
+    public let requestedPhaseScheduling: PrimalScheme3PhaseScheduling?
+    public var phaseScheduling: PrimalScheme3PhaseScheduling { requestedPhaseScheduling ?? .serial }
     public let alleleWeighting: String
     public let discoveryLengthMode: String
     public let specificityTerminalK: Int
@@ -46,6 +52,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         candidateProfiles: String? = nil,
         reuseDiscovery: URL? = nil,
         variantSelection: String? = nil,
+        phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
         alleleWeighting: String? = nil,
         discoveryLengthMode: String? = nil,
         specificityTerminalK: Int? = nil,
@@ -73,6 +80,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         self.candidateProfiles = candidateProfiles ?? "union"
         self.reuseDiscovery = reuseDiscovery
         self.variantSelection = variantSelection ?? "subsets"
+        self.requestedPhaseScheduling = phaseScheduling
         self.alleleWeighting = alleleWeighting ?? "distinct-observed"
         self.discoveryLengthMode = discoveryLengthMode ?? "first-compatible"
         self.specificityTerminalK = specificityTerminalK ?? 17
@@ -100,6 +108,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         for (name, supplied) in [
             ("preset", preset != nil), ("candidateProfiles", candidateProfiles != nil),
             ("reuseDiscovery", reuseDiscovery != nil), ("variantSelection", variantSelection != nil),
+            ("phaseScheduling", phaseScheduling != nil),
             ("alleleWeighting", alleleWeighting != nil), ("discoveryLengthMode", discoveryLengthMode != nil),
             ("specificityTerminalK", specificityTerminalK != nil),
             ("secondaryProductPolicy", secondaryProductPolicy != nil),
@@ -125,7 +134,8 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         [
             "preset": .string(preset), "candidateProfiles": .string(candidateProfiles),
             "reuseDiscovery": reuseDiscovery.map { .string($0.path) } ?? .null,
-            "variantSelection": .string(variantSelection), "alleleWeighting": .string(alleleWeighting),
+            "variantSelection": .string(variantSelection), "phaseScheduling": .string(phaseScheduling.rawValue),
+            "alleleWeighting": .string(alleleWeighting),
             "discoveryLengthMode": .string(discoveryLengthMode),
             "specificityTerminalK": .integer(specificityTerminalK),
             "secondaryProductPolicy": .string(secondaryProductPolicy),
@@ -204,6 +214,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         append("candidateProfiles", "--candidate-profiles", candidateProfiles)
         if let reuseDiscovery { append("reuseDiscovery", "--reuse-discovery", reuseDiscovery.path) }
         append("variantSelection", "--variant-selection", variantSelection)
+        append("phaseScheduling", "--phase-scheduling", phaseScheduling.rawValue)
         append("alleleWeighting", "--allele-weighting", alleleWeighting)
         append("discoveryLengthMode", "--discovery-length-mode", discoveryLengthMode)
         append("specificityTerminalK", "--specificity-terminal-k", String(specificityTerminalK))

@@ -592,7 +592,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                     terminalPolicy: request.options.terminalGapPolicy) : nil
             let alleleCapabilities = request.options.selectionAlgorithm == .alleleCoverage
                 ? try PrimalScheme3AlleleContract.validateCapabilities(
-                    capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }()) : nil
+                    capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }(),
+                    requestedPhaseScheduling: request.options.alleleOptions.requestedPhaseScheduling) : nil
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
@@ -845,7 +846,18 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 _ = try PrimalScheme3CoverageContract.validateCapabilities(data, terminalPolicy: command.terminalGapPolicy)
                 executedVersion = Self.coverageToolVersion
             } else {
-                _ = try PrimalScheme3AlleleContract.validateCapabilities(data)
+                let requestedScheduling: PrimalScheme3PhaseScheduling?
+                if let index = command.arguments.firstIndex(of: "--phase-scheduling"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3PhaseScheduling(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest("Phase scheduling must be serial or reserved.")
+                    }
+                    requestedScheduling = value
+                } else {
+                    requestedScheduling = nil
+                }
+                _ = try PrimalScheme3AlleleContract.validateCapabilities(
+                    data, requestedPhaseScheduling: requestedScheduling)
                 executedVersion = Self.alleleToolVersion
             }
             capabilitiesJSON = data

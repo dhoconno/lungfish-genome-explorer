@@ -80,7 +80,7 @@ final class PrimerDesignCommandTests: XCTestCase {
             "--selection-algorithm", "allele-coverage", "--primalscheme3-path", "/tmp/primalscheme3",
             "--amplicon-size", "200", "--amplicon-size-min", "150", "--amplicon-size-max", "250",
             "--preset", "allele-balanced-v1", "--candidate-profiles", "union",
-            "--reuse-discovery", "/tmp/cache", "--variant-selection", "subsets",
+            "--reuse-discovery", "/tmp/cache", "--variant-selection", "subsets", "--phase-scheduling", "reserved",
             "--allele-weighting", "distinct-observed", "--discovery-length-mode", "all",
             "--specificity-terminal-k", "19", "--secondary-product-policy", "reject-secondary-products/v1",
             "--subset-beam-width", "8", "--subset-expansion-limit", "100", "--exchange-width", "1",
@@ -99,6 +99,7 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.preset, "allele-balanced-v1")
         XCTAssertEqual(command.candidateProfiles, "union")
         XCTAssertEqual(command.reuseDiscovery, "/tmp/cache")
+        XCTAssertEqual(command.phaseScheduling, "reserved")
         XCTAssertEqual(command.salvageThresholds, [-28, -31])
         XCTAssertEqual(command.primaryTier, "salvage-2")
         XCTAssertEqual(command.workFamiliesPerRefresh, 7)
