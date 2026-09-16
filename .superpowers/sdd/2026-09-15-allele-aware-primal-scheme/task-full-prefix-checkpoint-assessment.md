@@ -84,3 +84,87 @@ Existing relevant suites are `test_sqlite_coverage_history.py` and `test_integer
 ## Expected effect, not a speed claim
 
 The potential gain is removal of three full relation-prefix scans/joins during trusted current-prefix stage completion. It does not accelerate primer enumeration, family expansion, writes, integrity scans, cold reload, truncated-prefix hashing, disposition construction/validation, snapshot serialization or later catalog publication. Those costs can dominate after these joins disappear. The current frozen cold run cannot benefit without prohibited source modification; future sources can only claim a checkpoint improvement after a bounded identical-record/digest benchmark. No seconds, percentage or full-MHC speedup estimate is supported by this assessment.
+
+## Addendum: prefer the v2 integer-key query simplification
+
+**Recommendation:** pursue the narrower query-only v2 change instead of the trust/count shortcut above. It retains all three closure checks for full and truncated prefixes, requires no mutable trust state, and removes demonstrably redundant ID lookups. No implementation or performance benchmark was performed. The earlier counterexample to skipping checks still applies; this alternative continues to reject it.
+
+### Exact query and equivalence
+
+The native v2 schema uses `records.position` as the integer primary key, non-null unique `records.id`, and `record_links_int(source_key,target_key,kind)`. Its canonical `record_links` view joins both integer endpoints to records to expose their IDs. The current checkpoint then resolves those IDs back to records:
+
+```sql
+SELECT 1 FROM record_links l
+JOIN records s ON s.id=l.source_id
+JOIN records t ON t.id=l.target_id
+WHERE l.kind=? AND s.stream=? AND s.ordinal<? AND t.ordinal>=?
+LIMIT 1
+```
+
+For format 2 only, use:
+
+```sql
+SELECT 1 FROM record_links_int l
+JOIN records s ON s.position=l.source_key
+JOIN records t ON t.position=l.target_key
+WHERE l.kind=? AND s.stream=? AND s.ordinal<? AND t.ordinal>=?
+LIMIT 1
+```
+
+Proof: each view row resolves source s0 and target t0 by unique integer position. The outer joins resolve s1.id=s0.id and t1.id=t0.id. Because IDs are non-null and unique, s1=s0 and t1=t0. Removing these round trips preserves the exact predicate and existence result. This proof depends on the native schema and view definition; it does not validate arbitrary replacement schemas/views or justify weakening schema, payload or relation validation.
+
+Missing foreign-key endpoints are omitted by both inner-join forms. Neither query independently validates missing endpoints; the retained reload `foreign_key_check` does. Unique ID alteration preserves query equivalence but is still rejected by canonical record/index comparison on reload. Out-of-band ordinal alteration preserves the existing closure rejection.
+
+### Bounded synthetic evidence
+
+Executed with frozen matrix11 Python and SQLite **3.51.2**, using an in-memory database with the relevant native schema, indexes and view; no biological or live database was opened. Six rows comprised two records per evidence/assessment/event stream. Five links covered both evidence and assessment references and one event parent. All old/new existence results agreed for all three kinds at full and truncated limits:
+
+| kind / source stream | source prefix | target prefix | old = new |
+|---|---:|---:|---|
+| evidence / assessments | 2 | 2 | no violating link |
+| evidence / assessments | 2 | 1 | violating link |
+| assessment / events | 2 | 2 | no violating link |
+| assessment / events | 2 | 1 | violating link |
+| parent / events | 2 | 2 | no violating link |
+| parent / events | 2 | 0 | violating link |
+
+Savepoint mutations additionally established equality after evidence ordinal 1→2, changing a unique evidence ID, deleting a referenced evidence row, and deleting an assessment that was both a link source and target. The ordinal mutation caused both full-prefix queries to report a violating link. The missing-row cases produced the same omitted links and nonempty foreign-key violations. An attempted duplicate ID failed the UNIQUE constraint. These mutation checks test equivalence, not acceptance of corruption.
+
+Separately, fresh tiny actual `SQLiteCoverageHistory` v2 databases were closed, mutated using another connection, and reopened through the unchanged native loader. Missing evidence was rejected with `corrupt history database/reference`; changed record ID with `corrupt history record index`; ordinal 0→1 with `corrupt history ordinal prefix`. Temporary databases were removed.
+
+### Observed query plans
+
+Old form (`EXPLAIN QUERY PLAN`, aliases repeated by view expansion):
+
+```text
+SEARCH s USING INDEX sqlite_autoindex_records_2 (stream=? AND ordinal<?)
+SEARCH s USING COVERING INDEX sqlite_autoindex_records_1 (id=?)
+SEARCH x USING COVERING INDEX sqlite_autoindex_record_links_int_1 (source_key=?)
+SEARCH t USING INTEGER PRIMARY KEY (rowid=?)
+SEARCH t USING INDEX sqlite_autoindex_records_1 (id=?)
+```
+
+Direct integer form:
+
+```text
+SEARCH s USING COVERING INDEX sqlite_autoindex_records_2 (stream=? AND ordinal<?)
+SEARCH l USING COVERING INDEX sqlite_autoindex_record_links_int_1 (source_key=?)
+SEARCH t USING INTEGER PRIMARY KEY (rowid=?)
+```
+
+The observed plan removes two ID-index searches and makes the source stream/ordinal access covering. This is a concrete reduction in the synthetic plan, not a measured elapsed-time benefit or guarantee of the planner's choices on a large database.
+
+### Minimal implementation and approval tests
+
+Select this SQL only for `self.format_version == 2`; preserve the v1 SQL literal byte-for-byte. Keep the existing three parameter sets, LIMIT, exception and surrounding validation order unchanged. Do not change canonical views, schema/indexes, append/reload/rollback, synchronization, batch size, prefix hashes, dispositions, snapshot IDs or exports. In particular, full-prefix checks remain checks rather than a trusted shortcut.
+
+Required focused tests:
+
+1. Compare forced-old and direct-v2 query results for all three link kinds, empty/full/valid-truncated/invalid-truncated prefixes, and the ordinal mutation above. Include missing source/target and altered unique IDs as query-equivalence cases; require unchanged cold reload rejection of corrupted fixtures.
+2. Compare exact canonical records, snapshots, IDs, digests and dispositions between v1/v2 valid append/checkpoint/reload histories; cover inherited dispositions, pending batches and rollback using existing regressions.
+3. Trace queries to establish that v1 still uses its existing literal and v2 uses the direct physical relation table, without asserting brittle SQLite planner text in production tests.
+4. Run the existing SQLite/integer/history suites and relevant cache/inspection integration. Existing digest, disposition, malformed relation, insertion-fault and reload checks must all remain intact.
+
+If separately approved, a small controlled SQL-only benchmark can populate fixed 10,000/50,000-link synthetic fixtures, execute both forms on the same connection/data with alternating order and full/truncated prefixes, verify every result, and record source/runtime/query/fixture identities plus timings. This would measure only these queries, not discovery or panel runtime. No benchmark was run in this assessment.
+
+**Scope limit:** this helps future v2 implementations only. The active frozen 7ca cold writer is v1 and receives no benefit. Even in v2 it retains relation-prefix traversal and all other checkpoint/reload costs; it cannot support a full-MHC speed claim without separate measurements. No production source, frozen source, live database or scientific artifact was changed.

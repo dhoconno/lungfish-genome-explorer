@@ -327,3 +327,12 @@ Bounded readonlyindexedmonitoring verifiedfamilyassembly DQB→DRB→E byjoining
 Astraread-onlyassessment task-full-prefix-checkpoint-assessment.md: currentprefix closure joins logicallyredundantonlyundertrustedvalidatedsinglewriterinvariants; naivecountsequality skips realcorruption rejection, reproducedintinyv1+v2temporaryDBs. RootRuling: defer guardedwriterfastpath (unownedmutation/data_version/total_changes/transaction/failuretrust handling) until separatelyimplemented/reviewedifneeded; no current/frozen codechange. Cost: keepcheckpoint overheadinthiscoldsource; correctnesscontractpreserved. Existingv2integerstorage+64MiBimprovementsalreadyinmatrix11, notanunmeasuredpromiseaboutwholeMHCspeed.
 
 Rootverified selected03bade7c full2569:2815 has5distinctsupportedclasses inretainedselected-configurations.json.gz. Addedpublicexactfive-of-sixexample; otheromittedvarianttesttrialsunchanged.
+
+
+## Reviewed v2 physical checkpoint joins and next freeze
+
+Native74102b8 replaces only v2 compatibility-view/ID round trips with physical integer joins; all three closure predicates remain, v1 unchanged. Sol60history+53cache/inspection tests pass; independent Astra review task-v2-prefix-joins-review.md APPROVED with60tests1.02s. Rootread actualdiff/tests/review; full native suite15108 completedexit0,876passed1upstreamKaleidowarning181.11s, /tmp/allele-native-suite-74102b8.log; mutableclean. No full-MHC speedclaim or activev1benefit.
+
+Root authorized preparing NEW matrix12/freeze12 identities/commands with same science/options/order, preserving unusedfreeze11 unchanged; Solpreparationactive. No scientificcommands yet; closedcold→freshrawaudit→cacheexport gates unchanged. Root will verifynewfreeze beforeexecution.
+
+Static Astra task-full11-history-scaling-assessment.md reviewed: downstreamaudit/export/reuse avoid semantic replay of24.56Mrecords, but stream originhashes6timesforinitialaudit/export and9perwrappedarm, plus wholecatalog/ledger/dispositions allocations and duplicateauditcatalogs. Logicalreadcountsnotphysicaltraffic/timeestimates. Rootdecision: noadditionaloptimization now; measureone serialunionbaseline beforeoptionalcontrols. Keepallvalidation/no livecopy/migration.
