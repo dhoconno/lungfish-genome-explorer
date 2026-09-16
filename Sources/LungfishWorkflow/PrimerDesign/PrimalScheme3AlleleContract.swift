@@ -141,6 +141,8 @@ enum PrimalScheme3AlleleContract {
         if capabilities.intendedProductPolicies != nil {
             try expect(string(profile, "intended_product_policy"),
                        options.alleleOptions.intendedProductPolicy.rawValue, "integration intended-product policy")
+        } else {
+            try validateLegacyExactPolicy(profile, label: "integration profile")
         }
         let resolved = try object(integration["options"], "resolved allele options")
         try validateResolved(resolved, options: options,
@@ -173,6 +175,13 @@ enum PrimalScheme3AlleleContract {
             try validateIntendedProducts(try readObject(validationURL, "panel validation"),
                                          policy: options.alleleOptions.intendedProductPolicy,
                                          label: "panel validation")
+        } else {
+            let optimizerProfile = try object(optimizer["profile"], "optimizer profile")
+            try validateLegacyExactPolicy(optimizerProfile, label: "optimizer profile")
+            if let validationURL {
+                try validateLegacyIntendedProducts(try readObject(validationURL, "panel validation"),
+                                                    label: "panel validation")
+            }
         }
         let history = try object(optimizer["history"], "optimizer history")
         _ = try contained(output, path: try string(history, "path"), label: "history")
@@ -248,6 +257,14 @@ enum PrimalScheme3AlleleContract {
                                                 "stage validation")
                 try validateIntendedProducts(validation, policy: options.alleleOptions.intendedProductPolicy,
                                              label: "stage validation")
+            } else {
+                let manifest = try readObject(output.appendingPathComponent("\(stagePath)/stage.json"), "stage manifest")
+                if let constraints = manifest["constraints"] as? [String: Any] {
+                    try validateLegacyExactPolicy(constraints, label: "stage constraints")
+                }
+                try validateLegacyIntendedProducts(
+                    try readObject(output.appendingPathComponent("\(stagePath)/validation.json"), "stage validation"),
+                    label: "stage validation")
             }
         }
 
@@ -299,10 +316,21 @@ enum PrimalScheme3AlleleContract {
         try expect(string(validation, "primary_tier"), options.alleleOptions.primaryTier, "audit primary tier")
         try expect(string(validation, "scope"), "stored-original-inputs-and-fresh-selected-stage-kernels", "audit scope")
         let auditedStages = try object(validation["stages"], "audit stages")
-        guard Set(auditedStages.keys) == publishedStageIDs, auditedStages.values.allSatisfy({ value in
-            guard let stage = value as? [String: Any], let valid = stage["valid"] as? NSNumber else { return false }
-            return CFGetTypeID(valid) == CFBooleanGetTypeID() && valid.boolValue
-        }) else { throw invalid("Independent native panel-audit has a missing or invalid tier.") }
+        guard Set(auditedStages.keys) == publishedStageIDs else {
+            throw invalid("Independent native panel-audit has a missing or invalid tier.")
+        }
+        for value in auditedStages.values {
+            let stage = try object(value, "audit stage")
+            guard try bool(stage, "valid") else {
+                throw invalid("Independent native panel-audit has a missing or invalid tier.")
+            }
+            if capabilities.intendedProductPolicies != nil {
+                try validateIntendedProducts(stage, policy: options.alleleOptions.intendedProductPolicy,
+                                             label: "audit stage")
+            } else {
+                try validateLegacyIntendedProducts(stage, label: "audit stage")
+            }
+        }
         let audit = try object(JSONSerialization.jsonObject(with: auditProvenance), "audit provenance")
         try expect(string(audit, "schemaVersion"), "primalscheme3.panel-inspection-provenance/v1", "audit provenance schema")
         try expect(string(audit, "toolVersion"), PrimalScheme3DesignPipeline.alleleToolVersion, "audit version")
@@ -353,6 +381,8 @@ enum PrimalScheme3AlleleContract {
                        "intended-product policy")
         } else if allele.requestedOptionNames.contains("intendedProductPolicy") {
             throw invalid("The explicitly requested intended-product policy was not advertised by the executable.")
+        } else {
+            try validateLegacyExactPolicy(value, label: "resolved options")
         }
         let expectedIntegers = ["specificity_terminal_k": allele.specificityTerminalK,
             "subset_beam_width": allele.subsetBeamWidth, "subset_expansion_limit": allele.subsetExpansionLimit,
@@ -611,6 +641,14 @@ enum PrimalScheme3AlleleContract {
     private static func validateIntendedProducts(_ validation: [String: Any],
                                                  policy: PrimalScheme3IntendedProductPolicy,
                                                  label: String) throws {
+        let profile = try object(validation["profile"], "\(label) profile")
+        try expect(string(profile, "intended_product_policy"), policy.rawValue,
+                   "\(label) intended-product policy")
+        let terminalK = try integer(profile, "mismatch_kmersize")
+        let productLimit = try integer(profile, "mismatch_product_size")
+        guard terminalK > 0, productLimit > 0 else {
+            throw invalid("The \(label) specificity bounds are malformed.")
+        }
         let secondary = try objectArray(validation["allowed_secondary_products"],
                                         "\(label) allowed secondary products")
         let intended = try objectArray(validation["allowed_intended_products"],
@@ -635,6 +673,7 @@ enum PrimalScheme3AlleleContract {
             let rowID = try string(witness, "row_id")
             let plus = try object(witness["plus"], "intended product plus hit")
             let minus = try object(witness["minus"], "intended product minus hit")
+            let owners = try strings(witness, "owners")
             let siteIDs = try strings(witness, "site_ids")
             guard siteIDs.count == 2 else { throw invalid("The intended product must identify both designated sites.") }
             let certificate = try object(witness["certificate"], "intended product certificate")
@@ -650,11 +689,26 @@ enum PrimalScheme3AlleleContract {
             }
             let forwardSiteID = try string(certificate, "forward_site_id")
             let reverseSiteID = try string(certificate, "reverse_site_id")
+            let configurationID = try string(certificate, "configuration_id")
             guard try string(certificate, "target_id") == targetID,
                   try string(certificate, "row_id") == rowID,
-                  Set(siteIDs) == Set([forwardSiteID, reverseSiteID]) else {
+                  siteIDs == [forwardSiteID, reverseSiteID],
+                  owners.contains(configurationID),
+                  try strings(plus, "owners").contains(configurationID),
+                  try strings(minus, "owners").contains(configurationID) else {
                 throw invalid("The intended product certificate is detached from its witness.")
             }
+            let plusStart = try integer(plus, "start"), plusEnd = try integer(plus, "end")
+            let minusStart = try integer(minus, "start"), minusEnd = try integer(minus, "end")
+            guard try string(plus, "orientation") == "+", try string(minus, "orientation") == "-",
+                  plusStart >= 0, plusEnd > plusStart, minusStart >= plusEnd, minusEnd > minusStart,
+                  try integer(witness, "start") == plusStart,
+                  try integer(witness, "end") == minusEnd,
+                  try integer(witness, "length") == minusEnd - plusStart,
+                  minusEnd - plusStart <= productLimit else {
+                throw invalid("The intended product hit geometry is malformed.")
+            }
+            var fullMismatchCount = 0
             for side in ["forward", "reverse"] {
                 let projection = try object(certificate[side], "intended product certificate \(side)")
                 let projectionKeys: Set<String> = ["site_id", "expected_footprint", "oligo", "observed_template",
@@ -682,15 +736,58 @@ enum PrimalScheme3AlleleContract {
                 let outside = try integers(projection, "outside_terminal_mismatch_positions")
                 let measured = oligoBases.indices.filter { oligoBases[$0] != observedBases[$0] }
                 let witnessHit = side == "forward" ? plus : minus
+                let hitStart = side == "forward" ? plusStart : minusStart
+                let hitEnd = side == "forward" ? plusEnd : minusEnd
+                let expectedTerminalInterval = side == "forward"
+                    ? [hitEnd - terminalK, hitEnd] : [hitStart, hitStart + terminalK]
+                let boundary = oligoBases.count - terminalK
+                let expectedTerminal = measured.filter { $0 >= boundary }
+                let expectedOutside = measured.filter { $0 < boundary }
+                let hitMismatchCount = try integer(witnessHit, "mismatches")
+                let expectedClassification = hitMismatchCount == 0 ? "exact-terminal" : "single-mismatch"
                 guard footprint.count == 2, footprint[0] >= 0, footprint[1] > footprint[0],
+                      footprint == [hitStart, hitEnd],
                       footprint[1] - footprint[0] == oligoBases.count,
+                      oligoBases.count >= terminalK,
+                      oligoBases.allSatisfy({ "ACGT".contains($0) }),
+                      observedBases.allSatisfy({ "ACGT".contains($0) }),
                       try string(witnessHit, "oligo") == oligo,
+                      try integers(witnessHit, "terminal_interval") == expectedTerminalInterval,
+                      hitMismatchCount == expectedTerminal.count, hitMismatchCount <= 1,
+                      try string(witnessHit, "classification") == expectedClassification,
                       mismatches == measured,
-                      Set(terminal).isDisjoint(with: Set(outside)),
-                      Set(terminal + outside) == Set(mismatches) else {
+                      mismatches == mismatches.sorted(), Set(mismatches).count == mismatches.count,
+                      terminal == expectedTerminal, outside == expectedOutside else {
                     throw invalid("The intended product concrete footprint is malformed.")
                 }
+                fullMismatchCount += mismatches.count
             }
+            guard fullMismatchCount > 0 else {
+                throw invalid("A newly allowed intended product must contain a concrete full-footprint mismatch.")
+            }
+        }
+    }
+
+    private static func validateLegacyExactPolicy(_ object: [String: Any], label: String) throws {
+        guard let value = object["intended_product_policy"] else { return }
+        guard let policy = value as? String, policy == PrimalScheme3IntendedProductPolicy.exactSupported.rawValue else {
+            throw invalid("The legacy \(label) claims an unsupported intended-product policy.")
+        }
+    }
+
+    private static func validateLegacyIntendedProducts(_ validation: [String: Any], label: String) throws {
+        if let profile = validation["profile"] as? [String: Any] {
+            try validateLegacyExactPolicy(profile, label: "\(label) profile")
+        }
+        if let value = validation["allowed_intended_products"] {
+            let intended = try objectArray(value, "\(label) allowed intended products")
+            guard intended.isEmpty else {
+                throw invalid("The legacy \(label) cannot allow nonexact intended products.")
+            }
+        }
+        if validation["allowed_intended_product_count"] != nil {
+            try expect(integer(validation, "allowed_intended_product_count"), 0,
+                       "\(label) intended product count")
         }
     }
 

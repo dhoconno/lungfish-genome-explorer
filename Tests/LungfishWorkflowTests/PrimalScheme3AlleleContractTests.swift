@@ -178,7 +178,15 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
 
         let validationURL = fixture.output.appendingPathComponent("panel-validation.json")
-        var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: validationURL)) as? [String: Any])
+        let originalValidation = try Data(contentsOf: validationURL)
+        func validateFixture() throws {
+            try PrimalScheme3AlleleContract.validateNativeOutput(
+                at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+                options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+                auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+                auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)
+        }
+        var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
         var intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
         var witness = intended[0]
         var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
@@ -186,12 +194,73 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         witness["certificate"] = certificate; intended[0] = witness
         validation["allowed_intended_products"] = intended
         try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+                XCTAssertTrue(error.localizedDescription.contains("certificate is incomplete"))
+            }
+
+        validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
+        witness = intended[0]
+        var plus = try XCTUnwrap(witness["plus"] as? [String: Any])
+        plus["orientation"] = "-"
+        witness["plus"] = plus; intended[0] = witness
+        validation["allowed_intended_products"] = intended
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+            XCTAssertTrue(error.localizedDescription.contains("hit geometry"))
+        }
+
+        validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
+        witness = intended[0]
+        certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+        var forward = try XCTUnwrap(certificate["forward"] as? [String: Any])
+        forward["terminal_mismatch_positions"] = [0]
+        forward["outside_terminal_mismatch_positions"] = []
+        certificate["forward"] = forward; witness["certificate"] = certificate; intended[0] = witness
+        validation["allowed_intended_products"] = intended
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+            XCTAssertTrue(error.localizedDescription.contains("footprint is malformed"))
+        }
+
+        validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        var validationProfile = try XCTUnwrap(validation["profile"] as? [String: Any])
+        validationProfile["intended_product_policy"] = "exact-supported"
+        validation["profile"] = validationProfile
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+            XCTAssertTrue(error.localizedDescription.contains("panel validation intended-product policy"))
+        }
+    }
+
+    func testLegacyOutputsCannotSmuggleConcreteIntendedPolicyOrWitnesses() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        var configuration = fixture.configuration
+        var integration = try XCTUnwrap(configuration["panel_optimizer"] as? [String: Any])
+        var profile = try XCTUnwrap(integration["profile"] as? [String: Any])
+        profile["intended_product_policy"] = "concrete-designated-sites"
+        integration["profile"] = profile; configuration["panel_optimizer"] = integration
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("legacy integration profile"))
+            }
+
+        try Self.writeJSON(["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true,
+                            "allowed_intended_products": [["id": "smuggled"]],
+                            "allowed_intended_product_count": 1],
+                           to: fixture.output.appendingPathComponent("panel-validation.json"))
         XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
             at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
             options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
             auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
             auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
-                XCTAssertTrue(error.localizedDescription.contains("certificate is incomplete"))
+                XCTAssertTrue(error.localizedDescription.contains("cannot allow nonexact"))
             }
     }
 
@@ -288,6 +357,8 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         var profile: [String: Any] = ["name": "allele-panel-v1", "specificity_revision": "selected-sites-v2"]
         if advertiseIntendedProducts {
             profile["intended_product_policy"] = options.alleleOptions.intendedProductPolicy.rawValue
+            profile["mismatch_kmersize"] = 17
+            profile["mismatch_product_size"] = 2_000
         }
         let integration: [String: Any] = [
             "schemaVersion": "primalscheme3.panel-native-integration/v2",
@@ -345,6 +416,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         var validation: [String: Any] = ["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true]
         if advertiseIntendedProducts {
             let intended = includeIntendedWitness ? [intendedProductWitness()] : []
+            validation["profile"] = profile
             validation["allowed_secondary_products"] = []
             validation["allowed_intended_products"] = intended
             validation["allowed_intended_product_count"] = intended.count
@@ -422,10 +494,11 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "command": ["argv": argv, "shell": "fixture", "workingDirectory": root.path]
         ]
         try writeJSON(provenance, to: output.appendingPathComponent("panel-provenance.json"))
+        let auditStage: [String: Any] = advertiseIntendedProducts ? validation : ["valid": true]
         let auditValidationObject: [String: Any] = [
             "valid": true, "raw_inputs_reparsed": true, "primary_tier": "strict",
             "scope": "stored-original-inputs-and-fresh-selected-stage-kernels",
-            "stages": ["strict": ["valid": true]]
+            "stages": ["strict": auditStage]
         ]
         let auditValidation = try JSONSerialization.data(withJSONObject: auditValidationObject, options: [.sortedKeys])
         let auditOutput: [String: Any] = ["path": "validation.json", "sha256": sha256(auditValidation),
@@ -515,19 +588,28 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     }
 
     private static func intendedProductWitness() -> [String: Any] {
+        let forwardOligo = "ACGTACGTACGTACGTACGT"
+        let forwardObserved = "CCGTACGTACGTACGTACGT"
+        let reverseOligo = "TGCATGCATGCATGCATGCA"
         let forward: [String: Any] = [
-            "site_id": "site-f", "expected_footprint": [10, 14], "oligo": "ACGT",
-            "observed_template": "ACGT", "mismatch_positions": [],
-            "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": []
+            "site_id": "site-f", "expected_footprint": [0, 20], "oligo": forwardOligo,
+            "observed_template": forwardObserved, "mismatch_positions": [0],
+            "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": [0]
         ]
         let reverse: [String: Any] = [
-            "site_id": "site-r", "expected_footprint": [30, 34], "oligo": "TGCA",
-            "observed_template": "TGCA", "mismatch_positions": [],
+            "site_id": "site-r", "expected_footprint": [180, 200], "oligo": reverseOligo,
+            "observed_template": reverseOligo, "mismatch_positions": [],
             "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": []
         ]
         return [
             "id": "intended-witness", "target_id": "target", "row_id": "row",
-            "plus": ["oligo": "ACGT"], "minus": ["oligo": "TGCA"],
+            "owners": ["config"], "start": 0, "end": 200, "length": 200,
+            "plus": ["oligo": forwardOligo, "orientation": "+", "start": 0, "end": 20,
+                     "terminal_interval": [3, 20], "mismatches": 0,
+                     "classification": "exact-terminal", "owners": ["config"]],
+            "minus": ["oligo": reverseOligo, "orientation": "-", "start": 180, "end": 200,
+                      "terminal_interval": [180, 197], "mismatches": 0,
+                      "classification": "exact-terminal", "owners": ["config"]],
             "site_ids": ["site-f", "site-r"],
             "classification": "nonexact-designated-intended-product",
             "reason": "concrete-designated-sites", "policy_id": "concrete-designated-sites/v1",
