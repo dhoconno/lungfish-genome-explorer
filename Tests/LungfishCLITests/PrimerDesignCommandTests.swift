@@ -107,4 +107,30 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.primaryTier, "salvage-2")
         XCTAssertEqual(command.workFamiliesPerRefresh, 7)
     }
+
+    func testPrimalSchemeParsesSearchEffortWithoutInventingIndividualOverrides() throws {
+        let inherited = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--selection-algorithm", "allele-coverage", "--search-effort", "quality-v1",
+        ])
+        XCTAssertEqual(inherited.searchEffort, "quality-v1")
+        XCTAssertNil(inherited.optimizerStarts)
+        XCTAssertNil(inherited.optimizerRepairRounds)
+        XCTAssertNil(inherited.optimizerTimeLimit)
+        XCTAssertNil(inherited.workConstructionCandidateAttempts)
+        XCTAssertNil(inherited.workFamiliesPerRefresh)
+
+        let overridden = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--selection-algorithm", "allele-coverage", "--search-effort", "quality-v1",
+            "--optimizer-starts", "4", "--optimizer-repair-rounds", "2",
+            "--optimizer-time-limit", "120", "--work-construction-candidate-attempts", "2048",
+            "--work-families-per-refresh", "16",
+        ])
+        XCTAssertEqual(overridden.optimizerStarts, 4)
+        XCTAssertEqual(overridden.optimizerRepairRounds, 2)
+        XCTAssertEqual(overridden.optimizerTimeLimit, 120)
+        XCTAssertEqual(overridden.workConstructionCandidateAttempts, 2_048)
+        XCTAssertEqual(overridden.workFamiliesPerRefresh, 16)
+    }
 }

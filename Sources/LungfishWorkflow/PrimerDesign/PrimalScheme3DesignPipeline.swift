@@ -54,6 +54,9 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public let coverageMetric: PrimalScheme3CoverageMetric
     public let coverageTarget: Double
     public let optimizerSeed: Int
+    public let requestedOptimizerStarts: Int?
+    public let requestedOptimizerRepairRounds: Int?
+    public let requestedOptimizerTimeLimit: Double?
     public let optimizerStarts: Int
     public let optimizerRepairRounds: Int
     public let optimizerTimeLimit: Double
@@ -73,8 +76,8 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
                 selectionAlgorithm: PrimalScheme3SelectionAlgorithm = .legacy,
                 coverageMetric: PrimalScheme3CoverageMetric? = nil,
                 coverageTarget: Double? = nil, optimizerSeed: Int = 0,
-                optimizerStarts: Int = 4, optimizerRepairRounds: Int = 2,
-                optimizerTimeLimit: Double = 120,
+                optimizerStarts: Int? = nil, optimizerRepairRounds: Int? = nil,
+                optimizerTimeLimit: Double? = nil,
                 misprimingProductSize: Int? = nil,
                 alleleOptions: PrimalScheme3AlleleOptions = .init()) {
         self.requestedAmpliconSizeMinimum = ampliconSizeMinimum
@@ -97,9 +100,13 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         self.coverageMetric = coverageMetric ?? (selectionAlgorithm == .alleleCoverage ? .observedAllelePrimerTrimmed : .fullSpan)
         self.coverageTarget = coverageTarget ?? (selectionAlgorithm == .alleleCoverage ? 0.95 : 0.90)
         self.optimizerSeed = optimizerSeed
-        self.optimizerStarts = optimizerStarts
-        self.optimizerRepairRounds = optimizerRepairRounds
-        self.optimizerTimeLimit = optimizerTimeLimit
+        self.requestedOptimizerStarts = optimizerStarts
+        self.requestedOptimizerRepairRounds = optimizerRepairRounds
+        self.requestedOptimizerTimeLimit = optimizerTimeLimit
+        let effort = alleleOptions.searchEffort
+        self.optimizerStarts = optimizerStarts ?? effort.optimizerStarts
+        self.optimizerRepairRounds = optimizerRepairRounds ?? effort.optimizerRepairRounds
+        self.optimizerTimeLimit = optimizerTimeLimit ?? effort.optimizerTimeLimit
         self.requestedMisprimingProductSize = misprimingProductSize
         self.alleleOptions = alleleOptions
     }
@@ -110,11 +117,29 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         case poolCount, minOverlap, minimumBaseFrequency, highGC, coreCount, terminalGapPolicy
         case selectionAlgorithm, coverageMetric, coverageTarget, optimizerSeed, optimizerStarts
         case optimizerRepairRounds, optimizerTimeLimit, requestedMisprimingProductSize
+        case requestedOptimizerStarts, requestedOptimizerRepairRounds, requestedOptimizerTimeLimit
         case alleleOptions
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        let alleleOptions = try values.decodeIfPresent(
+            PrimalScheme3AlleleOptions.self, forKey: .alleleOptions) ?? .init()
+        let storedStarts = try values.decodeIfPresent(Int.self, forKey: .optimizerStarts)
+            ?? PrimalScheme3SearchEffort.standardV1.optimizerStarts
+        let storedRepairRounds = try values.decodeIfPresent(Int.self, forKey: .optimizerRepairRounds)
+            ?? PrimalScheme3SearchEffort.standardV1.optimizerRepairRounds
+        let storedTimeLimit = try values.decodeIfPresent(Double.self, forKey: .optimizerTimeLimit)
+            ?? PrimalScheme3SearchEffort.standardV1.optimizerTimeLimit
+        let requestedStarts = try values.decodeIfPresent(Int.self, forKey: .requestedOptimizerStarts)
+            ?? (storedStarts == alleleOptions.searchEffort.optimizerStarts ? nil : storedStarts)
+        let requestedRepairRounds = try values.decodeIfPresent(
+            Int.self, forKey: .requestedOptimizerRepairRounds)
+            ?? (storedRepairRounds == alleleOptions.searchEffort.optimizerRepairRounds
+                ? nil : storedRepairRounds)
+        let requestedTimeLimit = try values.decodeIfPresent(
+            Double.self, forKey: .requestedOptimizerTimeLimit)
+            ?? (storedTimeLimit == alleleOptions.searchEffort.optimizerTimeLimit ? nil : storedTimeLimit)
         self.init(
             ampliconSize: try values.decode(Int.self, forKey: .ampliconSize),
             poolCount: try values.decode(Int.self, forKey: .poolCount),
@@ -136,11 +161,17 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
             coverageMetric: try values.decodeIfPresent(PrimalScheme3CoverageMetric.self, forKey: .coverageMetric),
             coverageTarget: try values.decodeIfPresent(Double.self, forKey: .coverageTarget),
             optimizerSeed: try values.decodeIfPresent(Int.self, forKey: .optimizerSeed) ?? 0,
-            optimizerStarts: try values.decodeIfPresent(Int.self, forKey: .optimizerStarts) ?? 4,
-            optimizerRepairRounds: try values.decodeIfPresent(Int.self, forKey: .optimizerRepairRounds) ?? 2,
-            optimizerTimeLimit: try values.decodeIfPresent(Double.self, forKey: .optimizerTimeLimit) ?? 120,
+            optimizerStarts: requestedStarts,
+            optimizerRepairRounds: requestedRepairRounds,
+            optimizerTimeLimit: requestedTimeLimit,
             misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize),
-            alleleOptions: try values.decodeIfPresent(PrimalScheme3AlleleOptions.self, forKey: .alleleOptions) ?? .init())
+            alleleOptions: alleleOptions)
+        guard optimizerStarts == storedStarts, optimizerRepairRounds == storedRepairRounds,
+              optimizerTimeLimit == storedTimeLimit else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .alleleOptions, in: values,
+                debugDescription: "Stored optimizer values differ from the effort and explicit override mask.")
+        }
     }
 
     public var provenanceOptions: [String: ParameterValue] {
@@ -161,6 +192,9 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
          "optimizerSeed": .integer(optimizerSeed), "optimizerStarts": .integer(optimizerStarts),
          "optimizerRepairRounds": .integer(optimizerRepairRounds),
          "optimizerTimeLimit": .number(optimizerTimeLimit),
+         "requestedOptimizerStarts": requestedOptimizerStarts.map(ParameterValue.integer) ?? .null,
+         "requestedOptimizerRepairRounds": requestedOptimizerRepairRounds.map(ParameterValue.integer) ?? .null,
+         "requestedOptimizerTimeLimit": requestedOptimizerTimeLimit.map(ParameterValue.number) ?? .null,
          "requestedMisprimingProductSize": requestedMisprimingProductSize.map(ParameterValue.integer) ?? .null,
          "misprimingProductSize": .integer(misprimingProductSize),
          "alleleOptions": .dictionary(alleleOptions.resolvedProvenanceOptions),
@@ -355,10 +389,22 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                      "--coverage-metric", options.coverageMetric.rawValue,
                      "--coverage-target", String(options.coverageTarget),
                      "--optimizer-seed", String(options.optimizerSeed),
-                     "--optimizer-starts", String(options.optimizerStarts),
-                     "--optimizer-repair-rounds", String(options.optimizerRepairRounds),
-                     "--optimizer-time-limit", String(options.optimizerTimeLimit),
                      "--mispriming-product-size", String(options.misprimingProductSize)]
+            if options.selectionAlgorithm == .coverage {
+                args += ["--optimizer-starts", String(options.optimizerStarts),
+                         "--optimizer-repair-rounds", String(options.optimizerRepairRounds),
+                         "--optimizer-time-limit", String(options.optimizerTimeLimit)]
+            } else {
+                if let value = options.requestedOptimizerStarts {
+                    args += ["--optimizer-starts", String(value)]
+                }
+                if let value = options.requestedOptimizerRepairRounds {
+                    args += ["--optimizer-repair-rounds", String(value)]
+                }
+                if let value = options.requestedOptimizerTimeLimit {
+                    args += ["--optimizer-time-limit", String(value)]
+                }
+            }
             if options.selectionAlgorithm == .coverage, options.requestedAmpliconSizeMinimum == nil {
                 args += ["--amplicon-size-min", String(options.ampliconSizeMinimum)]
             }
@@ -593,6 +639,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let alleleCapabilities = request.options.selectionAlgorithm == .alleleCoverage
                 ? try PrimalScheme3AlleleContract.validateCapabilities(
                     capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }(),
+                    requestedSearchEffort: request.options.alleleOptions.requestedSearchEffort,
                     requestedPhaseScheduling: request.options.alleleOptions.requestedPhaseScheduling,
                     requestedIntendedProductPolicy: request.options.alleleOptions.requestedIntendedProductPolicy,
                     requestedSecondaryProductPolicy: request.options.alleleOptions.requestedOptionNames.contains("secondaryProductPolicy")
@@ -881,8 +928,20 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 } else {
                     requestedSecondaryPolicy = nil
                 }
+                let requestedSearchEffort: PrimalScheme3SearchEffort?
+                if let index = command.arguments.firstIndex(of: "--search-effort"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3SearchEffort(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest(
+                            "Search effort is outside the supported lge.4 contract.")
+                    }
+                    requestedSearchEffort = value
+                } else {
+                    requestedSearchEffort = nil
+                }
                 _ = try PrimalScheme3AlleleContract.validateCapabilities(
-                    data, requestedPhaseScheduling: requestedScheduling,
+                    data, requestedSearchEffort: requestedSearchEffort,
+                    requestedPhaseScheduling: requestedScheduling,
                     requestedIntendedProductPolicy: requestedIntendedPolicy,
                     requestedSecondaryProductPolicy: requestedSecondaryPolicy)
                 executedVersion = Self.alleleToolVersion

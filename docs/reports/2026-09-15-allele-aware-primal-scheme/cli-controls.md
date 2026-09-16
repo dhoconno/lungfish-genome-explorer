@@ -37,7 +37,20 @@ The strict dimer cutoff remains −26. The score is the native numerical score, 
 
 ## Search effort
 
-`--optimizer-seed` (0), `--optimizer-starts` (4), `--optimizer-repair-rounds` (2), and `--optimizer-time-limit` (120 seconds) control search. `--subset-beam-width` (16) and `--subset-expansion-limit` (256) control how many variant subsets are considered. `--exchange-width` (2; maximum 2) controls replacement neighborhood size. Larger budgets may find improvements; they do not prove an optimum. Wall-clock budgets can interrupt different work on different machines.
+`--search-effort` selects one versioned group of five optimizer defaults:
+
+| Effort | Selector time limit | Starts | Repair rounds | Construction attempts | Families per refresh |
+|---|---:|---:|---:|---:|---:|
+| `standard-v1` (default) | 120 seconds | 4 | 2 | 2048 | 16 |
+| `quality-v1` | 3600 seconds | 8 | 3 | 8192 | 32 |
+
+The time limit is one shared maximum for selector work. Starts and repair rounds are ceilings within that shared budget; selecting `quality-v1` does not promise that all of them finish. Setup, discovery, publication and audit require additional time. Larger budgets may find improvements; they do not prove an optimum, and wall-clock limits can interrupt different work on different machines.
+
+Individual options take precedence over the selected effort even when the explicit value equals a standard default. For example, `--search-effort quality-v1 --optimizer-starts 4` resolves to four starts. The five individual overrides are `--optimizer-time-limit`, `--optimizer-starts`, `--optimizer-repair-rounds`, `--work-construction-candidate-attempts` and `--work-families-per-refresh`. Request provenance records the effort and only the individual overrides actually supplied; resolved provenance records all five final values.
+
+Effort does not change candidate profiles, discovery, coverage target or weighting, variant selection, intended- or secondary-product policy, chemistry, specificity, dimer rules, sizes, pools, amplicon caps, salvage or phase scheduling. `--optimizer-seed` (0), `--subset-beam-width` (16), `--subset-expansion-limit` (256), and `--exchange-width` (2; maximum 2) remain independent controls.
+
+An explicit effort requires an executable advertising the exact versioned effort descriptor. Older saved results without `search_effort` are interpreted as `standard-v1`; omitting the flag keeps the historical defaults and remains compatible with older executables. The frozen `matrix07` example executable elsewhere in this guide predates this capability, so use the option only with a later reviewed frozen executable that advertises it.
 
 The default `--phase-scheduling serial` runs phases in their fixed order against one shared deadline. `--phase-scheduling reserved` applies initial-cycle reservations so earlier seed work cannot consume every phase's initial share; unused time flows to remaining phases and the global deadline never grows. Each published tier records the exact advertised scheduling descriptor and phase-by-phase timing, outcome, objective snapshots, accepted-repair count, work deltas and before/after family cursors. An explicit scheduling option requires an executable that advertises this frozen capability. Saved outputs from before this capability remain readable as legacy serial results.
 
@@ -47,16 +60,16 @@ The default `--secondary-product-policy ordered-disjoint-intended-sites` remains
 
 Advanced deterministic work limits are also exposed:
 
-| Option | Default |
-|---|---:|
-| `--work-frontier-candidates` | 64 |
-| `--work-construction-candidate-attempts` | 2048 |
-| `--work-repair-candidate-probes-per-round` | 128 |
-| `--work-repair-neighborhoods-per-round` | 256 |
-| `--work-repair-trials-per-round` | 256 |
-| `--work-pool-lookahead-candidates` | 4 |
-| `--work-cleanup-moves-per-round` | 64 |
-| `--work-families-per-refresh` | 16 |
+| Option | Standard default | Quality default |
+|---|---:|---:|
+| `--work-frontier-candidates` | 64 | 64 |
+| `--work-construction-candidate-attempts` | 2048 | 8192 |
+| `--work-repair-candidate-probes-per-round` | 128 | 128 |
+| `--work-repair-neighborhoods-per-round` | 256 | 256 |
+| `--work-repair-trials-per-round` | 256 | 256 |
+| `--work-pool-lookahead-candidates` | 4 | 4 |
+| `--work-cleanup-moves-per-round` | 64 | 64 |
+| `--work-families-per-refresh` | 16 | 32 |
 
 `--ncores` controls discovery workers. A verified reused catalog performs no discovery; reports record zero actual discovery workers even when more were requested.
 

@@ -118,14 +118,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("coverage-metric"), help: "Coverage objective; defaults by selection algorithm.") var coverageMetric: String?
         @Option(name: .customLong("coverage-target"), help: "Coverage objective; defaults to 0.95 for allele coverage and 0.90 otherwise.") var coverageTarget: Double?
         @Option(name: .customLong("optimizer-seed")) var optimizerSeed = 0
-        @Option(name: .customLong("optimizer-starts")) var optimizerStarts = 4
-        @Option(name: .customLong("optimizer-repair-rounds")) var optimizerRepairRounds = 2
-        @Option(name: .customLong("optimizer-time-limit")) var optimizerTimeLimit = 120.0
+        @Option(name: .customLong("optimizer-starts")) var optimizerStarts: Int?
+        @Option(name: .customLong("optimizer-repair-rounds")) var optimizerRepairRounds: Int?
+        @Option(name: .customLong("optimizer-time-limit")) var optimizerTimeLimit: Double?
         @Option(name: .customLong("mispriming-product-size")) var misprimingProductSize: Int?
         @Option(name: .customLong("preset")) var preset: String?
         @Option(name: .customLong("candidate-profiles")) var candidateProfiles: String?
         @Option(name: .customLong("reuse-discovery")) var reuseDiscovery: String?
         @Option(name: .customLong("variant-selection")) var variantSelection: String?
+        @Option(name: .customLong("search-effort"), help: "Allele optimizer effort: standard-v1 or quality-v1.") var searchEffort: String?
         @Option(name: .customLong("phase-scheduling"), help: "Optimizer phase policy: serial or reserved.") var phaseScheduling: String?
         @Option(name: .customLong("intended-product-policy"), help: "Intended product policy: exact-supported or concrete-designated-sites.") var intendedProductPolicy: String?
         @Option(name: .customLong("allele-weighting")) var alleleWeighting: String?
@@ -196,6 +197,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             } else {
                 resolvedPhaseScheduling = nil
             }
+            let resolvedSearchEffort: PrimalScheme3SearchEffort?
+            if let searchEffort {
+                guard let value = PrimalScheme3SearchEffort(rawValue: searchEffort) else {
+                    throw ValidationError("--search-effort must be standard-v1 or quality-v1.")
+                }
+                resolvedSearchEffort = value
+            } else {
+                resolvedSearchEffort = nil
+            }
             let resolvedIntendedProductPolicy: PrimalScheme3IntendedProductPolicy?
             if let intendedProductPolicy {
                 guard let value = PrimalScheme3IntendedProductPolicy(rawValue: intendedProductPolicy) else {
@@ -217,7 +227,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             let alleleOptions = PrimalScheme3AlleleOptions(
                 preset: preset, candidateProfiles: candidateProfiles,
                 reuseDiscovery: reuseDiscovery.map(URL.init(fileURLWithPath:)),
-                variantSelection: variantSelection, phaseScheduling: resolvedPhaseScheduling,
+                variantSelection: variantSelection, searchEffort: resolvedSearchEffort,
+                phaseScheduling: resolvedPhaseScheduling,
                 intendedProductPolicy: resolvedIntendedProductPolicy,
                 alleleWeighting: alleleWeighting,
                 discoveryLengthMode: discoveryLengthMode, specificityTerminalK: specificityTerminalK,

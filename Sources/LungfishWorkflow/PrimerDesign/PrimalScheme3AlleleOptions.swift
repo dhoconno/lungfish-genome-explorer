@@ -4,6 +4,17 @@ public enum PrimalScheme3PhaseScheduling: String, Codable, CaseIterable, Sendabl
     case serial, reserved
 }
 
+public enum PrimalScheme3SearchEffort: String, Codable, CaseIterable, Sendable {
+    case standardV1 = "standard-v1"
+    case qualityV1 = "quality-v1"
+
+    var optimizerTimeLimit: Double { self == .qualityV1 ? 3_600 : 120 }
+    var optimizerStarts: Int { self == .qualityV1 ? 8 : 4 }
+    var optimizerRepairRounds: Int { self == .qualityV1 ? 3 : 2 }
+    var constructionCandidateAttempts: Int { self == .qualityV1 ? 8_192 : 2_048 }
+    var familiesPerRefresh: Int { self == .qualityV1 ? 32 : 16 }
+}
+
 public enum PrimalScheme3IntendedProductPolicy: String, Codable, CaseIterable, Sendable {
     case exactSupported = "exact-supported"
     case concreteDesignatedSites = "concrete-designated-sites"
@@ -32,6 +43,8 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public let candidateProfiles: String
     public let reuseDiscovery: URL?
     public let variantSelection: String
+    public let requestedSearchEffort: PrimalScheme3SearchEffort?
+    public var searchEffort: PrimalScheme3SearchEffort { requestedSearchEffort ?? .standardV1 }
     public let requestedPhaseScheduling: PrimalScheme3PhaseScheduling?
     public var phaseScheduling: PrimalScheme3PhaseScheduling { requestedPhaseScheduling ?? .serial }
     public let requestedIntendedProductPolicy: PrimalScheme3IntendedProductPolicy?
@@ -67,6 +80,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         candidateProfiles: String? = nil,
         reuseDiscovery: URL? = nil,
         variantSelection: String? = nil,
+        searchEffort: PrimalScheme3SearchEffort? = nil,
         phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
         intendedProductPolicy: PrimalScheme3IntendedProductPolicy? = nil,
         alleleWeighting: String? = nil,
@@ -92,10 +106,12 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         workCleanupMovesPerRound: Int? = nil,
         workFamiliesPerRefresh: Int? = nil
     ) {
+        let resolvedSearchEffort = searchEffort ?? .standardV1
         self.preset = preset ?? Self.presetName
         self.candidateProfiles = candidateProfiles ?? "union"
         self.reuseDiscovery = reuseDiscovery
         self.variantSelection = variantSelection ?? "subsets"
+        self.requestedSearchEffort = searchEffort
         self.requestedPhaseScheduling = phaseScheduling
         self.requestedIntendedProductPolicy = intendedProductPolicy
         self.alleleWeighting = alleleWeighting ?? "distinct-observed"
@@ -114,17 +130,19 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         self.salvageTimeLimit = salvageTimeLimit ?? 60
         self.primaryTier = primaryTier ?? "strict"
         self.workFrontierCandidates = workFrontierCandidates ?? 64
-        self.workConstructionCandidateAttempts = workConstructionCandidateAttempts ?? 2_048
+        self.workConstructionCandidateAttempts = workConstructionCandidateAttempts
+            ?? resolvedSearchEffort.constructionCandidateAttempts
         self.workRepairCandidateProbesPerRound = workRepairCandidateProbesPerRound ?? 128
         self.workRepairNeighborhoodsPerRound = workRepairNeighborhoodsPerRound ?? 256
         self.workRepairTrialsPerRound = workRepairTrialsPerRound ?? 256
         self.workPoolLookaheadCandidates = workPoolLookaheadCandidates ?? 4
         self.workCleanupMovesPerRound = workCleanupMovesPerRound ?? 64
-        self.workFamiliesPerRefresh = workFamiliesPerRefresh ?? 16
+        self.workFamiliesPerRefresh = workFamiliesPerRefresh ?? resolvedSearchEffort.familiesPerRefresh
         var requested = Set<String>()
         for (name, supplied) in [
             ("preset", preset != nil), ("candidateProfiles", candidateProfiles != nil),
             ("reuseDiscovery", reuseDiscovery != nil), ("variantSelection", variantSelection != nil),
+            ("searchEffort", searchEffort != nil),
             ("phaseScheduling", phaseScheduling != nil),
             ("intendedProductPolicy", intendedProductPolicy != nil),
             ("alleleWeighting", alleleWeighting != nil), ("discoveryLengthMode", discoveryLengthMode != nil),
@@ -152,7 +170,8 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         [
             "preset": .string(preset), "candidateProfiles": .string(candidateProfiles),
             "reuseDiscovery": reuseDiscovery.map { .string($0.path) } ?? .null,
-            "variantSelection": .string(variantSelection), "phaseScheduling": .string(phaseScheduling.rawValue),
+            "variantSelection": .string(variantSelection), "searchEffort": .string(searchEffort.rawValue),
+            "phaseScheduling": .string(phaseScheduling.rawValue),
             "intendedProductPolicy": .string(intendedProductPolicy.rawValue),
             "alleleWeighting": .string(alleleWeighting),
             "discoveryLengthMode": .string(discoveryLengthMode),
@@ -232,6 +251,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         append("candidateProfiles", "--candidate-profiles", candidateProfiles)
         if let reuseDiscovery { append("reuseDiscovery", "--reuse-discovery", reuseDiscovery.path) }
         append("variantSelection", "--variant-selection", variantSelection)
+        append("searchEffort", "--search-effort", searchEffort.rawValue)
         append("phaseScheduling", "--phase-scheduling", phaseScheduling.rawValue)
         append("intendedProductPolicy", "--intended-product-policy", intendedProductPolicy.rawValue)
         append("alleleWeighting", "--allele-weighting", alleleWeighting)

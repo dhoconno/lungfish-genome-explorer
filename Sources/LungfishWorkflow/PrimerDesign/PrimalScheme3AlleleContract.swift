@@ -6,6 +6,7 @@ import LungfishIO
 struct PrimalScheme3AlleleCapabilities: @unchecked Sendable {
     let source: [String: Any]
     let runtime: [String: Any]
+    let searchEffortPolicies: [String: [String: Any]]?
     let phaseSchedulingPolicies: [String: [String: Any]]?
     let intendedProductPolicies: [String: [String: Any]]?
     let secondaryProductPolicies: [String: [String: Any]]?
@@ -21,6 +22,7 @@ enum PrimalScheme3AlleleContract {
     static let integrationSchema = "primalscheme3.panel-native-integration/v2"
 
     static func validateCapabilities(_ data: Data,
+                                     requestedSearchEffort: PrimalScheme3SearchEffort? = nil,
                                      requestedPhaseScheduling: PrimalScheme3PhaseScheduling? = nil,
                                      requestedIntendedProductPolicy: PrimalScheme3IntendedProductPolicy? = nil,
                                      requestedSecondaryProductPolicy: PrimalScheme3SecondaryProductPolicy? = nil) throws
@@ -51,6 +53,30 @@ enum PrimalScheme3AlleleContract {
               try bool(scope, "suppliedMsaSpecificity"),
               try strings(scope, "terminalGapPolicies") == ["observed-only"] else {
             throw invalid("The executable's allele-coverage scope is unsupported.")
+        }
+        let searchEffortPolicies: [String: [String: Any]]?
+        if let advertised = allele["searchEfforts"] {
+            let standard = searchEffort(.standardV1)
+            let quality = searchEffort(.qualityV1)
+            let expected: [String: Any] = [
+                "default": PrimalScheme3SearchEffort.standardV1.rawValue,
+                "policies": [
+                    PrimalScheme3SearchEffort.standardV1.rawValue: standard,
+                    PrimalScheme3SearchEffort.qualityV1.rawValue: quality,
+                ]
+            ]
+            guard equalJSON(advertised, expected) else {
+                throw invalid("The executable advertises an unsupported search-effort contract.")
+            }
+            searchEffortPolicies = [
+                PrimalScheme3SearchEffort.standardV1.rawValue: standard,
+                PrimalScheme3SearchEffort.qualityV1.rawValue: quality,
+            ]
+        } else {
+            searchEffortPolicies = nil
+        }
+        if requestedSearchEffort != nil, searchEffortPolicies == nil {
+            throw invalid("The executable does not advertise the explicitly requested search effort.")
         }
         let phaseSchedulingPolicies: [String: [String: Any]]?
         if let advertised = allele["phaseScheduling"] {
@@ -136,7 +162,8 @@ enum PrimalScheme3AlleleContract {
               nativeKernels.allSatisfy(nativeKernelIdentityValid) else {
             throw invalid("Capability source or runtime identity is incomplete.")
         }
-        return .init(source: source, runtime: runtime, phaseSchedulingPolicies: phaseSchedulingPolicies,
+        return .init(source: source, runtime: runtime, searchEffortPolicies: searchEffortPolicies,
+                     phaseSchedulingPolicies: phaseSchedulingPolicies,
                      intendedProductPolicies: intendedProductPolicies,
                      secondaryProductPolicies: secondaryProductPolicies)
     }
@@ -183,6 +210,7 @@ enum PrimalScheme3AlleleContract {
         }
         let resolved = try object(integration["options"], "resolved allele options")
         try validateResolved(resolved, options: options,
+                             supportsSearchEffort: capabilities.searchEffortPolicies != nil,
                              supportsPhaseScheduling: capabilities.phaseSchedulingPolicies != nil,
                              supportsIntendedProducts: capabilities.intendedProductPolicies != nil,
                              supportsSecondaryProducts: capabilities.secondaryProductPolicies != nil)
@@ -205,6 +233,9 @@ enum PrimalScheme3AlleleContract {
         try expect(string(optimizer, "algorithm"), algorithm, "optimizer algorithm")
         try expect(string(optimizer, "metric"), metric, "optimizer metric")
         try expect(string(optimizer, "primaryTier"), options.alleleOptions.primaryTier, "optimizer primary tier")
+        guard equalJSON(optimizer["options"], resolved) else {
+            throw invalid("The optimizer options differ from the resolved native configuration.")
+        }
         let optimizerProfile = try object(optimizer["profile"], "optimizer profile")
         if capabilities.intendedProductPolicies != nil {
             try expect(string(optimizerProfile, "intended_product_policy"),
@@ -433,6 +464,7 @@ enum PrimalScheme3AlleleContract {
     }
 
     private static func validateResolved(_ value: [String: Any], options: PrimalScheme3DesignOptions,
+                                         supportsSearchEffort: Bool,
                                          supportsPhaseScheduling: Bool,
                                          supportsIntendedProducts: Bool,
                                          supportsSecondaryProducts: Bool) throws {
@@ -442,6 +474,19 @@ enum PrimalScheme3AlleleContract {
             "discovery_length_mode": allele.discoveryLengthMode, "salvage": allele.salvage,
             "primary_tier": allele.primaryTier, "coverage_metric": options.coverageMetric.rawValue]
         for (key, expected) in expectedStrings { try expect(string(value, key), expected, key) }
+        if supportsSearchEffort {
+            if value["search_effort"] != nil {
+                try expect(string(value, "search_effort"), allele.searchEffort.rawValue, "search effort")
+            } else if allele.requestedOptionNames.contains("searchEffort")
+                        || allele.searchEffort != .standardV1 {
+                throw invalid("The resolved native configuration omits the selected search effort.")
+            }
+        } else if allele.requestedOptionNames.contains("searchEffort") {
+            throw invalid("The explicitly requested search effort was not advertised by the executable.")
+        } else if let legacyEffort = value["search_effort"] {
+            try expect(try string(["search_effort": legacyEffort], "search_effort"),
+                       PrimalScheme3SearchEffort.standardV1.rawValue, "legacy search effort")
+        }
         if supportsPhaseScheduling {
             try expect(string(value, "phase_scheduling"), allele.phaseScheduling.rawValue, "phase scheduling")
         } else if allele.requestedOptionNames.contains("phaseScheduling") {
@@ -507,7 +552,8 @@ enum PrimalScheme3AlleleContract {
         let requested = try object(value["requested_options"], "native requested allele options")
         let names = [
             "preset": "preset", "candidateProfiles": "candidate_profiles", "reuseDiscovery": "reuse_discovery",
-            "variantSelection": "variant_selection", "alleleWeighting": "allele_weighting",
+            "variantSelection": "variant_selection", "searchEffort": "search_effort",
+            "alleleWeighting": "allele_weighting",
             "phaseScheduling": "phase_scheduling",
             "intendedProductPolicy": "intended_product_policy",
             "discoveryLengthMode": "discovery_length_mode", "specificityTerminalK": "specificity_terminal_k",
@@ -530,6 +576,32 @@ enum PrimalScheme3AlleleContract {
                   let resolvedValue = value[nativeName], equalJSON(requestedValue, resolvedValue) else {
                 throw invalid("Requested allele override \(requestedName) is absent or differs from the resolved configuration.")
             }
+        }
+        if supportsSearchEffort {
+            let wrapperRequestedEffort = allele.requestedOptionNames.contains("searchEffort")
+            guard (requested["search_effort"] != nil) == wrapperRequestedEffort else {
+                throw invalid("Native requested options misstate whether search effort was explicitly supplied.")
+            }
+            for (nativeName, requestedValue) in [
+                "optimizer_starts": options.requestedOptimizerStarts.map { $0 as Any },
+                "optimizer_repair_rounds": options.requestedOptimizerRepairRounds.map { $0 as Any },
+                "optimizer_time_limit": options.requestedOptimizerTimeLimit.map { $0 as Any },
+                "work_construction_candidate_attempts": allele.requestedOptionNames
+                    .contains("workConstructionCandidateAttempts")
+                    ? allele.workConstructionCandidateAttempts as Any : nil,
+                "work_families_per_refresh": allele.requestedOptionNames.contains("workFamiliesPerRefresh")
+                    ? allele.workFamiliesPerRefresh as Any : nil,
+            ] {
+                if let requestedValue {
+                    guard let actual = requested[nativeName], equalJSON(actual, requestedValue) else {
+                        throw invalid("Requested optimizer override \(nativeName) is absent or differs from the resolved configuration.")
+                    }
+                } else if requested[nativeName] != nil {
+                    throw invalid("Native requested options include an optimizer override not supplied by the wrapper.")
+                }
+            }
+        } else if requested["search_effort"] != nil {
+            throw invalid("Legacy native requested options must not claim an unadvertised search effort.")
         }
     }
 
@@ -1097,6 +1169,19 @@ enum PrimalScheme3AlleleContract {
                 "repair_weights": ["preparation": 0.2, "cleanup": 0.2, "exchange": 0.6]
             ]
         }
+    }
+
+    private static func searchEffort(_ effort: PrimalScheme3SearchEffort) -> [String: Any] {
+        [
+            "id": effort.rawValue,
+            "defaults": [
+                "optimizer_time_limit": effort.optimizerTimeLimit,
+                "optimizer_starts": effort.optimizerStarts,
+                "optimizer_repair_rounds": effort.optimizerRepairRounds,
+                "work_construction_candidate_attempts": effort.constructionCandidateAttempts,
+                "work_families_per_refresh": effort.familiesPerRefresh,
+            ]
+        ]
     }
 
     private static func intendedProductPolicy(_ policy: PrimalScheme3IntendedProductPolicy) -> [String: Any] {

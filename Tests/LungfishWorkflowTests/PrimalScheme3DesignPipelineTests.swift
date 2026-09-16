@@ -279,6 +279,91 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(explicitSerial.requestedProvenanceOptions["phaseScheduling"], .string("serial"))
     }
 
+    func testAlleleSearchEffortResolvesOnlyItsFiveVersionedDefaults() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let standard = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage)
+        XCTAssertEqual(standard.alleleOptions.searchEffort, .standardV1)
+        XCTAssertEqual(standard.optimizerTimeLimit, 120)
+        XCTAssertEqual(standard.optimizerStarts, 4)
+        XCTAssertEqual(standard.optimizerRepairRounds, 2)
+        XCTAssertEqual(standard.alleleOptions.workConstructionCandidateAttempts, 2_048)
+        XCTAssertEqual(standard.alleleOptions.workFamiliesPerRefresh, 16)
+        let standardArguments = try PrimalScheme3DesignPipeline.arguments(
+            inputs: inputs, output: output, grouping: .combined, options: standard)
+        for flag in ["--search-effort", "--optimizer-time-limit", "--optimizer-starts",
+                     "--optimizer-repair-rounds", "--work-construction-candidate-attempts",
+                     "--work-families-per-refresh"] {
+            XCTAssertFalse(standardArguments.contains(flag), flag)
+        }
+
+        let quality = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(searchEffort: .qualityV1))
+        XCTAssertEqual(quality.optimizerTimeLimit, 3_600)
+        XCTAssertEqual(quality.optimizerStarts, 8)
+        XCTAssertEqual(quality.optimizerRepairRounds, 3)
+        XCTAssertEqual(quality.alleleOptions.workConstructionCandidateAttempts, 8_192)
+        XCTAssertEqual(quality.alleleOptions.workFamiliesPerRefresh, 32)
+        XCTAssertEqual(quality.alleleOptions.phaseScheduling, .serial)
+        XCTAssertEqual(quality.alleleOptions.salvage, "off")
+        let qualityArguments = try PrimalScheme3DesignPipeline.arguments(
+            inputs: inputs, output: output, grouping: .combined, options: quality)
+        let effortIndex = try XCTUnwrap(qualityArguments.firstIndex(of: "--search-effort"))
+        XCTAssertEqual(qualityArguments[effortIndex + 1], "quality-v1")
+        for flag in ["--optimizer-time-limit", "--optimizer-starts", "--optimizer-repair-rounds",
+                     "--work-construction-candidate-attempts", "--work-families-per-refresh"] {
+            XCTAssertFalse(qualityArguments.contains(flag), flag)
+        }
+    }
+
+    func testAlleleSearchEffortExplicitOldDefaultsOverrideQualityAndSurviveRoundTrip() throws {
+        let allele = PrimalScheme3AlleleOptions(
+            searchEffort: .qualityV1,
+            workConstructionCandidateAttempts: 2_048,
+            workFamiliesPerRefresh: 16)
+        let options = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            optimizerStarts: 4, optimizerRepairRounds: 2, optimizerTimeLimit: 120,
+            alleleOptions: allele)
+        XCTAssertEqual(options.optimizerStarts, 4)
+        XCTAssertEqual(options.optimizerRepairRounds, 2)
+        XCTAssertEqual(options.optimizerTimeLimit, 120)
+        XCTAssertEqual(options.alleleOptions.workConstructionCandidateAttempts, 2_048)
+        XCTAssertEqual(options.alleleOptions.workFamiliesPerRefresh, 16)
+        XCTAssertEqual(options.alleleOptions.requestedProvenanceOptions["searchEffort"],
+                       .string("quality-v1"))
+        XCTAssertEqual(options.provenanceOptions["requestedOptimizerStarts"], .integer(4))
+        XCTAssertEqual(options.provenanceOptions["requestedOptimizerRepairRounds"], .integer(2))
+        XCTAssertEqual(options.provenanceOptions["requestedOptimizerTimeLimit"], .number(120))
+
+        let arguments = try PrimalScheme3DesignPipeline.arguments(
+            inputs: [URL(fileURLWithPath: "/test/a.fasta")],
+            output: URL(fileURLWithPath: "/test/output"), grouping: .combined, options: options)
+        for (flag, value) in [
+            ("--search-effort", "quality-v1"),
+            ("--optimizer-starts", "4"),
+            ("--optimizer-repair-rounds", "2"),
+            ("--optimizer-time-limit", "120.0"),
+            ("--work-construction-candidate-attempts", "2048"),
+            ("--work-families-per-refresh", "16")
+        ] {
+            let index = try XCTUnwrap(arguments.firstIndex(of: flag), flag)
+            XCTAssertEqual(arguments[index + 1], value, flag)
+        }
+        let decoded = try JSONDecoder().decode(
+            PrimalScheme3DesignOptions.self, from: JSONEncoder().encode(options))
+        XCTAssertEqual(decoded, options)
+        XCTAssertEqual(decoded.requestedOptimizerStarts, 4)
+        XCTAssertEqual(decoded.requestedOptimizerRepairRounds, 2)
+        XCTAssertEqual(decoded.requestedOptimizerTimeLimit, 120)
+        XCTAssertEqual(decoded.alleleOptions.requestedOptionNames, allele.requestedOptionNames)
+    }
+
     func testAlleleIntendedProductPolicyDefaultsToExactButOnlyExplicitOverrideReachesNativeArguments() throws {
         let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
         let output = URL(fileURLWithPath: "/test/output")
@@ -417,6 +502,8 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
             ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
         rejected(.init(ampliconSize: 200, poolCount: 2, maxAmpliconsPerMSA: -1,
             ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, alleleOptions: .init(searchEffort: .qualityV1)))
         XCTAssertNoThrow(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
             grouping: .combined, options: .init(ampliconSize: 200, poolCount: 2,
                 maxAmplicons: 0, maxAmpliconsPerMSA: 0, ampliconSizeMinimum: 150,

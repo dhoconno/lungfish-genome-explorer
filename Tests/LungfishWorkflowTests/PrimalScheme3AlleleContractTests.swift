@@ -4,6 +4,98 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimalScheme3AlleleContractTests: XCTestCase {
+    func testSearchEffortRequiresFrozenCapabilityAndBindsResolvedOverrides() throws {
+        let legacy = try Self.makeFixture(searchEffort: .qualityV1)
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedSearchEffort: .qualityV1))
+
+        let fixture = try Self.makeFixture(
+            searchEffort: .qualityV1, advertiseSearchEfforts: true,
+            optimizerStarts: 4, optimizerRepairRounds: 2, optimizerTimeLimit: 120,
+            constructionCandidateAttempts: 2_048, familiesPerRefresh: 16)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedSearchEffort: .qualityV1)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        var badCapability = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var allele = try XCTUnwrap(badCapability["alleleCoverage"] as? [String: Any])
+        var efforts = try XCTUnwrap(allele["searchEfforts"] as? [String: Any])
+        var policies = try XCTUnwrap(efforts["policies"] as? [String: Any])
+        var quality = try XCTUnwrap(policies["quality-v1"] as? [String: Any])
+        var defaults = try XCTUnwrap(quality["defaults"] as? [String: Any])
+        defaults["optimizer_starts"] = 9
+        quality["defaults"] = defaults; policies["quality-v1"] = quality
+        efforts["policies"] = policies; allele["searchEfforts"] = efforts
+        badCapability["alleleCoverage"] = allele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: badCapability), requestedSearchEffort: .qualityV1))
+    }
+
+    func testSearchEffortLegacyAndRequestedMaskCannotBeSilentlyReinterpreted() throws {
+        let legacy = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        let legacyCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(legacy.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: legacy.output, configuration: legacy.configuration, capabilities: legacyCapabilities,
+            options: legacy.options, inputCount: 1, executedArgv: legacy.argv,
+            auditValidation: legacy.auditValidation, auditProvenance: legacy.auditProvenance,
+            auditExecutedArgv: legacy.auditArgv, auditExitStatus: 0))
+
+        let historicalWithCurrentProbe = try Self.makeFixture(
+            advertiseSearchEfforts: true, includeResolvedSearchEffort: false)
+        defer { try? FileManager.default.removeItem(at: historicalWithCurrentProbe.root) }
+        let currentProbe = try PrimalScheme3AlleleContract.validateCapabilities(
+            historicalWithCurrentProbe.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: historicalWithCurrentProbe.output,
+            configuration: historicalWithCurrentProbe.configuration, capabilities: currentProbe,
+            options: historicalWithCurrentProbe.options, inputCount: 1,
+            executedArgv: historicalWithCurrentProbe.argv,
+            auditValidation: historicalWithCurrentProbe.auditValidation,
+            auditProvenance: historicalWithCurrentProbe.auditProvenance,
+            auditExecutedArgv: historicalWithCurrentProbe.auditArgv, auditExitStatus: 0))
+
+        var reinterpreted = legacy.configuration
+        var integration = try XCTUnwrap(reinterpreted["panel_optimizer"] as? [String: Any])
+        var resolved = try XCTUnwrap(integration["options"] as? [String: Any])
+        resolved["search_effort"] = "quality-v1"
+        integration["options"] = resolved
+        reinterpreted["allele_options_json"] = String(decoding: try JSONSerialization.data(
+            withJSONObject: resolved, options: [.sortedKeys]), as: UTF8.self)
+        reinterpreted["panel_optimizer"] = integration
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: legacy.output, configuration: reinterpreted, capabilities: legacyCapabilities,
+            options: legacy.options, inputCount: 1, executedArgv: legacy.argv,
+            auditValidation: legacy.auditValidation, auditProvenance: legacy.auditProvenance,
+            auditExecutedArgv: legacy.auditArgv, auditExitStatus: 0))
+
+        let inherited = try Self.makeFixture(searchEffort: .qualityV1, advertiseSearchEfforts: true)
+        defer { try? FileManager.default.removeItem(at: inherited.root) }
+        let currentCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            inherited.capabilities, requestedSearchEffort: .qualityV1)
+        var detached = inherited.configuration
+        integration = try XCTUnwrap(detached["panel_optimizer"] as? [String: Any])
+        resolved = try XCTUnwrap(integration["options"] as? [String: Any])
+        var requested = try XCTUnwrap(resolved["requested_options"] as? [String: Any])
+        requested["optimizer_starts"] = 8
+        resolved["requested_options"] = requested; integration["options"] = resolved
+        detached["panel_optimizer"] = integration
+        detached["allele_options_json"] = String(decoding: try JSONSerialization.data(
+            withJSONObject: resolved, options: [.sortedKeys]), as: UTF8.self)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: inherited.output, configuration: detached, capabilities: currentCapabilities,
+            options: inherited.options, inputCount: 1, executedArgv: inherited.argv,
+            auditValidation: inherited.auditValidation, auditProvenance: inherited.auditProvenance,
+            auditExecutedArgv: inherited.auditArgv, auditExitStatus: 0))
+    }
+
     func testCapabilitiesRequireFrozenLGE4AlleleContract() throws {
         let fixture = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -501,7 +593,15 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         let auditArgv: [String]
     }
 
-    private static func makeFixture(phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
+    private static func makeFixture(searchEffort: PrimalScheme3SearchEffort? = nil,
+                                    advertiseSearchEfforts: Bool = false,
+                                    includeResolvedSearchEffort: Bool? = nil,
+                                    optimizerStarts: Int? = nil,
+                                    optimizerRepairRounds: Int? = nil,
+                                    optimizerTimeLimit: Double? = nil,
+                                    constructionCandidateAttempts: Int? = nil,
+                                    familiesPerRefresh: Int? = nil,
+                                    phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
                                     advertisePhaseScheduling: Bool = false,
                                     includeLaterUnreservedProgress: Bool = false,
                                     noAssessableTargets: Bool = false,
@@ -528,10 +628,16 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, coreCount: 1,
             ampliconSizeMinimum: 150, ampliconSizeMaximum: 280,
             selectionAlgorithm: .alleleCoverage,
-            alleleOptions: .init(phaseScheduling: phaseScheduling,
+            optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds,
+            optimizerTimeLimit: optimizerTimeLimit,
+            alleleOptions: .init(searchEffort: searchEffort, phaseScheduling: phaseScheduling,
                                  intendedProductPolicy: intendedProductPolicy,
-                                 secondaryProductPolicy: secondaryProductPolicy))
-        let resolved = resolvedOptions(options, includePhaseScheduling: advertisePhaseScheduling,
+                                 secondaryProductPolicy: secondaryProductPolicy,
+                                 workConstructionCandidateAttempts: constructionCandidateAttempts,
+                                 workFamiliesPerRefresh: familiesPerRefresh))
+        let resolved = resolvedOptions(
+            options, includeSearchEffort: includeResolvedSearchEffort ?? advertiseSearchEfforts,
+                                       includePhaseScheduling: advertisePhaseScheduling,
                                        includeIntendedProductPolicy: advertiseIntendedProducts)
         var profile: [String: Any] = ["name": "allele-panel-v1", "specificity_revision": "selected-sites-v2"]
         if advertiseIntendedProducts {
@@ -665,6 +771,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         if advertisePhaseScheduling {
             alleleCapability["phaseScheduling"] = phaseSchedulingCapability()
         }
+        if advertiseSearchEfforts {
+            alleleCapability["searchEfforts"] = searchEffortCapability()
+        }
         if advertiseIntendedProducts {
             alleleCapability["intendedProductPolicies"] = intendedProductPolicyCapability()
         }
@@ -678,6 +787,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "alleleCoverage": alleleCapability, "source": identitySource, "runtime": identityRuntime
         ]
         var argv = ["/fixture/primalscheme3", "panel-create", "--msa", source.path, "--output", output.path]
+        if let searchEffort { argv += ["--search-effort", searchEffort.rawValue] }
+        if let optimizerStarts { argv += ["--optimizer-starts", String(optimizerStarts)] }
+        if let optimizerRepairRounds { argv += ["--optimizer-repair-rounds", String(optimizerRepairRounds)] }
+        if let optimizerTimeLimit { argv += ["--optimizer-time-limit", String(optimizerTimeLimit)] }
+        if let constructionCandidateAttempts {
+            argv += ["--work-construction-candidate-attempts", String(constructionCandidateAttempts)]
+        }
+        if let familiesPerRefresh { argv += ["--work-families-per-refresh", String(familiesPerRefresh)] }
         if let phaseScheduling { argv += ["--phase-scheduling", phaseScheduling.rawValue] }
         if let intendedProductPolicy { argv += ["--intended-product-policy", intendedProductPolicy.rawValue] }
         if let secondaryProductPolicy { argv += ["--secondary-product-policy", secondaryProductPolicy.rawValue] }
@@ -725,10 +842,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     }
 
     private static func resolvedOptions(_ options: PrimalScheme3DesignOptions,
+                                        includeSearchEffort: Bool = false,
                                         includePhaseScheduling: Bool = false,
                                         includeIntendedProductPolicy: Bool = false) -> [String: Any] {
         let a = options.alleleOptions
         var requested: [String: Any] = [:]
+        if a.requestedOptionNames.contains("searchEffort") {
+            requested["search_effort"] = a.searchEffort.rawValue
+        }
         if a.requestedOptionNames.contains("phaseScheduling") {
             requested["phase_scheduling"] = a.phaseScheduling.rawValue
         }
@@ -738,6 +859,15 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         if a.requestedOptionNames.contains("secondaryProductPolicy") {
             requested["secondary_product_policy"] = a.secondaryProductPolicy.rawValue
         }
+        if a.requestedOptionNames.contains("workConstructionCandidateAttempts") {
+            requested["work_construction_candidate_attempts"] = a.workConstructionCandidateAttempts
+        }
+        if a.requestedOptionNames.contains("workFamiliesPerRefresh") {
+            requested["work_families_per_refresh"] = a.workFamiliesPerRefresh
+        }
+        if let value = options.requestedOptimizerStarts { requested["optimizer_starts"] = value }
+        if let value = options.requestedOptimizerRepairRounds { requested["optimizer_repair_rounds"] = value }
+        if let value = options.requestedOptimizerTimeLimit { requested["optimizer_time_limit"] = value }
         var result: [String: Any] = [
             "preset": a.preset, "candidate_profiles": a.candidateProfiles, "variant_selection": a.variantSelection,
             "allele_weighting": a.alleleWeighting, "discovery_length_mode": a.discoveryLengthMode,
@@ -765,6 +895,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "work_cleanup_moves_per_round": a.workCleanupMovesPerRound,
             "work_families_per_refresh": a.workFamiliesPerRefresh
         ]
+        if includeSearchEffort || a.requestedOptionNames.contains("searchEffort") {
+            result["search_effort"] = a.searchEffort.rawValue
+        }
         if includePhaseScheduling || a.requestedOptionNames.contains("phaseScheduling") {
             result["phase_scheduling"] = a.phaseScheduling.rawValue
         }
@@ -784,6 +917,19 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     private static func phaseSchedulingCapability() -> [String: Any] {
         ["default": "serial",
          "policies": ["serial": serialSchedulingPolicy(), "reserved": reservedSchedulingPolicy()]]
+    }
+
+    private static func searchEffortCapability() -> [String: Any] {
+        ["default": "standard-v1", "policies": [
+            "standard-v1": ["id": "standard-v1", "defaults": [
+                "optimizer_time_limit": 120.0, "optimizer_starts": 4,
+                "optimizer_repair_rounds": 2, "work_construction_candidate_attempts": 2_048,
+                "work_families_per_refresh": 16]],
+            "quality-v1": ["id": "quality-v1", "defaults": [
+                "optimizer_time_limit": 3_600.0, "optimizer_starts": 8,
+                "optimizer_repair_rounds": 3, "work_construction_candidate_attempts": 8_192,
+                "work_families_per_refresh": 32]]
+        ]]
     }
 
     private static func intendedProductPolicyCapability() -> [String: Any] {
