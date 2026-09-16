@@ -411,3 +411,10 @@ Full original A1 compact engineering run succeeded and freshly audited: 246.639 
 Additional core-agent tiny-fixture work was interrupted by automatic content-access safety screening. That step was not retried. The independently completed CLI checks above, the fixed-work parity unit test and the successful real-A1 engineering run provide the accepted verification; no claim is made for the interrupted supplementary step.
 
 Bounded measurement scripts corrected and committed as `1bd5ea118`; Luna is preserving the completed evaluation outputs with copy provenance and writing the final SDD report. No additional experimental runs authorized or needed for this change. Cancelled full11 output remains untouched and heartbeat paused.
+
+
+## User-authorized two-pool shared-MSA pilot (active)
+
+User asks Luna to evaluate two pools for the intended multi-MSA panel. Root approved a bounded A1+A2 shared-pool pilot on clean native `cfafd48`: original raw source-inputs A1 C64AA855 and A2 2E748544 in that order, union profiles, compact discovery, strict dimer -26, 150–250 bp/200 target, minimum frequency zero, distinct-allele trimmed coverage, 4 requested workers, 4 starts/2 repair rounds/120-second optimizer, salvage off. Existing A1-only cache cannot be concatenated or reused for a different target set; fresh combined discovery is required.
+
+Luna-high `luna_two_pool_evaluation` owns execution and reporting, no native edits. Caps: 15 minutes whole-process-group wall time, 12 GiB group RSS, 2 GiB output, bounded signal escalation and interruption receipt. On success, fresh audit and per-target/allele coverage plus pool burden, phase/runtime/memory/history metrics. No all11 launch or broad sweep authorized in this turn. Cancelled full11 artifacts and paused heartbeat remain untouched. This tests two shared targets and cannot establish all11 performance.
