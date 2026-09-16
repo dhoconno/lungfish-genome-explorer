@@ -15,6 +15,12 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         root["alleleCoverage"] = allele
         XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
             JSONSerialization.data(withJSONObject: root)))
+        root = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var runtime = try XCTUnwrap(root["runtime"] as? [String: Any])
+        runtime["nativeKernels"] = [["distribution": "primer3-py", "version": "2.2.0"]]
+        root["runtime"] = runtime
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: root)))
     }
 
     func testAuditReceiptBindsEveryNativeByteAndRejectsMutationOrMissingEvidence() throws {

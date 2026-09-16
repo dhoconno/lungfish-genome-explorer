@@ -64,7 +64,7 @@ enum PrimalScheme3AlleleContract {
               !(try string(kernel, "system")).isEmpty, !dependencies.isEmpty, !nativeKernels.isEmpty,
               sourceFiles.allSatisfy(descriptorIdentityValid),
               dependencies.allSatisfy(dependencyIdentityValid),
-              nativeKernels.allSatisfy(dependencyIdentityValid) else {
+              nativeKernels.allSatisfy(nativeKernelIdentityValid) else {
             throw invalid("Capability source or runtime identity is incomplete.")
         }
         return .init(source: source, runtime: runtime)
@@ -430,6 +430,13 @@ enum PrimalScheme3AlleleContract {
             return !files.isEmpty && files.allSatisfy(descriptorIdentityValid)
         }
         return true
+    }
+
+    private static func nativeKernelIdentityValid(_ value: [String: Any]) -> Bool {
+        guard dependencyIdentityValid(value), let files = value["files"] as? [[String: Any]], !files.isEmpty else {
+            return false
+        }
+        return files.allSatisfy(descriptorIdentityValid)
     }
 
     private static func expect<T: Equatable>(_ actual: T, _ expected: T, _ label: String) throws {

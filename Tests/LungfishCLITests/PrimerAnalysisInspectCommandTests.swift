@@ -29,7 +29,8 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try fixture(in: root)
-        try Data("changed".utf8).write(to: bundle.url.appendingPathComponent("native/result.txt"))
+        let native = try XCTUnwrap(bundle.manifest.artifacts.first { $0.role == "nativeOutput" })
+        try Data("changed".utf8).write(to: bundle.url.appendingPathComponent(native.relativePath))
         for flags in [[], ["--json"]] {
             let command = try PrimerAnalysisInspectCommand.parse([bundle.url.path] + flags)
             XCTAssertThrowsError(try command.inspectionOutput())
@@ -46,6 +47,8 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
         XCTAssertTrue(output.contains("Inputs: 1"))
         XCTAssertTrue(output.contains("Results: 1"))
         XCTAssertTrue(output.contains("Integrity verified"))
+        XCTAssertTrue(output.contains("Metric: observed-allele-primer-trimmed/v1"))
+        XCTAssertTrue(output.contains("distinct classes 1"))
     }
 
     func testInspectionPolicyDoesNotRequireWritingProvenance() throws {
@@ -56,7 +59,8 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
 
     func testDesignAndAnnotatedReferenceCommandsRequireFinalOutputProvenance() throws {
         for path in [["primers", "design", "primer3"], ["primers", "design", "primalscheme3"],
-                     ["primers", "analysis", "annotated-reference"]] {
+                     ["primers", "analysis", "annotated-reference"],
+                     ["primers", "analysis", "history"], ["primers", "analysis", "audit"]] {
             let policy = try XCTUnwrap(ScientificProvenancePolicy.cliCommand(path: path))
             XCTAssertTrue(policy.requiresProvenance)
             XCTAssertEqual(policy.outputPathExpectation, .finalStoredPayload)
@@ -68,22 +72,36 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
             "--result-id", UUID().uuidString, "--output-directory", "/tmp"])
             as? PrimerAnalysisAnnotatedReferenceCommand)
         XCTAssertEqual(command.outputDirectory, "/tmp")
+        XCTAssertNoThrow(try PrimerAnalysisHistoryCommand.parse([
+            "input.lungfishprimeranalysis", "--result-id", UUID().uuidString,
+            "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/history", "--stage", "strict"]))
+        XCTAssertNoThrow(try PrimerAnalysisAuditCommand.parse([
+            "input.lungfishprimeranalysis", "--result-id", UUID().uuidString,
+            "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/audit"]))
     }
 
     private func fixture(in root: URL) throws -> PrimerAnalysisBundle {
         let source = root.appendingPathComponent("source.txt")
         let output = root.appendingPathComponent("result.txt")
         try Data("opaque source\n".utf8).write(to: source)
-        try Data("opaque result\n".utf8).write(to: output)
+        let resultID = UUID()
+        let nativePath = "native/\(resultID.uuidString)/panel-optimizer.json"
+        let optimizer: [String: Any] = ["schemaVersion": "primalscheme3.panel-optimizer/v2",
+          "metric": "observed-allele-primer-trimmed/v1", "primaryTier": "strict",
+          "profile": ["name": "allele-panel-v1"], "stages": [["stage_id": "strict",
+            "coverage": ["mean_coverage": 0.75, "goal": 0.95,
+              "targets": [["target_id": "target-1", "fraction": 0.75]],
+              "classes": [["target_id": "target-1", "observed_count": 100]]]]]]
+        try JSONSerialization.data(withJSONObject: optimizer).write(to: output)
         let inputID = UUID()
         return try PrimerAnalysisBundleWriter().write(.init(
             analysisID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
             runID: UUID(), grouping: .combined,
             inputs: [.init(id: inputID, label: "example input", artifactPaths: ["inputs/source.txt"])],
-            results: [.init(id: UUID(), label: "example result", inputIDs: [inputID], artifactPaths: ["native/result.txt"])],
+            results: [.init(id: resultID, label: "example result", inputIDs: [inputID], artifactPaths: [nativePath])],
             artifacts: [
                 .init(sourceURL: source, relativePath: "inputs/source.txt", role: "input", format: "text"),
-                .init(sourceURL: output, relativePath: "native/result.txt", role: "nativeOutput", format: "text"),
+                .init(sourceURL: output, relativePath: nativePath, role: "nativeOutput", format: "json"),
             ],
             destinationURL: root.appendingPathComponent("example.lungfishprimeranalysis"),
             invocation: .init(argv: ["storage-test-host", "--case", "cli-inspection"], callerVersion: "test", explicitOptions: [:], runtimeIdentity: .init())

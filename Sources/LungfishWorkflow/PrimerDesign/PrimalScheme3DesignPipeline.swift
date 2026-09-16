@@ -805,6 +805,22 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
                 .write(to: attemptDirectory.appendingPathComponent(name), options: .withoutOverwriting)
         }
+        let runtimeIdentity = ProvenanceRuntimeIdentity(executablePath: executable.path,
+            condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
+            pluginPack: prefix == nil ? nil : "pcr-primer-design",
+            dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet)
+        let encodedRuntime = try JSONEncoder().encode(runtimeIdentity)
+        var retainedRuntimeEvidence: [String: Any] = [:]
+        for (name, data) in runtimeEvidence {
+            retainedRuntimeEvidence[name] = (try? JSONSerialization.jsonObject(with: data))
+                ?? ["sha256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), "size": data.count]
+        }
+        try persist("00-runtime-identity.json", [
+            "executablePath": executable.path, "executableSHA256": executableHash,
+            "environment": environment ?? [:],
+            "runtimeIdentity": try JSONSerialization.jsonObject(with: encodedRuntime),
+            "runtimeEvidence": retainedRuntimeEvidence
+        ])
         let probeArguments = command.selectionAlgorithm == .legacy ? ["--version"] : ["--capabilities-json"]
         try persist("01-probe-started.json", ["status": "started", "argv": [executable.path] + probeArguments,
             "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: Date())])
@@ -911,9 +927,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             throw PrimalScheme3DesignError.invalidRequest("The executable changed during the run.")
         }
         return .init(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode,
-                     version: executedVersion, runtime: .init(executablePath: executable.path,
-                     condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
-                     pluginPack: prefix == nil ? nil : "pcr-primer-design", dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet),
+                     version: executedVersion, runtime: runtimeIdentity,
                      startedAt: start, endedAt: Date(), executableSHA256: executableHash,
                      runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON,
                      auditValidationJSON: auditValidationJSON, auditProvenanceJSON: auditProvenanceJSON,
