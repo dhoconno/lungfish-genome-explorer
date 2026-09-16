@@ -364,6 +364,45 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(decoded.alleleOptions.requestedOptionNames, allele.requestedOptionNames)
     }
 
+    func testAlleleSearchEffortInheritedQualityAndHistoricalNondefaultsDecodeWithoutLosingIntent() throws {
+        let inheritedQuality = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(searchEffort: .qualityV1))
+        let qualityRoundTrip = try JSONDecoder().decode(
+            PrimalScheme3DesignOptions.self, from: JSONEncoder().encode(inheritedQuality))
+        XCTAssertEqual(qualityRoundTrip, inheritedQuality)
+        XCTAssertNil(qualityRoundTrip.requestedOptimizerStarts)
+        XCTAssertNil(qualityRoundTrip.requestedOptimizerRepairRounds)
+        XCTAssertNil(qualityRoundTrip.requestedOptimizerTimeLimit)
+        XCTAssertEqual(qualityRoundTrip.optimizerStarts, 8)
+        XCTAssertEqual(qualityRoundTrip.optimizerRepairRounds, 3)
+        XCTAssertEqual(qualityRoundTrip.optimizerTimeLimit, 3_600)
+
+        let oldConfiguration = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            optimizerStarts: 7, optimizerRepairRounds: 1, optimizerTimeLimit: 45)
+        var historical = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(oldConfiguration)) as? [String: Any])
+        historical.removeValue(forKey: "requestedOptimizerStarts")
+        historical.removeValue(forKey: "requestedOptimizerRepairRounds")
+        historical.removeValue(forKey: "requestedOptimizerTimeLimit")
+        var historicalAllele = try XCTUnwrap(historical["alleleOptions"] as? [String: Any])
+        historicalAllele.removeValue(forKey: "requestedSearchEffort")
+        historical["alleleOptions"] = historicalAllele
+        let historicalDecoded = try JSONDecoder().decode(
+            PrimalScheme3DesignOptions.self,
+            from: JSONSerialization.data(withJSONObject: historical, options: [.sortedKeys]))
+        XCTAssertEqual(historicalDecoded.alleleOptions.searchEffort, .standardV1)
+        XCTAssertEqual(historicalDecoded.optimizerStarts, 7)
+        XCTAssertEqual(historicalDecoded.optimizerRepairRounds, 1)
+        XCTAssertEqual(historicalDecoded.optimizerTimeLimit, 45)
+        XCTAssertEqual(historicalDecoded.requestedOptimizerStarts, 7)
+        XCTAssertEqual(historicalDecoded.requestedOptimizerRepairRounds, 1)
+        XCTAssertEqual(historicalDecoded.requestedOptimizerTimeLimit, 45)
+    }
+
     func testAlleleIntendedProductPolicyDefaultsToExactButOnlyExplicitOverrideReachesNativeArguments() throws {
         let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
         let output = URL(fileURLWithPath: "/test/output")

@@ -31,7 +31,7 @@ Final fresh focused verification:
 - `swift test --filter 'PrimalScheme3DesignPipelineTests|PrimerDesignCommandTests'`: 35 tests passed (28 workflow and 7 CLI), log `/tmp/lge-effort-final-focused1.log`.
 - `swift test --filter PrimalScheme3AlleleContractTests`: 13 tests passed, log `/tmp/lge-effort-contract-suite.log`.
 
-Together these runs cover 48 tests with no failures.
+An additional focused Codable compatibility test passed from `/tmp/lge-effort-decode.log`. It covers inherited quality values with all three optimizer request fields absent, plus a historical allele payload without `requestedSearchEffort` whose nondefault stored optimizer values are retained as explicit overrides. Together these runs cover 49 tests with no failures.
 
 ## Documentation
 
