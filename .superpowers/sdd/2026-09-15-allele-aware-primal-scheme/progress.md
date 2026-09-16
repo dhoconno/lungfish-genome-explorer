@@ -241,3 +241,10 @@ Frozen matrix10 script against completed secondary07, region BED394:644,16altern
 ## A1 finite-catalog availability complete
 
 Approvedexternal87b9c63c/testse19ccfd0 pinnedunchanged inoptimistic-catalog-coverage-frozen01; rootcompleted07run session36467 exit0 in76.4996s. All143297families/10191eligiblesites/6classes/859782familyclasschecks complete; independentselected86.719047% reconstructed andcontained. Singletonandallsubsetrelaxation97.2349276% (classes96.8633–97.9500), onlyterminalgaps. Nojointfeasibilityclaim. Oneactualsubset2164:2413 selects2/3F4/5Rstillall6classes;85:315supports3classes,217:399supports5. Input/source/runtime unchanged. Publicreportupdated.
+
+
+## Audited broad hour run complete
+
+Quality09 session31220 completed all statuses0, fresh raw audit valid, all identities unchanged. Mean87.28117183%/18amps, range83.08167467–90.13203614%; +.56212469pp vs08 but fourclasses lose .6826–2.4207pp and two gain4.0837/4.5865pp. Native3981.0563s, audit146.2695s, outer4140.1413s, nativepeak5666750464B. Search3611.4206s, onecompletedstart/twoacceptedrepairs/439searchedfamilies/20503materializedconfigs; lastgain2750.654s. Descriptive08→09 comparison completed with receipts; fivework/timecontrols pluscompression sourcechange so noisolatedspeedclaim. Narrow09 samehour/source/science stillactive; at1671s provisional88.1221%, nofinalclaim.
+
+Full11 indexed bounded inspection identified current cold-discovery target04673… as Mamu-DRB (source9), backed by separately parsed original inventory. External fixed-panel backgroundscreen ready for independent Astra review; no real screening run yet. Native additive label map Solactive; discoveryidentity unchanged requirement retained.
