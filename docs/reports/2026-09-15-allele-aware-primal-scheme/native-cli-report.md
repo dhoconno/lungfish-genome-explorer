@@ -63,11 +63,21 @@ Native code is frozen at `7ca64e68690f6e4db5b91f54bfe8a4847c402a62` in an isolat
 
 Run directory: `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-union-subsets-02`. Final metrics and audit results are pending; no improvement claim is made from discovery alone.
 
+## Single-target Mamu-A1 pilot — partial results
+
+The isolated `matrix-02` pilot uses the original six-row Mamu-A1 alignment, with the same scientific settings and search budgets as the initial combined run. The completed strict tier passes its independent native stage validation and selects 10 amplicons, with **39.1308%** mean coverage after trimming across distinct observed classes (individual classes 32.1160–43.0336%). The first two salvage tiers have the same mean coverage. The final tier and whole-bundle audit are pending.
+
+This is below the saved independent panel’s 86.7446% common-metric coverage. The original input bytes match; the historical panel has not thereby been shown to pass the new constraints. This result is not an improvement claim or evidence about compatibility in the combined panel.
+
+A separate code review found that construction queue refresh can reconsider consumed candidates and spend search attempts on them. The regression-tested fix is included in `matrix-03`; its effect on MHC coverage has not yet been measured. One shared deadline also permits initial seed passes to exhaust time before subset construction and repair. Final pilot counters are needed to distinguish these limits from measured constraint rejections; neither is yet established as the cause of this coverage result.
+
+[Completed strict coverage](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-union-subsets-pilot-01/stages/strict/coverage.json) and [strict validation](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-union-subsets-pilot-01/stages/strict/validation.json).
+
 ## Engineering verification
 
-The native implementation and LGE CLI integration have passed independent Astra reviews. The frozen native evaluation revision is `c6aa554e92050794ef6781ed5fd23ab32629c777` in `allele-aware-primal-matrix-02`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics and measured storage improvements.
+The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `ddf45ae08c146063adb46a6d2eeb28dea657befb` in `allele-aware-primal-matrix-03`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
 
-- Native full suite: **687 passed**, one upstream Kaleido deprecation warning, 178.48 seconds.
+- Native full suite on `matrix-03`: **718 passed**, one upstream Kaleido deprecation warning, 177.73 seconds.
 - LGE focused checks after a fresh build: **87 passed** (78 XCTest and 9 Swift Testing).
 - Real fresh and cached designs passed LGE publication and independent native audits.
 - A cached-result bundle passed inspection, history and fresh audit after relocation while its original synthetic input, cache and prior bundles were temporarily unavailable. Originals were restored unchanged. [Relocation receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-wrapper-relocation-01/provenance.json).
