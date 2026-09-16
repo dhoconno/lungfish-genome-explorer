@@ -70,4 +70,43 @@ final class DatabaseSearchXCUITests: XCTestCase {
         robot.waitForPrimaryActionLabel("Download Selected")
         XCTAssertEqual(robot.primaryActionButton.label, "Download Selected")
     }
+
+    @MainActor
+    func testSelectAllAndDeselectAllNCBIResults() {
+        robot.launch()
+        _ = robot.openDatabaseSearch(destinationMenuTitle: "Search NCBI...")
+        robot.enterQuery("SARS-CoV-2")
+        robot.primaryActionButton.click()
+
+        robot.waitForBulkSelectionLabel("Select all")
+        robot.bulkSelectionButton.click()
+        robot.waitForBulkSelectionLabel("Deselect all")
+        robot.waitForStatusText("2 selected")
+        robot.waitForPrimaryActionLabel("Download Selected")
+
+        robot.bulkSelectionButton.click()
+        robot.waitForBulkSelectionLabel("Select all")
+        robot.waitForStatusText("Ready")
+        XCTAssertEqual(robot.primaryActionButton.label, "Search")
+    }
+
+    @MainActor
+    func testSelectAllAndDeselectAllSRARunResults() {
+        robot.launch()
+        _ = robot.openDatabaseSearch(destinationMenuTitle: "Search NCBI...")
+        robot.sidebarToolButton("database-search-tool-sra-runs").click()
+        robot.enterQuery("SRR000001")
+        robot.primaryActionButton.click()
+
+        robot.waitForBulkSelectionLabel("Select all")
+        robot.bulkSelectionButton.click()
+        robot.waitForBulkSelectionLabel("Deselect all")
+        robot.waitForStatusText("1 selected")
+        robot.waitForPrimaryActionLabel("Download Selected")
+
+        robot.bulkSelectionButton.click()
+        robot.waitForBulkSelectionLabel("Select all")
+        robot.waitForStatusText("Ready")
+        XCTAssertEqual(robot.primaryActionButton.label, "Search")
+    }
 }
