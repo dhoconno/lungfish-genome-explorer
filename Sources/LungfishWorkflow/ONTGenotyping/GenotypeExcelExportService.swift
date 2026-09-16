@@ -140,6 +140,14 @@ public struct GenotypeExcelExportService: Sendable {
         var retainArtifacts = false
         defer {
             if !retainArtifacts {
+                // On ExFAT, writing a previously empty file can rebase its
+                // synthetic inode. Refresh only files still bound to the held
+                // writer descriptor before identity-bound cleanup.
+                for file in createdFiles where ["stdout.json", "stderr.txt"].contains(file.url.lastPathComponent) {
+                    if let current = try? readCreatedFile(file, directory: directory) {
+                        artifactIdentities[file.url.lastPathComponent] = current.identity
+                    }
+                }
                 let entry = GenotypingCleanupPlanEntry(path: durable.path,
                     intendedAction: .removeRetiredPublicationDirectory, identity: directoryIdentity)
                 _ = GenotypingIdentityBoundCleanup.remove(entry) { detached in
@@ -203,11 +211,15 @@ public struct GenotypeExcelExportService: Sendable {
         let started = Date()
         let executedArgv = [pythonExecutableURL.path, scriptURL.path, snapshotURL.path, stagedOutput.path]
         let execution = try runPython(argv: Array(executedArgv.dropFirst()), stdoutFile: stdoutFile, stderrFile: stderrFile, directory: directory)
+        artifactIdentities[stderrURL.lastPathComponent] = execution.stderrIdentity
+        guard execution.status == 0 else { throw ExportError.rendererFailed(execution.status, execution.stderr) }
         try Task.checkCancellation()
         try verify(provenance.inputs)
         let bytes = try Data(contentsOf: stagedOutput)
         guard !bytes.isEmpty else { throw ExportError.invalidInput("renderer produced no workbook") }
-        let runtimeData = try readCreatedFile(stdoutFile, directory: directory)
+        let runtimeOutput = try readCreatedFile(stdoutFile, directory: directory)
+        artifactIdentities[stdoutURL.lastPathComponent] = runtimeOutput.identity
+        let runtimeData = runtimeOutput.data
         let checkedRuntime: RendererRuntime
         do {
             checkedRuntime = try JSONDecoder().decode(RendererRuntime.self, from: runtimeData)
@@ -271,7 +283,7 @@ public struct GenotypeExcelExportService: Sendable {
     private func runPython(
         argv: [String], stdoutFile: DurableAtomicFileStore.OpenPublishedFile,
         stderrFile: DurableAtomicFileStore.OpenPublishedFile, directory: Int32
-    ) throws -> (status: Int32, stderr: String) {
+    ) throws -> (status: Int32, stderr: String, stderrIdentity: FileSystemObjectIdentity) {
         // Keep the writer-created handles through Process; reopening by path
         // would adopt a replacement even before the caller receives ownership.
         let stdout = FileHandle(fileDescriptor: stdoutFile.fileDescriptor, closeOnDealloc: false)
@@ -287,24 +299,66 @@ public struct GenotypeExcelExportService: Sendable {
         guard Darwin.fsync(stdoutFile.fileDescriptor) == 0, Darwin.fsync(stderrFile.fileDescriptor) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-        let message = String(data: try readCreatedFile(stderrFile, directory: directory), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else { throw ExportError.rendererFailed(process.terminationStatus, message) }
-        return (process.terminationStatus, message)
+        let stderrOutput = try readCreatedFile(stderrFile, directory: directory)
+        let message = String(data: stderrOutput.data, encoding: .utf8) ?? ""
+        return (process.terminationStatus, message, stderrOutput.identity)
     }
 
-    private func readCreatedFile(_ file: DurableAtomicFileStore.OpenPublishedFile, directory: Int32) throws -> Data {
+    /// The initial identity can change when ExFAT allocates the first cluster
+    /// for an empty renderer log. The held writer and reopened reader must
+    /// still agree on the current object, including its original device.
+    static func verifiedWrittenIdentity(
+        initial: FileSystemObjectIdentity, writer: FileSystemObjectIdentity,
+        reader: FileSystemObjectIdentity
+    ) throws -> FileSystemObjectIdentity {
+        guard writer.device == initial.device, writer == reader else {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch("renderer output")
+        }
+        return writer
+    }
+
+    private func readCreatedFile(
+        _ file: DurableAtomicFileStore.OpenPublishedFile, directory: Int32
+    ) throws -> (data: Data, identity: FileSystemObjectIdentity) {
         let descriptor = file.url.lastPathComponent.withCString {
             Darwin.openat(directory, $0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         }
         guard descriptor >= 0 else { throw OwnedWorkDirectoryMarkerError.unsafePath(file.url.path) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
-        var info = stat()
-        guard Darwin.fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-              FileSystemObjectIdentity(from: info) == file.identity else {
+        var writerInfo = stat(), readerInfo = stat()
+        guard Darwin.fstat(file.fileDescriptor, &writerInfo) == 0,
+              Darwin.fstat(descriptor, &readerInfo) == 0,
+              writerInfo.st_mode & S_IFMT == S_IFREG,
+              readerInfo.st_mode & S_IFMT == S_IFREG else {
             throw OwnedWorkDirectoryMarkerError.identityMismatch(file.url.path)
         }
-        return try handle.readToEnd() ?? Data()
+        let identity: FileSystemObjectIdentity
+        do {
+            identity = try Self.verifiedWrittenIdentity(initial: file.identity,
+                writer: FileSystemObjectIdentity(from: writerInfo),
+                reader: FileSystemObjectIdentity(from: readerInfo))
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch(file.url.path)
+        }
+        let data = try handle.readToEnd() ?? Data()
+        var afterWriter = stat(), afterReader = stat(), namedInfo = stat()
+        let namedStatus = file.url.lastPathComponent.withCString {
+            Darwin.fstatat(directory, $0, &namedInfo, AT_SYMLINK_NOFOLLOW)
+        }
+        guard Darwin.fstat(file.fileDescriptor, &afterWriter) == 0,
+              Darwin.fstat(descriptor, &afterReader) == 0,
+              namedStatus == 0,
+              namedInfo.st_mode & S_IFMT == S_IFREG,
+              FileSystemObjectIdentity(from: afterWriter) == identity,
+              FileSystemObjectIdentity(from: afterReader) == identity,
+              FileSystemObjectIdentity(from: namedInfo) == identity,
+              afterReader.st_size == readerInfo.st_size,
+              afterReader.st_mtimespec.tv_sec == readerInfo.st_mtimespec.tv_sec,
+              afterReader.st_mtimespec.tv_nsec == readerInfo.st_mtimespec.tv_nsec else {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch(file.url.path)
+        }
+        return (data, identity)
     }
 
     private static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
