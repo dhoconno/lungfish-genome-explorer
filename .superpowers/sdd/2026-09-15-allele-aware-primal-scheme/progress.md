@@ -395,3 +395,8 @@ Active Luna-high agents: luna_compact_discovery ownsdiscovery/options/pipeline/c
 Native commits `5d30e38`, `f9c5917`, and `77e03b5` implement compact discovery and anchored diagnostic replay. Root reviewed the scientific acceptance/mapping distinction, cache detail binding, diagnostic source reconstruction, and provenance. Focused Luna tests pass; final fixed-work selector parity and a failure-provenance inventory correction remain before source freeze. No integrated benchmark has run yet.
 
 The low-effort Luna runner’s harness drafts were rejected for incorrect API arguments, absent real-A1 comparison, and resource-monitoring defects. They must not be executed as committed. Luna-high `luna_discovery_diagnostics` now owns correcting those scripts and subsequent CLI evaluation; the former runner has stopped. This changes execution ownership, not the approved bounded plan. All native changes must settle before source-bound runs. Cancelled full11 data remains untouched, automation paused, GUI and managed runtime unchanged.
+
+
+## Native candidate freeze and execution authorization
+
+Native `cfafd488fa064438f005417a85d85904ec81da4d` is clean and includes corrected diagnostic failure inventories plus fixed-work compact/full selector parity. Luna compact agent owns one full native suite. Luna diagnostics agent owns tiny actual CLI/cache/audit/history/replay verification and bounded original-A1 anchored compact/full measurement. No source mutations during either run. The committed low-effort harness drafts remain unaccepted until replaced or corrected. Full-A1 compact engineering run remains gated on the tiny and anchored results; no full11 work is authorized.
