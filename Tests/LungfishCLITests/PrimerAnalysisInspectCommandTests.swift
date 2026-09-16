@@ -65,6 +65,30 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
         XCTAssertTrue(output.contains("Class allele-unavailable (aliases: row-unknown): covered 0/0; fraction unavailable; deficit unavailable; dropout unavailable"))
     }
 
+    func testSummaryUsesPreservedHumanLabelsAndStableRowIDs() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try fixture(in: root, withLabelMap: true)
+        let output = try PrimerAnalysisInspectCommand.parse([bundle.url.path]).inspectionOutput()
+
+        XCTAssertTrue(output.contains(
+            "Class allele-a (labels: Mamu-A1*001:01 [native row-a; LGE stable-row-1; source 1 row 1], "
+            + "Mamu-A1*001:01 [native row-a-duplicate; LGE stable-row-2; source 1 row 2])"))
+        XCTAssertTrue(output.contains(
+            "Class allele-b (labels: raw FASTA allele B [native row-b; source 1 row 3])"))
+    }
+
+    func testAdvertisedDerivedLabelMapWithWrongResultIDFailsClosed() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try fixture(in: root, withLabelMap: true, staleLabelResultID: true)
+
+        for flags in [[], ["--json"]] {
+            XCTAssertThrowsError(
+                try PrimerAnalysisInspectCommand.parse([bundle.url.path] + flags).inspectionOutput())
+        }
+    }
+
     func testInspectionPolicyDoesNotRequireWritingProvenance() throws {
         let policy = try XCTUnwrap(ScientificProvenancePolicy.cliCommand(path: ["primers", "analysis", "inspect"]))
         XCTAssertFalse(policy.createsOrModifiesScientificData)
@@ -102,7 +126,9 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
             "--primalscheme3-path", "/tmp/primalscheme3", "--output", "/tmp/audit"]))
     }
 
-    private func fixture(in root: URL, unassessable: Bool = false) throws -> PrimerAnalysisBundle {
+    private func fixture(in root: URL, unassessable: Bool = false,
+                         withLabelMap: Bool = false,
+                         staleLabelResultID: Bool = false) throws -> PrimerAnalysisBundle {
         let source = root.appendingPathComponent("source.txt")
         let output = root.appendingPathComponent("result.txt")
         try Data("opaque source\n".utf8).write(to: source)
@@ -128,23 +154,70 @@ final class PrimerAnalysisInspectCommandTests: XCTestCase {
                      "observed_count": 100, "fraction": 1.0]
                 ]]
         }
-        let optimizer: [String: Any] = ["schemaVersion": "primalscheme3.panel-optimizer/v2",
+        var optimizer: [String: Any] = ["schemaVersion": "primalscheme3.panel-optimizer/v2",
           "metric": "observed-allele-primer-trimmed/v1", "primaryTier": "strict",
           "profile": ["name": "allele-panel-v1"], "stages": [["stage_id": "strict", "coverage": coverage]]]
+        if withLabelMap {
+            optimizer["publication"] = ["alleleLabelMap": [
+                "path": "allele-label-map.json", "schemaVersion": "primalscheme3.allele-label-map/v1"]]
+        }
         try JSONSerialization.data(withJSONObject: optimizer).write(to: output)
         let inputID = UUID()
+        let labelPath = "derived/\(resultID.uuidString)/allele-label-map.json"
+        let labelSource = root.appendingPathComponent("allele-label-map.json")
+        if withLabelMap {
+            let labelMap: [String: Any] = [
+                "schemaVersion": "lungfish.primer-analysis.allele-label-map/v1",
+                "resultID": (staleLabelResultID ? UUID() : resultID).uuidString,
+                "nativeSchemaVersion": "primalscheme3.allele-label-map/v1",
+                "nativeLabelMapRelativePath": "allele-label-map.json",
+                "scope": "Display labels only",
+                "classes": [
+                    ["targetID": "target-1", "alleleID": "allele-a", "multiplicity": 2,
+                     "rows": [
+                        labelRow(inputID: inputID, index: 0, nativeID: "row-a",
+                                 label: "Mamu-A1*001:01", stableID: "stable-row-1"),
+                        labelRow(inputID: inputID, index: 1, nativeID: "row-a-duplicate",
+                                 label: "Mamu-A1*001:01", stableID: "stable-row-2")]],
+                    ["targetID": "target-1", "alleleID": "allele-b", "multiplicity": 1,
+                     "rows": [labelRow(inputID: inputID, index: 2, nativeID: "row-b",
+                                       label: "raw FASTA allele B")]],
+                ],
+            ]
+            try JSONSerialization.data(withJSONObject: labelMap, options: [.sortedKeys]).write(to: labelSource)
+        }
+        let resultPaths = [nativePath] + (withLabelMap ? [labelPath] : [])
+        var artifacts = [
+            PrimerAnalysisSourceArtifact(sourceURL: source, relativePath: "inputs/source.txt",
+                                         role: "input", format: "text"),
+            PrimerAnalysisSourceArtifact(sourceURL: output, relativePath: nativePath,
+                                         role: "nativeOutput", format: "json")]
+        if withLabelMap {
+            artifacts.append(.init(sourceURL: labelSource, relativePath: labelPath,
+                                   role: "derived-label-map", format: "json"))
+        }
         return try PrimerAnalysisBundleWriter().write(.init(
             analysisID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
             runID: UUID(), grouping: .combined,
             inputs: [.init(id: inputID, label: "example input", artifactPaths: ["inputs/source.txt"])],
-            results: [.init(id: resultID, label: "example result", inputIDs: [inputID], artifactPaths: [nativePath])],
-            artifacts: [
-                .init(sourceURL: source, relativePath: "inputs/source.txt", role: "input", format: "text"),
-                .init(sourceURL: output, relativePath: nativePath, role: "nativeOutput", format: "json"),
-            ],
+            results: [.init(id: resultID, label: "example result", inputIDs: [inputID],
+                            artifactPaths: resultPaths)],
+            artifacts: artifacts,
             destinationURL: root.appendingPathComponent("example.lungfishprimeranalysis"),
             invocation: .init(argv: ["storage-test-host", "--case", "cli-inspection"], callerVersion: "test", explicitOptions: [:], runtimeIdentity: .init())
         ))
+    }
+
+    private func labelRow(inputID: UUID, index: Int, nativeID: String,
+                          label: String, stableID: String? = nil) -> [String: Any] {
+        var row: [String: Any] = [
+            "sourceMSAIndex": 0, "inputID": inputID.uuidString, "rowIndex": index,
+            "nativeRowID": nativeID, "displayLabel": label,
+            "nativeFASTARecordID": "normalized-\(index)",
+            "nativeFASTADescription": "normalized-\(index)",
+            "normalizedHeader": "normalized-\(index)", "originalHeader": "aligned-\(index)"]
+        if let stableID { row["stableLGERowID"] = stableID }
+        return row
     }
 
     private func temporaryRoot() throws -> URL {

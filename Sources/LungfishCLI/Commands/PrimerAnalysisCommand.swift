@@ -31,13 +31,13 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
     func inspectionOutput() throws -> String {
         let bundle = try PrimerAnalysisBundle.load(from: URL(fileURLWithPath: bundlePath))
         let manifest = bundle.manifest
+        let scientific = try Self.scientificSummary(bundle: bundle)
         if json {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             return String(decoding: try encoder.encode(manifest), as: UTF8.self)
         }
-        let scientific = try Self.scientificSummary(bundle: bundle)
         return """
         Analysis: \(manifest.analysisID.uuidString)
         Run: \(manifest.runID.uuidString)
@@ -65,6 +65,8 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
                   let profile = root?["profile"] as? [String: Any],
                   let profileName = profile["name"] as? String,
                   let stages = root?["stages"] as? [[String: Any]] else { continue }
+            let labelClasses = try alleleLabels(bundle: bundle, result: result, optimizer: root!)
+            var displayedLabelClasses = Set<String>()
             lines += ["", "Result: \(result.id.uuidString)", "Metric: \(metric)",
                       "Primary tier: \(primary)", "Profile: \(profileName)"]
             for stage in stages {
@@ -92,10 +94,26 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
                         + "deficit \(deficit(targetFraction, goal: goal)); dropout \(targetDropout)")
                     for observation in targetClasses {
                         let identity = (observation["allele_id"] as? String) ?? "unknown-class"
-                        let aliases = stringArray(observation["aliases"])
-                            ?? stringArray(observation["row_ids"])
-                            ?? stringArray(observation["source_labels"])
-                        let aliasText = aliases.map { $0.isEmpty ? "" : " (aliases: \($0.joined(separator: ", ")))" } ?? ""
+                        let labelKey = classKey(targetID: id, alleleID: identity)
+                        let aliasText: String
+                        if let labelClasses {
+                            guard let labelClass = labelClasses[labelKey] else {
+                                throw ValidationError("The saved allele label map is missing class \(identity) for target \(id).")
+                            }
+                            displayedLabelClasses.insert(labelKey)
+                            let labels = labelClass.rows.map { row in
+                                var identifiers = ["native \(row.nativeRowID)"]
+                                if let stable = row.stableLGERowID { identifiers.append("LGE \(stable)") }
+                                identifiers.append("source \(row.sourceMSAIndex + 1) row \(row.rowIndex + 1)")
+                                return "\(row.displayLabel) [\(identifiers.joined(separator: "; "))]"
+                            }
+                            aliasText = " (labels: \(labels.joined(separator: ", ")))"
+                        } else {
+                            let aliases = stringArray(observation["aliases"])
+                                ?? stringArray(observation["row_ids"])
+                                ?? stringArray(observation["source_labels"])
+                            aliasText = aliases.map { $0.isEmpty ? "" : " (aliases: \($0.joined(separator: ", ")))" } ?? ""
+                        }
                         let covered = (observation["covered_count"] as? NSNumber)?.intValue
                         let observed = (observation["observed_count"] as? NSNumber)?.intValue
                         let classFraction = (observation["fraction"] as? NSNumber)?.doubleValue
@@ -107,6 +125,9 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
                             + "deficit \(deficit(classFraction, goal: goal)); dropout \(dropout)")
                     }
                 }
+            }
+            if let labelClasses, displayedLabelClasses != Set(labelClasses.keys) {
+                throw ValidationError("The saved allele label map contains classes detached from the coverage report.")
             }
         }
         return lines.isEmpty ? "" : lines.joined(separator: "\n")
@@ -124,6 +145,64 @@ struct PrimerAnalysisInspectCommand: ParsableCommand {
         if let strings = value as? [String] { return strings }
         if let string = value as? String { return [string] }
         return nil
+    }
+
+    private static func classKey(targetID: String, alleleID: String) -> String {
+        "\(targetID)\u{1f}\(alleleID)"
+    }
+
+    private static func alleleLabels(bundle: PrimerAnalysisBundle, result: PrimerAnalysisResult,
+                                     optimizer: [String: Any]) throws
+        -> [String: PrimalScheme3AlleleLabelMap.AlleleClass]? {
+        let reference = (optimizer["publication"] as? [String: Any])?["alleleLabelMap"] as? [String: Any]
+        let paths = result.artifactPaths.filter { path in
+            bundle.manifest.artifacts.contains { $0.relativePath == path && $0.role == "derived-label-map" }
+        }
+        guard reference != nil || !paths.isEmpty else { return nil }
+        guard let reference,
+              reference["schemaVersion"] as? String == "primalscheme3.allele-label-map/v1",
+              let nativePath = reference["path"] as? String, !nativePath.isEmpty,
+              paths.count == 1 else {
+            throw ValidationError("The advertised allele label map is missing or ambiguous.")
+        }
+        let map: PrimalScheme3AlleleLabelMap
+        do {
+            map = try JSONDecoder().decode(PrimalScheme3AlleleLabelMap.self,
+                from: Data(contentsOf: bundle.artifactURL(forRelativePath: paths[0])))
+        } catch {
+            throw ValidationError("The saved allele label map is malformed.")
+        }
+        guard map.schemaVersion == PrimalScheme3AlleleLabelMap.schemaVersion,
+              map.resultID == result.id,
+              map.nativeSchemaVersion == "primalscheme3.allele-label-map/v1",
+              map.nativeLabelMapRelativePath == nativePath,
+              !map.scope.isEmpty else {
+            throw ValidationError("The saved allele label map is detached from its native result.")
+        }
+        var classes: [String: PrimalScheme3AlleleLabelMap.AlleleClass] = [:]
+        var rowIDs = Set<String>()
+        for alleleClass in map.classes {
+            let key = classKey(targetID: alleleClass.targetID, alleleID: alleleClass.alleleID)
+            guard !alleleClass.targetID.isEmpty, !alleleClass.alleleID.isEmpty,
+                  alleleClass.multiplicity == alleleClass.rows.count,
+                  !alleleClass.rows.isEmpty, classes[key] == nil else {
+                throw ValidationError("The saved allele label map contains a malformed class.")
+            }
+            for row in alleleClass.rows {
+                guard result.inputIDs.indices.contains(row.sourceMSAIndex),
+                      result.inputIDs[row.sourceMSAIndex] == row.inputID,
+                      row.rowIndex >= 0, !row.nativeRowID.isEmpty,
+                      rowIDs.insert(row.nativeRowID).inserted,
+                      !row.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !row.normalizedHeader.isEmpty,
+                      row.nativeFASTARecordID == row.normalizedHeader,
+                      row.nativeFASTADescription == row.normalizedHeader else {
+                    throw ValidationError("The saved allele label map contains a detached row.")
+                }
+            }
+            classes[key] = alleleClass
+        }
+        return classes
     }
 }
 

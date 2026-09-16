@@ -745,6 +745,24 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 builder = try builder.relocatedOutput(Self.descriptor(file,
                     path: destination.appendingPathComponent(path).path, role: .output, origin: file.path))
             }
+            if request.options.selectionAlgorithm == .alleleCoverage {
+                let auditValidationURL = logs.appendingPathComponent("panel-audit-validation.json")
+                let bridgeInputs = group.map { input -> PrimalScheme3AlleleLabelBridge.Input in
+                    let metadata = input.snapshotURL.appendingPathComponent("metadata/source-row-map.json")
+                    return .init(id: input.id,
+                        rowMappingURL: scratch.appendingPathComponent(input.rowMappingPath),
+                        sourceMetadataURL: FileManager.default.fileExists(atPath: metadata.path) ? metadata : nil)
+                }
+                if let publication = try PrimalScheme3AlleleLabelBridge.publishIfAdvertised(
+                    nativeOutputURL: output, inputs: bridgeInputs, resultID: resultID,
+                    scratchRootURL: scratch, publishedRootURL: destination,
+                    invocation: request.invocation, auditValidation: executed.auditValidationJSON,
+                    auditValidationURL: FileManager.default.fileExists(atPath: auditValidationURL.path)
+                        ? auditValidationURL : nil) {
+                    artifacts.append(contentsOf: publication.artifacts)
+                    resultPaths.append(contentsOf: publication.resultArtifactPaths)
+                }
+            }
             for (name, contents) in [("stdout.txt", executed.stdout), ("stderr.txt", executed.stderr)] {
                 let file = logs.appendingPathComponent(name)
                 try Data(contents.utf8).write(to: file, options: .withoutOverwriting)
