@@ -347,3 +347,8 @@ Oldcoldtailassessment reviewed: clean7ca strict+3salvage needsfivefurtherfullsna
 ## Automatic continuation while user away
 
 At~03:12local coldnative24757/session26388 remainsrunning9h22m, SQLitewaits/no successfuloutputyet. Allindependentimplementation/review/preparationworkcomplete; avoidminute-by-minuteunchangedpolling. Created ACTIVE threadheartbeat `continue-mhc-primalscheme-evaluation` every10minutes, verifiedtoolview, tocontinueexistingauthorizedwork: detectcoldcompletion→verifyactualnativereceipt→preparedmatrix12rawaudit→cacheexport→serialnarrowhour→full11comparison/diagnostics/LGECLIgate. Automationpromptrequiresreadingthisledger, identity/closedwriter/freshoutput/diskchecks, no duplicatedcold/livecopy/sourcechanges, notifymeaningfulchangesonly, andpauseafterCLIwork/finalreportdone. NoGUI/managedruntime/merge/push/release. Initialcreatewithoutdestinationreturnedargumenterror; corrected destination=thread succeeded. This is continuation scheduling, notclaimtaskcomplete.
+
+
+## Discovery checkpoint completed (04:05–04:06 local)
+
+Heartbeat09:04:30Z verifiedsamecoldPID24757/argv. Historygrewfrom50659807232to50960502784bytes; initialboundedreadonlymetadataquerydeferredwithdatabase-locked duringwrite, connectionclosed; no write/mutation. After55swaitsession26388stillrunning, indexedmode=ro query confirmedcommitted snapshot(stage_id=discovery,ordinal0,position24561230). Latestcommittedrecordassessment stage=strict position24592230. Nativeelapsed10h16m59s, RSS12966640KiBsnapshotnotpeak;504GiBdiskfree. Thusdiscoverycheckpointfinished andstrictselectionhasstarted; no panelcompletion/audit/cachegateclaim. Continueexistingcoldthroughremainingcheckpoints; matrix12follow-oncommandsstillunexecuted.
