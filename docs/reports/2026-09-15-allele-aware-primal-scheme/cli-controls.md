@@ -1,11 +1,11 @@
 # Allele-aware PrimalScheme CLI controls
 
-Development CLI; MHC evaluation is still in progress. Use the isolated native executable. The managed LGE runtime has not been replaced. Current integration verification is pinned to the frozen `matrix07` native source at revision `61d6ac8`; substitute the absolute path to that checkout's own `.venv/bin/primalscheme3` in the commands below.
+Development CLI; MHC evaluation is still in progress. Use the isolated native executable. The managed LGE runtime has not been replaced. Current integration verification is pinned to the frozen `matrix10` native source at revision `158a4a3`; substitute the absolute path to that checkout's own `.venv/bin/primalscheme3` in the commands below.
 
 ## Starting point
 
 ```sh
-/absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 panel-create \
+/absolute/path/to/frozen-matrix10/.venv/bin/primalscheme3 panel-create \
   --msa /absolute/path/target-a.fasta --msa /absolute/path/target-b.fasta \
   --output /absolute/path/new-panel \
   --selection-algorithm allele-coverage --preset allele-balanced-v1 \
@@ -50,7 +50,7 @@ Individual options take precedence over the selected effort even when the explic
 
 Effort does not change candidate profiles, discovery, coverage target or weighting, variant selection, intended- or secondary-product policy, chemistry, specificity, dimer rules, sizes, pools, amplicon caps, salvage or phase scheduling. `--optimizer-seed` (0), `--subset-beam-width` (16), `--subset-expansion-limit` (256), and `--exchange-width` (2; maximum 2) remain independent controls.
 
-An explicit effort requires an executable advertising the exact versioned effort descriptor. Older saved results without `search_effort` are interpreted as `standard-v1`; omitting the flag keeps the historical defaults and remains compatible with older executables. The frozen `matrix07` example executable elsewhere in this guide predates this capability, so use the option only with a later reviewed frozen executable that advertises it.
+An explicit effort requires an executable advertising the exact versioned effort descriptor. Older saved results without `search_effort` are interpreted as `standard-v1`; omitting the flag keeps the historical defaults and remains compatible with older executables. The frozen `matrix10` example executable elsewhere in this guide advertises this exact descriptor; older executables fail an explicit effort request before design.
 
 The default `--phase-scheduling serial` runs phases in their fixed order against one shared deadline. `--phase-scheduling reserved` applies initial-cycle reservations so earlier seed work cannot consume every phase's initial share; unused time flows to remaining phases and the global deadline never grows. Each published tier records the exact advertised scheduling descriptor and phase-by-phase timing, outcome, objective snapshots, accepted-repair count, work deltas and before/after family cursors. An explicit scheduling option requires an executable that advertises this frozen capability. Saved outputs from before this capability remain readable as legacy serial results.
 
@@ -111,7 +111,7 @@ The Lungfish wrapper writes a relocatable `.lungfishprimeranalysis` bundle and k
   --msa /absolute/path/target-b.fasta \
   --output /absolute/path/new-analysis.lungfishprimeranalysis \
   --grouping combined \
-  --primalscheme3-path /absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix10/.venv/bin/primalscheme3 \
   --selection-algorithm allele-coverage \
   --preset allele-balanced-v1 \
   --candidate-profiles union \
@@ -159,14 +159,14 @@ Pass that UUID explicitly when querying retained decision history or re-running 
 /absolute/path/to/lungfish-cli primers analysis history \
   /absolute/path/analysis.lungfishprimeranalysis \
   --result-id 00000000-0000-0000-0000-000000000000 \
-  --primalscheme3-path /absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix10/.venv/bin/primalscheme3 \
   --output /absolute/path/new-history-query \
   --target TARGET_ID --region 394:644 --stage strict --limit 100
 
 /absolute/path/to/lungfish-cli primers analysis audit \
   /absolute/path/analysis.lungfishprimeranalysis \
   --result-id 00000000-0000-0000-0000-000000000000 \
-  --primalscheme3-path /absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix10/.venv/bin/primalscheme3 \
   --output /absolute/path/new-audit
 ```
 
