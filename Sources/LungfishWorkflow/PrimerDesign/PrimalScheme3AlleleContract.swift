@@ -973,8 +973,10 @@ enum PrimalScheme3AlleleContract {
         let minus = try object(witness["minus"], "concrete secondary-product minus hit")
         let externalStart = footprints[0][0]
         let externalEnd = footprints[3][1]
-        guard equalJSON(plus, projections[0].terminalHit),
-              equalJSON(minus, projections[3].terminalHit),
+        guard sameTerminalHitOccurrence(plus, projections[0].terminalHit),
+              sameTerminalHitOccurrence(minus, projections[3].terminalHit),
+              try strings(plus, "owners").contains(leftID),
+              try strings(minus, "owners").contains(rightID),
               try integer(witness, "start") == externalStart,
               try integer(witness, "end") == externalEnd,
               try integer(witness, "length") == externalEnd - externalStart,
@@ -1034,6 +1036,14 @@ enum PrimalScheme3AlleleContract {
             throw invalid("The concrete secondary-product terminal hit is malformed or detached from its owner.")
         }
         return .init(footprint: footprint, mismatchCount: mismatches.count, terminalHit: hit)
+    }
+
+    private static func sameTerminalHitOccurrence(_ external: [String: Any],
+                                                  _ selected: [String: Any]) -> Bool {
+        let keys: Set<String> = ["oligo", "orientation", "start", "end", "terminal_interval",
+                                 "mismatches", "classification", "owners"]
+        guard Set(external.keys) == keys, Set(selected.keys) == keys else { return false }
+        return keys.subtracting(["owners"]).allSatisfy { equalJSON(external[$0], selected[$0]) }
     }
 
     private static func validateLegacySecondaryPolicy(_ object: [String: Any], label: String) throws {

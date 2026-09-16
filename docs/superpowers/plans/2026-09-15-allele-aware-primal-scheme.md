@@ -342,11 +342,11 @@ The initial Mamu-A1 pilot exposed limited phase service and a distinction betwee
 
 - [x] Fix repeated candidate attempts within one add-only fill; retain reconsideration after repair removals, and independently review regressions.
 - [x] Add optional reserved initial-cycle scheduling, detailed phase progress and unchanged serial control; native frozen suite passes.
-- [ ] Complete/review LGE scheduling bridge, including unreserved later phases and no-assessable-target output compatibility.
-- [ ] Compare serial and reserved policies on the same cached Mamu-A1 catalog with matched settings and independent audits.
-- [ ] Implement and independently review optional concrete-designated-site intended-product certificates per spec §15.2; retain exact coverage and exact-derived secondary rules.
-- [ ] Expose and bind the scientific policy in both CLIs, with explicit capabilities, evidence, provenance and backward-compatible old-output interpretation.
-- [ ] Compare intended-product policies under matched catalog/source/search settings before any preset/default decision.
+- [x] Complete/review LGE scheduling bridge, including unreserved later phases and no-assessable-target output compatibility.
+- [x] Compare serial and reserved policies on the same cached Mamu-A1 catalog with matched settings and independent audits.
+- [x] Implement and independently review optional concrete-designated-site intended-product certificates per spec §15.2; retain exact coverage and exact-derived secondary rules.
+- [x] Expose and bind the scientific policy in both CLIs, with explicit capabilities, evidence, provenance and backward-compatible old-output interpretation.
+- [x] Compare intended-product policies under matched catalog/source/search settings before any preset/default decision.
 - [ ] Complete the full multi-MSA MHC controlled matrix and per-target/class interpretation; a single-target result does not satisfy the combined-panel gate.
 
 Native scientific changes remain Astra-owned/reviewed. Sol owns the frozen Swift/CLI bridges. Disjoint native implementation, read-only scientific review and Swift work may proceed in parallel with explicit file ownership; frozen evaluation sources remain immutable.
@@ -358,3 +358,13 @@ The user permits an hour or longer for effective design. Treat 120-second runs a
 Add a small observational search-progress sidecar before routine hour-long runs: elapsed time, phase, stable incumbent reference, exact objective and target fractions, work/cursors, and last improvement, at changes and throttled cooperative ticks. Intermediate records are provisional and earn no separate acceptance certificate. Timestamps must not affect canonical evidence IDs or selection order. Retain and hash logs in final/failure provenance. Full checkpoint/resume is outside this follow-up.
 
 Deficit-aware family ordering, periodic new-family access and independent seed caps remain conditional experiments if larger-budget traces demonstrate poor regional exploration. Cheap geometry may guide order only; it must never add coverage credit or remove candidates.
+
+### Measured follow-ups at native `61d6ac8`
+
+Matched cached scheduling and intended-policy controls are complete. Serial remains the default; broader intended screening did not improve the short or ten-minute heuristic result with the old exact secondary certificate. A complete four-site optional secondary certificate is independently reviewed and implemented; its new MHC diagnostic is underway. The existing exact secondary default remains unchanged pending evaluation. Progress logging and failure receipts are implemented and reviewed; the integrated native suite passes 794 tests.
+
+- [x] Implement/review optional concrete secondary certificates without adding coverage credit or exempting actual off-site/uncertain products.
+- [ ] Finish LGE concrete-secondary bridge review and real native certificate smoke.
+- [ ] Evaluate concrete-secondary policy on the original MHC inputs before a default decision.
+- [ ] Implement/review bounded state-local gain memoization supported by the exact-score ranking replay, then measure a real search; do not substitute component timing for full-run performance.
+- [ ] Run longer quality evaluation with recorded progress and coordinated work caps, preserving the full multi-MSA acceptance gate.

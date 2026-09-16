@@ -122,6 +122,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
             auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
             auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
     }
 
     func testEmptyProgressRequiresNoAssessableStatusAndZeroWork() throws {
@@ -296,6 +297,21 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
             auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
 
+        let sharedOligo = try Self.makeFixture(
+            secondaryProductPolicy: .orderedDisjointConcreteDesignatedSites,
+            advertiseSecondaryProducts: true, includeConcreteSecondaryWitness: true,
+            sharedConcreteExternalOwners: true)
+        defer { try? FileManager.default.removeItem(at: sharedOligo.root) }
+        let sharedCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            sharedOligo.capabilities,
+            requestedSecondaryProductPolicy: .orderedDisjointConcreteDesignatedSites)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: sharedOligo.output, configuration: sharedOligo.configuration,
+            capabilities: sharedCapabilities, options: sharedOligo.options, inputCount: 1,
+            executedArgv: sharedOligo.argv, auditValidation: sharedOligo.auditValidation,
+            auditProvenance: sharedOligo.auditProvenance,
+            auditExecutedArgv: sharedOligo.auditArgv, auditExitStatus: 0))
+
         var capabilityRoot = try XCTUnwrap(
             JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
         var capabilityAllele = try XCTUnwrap(capabilityRoot["alleleCoverage"] as? [String: Any])
@@ -359,6 +375,11 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         try mutate({ _, witness in
             var plus = try XCTUnwrap(witness["plus"] as? [String: Any])
             plus["end"] = 19
+            witness["plus"] = plus
+        }, contains: "external hits")
+        try mutate({ _, witness in
+            var plus = try XCTUnwrap(witness["plus"] as? [String: Any])
+            plus["owners"] = ["right-config"]
             witness["plus"] = plus
         }, contains: "external hits")
         try mutate({ validation, _ in
@@ -490,6 +511,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
                                     secondaryProductPolicy: PrimalScheme3SecondaryProductPolicy? = nil,
                                     advertiseSecondaryProducts: Bool = false,
                                     includeConcreteSecondaryWitness: Bool = false,
+                                    sharedConcreteExternalOwners: Bool = false,
                                     includeLegacyExactSecondaryWitness: Bool = false) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let output = root.appendingPathComponent("native", isDirectory: true)
@@ -579,7 +601,10 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         if advertiseIntendedProducts || advertiseSecondaryProducts || includeLegacyExactSecondaryWitness {
             let intended = includeIntendedWitness ? [intendedProductWitness()] : []
             var secondary: [[String: Any]] = []
-            if includeConcreteSecondaryWitness { secondary = [concreteSecondaryWitness(), exactSecondaryWitness()] }
+            if includeConcreteSecondaryWitness {
+                secondary = [concreteSecondaryWitness(sharedExternalOwners: sharedConcreteExternalOwners),
+                             exactSecondaryWitness()]
+            }
             if includeLegacyExactSecondaryWitness { secondary = [exactSecondaryWitness()] }
             validation["profile"] = profile
             validation["allowed_secondary_products"] = secondary
@@ -828,7 +853,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         ]
     }
 
-    private static func concreteSecondaryWitness() -> [String: Any] {
+    private static func concreteSecondaryWitness(sharedExternalOwners: Bool = false) -> [String: Any] {
         let forward = "ACGTACGTACGTACGTACGT"
         let reverse = "TGCATGCATGCATGCATGCA"
         let internalReverse = "AACCAACCAACCAACCAACC"
@@ -859,10 +884,18 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
                                       observed: internalForward, orientation: "+", owner: "right-config")
         let rightReverse = projection(site: "site-rr", start: 480, end: 500, oligo: reverse,
                                       observed: reverse, orientation: "-", owner: "right-config")
+        var plus = terminalHit(oligo: forward, orientation: "+", start: 0, end: 20,
+                               owner: "left-config", terminalK: 17)
+        var minus = terminalHit(oligo: reverse, orientation: "-", start: 480, end: 500,
+                                owner: "right-config", terminalK: 17)
+        if sharedExternalOwners {
+            plus["owners"] = ["left-config", "right-config"]
+            minus["owners"] = ["left-config", "right-config"]
+        }
         return [
             "id": "concrete-secondary", "target_id": "target", "row_id": "row-concrete",
             "owners": ["left-config", "right-config"], "start": 0, "end": 500, "length": 500,
-            "plus": leftForward["terminal_hit"]!, "minus": rightReverse["terminal_hit"]!,
+            "plus": plus, "minus": minus,
             "site_ids": ["site-lf", "site-lr", "site-rf", "site-rr"],
             "classification": "nonexact-ordered-concrete-secondary-product",
             "reason": "ordered-disjoint-concrete-designated-sites/v1",

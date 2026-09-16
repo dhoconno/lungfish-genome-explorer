@@ -103,9 +103,9 @@ The residual pair diagnosis identifies 2,740 explored pair records whose only re
 
 ## Engineering verification
 
-The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `92ea29118d0bf3181e6a31b93288269b815aac3b` in `allele-aware-primal-matrix-05`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
+The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `61d6ac8` in `allele-aware-primal-matrix07`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
 
-- Native full suite on `matrix-05`: **756 passed**, one upstream Kaleido deprecation warning, 181.61 seconds.
+- Native full suite on `matrix07`: **794 passed**, one upstream Kaleido deprecation warning, 192.07 seconds.
 - LGE focused checks after a fresh build: **87 passed** (78 XCTest and 9 Swift Testing).
 - Real fresh and cached designs passed LGE publication and independent native audits.
 - A cached-result bundle passed inspection, history and fresh audit after relocation while its original synthetic input, cache and prior bundles were temporarily unavailable. Originals were restored unchanged. [Relocation receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-wrapper-relocation-01/provenance.json).
