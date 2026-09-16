@@ -368,5 +368,7 @@ Matched cached scheduling and intended-policy controls are complete. Serial rema
 - [x] Implement/review optional concrete secondary certificates without adding coverage credit or exempting actual off-site/uncertain products.
 - [x] Finish LGE concrete-secondary bridge review and real native certificate smoke.
 - [ ] Evaluate concrete-secondary policy on the original MHC inputs before a default decision.
-- [ ] Implement/review bounded state-local gain memoization supported by the exact-score ranking replay, then measure a real search; do not substitute component timing for full-run performance.
-- [ ] Run longer quality evaluation with recorded progress and coordinated work caps, preserving the full multi-MSA acceptance gate.
+- [x] Implement/review bounded state-local gain memoization supported by the exact-score ranking replay, then measure a real search; do not substitute component timing for full-run performance.
+- [x] Run longer quality evaluation with recorded progress and coordinated work caps, preserving the full multi-MSA acceptance gate.
+
+Evidence update: gain memoization `20fe136` passed independent review and its matched 600-second A1 comparison (`mamu-a1-gain-cache-comparison07-08-01`); more work completed with unchanged coverage. The coordinated hour run on `01cafef` completed and passed its fresh audit at 87.2812% mean A1 coverage, with four class regressions reported. A same-source hour control using narrower work settings is still running. These checked implementation/experiment steps do not close the full-MHC evaluation or preset decision.
