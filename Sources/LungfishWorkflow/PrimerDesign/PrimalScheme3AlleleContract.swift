@@ -162,7 +162,9 @@ enum PrimalScheme3AlleleContract {
                     throw invalid("The stage optimizer objective terms are malformed.")
                 }
                 let progress = try objectArray(stageOptimizer["phase_progress"], "optimizer phase progress")
-                guard !progress.isEmpty else { throw invalid("The stage optimizer phase progress is empty.") }
+                if progress.isEmpty, !validNoAssessableStop(stage: stage, optimizer: stageOptimizer) {
+                    throw invalid("The stage optimizer phase progress is empty without no-assessable-target evidence.")
+                }
                 for entry in progress {
                     let phase = try string(entry, "phase")
                     let outcome = try string(entry, "outcome")
@@ -174,9 +176,9 @@ enum PrimalScheme3AlleleContract {
                           try number(entry, "local_overshoot_seconds") >= 0 else {
                         throw invalid("The stage optimizer phase progress is malformed.")
                     }
-                    if options.alleleOptions.phaseScheduling == .serial {
+                    if options.alleleOptions.phaseScheduling == .serial || !isInitiallyReservedPhase(phase) {
                         guard entry["local_budget_seconds"] is NSNull else {
-                            throw invalid("Serial phase progress must not claim a local reservation budget.")
+                            throw invalid("An unreserved phase must not claim a local reservation budget.")
                         }
                     } else if try number(entry, "local_budget_seconds") < 0 {
                         throw invalid("The stage optimizer phase budget is malformed.")
@@ -525,6 +527,20 @@ enum PrimalScheme3AlleleContract {
         let repair = pieces[0].split(separator: ":", omittingEmptySubsequences: false)
         return repair.count == 3 && repair[0] == "repair"
             && Int(repair[1]).map { $0 >= 0 } == true && Int(repair[2]).map { $0 >= 0 } == true
+    }
+
+    private static func isInitiallyReservedPhase(_ value: String) -> Bool {
+        if value == "seed:full" || value == "seed:normal" || value == "construction:0" { return true }
+        return value.hasPrefix("repair:0:")
+    }
+
+    private static func validNoAssessableStop(stage: [String: Any], optimizer: [String: Any]) -> Bool {
+        guard (try? string(optimizer, "stop_reason")) == "no-assessable-targets",
+              let coverage = try? object(stage["coverage"], "stage coverage"),
+              (try? string(coverage, "status")) == "no-assessable-targets",
+              let assignments = stage["assignments"] as? [Any], assignments.isEmpty,
+              let work = try? object(optimizer["work"], "optimizer work"), !work.isEmpty else { return false }
+        return work.values.allSatisfy { nonnegativeInteger($0) && ($0 as? NSNumber)?.intValue == 0 }
     }
 
     private static func nonnegativeInteger(_ value: Any) -> Bool {

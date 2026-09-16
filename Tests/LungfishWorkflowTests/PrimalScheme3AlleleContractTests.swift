@@ -111,6 +111,32 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             }
     }
 
+    func testReservedSchedulingOnlyBudgetsInitialCycleAndAcceptsLaterNullBudgets() throws {
+        let fixture = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true,
+                                           includeLaterUnreservedProgress: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedPhaseScheduling: .reserved)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+    }
+
+    func testEmptyProgressRequiresNoAssessableStatusAndZeroWork() throws {
+        let fixture = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true,
+                                           noAssessableTargets: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedPhaseScheduling: .reserved)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+    }
+
     func testAuditReceiptBindsEveryNativeByteAndRejectsMutationOrMissingEvidence() throws {
         let fixture = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -176,7 +202,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     }
 
     private static func makeFixture(phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
-                                    advertisePhaseScheduling: Bool = false) throws -> Fixture {
+                                    advertisePhaseScheduling: Bool = false,
+                                    includeLaterUnreservedProgress: Bool = false,
+                                    noAssessableTargets: Bool = false) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let output = root.appendingPathComponent("native", isDirectory: true)
         let stage = output.appendingPathComponent("stages/strict", isDirectory: true)
@@ -218,6 +246,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         try writeJSON(configuration, to: output.appendingPathComponent("config.json"))
         var stageOptimizer: [String: Any] = [:]
         if advertisePhaseScheduling {
+            var progress: [[String: Any]] = noAssessableTargets ? [] : [phaseProgress(
+                phase: "construction:0", localBudget: phaseScheduling == .reserved ? 10.0 : nil)]
+            if includeLaterUnreservedProgress {
+                progress += [
+                    phaseProgress(phase: "construction:1", localBudget: nil),
+                    phaseProgress(phase: "repair:1:0/exchange", localBudget: nil),
+                ]
+            }
             stageOptimizer = [
                 "scheduling_policy": phaseScheduling == .reserved ? reservedSchedulingPolicy() : serialSchedulingPolicy(),
                 "objective_terms": [
@@ -225,17 +261,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
                     "violating-edges", "incident-species", "sequence-pool-instances", "assignments",
                     "pool-burden-range", "size-deviation", "canonical-assignments"
                 ],
-                "phase_progress": [[
-                    "phase": "construction:0", "outcome": "completed",
-                    "started_seconds": 0.0,
-                    "local_budget_seconds": phaseScheduling == .reserved ? 10.0 : NSNull(),
-                    "elapsed_seconds": 0.1, "local_overshoot_seconds": 0.0,
-                    "objective_before": Array(repeating: 0.0, count: 9),
-                    "objective_after": Array(repeating: 0.0, count: 9),
-                    "repairs_accepted_delta": 0,
-                    "work_delta": [:], "proposal_work_delta": [:],
-                    "family_cursors_before": [:], "family_cursors": [:]
-                ]]
+                "phase_progress": progress,
+                "stop_reason": noAssessableTargets ? "no-assessable-targets" : "completed",
+                "work": ["candidate_evaluations": 0, "constructions": 0]
             ]
         }
         let optimizer: [String: Any] = [
@@ -244,7 +272,8 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "options": resolved, "publication": [:], "timings": [:],
             "history": ["path": "history/history.sqlite", "configurationLedger": "configuration-ledger.json.gz", "counts": [:]],
             "stages": [["path": "stages/strict", "stage_id": "strict", "assignments": [],
-                        "coverage": [:], "optimizer": stageOptimizer, "validationValid": true]]
+                        "coverage": noAssessableTargets ? ["status": "no-assessable-targets"] : [:],
+                        "optimizer": stageOptimizer, "validationValid": true]]
         ]
         try writeJSON(optimizer, to: output.appendingPathComponent("panel-optimizer.json"))
         try writeJSON(["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true],
@@ -388,6 +417,18 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     private static func phaseSchedulingCapability() -> [String: Any] {
         ["default": "serial",
          "policies": ["serial": serialSchedulingPolicy(), "reserved": reservedSchedulingPolicy()]]
+    }
+
+    private static func phaseProgress(phase: String, localBudget: Double?) -> [String: Any] {
+        [
+            "phase": phase, "outcome": "completed", "started_seconds": 0.0,
+            "local_budget_seconds": localBudget ?? NSNull(),
+            "elapsed_seconds": 0.1, "local_overshoot_seconds": 0.0,
+            "objective_before": Array(repeating: 0.0, count: 9),
+            "objective_after": Array(repeating: 0.0, count: 9),
+            "repairs_accepted_delta": 0, "work_delta": [:], "proposal_work_delta": [:],
+            "family_cursors_before": [:], "family_cursors": [:]
+        ]
     }
 
     private static func writeJSON(_ object: Any, to url: URL) throws {
