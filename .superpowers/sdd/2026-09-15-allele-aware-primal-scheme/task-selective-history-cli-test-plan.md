@@ -18,13 +18,15 @@ primalscheme3 panel-create --msa <verified-tiny-input> --output <fresh-output> \
   --salvage off --discovery-history compact --offline-plots
 ```
 
-Run the same verified tiny input once in `compact` and once in `full`, with fresh outputs and the same fixed work unit. Cross-mode catalog/ledger digests are expected to differ by design; compare scientific projection IDs/profile membership/geometry and selected scientific outputs. Same-mode repeated runs must have exact catalog/ledger/output/provenance identity. A 5-second bounded run cannot establish selected-assignment parity; use a separate fixed-work-unit comparison if needed.
+Run the same verified tiny input once in `compact` and once in `full`, with fresh outputs and the same fixed work unit. Cross-mode catalog/ledger digests are expected to differ by design; compare scientific projection IDs/profile membership/geometry and selected scientific outputs. Same-mode repeated runs must have exact deterministic catalog/ledger/scientific-output identity; compare provenance structurally while excluding volatile wall-time, receipt and runtime fields. A 5-second bounded run cannot establish selected-assignment parity; use a separate fixed-work-unit comparison if needed.
 
 Use existing commands only. `panel-history` queries saved history and does not regenerate discovery; do not invent stage/target/region flags. The new diagnostic command is:
 
 ```sh
 primalscheme3 panel-discovery-diagnose --bundle <completed-bundle> \
-  --family-id <saved-family-id> --site-id <saved-site-id> --output <fresh-diagnosis>
+  --family-id <saved-family-id> --output <fresh-family-diagnosis>
+primalscheme3 panel-discovery-diagnose --bundle <completed-bundle> \
+  --site-id <saved-site-id> --output <fresh-site-diagnosis>
 ```
 
 Match the reviewed help/source exactly; omit a selector if optional. Diagnostic output gets its own receipt bound to saved catalog/source identity.
@@ -43,6 +45,6 @@ The compact/full comparison for this arm is a bounded anchored API probe over th
 
 ## Targeted tests and limits
 
-Use current tests rather than a new framework: `test_coverage_discovery.py`, `test_coverage_catalog.py`, `test_diagnostic_cache.py`, `test_coverage_validation.py`, `test_coverage_search.py`, `test_allele_catalog_cache.py`, `test_allele_inspection.py`, `test_coverage_cli.py`, and existing diagnosis tests. Add focused assertions for compact default/full explicit parsing, same-mode digest identity, cross-mode scientific projection equivalence, nonempty-family precondition, saved family/site diagnostic replay, cache incompatibility rejection, and complete provenance on failure.
+Use current tests rather than a new framework: `test_coverage_discovery.py`, `test_coverage_catalog.py`, `test_diagnostic_cache.py`, `test_coverage_validation.py`, `test_coverage_search.py`, `test_allele_catalog_cache.py`, `test_allele_inspection.py`, `test_coverage_cli.py`, and existing diagnosis tests. Add focused assertions for compact default/full explicit parsing, same-mode deterministic scientific identity with volatile provenance excluded, cross-mode scientific projection equivalence, nonempty-family precondition, saved family/site diagnostic replay, cache incompatibility rejection, and complete provenance on failure.
 
 No optional failure matrix, permission experiment, full11 arm or extrapolated performance claim is needed. Preserve final fresh validation, audit, provenance and cache contracts in both modes.
