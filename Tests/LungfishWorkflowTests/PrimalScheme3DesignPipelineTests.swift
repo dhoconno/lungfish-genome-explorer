@@ -299,6 +299,33 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertNoThrow(try strict.validate())
     }
 
+    func testAlleleReuseAcceptsOnlyConsistentZeroDiscoveryWorkers() throws {
+        let cache = URL(fileURLWithPath: "/fixture/cache")
+        let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 250,
+            selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(reuseDiscovery: cache))
+        let valid: [String: Any] = ["discovery_core_count": 0, "discovery_reused": true,
+            "discovery_workers_by_msa": ["0": 0],
+            "discovery_workers_by_target_profile": ["target": ["normal": 0, "high-gc": 0]]]
+        XCTAssertEqual(try PrimalScheme3DesignPipeline.validateEffectiveWorkers(
+            configuration: valid, options: options), 0)
+        for invalid in [
+            ["discovery_core_count": 1, "discovery_reused": true,
+             "discovery_workers_by_msa": ["0": 0],
+             "discovery_workers_by_target_profile": ["target": ["normal": 0]]],
+            ["discovery_core_count": 0, "discovery_reused": false,
+             "discovery_workers_by_msa": ["0": 0],
+             "discovery_workers_by_target_profile": ["target": ["normal": 0]]],
+            ["discovery_core_count": 0, "discovery_reused": true,
+             "discovery_workers_by_msa": ["0": 1],
+             "discovery_workers_by_target_profile": ["target": ["normal": 0]]]
+        ] as [[String: Any]] {
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.validateEffectiveWorkers(
+                configuration: invalid, options: options))
+        }
+    }
+
     func testCoverageRequiresCombinedEqualExplicitBoundsAndValidSelectorNumbers() {
         let input = [URL(fileURLWithPath: "/test/input.fasta")]
         let output = URL(fileURLWithPath: "/test/output")

@@ -24,17 +24,49 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
             at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
             options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
-            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance))
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
         XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
             at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
             options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
-            auditValidation: nil, auditProvenance: nil))
+            auditValidation: nil, auditProvenance: nil, auditExecutedArgv: nil, auditExitStatus: nil))
         try Data("mutated selected oligo\n".utf8).write(
             to: fixture.output.appendingPathComponent("stages/strict/assignments.json"))
         XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
             at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
             options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
-            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance))
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+    }
+
+    func testContractRejectsWrongNestedOptionsDetachedCommandsAndPartialAudit() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        var wrong = fixture.configuration
+        var integration = try XCTUnwrap(wrong["panel_optimizer"] as? [String: Any])
+        var nested = try XCTUnwrap(integration["options"] as? [String: Any])
+        nested["optimizer_seed"] = 99
+        integration["options"] = nested; wrong["panel_optimizer"] = integration
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: wrong, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv + ["--detached"],
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+        let partial = try JSONSerialization.data(withJSONObject: [
+            "valid": true, "raw_inputs_reparsed": true, "primary_tier": "strict",
+            "scope": "stored-original-inputs-and-fresh-selected-stage-kernels", "stages": [:]
+        ])
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: partial, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv + ["--tier", "strict"], auditExitStatus: 0))
     }
 
     private struct Fixture {
@@ -46,6 +78,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         let argv: [String]
         let auditValidation: Data
         let auditProvenance: Data
+        let auditArgv: [String]
     }
 
     private static func makeFixture() throws -> Fixture {
@@ -113,8 +146,17 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         try Data("fixture\t0\t20\tprimer\t1\t+\tACGT\n".utf8).write(to: output.appendingPathComponent("primer.bed"))
         try Data(">fixture\nACGT\n".utf8).write(to: output.appendingPathComponent("reference.fasta"))
 
-        let identitySource: [String: Any] = ["root": "/fixture/source", "kind": "git", "commit": "fixture"]
-        let identityRuntime: [String: Any] = ["pythonExecutable": "/fixture/python", "pythonVersion": "3.12"]
+        let digest = String(repeating: "a", count: 64)
+        let identitySource: [String: Any] = ["root": "/fixture/source", "kind": "git", "gitCommit": "fixture",
+            "sourceDigest": digest, "build": ["path": "pyproject.toml", "sha256": digest, "size": 1],
+            "files": [["path": "primalscheme3/cli.py", "sha256": digest, "size": 1]]]
+        let identityRuntime: [String: Any] = ["pythonExecutable": "/fixture/python",
+            "pythonExecutableResolved": "/fixture/python3.12", "pythonVersion": "3.12",
+            "pythonImplementation": "CPython", "pythonPrefix": "/fixture", "platform": "fixture-os",
+            "machine": "arm64", "kernel": ["system": "Darwin"],
+            "declaredRuntimeDependencies": [["distribution": "primer3-py", "version": "2.2.0"]],
+            "nativeKernels": [["distribution": "primer3-py", "package": "primer3", "version": "2.2.0",
+                "files": [["path": "/fixture/primer3.so", "sha256": digest, "size": 1]]]]]
         let capabilitiesObject: [String: Any] = [
             "schemaVersion": "primalscheme3.capabilities/v1", "tool": "primalscheme3",
             "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
@@ -143,7 +185,8 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "schemaVersion": "primalscheme3.panel-provenance/v1", "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
             "status": "success", "exitStatus": 0, "sourceChangedDuringRun": false, "runtimeChangedDuringRun": false,
             "source": identitySource, "sourceAtEnd": identitySource, "runtime": identityRuntime, "runtimeAtEnd": identityRuntime,
-            "inputs": [inputDescriptor], "outputs": nativeOutputs
+            "inputs": [inputDescriptor], "outputs": nativeOutputs,
+            "command": ["argv": argv, "shell": "fixture", "workingDirectory": root.path]
         ]
         try writeJSON(provenance, to: output.appendingPathComponent("panel-provenance.json"))
         let auditValidationObject: [String: Any] = [
@@ -154,13 +197,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         let auditValidation = try JSONSerialization.data(withJSONObject: auditValidationObject, options: [.sortedKeys])
         let auditOutput: [String: Any] = ["path": "validation.json", "sha256": sha256(auditValidation),
                                                   "size": auditValidation.count]
+        let auditArgv = ["/fixture/primalscheme3", "panel-audit", "--bundle", output.path,
+                         "--output", root.appendingPathComponent("audit").path]
         let audit: [String: Any] = [
             "schemaVersion": "primalscheme3.panel-inspection-provenance/v1",
             "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion, "status": "success", "exitStatus": 0,
             "inputChangedDuringRun": false, "sourceChangedDuringRun": false, "runtimeChangedDuringRun": false,
             "source": identitySource, "sourceAtEnd": identitySource, "runtime": identityRuntime, "runtimeAtEnd": identityRuntime,
-            "command": ["argv": ["/fixture/primalscheme3", "panel-audit", "--bundle", output.path,
-                                    "--output", root.appendingPathComponent("audit").path],
+            "command": ["argv": auditArgv,
                         "shell": "fixture", "workingDirectory": root.path],
             "inputs": try regularFiles(output).map { try descriptor($0, relativeTo: output) },
             "outputs": [auditOutput]
@@ -169,7 +213,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
                      capabilities: try JSONSerialization.data(withJSONObject: capabilitiesObject),
                      configuration: configuration, options: options, argv: argv,
                      auditValidation: auditValidation,
-                     auditProvenance: try JSONSerialization.data(withJSONObject: audit))
+                     auditProvenance: try JSONSerialization.data(withJSONObject: audit), auditArgv: auditArgv)
     }
 
     private static func resolvedOptions(_ options: PrimalScheme3DesignOptions) -> [String: Any] {
@@ -184,6 +228,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             "salvage_max_oligos_per_pool": a.salvageMaxOligosPerPool, "salvage_time_limit": a.salvageTimeLimit,
             "primary_tier": a.primaryTier, "coverage_metric": options.coverageMetric.rawValue,
             "coverage_target": options.coverageTarget, "requested_options": [:],
+            "amplicon_size": options.ampliconSize, "amplicon_size_min": options.ampliconSizeMinimum,
+            "amplicon_size_max": options.ampliconSizeMaximum, "n_pools": options.poolCount,
+            "ncores": options.coreCount, "optimizer_seed": options.optimizerSeed,
+            "optimizer_starts": options.optimizerStarts, "optimizer_repair_rounds": options.optimizerRepairRounds,
+            "optimizer_time_limit": options.optimizerTimeLimit, "mismatch_product_size": options.misprimingProductSize,
+            "min_base_freq": options.minimumBaseFrequency, "dimer_score": options.dimerScore,
+            "max_amplicons": options.maxAmplicons ?? NSNull(),
+            "max_amplicons_msa": options.maxAmpliconsPerMSA ?? NSNull(), "reuse_discovery": NSNull(),
             "work_frontier_candidates": a.workFrontierCandidates,
             "work_construction_candidate_attempts": a.workConstructionCandidateAttempts,
             "work_repair_candidate_probes_per_round": a.workRepairCandidateProbesPerRound,

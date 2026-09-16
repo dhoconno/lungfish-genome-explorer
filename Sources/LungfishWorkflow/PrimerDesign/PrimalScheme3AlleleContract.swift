@@ -47,7 +47,24 @@ enum PrimalScheme3AlleleContract {
         }
         let source = try object(root["source"], "capability source")
         let runtime = try object(root["runtime"], "capability runtime")
-        guard !(try string(source, "root")).isEmpty, !(try string(runtime, "pythonExecutable")).isEmpty else {
+        let sourceFiles = try objectArray(source["files"], "capability source files")
+        let build = try object(source["build"], "capability build")
+        let dependencies = try objectArray(runtime["declaredRuntimeDependencies"], "runtime dependencies")
+        let nativeKernels = try objectArray(runtime["nativeKernels"], "native kernels")
+        let kernel = try object(runtime["kernel"], "runtime kernel")
+        guard !(try string(source, "root")).isEmpty, isDigest(try string(source, "sourceDigest")),
+              !(try string(source, "gitCommit")).isEmpty, !sourceFiles.isEmpty,
+              isDigest(try string(build, "sha256")), try integer(build, "size") > 0,
+              !(try string(runtime, "pythonExecutable")).isEmpty,
+              !(try string(runtime, "pythonExecutableResolved")).isEmpty,
+              !(try string(runtime, "pythonVersion")).isEmpty,
+              !(try string(runtime, "pythonImplementation")).isEmpty,
+              !(try string(runtime, "pythonPrefix")).isEmpty,
+              !(try string(runtime, "platform")).isEmpty, !(try string(runtime, "machine")).isEmpty,
+              !(try string(kernel, "system")).isEmpty, !dependencies.isEmpty, !nativeKernels.isEmpty,
+              sourceFiles.allSatisfy(descriptorIdentityValid),
+              dependencies.allSatisfy(dependencyIdentityValid),
+              nativeKernels.allSatisfy(dependencyIdentityValid) else {
             throw invalid("Capability source or runtime identity is incomplete.")
         }
         return .init(source: source, runtime: runtime)
@@ -57,7 +74,8 @@ enum PrimalScheme3AlleleContract {
                                      capabilities: PrimalScheme3AlleleCapabilities,
                                      options: PrimalScheme3DesignOptions, inputCount: Int,
                                      executedArgv: [String], auditValidation: Data?,
-                                     auditProvenance: Data?) throws {
+                                     auditProvenance: Data?, auditExecutedArgv: [String]?,
+                                     auditExitStatus: Int32?) throws {
         try expect(string(configuration, "version"), PrimalScheme3DesignPipeline.alleleToolVersion, "configuration version")
         try expect(string(configuration, "selection_algorithm"), "allele-coverage", "selection algorithm")
         try expect(string(configuration, "coverage_metric"), "observed-allele-primer-trimmed", "coverage metric")
@@ -106,8 +124,12 @@ enum PrimalScheme3AlleleContract {
         try validateGzipSchema(ledgerURL, expected: ledgerSchema)
         let stages = try objectArray(optimizer["stages"], "optimizer stages")
         guard !stages.isEmpty else { throw invalid("The optimizer has no published tier.") }
+        var publishedStageIDs = Set<String>()
         for stage in stages {
             let stagePath = try safeRelative(string(stage, "path"))
+            guard publishedStageIDs.insert(try string(stage, "stage_id")).inserted else {
+                throw invalid("The optimizer publishes duplicate tier identifiers.")
+            }
             for required in ["catalog.json.gz", "ledger.json.gz", "authoritative-targets.json.gz",
                              "assignments.json", "coverage.json", "validation.json", "stage.json"] {
                 _ = try contained(output, path: "\(stagePath)/\(required)", label: "tier artifact")
@@ -127,6 +149,10 @@ enum PrimalScheme3AlleleContract {
               equalJSON(provenance["runtime"], capabilities.runtime),
               equalJSON(provenance["runtimeAtEnd"], capabilities.runtime) else {
             throw invalid("Native source/runtime identity differs from the verified capability probe.")
+        }
+        let designCommand = try object(provenance["command"], "native design command")
+        guard try strings(designCommand, "argv") == executedArgv else {
+            throw invalid("Native panel provenance is detached from the exact executed design command.")
         }
         let inputs = try objectArray(provenance["inputs"], "native inputs")
         guard inputs.count == inputCount else { throw invalid("Native input inventory count is wrong.") }
@@ -158,7 +184,7 @@ enum PrimalScheme3AlleleContract {
         try expect(string(validation, "primary_tier"), options.alleleOptions.primaryTier, "audit primary tier")
         try expect(string(validation, "scope"), "stored-original-inputs-and-fresh-selected-stage-kernels", "audit scope")
         let auditedStages = try object(validation["stages"], "audit stages")
-        guard !auditedStages.isEmpty, auditedStages.values.allSatisfy({ value in
+        guard Set(auditedStages.keys) == publishedStageIDs, auditedStages.values.allSatisfy({ value in
             guard let stage = value as? [String: Any], let valid = stage["valid"] as? NSNumber else { return false }
             return CFGetTypeID(valid) == CFBooleanGetTypeID() && valid.boolValue
         }) else { throw invalid("Independent native panel-audit has a missing or invalid tier.") }
@@ -176,7 +202,8 @@ enum PrimalScheme3AlleleContract {
         }
         let command = try object(audit["command"], "audit command")
         let auditArgv = try strings(command, "argv")
-        guard auditArgv.contains("panel-audit"), let bundleIndex = auditArgv.firstIndex(of: "--bundle"),
+        guard let auditExecutedArgv, auditExitStatus == 0, auditArgv == auditExecutedArgv,
+              auditArgv.contains("panel-audit"), let bundleIndex = auditArgv.firstIndex(of: "--bundle"),
               bundleIndex + 1 < auditArgv.count,
               URL(fileURLWithPath: auditArgv[bundleIndex + 1]).resolvingSymlinksInPath().standardizedFileURL
                 == output.resolvingSymlinksInPath().standardizedFileURL else {
@@ -213,8 +240,31 @@ enum PrimalScheme3AlleleContract {
             "work_cleanup_moves_per_round": allele.workCleanupMovesPerRound,
             "work_families_per_refresh": allele.workFamiliesPerRefresh]
         for (key, expected) in expectedIntegers { try expect(integer(value, key), expected, key) }
+        for (key, expected) in ["amplicon_size": options.ampliconSize,
+                                "amplicon_size_min": options.ampliconSizeMinimum,
+                                "amplicon_size_max": options.ampliconSizeMaximum,
+                                "n_pools": options.poolCount, "ncores": options.coreCount,
+                                "optimizer_seed": options.optimizerSeed,
+                                "optimizer_starts": options.optimizerStarts,
+                                "optimizer_repair_rounds": options.optimizerRepairRounds,
+                                "mismatch_product_size": options.misprimingProductSize] {
+            try expect(integer(value, key), expected, key)
+        }
+        try expectOptionalInteger(value, "max_amplicons", options.maxAmplicons)
+        try expectOptionalInteger(value, "max_amplicons_msa", options.maxAmpliconsPerMSA)
+        try expect(number(value, "min_base_freq"), options.minimumBaseFrequency, "minimum base frequency")
+        try expect(number(value, "dimer_score"), options.dimerScore, "dimer score")
+        try expect(number(value, "optimizer_time_limit"), options.optimizerTimeLimit, "optimizer time limit")
         try expect(number(value, "salvage_time_limit"), allele.salvageTimeLimit, "salvage time")
         try expect(number(value, "coverage_target"), options.coverageTarget, "coverage target")
+        if let reuse = allele.reuseDiscovery {
+            guard URL(fileURLWithPath: try string(value, "reuse_discovery")).standardizedFileURL
+                    == reuse.standardizedFileURL else {
+                throw invalid("Resolved reuse-discovery path differs from the request.")
+            }
+        } else if !(value["reuse_discovery"] is NSNull) {
+            throw invalid("Resolved reuse-discovery must be null when no cache was requested.")
+        }
         let thresholds = try numbers(value, "salvage_thresholds")
         guard thresholds == allele.salvageThresholds else { throw invalid("Resolved salvage thresholds differ from the request.") }
         let requested = try object(value["requested_options"], "native requested allele options")
@@ -357,12 +407,43 @@ enum PrimalScheme3AlleleContract {
         return number.boolValue
     }
 
+    private static func expectOptionalInteger(_ object: [String: Any], _ key: String, _ expected: Int?) throws {
+        if let expected { try expect(integer(object, key), expected, key) }
+        else if !(object[key] is NSNull) { throw invalid("Native \(key) must be null.") }
+    }
+
+    private static func isDigest(_ value: String) -> Bool {
+        value.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+    }
+
+    private static func descriptorIdentityValid(_ value: [String: Any]) -> Bool {
+        guard let path = value["path"] as? String, !path.isEmpty,
+              let digest = value["sha256"] as? String, isDigest(digest),
+              let size = value["size"] as? NSNumber, size.intValue >= 0 else { return false }
+        return true
+    }
+
+    private static func dependencyIdentityValid(_ value: [String: Any]) -> Bool {
+        let name = (value["distribution"] ?? value["package"]) as? String
+        guard name?.isEmpty == false, let version = value["version"] as? String, !version.isEmpty else { return false }
+        if let files = value["files"] as? [[String: Any]] {
+            return !files.isEmpty && files.allSatisfy(descriptorIdentityValid)
+        }
+        return true
+    }
+
     private static func expect<T: Equatable>(_ actual: T, _ expected: T, _ label: String) throws {
         guard actual == expected else { throw invalid("Native \(label) does not match the verified request.") }
     }
 
     private static func equalJSON(_ lhs: Any?, _ rhs: Any?) -> Bool {
-        guard let lhs, let rhs, JSONSerialization.isValidJSONObject(lhs), JSONSerialization.isValidJSONObject(rhs),
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        if let left = lhs as? NSNumber, let right = rhs as? NSNumber {
+            return CFGetTypeID(left) == CFGetTypeID(right) && left == right
+        }
+        if let left = lhs as? String, let right = rhs as? String { return left == right }
+        if lhs is NSNull, rhs is NSNull { return true }
+        guard JSONSerialization.isValidJSONObject(lhs), JSONSerialization.isValidJSONObject(rhs),
               let left = try? JSONSerialization.data(withJSONObject: lhs, options: [.sortedKeys]),
               let right = try? JSONSerialization.data(withJSONObject: rhs, options: [.sortedKeys]) else { return false }
         return left == right

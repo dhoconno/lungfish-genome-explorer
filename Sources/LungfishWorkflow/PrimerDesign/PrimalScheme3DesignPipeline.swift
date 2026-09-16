@@ -224,6 +224,8 @@ struct PrimalScheme3Execution: Sendable {
     var capabilitiesJSON: Data? = nil
     var auditValidationJSON: Data? = nil
     var auditProvenanceJSON: Data? = nil
+    var auditArgv: [String]? = nil
+    var auditExitStatus: Int32? = nil
 }
 
 public struct PrimalScheme3DesignPipeline: Sendable {
@@ -544,6 +546,14 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
             let args = try Self.arguments(inputs: group.map(\.alignedURL), output: output,
                                           grouping: request.grouping, options: request.options)
+            let executionRequests = scratch.appendingPathComponent("execution-attempts", isDirectory: true)
+            try FileManager.default.createDirectory(at: executionRequests, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: [
+                "status": "started", "argv": [request.executableURL?.path ?? "managed:primalscheme3"] + args,
+                "workingDirectory": scratch.path, "startedAt": ISO8601DateFormatter().string(from: Date())
+            ], options: [.prettyPrinted, .sortedKeys]).write(
+                to: executionRequests.appendingPathComponent("\(resultID.uuidString)-design-request.json"),
+                options: .withoutOverwriting)
             let executed = try await runner(.init(executableOverride: request.executableURL,
                                                   arguments: args, workingDirectory: scratch,
                                                   selectionAlgorithm: request.options.selectionAlgorithm,
@@ -602,10 +612,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 throw PrimalScheme3DesignError.invalidRequest("The native amplicon size bounds or size interpretation do not match the request.")
             }
             try Self.validateNativeAmpliconSpans(at: output, options: request.options)
-            guard let effectiveWorkers = configuration["discovery_core_count"] as? Int,
-                  (1...request.options.coreCount).contains(effectiveWorkers) else {
-                throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report a valid effective discovery worker count.")
-            }
+            let effectiveWorkers = try Self.validateEffectiveWorkers(configuration: configuration,
+                                                                     options: request.options)
             guard FileManager.default.fileExists(atPath: output.appendingPathComponent("primer.bed").path),
                   FileManager.default.fileExists(atPath: output.appendingPathComponent("reference.fasta").path) else {
                 throw PrimalScheme3DesignError.invalidRequest("Native primer.bed or reference.fasta output is missing.")
@@ -620,7 +628,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                     at: output, configuration: configuration, capabilities: capabilities,
                     options: request.options, inputCount: group.count, executedArgv: executed.argv,
                     auditValidation: executed.auditValidationJSON,
-                    auditProvenance: executed.auditProvenanceJSON)
+                    auditProvenance: executed.auditProvenanceJSON,
+                    auditExecutedArgv: executed.auditArgv,
+                    auditExitStatus: executed.auditExitStatus)
             }
             let files = try Self.regularFiles(in: output)
             var resultPaths: [String] = []
@@ -789,9 +799,26 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         let executableHash = try ProvenanceFileHasher.sha256(of: executable)
         let native = NativeToolRunner()
+        let attemptDirectory = command.workingDirectory.appendingPathComponent("execution-attempts/\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: attemptDirectory, withIntermediateDirectories: true)
+        func persist(_ name: String, _ value: [String: Any]) throws {
+            try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+                .write(to: attemptDirectory.appendingPathComponent(name), options: .withoutOverwriting)
+        }
         let probeArguments = command.selectionAlgorithm == .legacy ? ["--version"] : ["--capabilities-json"]
-        let probe = try await native.runProcess(executableURL: executable, arguments: probeArguments,
-                                                workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+        try persist("01-probe-started.json", ["status": "started", "argv": [executable.path] + probeArguments,
+            "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: Date())])
+        let probe: NativeToolResult
+        do {
+            probe = try await native.runProcess(executableURL: executable, arguments: probeArguments,
+                workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+            try persist("02-probe-completed.json", ["status": "completed", "argv": probe.arguments,
+                "stdout": probe.stdout, "stderr": probe.stderr, "exitStatus": probe.exitCode])
+        } catch {
+            try? persist("02-probe-failed.json", ["status": "failed", "argv": [executable.path] + probeArguments,
+                "stderr": error.localizedDescription])
+            throw error
+        }
         let capabilitiesJSON: Data?
         let executedVersion: String
         if command.selectionAlgorithm != .legacy {
@@ -825,10 +852,24 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         if let capabilitiesJSON { runtimeEvidence["capabilities.json"] = capabilitiesJSON }
         try Task.checkCancellation()
         let start = Date()
-        let result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
-            workingDirectory: command.workingDirectory, environment: environment, timeout: 86400, toolName: Self.toolDisplayName)
+        try persist("03-design-started.json", ["status": "started", "argv": [executable.path] + command.arguments,
+            "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: start)])
+        let result: NativeToolResult
+        do {
+            result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
+                workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                toolName: Self.toolDisplayName)
+            try persist("04-design-completed.json", ["status": "completed", "argv": result.arguments,
+                "stdout": result.stdout, "stderr": result.stderr, "exitStatus": result.exitCode])
+        } catch {
+            try? persist("04-design-failed.json", ["status": "failed", "argv": [executable.path] + command.arguments,
+                "stderr": error.localizedDescription])
+            throw error
+        }
         var auditValidationJSON: Data?
         var auditProvenanceJSON: Data?
+        var auditArgv: [String]?
+        var auditExitStatus: Int32?
         if command.selectionAlgorithm == .alleleCoverage, result.exitCode == 0 {
             guard let outputIndex = command.arguments.firstIndex(of: "--output"), outputIndex + 1 < command.arguments.count else {
                 throw PrimalScheme3DesignError.invalidRequest("The native allele command has no output path to audit.")
@@ -837,10 +878,23 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let auditParent = command.workingDirectory.appendingPathComponent("native-audit", isDirectory: true)
             try FileManager.default.createDirectory(at: auditParent, withIntermediateDirectories: true)
             let auditOutput = auditParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            let audit = try await native.runProcess(executableURL: executable,
-                arguments: ["panel-audit", "--bundle", nativeOutput.path, "--output", auditOutput.path],
-                workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
-                toolName: "\(Self.toolDisplayName) panel-audit")
+            let auditArguments = ["panel-audit", "--bundle", nativeOutput.path, "--output", auditOutput.path]
+            try persist("05-audit-started.json", ["status": "started", "argv": [executable.path] + auditArguments,
+                "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: Date())])
+            let audit: NativeToolResult
+            do {
+                audit = try await native.runProcess(executableURL: executable, arguments: auditArguments,
+                    workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                    toolName: "\(Self.toolDisplayName) panel-audit")
+                try persist("06-audit-completed.json", ["status": "completed", "argv": audit.arguments,
+                    "stdout": audit.stdout, "stderr": audit.stderr, "exitStatus": audit.exitCode])
+            } catch {
+                try? persist("06-audit-failed.json", ["status": "failed", "argv": [executable.path] + auditArguments,
+                    "stderr": error.localizedDescription])
+                throw error
+            }
+            auditArgv = audit.arguments
+            auditExitStatus = audit.exitCode
             guard audit.exitCode == 0 else {
                 throw PrimalScheme3DesignError.executionFailed(audit.exitCode, audit.stderr)
             }
@@ -862,7 +916,32 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                      pluginPack: prefix == nil ? nil : "pcr-primer-design", dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet),
                      startedAt: start, endedAt: Date(), executableSHA256: executableHash,
                      runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON,
-                     auditValidationJSON: auditValidationJSON, auditProvenanceJSON: auditProvenanceJSON)
+                     auditValidationJSON: auditValidationJSON, auditProvenanceJSON: auditProvenanceJSON,
+                     auditArgv: auditArgv, auditExitStatus: auditExitStatus)
+    }
+
+    static func validateEffectiveWorkers(configuration: [String: Any],
+                                         options: PrimalScheme3DesignOptions) throws -> Int {
+        guard let workers = configuration["discovery_core_count"] as? Int else {
+            throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report an effective discovery worker count.")
+        }
+        if options.selectionAlgorithm == .alleleCoverage, options.alleleOptions.reuseDiscovery != nil {
+            guard workers == 0, configuration["discovery_reused"] as? Bool == true,
+                  let byMSA = configuration["discovery_workers_by_msa"] as? [String: Any], !byMSA.isEmpty,
+                  byMSA.values.allSatisfy({ ($0 as? NSNumber)?.intValue == 0 }),
+                  let byProfile = configuration["discovery_workers_by_target_profile"] as? [String: Any], !byProfile.isEmpty,
+                  byProfile.values.allSatisfy({ value in
+                      guard let profiles = value as? [String: Any], !profiles.isEmpty else { return false }
+                      return profiles.values.allSatisfy { ($0 as? NSNumber)?.intValue == 0 }
+                  }) else {
+                throw PrimalScheme3DesignError.invalidRequest("Reused allele discovery must report zero workers consistently.")
+            }
+            return workers
+        }
+        guard (1...options.coreCount).contains(workers), configuration["discovery_reused"] as? Bool != true else {
+            throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report a valid effective discovery worker count.")
+        }
+        return workers
     }
 
     private static func physicalParent(_ url: URL) throws -> URL {

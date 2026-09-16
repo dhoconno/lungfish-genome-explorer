@@ -418,6 +418,25 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     }
   }
 
+  func testExecutorThrowRetainsStartedCommandEvidence() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { _ in throw CancellationError() })
+    do {
+      _ = try await pipeline.run(request: request(fixture, grouping: .combined))
+      XCTFail("Expected executor failure")
+    } catch {}
+    let failure = try XCTUnwrap(try FileManager.default.contentsOfDirectory(
+      at: fixture.destination.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+      .first { $0.lastPathComponent.hasPrefix(fixture.destination.lastPathComponent + ".failure") })
+    let attempts = failure.appendingPathComponent("execution-attempts")
+    let evidence = try FileManager.default.contentsOfDirectory(at: attempts, includingPropertiesForKeys: nil)
+    XCTAssertTrue(evidence.contains { $0.lastPathComponent.hasSuffix("-design-request.json") })
+    let receipt = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: Data(contentsOf: failure.appendingPathComponent("failure-provenance.json"))) as? [String: Any])
+    XCTAssertEqual(receipt["status"] as? String, "cancelled")
+  }
+
   func testWrongNativePolicyCannotPublishAsMissingAware() async throws {
     let fixture = try fixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
