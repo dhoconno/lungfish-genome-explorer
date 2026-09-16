@@ -63,21 +63,37 @@ Native code is frozen at `7ca64e68690f6e4db5b91f54bfe8a4847c402a62` in an isolat
 
 Run directory: `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-union-subsets-02`. Final metrics and audit results are pending; no improvement claim is made from discovery alone.
 
-## Single-target Mamu-A1 pilot — partial results
+## Single-target Mamu-A1 pilot
 
-The isolated `matrix-02` pilot uses the original six-row Mamu-A1 alignment, with the same scientific settings and search budgets as the initial combined run. The completed strict tier passes its independent native stage validation and selects 10 amplicons, with **39.1308%** mean coverage after trimming across distinct observed classes (individual classes 32.1160–43.0336%). The first two salvage tiers have the same mean coverage. The final tier and whole-bundle audit are pending.
+The isolated `matrix-02` pilot uses the original six-row Mamu-A1 alignment, with the same scientific settings and search budgets as the initial combined run. The completed strict tier passes its independent native stage validation and selects 10 amplicons, with **39.1308%** mean coverage after trimming across distinct observed classes (individual classes 32.1160–43.0336%). All three salvage tiers have the same mean coverage. Native execution and a fresh whole-bundle audit both succeeded. The outer benchmark wrapper subsequently failed because it looked for the panel receipt under the wrong filename; that failure was preserved, and a separate completion verification validates the actual `panel-provenance.json` and audit receipt.
 
 This is below the saved independent panel’s 86.7446% common-metric coverage. The original input bytes match; the historical panel has not thereby been shown to pass the new constraints. This result is not an improvement claim or evidence about compatibility in the combined panel.
 
-A separate code review found that construction queue refresh can reconsider consumed candidates and spend search attempts on them. The regression-tested fix is included in `matrix-03`; its effect on MHC coverage has not yet been measured. One shared deadline also permits initial seed passes to exhaust time before subset construction and repair. Final pilot counters are needed to distinguish these limits from measured constraint rejections; neither is yet established as the cause of this coverage result.
+A separate code review found that construction queue refresh can reconsider consumed candidates and spend search attempts on them. The regression-tested fix is included in `matrix-03`; the cached single-target comparison below includes that fix. One shared deadline also permits initial seed passes to exhaust time before subset construction and repair. The final counters show strict selection completed its two work-capped seed passes but expanded only 32 of 143,297 families and reached no repair rounds. Later salvage tiers also suffered seed starvation. Among the strict configurations examined, specificity failed for 2,797 of 2,859, while dimer failed for 206 (204 also failed specificity). These are examined-configuration counts, not a full-catalog feasibility estimate.
 
 [Completed strict coverage](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-union-subsets-pilot-01/stages/strict/coverage.json) and [strict validation](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-union-subsets-pilot-01/stages/strict/validation.json).
 
+### Cached serial control on matrix-03
+
+Reusing the identical A1 catalog with the reviewed queue fix and history v2 gives **46.0385%** mean trimmed coverage, with 10 amplicons and per-class fractions 40.6485–47.2898%. The native panel and independent audit both succeed. Search remains limited to 120 seconds: it examines 2,032 full-seed and 4,528 normal-seed families, expands 32 families, and reaches zero repair trials. This is a 6.91 percentage-point gain over the first pilot, but is still well below the saved independent panel. Wall-limited comparisons include storage/runtime effects and do not isolate a single code change.
+
+Native panel wall time is 323.29 seconds and fresh audit time is 126.11 seconds; the outer runner records 3.27 GB native peak RSS under Darwin wait4 accounting. This control omits salvage because the strict result is the comparison of interest. Its original copied wrapper had the same receipt-name post-check error, preserved alongside a successful separate [completion verification](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-serial03-01-completion-verification/provenance.json).
+
+The specificity diagnosis identifies many predicted products at the designated full footprints that fail only because coverage-derived intended signatures require exact sequence support. A separate opt-in `concrete-designated-sites` correction is being implemented and independently reviewed; no coverage credit for near-matches is proposed, and shifted or incomplete footprints remain distinct.
+
+### Matched phase-scheduling controls on matrix-04
+
+The serial control on frozen `1217c5c` reproduced **46.0385%** mean coverage and 10 amplicons. Native execution, the separate raw-row audit, and the outer provenance verification all succeeded. Native wall time was 326.70 seconds, audit 127.41 seconds, and native wait4 peak RSS 3.96 GB. Its 120-second search spent 61.99 seconds in the full seed pass, 31.45 seconds in the normal seed pass and 26.56 seconds in subset construction. It expanded 16 families and reached no repairs. Identical selected coverage despite different work counts illustrates the limits of wall-clock comparisons.
+
+The matched optional `reserved` scheduling control is running on the same executable, catalog and settings. It allocates an initial share of the same global time budget to construction and repair; it does not relax scientific constraints. Serial remains the default pending results.
+
+[Serial control provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-serial04-01-execution/provenance.json).
+
 ## Engineering verification
 
-The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `ddf45ae08c146063adb46a6d2eeb28dea657befb` in `allele-aware-primal-matrix-03`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
+The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `1217c5c040da8d67ab52be07ecf40d1fbce1d5c7` in `allele-aware-primal-matrix-04`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
 
-- Native full suite on `matrix-03`: **718 passed**, one upstream Kaleido deprecation warning, 177.73 seconds.
+- Native full suite on `matrix-04`: **735 passed**, one upstream Kaleido deprecation warning, 180.44 seconds.
 - LGE focused checks after a fresh build: **87 passed** (78 XCTest and 9 Swift Testing).
 - Real fresh and cached designs passed LGE publication and independent native audits.
 - A cached-result bundle passed inspection, history and fresh audit after relocation while its original synthetic input, cache and prior bundles were temporarily unavailable. Originals were restored unchanged. [Relocation receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-wrapper-relocation-01/provenance.json).

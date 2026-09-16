@@ -246,3 +246,26 @@ No further answer is required to prepare this plan. The soft objective formula, 
 Two Astra experts reviewed the scientific contract and implementation feasibility. Their findings were incorporated: exact support and coordinate semantics, pair-local product certificates, explicit secondary-product policy and sensitivity analysis, transitive objective ordering, family multiplicity, fixed strict threshold, primary-tier validation and controlled discovery ablations. The secondary-product policy preserves the existing narrow ordered-disjoint category; stricter rejection is an explicit experiment. All engineering defaults remain subject to the CLI evidence gates.
 
 Related plan: [Implementation plan](../plans/2026-09-15-allele-aware-primal-scheme.md).
+
+## 15. Recorded extensions from the first CLI evidence
+
+The first independently audited single-Mamu-A1 pilot covers 39.1308% after trimming; all salvage tiers are unchanged. Its strict search expands only 32 of 143,297 families and performs no repair. Specificity rejects 2,797 of 2,859 explored configurations. These findings justify the following controlled extensions, approved by Astra during the user-authorized autonomous development. They do not establish whole-panel feasibility or laboratory performance.
+
+### 15.1 Search allocation
+
+Expose `--phase-scheduling serial|reserved`, initially defaulting to `serial`. Reserved mode gives the initial seed/construction/repair groups relative weights 20/40/40 and repair preparation/cleanup/exchange 20/20/60, transferring unused time forward while preserving the global deadline. Later starts retain the ordinary shared remaining budget. Record actual phase outcomes, objective before/after, work/cursor changes and accepted repairs. Distinguish a completed bounded work recipe from exhaustion of all families. Default promotion requires matched-catalog evidence.
+
+### 15.2 Optional intended-site screening interpretation
+
+Expose `--intended-product-policy exact-supported|concrete-designated-sites`, initially defaulting to legacy `exact-supported`. Under `concrete-designated-sites/v1`, a potential product from the unchanged terminal-hit screen may receive a complete configuration-local intended-site certificate despite full-primer mismatches only when:
+
+- both oligos are selected F/R occurrences within the same configuration, on its own target and the same observed row;
+- each actual orientation and both full-footprint endpoints exactly match projection from that selected site's alignment anchor and oligo length;
+- both complete projected footprints contain only A/C/G/T, with no missing or ambiguous cells, and are correctly ordered;
+- existing positive-inclusive product bound and uncertainty handling still apply.
+
+For a pair of configurations, one complete certificate from either configuration is required; ends cannot be borrowed across configurations and a third configuration cannot rescue a rejected pair. Same product span alone, shifted repeats, other targets and incomplete footprints are insufficient. Existing ordered-disjoint secondary exemptions remain derived from exact-supported certificates only.
+
+Keep `binding_support`, exact supported products, allele weights, observed denominators and coverage utility unchanged. Newly tolerated products are recorded separately as `allowed_intended_products`, with policy-specific identity, complete occurrence certificate, mismatch evidence, `uncertain=false` and **zero additional coverage credit**. Fresh raw-row validation reconstructs the certificate. This is a location-based screening interpretation, not an amplification prediction.
+
+The scientific profile, capabilities, requested/resolved options, stage diagnostics and evidence contexts explicitly identify the policy. Missing fields in old saved outputs mean legacy exact-supported semantics. Discovery fingerprints and immutable origins remain unchanged; selection verdict caches are policy-specific. The current preset remains unchanged until controlled CLI evidence supports a separately recorded preset decision.

@@ -335,3 +335,18 @@ Each task: establish a meaningful failing test, implement, run focused checks, i
 - [ ] Every generated entity has queryable stage history; partial evaluation, contextual rejection, pruning and reconsideration remain distinguishable and reusable without stale verdicts.
 - [ ] CLI MHC results include per-target/class gains and losses and user-reviewed limits.
 - [ ] No GUI implementation occurs before explicit CLI acceptance.
+
+## 5. Evidence-driven follow-up tasks
+
+The initial Mamu-A1 pilot exposed limited phase service and a distinction between exact coverage support and intended-site specificity. These tasks are scoped extensions to Tasks 5, 6, 9 and 10, not GUI authorization.
+
+- [x] Fix repeated candidate attempts within one add-only fill; retain reconsideration after repair removals, and independently review regressions.
+- [x] Add optional reserved initial-cycle scheduling, detailed phase progress and unchanged serial control; native frozen suite passes.
+- [ ] Complete/review LGE scheduling bridge, including unreserved later phases and no-assessable-target output compatibility.
+- [ ] Compare serial and reserved policies on the same cached Mamu-A1 catalog with matched settings and independent audits.
+- [ ] Implement and independently review optional concrete-designated-site intended-product certificates per spec §15.2; retain exact coverage and exact-derived secondary rules.
+- [ ] Expose and bind the scientific policy in both CLIs, with explicit capabilities, evidence, provenance and backward-compatible old-output interpretation.
+- [ ] Compare intended-product policies under matched catalog/source/search settings before any preset/default decision.
+- [ ] Complete the full multi-MSA MHC controlled matrix and per-target/class interpretation; a single-target result does not satisfy the combined-panel gate.
+
+Native scientific changes remain Astra-owned/reviewed. Sol owns the frozen Swift/CLI bridges. Disjoint native implementation, read-only scientific review and Swift work may proceed in parallel with explicit file ownership; frozen evaluation sources remain immutable.
