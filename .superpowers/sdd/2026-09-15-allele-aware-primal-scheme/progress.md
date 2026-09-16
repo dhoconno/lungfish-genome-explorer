@@ -342,3 +342,8 @@ Matrix12/freeze12 READY and rootconditionallyAPPROVED. Rootreadreadiness, verifi
 
 
 Oldcoldtailassessment reviewed: clean7ca strict+3salvage needsfivefurtherfullsnapshotchecks afterdiscovery(15closurequeryinvocations+10DISTINCTentityqueries), notboundedbysearch120/60seconds; no normalhistoryexport/reload/copy, finalDBhashsequential. Firststandalonefullcatalogonlystrictpendingpublication; validatedstrictstage surviveslaterfailurebutdoesnotconstitutesuccessfulrootreceipt. Rootkeepsrunintact; norecoveryshortcut/livebackup/mutation/cancellation. Latestboundedmode=ro snapshotmetadataquery stillNone, history50659807232bytes. Cannotforecastremainingtimeorassumeeachquerysamecost.
+
+
+## Automatic continuation while user away
+
+At~03:12local coldnative24757/session26388 remainsrunning9h22m, SQLitewaits/no successfuloutputyet. Allindependentimplementation/review/preparationworkcomplete; avoidminute-by-minuteunchangedpolling. Created ACTIVE threadheartbeat `continue-mhc-primalscheme-evaluation` every10minutes, verifiedtoolview, tocontinueexistingauthorizedwork: detectcoldcompletion→verifyactualnativereceipt→preparedmatrix12rawaudit→cacheexport→serialnarrowhour→full11comparison/diagnostics/LGECLIgate. Automationpromptrequiresreadingthisledger, identity/closedwriter/freshoutput/diskchecks, no duplicatedcold/livecopy/sourcechanges, notifymeaningfulchangesonly, andpauseafterCLIwork/finalreportdone. NoGUI/managedruntime/merge/push/release. Initialcreatewithoutdestinationreturnedargumenterror; corrected destination=thread succeeded. This is continuation scheduling, notclaimtaskcomplete.
