@@ -258,3 +258,13 @@ Astra approved external background_screen.py af76991b/testse84f022f after11passi
 ## Fixed-panel added-background screen complete
 
 Session45958 exit0, complete90contexts (18unary72samepoolpairs), exactsavedA1baselineparity,80newfailedcontexts(40eachpool),6687concrete witnesses: A2 3422,A4 2839,B274,E152. Noother-targetexemptions; unchangedA1evidence/support checked. Allinput/source/runtime identitiesunchanged, sourceparitytrue,5.7263swall/2.3815sscreen,376061952BpeakRSS. Frozenaf76991b, outputmamu-a1-fixed-panel-original11-background-01. Addedbackground aloneinvalidatesthisfixedpanel undercurrentrule; doesNOTprove dominance inoptimizedfull11oractualPCRproducts. Astrareviewinginterpretation/subsetderivingunarycounts/lengthbinswithreceipts; nodefaultrelaxation.
+
+
+## Native labels approved and frozen
+
+Astra approved115878f+236e74a labelsidecar: originalrawheaders/rowIDs/classaliases, ownversion/publicationref, fresh/reuse/oldabsence/tamper/relocation tests, excludedfromscientificidentity. ReviewP2 wholecataloglabelaudit fixed by fresh authoritative targets+canonicalobservations thincontext. Owner67passed126.37s; independent14passed4.50s. Protected11discoveryfiles+coverage_catalog unchanged. Rootfrozematrix11 at236e74a, own3.12.8venv, fullsuite71113active /tmp/allele-native-suite-matrix11.log. SolauthorizedLGECLIlabelbridge,noGUI.
+
+Backgroundinterpretation independentlyrecountedall90contexts:18/18unaryfail(1609),62/72pairfail(5078); all18have someaddedwitness≤250,17haveatleastoneboth17seedexactwitness. Defaultunchanged. Rootauthorizedboundedexistingwitnessfulloligoexactness annotation (nativekernelreadonly, nopoliciessciencechanges) withprovenance/tests; variantAstraactive. Subsetpreparingprioritizedfull11cachedexecutionplan withoutreadinglivehistory/running. Narrowhourat2478.88s provisional89.502675%, finalauditpending.
+
+
+Matrix11 fullsuite session71113 completed0:865passed1upstreamKaleidowarning190.21s. Publicengineeringreportupdated236e74a/865. SolSwiftlabelbridgeactive. Originalfull11cold26388 continues; cachednarrow09at2762s provisional89.502675%. Subsetequivalenceaudit for historicalindependent11targetdata active, no scientificreruns.
