@@ -282,3 +282,28 @@ Historicalequivalence-01 completedsuccess1.067s,121MBRSS, all14commonmetricrecei
 Narrow09 session18177 CLOSEDexit0; mean89.50267498%19amps, class85.3718–93.2765. Native3934.61246s(directchild3939.43237),audit146.20111s,outer4096.33709s, nativepeak5144625152B/audit4450729984B. Auditvalidrawreparsedtrue, allstatuses0identitiesunchanged,secondaryErrors[]. Search3603.49693s,877searchedfamilies/40235configs/66412expandedstates/166repairtrials/4acceptedexchanges/onecompletedstart/0completedfullrepairrounds; lastgain2478.88075s. Seedfills277.2022s vsbroad993.264; exchangework3196.5175s vs2164.981.
 
 `mamu-a1-hour-effort-comparison09-01` complete0 verifiesonly4resolvedworkdifferences (starts8→4,rounds3→2,attempts8192→2048,families32→16) same09source/inputcatalog/hour/science; narrowermean+2.221503pp,4classesgain2lose,minimum+2.29011pp. Sharedmachine/wrapperv4v5meansnoisolatedspeedclaim. `mamu-a1-narrow-descriptive08-09-01` complete0 narrowvs600source08mean+2.783628pp, compression source/timechanged. Public6classpercenttablecheckedagainstretainedcomparison; no95/combinedclaim. Nextfull11qualityprioritizesnarrowexplicit3600; versionedpresetsunchanged.
+
+
+LGElabelbridge6a5a2f2e9 AstraAPPROVED independent13pass (5bridge8inspect). Rootintegratedfocused --skip-build37247 completedexit0,164total7envskips157passed0failure, log/tmp/allele-lge-label-final-focused.log. No executable rebuild duringSolrealmatrix11smoke. Source/runtime/toolidentitiesstayfrozen; actualsmoke/relocationpendingseparate.
+
+
+Matchedhourfigure completed provenance-boundmamu-a1-hour-comparison-figure-01 PNG/SVG/PDF/plot-data,11consumedartifactbindings, canonicalclass→row→headerconfirmed,1.770srenderidentityunchanged. RootvisuallyinspectedPNG:clearaxes/provisionalvsfinalmarkers/4gain2loss/95aim/fourcaps/sharedmachinecaveat/readableunclipped. Addedpublicreportfigure.
+
+Soltinyrealmatrix11labelsmoke complete9commandsall0/stderr empty; relocatedinspect/history/auditwhileoriginalabsentpassed; originalinputrestoredunchanged. `/private/tmp/lge-matrix11-label-smoke-01/verification.json`, result9A8F7037-6468-447C-B7C5-63EB8ED17AE1, labelmapvalid1target2rows1class. Rootauthorizedone60sactualproductionLGECLIcachedA1design fromsnapshotoriginal.lungfishmsa usingfrozen11/existingA1cache, engineeringrealMSAaliases/stableIDs/pipelineonly; failclosednocoldfallback, no qualityclaim. Solactive.
+
+
+Full11 boundedread-onlyindexedlatest8records (2stimeout,noscan) at~01:07local:history41.980GB/position19033000, row-enumerationtarget3c6c54fb… verifiedMamu-E/source10, normalprofile reverseanchor316. FinalinputMSA/finalprofile inprogress; noETAorcompletionclaim. Parentnative24757/session26388 continues, no livecopies/mutations.
+
+
+Counterinterpretation correction from _Proposals.metadata/_expand/refresh: in subsets mode `searched_families` counts subset-expanded families only, NOT full/normal seedfamilies. Publicreportclarifiesnarrow877vsbroad439subsetfamilies; seedsnarrow2032full/4064normal vsbroad8352full/17056normal(overlap,notdistinctsum). Broader examinedmoreseeds; narrower spentmoretime onsubsetrepair. No nativecounter/sciencechange.
+
+
+## Selected-variant replacement and production label integration
+
+Root approved frozen selected-variant diagnostic e3061ed3828dfe37704e5b892e08d46b395692bf060b663cea21a3687ae31369 after complete source review and independent11tests0.85s. Session95939 completed0, all5 independent original-panel replacements, baseline paritytrue, identitiesunchanged,31.1218s. Outputmamu-a1-narrow09-one-variant-replacement-01; Astra interpreting numerical blockers/support without historical-cause inference. Three partialselectedfamilies include2/3RIGHTexample.
+
+Actual production LGE cachedA1matrix11 integration completed: resultF61458CD-4513-4DDF-ADE7-232C853A4773; six originalhumanlabels/stableLGE/nativeIDs verified, reuse true/workers0, inspect/history/rawauditall0, source/cacheunchanged. Deliberate60sengineeringrun68.071215%/22ampsnotqualitybaseline. Initialnegative-argexit64 andcorrected successbothretained. Rootreadverification.json.
+
+Productlengthexternal7b6b0d3 reviewed source and independent2tests0.40s; approvedcompleted-audited-panels only. Narrow09 exactlyreconstructed89.502675%;123classproducts118inrange5above251–252; exclusiveoutofrange4.330041pp. No validity/PCRinference. Freeze and briefacceptancechecklist delegated; no newsciencearm.
+
+Full11 cold now generated-family events (last indexedposition19959000,history43.714GB), past final-MSA oligo row stage. Stilllive; no cacheexport/historyextraction. Sol preparing immutable matrix11/v5actualcapability/input/optionexecutionfreeze before gates.
