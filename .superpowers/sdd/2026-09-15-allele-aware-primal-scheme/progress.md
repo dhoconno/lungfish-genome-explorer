@@ -418,3 +418,14 @@ Bounded measurement scripts corrected and committed as `1bd5ea118`; Luna is pres
 User asks Luna to evaluate two pools for the intended multi-MSA panel. Root approved a bounded A1+A2 shared-pool pilot on clean native `cfafd48`: original raw source-inputs A1 C64AA855 and A2 2E748544 in that order, union profiles, compact discovery, strict dimer -26, 150–250 bp/200 target, minimum frequency zero, distinct-allele trimmed coverage, 4 requested workers, 4 starts/2 repair rounds/120-second optimizer, salvage off. Existing A1-only cache cannot be concatenated or reused for a different target set; fresh combined discovery is required.
 
 Luna-high `luna_two_pool_evaluation` owns execution and reporting, no native edits. Caps: 15 minutes whole-process-group wall time, 12 GiB group RSS, 2 GiB output, bounded signal escalation and interruption receipt. On success, fresh audit and per-target/allele coverage plus pool burden, phase/runtime/memory/history metrics. No all11 launch or broad sweep authorized in this turn. Cancelled full11 artifacts and paused heartbeat remain untouched. This tests two shared targets and cannot establish all11 performance.
+
+
+## Two-pool A1+A2 pilot completed; no automatic rerun
+
+The fresh compact run `mhc-a1-a2-compact-two-pool-01/compact` completed successfully on `cfafd48` in approximately 551 seconds external wall time (native provenance 548.854 seconds), peak group RSS about 5.35 billion bytes, approximately 318 MB output. Fresh audit exited zero, validation valid, in 198.52 seconds. Source/runtime/input identities remained stable.
+
+Harness review revealed it retained one core, one start, and zero repairs instead of the approved four/four/two. Actual two pools, 120-second search budget, union profiles, strict -26, and salvage off were correct. Root stopped the agent from automatically rerunning: this is a valid bounded scientific result with a disclosed search-effort deviation, not the planned stronger comparison.
+
+A1 trimmed coverage 2.25349% across six classes (four zero), one amplicon. A2 26.86025% across nine classes, seven amplicons. User pool 1 contains five A2 amplicons; pool 2 contains two A2 and one A1. Mean target coverage 14.55687%; no class reaches 95%; no accepted dimer violations.
+
+Search ended at 107.513 seconds with misleadingly broad stop label `completed`, but work_truncated=true and all three phases ended at work-cap (three construction limit hits). Main construction search explored 80 of 277,668 families, with seed cursors separately 2,016 full and 4,672 normal. This is not an optimum or a simple wall-time timeout. Discovery 183.460 seconds, search plus validation 164.234 seconds, publication plus audit 178.426 seconds. Luna is finishing only a bounded read-only rejection summary and report. No all11 run or second panel-create authorized.
