@@ -2,6 +2,14 @@
 
 **Status: evaluation in progress; GUI acceptance has not been requested.**
 
+## Current findings
+
+- The best audited **A1-only** new panel reaches **89.50%** mean coverage after trimming (19 amplicons), versus **86.74%** for the saved independent A1 panel under the same coverage metric. The panels have different screening constraints; this is not a controlled algorithm-only gain. Neither reaches 95%.
+- Longer searches helped: the best one-hour run improved over the ten-minute result, and the narrower work settings outperformed the broader hour settings. Four A1 classes gained and two lost in the matched hour comparison.
+- Partial variant selection is useful and auditable. Two omitted forward variants have explicit dimer conflicts; three other omitted variants are individually compatible but coverage-redundant. They are not all “rejected primers.”
+- Combined-MSA screening is a separate obstacle. Adding the other target sequences makes the fixed independent A1 panel fail specificity checks even without adding other primers. **The optimized eleven-target result is still pending**, so no combined-panel improvement is claimed.
+- The native and Lungfish CLI implementations, label preservation, fresh audit and provenance have passed their recorded engineering checks. GUI work remains deferred until the combined scientific results are reviewed.
+
 ## Metric
 
 Each target is the mean primer-trimmed coverage of its distinct observed aligned allele classes. Duplicate rows retain provenance but add no objective weight. A base earns credit only when an exact forward and reverse primer both bind the same observed row and the base lies between their footprints. Only concrete observed A/C/G/T bases enter the denominator; observed insertions count. The panel mean weights target MSAs equally.
