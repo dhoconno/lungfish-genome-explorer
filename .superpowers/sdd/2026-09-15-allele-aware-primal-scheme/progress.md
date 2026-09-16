@@ -307,3 +307,6 @@ Actual production LGE cachedA1matrix11 integration completed: resultF61458CD-451
 Productlengthexternal7b6b0d3 reviewed source and independent2tests0.40s; approvedcompleted-audited-panels only. Narrow09 exactlyreconstructed89.502675%;123classproducts118inrange5above251–252; exclusiveoutofrange4.330041pp. No validity/PCRinference. Freeze and briefacceptancechecklist delegated; no newsciencearm.
 
 Full11 cold now generated-family events (last indexedposition19959000,history43.714GB), past final-MSA oligo row stage. Stilllive; no cacheexport/historyextraction. Sol preparing immutable matrix11/v5actualcapability/input/optionexecutionfreeze before gates.
+
+
+Fivevariantinterpretation02 complete0/.7537s/16consumedfilesbound/identitiesunchanged. Rootreadfullreport: trials1/2 LEFT at2569:2815Pool1 conflict−35.74489925/−34.44627562 withRIGHTs in732:977; wouldrecover same67A1*011bases butinvalid, below−32floor. Trials3–5 validredundant;2/3RIGHT863:1067 becomes863:1069 withouttrimmedgain. Allspecificitypass, noclaimhistoricalcause/multipleadditionfeasibility. Publicreportupdated; immutable01interpretationretainedsuperseded02prosegeometrycorrection.

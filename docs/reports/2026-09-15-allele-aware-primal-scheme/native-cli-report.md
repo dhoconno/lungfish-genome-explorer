@@ -132,6 +132,20 @@ The diagnostic independently reconstructs the selected coverage and confirms its
 
 Execution completed successfully in 76.50 seconds, with unchanged input/source/runtime identities. [Availability, per-class intervals and selected-variant report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-catalog-availability-01/availability.json) and [receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-catalog-availability-01/provenance.json).
 
+### Testing omitted variants in the best A1 panel
+
+The 19-amplicon hour panel contains three families with omitted eligible variants. A fresh diagnostic restored each of the five omitted variants separately, replacing its selected configuration in the same pool and keeping all other assignments fixed. It reproduced the baseline audit before testing replacements.
+
+| Original reference interval | Pool | Original variants retained | Independent additions |
+|---|---:|---|---|
+| `[2569,2815)` | 1 | 5/7 forward, 3/3 reverse | Either omitted forward variant fails dimer checks |
+| `[863,1067)` | 2 | 2/2 forward, 2/3 reverse | Third reverse passes; no additional coverage |
+| `[2164,2413)` | 2 | 2/3 forward, 4/5 reverse | Each omitted variant passes separately; no additional coverage |
+
+Each of the two blocked forward variants would recover the same 67 observed bases for A1*011, raising that class from 88.2714% to 90.5557% geometrically. Both conflict with retained reverse primers in the `[732,977)` amplicon: scores **−35.7449 and −34.4463**, versus strict rejection at ≤−26. These edges also remain below the proposed −32 salvage floor. The gain is therefore not an accepted improvement, and the two alternative gains must not be added together.
+
+The literal two-of-three reverse example has a different explanation: the third reverse variant is compatible but redundant even within its own configuration. It extends the full reference envelope to `[863,1069)` without increasing the trimmed coverage. All five replacements pass the current specificity checks. These tests identify current-panel compatibility, not the optimizer's historical omission cause, and do not establish feasibility of adding multiple variants together. Original assignments remain unchanged. [Five-trial interpretation and numerical partners](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-one-variant-interpretation-02/report.md), [fresh diagnostic receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-one-variant-replacement-01/provenance.json), and [interpretation provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-one-variant-interpretation-02/provenance.json).
+
 ## Mamu-A1 394–644 regional alternatives
 
 The completed ten-minute panel (`secondary07`) covers **200 of 250 observed bases, 80%**, in every one of its six distinct classes for reference BED interval `[394,644)`. Coordinates are zero-based and half-open; the report projects them through the alignment and preserves each row’s coordinates. The nearby selected amplicons span `[217,399)`, `[410,648)` and `[614,818)`; full amplicon spans do not count as trimmed coverage.
