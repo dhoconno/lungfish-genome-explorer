@@ -105,7 +105,22 @@ The improvement trades coverage between classes: two gain 4.0837 and 4.5865 perc
 
 Native execution took 3,981.06 seconds, the separate fresh raw-input audit 146.27 seconds, and the full wrapper 4,140.14 seconds. Native peak RSS was 5.67 GB. All three exit statuses are zero, the audit is valid, and source/runtime/input identities remained unchanged. [Audited hour panel](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-quality09-3600-01) and [descriptive comparison with per-class deltas](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-quality-descriptive08-09-01/comparison.json).
 
-A second hour-budget run on the same frozen native revision retains the narrower 4-start, 2-round, 2,048-attempt, 16-family controls. It will test whether smaller construction batches leave more useful time for replacement work. Its progress remains provisional until independent audit; neither experiment establishes combined-panel compatibility or validates a new default.
+The matched hour-budget run on the **same frozen native revision**, retaining the narrower 4-start, 2-round, 2,048-attempt, 16-family controls, is now complete and independently audited. It reaches **89.5027%** with **19 amplicons**, **2.2215 percentage points higher** than the broader hour run. The four work controls are the only resolved-option differences; input catalog, scientific policies and one-hour selector limit are identical. Wrapper instrumentation differs between v4 and v5, and both executions used a shared machine, so this is not an isolated timing benchmark.
+
+| Observed Mamu-A1 allele | Broader hour | Narrower hour | Change |
+|---|---:|---:|---:|
+| A1*016:01:01:01 | 88.6754% | 88.4351% | −0.2402 pp |
+| A1*002:01:01:01 | 83.0817% | 88.4351% | +5.3535 pp |
+| A1*004:01:01:01 | 88.7713% | 93.2765% | +4.5051 pp |
+| A1*001:01:01:01 | 88.7102% | 93.2261% | +4.5159 pp |
+| A1*028:01:01:01 | 90.1320% | 85.3718% | −4.7603 pp |
+| A1*011:01:01:01 | 84.3164% | 88.2714% | +3.9550 pp |
+
+The minimum improves from 83.0817% to 85.3718%, but two classes lose coverage. The narrower run searched **877 families**, materialized **40,235 configurations** and performed **166 repair trials**, accepting four exchanges. Its two seed fills consumed 277.20 seconds versus 993.26 seconds in the broader run; repair exchange received 3,196.52 seconds versus 2,164.98 seconds. Both completed one start. This demonstrates why increasing several work caps does not necessarily improve a fixed-time result.
+
+Native execution took 3,934.61 seconds, fresh audit 146.20 seconds, and the full wrapper 4,096.34 seconds; native peak RSS was 5.14 GB. All execution statuses are zero, fresh raw-input validation passes, and source/runtime/input identities remain unchanged. [Matched hour comparison](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-hour-effort-comparison09-01/comparison.json) and [narrow-run receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-narrow09-3600-01-execution/provenance.json).
+
+Relative to the 600-second cached panel, the narrower hour gains 2.7836 mean percentage points; that comparison also changes the diagnostic-cache source representation. It remains below the 95% goal and does not establish combined-panel compatibility. The next combined evaluation will use the narrower hour controls; versioned defaults and `quality-v1` have not been silently changed.
 
 ## Candidate availability and retained variants
 
@@ -163,3 +178,4 @@ These checks establish engineering behavior, not improved MHC coverage. GUI and 
 - Timing measurements came from a shared development machine with concurrent cold discovery and engineering work; they are not isolated performance benchmarks. Work counters accompany the wall-limited comparisons.
 - Search is bounded. Unevaluated families/configurations cannot be called infeasible, and a sampled union is not a theoretical coverage ceiling.
 - Exact support is conservative for primer mismatches; reports identify observed classes that remain unsupported.
+- Amplicon size bounds constrain the reference envelope. Insertions or deletions can change an individual allele’s actual product length. The reported metric measures exact-binding primer-trimmed interiors, not experimentally demonstrated amplification or sequencing-read coverage across long inserts.
