@@ -77,7 +77,12 @@ def run_arm(python: Path, output: Path, *, execute: bool) -> dict:
                 receipt["status"] = "disk-limit"
                 break
             time.sleep(0.25)
-        proc.wait()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            receipt["status"] = "hard-killed-after-timeout"
         if receipt["status"] == "planned":
             receipt["status"] = "success" if proc.returncode == 0 else "failed"
         receipt.update(exit_status=proc.returncode, stdout_path=str(stdout_path), stderr_path=str(stderr_path),
