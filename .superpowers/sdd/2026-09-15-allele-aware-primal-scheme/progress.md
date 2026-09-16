@@ -400,3 +400,14 @@ The low-effort Luna runner’s harness drafts were rejected for incorrect API ar
 ## Native candidate freeze and execution authorization
 
 Native `cfafd488fa064438f005417a85d85904ec81da4d` is clean and includes corrected diagnostic failure inventories plus fixed-work compact/full selector parity. Luna compact agent owns one full native suite. Luna diagnostics agent owns tiny actual CLI/cache/audit/history/replay verification and bounded original-A1 anchored compact/full measurement. No source mutations during either run. The committed low-effort harness drafts remain unaccepted until replaced or corrected. Full-A1 compact engineering run remains gated on the tiny and anchored results; no full11 work is authorized.
+
+
+## Selective discovery implementation verified
+
+Native `cfafd48` passed 900 tests in 173.38 seconds; source stayed clean throughout CLI evaluation. Independent Luna diagnostics agent completed tiny compact/full/default/reuse runs (999 sites, 176 families; zero selected assignments), audit/history/cache and valid site/family reconstruction. A1 six-anchor compact/full parity: 370 sites, one family; compact 0.2686 seconds / 73,728 history bytes versus full 0.6472 seconds / 3,117,056 bytes. This single small probe cannot establish full-MHC speedup or memory reduction.
+
+Full original A1 compact engineering run succeeded and freshly audited: 246.639 seconds, sampled process-group peak RSS 4,162,469,888 bytes; discovery 80.705 seconds, search plus validation 57.400 seconds, publication plus audit 95.013 seconds. One pool / 30-second search / one start / zero repairs / salvage off yielded five amplicons and 24.1317% mean trimmed coverage. The earlier 89.50% longer two-pool A1 result remains the quality reference; no comparable quality run was attempted here. Source/runtime/input stable.
+
+Additional core-agent tiny-fixture work was interrupted by automatic content-access safety screening. That step was not retried. The independently completed CLI checks above, the fixed-work parity unit test and the successful real-A1 engineering run provide the accepted verification; no claim is made for the interrupted supplementary step.
+
+Bounded measurement scripts corrected and committed as `1bd5ea118`; Luna is preserving the completed evaluation outputs with copy provenance and writing the final SDD report. No additional experimental runs authorized or needed for this change. Cancelled full11 output remains untouched and heartbeat paused.
