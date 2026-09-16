@@ -1,57 +1,48 @@
-# Selective-history CLI and measurement test plan
+# Selective-history CLI and measurement plan
 
-Status: planning only. Do not launch a scientific CLI run while Task1/2 source work is changing; parent review and a clean frozen commit are prerequisites. The cancelled MHC output/history is out of scope and must not be opened, copied or recovered.
+Planning only. No CLI/scientific run is authorized while Task1/2 source changes are active. Do not read, copy, recover or mutate the cancelled MHC history.
 
-## Tiny CLI smoke matrix
+## Tiny CLI contract
 
-Use the tracked native fixture `/Users/dho/Documents/lungfish-genome-explorer/.worktrees/allele-aware-primalscheme/tests/test_data/test_msa/test_msa_valid.fasta` (and, for a deliberate malformed-input failure, `test_msa_non_dna.fasta`). Run from the frozen native worktree with `.venv/bin/primalscheme3`; each output directory must be fresh and have a per-command receipt, stderr, exit status, wall time, input/source/runtime descriptors and output inventory. Suggested compact command:
+Use an existing fixture only after confirming it produces at least one nonempty family in the current source. Candidate fixtures to inspect are `tests/test_data/test_msa/test_msa_valid.fasta` and the existing `tests/lge/allele_fixtures.py`/verified tiny integration fixture; do not assume the short FASTA is viable for 150–250 bp. Record fixture path, source digest, family/site counts and exact resolved options before comparing modes.
+
+The reviewed option is `compact|full`, default `compact`. Use the final spelling from frozen CLI help, for example:
 
 ```sh
-primalscheme3 panel-create \
-  --msa tests/test_data/test_msa/test_msa_valid.fasta \
-  --output /tmp/selective-history-cli/tiny-compact \
+primalscheme3 panel-create --msa <verified-tiny-input> --output <fresh-output> \
   --selection-algorithm allele-coverage --preset allele-balanced-v1 \
   --amplicon-size 200 --amplicon-size-min 150 --amplicon-size-max 250 \
   --n-pools 1 --ncores 1 --min-base-freq 0 --mapping first \
   --terminal-gap-policy observed-only --optimizer-seed 0 \
   --optimizer-starts 1 --optimizer-repair-rounds 0 --optimizer-time-limit 5 \
-  --salvage off --offline-plots
+  --salvage off --discovery-history compact --offline-plots
 ```
 
-Run the same exact argv with `--discovery-history compact` and `--discovery-history detail` (or the final reviewed option name), then compare catalog/ledger semantic digests, selected assignments, fresh `panel-validation.json`, resolved options, history policy, and provenance. The default/detail run is the oracle. A compact run must not produce millions of no-op candidate records; a gap/conflict fixture must produce detailed records for the affected family/site.
+Run the same verified tiny input once in `compact` and once in `full`, with fresh outputs and the same fixed work unit. Cross-mode catalog/ledger digests are expected to differ by design; compare scientific projection IDs/profile membership/geometry and selected scientific outputs. Same-mode repeated runs must have exact catalog/ledger/output/provenance identity. A 5-second bounded run cannot establish selected-assignment parity; use a separate fixed-work-unit comparison if needed.
 
-For each successful tiny bundle, run these exact bounded follow-ups into fresh sibling directories:
+Use existing commands only. `panel-history` queries saved history and does not regenerate discovery; do not invent stage/target/region flags. The new diagnostic command is:
 
 ```sh
-primalscheme3 panel-history --bundle tiny-compact --output tiny-history \
-  --stage discovery --limit 20 --offset 0 --lineage
-primalscheme3 panel-history --bundle tiny-compact --output tiny-history-target \
-  --target '<saved target id or reference name>' --region 0:200 --limit 20
-primalscheme3 panel-audit --bundle tiny-compact --output tiny-audit
-primalscheme3 panel-cache --bundle tiny-compact --output tiny-cache
-primalscheme3 panel-create \
-  --reuse-discovery tiny-cache --output tiny-reuse \
-  --msa tests/test_data/test_msa/test_msa_valid.fasta \
-  --selection-algorithm allele-coverage --preset allele-balanced-v1 \
-  --amplicon-size 200 --amplicon-size-min 150 --amplicon-size-max 250 \
-  --n-pools 1 --ncores 1 --min-base-freq 0 --mapping first \
-  --terminal-gap-policy observed-only --optimizer-seed 0 \
-  --optimizer-starts 1 --optimizer-repair-rounds 0 --optimizer-time-limit 5 \
-  --salvage off --offline-plots
+primalscheme3 panel-discovery-diagnose --bundle <completed-bundle> \
+  --family-id <saved-family-id> --site-id <saved-site-id> --output <fresh-diagnosis>
 ```
 
-The saved catalog/history IDs should drive targeted replay (`panel-history --target/--region`, bounded `--limit`) rather than regenerating discovery. Verify cache manifest/source provenance, origin history role, compact/detail policy compatibility, and exact reuse identities. A cache with missing detail required by the manifest must fail closed.
+Match the reviewed help/source exactly; omit a selector if optional. Diagnostic output gets its own receipt bound to saved catalog/source identity.
 
-Failure cases: malformed/non-DNA input; missing output parent permissions; pre-existing output directory; compact/detail policy mismatch on cache reuse; changed input bytes/order; changed discovery profile/length mode; missing or journaled origin history; corrupted candidate evidence/index/reference; audit of a failed/incomplete bundle. Every failure must retain a receipt with exact argv, resolved options, source/runtime identity, inputs, partial outputs, stderr, exit status and wall time, and must not claim successful scientific provenance.
+For each tiny bundle, use existing `panel-audit --bundle BUNDLE --output FRESH_AUDIT` and, only for a completed successful bundle, `panel-cache --bundle BUNDLE --output FRESH_CACHE`, then reuse with existing `--reuse-discovery FRESH_CACHE`. Verify source bytes/order, catalog/profile/detail policy identity, closed history, snapshot and provenance. Failure receipts retain exact argv, resolved options, source/runtime/input descriptors, stderr, exit status, wall time and partial outputs.
 
-## Full original-A1 bounded comparison (future, gated)
+## Bounded original-A1 anchor comparison
 
-After Task1/2 review and a frozen source commit, use the existing raw MSA inputs under `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-fixture-snapshot-v3/snapshot/source-inputs/*/alignment/primary.aligned.fasta`, in canonical `input-order.json` order. The command must repeat all eleven `--msa` paths and use the already measured A1 settings: `--mode equal --selection-algorithm allele-coverage --preset allele-balanced-v1 --amplicon-size 200 --amplicon-size-min 150 --amplicon-size-max 250 --n-pools 2 --ncores 4 --min-base-freq 0 --mapping first --terminal-gap-policy observed-only --optimizer-seed 0 --optimizer-starts 4 --optimizer-repair-rounds 2 --optimizer-time-limit 120 --salvage bounded --salvage-time-limit 60 --primary-tier strict --offline-plots`. Run compact and detail on identical inputs/options, with one short engineering bound and fresh outputs; do not launch until parent/Astra oversight approves the frozen command.
+This is one compact-only CLI arm, not a full11 or full-history A1 run. Use exactly this original A1 raw input:
 
-Record for each arm: exact argv, source commit/digest and dirty status, native/runtime/kernel identities, all eleven input hashes/order/sizes, resolved options, history stream counts and bytes, candidate/site/family counts, detailed-record counts, stage/panel validation, catalog/ledger/output digests, wall time by discovery/selection/validation/publication, peak RSS/physical footprint sampling, disk high-water mark, exit/stderr and receipt paths. Suggested limits are 15 minutes wall per arm, 2 GiB output/disk growth, and cancellation only through the reviewed runner with an external interruption receipt; no partial arm is reported as successful.
+`/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-fixture-snapshot-v3/snapshot/source-inputs/C64AA855-086A-4BBB-8AB7-803F0FAC0212/source.lungfishmsa/alignment/primary.aligned.fasta`
 
-Use the existing provenance-bearing runner and output auditor patterns; do not create a new framework or infer speed from one phase. The comparison is an engineering measurement of bookkeeping policy. It must report whether selected science artifacts are byte/semantic-equivalent and where compact history differs in detail coverage. No full-MHC feasibility or 95% claim follows from this arm.
+Use original A1 discovery settings/indexes, a short 30-second optimizer bound, and salvage off. Record exact input hash/size, source/runtime/kernel identity, resolved options, candidate/site/family and history counts, wall time, peak RSS/physical footprint, disk high-water mark, output hashes and exit/stderr. Suggested limits: 10 minutes wall, 2 GiB output growth, fresh output, external interruption receipt on cancellation. Do not launch until parent review and a frozen source commit.
 
-## Targeted tests before the A1 arm
+The compact/full comparison for this arm is a bounded anchored API probe over the same input, indexes, settings and fixed work unit before CLI launch. Compare candidate/site/family scientific projections and deterministic fixed-work results; report bookkeeping counts, diagnostic materialization and memory/time separately. Do not treat cross-mode semantic digests as expected equal.
 
-Run the focused history, discovery, cache, inspection, CLI and provenance suites already present: `tests/lge/test_coverage_history.py`, `test_sqlite_coverage_history.py`, `test_integer_coverage_history.py`, `test_coverage_discovery.py`, `test_allele_catalog_cache.py`, `test_allele_inspection.py`, `test_coverage_cli.py`, and new selective-policy tests. Include v1/v2 history backends, exact snapshot/digest equivalence, compact failure escalation, cache rejection, bounded history query, fresh audit, and receipt-on-error assertions. Run the full native suite only after the focused suites pass and the source is frozen.
+## Targeted tests and limits
+
+Use current tests rather than a new framework: `test_coverage_discovery.py`, `test_coverage_catalog.py`, `test_diagnostic_cache.py`, `test_coverage_validation.py`, `test_coverage_search.py`, `test_allele_catalog_cache.py`, `test_allele_inspection.py`, `test_coverage_cli.py`, and existing diagnosis tests. Add focused assertions for compact default/full explicit parsing, same-mode digest identity, cross-mode scientific projection equivalence, nonempty-family precondition, saved family/site diagnostic replay, cache incompatibility rejection, and complete provenance on failure.
+
+No optional failure matrix, permission experiment, full11 arm or extrapolated performance claim is needed. Preserve final fresh validation, audit, provenance and cache contracts in both modes.
