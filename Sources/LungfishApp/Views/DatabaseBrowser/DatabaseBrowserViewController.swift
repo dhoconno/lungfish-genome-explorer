@@ -995,7 +995,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     func selectAllVisibleResults() {
         selectedRecords.formUnion(filteredResults)
-        selectedRecord = selectedRecords.first
+        selectedRecord = filteredResults.first ?? selectedRecords.first
     }
 
     func deselectAllResults() {
