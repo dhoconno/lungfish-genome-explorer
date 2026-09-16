@@ -1,11 +1,11 @@
 # Allele-aware PrimalScheme CLI controls
 
-Development CLI; MHC evaluation is still in progress. Use the isolated native executable. The managed LGE runtime has not been replaced. Final integration verification is pinned to the frozen `matrix-03` native source at revision `ddf45ae`; substitute the absolute path to that checkout's own `.venv/bin/primalscheme3` in the commands below.
+Development CLI; MHC evaluation is still in progress. Use the isolated native executable. The managed LGE runtime has not been replaced. Current integration verification is pinned to the frozen `matrix07` native source at revision `61d6ac8`; substitute the absolute path to that checkout's own `.venv/bin/primalscheme3` in the commands below.
 
 ## Starting point
 
 ```sh
-/absolute/path/to/frozen-matrix-03/.venv/bin/primalscheme3 panel-create \
+/absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 panel-create \
   --msa /absolute/path/target-a.fasta --msa /absolute/path/target-b.fasta \
   --output /absolute/path/new-panel \
   --selection-algorithm allele-coverage --preset allele-balanced-v1 \
@@ -30,7 +30,7 @@ Repeat `--msa` for each target. Output must be a new directory. Supply the origi
 | `--discovery-length-mode` | `first-compatible` | `all` examines all allowed lengths instead of stopping at the first individually compatible length per row, anchor and profile. This can be expensive. |
 | `--specificity-terminal-k` | `17` | Changes the terminal seed used for supplied-row specificity screening. Comparisons must account for primer lengths and use a shared eligible catalog. |
 | `--mispriming-product-size` | `2000` | Upper product length screened on supplied rows; positive inclusive bound. This mode does not permit disabling screening with zero. |
-| `--secondary-product-policy` | `ordered-disjoint-intended-sites` | Allows the declared class of products between ordered disjoint intended sites, without coverage credit. `reject-secondary-products/v1` rejects secondary products. |
+| `--secondary-product-policy` | `ordered-disjoint-intended-sites` | Keeps the exact ordered-disjoint rule. `reject-secondary-products/v1` rejects secondary products. `ordered-disjoint-concrete-designated-sites/v1` can allow a nonexact secondary product only with a complete four-site certificate. |
 | `--max-amplicons`, `--max-amplicons-msa` | Uncapped | Limits physical design size; caps may reduce achievable coverage. |
 
 The strict dimer cutoff remains −26. The score is the native numerical score, not free energy or a probability. Chemistry is defined by complete versioned profiles; ad hoc temperature/salt overrides are not silently accepted. Both profiles use the same modeled temperature window. That compatibility does not establish laboratory performance.
@@ -42,6 +42,8 @@ The strict dimer cutoff remains −26. The score is the native numerical score, 
 The default `--phase-scheduling serial` runs phases in their fixed order against one shared deadline. `--phase-scheduling reserved` applies initial-cycle reservations so earlier seed work cannot consume every phase's initial share; unused time flows to remaining phases and the global deadline never grows. Each published tier records the exact advertised scheduling descriptor and phase-by-phase timing, outcome, objective snapshots, accepted-repair count, work deltas and before/after family cursors. An explicit scheduling option requires an executable that advertises this frozen capability. Saved outputs from before this capability remain readable as legacy serial results.
 
 The default `--intended-product-policy exact-supported` preserves the established specificity rule. `concrete-designated-sites` allows only a nonexact product backed by a complete same-row certificate for both designated primer sites from one configuration. Products involving another target, shifted sites, incomplete or mixed-configuration evidence, or uncertain footprints remain blocked. Allowed intended-product witnesses are reported separately from allowed secondary products with their certificate and zero coverage credit. An explicit policy requires an executable that advertises the frozen intended-product capability; older saved outputs without the field are interpreted as `exact-supported`.
+
+The default `--secondary-product-policy ordered-disjoint-intended-sites` remains stable. The optional `ordered-disjoint-concrete-designated-sites/v1` rule requires one supplied row to certify, in order, the left configuration's forward and reverse sites followed by the right configuration's forward and reverse sites. The outer forward-to-reverse product may be nonexact only through those concrete selected occurrences; it must remain certain and within the configured product bound. Its witness is reported separately with zero coverage credit, so it does not broaden the exact observed-allele coverage metric. The intended-product policy remains independent. Existing outputs without the capability retain the exact default, and the default panel and per-MSA amplicon caps remain uncapped unless `--max-amplicons` or `--max-amplicons-msa` is supplied.
 
 Advanced deterministic work limits are also exposed:
 
@@ -96,12 +98,13 @@ The Lungfish wrapper writes a relocatable `.lungfishprimeranalysis` bundle and k
   --msa /absolute/path/target-b.fasta \
   --output /absolute/path/new-analysis.lungfishprimeranalysis \
   --grouping combined \
-  --primalscheme3-path /absolute/path/to/frozen-matrix-03/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 \
   --selection-algorithm allele-coverage \
   --preset allele-balanced-v1 \
   --candidate-profiles union \
   --phase-scheduling reserved \
   --intended-product-policy exact-supported \
+  --secondary-product-policy ordered-disjoint-intended-sites \
   --coverage-target 0.95 \
   --amplicon-size 200 \
   --amplicon-size-min 150 \
@@ -143,14 +146,14 @@ Pass that UUID explicitly when querying retained decision history or re-running 
 /absolute/path/to/lungfish-cli primers analysis history \
   /absolute/path/analysis.lungfishprimeranalysis \
   --result-id 00000000-0000-0000-0000-000000000000 \
-  --primalscheme3-path /absolute/path/to/frozen-matrix-03/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 \
   --output /absolute/path/new-history-query \
   --target TARGET_ID --region 394:644 --stage strict --limit 100
 
 /absolute/path/to/lungfish-cli primers analysis audit \
   /absolute/path/analysis.lungfishprimeranalysis \
   --result-id 00000000-0000-0000-0000-000000000000 \
-  --primalscheme3-path /absolute/path/to/frozen-matrix-03/.venv/bin/primalscheme3 \
+  --primalscheme3-path /absolute/path/to/frozen-matrix07/.venv/bin/primalscheme3 \
   --output /absolute/path/new-audit
 ```
 
