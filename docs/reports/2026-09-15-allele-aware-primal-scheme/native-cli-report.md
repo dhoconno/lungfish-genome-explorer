@@ -85,15 +85,27 @@ The specificity diagnosis identifies many predicted products at the designated f
 
 The serial control on frozen `1217c5c` reproduced **46.0385%** mean coverage and 10 amplicons. Native execution, the separate raw-row audit, and the outer provenance verification all succeeded. Native wall time was 326.70 seconds, audit 127.41 seconds, and native wait4 peak RSS 3.96 GB. Its 120-second search spent 61.99 seconds in the full seed pass, 31.45 seconds in the normal seed pass and 26.56 seconds in subset construction. It expanded 16 families and reached no repairs. Identical selected coverage despite different work counts illustrates the limits of wall-clock comparisons.
 
-The matched optional `reserved` scheduling control is running on the same executable, catalog and settings. It allocates an initial share of the same global time budget to construction and repair; it does not relax scientific constraints. Serial remains the default pending results.
+The matched optional `reserved` scheduling control completed with **39.4684%** mean coverage and 10 amplicons. Its native run, independent audit and wrapper verification succeeded. The resolved settings differ only in phase scheduling. It reached repair work (26 candidate probes, two neighborhoods and four trials), but accepted no repairs. Native wall time was 330.21 seconds and audit 127.35 seconds. This run does not support making reserved scheduling the default; serial is retained. [Paired comparison and provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-phase-comparison04-01/comparison.json).
 
 [Serial control provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-serial04-01-execution/provenance.json).
 
+### Intended-site policy diagnostic on matrix-05
+
+Two completed, independently audited controls differ only in `intended_product_policy`. At 120 seconds, exact-supported gives **46.0385%** mean A1 coverage; concrete-designated-sites gives **15.0005%** and three amplicons. The latter performs 4,929 pair checks versus 576 and reaches only seed work. This is not evidence that permitting designated near-matches lowers the feasible coverage ceiling: it changes which candidates reach the more expensive pair screen and therefore the work completed within the deadline. A completed 600-second run with the same original work caps improves the concrete-designated-sites result to **28.3224%** and four amplicons. It passes its independent audit, explores 151 subset families and makes 19,073 pair checks. About 364 seconds go to repair exchange; none of its 26 repair trials improves the incumbent. Native wall time is 824.62 seconds, fresh audit 130.26 seconds and wait4 peak RSS 5.30 GB. The ten-minute exact-policy control is in progress.
+
+[Matched policy comparison](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-intended-policy-comparison05-01/comparison.json) and [provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-intended-policy-comparison05-01/provenance.json).
+
+### Search quality budget
+
+The user explicitly permits an hour or longer for effective design. The 120-second controls above are diagnostic runs, not the final quality target. Longer cached comparisons will distinguish time exhaustion from deterministic work caps, record whether additional search improves target/class coverage, and inform a practical thorough configuration. A longer wall-clock limit alone does not guarantee broader exploration: construction attempts, repair work and family expansion are also bounded.
+
+The residual pair diagnosis identifies 2,740 explored pair records whose only recorded failure is specificity and whose rejected products all have complete ordered, concrete, terminal-supported four-site geometry. That is a count of recorded pair verdicts, not jointly feasible placements or attainable coverage. A separately reviewed optional secondary-product policy is being implemented; all four selected occurrences, internal partners and raw-row certificates are required, and coverage remains exact-only.
+
 ## Engineering verification
 
-The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `1217c5c040da8d67ab52be07ecf40d1fbce1d5c7` in `allele-aware-primal-matrix-04`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
+The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `92ea29118d0bf3181e6a31b93288269b815aac3b` in `allele-aware-primal-matrix-05`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
 
-- Native full suite on `matrix-04`: **735 passed**, one upstream Kaleido deprecation warning, 180.44 seconds.
+- Native full suite on `matrix-05`: **756 passed**, one upstream Kaleido deprecation warning, 181.61 seconds.
 - LGE focused checks after a fresh build: **87 passed** (78 XCTest and 9 Swift Testing).
 - Real fresh and cached designs passed LGE publication and independent native audits.
 - A cached-result bundle passed inspection, history and fresh audit after relocation while its original synthetic input, cache and prior bundles were temporarily unavailable. Originals were restored unchanged. [Relocation receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-wrapper-relocation-01/provenance.json).
@@ -106,5 +118,6 @@ These checks establish engineering behavior, not improved MHC coverage. GUI and 
 - Dimer scores and exposure caps are computational screening policies, not calibrated probabilities of amplification failure or validated destructive thresholds.
 - Specificity screening covers supplied MSA rows and declared seed/full-footprint uncertainty; it does not screen an unprovided genome.
 - First-compatible discovery examines a bounded length prefix per row/anchor/profile. Longer alternatives require the explicit exhaustive-length option.
+- Timing measurements came from a shared development machine with concurrent cold discovery and engineering work; they are not isolated performance benchmarks. Work counters accompany the wall-limited comparisons.
 - Search is bounded. Unevaluated families/configurations cannot be called infeasible, and a sampled union is not a theoretical coverage ceiling.
 - Exact support is conservative for primer mismatches; reports identify observed classes that remain unsupported.

@@ -350,3 +350,11 @@ The initial Mamu-A1 pilot exposed limited phase service and a distinction betwee
 - [ ] Complete the full multi-MSA MHC controlled matrix and per-target/class interpretation; a single-target result does not satisfy the combined-panel gate.
 
 Native scientific changes remain Astra-owned/reviewed. Sol owns the frozen Swift/CLI bridges. Disjoint native implementation, read-only scientific review and Swift work may proceed in parallel with explicit file ownership; frozen evaluation sources remain immutable.
+
+### Longer quality evaluation (user clarification)
+
+The user permits an hour or longer for effective design. Treat 120-second runs as diagnostics. Calibrate 600-second cached searches with existing versus coordinated larger work caps before a 3,600-second quality run. Keep scientific policy, source, catalog and scheduling fixed within each pair. Record work actually completed, per-target/class gains and losses, resource use, and fresh final audit. Do not silently redefine the versioned scientific preset.
+
+Add a small observational search-progress sidecar before routine hour-long runs: elapsed time, phase, stable incumbent reference, exact objective and target fractions, work/cursors, and last improvement, at changes and throttled cooperative ticks. Intermediate records are provisional and earn no separate acceptance certificate. Timestamps must not affect canonical evidence IDs or selection order. Retain and hash logs in final/failure provenance. Full checkpoint/resume is outside this follow-up.
+
+Deficit-aware family ordering, periodic new-family access and independent seed caps remain conditional experiments if larger-budget traces demonstrate poor regional exploration. Cheap geometry may guide order only; it must never add coverage credit or remove candidates.
