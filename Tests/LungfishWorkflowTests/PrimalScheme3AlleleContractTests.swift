@@ -137,6 +137,64 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
     }
 
+    func testIntendedProductPolicyRequiresCapabilityAndBindsCompleteWitnesses() throws {
+        let legacy = try Self.makeFixture(intendedProductPolicy: .concreteDesignatedSites)
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedIntendedProductPolicy: .concreteDesignatedSites))
+
+        let currentDefault = try Self.makeFixture(advertiseIntendedProducts: true)
+        defer { try? FileManager.default.removeItem(at: currentDefault.root) }
+        let defaultCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(currentDefault.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: currentDefault.output, configuration: currentDefault.configuration,
+            capabilities: defaultCapabilities, options: currentDefault.options, inputCount: 1,
+            executedArgv: currentDefault.argv, auditValidation: currentDefault.auditValidation,
+            auditProvenance: currentDefault.auditProvenance,
+            auditExecutedArgv: currentDefault.auditArgv, auditExitStatus: 0))
+
+        let fixture = try Self.makeFixture(intendedProductPolicy: .concreteDesignatedSites,
+                                           advertiseIntendedProducts: true,
+                                           includeIntendedWitness: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedIntendedProductPolicy: .concreteDesignatedSites)
+        var capabilityRoot = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var capabilityAllele = try XCTUnwrap(capabilityRoot["alleleCoverage"] as? [String: Any])
+        var intendedCapability = try XCTUnwrap(capabilityAllele["intendedProductPolicies"] as? [String: Any])
+        var policies = try XCTUnwrap(intendedCapability["policies"] as? [String: Any])
+        policies["concrete-designated-sites"] = ["id": "concrete-designated-sites/v1", "coverageCredit": 1]
+        intendedCapability["policies"] = policies
+        capabilityAllele["intendedProductPolicies"] = intendedCapability
+        capabilityRoot["alleleCoverage"] = capabilityAllele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: capabilityRoot),
+            requestedIntendedProductPolicy: .concreteDesignatedSites))
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        let validationURL = fixture.output.appendingPathComponent("panel-validation.json")
+        var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: validationURL)) as? [String: Any])
+        var intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
+        var witness = intended[0]
+        var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+        certificate.removeValue(forKey: "reverse")
+        witness["certificate"] = certificate; intended[0] = witness
+        validation["allowed_intended_products"] = intended
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("certificate is incomplete"))
+            }
+    }
+
     func testAuditReceiptBindsEveryNativeByteAndRejectsMutationOrMissingEvidence() throws {
         let fixture = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -204,7 +262,10 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     private static func makeFixture(phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
                                     advertisePhaseScheduling: Bool = false,
                                     includeLaterUnreservedProgress: Bool = false,
-                                    noAssessableTargets: Bool = false) throws -> Fixture {
+                                    noAssessableTargets: Bool = false,
+                                    intendedProductPolicy: PrimalScheme3IntendedProductPolicy? = nil,
+                                    advertiseIntendedProducts: Bool = false,
+                                    includeIntendedWitness: Bool = false) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let output = root.appendingPathComponent("native", isDirectory: true)
         let stage = output.appendingPathComponent("stages/strict", isDirectory: true)
@@ -220,9 +281,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, coreCount: 1,
             ampliconSizeMinimum: 150, ampliconSizeMaximum: 280,
             selectionAlgorithm: .alleleCoverage,
-            alleleOptions: .init(phaseScheduling: phaseScheduling))
-        let resolved = resolvedOptions(options, includePhaseScheduling: advertisePhaseScheduling)
-        let profile: [String: Any] = ["name": "allele-panel-v1", "specificity_revision": "selected-sites-v2"]
+            alleleOptions: .init(phaseScheduling: phaseScheduling,
+                                 intendedProductPolicy: intendedProductPolicy))
+        let resolved = resolvedOptions(options, includePhaseScheduling: advertisePhaseScheduling,
+                                       includeIntendedProductPolicy: advertiseIntendedProducts)
+        var profile: [String: Any] = ["name": "allele-panel-v1", "specificity_revision": "selected-sites-v2"]
+        if advertiseIntendedProducts {
+            profile["intended_product_policy"] = options.alleleOptions.intendedProductPolicy.rawValue
+        }
         let integration: [String: Any] = [
             "schemaVersion": "primalscheme3.panel-native-integration/v2",
             "selectionAlgorithm": "allele-coverage", "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
@@ -276,8 +342,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
                         "optimizer": stageOptimizer, "validationValid": true]]
         ]
         try writeJSON(optimizer, to: output.appendingPathComponent("panel-optimizer.json"))
-        try writeJSON(["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true],
-                      to: output.appendingPathComponent("panel-validation.json"))
+        var validation: [String: Any] = ["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true]
+        if advertiseIntendedProducts {
+            let intended = includeIntendedWitness ? [intendedProductWitness()] : []
+            validation["allowed_secondary_products"] = []
+            validation["allowed_intended_products"] = intended
+            validation["allowed_intended_product_count"] = intended.count
+        }
+        try writeJSON(validation, to: output.appendingPathComponent("panel-validation.json"))
         try writeGzip(["schema_version": "primalscheme3.variant-catalog/v2"],
                       to: output.appendingPathComponent("discovery-catalog.json.gz"))
         try writeGzip(["schema_version": "primalscheme3.configuration-ledger/v2"],
@@ -286,9 +358,14 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
             try writeGzip(["schema_version": name == "catalog.json.gz" ? "primalscheme3.variant-catalog/v2" : "fixture"],
                           to: stage.appendingPathComponent(name))
         }
-        for name in ["assignments.json", "coverage.json", "validation.json", "stage.json"] {
-            try writeJSON(["fixture": true], to: stage.appendingPathComponent(name))
-        }
+        try writeJSON(["fixture": true], to: stage.appendingPathComponent("assignments.json"))
+        try writeJSON(["fixture": true], to: stage.appendingPathComponent("coverage.json"))
+        let stageValidation: [String: Any] = advertiseIntendedProducts ? validation : ["fixture": true]
+        try writeJSON(stageValidation, to: stage.appendingPathComponent("validation.json"))
+        let stageManifest: [String: Any] = advertiseIntendedProducts
+            ? ["constraints": ["intended_product_policy": options.alleleOptions.intendedProductPolicy.rawValue]]
+            : ["fixture": true]
+        try writeJSON(stageManifest, to: stage.appendingPathComponent("stage.json"))
         try Data("fixture\t0\t180\tamplicon\n".utf8).write(to: output.appendingPathComponent("amplicon.bed"))
         try Data("fixture\t0\t20\tprimer\t1\t+\tACGT\n".utf8).write(to: output.appendingPathComponent("primer.bed"))
         try Data(">fixture\nACGT\n".utf8).write(to: output.appendingPathComponent("reference.fasta"))
@@ -318,6 +395,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         if advertisePhaseScheduling {
             alleleCapability["phaseScheduling"] = phaseSchedulingCapability()
         }
+        if advertiseIntendedProducts {
+            alleleCapability["intendedProductPolicies"] = intendedProductPolicyCapability()
+        }
         let capabilitiesObject: [String: Any] = [
             "schemaVersion": "primalscheme3.capabilities/v1", "tool": "primalscheme3",
             "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
@@ -326,6 +406,7 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         ]
         var argv = ["/fixture/primalscheme3", "panel-create", "--msa", source.path, "--output", output.path]
         if let phaseScheduling { argv += ["--phase-scheduling", phaseScheduling.rawValue] }
+        if let intendedProductPolicy { argv += ["--intended-product-policy", intendedProductPolicy.rawValue] }
         let nativeBeforeProvenance = try regularFiles(output)
         let nativeOutputs = try nativeBeforeProvenance.map { try descriptor($0, relativeTo: output) }
         let inputDescriptor: [String: Any] = [
@@ -369,11 +450,15 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     }
 
     private static func resolvedOptions(_ options: PrimalScheme3DesignOptions,
-                                        includePhaseScheduling: Bool = false) -> [String: Any] {
+                                        includePhaseScheduling: Bool = false,
+                                        includeIntendedProductPolicy: Bool = false) -> [String: Any] {
         let a = options.alleleOptions
         var requested: [String: Any] = [:]
         if a.requestedOptionNames.contains("phaseScheduling") {
             requested["phase_scheduling"] = a.phaseScheduling.rawValue
+        }
+        if a.requestedOptionNames.contains("intendedProductPolicy") {
+            requested["intended_product_policy"] = a.intendedProductPolicy.rawValue
         }
         var result: [String: Any] = [
             "preset": a.preset, "candidate_profiles": a.candidateProfiles, "variant_selection": a.variantSelection,
@@ -405,6 +490,9 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
         if includePhaseScheduling || a.requestedOptionNames.contains("phaseScheduling") {
             result["phase_scheduling"] = a.phaseScheduling.rawValue
         }
+        if includeIntendedProductPolicy || a.requestedOptionNames.contains("intendedProductPolicy") {
+            result["intended_product_policy"] = a.intendedProductPolicy.rawValue
+        }
         return result
     }
 
@@ -417,6 +505,39 @@ final class PrimalScheme3AlleleContractTests: XCTestCase {
     private static func phaseSchedulingCapability() -> [String: Any] {
         ["default": "serial",
          "policies": ["serial": serialSchedulingPolicy(), "reserved": reservedSchedulingPolicy()]]
+    }
+
+    private static func intendedProductPolicyCapability() -> [String: Any] {
+        ["default": "exact-supported", "policies": [
+            "exact-supported": ["id": "exact-supported/v1"],
+            "concrete-designated-sites": ["id": "concrete-designated-sites/v1", "coverageCredit": 0]
+        ]]
+    }
+
+    private static func intendedProductWitness() -> [String: Any] {
+        let forward: [String: Any] = [
+            "site_id": "site-f", "expected_footprint": [10, 14], "oligo": "ACGT",
+            "observed_template": "ACGT", "mismatch_positions": [],
+            "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": []
+        ]
+        let reverse: [String: Any] = [
+            "site_id": "site-r", "expected_footprint": [30, 34], "oligo": "TGCA",
+            "observed_template": "TGCA", "mismatch_positions": [],
+            "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": []
+        ]
+        return [
+            "id": "intended-witness", "target_id": "target", "row_id": "row",
+            "plus": ["oligo": "ACGT"], "minus": ["oligo": "TGCA"],
+            "site_ids": ["site-f", "site-r"],
+            "classification": "nonexact-designated-intended-product",
+            "reason": "concrete-designated-sites", "policy_id": "concrete-designated-sites/v1",
+            "coverage_credit": 0, "uncertain": false,
+            "certificate": [
+                "configuration_id": "config", "target_id": "target", "row_id": "row",
+                "forward_site_id": "site-f", "reverse_site_id": "site-r",
+                "forward": forward, "reverse": reverse
+            ]
+        ]
     }
 
     private static func phaseProgress(phase: String, localBudget: Double?) -> [String: Any] {

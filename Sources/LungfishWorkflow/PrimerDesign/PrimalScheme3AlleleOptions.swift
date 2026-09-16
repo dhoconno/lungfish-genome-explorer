@@ -4,6 +4,11 @@ public enum PrimalScheme3PhaseScheduling: String, Codable, CaseIterable, Sendabl
     case serial, reserved
 }
 
+public enum PrimalScheme3IntendedProductPolicy: String, Codable, CaseIterable, Sendable {
+    case exactSupported = "exact-supported"
+    case concreteDesignatedSites = "concrete-designated-sites"
+}
+
 public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public static let presetName = "allele-balanced-v1"
     public static let workDefaults: [String: Int] = [
@@ -23,6 +28,10 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
     public let variantSelection: String
     public let requestedPhaseScheduling: PrimalScheme3PhaseScheduling?
     public var phaseScheduling: PrimalScheme3PhaseScheduling { requestedPhaseScheduling ?? .serial }
+    public let requestedIntendedProductPolicy: PrimalScheme3IntendedProductPolicy?
+    public var intendedProductPolicy: PrimalScheme3IntendedProductPolicy {
+        requestedIntendedProductPolicy ?? .exactSupported
+    }
     public let alleleWeighting: String
     public let discoveryLengthMode: String
     public let specificityTerminalK: Int
@@ -53,6 +62,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         reuseDiscovery: URL? = nil,
         variantSelection: String? = nil,
         phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
+        intendedProductPolicy: PrimalScheme3IntendedProductPolicy? = nil,
         alleleWeighting: String? = nil,
         discoveryLengthMode: String? = nil,
         specificityTerminalK: Int? = nil,
@@ -81,6 +91,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         self.reuseDiscovery = reuseDiscovery
         self.variantSelection = variantSelection ?? "subsets"
         self.requestedPhaseScheduling = phaseScheduling
+        self.requestedIntendedProductPolicy = intendedProductPolicy
         self.alleleWeighting = alleleWeighting ?? "distinct-observed"
         self.discoveryLengthMode = discoveryLengthMode ?? "first-compatible"
         self.specificityTerminalK = specificityTerminalK ?? 17
@@ -109,6 +120,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
             ("preset", preset != nil), ("candidateProfiles", candidateProfiles != nil),
             ("reuseDiscovery", reuseDiscovery != nil), ("variantSelection", variantSelection != nil),
             ("phaseScheduling", phaseScheduling != nil),
+            ("intendedProductPolicy", intendedProductPolicy != nil),
             ("alleleWeighting", alleleWeighting != nil), ("discoveryLengthMode", discoveryLengthMode != nil),
             ("specificityTerminalK", specificityTerminalK != nil),
             ("secondaryProductPolicy", secondaryProductPolicy != nil),
@@ -135,6 +147,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
             "preset": .string(preset), "candidateProfiles": .string(candidateProfiles),
             "reuseDiscovery": reuseDiscovery.map { .string($0.path) } ?? .null,
             "variantSelection": .string(variantSelection), "phaseScheduling": .string(phaseScheduling.rawValue),
+            "intendedProductPolicy": .string(intendedProductPolicy.rawValue),
             "alleleWeighting": .string(alleleWeighting),
             "discoveryLengthMode": .string(discoveryLengthMode),
             "specificityTerminalK": .integer(specificityTerminalK),
@@ -215,6 +228,7 @@ public struct PrimalScheme3AlleleOptions: Codable, Equatable, Sendable {
         if let reuseDiscovery { append("reuseDiscovery", "--reuse-discovery", reuseDiscovery.path) }
         append("variantSelection", "--variant-selection", variantSelection)
         append("phaseScheduling", "--phase-scheduling", phaseScheduling.rawValue)
+        append("intendedProductPolicy", "--intended-product-policy", intendedProductPolicy.rawValue)
         append("alleleWeighting", "--allele-weighting", alleleWeighting)
         append("discoveryLengthMode", "--discovery-length-mode", discoveryLengthMode)
         append("specificityTerminalK", "--specificity-terminal-k", String(specificityTerminalK))

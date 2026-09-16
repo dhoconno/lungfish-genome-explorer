@@ -593,7 +593,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let alleleCapabilities = request.options.selectionAlgorithm == .alleleCoverage
                 ? try PrimalScheme3AlleleContract.validateCapabilities(
                     capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }(),
-                    requestedPhaseScheduling: request.options.alleleOptions.requestedPhaseScheduling) : nil
+                    requestedPhaseScheduling: request.options.alleleOptions.requestedPhaseScheduling,
+                    requestedIntendedProductPolicy: request.options.alleleOptions.requestedIntendedProductPolicy) : nil
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
@@ -856,8 +857,20 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 } else {
                     requestedScheduling = nil
                 }
+                let requestedIntendedPolicy: PrimalScheme3IntendedProductPolicy?
+                if let index = command.arguments.firstIndex(of: "--intended-product-policy"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3IntendedProductPolicy(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest(
+                            "Intended product policy must be exact-supported or concrete-designated-sites.")
+                    }
+                    requestedIntendedPolicy = value
+                } else {
+                    requestedIntendedPolicy = nil
+                }
                 _ = try PrimalScheme3AlleleContract.validateCapabilities(
-                    data, requestedPhaseScheduling: requestedScheduling)
+                    data, requestedPhaseScheduling: requestedScheduling,
+                    requestedIntendedProductPolicy: requestedIntendedPolicy)
                 executedVersion = Self.alleleToolVersion
             }
             capabilitiesJSON = data

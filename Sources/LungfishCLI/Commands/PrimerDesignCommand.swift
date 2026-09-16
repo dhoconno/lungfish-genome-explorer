@@ -127,6 +127,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("reuse-discovery")) var reuseDiscovery: String?
         @Option(name: .customLong("variant-selection")) var variantSelection: String?
         @Option(name: .customLong("phase-scheduling"), help: "Optimizer phase policy: serial or reserved.") var phaseScheduling: String?
+        @Option(name: .customLong("intended-product-policy"), help: "Intended product policy: exact-supported or concrete-designated-sites.") var intendedProductPolicy: String?
         @Option(name: .customLong("allele-weighting")) var alleleWeighting: String?
         @Option(name: .customLong("discovery-length-mode")) var discoveryLengthMode: String?
         @Option(name: .customLong("specificity-terminal-k")) var specificityTerminalK: Int?
@@ -195,10 +196,20 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             } else {
                 resolvedPhaseScheduling = nil
             }
+            let resolvedIntendedProductPolicy: PrimalScheme3IntendedProductPolicy?
+            if let intendedProductPolicy {
+                guard let value = PrimalScheme3IntendedProductPolicy(rawValue: intendedProductPolicy) else {
+                    throw ValidationError("--intended-product-policy must be exact-supported or concrete-designated-sites.")
+                }
+                resolvedIntendedProductPolicy = value
+            } else {
+                resolvedIntendedProductPolicy = nil
+            }
             let alleleOptions = PrimalScheme3AlleleOptions(
                 preset: preset, candidateProfiles: candidateProfiles,
                 reuseDiscovery: reuseDiscovery.map(URL.init(fileURLWithPath:)),
                 variantSelection: variantSelection, phaseScheduling: resolvedPhaseScheduling,
+                intendedProductPolicy: resolvedIntendedProductPolicy,
                 alleleWeighting: alleleWeighting,
                 discoveryLengthMode: discoveryLengthMode, specificityTerminalK: specificityTerminalK,
                 secondaryProductPolicy: secondaryProductPolicy, subsetBeamWidth: subsetBeamWidth,

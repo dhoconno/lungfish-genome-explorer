@@ -22,6 +22,7 @@ Repeat `--msa` for each target. Output must be a new directory. Supply the origi
 | `--candidate-profiles` | `union` | `normal` or `high-gc` restricts discovery; union retains profile provenance for shared candidates. |
 | `--variant-selection` | `subsets` | Allows compatible variants to preserve a partially supported amplicon. `full-cloud` requires every eligible variant in a family and is useful as a comparison. |
 | `--phase-scheduling` | `serial` | `reserved` gives the initial seed, construction and repair phases 20%, 40% and 40% shares of the remaining optimizer budget, then divides each repair reservation 20%, 20% and 60% among preparation, cleanup and exchange. |
+| `--intended-product-policy` | `exact-supported` | `concrete-designated-sites` permits a nonexact product only when both concrete primer sites are certified on one supplied row for the same designated configuration. Such products receive zero coverage credit. |
 | `--coverage-target` | `0.95` | Changes the objective's deficit penalty; it is an aspiration, not a requirement that discards lower-coverage panels. |
 | `--amplicon-size`, `--amplicon-size-min`, `--amplicon-size-max` | Explicit bounds required | Defines reference-span geometry. Wider bounds admit more placement alternatives and increase candidate volume. |
 | `--n-pools` | `2` | More physical reaction pools can separate conflicts but increase laboratory reactions. |
@@ -39,6 +40,8 @@ The strict dimer cutoff remains −26. The score is the native numerical score, 
 `--optimizer-seed` (0), `--optimizer-starts` (4), `--optimizer-repair-rounds` (2), and `--optimizer-time-limit` (120 seconds) control search. `--subset-beam-width` (16) and `--subset-expansion-limit` (256) control how many variant subsets are considered. `--exchange-width` (2; maximum 2) controls replacement neighborhood size. Larger budgets may find improvements; they do not prove an optimum. Wall-clock budgets can interrupt different work on different machines.
 
 The default `--phase-scheduling serial` runs phases in their fixed order against one shared deadline. `--phase-scheduling reserved` applies initial-cycle reservations so earlier seed work cannot consume every phase's initial share; unused time flows to remaining phases and the global deadline never grows. Each published tier records the exact advertised scheduling descriptor and phase-by-phase timing, outcome, objective snapshots, accepted-repair count, work deltas and before/after family cursors. An explicit scheduling option requires an executable that advertises this frozen capability. Saved outputs from before this capability remain readable as legacy serial results.
+
+The default `--intended-product-policy exact-supported` preserves the established specificity rule. `concrete-designated-sites` allows only a nonexact product backed by a complete same-row certificate for both designated primer sites from one configuration. Products involving another target, shifted sites, incomplete or mixed-configuration evidence, or uncertain footprints remain blocked. Allowed intended-product witnesses are reported separately from allowed secondary products with their certificate and zero coverage credit. An explicit policy requires an executable that advertises the frozen intended-product capability; older saved outputs without the field are interpreted as `exact-supported`.
 
 Advanced deterministic work limits are also exposed:
 
@@ -98,6 +101,7 @@ The Lungfish wrapper writes a relocatable `.lungfishprimeranalysis` bundle and k
   --preset allele-balanced-v1 \
   --candidate-profiles union \
   --phase-scheduling reserved \
+  --intended-product-policy exact-supported \
   --coverage-target 0.95 \
   --amplicon-size 200 \
   --amplicon-size-min 150 \
