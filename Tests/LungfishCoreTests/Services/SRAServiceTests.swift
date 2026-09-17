@@ -146,10 +146,7 @@ final class SRAServiceTests: XCTestCase {
 
         XCTAssertEqual(urls.map(\.lastPathComponent), ["SRR123456.fastq.gz"])
         let downloadedURL = try XCTUnwrap(urls.first)
-        XCTAssertEqual(
-            try String(contentsOf: downloadedURL, encoding: .utf8),
-            "@SRR123456\nACGT\n+\nIIII\n"
-        )
+        XCTAssertEqual(try Data(contentsOf: downloadedURL), ENAFASTQDownloadValidatorTests.gzipFixture)
 
         let dataRequests = await client.dataRequestURLs
         XCTAssertEqual(dataRequests.count, 1)
@@ -195,6 +192,154 @@ final class SRAServiceTests: XCTestCase {
             "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456_1.fastq.gz"
         )
     }
+
+    /// Regression: ENA's mirror served an Apache directory listing (HTTP 200,
+    /// text/html) at the mate-2 path of a PAIRED run whose mate-2 file was
+    /// missing from the mirror. The body was staged as `_2.fastq.gz` and fastp
+    /// then failed with "igzip: Error invalid gzip header". The ENA path must
+    /// reject the body and fail the whole run so the toolkit fallback can run.
+    func testDownloadFASTQFromENARejectsDirectoryListingServedAsMate() async throws {
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sra-ena-listing-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let client = DirectoryListingMateHTTPClient()
+        let service = SRAService(
+            ncbiService: NCBIService(httpClient: client),
+            httpClient: client
+        )
+
+        do {
+            _ = try await service.downloadFASTQFromENA(
+                accession: "SRR35517993",
+                outputDir: outputDirectory
+            )
+            XCTFail("Expected the ENA download to fail when a mate is a directory listing")
+        } catch let error as SRAError {
+            guard case .downloadFailed(let message) = error else {
+                return XCTFail("Expected downloadFailed, got \(error)")
+            }
+            XCTAssertTrue(message.contains("SRR35517993_2.fastq.gz"), message)
+            XCTAssertTrue(message.lowercased().contains("html"), message)
+        }
+
+        let downloadRequests = await client.downloadRequestURLs
+        XCTAssertEqual(downloadRequests.count, 2, "both portal URLs should have been attempted")
+
+        let staged = (try? FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)) ?? []
+        XCTAssertFalse(
+            staged.contains("SRR35517993_2.fastq.gz"),
+            "the HTML body must not be left behind under a .fastq.gz name"
+        )
+        XCTAssertFalse(
+            staged.contains("SRR35517993_1.fastq.gz"),
+            "a partial pair must not be left behind for the toolkit fallback to trip over"
+        )
+    }
+
+    func testDownloadFASTQWithFallbackUsesToolkitWhenENAServesDirectoryListing() async throws {
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sra-ena-listing-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let client = DirectoryListingMateHTTPClient()
+        let toolkitCalls = Counter()
+        let service = SRAService(
+            ncbiService: NCBIService(httpClient: client),
+            httpClient: client,
+            toolkitDownloader: { accession, _ in
+                toolkitCalls.increment()
+                return [
+                    URL(fileURLWithPath: "/tmp/\(accession)_1.fastq"),
+                    URL(fileURLWithPath: "/tmp/\(accession)_2.fastq"),
+                ]
+            }
+        )
+
+        let fallbackMessages = MessageCollector()
+        let urls = try await service.downloadFASTQWithFallback(
+            accession: "SRR35517993",
+            outputDir: outputDirectory,
+            onFallback: { fallbackMessages.append($0) }
+        )
+
+        XCTAssertEqual(toolkitCalls.value, 1)
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertEqual(fallbackMessages.count, 1)
+    }
+}
+
+/// Serves a PAIRED portal record whose mate-1 body is a valid gzip file of the
+/// advertised size and whose mate-2 body is an Apache directory listing with
+/// HTTP 200, mirroring what ftp.sra.ebi.ac.uk returned for SRR35517993 on
+/// 2026-09-17.
+private actor DirectoryListingMateHTTPClient: HTTPClient {
+    private(set) var downloadRequestURLs: [URL] = []
+
+    static let listingHTML = """
+    <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+    <html>
+     <head>
+      <title>Index of /vol1/fastq/SRR355/093/SRR35517993/SRR35517993_2.fastq.gz</title>
+     </head>
+     <body>
+    <h1>Index of /vol1/fastq/SRR355/093/SRR35517993/SRR35517993_2.fastq.gz</h1>
+    </body></html>
+    """
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let url = request.url ?? URL(string: "https://example.invalid")!
+        let payload: [[String: Any]] = [
+            [
+                "run_accession": "SRR35517993",
+                "library_layout": "PAIRED",
+                "fastq_ftp": [
+                    "ftp.sra.ebi.ac.uk/vol1/fastq/SRR355/093/SRR35517993/SRR35517993_1.fastq.gz",
+                    "ftp.sra.ebi.ac.uk/vol1/fastq/SRR355/093/SRR35517993/SRR35517993_2.fastq.gz",
+                ].joined(separator: ";"),
+                "fastq_bytes": "\(ENAFASTQDownloadValidatorTests.gzipFixture.count);105338653",
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return (data, httpResponse(url: url, statusCode: 200))
+    }
+
+    func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        let url = request.url ?? URL(string: "https://example.invalid")!
+        downloadRequestURLs.append(url)
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sra-download-client-\(UUID().uuidString)")
+        if url.lastPathComponent.hasSuffix("_2.fastq.gz") {
+            try Data(Self.listingHTML.utf8).write(to: temporaryURL, options: .atomic)
+        } else {
+            try ENAFASTQDownloadValidatorTests.gzipFixture.write(to: temporaryURL, options: .atomic)
+        }
+        return (temporaryURL, httpResponse(url: url, statusCode: 200))
+    }
+
+    private func httpResponse(url: URL, statusCode: Int) -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        )!
+    }
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+
+private final class MessageCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var messages: [String] = []
+    var count: Int { lock.withLock { messages.count } }
+    func append(_ message: String) { lock.withLock { messages.append(message) } }
 }
 
 private actor SequencedHTTPClient: HTTPClient {
@@ -249,7 +394,7 @@ private actor DownloadRecordingHTTPClient: HTTPClient {
                 "study_accession": "SRP123456",
                 "library_layout": "SINGLE",
                 "fastq_ftp": "ftp.sra.ebi.ac.uk/vol1/fastq/SRR123/SRR123456/SRR123456.fastq.gz",
-                "fastq_bytes": "26",
+                "fastq_bytes": "\(ENAFASTQDownloadValidatorTests.gzipFixture.count)",
             ]
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
@@ -262,7 +407,7 @@ private actor DownloadRecordingHTTPClient: HTTPClient {
 
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("sra-download-client-\(UUID().uuidString)")
-        try "@SRR123456\nACGT\n+\nIIII\n".write(to: temporaryURL, atomically: true, encoding: .utf8)
+        try ENAFASTQDownloadValidatorTests.gzipFixture.write(to: temporaryURL, options: .atomic)
         return (temporaryURL, httpResponse(url: url, statusCode: 200))
     }
 
