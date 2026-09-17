@@ -140,6 +140,28 @@ public actor SRAService {
         self.toolkitDownloader = toolkitDownloader
     }
 
+    /// Creates a service that performs the real ENA download through the given
+    /// HTTP client but substitutes the SRA Toolkit path.
+    ///
+    /// Used by tests that exercise `downloadFASTQWithFallback` end to end
+    /// against a scripted ENA mirror without spawning prefetch/fasterq-dump.
+    ///
+    /// - Parameters:
+    ///   - ncbiService: NCBI service for E-utilities access.
+    ///   - httpClient: HTTP client used for the ENA portal lookup and file downloads.
+    ///   - toolkitDownloader: Replacement for the SRA Toolkit download strategy.
+    public init(
+        ncbiService: NCBIService,
+        httpClient: HTTPClient,
+        toolkitDownloader: DownloadStrategy?
+    ) {
+        self.ncbiService = ncbiService
+        self.httpClient = httpClient
+        self.homeDirectoryProvider = { FileManager.default.homeDirectoryForCurrentUser }
+        self.enaDownloader = nil
+        self.toolkitDownloader = toolkitDownloader
+    }
+
     // MARK: - Search
 
     /// Searches SRA for datasets matching the query.
@@ -428,6 +450,10 @@ public actor SRAService {
 
         // Prefer ENA Portal-reported FASTQ URLs (authoritative for run layout/path).
         var candidateURLs: [URL] = []
+        // Per-file sizes advertised by the portal, aligned with candidateURLs.
+        // Empty when the URLs were constructed heuristically.
+        var expectedByteCounts: [Int64?] = []
+        var resolvedViaPortal = false
         do {
             let enaService = ENAService(httpClient: httpClient)
             let records = try await enaService.searchReads(term: accession, limit: 1)
@@ -435,6 +461,8 @@ public actor SRAService {
                 let portalURLs = await enaService.fastqHTTPURLs(for: record)
                 if !portalURLs.isEmpty {
                     candidateURLs = portalURLs
+                    expectedByteCounts = ENAFASTQDownloadValidator.expectedByteCounts(for: record)
+                    resolvedViaPortal = true
                     logger.info("Resolved \(portalURLs.count, privacy: .public) FASTQ URL(s) for \(accession, privacy: .public) via ENA portal")
                 }
             }
@@ -461,6 +489,7 @@ public actor SRAService {
 
         var downloadedFiles: [URL] = []
         var attemptedURLs: [String] = []
+        var rejectionReasons: [String] = []
         let totalCandidates = max(candidateURLs.count, 1)
         for (index, fileURL) in candidateURLs.enumerated() {
             try Task.checkCancellation()
@@ -469,6 +498,7 @@ public actor SRAService {
                 : fileURL.lastPathComponent
             let localPath = outputDirectory.appendingPathComponent(filename)
             attemptedURLs.append(fileURL.absoluteString)
+            let expectedBytes = index < expectedByteCounts.count ? expectedByteCounts[index] : nil
 
             do {
                 logger.info("Attempting to download from ENA: \(fileURL.absoluteString, privacy: .public)")
@@ -483,10 +513,25 @@ public actor SRAService {
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
                     try? FileManager.default.removeItem(at: temporaryURL)
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    rejectionReasons.append("\(filename): HTTP \(code)")
                     continue
                 }
 
                 try Self.publishDownloadedFile(from: temporaryURL, to: localPath)
+
+                // ENA's mirror answers a missing mate file with a 200 HTML
+                // directory listing. Reject anything that is not the gzip file
+                // the portal advertised before it can reach fastp.
+                do {
+                    try ENAFASTQDownloadValidator.validate(fileURL: localPath, expectedBytes: expectedBytes)
+                } catch let failure as ENAFASTQDownloadValidator.Failure {
+                    try? FileManager.default.removeItem(at: localPath)
+                    rejectionReasons.append(failure.localizedDescription)
+                    logger.warning("ENA FASTQ download rejected for \(fileURL.absoluteString, privacy: .public): \(failure.localizedDescription, privacy: .public)")
+                    continue
+                }
+
                 downloadedFiles.append(localPath)
                 trace?(
                     FASTQDownloadStepTrace(
@@ -523,8 +568,21 @@ public actor SRAService {
 
         if downloadedFiles.isEmpty {
             let attemptedPreview = attemptedURLs.prefix(3).joined(separator: ", ")
+            let reasonSuffix = rejectionReasons.isEmpty ? "" : " \(rejectionReasons.joined(separator: "; "))"
             throw SRAError.downloadFailed(
-                "Could not download FASTQ files from ENA for \(accession). Attempted URLs: \(attemptedPreview)"
+                "Could not download FASTQ files from ENA for \(accession). Attempted URLs: \(attemptedPreview).\(reasonSuffix)"
+            )
+        }
+
+        // Portal URLs are authoritative: a PAIRED run that yields one mate is a
+        // failed download, not a single-end run. Leave nothing behind so the
+        // toolkit fallback starts from a clean directory.
+        if resolvedViaPortal, downloadedFiles.count < candidateURLs.count {
+            for file in downloadedFiles {
+                try? FileManager.default.removeItem(at: file)
+            }
+            throw SRAError.downloadFailed(
+                "ENA served \(downloadedFiles.count) of \(candidateURLs.count) advertised FASTQ file(s) for \(accession). \(rejectionReasons.joined(separator: "; "))"
             )
         }
 
