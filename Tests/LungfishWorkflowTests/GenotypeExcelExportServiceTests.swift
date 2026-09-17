@@ -8,6 +8,17 @@ import LungfishTestSupport
 
 final class GenotypeExcelExportServiceTests: XCTestCase {
     private let timestamp = "2026-09-12T12:00:00Z"
+
+    func testRendererOutputIdentityCanAdvanceOnlyWhileWriterAndReaderStillAgree() throws {
+        let initial = FileSystemObjectIdentity(device: 7, inode: 10)
+        let current = FileSystemObjectIdentity(device: 7, inode: 11)
+        let replacement = FileSystemObjectIdentity(device: 7, inode: 12)
+
+        XCTAssertEqual(try GenotypeExcelExportService.verifiedWrittenIdentity(
+            initial: initial, writer: current, reader: current), current)
+        XCTAssertThrowsError(try GenotypeExcelExportService.verifiedWrittenIdentity(
+            initial: initial, writer: current, reader: replacement))
+    }
     private var python: URL {
         URL(fileURLWithPath: ProcessInfo.processInfo.environment["LUNGFISH_TEST_PYTHON"] ??
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".lungfish/conda/envs/openpyxl/bin/python3").path)
@@ -142,6 +153,10 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         XCTAssertEqual(Set(exported.artifactURLs.map { $0.standardizedFileURL }),
             Set(try FileManager.default.contentsOfDirectory(at: exported.artifactDirectoryURL,
                 includingPropertiesForKeys: nil).map { $0.standardizedFileURL }))
+        for name in ["stdout.json", "stderr.txt"] {
+            XCTAssertEqual(exported.artifactIdentities[name], try FileSystemObjectIdentity.noFollow(
+                exported.artifactDirectoryURL.appendingPathComponent(name)))
+        }
         XCTAssertTrue(FileManager.default.fileExists(atPath: exported.snapshotURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: exported.replayScriptURL.path))
         let inspection = try inspect(output)
