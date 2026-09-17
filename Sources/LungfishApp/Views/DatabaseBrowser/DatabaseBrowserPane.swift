@@ -585,6 +585,17 @@ struct DatabaseBrowserPane<Accessory: View>: View {
 
                 Spacer()
 
+                if let bulkSelectionActionTitle = viewModel.bulkSelectionActionTitle {
+                    Button(bulkSelectionActionTitle) {
+                        viewModel.performBulkSelectionAction()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.lungfishCreamsicleFallback)
+                    .disabled(!viewModel.isBulkSelectionActionEnabled)
+                    .accessibilityIdentifier("database-search-bulk-selection-button")
+                }
+
                 if !viewModel.selectedRecords.isEmpty {
                     Text("\(viewModel.selectedRecords.count) selected")
                         .font(.caption)

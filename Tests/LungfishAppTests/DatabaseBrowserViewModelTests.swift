@@ -475,6 +475,39 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.filteredResults.count, 1)
     }
 
+    func testSelectAllVisibleResultsUsesFilteredResultsAndIsIdempotent() {
+        let matching = SearchResultRecord(id: "1", accession: "matching", title: "Matching", source: .ncbi)
+        let hidden = SearchResultRecord(id: "2", accession: "hidden", title: "Hidden", source: .ncbi)
+        viewModel.results = [matching, hidden]
+        viewModel.localFilterText = "matching"
+
+        XCTAssertEqual(viewModel.bulkSelectionActionTitle, "Select all")
+
+        viewModel.selectAllVisibleResults()
+        viewModel.selectAllVisibleResults()
+
+        XCTAssertEqual(viewModel.selectedRecords, [matching])
+        XCTAssertEqual(viewModel.selectedRecord, matching)
+        XCTAssertEqual(viewModel.bulkSelectionActionTitle, "Deselect all")
+    }
+
+    func testDeselectAllResultsClearsVisibleAndHiddenSelections() {
+        let visible = SearchResultRecord(id: "1", accession: "visible", title: "Visible", source: .ncbi)
+        let hidden = SearchResultRecord(id: "2", accession: "hidden", title: "Hidden", source: .ncbi)
+        viewModel.results = [visible, hidden]
+        viewModel.localFilterText = "visible"
+        viewModel.selectedRecords = [visible, hidden]
+        viewModel.selectedRecord = hidden
+
+        XCTAssertEqual(viewModel.bulkSelectionActionTitle, "Deselect all")
+
+        viewModel.deselectAllResults()
+
+        XCTAssertTrue(viewModel.selectedRecords.isEmpty)
+        XCTAssertNil(viewModel.selectedRecord)
+        XCTAssertEqual(viewModel.bulkSelectionActionTitle, "Select all")
+    }
+
     // MARK: - Search History
 
     func testSaveSearchTermAddsToHistory() {

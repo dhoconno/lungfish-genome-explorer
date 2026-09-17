@@ -64,6 +64,14 @@ struct LungfishAppRobot {
         app.descendants(matching: .any)["database-search-primary-action"]
     }
 
+    var bulkSelectionButton: XCUIElement {
+        app.descendants(matching: .any)["database-search-bulk-selection-button"]
+    }
+
+    var statusText: XCUIElement {
+        app.descendants(matching: .any)["database-search-status-text"]
+    }
+
     func sidebarToolButton(
         _ identifier: String,
         file: StaticString = #filePath,
@@ -109,6 +117,24 @@ struct LungfishAppRobot {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label == %@", label),
             object: primaryActionButton
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: 5)
+        XCTAssertEqual(result, .completed, file: file, line: line)
+    }
+
+    func waitForBulkSelectionLabel(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", label),
+            object: bulkSelectionButton
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: 5)
+        XCTAssertEqual(result, .completed, file: file, line: line)
+    }
+
+    func waitForStatusText(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", label),
+            object: statusText
         )
         let result = XCTWaiter.wait(for: [expectation], timeout: 5)
         XCTAssertEqual(result, .completed, file: file, line: line)
